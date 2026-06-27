@@ -1,0 +1,6 @@
+{
+  "name": "Intelligence OS",
+  "description": "AI Workspaceを超越した、知的成功を導く真のIntelligence OS。5大AIオーケストレーション、品質保証(UQI95%超)成果物の自律設計、ナレッジDNA育成、各種ワンクリック実動・生成を1画面で完結させる知的活動OSです。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

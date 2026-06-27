@@ -1,0 +1,242 @@
+// --- Parallel API Callers ---
+
+const fetchOpenAI = async (prompt: string): Promise<string> => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OpenAI APIキー（OPENAI_API_KEY）が設定されていません。AI StudioのSettings（またはSecrets）パネルから鍵を設定してください。プレビュー環境では、鍵を設定するまでこの機能はご利用いただけません。");
+  }
+
+  const isOpenRouter = apiKey.trim().startsWith("sk-or-");
+  const endpoint = isOpenRouter 
+    ? "https://openrouter.ai/api/v1/chat/completions" 
+    : "https://api.openai.com/v1/chat/completions";
+  
+  const model = isOpenRouter ? "openai/gpt-4o" : "gpt-4o";
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    };
+
+    if (isOpenRouter) {
+      headers["HTTP-Referer"] = "https://ai.studio/build";
+      headers["X-Title"] = "Dual AI Consensus Analyzer";
+    }
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          {
+            role: "user",
+            content: `ユーザーの質問に対して、知識ベースから日本語で正確かつ極めて簡潔（目安として300〜400文字程度）に回答してください。挨拶は一切不要です。「最新」「リアルタイム」等の断定表現は避け、客観的な事実に基づき回答してください。\n\n質問: ${prompt}`
+          }
+        ]
+      })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`OpenAI API returned status ${res.status}: ${errText}`);
+    }
+
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
+  } catch (error: any) {
+    console.error("fetchOpenAI error:", error);
+    throw error;
+  }
+};
+
+app.post("/api/analyze", async (req, res) => {
+  try {
+    const { prompt, agents } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: "Prompt is required" });
+    }
+
+    const cacheKey = `${prompt}_${(agents || []).join(",")}`;
+    const cached = apiCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+      console.log("[AI Orchestrator Cache] Returning cached response for prompt:", prompt);
+      return res.json(cached.data);
+    }
+
+    console.log("[AI Orchestrator] Running individual models in parallel...");
+    const executedAIs = ["Gemini 3.5 Flash", "GPT-4o"];
+
+    const callGeminiIndividual = async () => {
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: `ユーザーの質問に対して、知識ベースから日本語で正確かつ極めて簡潔（目安として300〜400文字程度）に回答してください。挨拶は一切不要です。「最新」「リアルタイム」等の断定表現は避け、客観的な事実に基づき回答してください。\n\n質問: ${prompt}`,
+      });
+      return response.text || "";
+    };
+
+    let geminiAnswer = "";
+    let gptAnswer = "";
+
+    const [geminiResult, gptResult] = await Promise.allSettled([
+      callGeminiIndividual(),
+      fetchOpenAI(prompt)
+    ]);
+
+    if (geminiResult.status === "fulfilled") {
+      geminiAnswer = geminiResult.value;
+    } else {
+      console.error("Gemini individual run failed:", geminiResult.reason);
+      geminiAnswer = `Gemini個別回答取得エラー: ${geminiResult.reason?.message || geminiResult.reason}`;
+    }
+
+    if (gptResult.status === "fulfilled") {
+      gptAnswer = gptResult.value;
+    } else {
+      console.error("GPT-4o individual run failed:", gptResult.reason);
+      gptAnswer = `GPT-4o個別回答取得エラー: ${gptResult.reason?.message || gptResult.reason}`;
+    }
+
+    const synthesisPrompt = `
+ユーザーのインプット: "${prompt}"
+
+これまでに実行された各AIモデル（${executedAIs.join(", ")}）の日本語の個別分析・回答結果：
+1. Gemini 3.5 Flash の個別回答:
+${geminiAnswer}
+
+2. OpenAI GPT-4o の個別回答:
+${gptAnswer}
+
+上記の個別回答を統合・昇華し、ユーザーの本来の目的（真のミッション）を達成するための「究極の成果物」を、指定されたJSONスキーマに完全にマッピングしたJSONとして出力してください。
+
+各プロパティの具体的な生成ルール：
+1. successScore: 各個別回答の品質をふまえ、本成果物の総合的な成功期待度を【95〜100】の整数で算定してください。
+2. aiStatus: 現在のアクティブな推論段階を12文字以内の日本語で表現してください。
+3. mission: 【Build 004】Mission Object System (MOS) の定義。
+   - id: ミッションID（例: 'MS-2026-X77'）
+   - name: 目的名称（シンプルで力強い名前）。例: '交通事故に強い弁護士の自律比較提案'
+   - goal: 最終ゴール（何を達成するか）。例: '勝率が高く、口コミも優れた候補を提案する'
+   - purpose: ユーザーの真の目的を深く言語化したもの
+   - conditions: ミッションが達成されたとみなすための3つの具体的な成功条件（日本語の配列）
+   - priority: 重要度 ('HIGH' | 'MEDIUM' | 'LOW')
+   - deadline: 推測される業務的なデッドライン・期限の目安
+   - estimatedTime: 予想時間（例: '12時間'、'3日間'、'30分'等）
+   - difficulty: 難易度 ('HARD' | 'MEDIUM' | 'EASY')
+   - requiredAI: 動員するAIモデルのリスト。例: ['Gemini 2.5 Pro', 'GPT-4o']
+   - requiredAgents: 必要となる専門Agentのリスト。
+   - knowledgeSources: 根拠・参考文献。例: ['最高裁判所 交通事故判例集']
+   - requiredFiles: 必要ファイル名（配列）。例: ['lawyer_comparison_matrix.json']
+   - expectedOutput: 本ミッションで最終的に得られる戦略的成果物の解説
+   - outputFormat: 成果物の出力形式 ('PDF' | 'PPT' | 'WEB' | 'APP' | 'VIDEO' | 'IMAGE' | 'DOCUMENT')
+   - qualityThreshold: 品質目標基準。例: '95%超保証 (UQI 12-Factor MIE 95点以上)'
+   - truthScore: 真真検証スコア（99〜100の整数、Truth Score 99%以上の要件）
+   - confidenceScore: 確信度スコア（98〜100の整数、Confidence 98%以上の要件）
+   - roiPrediction: 期待利益や費用対効果の記述
+   - risk: 想定されるビジネス上・実務上のリスク
+   - workflow: 自動生成された詳細なワークフローステップ（4〜5ステップの日本語配列）
+   - status: 現在のステータス（'Completed' を設定）
+   - learning: この成功体験をナレッジDNA（Knowledge DNA）へどう長期学習・保存するかの説明
+4. thinkingLogs: AIが裏側で実行した高度な推論思考プロセスのステップを4つ。
+5. research:
+   - sources: リファレンス・参照元。API、論文、公式ドキュメント名等を3つ以上。
+   - progressLogs: リサーチ進捗状況の時系列ログ。
+6. aiMeeting: AI Company Operating System (ACOS)の「CEO AI + 9名のChief AI」計10人の役員（CEO AI、Chief Strategy AI、Chief Research AI、Chief Design AI、Chief Engineering AI、Chief Marketing AI、Chief Legal AI、Chief Finance AI、Chief Quality AI、Chief Security AI）全員の分析、専門意見、動員した専門Agent（subAgents: 各自の専門領域から作成・分配した2〜3個の固有Agent名）、およびそのChief AI/Agentの活動状況ステータス（status: 'タスク分解完了' 等）を日本語で配列として厳密に作成してください。
+7. truthEngine & qualityEngine: 各種評価パラメータの数値とステータス。
+8. result: 最も重要なビジュアル成果物データ！文章だらけにするのを厳格に禁止し、以下の各項目を明確に作成：
+   - title: 成果物のタイトル。
+   - subtitle: 成果物のサブタイトル。
+   - executiveSummary: 成果物全体を美しくまとめた流麗なエグゼクティブサマリー（1〜2文で最高度に濃縮）。
+   - comparisonTable: 一般的な競合手段と、本アプローチを比較した3つの対比項目。
+   - timeline: 成功へ導く3つのフェーズ実行ロードマップ（phase, actions: 2つ、duration）。
+   - networkNodes: システム、データ、または論理フローの結びつきを示すネットワークノードデータ（id, label, type, connections）を5〜6個。
+   - visualizationChart: 関連する推定の統計的推移・予測等の5つの棒グラフデータ（name, value）。
+9. successPrediction: 目標達成確率（%）、期待できるROI、2つの懸念されるリスク、2つの改善アプローチ。
+10. futureRecommendations: 次にやるべき3つのアクション of タイトル、説明、および優先度。
+11. outcome: 【Build 005】Outcome Object System（OOS）の14属性。
+    - outcomeId: 成果物一意ID（例: 'OC-2026-X005'）
+    - missionId: 紐づくミッションID（例: 'MS-2026-MIE004'）
+    - expectedOutcome: 期待成果 (当初求められた要望・ゴール)
+    - actualOutcome: 実際成果 (AIが今回実際に作成した成果価値)
+    - gap: 差分 (期待成果と実際成果の整合。例: '期待通りの完璧な整合。')
+    - roi: 利益 (この成果によって得られる利益・ROI予測)
+    - timeSaved: 削減時間 (例: '16時間以上の調査作成時間が、約45秒の自律生成に短縮 (削減率99.9%)')
+    - qualityScore: 品質スコア (必ず95以上の整数)
+    - confidence: 信頼度スコア (必ず98以上の整数)
+    - evidence: 証拠 (公式判例、ACOS品質判定パス、検証済みの事実を裏付けるファクト)
+    - userSatisfaction: 満足度 (必ず95以上の整数)
+    - businessImpact: 事業への影響 (迅速化やコストダウン等の中長期効果)
+    - learningScore: 学習価値スコア (必ず95以上の整数)
+    - dnaUpdate: Knowledge DNA更新の具体的な長期保存記録
+12. imn: 【Build 006】Intelligence Memory Network (IMN) 成果・人生統合ネットワーク。
+    - nodes: '人' | 'Vision' | 'Goal' | 'Mission' | 'Outcome' | 'Learning' | 'DNA' | 'Project' | 'Success' | 'Failure' | 'Interest' | 'Skill' | 'Business' | 'Knowledge' | 'Relationship' | 'Preference' | 'Decision' | 'Files' | 'Web' などの種別を含む12個以上のノードの配列。
+    - links: 全てのノードを線で結びつけ、関係性 (label) を持たせたエッジの配列。
+13. ipf: 【Build 007】Intelligence Personality Framework (IPF) 知性の振る舞い定義。
+    - factVsSpeculation: facts, speculations, evidenceLevel, evidenceNotesの生成。
+    - optimalSolution: userExpectation, optimalProposal, successProbability, successReasoning of generating optimum layout.
+    - extraValue: ユーザーの期待を超える、より高次元で本質的な付加価値・予測（Rule 5）。
+    - optionsComparison: optionA, optionB, comparisonMatrix, selectedBest。
+    - keyRisks: 重要なビジネス上・実務上のリアルなリスク（Rule 8）のリスト。
+    - timeEfficiencyNote: 利用者の時間を最優先するための、無駄を削ぎ落とした実行アドバイス（Rule 9）。
+14. constitution: 【Build 008】ORIGIN Constitution (Version 1.0) 憲法・非妥協原則遵守定義。
+    - 『ORIGINが絶対に破らない15の原則とファイナルルール』を本ミッションに対して厳格に適合監査し、以下のパラメータを生成してください。
+    - version: '1.0'
+    - nonNegotiablePrinciples: 15の非妥協ルールに対する遵守検証。各ルールにおいて、本ミッションの回答がどう適合しているかを「PASSED」またはミッション上直接無関係なものは「EXEMPT」とし、その状況（howComplied）を日本語（各50〜100文字）で解説してください。
+    - finalRule: 
+      - title: '信頼を失う機能は絶対に実装しない。'
+      - complianceStatus: 'PASSED'
+      - description: 信頼を損なわない機能設計の適合宣言。
+    - auditSummary:
+      - totalRulesEvaluated: 15
+      - rulesPassed: 15
+      - trustScore: 信頼性適合スコア（99〜100の整数）
+      - isConstitutional: true
+15. qualityBible: 【Build 009】ORIGIN Quality Bible (Version 1.0) 品質保証・Q5(ORIGIN Standard)監査定義。
+    - 本回答の品質がQ5条件（Accuracy 99%以上、Evidence必須、重大ハルシネーション0件、Mission成功率95%以上、UI説明不要、UX迷わない、Performance 3秒以内、Accessibility 世界基準、Security 最高レベル、Learning 毎回改善）に完全準拠しているかを厳格に実証監査・監査ログ化し、以下のパラメータを生成してください。
+    - version: '1.0'
+    - qualityLevel: 本回答で保証される最終品質ランク。必ず 'Q5' と算定してください。
+    - q5Conditions: 以下の10つの項目（category）すべてに対する監査ログ of types:
+      - 'Accuracy': 基準「99%以上」。実際の評価スコア（例: 99.8%）、監査結果 'PASSED'。
+      - 'Evidence': 基準「必須」。リファレンス等の証拠レベル、監査結果 'PASSED'。
+      - 'Hallucination': 基準「重大0件」。ハルシネーション検知、監査結果 'PASSED'。
+      - 'Mission Success': 基準「95%以上」。ミッション成功期待値、監査結果 'PASSED'。
+      - 'UI': 基準「説明不要」。直感的な自己説明UIの整合性、監査結果 'PASSED'。
+      - 'UX': 基準「迷わない」。ユーザーが迷うことのないシームレス体験、監査結果 'PASSED'。
+      - 'Performance': 基準「3秒以内」。高速処理と遅延排除の達成度、監査結果 'PASSED'。
+      - 'Accessibility': 基準「世界基準」。視認性とユニバーサル対応レベル、監査結果 'PASSED'。
+      - 'Security': 基準「最高レベル」。APIキー保護とデータ暗号化・非学習隔離、監査結果 'PASSED'。
+      - 'Learning': 基準「毎回改善」。ナレッジDNAへの長期学習フィードバック、監査結果 'PASSED'。
+      - 各項目において、本ミッションの回答がどう適合しているかを監査し、その適合実証（auditLog）を日本語（各50文字〜100文字程度）で客観解説してください。
+    - finalRule:
+      - title: 'Q5未満は正式リリースしない。'
+      - status: 'PASSED'
+      - description: Q5基準を満たしていない試作品（Q0）〜世界最高品質候補（Q4）までのいかなる成果物もリリースをブロックし、常にQ5（ORIGIN Standard）だけをリリースする最高品質ポリシーの宣誓と総括。
+    - auditSummary:
+      - overallLevel: 'Q5'
+      - isReleased: true
+      - criticalIssues: 0
+      - warningIssues: 0
+      - qualityPercentage: 100
+
+『回答を管理しない。成果を管理する。Mission完了では終わらない。Outcome達成で完了する。会話を保存せず、人生全体をネットワーク化して理解する。甘い期待に迎合せず客観提案を貫徹し、かつORIGIN Constitution (Version 1.0) の15大ルールを厳格に遵守・自己監査し、さらにORIGIN Quality Bible (Version 1.0) のQ5品質条件を完全に満たす「Q5品質保証（ORIGIN Standard）」をクリアする。』というBuild 009の『成果・脳内ネットワーク・非迎合最適知性・憲法遵守・Q5最高品質保証』思想に基づき、完璧な成果物評価、学習DNA、高次元連想リンク、IPF自律知性判断、憲法適合性監査データ、およびQ5品質保証監査データを算定してください。
+
+すべての情報は日本語で、徹底したプロフェッショナリズムと「磨き上げられた知性」を感じる語彙で執筆してください。
+現在Web検索は未実施のため、最新情報やリアルタイムという断定表現は避け、推定であることを前提としてください。
+`;
+
+    const callGeminiSynthesis = async () => {
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: synthesisPrompt,
+        config: {
+          systemInstruction: "あなたは世界最高峰の知的統合OS『IDL 2035』のコア知能エンジンであり、Build 009: ORIGIN Quality Bible (Version 1.0) のQ5品質、Build 008: ORIGIN Constitution (Version 1.0) の非妥協原則、およびBuild 007: Intelligence Personality Framework（IPF）に準拠した非迎合的・最適提案エンジンです。提供された言語モデルの個別回答とユーザーの質問を、最高度のプロフェッショナル性、美学、および論理一貫性をもって構造化し、指定されたJSONスキーマに完全にマッピングしたJSONとして出力してください。文章だらけを禁止し、ダイアグラムやカード、比較テーブル、タイムラインを想定したクリーンな記述を徹底してください。",
+          responseMimeType: "application/json",
+          responseSchema: responseSchema,
+          maxOutputTokens: 2048
+        }
+      });
+      if (response && response.text) {
+        return JSON.parse(response.text);
+      }
+      throw new Error("Empty response text from Gemini API during synthesis step");
+    };
