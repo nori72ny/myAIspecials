@@ -1,0 +1,167 @@
+[
+  {
+    "consensusId": "cons-test-1",
+    "missionId": "test-mission-1",
+    "topic": "Strategic Alignment & Milestone Signoff for Category: 旅行計画",
+    "governanceModel": "Quadratic Voting / Core Consensus Engine",
+    "voters": [
+      {
+        "agentId": "AGT-955BEOBDT",
+        "role": "Department Head",
+        "weight": 2,
+        "vote": "YES",
+        "creditSpent": 4
+      },
+      {
+        "agentId": "AGT-Y66ZM9I5R",
+        "role": "Subject Matter Expert",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      },
+      {
+        "agentId": "agent-default",
+        "role": "System Moderator",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      }
+    ],
+    "threshold": 0.66,
+    "scoreAchieved": 1,
+    "resolution": "APPROVED",
+    "timestamp": "2026-06-30T11:17:10.000Z"
+  },
+  {
+    "consensusId": "cons-test-2",
+    "missionId": "test-mission-2",
+    "topic": "Strategic Alignment & Milestone Signoff for Category: 旅行計画",
+    "governanceModel": "Quadratic Voting / Core Consensus Engine",
+    "voters": [
+      {
+        "agentId": "AGT-955BEOBDT",
+        "role": "Department Head",
+        "weight": 2,
+        "vote": "YES",
+        "creditSpent": 4
+      },
+      {
+        "agentId": "AGT-Y66ZM9I5R",
+        "role": "Subject Matter Expert",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      },
+      {
+        "agentId": "agent-default",
+        "role": "System Moderator",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      }
+    ],
+    "threshold": 0.66,
+    "scoreAchieved": 1,
+    "resolution": "APPROVED",
+    "timestamp": "2026-06-30T11:22:10.000Z"
+  },
+  {
+    "consensusId": "cons-test-3",
+    "missionId": "test-mission-3",
+    "topic": "Strategic Alignment & Milestone Signoff for Category: 旅行計画",
+    "governanceModel": "Quadratic Voting / Core Consensus Engine",
+    "voters": [
+      {
+        "agentId": "AGT-955BEOBDT",
+        "role": "Department Head",
+        "weight": 2,
+        "vote": "YES",
+        "creditSpent": 4
+      },
+      {
+        "agentId": "AGT-Y66ZM9I5R",
+        "role": "Subject Matter Expert",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      },
+      {
+        "agentId": "agent-default",
+        "role": "System Moderator",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      }
+    ],
+    "threshold": 0.66,
+    "scoreAchieved": 1,
+    "resolution": "APPROVED",
+    "timestamp": "2026-06-30T11:27:10.000Z"
+  },
+  {
+    "consensusId": "cons-test-4",
+    "missionId": "test-mission-4",
+    "topic": "Strategic Alignment & Milestone Signoff for Category: 旅行計画",
+    "governanceModel": "Quadratic Voting / Core Consensus Engine",
+    "voters": [
+      {
+        "agentId": "AGT-955BEOBDT",
+        "role": "Department Head",
+        "weight": 2,
+        "vote": "YES",
+        "creditSpent": 4
+      },
+      {
+        "agentId": "AGT-Y66ZM9I5R",
+        "role": "Subject Matter Expert",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      },
+      {
+        "agentId": "agent-default",
+        "role": "System Moderator",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      }
+    ],
+    "threshold": 0.66,
+    "scoreAchieved": 1,
+    "resolution": "APPROVED",
+    "timestamp": "2026-06-30T11:32:10.000Z"
+  },
+  {
+    "consensusId": "cons-test-5",
+    "missionId": "test-mission-5",
+    "topic": "Strategic Alignment & Milestone Signoff for Category: 旅行計画",
+    "governanceModel": "Quadratic Voting / Core Consensus Engine",
+    "voters": [
+      {
+        "agentId": "AGT-955BEOBDT",
+        "role": "Department Head",
+        "weight": 2,
+        "vote": "YES",
+        "creditSpent": 4
+      },
+      {
+        "agentId": "AGT-Y66ZM9I5R",
+        "role": "Subject Matter Expert",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      },
+      {
+        "agentId": "agent-default",
+        "role": "System Moderator",
+        "weight": 1,
+        "vote": "YES",
+        "creditSpent": 1
+      }
+    ],
+    "threshold": 0.66,
+    "scoreAchieved": 1,
+    "resolution": "APPROVED",
+    "timestamp": "2026-06-30T11:37:10.000Z"
+  }
+]

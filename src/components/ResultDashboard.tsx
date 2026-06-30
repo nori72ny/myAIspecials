@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { AnalysisResult, NetworkNode } from "../types";
 import {
@@ -39,7 +39,8 @@ import {
   Zap,
   PenTool,
   Layout,
-  BookOpen
+  BookOpen,
+  Activity
 } from "lucide-react";
 
 interface Props {
@@ -50,10 +51,25 @@ type ExecuteTab = "image" | "video" | "slides" | "web" | "app" | "agent";
 
 export default function ResultDashboard({ result }: Props) {
   // Local state for checking off mission conditions and risk improvements
-  const [missionTab, setMissionTab] = useState<"core" | "agents" | "workflow" | "quality">("core");
+  const [missionTab, setMissionTab] = useState<"core" | "agents" | "workflow" | "quality" | "evolution" | "strategic">("core");
   const [selectedChiefIndex, setSelectedChiefIndex] = useState<number>(0);
   const [checkedConditions, setCheckedConditions] = useState<Record<number, boolean>>({});
   const [checkedImprovements, setCheckedImprovements] = useState<Record<number, boolean>>({});
+  
+  const [evolutionData, setEvolutionData] = useState<any>(null);
+  const [strategicData, setStrategicData] = useState<any>(null);
+
+  useEffect(() => {
+    fetch("/api/evolution")
+      .then(res => res.json())
+      .then(data => setEvolutionData(data))
+      .catch(console.error);
+      
+    fetch("/api/strategic")
+      .then(res => res.json())
+      .then(data => setStrategicData(data))
+      .catch(console.error);
+  }, []);
   
   // MIE (Master Intelligence Engine) specific states
   const [showMIEModal, setShowMIEModal] = useState(false);
@@ -997,7 +1013,7 @@ export default function ResultDashboard({ result }: Props) {
 
             {/* Futuristic Tab Controller */}
             <div className="flex flex-wrap gap-1 bg-white/5 p-1 rounded-xl border border-white/5 w-full lg:w-auto">
-              {(["core", "agents", "workflow", "quality"] as const).map((tab) => (
+              {(["core", "agents", "workflow", "quality", "evolution", "strategic"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setMissionTab(tab)}
@@ -1029,6 +1045,18 @@ export default function ResultDashboard({ result }: Props) {
                     <>
                       <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
                       <span>品質 & DNA</span>
+                    </>
+                  )}
+                  {tab === "evolution" && (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>OEvE</span>
+                    </>
+                  )}
+                  {tab === "strategic" && (
+                    <>
+                      <Activity className="w-3.5 h-3.5 text-rose-400" />
+                      <span>SIL</span>
                     </>
                   )}
                 </button>
@@ -1337,6 +1365,214 @@ export default function ResultDashboard({ result }: Props) {
                     PERSISTED IN SYSTEM MEMORY
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {/* TAB 5: ORGANIZATION EVOLUTION ENGINE (OEvE)      */}
+            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {missionTab === "evolution" && (
+              <motion.div
+                key="evolution"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {!evolutionData ? (
+                  <div className="flex justify-center p-8">
+                    <RefreshCw className="w-6 h-6 text-indigo-400 animate-spin" />
+                  </div>
+                ) : (
+                  <>
+                    {/* Organization Memory Snapshot */}
+                    <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 space-y-4 relative overflow-hidden">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
+                      <div className="flex items-center gap-2 mb-2">
+                        <Database className="w-4 h-4 text-indigo-400" />
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Organizational Memory & KPI</h3>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                          <span className="text-[10px] text-white/40 block mb-1">Missions Evaluated</span>
+                          <span className="text-sm font-bold text-white font-mono">{evolutionData.memories?.length || 0}</span>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                          <span className="text-[10px] text-white/40 block mb-1">Latest Score</span>
+                          <span className="text-sm font-bold text-indigo-300 font-mono">
+                            {evolutionData.memories?.length > 0 ? `${evolutionData.memories[evolutionData.memories.length-1].score.toFixed(1)}%` : "N/A"}
+                          </span>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                          <span className="text-[10px] text-white/40 block mb-1">Active Agents</span>
+                          <span className="text-sm font-bold text-white font-mono">{evolutionData.knowledgeNodes?.length || 0}</span>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                          <span className="text-[10px] text-white/40 block mb-1">Knowledge Links</span>
+                          <span className="text-sm font-bold text-white font-mono">{evolutionData.knowledgeRelations?.length || 0}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Executive Decisions & Improvements */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-[#0B0B0C] border border-emerald-500/10 rounded-2xl p-4">
+                        <h4 className="text-[10px] text-emerald-400 font-mono tracking-widest uppercase mb-3 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5" /> Recent Success
+                        </h4>
+                        <ul className="space-y-2">
+                          {evolutionData.memories?.slice(-3).map((m: any, i: number) => (
+                            m.successStories?.map((s: string, j: number) => (
+                              <li key={`succ-${i}-${j}`} className="text-[11px] text-white/70 flex items-start gap-1.5">
+                                <span className="text-emerald-400 mt-0.5">•</span> {s}
+                              </li>
+                            ))
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="bg-[#0B0B0C] border border-indigo-500/10 rounded-2xl p-4">
+                        <h4 className="text-[10px] text-indigo-400 font-mono tracking-widest uppercase mb-3 flex items-center gap-1.5">
+                          <BrainCircuit className="w-3.5 h-3.5" /> Executive Actions
+                        </h4>
+                        <ul className="space-y-2">
+                          {evolutionData.memories?.slice(-3).map((m: any, i: number) => (
+                            m.improvements?.map((imp: string, j: number) => (
+                              <li key={`imp-${i}-${j}`} className="text-[11px] text-white/70 flex items-start gap-1.5">
+                                <span className="text-indigo-400 mt-0.5">•</span> {imp}
+                              </li>
+                            ))
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    {/* Knowledge Graph Snapshot */}
+                    <div className="bg-black/40 border border-white/5 rounded-2xl p-4">
+                      <h4 className="text-[10px] text-white/50 font-mono tracking-widest uppercase mb-3">Agent Knowledge Network</h4>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {evolutionData.knowledgeNodes?.map((node: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between p-2 bg-white/5 rounded-lg border border-white/5 text-[11px]">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-indigo-300">{node.agentId}</span>
+                              <span className="text-white/40">[{node.expertise.join(", ")}]</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <span className="text-white/60">Load: {node.workload}</span>
+                              <span className={`font-bold ${node.successRate >= 90 ? 'text-emerald-400' : 'text-amber-400'}`}>{node.successRate.toFixed(0)}% SR</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </motion.div>
+            )}
+
+            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {/* TAB 6: STRATEGIC INTELLIGENCE LAYER (SIL)        */}
+            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {missionTab === "strategic" && (
+              <motion.div
+                key="strategic"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {!strategicData ? (
+                  <div className="flex justify-center p-8">
+                    <Activity className="w-6 h-6 text-rose-400 animate-spin" />
+                  </div>
+                ) : (
+                  <>
+                    {/* Prediction Engine Snapshot */}
+                    <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 space-y-4 relative overflow-hidden">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-rose-500" />
+                      <div className="flex items-center gap-2 mb-2">
+                        <Activity className="w-4 h-4 text-rose-400" />
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Future Prediction Engine</h3>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                          <span className="text-[10px] text-white/40 block mb-1">Success Probability</span>
+                          <span className="text-sm font-bold text-emerald-400 font-mono">{(strategicData.prediction.successProbability * 100).toFixed(0)}%</span>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                          <span className="text-[10px] text-white/40 block mb-1">Expected ROI</span>
+                          <span className="text-sm font-bold text-emerald-400 font-mono">{strategicData.prediction.expectedROI}x</span>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                          <span className="text-[10px] text-white/40 block mb-1">Expected Quality</span>
+                          <span className="text-sm font-bold text-indigo-300 font-mono">{strategicData.prediction.expectedQuality}%</span>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                          <span className="text-[10px] text-white/40 block mb-1">Confidence Score</span>
+                          <span className="text-sm font-bold text-rose-300 font-mono">{(strategicData.prediction.confidenceScore * 100).toFixed(0)}%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Risk Intelligence */}
+                      <div className="bg-[#0B0B0C] border border-amber-500/10 rounded-2xl p-4">
+                        <h4 className="text-[10px] text-amber-400 font-mono tracking-widest uppercase mb-3 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5" /> Risk Intelligence
+                        </h4>
+                        <ul className="space-y-3">
+                          {strategicData.risks?.map((risk: any) => (
+                            <li key={risk.id} className="text-[11px] text-white/70 bg-white/5 p-2 rounded-lg border border-white/5">
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="font-bold text-white">{risk.title}</span>
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${risk.severity === 'HIGH' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                  {risk.severity}
+                                </span>
+                              </div>
+                              <span>{risk.description}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Decision Intelligence */}
+                      <div className="bg-[#0B0B0C] border border-blue-500/10 rounded-2xl p-4">
+                        <h4 className="text-[10px] text-blue-400 font-mono tracking-widest uppercase mb-3 flex items-center gap-1.5">
+                          <BrainCircuit className="w-3.5 h-3.5" /> Decision Intelligence
+                        </h4>
+                        <ul className="space-y-3">
+                          {strategicData.decisions?.map((dec: any) => (
+                            <li key={dec.id} className="text-[11px] text-white/70 bg-white/5 p-2 rounded-lg border border-white/5">
+                              <span className="font-bold text-white block mb-1">{dec.action}</span>
+                              <span className="text-white/50 italic block mb-1">"{dec.reason}"</span>
+                              <span className="text-blue-300">Expected Impact: {dec.expectedImpact}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    {/* Simulation Engine */}
+                    <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-[10px] text-white/50 font-mono tracking-widest uppercase mb-3">Simulation Engine - Execution Plans</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {strategicData.simulations?.map((plan: any) => (
+                          <div key={plan.id} className={`p-3 rounded-xl border ${plan.isRecommended ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/5 border-white/5'}`}>
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-[11px] font-bold text-white">{plan.name}</span>
+                              {plan.isRecommended && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full">Recommended</span>}
+                            </div>
+                            <div className="space-y-1 text-[10px]">
+                              <div className="flex justify-between"><span className="text-white/40">Cost</span><span className="text-white font-mono">${plan.costEstimate}</span></div>
+                              <div className="flex justify-between"><span className="text-white/40">Duration</span><span className="text-white font-mono">{plan.durationEstimate} days</span></div>
+                              <div className="flex justify-between"><span className="text-white/40">Risk</span><span className="text-white font-mono">{plan.riskScore}/100</span></div>
+                              <div className="flex justify-between"><span className="text-white/40">Success</span><span className="text-emerald-400 font-mono">{plan.successRate}%</span></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -4388,7 +4624,96 @@ export default function ResultDashboard({ result }: Props) {
           </div>
         )}
 
-        {/* ⑰ ORIGIN Mission Engine Specification (Document 001) */}
+        {/* ⑰ ORIGIN Kernel Specification (Version 1.0) */}
+        {result.originKernelSpec && (
+          <div 
+            className="bg-[#121215] border border-indigo-500/20 rounded-3xl p-5 space-y-4 shadow-[0_0_20px_rgba(99,102,241,0.03)]"
+            id="mc-module-kernel-spec"
+          >
+            <div className="flex items-center gap-2 border-b border-white/5 pb-3">
+              <Cpu className="w-4.5 h-4.5 text-indigo-400" />
+              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑰ ORIGIN Kernel Specification</h3>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
+                <span className="text-[10px] font-mono text-indigo-200/60 uppercase">Version / Core Mission</span>
+                <span className="text-[11px] font-bold font-mono text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]">
+                  v{result.originKernelSpec.version} - {result.originKernelSpec.mission}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1.5 p-3 rounded-xl bg-white/2 border border-white/5">
+                  <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">Kernel Modules</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {result.originKernelSpec.modules.map((mod, idx) => (
+                      <span key={idx} className="text-[9.5px] font-bold text-indigo-200 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded">
+                        {mod}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 p-3 rounded-xl bg-white/2 border border-white/5">
+                  <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">Kernel Priority Flow</span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {result.originKernelSpec.priority.map((prio, idx) => (
+                      <div key={idx} className="flex items-center gap-1">
+                        <span className="text-[10px] font-bold text-white/80 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded">
+                          {prio}
+                        </span>
+                        {idx < result.originKernelSpec.priority.length - 1 && (
+                          <span className="text-[9px] text-indigo-400 font-bold">➔</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1.5 p-3 rounded-xl bg-white/2 border border-white/5">
+                  <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">Kernel States</span>
+                  <div className="flex flex-wrap gap-1">
+                    {result.originKernelSpec.state.map((st, idx) => (
+                      <span key={idx} className="text-[9.5px] font-medium text-white/70 bg-white/5 px-1.5 py-0.5 rounded">
+                        {st}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 p-3 rounded-xl bg-white/2 border border-white/5">
+                  <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">Kernel Events</span>
+                  <div className="flex flex-wrap gap-1">
+                    {result.originKernelSpec.event.map((ev, idx) => (
+                      <span key={idx} className="text-[9.5px] font-medium text-white/70 bg-white/5 px-1.5 py-0.5 rounded">
+                        {ev}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-1">
+                <span className="text-[9px] font-mono tracking-wider text-indigo-400 uppercase block">Kernel Rule & Principle</span>
+                <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] text-white/40 uppercase block">Priority Rule:</span>
+                    <span className="text-xs font-bold text-white">{result.originKernelSpec.rule}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-white/40 uppercase block">Absolute Principle:</span>
+                    <span className="text-xs font-bold text-indigo-300">{result.originKernelSpec.principle}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ⑱ ORIGIN Mission Engine Specification (Document 001) */}
         {result.originMissionEngineSpec && (
           <div 
             className="bg-[#121215] border border-fuchsia-500/20 rounded-3xl p-5 space-y-4 shadow-[0_0_20px_rgba(217,70,239,0.03)]"
@@ -4396,7 +4721,7 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Target className="w-4.5 h-4.5 text-fuchsia-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑰ ORIGIN Mission Engine</h3>
+              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑱ ORIGIN Mission Engine</h3>
             </div>
             
             <div className="space-y-4">
@@ -4480,14 +4805,269 @@ export default function ResultDashboard({ result }: Props) {
           </div>
         )}
 
-        {/* ⑱ Future Recommendations */}
+        {/* ⑲ AI Evaluation Framework (OAEF) */}
+        {result.originAiEvaluationFramework && (
+          <div 
+            className="bg-[#121215] border border-amber-500/20 rounded-3xl p-5 space-y-4 shadow-[0_0_20px_rgba(245,158,11,0.03)]"
+            id="mc-module-ai-evaluation"
+          >
+            <div className="flex items-center gap-2 border-b border-white/5 pb-3">
+              <Award className="w-4.5 h-4.5 text-amber-400" />
+              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑲ AI Evaluation Framework (OAEF)</h3>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                <span className="text-[10px] font-mono text-amber-200/60 uppercase">Evaluation Purpose</span>
+                <span className="text-[11px] font-bold font-mono text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]">
+                  {result.originAiEvaluationFramework.mission}
+                </span>
+              </div>
+
+              {/* Evaluation Categories */}
+              <div className="space-y-2">
+                <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">8 Evaluation Categories</span>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {result.originAiEvaluationFramework.categories.map((cat, idx) => (
+                    <div key={idx} className="p-2.5 rounded-xl bg-white/2 border border-white/5 space-y-1">
+                      <span className="text-[10px] font-black text-amber-300 block font-mono">{cat.id}</span>
+                      <span className="text-[10.5px] font-bold text-white/90 block">{cat.name}</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {cat.metrics.map((m, mIdx) => (
+                          <span key={mIdx} className="text-[8.5px] text-white/40 bg-white/5 px-1 py-0.5 rounded">
+                            {m}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Evaluated Models */}
+              <div className="space-y-2">
+                <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">Benchmark Metrics (3+ Leading AI Models)</span>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {result.originAiEvaluationFramework.evaluatedModels.map((model, idx) => (
+                    <div key={idx} className="p-3.5 rounded-2xl bg-[#141418] border border-white/5 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11.5px] font-black text-white">{model.modelName}</span>
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded tracking-wide ${
+                            model.overallEvaluation === "Gold" 
+                              ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" 
+                              : model.overallEvaluation === "Silver"
+                              ? "bg-slate-300/15 text-slate-200 border border-slate-300/20"
+                              : "bg-orange-500/10 text-orange-300 border border-orange-500/20"
+                          }`}>
+                            {model.overallEvaluation} Tier
+                          </span>
+                        </div>
+
+                        {/* Category Scores */}
+                        <div className="space-y-1.5 pt-1">
+                          {model.scores.map((sc, scIdx) => (
+                            <div key={scIdx} className="flex items-center justify-between text-[10px]">
+                              <span className="text-white/50">{sc.categoryName}</span>
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-12 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                  <div className="h-full bg-amber-400" style={{ width: `${sc.scoreValue}%` }} />
+                                </div>
+                                <span className="font-mono font-bold text-white/90 text-[9px] w-5 text-right">{sc.scoreValue}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Mission Success Rate per Domain */}
+                        <div className="space-y-1.5 pt-2 border-t border-white/5">
+                          <span className="text-[8.5px] font-mono tracking-wider text-white/30 uppercase block">Domain Success Rates</span>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {model.missionSuccessRate.map((ms, msIdx) => (
+                              <div key={msIdx} className="flex items-center justify-between p-1 bg-white/2 rounded border border-white/5 text-[9px]">
+                                <span className="text-white/60">{ms.domain}</span>
+                                <span className="font-mono font-bold text-emerald-400">{ms.successRate}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-white/5 bg-[#17171c]/50 p-2 rounded-lg">
+                        <span className="text-[8.5px] font-mono text-amber-400 block font-black mb-0.5 font-sans">ADVANTAGE / CHARACTERISTIC:</span>
+                        <p className="text-[10px] text-white/70 leading-relaxed font-medium">{model.advantage}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Dynamic Schedules */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-2.5 rounded-xl bg-white/2 border border-white/5 space-y-0.5">
+                  <span className="text-[8px] font-mono tracking-wider text-white/30 uppercase block">Daily Update</span>
+                  <span className="text-[10px] font-bold text-white/80">{result.originAiEvaluationFramework.updates.daily}</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-white/2 border border-white/5 space-y-0.5">
+                  <span className="text-[8px] font-mono tracking-wider text-white/30 uppercase block">Weekly Comparison</span>
+                  <span className="text-[10px] font-bold text-white/80">{result.originAiEvaluationFramework.updates.weekly}</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-white/2 border border-white/5 space-y-0.5">
+                  <span className="text-[8px] font-mono tracking-wider text-white/30 uppercase block">Monthly Ranking</span>
+                  <span className="text-[10px] font-bold text-white/80">{result.originAiEvaluationFramework.updates.monthly}</span>
+                </div>
+              </div>
+
+              {/* Final Rule Banner */}
+              <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.05)]">
+                <span className="text-[9px] font-mono tracking-widest text-amber-400 uppercase font-black">Final Rule Enforcement</span>
+                <span className="text-xs font-black text-amber-300">{result.originAiEvaluationFramework.finalRule.title}</span>
+                <p className="text-[10px] text-amber-200/70 leading-relaxed mt-1">
+                  {result.originAiEvaluationFramework.finalRule.description}
+                </p>
+                <div className="mt-2 flex items-center justify-between text-[10px] font-mono">
+                  <span className="text-white/40">COMPLIANCE STATUS</span>
+                  {result.originAiEvaluationFramework.finalRule.isFollowed ? (
+                    <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 rounded">TRUE</span>
+                  ) : (
+                    <span className="text-rose-400 font-bold bg-rose-500/10 px-2 rounded">FALSE</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ⑳ Mission Success Engine (MSE) */}
+        {result.originMissionSuccessEngineSpec && (
+          <div 
+            className="bg-[#121215] border border-emerald-500/20 rounded-3xl p-5 space-y-4 shadow-[0_0_20px_rgba(16,185,129,0.03)]"
+            id="mc-module-mission-success-engine"
+          >
+            <div className="flex items-center gap-2 border-b border-white/5 pb-3">
+              <Target className="w-4.5 h-4.5 text-emerald-400" />
+              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑳ Mission Success Engine (MSE)</h3>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                <span className="text-[10px] font-mono text-emerald-200/60 uppercase">MSE Absolute Purpose</span>
+                <span className="text-[11px] font-bold font-mono text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]">
+                  {result.originMissionSuccessEngineSpec.mission}
+                </span>
+              </div>
+
+              {/* 10 Step Orchestration Flow */}
+              <div className="space-y-2.5">
+                <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">10-Step Mission Orchestration Flow</span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {result.originMissionSuccessEngineSpec.steps.map((step, idx) => (
+                    <div 
+                      key={idx} 
+                      className="p-3 rounded-xl bg-white/2 border border-white/5 flex items-start gap-3 hover:border-emerald-500/20 transition-all group"
+                    >
+                      <div className="flex flex-col items-center">
+                        <span className="text-[9px] font-mono font-black text-white/30 uppercase">Step</span>
+                        <div className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-black font-mono flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform">
+                          {step.number}
+                        </div>
+                      </div>
+                      <div className="space-y-0.5 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-extrabold text-white tracking-tight">{step.title}</span>
+                          <span className={`text-[8px] font-mono px-1.5 rounded-sm font-black ${
+                            step.status === "COMPLETED"
+                              ? "bg-emerald-500/10 text-emerald-400"
+                              : step.status === "RUNNING"
+                              ? "bg-blue-500/10 text-blue-400 animate-pulse"
+                              : step.status === "FAILED"
+                              ? "bg-rose-500/10 text-rose-400"
+                              : "bg-white/5 text-white/40"
+                          }`}>
+                            {step.status}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-white/55 leading-relaxed">{step.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Post-Mission Auto-Saved History */}
+              <div className="space-y-2">
+                <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">Post-Mission Auto-Archived DNA</span>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* Success Rate */}
+                  <div className="p-3.5 rounded-2xl bg-white/2 border border-white/5 flex flex-col justify-between items-center text-center space-y-2.5">
+                    <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase">Archived Success Rate</span>
+                    <div className="relative flex items-center justify-center">
+                      <div className="w-16 h-16 rounded-full border-4 border-white/5 flex items-center justify-center">
+                        <span className="text-xl font-black text-emerald-400 font-mono">
+                          {result.originMissionSuccessEngineSpec.postMission.successRate}%
+                        </span>
+                      </div>
+                      <div className="absolute inset-0 rounded-full border-4 border-emerald-500/20 blur-[1px]" />
+                    </div>
+                    <span className="text-[9.5px] font-mono text-emerald-400/80 bg-emerald-500/10 px-2 py-0.5 rounded font-black">AUTOMATICALLY SEALED</span>
+                  </div>
+
+                  {/* Improvements */}
+                  <div className="p-3.5 rounded-2xl bg-white/2 border border-white/5 space-y-2.5">
+                    <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">Auto-Derived Improvements</span>
+                    <div className="space-y-1.5">
+                      {result.originMissionSuccessEngineSpec.postMission.improvements.map((imp, idx) => (
+                        <div key={idx} className="flex items-start gap-1.5 text-[10px] text-white/70">
+                          <span className="text-emerald-400 shrink-0 mt-0.5">■</span>
+                          <span className="leading-relaxed">{imp}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Reusable Knowledge */}
+                  <div className="p-3.5 rounded-2xl bg-white/2 border border-white/5 space-y-2.5">
+                    <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">Reusable Knowledge DNA</span>
+                    <div className="space-y-1.5">
+                      {result.originMissionSuccessEngineSpec.postMission.reusableKnowledge.map((kn, idx) => (
+                        <div key={idx} className="flex items-start gap-1.5 text-[10px] text-emerald-300">
+                          <span className="text-emerald-400 shrink-0 mt-0.5">➔</span>
+                          <span className="leading-relaxed">{kn}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Final Rule Banner */}
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.05)]">
+                <span className="text-[9px] font-mono tracking-widest text-emerald-400 uppercase font-black">Final Rule Enforcement</span>
+                <span className="text-xs font-black text-emerald-300">{result.originMissionSuccessEngineSpec.finalRule.title}</span>
+                <p className="text-[10px] text-emerald-200/70 leading-relaxed mt-1">
+                  {result.originMissionSuccessEngineSpec.finalRule.description}
+                </p>
+                <div className="mt-2 flex items-center justify-between text-[10px] font-mono">
+                  <span className="text-white/40">COMPLIANCE STATUS</span>
+                  {result.originMissionSuccessEngineSpec.finalRule.isFollowed ? (
+                    <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 rounded">TRUE</span>
+                  ) : (
+                    <span className="text-rose-400 font-bold bg-rose-500/10 px-2 rounded">FALSE</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ㉑ Future Recommendations */}
         <div 
            className="bg-[#121215] border border-[#10B981]/15 rounded-3xl p-5 space-y-4"
            id="mc-module-future"
         >
           <div className="flex items-center gap-2 border-b border-white/5 pb-3">
             <Compass className="w-4.5 h-4.5 text-[#10B981]" />
-            <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑱ Future Recommendations</h3>
+            <h3 className="text-xs font-bold uppercase tracking-widest text-white">㉑ Future Recommendations</h3>
           </div>
 
           <div className="space-y-3 text-xs">

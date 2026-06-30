@@ -1,0 +1,230 @@
+{
+  "meta": {
+    "frameworkVersion": "ACOS 2.0",
+    "timestamp": "2026-06-30T11:17:42.000Z",
+    "status": "ACTIVE"
+  },
+  "departments": {
+    "Travel Planning": {
+      "headAgent": "AGT-955BEOBDT",
+      "agents": [
+        "AGT-955BEOBDT",
+        "AGT-Y66ZM9I5R"
+      ],
+      "capacity": 10,
+      "load": 2,
+      "metrics": {
+        "efficiency": 0.98,
+        "accuracy": 0.96
+      }
+    },
+    "Business Intelligence": {
+      "headAgent": "AGT-B94GPEJFH",
+      "agents": [
+        "AGT-B94GPEJFH",
+        "AGT-PLI6DKKDS"
+      ],
+      "capacity": 10,
+      "load": 4,
+      "metrics": {
+        "efficiency": 0.95,
+        "accuracy": 0.97
+      }
+    },
+    "Engineering & Architecture": {
+      "headAgent": "AGT-66205MSBI",
+      "agents": [
+        "AGT-66205MSBI",
+        "AGT-X9579KNUC"
+      ],
+      "capacity": 15,
+      "load": 3,
+      "metrics": {
+        "efficiency": 0.99,
+        "accuracy": 0.98
+      }
+    },
+    "Legal & Compliance": {
+      "headAgent": "AGT-G27A93618",
+      "agents": [
+        "AGT-G27A93618",
+        "AGT-I44QQTR2Y"
+      ],
+      "capacity": 8,
+      "load": 1,
+      "metrics": {
+        "efficiency": 0.97,
+        "accuracy": 1
+      }
+    },
+    "Creative & Design": {
+      "headAgent": "AGT-VSKZSGESI",
+      "agents": [
+        "AGT-VSKZSGESI",
+        "AGT-BFOF3IJF8"
+      ],
+      "capacity": 12,
+      "load": 2,
+      "metrics": {
+        "efficiency": 0.93,
+        "accuracy": 0.94
+      }
+    },
+    "Data Analytics": {
+      "headAgent": "AGT-F0F155A7E",
+      "agents": [
+        "AGT-F0F155A7E",
+        "AGT-ZSXQUWJM6",
+        "AGT-5XQSVT1S2"
+      ],
+      "capacity": 12,
+      "load": 5,
+      "metrics": {
+        "efficiency": 0.96,
+        "accuracy": 0.95
+      }
+    }
+  },
+  "activeAgents": [
+    {
+      "id": "AGT-955BEOBDT",
+      "role": "Travel Strategist",
+      "skills": [
+        "planning",
+        "curation"
+      ],
+      "load": 1,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-Y66ZM9I5R",
+      "role": "Gastronomy Expert",
+      "skills": [
+        "dining",
+        "local-insights"
+      ],
+      "load": 0,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-B94GPEJFH",
+      "role": "Business Analyst",
+      "skills": [
+        "market-research",
+        "swot"
+      ],
+      "load": 2,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-PLI6DKKDS",
+      "role": "FinTech Consultant",
+      "skills": [
+        "valuation",
+        "projections"
+      ],
+      "load": 1,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-66205MSBI",
+      "role": "Software Architect",
+      "skills": [
+        "react",
+        "typescript",
+        "design-patterns"
+      ],
+      "load": 1,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-X9579KNUC",
+      "role": "Backend Coder",
+      "skills": [
+        "node",
+        "express",
+        "databases"
+      ],
+      "load": 1,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-G27A93618",
+      "role": "Legal Advisor",
+      "skills": [
+        "contract-drafting",
+        "clause-analysis"
+      ],
+      "load": 0,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-I44QQTR2Y",
+      "role": "Compliance Auditor",
+      "skills": [
+        "risk-mitigation",
+        "gdpr"
+      ],
+      "load": 1,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-VSKZSGESI",
+      "role": "UX Designer",
+      "skills": [
+        "ui-prototyping",
+        "tailwind"
+      ],
+      "load": 1,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-BFOF3IJF8",
+      "role": "Content Creator",
+      "skills": [
+        "copywriting",
+        "seo"
+      ],
+      "load": 1,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-F0F155A7E",
+      "role": "Data Scientist",
+      "skills": [
+        "python",
+        "pandas",
+        "visualization"
+      ],
+      "load": 2,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-ZSXQUWJM6",
+      "role": "Financial Quantitative",
+      "skills": [
+        "forecasting",
+        "risk-models"
+      ],
+      "load": 1,
+      "status": "IDLE"
+    },
+    {
+      "id": "AGT-5XQSVT1S2",
+      "role": "SEO Specialist",
+      "skills": [
+        "analytics",
+        "keywords"
+      ],
+      "load": 1,
+      "status": "IDLE"
+    }
+  ],
+  "escalations": [],
+  "digitalTwin": {
+    "organizationName": "ACOS Digital Enterprise",
+    "lastSynchronized": "2026-06-30T11:17:42.000Z",
+    "healthScore": 98,
+    "bottlenecksDetected": []
+  }
+}

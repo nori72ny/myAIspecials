@@ -3,9 +3,23 @@ import { motion, AnimatePresence } from "motion/react";
 import { Settings, AnalysisResult, WorkspaceCategory, TaskTemplate } from "./types";
 import SettingsModal from "./components/SettingsModal";
 import ResultDashboard from "./components/ResultDashboard";
+import MissionInput from "./components/MissionInput";
+import ChatApp from "./components/os/ChatApp";
+import MultiAIApp from "./components/os/MultiAIApp";
+import DashboardApp from "./components/os/DashboardApp";
+import WorkspaceSelector from "./components/os/WorkspaceSelector";
+import NotificationCenter from "./components/os/NotificationCenter";
+import MemoryExplorer from "./components/os/MemoryExplorer";
+import PromptLibrary from "./components/os/PromptLibrary";
+import AIPerformanceDashboard from "./components/os/AIPerformanceDashboard";
+import ObservabilityCenter from "./components/os/ObservabilityCenter";
+import UniversalSearch from "./components/os/UniversalSearch";
+import AIAssistantSidebar from "./components/os/AIAssistantSidebar";
 import { 
   Search, 
+  Shield,
   Briefcase, 
+  Activity,
   FileText, 
   Code, 
   PenTool, 
@@ -118,6 +132,7 @@ const CATEGORIES: WorkspaceCategory[] = [
 ];
 
 export default function App() {
+  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings">("dashboard");
   const [taskMode, setTaskMode] = useState<"categories" | "input" | "loading" | "result">("categories");
   const [homeTab, setHomeTab] = useState<"missions" | "constitution" | "quality" | "thinking" | "experience" | "design" | "pie" | "blueprint" | "core" | "arch" | "missionEngine">("missions");
   const [selectedCategory, setSelectedCategory] = useState<WorkspaceCategory | null>(null);
@@ -148,6 +163,8 @@ export default function App() {
   });
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(true);
   const [settings, setSettings] = useState<Settings>({
     autoRoute: true,
     selectedAgents: ["gemini", "openai"] // Active models by default
@@ -301,50 +318,161 @@ export default function App() {
   const renderSidebarBody = (onItemClick?: () => void) => {
     return (
       <>
-        {/* Categories menu in sidebar */}
         <div className="p-4 space-y-1 overflow-y-auto flex-1">
           <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 mb-2">
-            Workspace Categories
+            ACOS Applications
           </div>
           <button
             onClick={() => {
+              setCurrentApp("dashboard");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "dashboard"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Layout className="w-4 h-4" />
+            <span>Dashboard</span>
+          </button>
+          <button
+            onClick={() => {
+              setCurrentApp("chat");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "chat"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Search className="w-4 h-4" />
+            <span>AI Chat</span>
+          </button>
+          <button
+            onClick={() => {
+              setCurrentApp("multi-ai");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "multi-ai"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Cpu className="w-4 h-4" />
+            <span>Multi-AI Workspace</span>
+          </button>
+          <button
+            onClick={() => {
+              setCurrentApp("mission");
               resetToHome();
               onItemClick?.();
             }}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              taskMode === "categories"
+              currentApp === "mission"
                 ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
                 : "text-slate-400 hover:text-white hover:bg-slate-800/50"
             )}
           >
-            <span>🏠</span>
-            <span>ホームダッシュボード</span>
+            <Target className="w-4 h-4" />
+            <span>Mission Generator</span>
           </button>
-
-          {CATEGORIES.map((cat) => {
-            const isSelected = selectedCategory?.id === cat.id;
-            return (
-              <button
-                key={cat.id}
-                onClick={() => {
-                  selectCategoryHandler(cat);
-                  onItemClick?.();
-                }}
-                className={cn(
-                  "w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-                  isSelected && taskMode !== "categories"
-                    ? "bg-slate-800 text-white border-l-2 border-indigo-500 pl-2.5"
-                    : "text-slate-400 hover:text-white hover:bg-slate-800/30"
-                )}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span>{cat.icon}</span>
-                  <span>{cat.name}</span>
-                </div>
-              </button>
-            );
-          })}
+          <button
+            onClick={() => {
+              setCurrentApp("workflows");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer opacity-50",
+              currentApp === "workflows"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Command className="w-4 h-4" />
+            <span>Workflows (Beta)</span>
+          </button>
+          <button
+            onClick={() => {
+              setCurrentApp("memory");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "memory"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Database className="w-4 h-4" />
+            <span>Memory Explorer</span>
+          </button>
+          <button
+            onClick={() => {
+              setCurrentApp("prompt-library");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "prompt-library"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>Prompt Library</span>
+          </button>
+          <button
+            onClick={() => {
+              setCurrentApp("ai-performance");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "ai-performance"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Activity className="w-4 h-4" />
+            <span>AI Performance</span>
+          </button>
+          <button
+            onClick={() => {
+              setCurrentApp("observability-center");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "observability-center"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Shield className="w-4 h-4" />
+            <span>System Validation</span>
+          </button>
+          <button
+            onClick={() => {
+              setCurrentApp("settings");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "settings"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Settings2 className="w-4 h-4" />
+            <span>Settings</span>
+          </button>
 
           {/* Active Agents status panel */}
           <div className="pt-6 border-t border-slate-800/80 mt-4 space-y-3">
@@ -539,7 +667,7 @@ export default function App() {
       <main className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
         
         {/* Top bar */}
-        <header className="h-14 bg-white border-b border-slate-200/80 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
+        <header className="h-14 bg-white border-b border-slate-200/80 px-4 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-2">
             {/* Hamburger button for mobile */}
             <button
@@ -550,44 +678,113 @@ export default function App() {
               <Menu className="w-5 h-5" />
             </button>
 
-            {taskMode !== "categories" && (
-              <button
-                onClick={resetToHome}
-                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition-colors flex items-center gap-1 text-xs font-semibold cursor-pointer"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span className="hidden sm:inline">ホームへ</span>
-              </button>
-            )}
-            {taskMode === "categories" && (
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shadow animate-pulse" />
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                  INTELLIGENCE OS DASHBOARD
-                </span>
-              </div>
-            )}
+            <WorkspaceSelector />
           </div>
           
           <div className="flex items-center gap-2 sm:gap-3">
             <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200 rounded-xl transition-all shadow-sm cursor-pointer"
+              id="universal-search-trigger"
+              onClick={() => setIsSearchOpen(true)}
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors cursor-pointer w-64 justify-between"
             >
-              <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-              <span className="hidden sm:inline">AI設定 / API状況</span>
-              <span className="sm:hidden">AI設定</span>
+              <div className="flex items-center gap-2">
+                <Search className="w-4 h-4" />
+                <span className="text-xs font-medium">Search OS...</span>
+              </div>
+              <div className="flex items-center gap-0.5">
+                <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[9px] font-bold text-slate-400">⌘</kbd>
+                <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[9px] font-bold text-slate-400">K</kbd>
+              </div>
+            </button>
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              className="md:hidden p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            >
+              <Search className="w-5 h-5" />
+            </button>
+
+            <div className="h-6 w-px bg-slate-200 mx-1"></div>
+
+            <NotificationCenter />
+            
+            <button
+              onClick={() => setIsAssistantOpen(!isAssistantOpen)}
+              className={cn(
+                "p-2 rounded-lg transition-colors cursor-pointer",
+                isAssistantOpen 
+                  ? "bg-indigo-100 text-indigo-600 hover:bg-indigo-200" 
+                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+              )}
+              title="Toggle AI Assistant"
+            >
+              <Sparkles className="w-5 h-5" />
             </button>
           </div>
         </header>
 
         {/* Screen layout */}
-        <div className="flex-1 p-4 md:p-6 max-w-5xl w-full mx-auto space-y-6">
+        <div className={cn("flex-1 p-4 md:p-6 w-full mx-auto space-y-6 flex flex-col transition-all duration-300", isAssistantOpen ? "pr-80 max-w-7xl" : "max-w-6xl")}>
+
           
           <AnimatePresence mode="wait">
-            
-            {/* 1. HOMEPAGE: CATEGORY SELECTION CARDS */}
-            {taskMode === "categories" && (
+            {currentApp === "dashboard" && (
+              <motion.div key="dashboard" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+                <DashboardApp />
+              </motion.div>
+            )}
+            {currentApp === "chat" && (
+              <motion.div key="chat" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+                <ChatApp />
+              </motion.div>
+            )}
+            {currentApp === "multi-ai" && (
+              <motion.div key="multi-ai" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+                <MultiAIApp />
+              </motion.div>
+            )}
+            {currentApp === "workflows" && (
+              <motion.div key="workflows" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex items-center justify-center min-h-0 h-[calc(100vh-140px)]">
+                <div className="text-center text-slate-500">
+                  <Command className="w-12 h-12 mx-auto mb-4 opacity-50 text-indigo-500" />
+                  <h2 className="text-xl font-bold text-slate-800">Workflows Engine</h2>
+                  <p className="mt-2 text-sm">Visual workflow execution is currently in beta. Coming soon.</p>
+                </div>
+              </motion.div>
+            )}
+            {currentApp === "memory" && (
+              <motion.div key="memory" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+                <MemoryExplorer />
+              </motion.div>
+            )}
+            {currentApp === "prompt-library" && (
+              <motion.div key="prompt-library" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+                <PromptLibrary />
+              </motion.div>
+            )}
+            {currentApp === "ai-performance" && (
+              <motion.div key="ai-performance" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+                <AIPerformanceDashboard />
+              </motion.div>
+            )}
+            {currentApp === "observability-center" && (
+              <motion.div key="observability-center" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+                <ObservabilityCenter />
+              </motion.div>
+            )}
+            {currentApp === "settings" && (
+              <motion.div key="settings" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex items-center justify-center min-h-0 h-[calc(100vh-140px)]">
+                <div className="text-center text-slate-500">
+                  <Settings2 className="w-12 h-12 mx-auto mb-4 opacity-50 text-indigo-500" />
+                  <h2 className="text-xl font-bold text-slate-800">OS Settings</h2>
+                  <p className="mt-2 text-sm">Organization and workspace configuration module.</p>
+                </div>
+              </motion.div>
+            )}
+
+            {currentApp === "mission" && (
+              <motion.div key="mission" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex flex-col gap-6">
+                {/* 1. HOMEPAGE: CATEGORY SELECTION CARDS */}
+                {taskMode === "categories" && (
               <motion.div
                 key="categories"
                 initial={{ opacity: 0, y: 15 }}
@@ -1685,37 +1882,12 @@ export default function App() {
 
                 {/* Main Action Input Box */}
                 {taskMode === "input" && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4"
-                  >
-                    <form onSubmit={(e) => handleAnalyze(e)} className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-500">指示・要件（プロンプトをカスタマイズしてください）</label>
-                        <textarea
-                          value={prompt}
-                          onChange={(e) => setPrompt(e.target.value)}
-                          placeholder="依頼内容を入力してください。"
-                          className="w-full min-h-[160px] bg-slate-50 border border-slate-200/80 rounded-xl py-3 px-4 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50/50"
-                        />
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row justify-between items-center pt-2 gap-4">
-                        <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                          <span>Gemini & GPT-4oを並列に実行し、要約・比較を同時に行います。</span>
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={!prompt.trim()}
-                          className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 text-white rounded-xl font-bold text-xs transition-colors shadow-lg shadow-indigo-600/10 cursor-pointer"
-                        >
-                          <Sparkles className="w-4 h-4" />
-                          解析・生成を実行する
-                        </button>
-                      </div>
-                    </form>
+                  <div className="space-y-4 w-full">
+                    <MissionInput
+                      onSubmit={(customPrompt) => handleAnalyze(undefined, customPrompt)}
+                      initialValue={prompt}
+                      placeholder={selectedTemplate?.placeholder}
+                    />
 
                     {error && (
                       <motion.div 
@@ -1736,7 +1908,7 @@ export default function App() {
                         )}
                       </motion.div>
                     )}
-                  </motion.div>
+                  </div>
                 )}
 
                 {/* LOADING SCREEN (Steps 3, 4, 5, 6 from Core Journey) */}
@@ -1787,7 +1959,7 @@ export default function App() {
                     {/* Sequential Theatrical Steps */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       
-                      {/* Step 3: AI Intent Analysis */}
+                      {/* Step 1: Planning */}
                       <div className={cn(
                         "p-4 rounded-2xl border transition-all duration-500",
                         loadingStep >= 1
@@ -1795,30 +1967,22 @@ export default function App() {
                           : "bg-slate-900/20 border-white/5 text-slate-600"
                       )}>
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-indigo-400 font-bold">[STEP 03]</span>
-                          <h4 className="text-xs font-black">AI Intent Analysis (意図・必要AI選定)</h4>
+                          <span className="text-xs font-mono text-indigo-400 font-bold">[PHASE 01]</span>
+                          <h4 className="text-xs font-black">Planning (Mission Definition)</h4>
                         </div>
                         <ul className="space-y-1 text-[11px] font-medium text-slate-400 font-mono">
                           <li className="flex items-center gap-1.5">
                             <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
-                            <span>目的分析: コア意図の抽出完了</span>
+                            <span>OEE Analysis: Goal mapping complete</span>
                           </li>
                           <li className="flex items-center gap-1.5">
                             <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
-                            <span>必要AI選定: Gemini & GPT-4o Parallel</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
-                            <span>必要Agent選定: 戦略監査 / UXデザイナー</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
-                            <span>品質予測: UQI予測 98% (95%クリア)</span>
+                            <span>Team Assembly: Multi-agent routing active</span>
                           </li>
                         </ul>
                       </div>
 
-                      {/* Step 4: Mission Formula */}
+                      {/* Step 2: Execution & Review */}
                       <div className={cn(
                         "p-4 rounded-2xl border transition-all duration-500",
                         loadingStep >= 2
@@ -1826,24 +1990,22 @@ export default function App() {
                           : "bg-slate-900/20 border-white/5 text-slate-600"
                       )}>
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-indigo-400 font-bold">[STEP 04]</span>
-                          <h4 className="text-xs font-black">Mission Formula (自律ミッション定義)</h4>
+                          <span className="text-xs font-mono text-emerald-400 font-bold">[PHASE 02]</span>
+                          <h4 className="text-xs font-black">Execution & Review (SIL Audit)</h4>
                         </div>
-                        <div className="space-y-2">
-                          <p className="text-[11px] text-slate-400 leading-relaxed font-semibold italic">
-                            {loadingStep >= 2
-                              ? `「${prompt.substring(0, 40)}${prompt.length > 40 ? "..." : ""}」の成功条件を定義し、検証プランを組織化。`
-                              : "分析進行中..."}
-                          </p>
-                          {loadingStep >= 2 && (
-                            <div className="p-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[10px] font-bold text-indigo-300 font-mono">
-                              MISSION DEPLOYED SUCCESSFULLY
-                            </div>
-                          )}
-                        </div>
+                        <ul className="space-y-1.5 text-[10px] font-medium text-slate-400 font-mono mt-3">
+                           <li className="flex justify-between items-center border-b border-white/5 pb-1">
+                             <span>Agent Execution</span>
+                             <span className={loadingStep >= 2 ? "text-emerald-400" : "text-slate-600"}>DONE</span>
+                           </li>
+                           <li className="flex justify-between items-center border-b border-white/5 pb-1">
+                             <span>Quality Assurance (UQI)</span>
+                             <span className={loadingStep >= 2 ? "text-emerald-400" : "text-slate-600"}>PASSED</span>
+                           </li>
+                        </ul>
                       </div>
 
-                      {/* Step 5: Execution Plan Assembly */}
+                      {/* Step 3: Consensus & Evolution */}
                       <div className={cn(
                         "p-4 rounded-2xl border transition-all duration-500",
                         loadingStep >= 3
@@ -1851,34 +2013,22 @@ export default function App() {
                           : "bg-slate-900/20 border-white/5 text-slate-600"
                       )}>
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-indigo-400 font-bold">[STEP 05]</span>
-                          <h4 className="text-xs font-black">Execution Plan (検証プロセスの設計)</h4>
+                          <span className="text-xs font-mono text-amber-400 font-bold">[PHASE 03]</span>
+                          <h4 className="text-xs font-black">Consensus & Evolution (OEvE)</h4>
                         </div>
-                        <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono font-bold text-slate-400">
+                        <div className="flex gap-2 text-[10px] font-mono mt-3 flex-wrap">
                           <div className="flex items-center gap-1">
                             <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
-                            <span>検索・抽出設計</span>
+                            <span>Cross-Model Agreement</span>
                           </div>
                           <div className="flex items-center gap-1">
                             <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
-                            <span>競合比較グリッド</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
-                            <span>システム構想図</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
-                            <span>ROI成功予測</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
-                            <span>品質監査レビュー</span>
+                            <span>Memory Synthesis Update</span>
                           </div>
                         </div>
                       </div>
 
-                      {/* Step 6: Mission Control Setup */}
+                      {/* Step 4: Completion */}
                       <div className={cn(
                         "p-4 rounded-2xl border transition-all duration-500",
                         loadingStep >= 4
@@ -1886,20 +2036,14 @@ export default function App() {
                           : "bg-slate-900/20 border-white/5 text-slate-600"
                       )}>
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-indigo-400 font-bold">[STEP 06]</span>
-                          <h4 className="text-xs font-black">Mission Control (リアルタイム合意形成)</h4>
+                          <span className="text-xs font-mono text-blue-400 font-bold">[PHASE 04]</span>
+                          <h4 className="text-xs font-black">Mission Completed (Delivery)</h4>
                         </div>
                         <ul className="space-y-1.5 text-[10px] font-medium text-slate-400 font-mono">
                           <li className="flex justify-between items-center">
-                            <span>5大AI取締役会議の招集</span>
+                            <span>Format Output</span>
                             <span className={loadingStep >= 4 ? "text-emerald-400" : "text-slate-600"}>
-                              {loadingStep >= 4 ? "100% COMPLETE" : "進行中"}
-                            </span>
-                          </li>
-                          <li className="flex justify-between items-center">
-                            <span>信頼性・引用度の監査検証</span>
-                            <span className={loadingStep >= 4 ? "text-emerald-400" : "text-slate-600"}>
-                              {loadingStep >= 4 ? "100% CONFIRMED" : "進行中"}
+                              {loadingStep >= 4 ? "100% READY" : "PENDING"}
                             </span>
                           </li>
                         </ul>
@@ -1910,10 +2054,10 @@ export default function App() {
                     {/* Dynamic Status Log */}
                     <div className="bg-slate-900/60 p-3 rounded-2xl border border-white/5 text-center">
                       <p className="text-[11px] text-slate-400 font-semibold font-sans animate-pulse">
-                        {loadingStep === 1 && "⚡ Step 3: 目標意志を分析し、最適なAIエージェント編成を選択しています..."}
-                        {loadingStep === 2 && "⚡ Step 4: 自律的な成功定義(Mission Core)を展開し、ハルシネーション検出器をブートしています..."}
-                        {loadingStep === 3 && "⚡ Step 5: 検索、多角比較、グラフ構築、予測計画を自律アセンブルしています..."}
-                        {loadingStep === 4 && "⚡ Step 6: UQI品質チェック(95%超保証基準)を適用し、成果物の最終合意をマッピングしています..."}
+                        {loadingStep === 1 && "⚡ Phase 1: Planning - Analyzing mission parameters and assembling AI team..."}
+                        {loadingStep === 2 && "⚡ Phase 2: Execution & Review - Generating content and performing quality audit..."}
+                        {loadingStep === 3 && "⚡ Phase 3: Consensus & Evolution - Resolving conflicts and updating organizational memory..."}
+                        {loadingStep === 4 && "⚡ Phase 4: Mission Completed - Finalizing outputs for human review..."}
                       </p>
                     </div>
                   </motion.div>
@@ -1941,11 +2085,11 @@ export default function App() {
                     <ResultDashboard result={result} />
                   </motion.div>
                 )}
-
               </motion.div>
             )}
-
-          </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
         </div>
       </main>
@@ -1956,6 +2100,18 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         updateSettings={setSettings}
+      />
+      
+      {/* Universal Search Modal */}
+      <UniversalSearch
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+      />
+
+      {/* AI Assistant Sidebar */}
+      <AIAssistantSidebar
+        isOpen={isAssistantOpen}
+        onClose={() => setIsAssistantOpen(false)}
       />
     </div>
   );

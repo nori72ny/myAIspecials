@@ -1,0 +1,237 @@
+[
+  {
+    "timestamp": "2026-06-30T11:17:10.000Z",
+    "event": "MISSION_CREATED",
+    "payload": {
+      "missionId": "test-mission-1",
+      "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグジュアリーホテルを中心とした旅程設計。"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:11.000Z",
+    "event": "STRATEGIC_PLANNING_INITIATED",
+    "payload": {
+      "layer": "StrategicIntelligenceLayer",
+      "engine": "ScenarioPlanner"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:13.000Z",
+    "event": "GOALS_IDENTIFIED",
+    "payload": {
+      "keyResults": [
+        "Optimized route",
+        "Authentic dining reservations",
+        "Premium ryokan selected"
+      ]
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:14.000Z",
+    "event": "TASKS_GENERATED",
+    "payload": {
+      "tasks": [
+        "Route Optimization",
+        "Hotel Comparison",
+        "Traditional Dining Booking",
+        "Full Itinerary Assembly"
+      ]
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:15.000Z",
+    "event": "AGENT_PROVISIONED",
+    "payload": {
+      "agentId": "AGT-955BEOBDT",
+      "role": "Travel Strategist",
+      "capabilities": [
+        "planning",
+        "curation"
+      ]
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:16.000Z",
+    "event": "AGENT_PROVISIONED",
+    "payload": {
+      "agentId": "AGT-Y66ZM9I5R",
+      "role": "Gastronomy Expert",
+      "capabilities": [
+        "dining",
+        "local-insights"
+      ]
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:17.000Z",
+    "event": "TASK_ASSIGNED",
+    "payload": {
+      "taskId": "task-1",
+      "agentId": "AGT-955BEOBDT",
+      "description": "Route Optimization"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:18.000Z",
+    "event": "TASK_ASSIGNED",
+    "payload": {
+      "taskId": "task-2",
+      "agentId": "AGT-955BEOBDT",
+      "description": "Hotel Comparison"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:19.000Z",
+    "event": "TASK_ASSIGNED",
+    "payload": {
+      "taskId": "task-3",
+      "agentId": "AGT-Y66ZM9I5R",
+      "description": "Traditional Dining Booking"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:20.000Z",
+    "event": "TASK_ASSIGNED",
+    "payload": {
+      "taskId": "task-4",
+      "agentId": "AGT-955BEOBDT",
+      "description": "Full Itinerary Assembly"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:22.000Z",
+    "event": "WORK_STARTED",
+    "payload": {
+      "taskId": "task-1"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:24.000Z",
+    "event": "WORK_COMPLETED",
+    "payload": {
+      "taskId": "task-1",
+      "deliverableId": "del-1"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:25.000Z",
+    "event": "QUALITY_CHECK_PASSED",
+    "payload": {
+      "taskId": "task-1",
+      "score": 95
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:26.000Z",
+    "event": "WORK_STARTED",
+    "payload": {
+      "taskId": "task-2"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:28.000Z",
+    "event": "WORK_COMPLETED",
+    "payload": {
+      "taskId": "task-2",
+      "deliverableId": "del-2"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:29.000Z",
+    "event": "QUALITY_CHECK_PASSED",
+    "payload": {
+      "taskId": "task-2",
+      "score": 98
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:30.000Z",
+    "event": "WORK_STARTED",
+    "payload": {
+      "taskId": "task-3"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:32.000Z",
+    "event": "WORK_COMPLETED",
+    "payload": {
+      "taskId": "task-3",
+      "deliverableId": "del-3"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:33.000Z",
+    "event": "QUALITY_CHECK_PASSED",
+    "payload": {
+      "taskId": "task-3",
+      "score": 94
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:34.000Z",
+    "event": "WORK_STARTED",
+    "payload": {
+      "taskId": "task-4"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:36.000Z",
+    "event": "WORK_COMPLETED",
+    "payload": {
+      "taskId": "task-4",
+      "deliverableId": "del-4"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:37.000Z",
+    "event": "QUALITY_CHECK_PASSED",
+    "payload": {
+      "taskId": "task-4",
+      "score": 97
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:38.000Z",
+    "event": "CONSENSUS_INITIATED",
+    "payload": {
+      "decisionId": "dec-1",
+      "topic": "Final itinerary approval"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:39.000Z",
+    "event": "CONSENSUS_COMPLETED",
+    "payload": {
+      "decisionId": "dec-1",
+      "result": "APPROVED",
+      "votes": {
+        "AGT-955BEOBDT": "YES",
+        "AGT-Y66ZM9I5R": "YES"
+      }
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:40.000Z",
+    "event": "EVOLUTION_TRIGGERED",
+    "payload": {
+      "target": "DynamicOrganizationEngine",
+      "reason": "Optimize performance for travel categories"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:41.000Z",
+    "event": "KNOWLEDGE_STORED",
+    "payload": {
+      "key": "kyoto-honeymoon-luxury-itinerary",
+      "format": "SemanticMemory"
+    }
+  },
+  {
+    "timestamp": "2026-06-30T11:17:42.000Z",
+    "event": "MISSION_COMPLETED",
+    "payload": {
+      "missionId": "test-mission-1",
+      "durationMs": 744
+    }
+  }
+]

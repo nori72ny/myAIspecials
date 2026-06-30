@@ -1,0 +1,374 @@
+[
+  {
+    "event": "DASHBOARD_METRICS_DISPATCHED",
+    "timestamp": "2026-06-30T11:17:10.000Z",
+    "data": {
+      "activeMissionsCount": 1,
+      "completedMissionsCount": 0,
+      "averageLatencyMs": 512,
+      "throughput": "0.10 missions/sec",
+      "activeNodes": [
+        {
+          "id": "node-1",
+          "type": "mission-agent",
+          "status": "PROCESSING"
+        },
+        {
+          "id": "node-2",
+          "type": "quality-checker",
+          "status": "WAITING_FOR_REVIEW"
+        }
+      ],
+      "recentMissions": [
+        {
+          "id": "test-mission-1",
+          "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグ...",
+          "status": "COMPLETED"
+        }
+      ]
+    }
+  },
+  {
+    "event": "DASHBOARD_METRICS_DISPATCHED",
+    "timestamp": "2026-06-30T11:18:00.000Z",
+    "data": {
+      "activeMissionsCount": 2,
+      "completedMissionsCount": 1,
+      "averageLatencyMs": 512,
+      "throughput": "0.20 missions/sec",
+      "activeNodes": [
+        {
+          "id": "node-1",
+          "type": "mission-agent",
+          "status": "PROCESSING"
+        },
+        {
+          "id": "node-2",
+          "type": "quality-checker",
+          "status": "WAITING_FOR_REVIEW"
+        }
+      ],
+      "recentMissions": [
+        {
+          "id": "test-mission-1",
+          "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-2",
+          "objective": "北海道・知床半島での3泊4日大自然アドベンチャーツアーの計画...",
+          "status": "COMPLETED"
+        }
+      ]
+    }
+  },
+  {
+    "event": "DASHBOARD_METRICS_DISPATCHED",
+    "timestamp": "2026-06-30T11:18:50.000Z",
+    "data": {
+      "activeMissionsCount": 3,
+      "completedMissionsCount": 2,
+      "averageLatencyMs": 512,
+      "throughput": "0.30 missions/sec",
+      "activeNodes": [
+        {
+          "id": "node-1",
+          "type": "mission-agent",
+          "status": "PROCESSING"
+        },
+        {
+          "id": "node-2",
+          "type": "quality-checker",
+          "status": "WAITING_FOR_REVIEW"
+        }
+      ],
+      "recentMissions": [
+        {
+          "id": "test-mission-1",
+          "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-2",
+          "objective": "北海道・知床半島での3泊4日大自然アドベンチャーツアーの計画...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-3",
+          "objective": "沖縄・石垣島での4泊5日家族旅行プラン。小さな子供連れでも安...",
+          "status": "COMPLETED"
+        }
+      ]
+    }
+  },
+  {
+    "event": "DASHBOARD_METRICS_DISPATCHED",
+    "timestamp": "2026-06-30T11:19:40.000Z",
+    "data": {
+      "activeMissionsCount": 4,
+      "completedMissionsCount": 3,
+      "averageLatencyMs": 512,
+      "throughput": "0.40 missions/sec",
+      "activeNodes": [
+        {
+          "id": "node-1",
+          "type": "mission-agent",
+          "status": "PROCESSING"
+        },
+        {
+          "id": "node-2",
+          "type": "quality-checker",
+          "status": "WAITING_FOR_REVIEW"
+        }
+      ],
+      "recentMissions": [
+        {
+          "id": "test-mission-1",
+          "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-2",
+          "objective": "北海道・知床半島での3泊4日大自然アドベンチャーツアーの計画...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-3",
+          "objective": "沖縄・石垣島での4泊5日家族旅行プラン。小さな子供連れでも安...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-4",
+          "objective": "福岡・佐賀の1泊2日美食探訪の旅。屋台、イカの活き造り、嬉野...",
+          "status": "COMPLETED"
+        }
+      ]
+    }
+  },
+  {
+    "event": "DASHBOARD_METRICS_DISPATCHED",
+    "timestamp": "2026-06-30T11:20:30.000Z",
+    "data": {
+      "activeMissionsCount": 5,
+      "completedMissionsCount": 4,
+      "averageLatencyMs": 512,
+      "throughput": "0.50 missions/sec",
+      "activeNodes": [
+        {
+          "id": "node-1",
+          "type": "mission-agent",
+          "status": "PROCESSING"
+        },
+        {
+          "id": "node-2",
+          "type": "quality-checker",
+          "status": "WAITING_FOR_REVIEW"
+        }
+      ],
+      "recentMissions": [
+        {
+          "id": "test-mission-1",
+          "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-2",
+          "objective": "北海道・知床半島での3泊4日大自然アドベンチャーツアーの計画...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-3",
+          "objective": "沖縄・石垣島での4泊5日家族旅行プラン。小さな子供連れでも安...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-4",
+          "objective": "福岡・佐賀の1泊2日美食探訪の旅。屋台、イカの活き造り、嬉野...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-5",
+          "objective": "アメリカ・西海岸の1週間ドライブ旅行計画。ロサンゼルスからサ...",
+          "status": "COMPLETED"
+        }
+      ]
+    }
+  },
+  {
+    "event": "DASHBOARD_METRICS_DISPATCHED",
+    "timestamp": "2026-06-30T11:21:20.000Z",
+    "data": {
+      "activeMissionsCount": 6,
+      "completedMissionsCount": 5,
+      "averageLatencyMs": 512,
+      "throughput": "0.60 missions/sec",
+      "activeNodes": [
+        {
+          "id": "node-1",
+          "type": "mission-agent",
+          "status": "PROCESSING"
+        },
+        {
+          "id": "node-2",
+          "type": "quality-checker",
+          "status": "WAITING_FOR_REVIEW"
+        }
+      ],
+      "recentMissions": [
+        {
+          "id": "test-mission-1",
+          "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-2",
+          "objective": "北海道・知床半島での3泊4日大自然アドベンチャーツアーの計画...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-3",
+          "objective": "沖縄・石垣島での4泊5日家族旅行プラン。小さな子供連れでも安...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-4",
+          "objective": "福岡・佐賀の1泊2日美食探訪の旅。屋台、イカの活き造り、嬉野...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-5",
+          "objective": "アメリカ・西海岸の1週間ドライブ旅行計画。ロサンゼルスからサ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-6",
+          "objective": "欧州・パリとローマの2カ国周遊7日間弾丸ツアーの計画。主要美...",
+          "status": "COMPLETED"
+        }
+      ]
+    }
+  },
+  {
+    "event": "DASHBOARD_METRICS_DISPATCHED",
+    "timestamp": "2026-06-30T11:22:10.000Z",
+    "data": {
+      "activeMissionsCount": 7,
+      "completedMissionsCount": 6,
+      "averageLatencyMs": 512,
+      "throughput": "0.70 missions/sec",
+      "activeNodes": [
+        {
+          "id": "node-1",
+          "type": "mission-agent",
+          "status": "PROCESSING"
+        },
+        {
+          "id": "node-2",
+          "type": "quality-checker",
+          "status": "WAITING_FOR_REVIEW"
+        }
+      ],
+      "recentMissions": [
+        {
+          "id": "test-mission-1",
+          "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-2",
+          "objective": "北海道・知床半島での3泊4日大自然アドベンチャーツアーの計画...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-3",
+          "objective": "沖縄・石垣島での4泊5日家族旅行プラン。小さな子供連れでも安...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-4",
+          "objective": "福岡・佐賀の1泊2日美食探訪の旅。屋台、イカの活き造り、嬉野...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-5",
+          "objective": "アメリカ・西海岸の1週間ドライブ旅行計画。ロサンゼルスからサ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-6",
+          "objective": "欧州・パリとローマの2カ国周遊7日間弾丸ツアーの計画。主要美...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-7",
+          "objective": "アジア・タイ（バンコクとプーケット）の5泊6日リフレッシュ旅...",
+          "status": "COMPLETED"
+        }
+      ]
+    }
+  },
+  {
+    "event": "DASHBOARD_METRICS_DISPATCHED",
+    "timestamp": "2026-06-30T11:23:00.000Z",
+    "data": {
+      "activeMissionsCount": 8,
+      "completedMissionsCount": 7,
+      "averageLatencyMs": 512,
+      "throughput": "0.80 missions/sec",
+      "activeNodes": [
+        {
+          "id": "node-1",
+          "type": "mission-agent",
+          "status": "PROCESSING"
+        },
+        {
+          "id": "node-2",
+          "type": "quality-checker",
+          "status": "WAITING_FOR_REVIEW"
+        }
+      ],
+      "recentMissions": [
+        {
+          "id": "test-mission-1",
+          "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-2",
+          "objective": "北海道・知床半島での3泊4日大自然アドベンチャーツアーの計画...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-3",
+          "objective": "沖縄・石垣島での4泊5日家族旅行プラン。小さな子供連れでも安...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-4",
+          "objective": "福岡・佐賀の1泊2日美食探訪の旅。屋台、イカの活き造り、嬉野...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-5",
+          "objective": "アメリカ・西海岸の1週間ドライブ旅行計画。ロサンゼルスからサ...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-6",
+          "objective": "欧州・パリとローマの2カ国周遊7日間弾丸ツアーの計画。主要美...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-7",
+          "objective": "アジア・タイ（バンコクとプーケット）の5泊6日リフレッシュ旅...",
+          "status": "COMPLETED"
+        },
+        {
+          "id": "test-mission-8",
+          "objective": "長野・軽井沢での週末1泊2日ワーケーションプラン。静かなカフ...",
+          "status": "COMPLETED"
+        }
+      ]
+    }
+  }
+]

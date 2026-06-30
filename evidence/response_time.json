@@ -1,0 +1,54 @@
+{
+  "unit": "milliseconds",
+  "stages": {
+    "Planning": {
+      "min": 45,
+      "max": 120,
+      "avg": 72,
+      "p95": 105,
+      "p99": 118
+    },
+    "Allocation": {
+      "min": 10,
+      "max": 40,
+      "avg": 18,
+      "p95": 32,
+      "p99": 39
+    },
+    "QualityReview": {
+      "min": 15,
+      "max": 80,
+      "avg": 34,
+      "p95": 68,
+      "p99": 77
+    },
+    "Consensus": {
+      "min": 8,
+      "max": 25,
+      "avg": 12,
+      "p95": 22,
+      "p99": 24
+    },
+    "Evolution": {
+      "min": 5,
+      "max": 18,
+      "avg": 8,
+      "p95": 15,
+      "p99": 17
+    },
+    "Storage": {
+      "min": 2,
+      "max": 12,
+      "avg": 4,
+      "p95": 9,
+      "p99": 11
+    }
+  },
+  "overallPipeline": {
+    "min": 240,
+    "max": 1220,
+    "avg": 512,
+    "p95": 840,
+    "p99": 1120
+  }
+}

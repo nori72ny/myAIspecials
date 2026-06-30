@@ -1,0 +1,1005 @@
+{
+  "collections": {
+    "missions": [
+      {
+        "id": "test-mission-1",
+        "objective": "東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグジュアリーホテルを中心とした旅程設計。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:17:10.000Z"
+      },
+      {
+        "id": "test-mission-2",
+        "objective": "北海道・知床半島での3泊4日大自然アドベンチャーツアーの計画。アウトドアアクティビティと温泉宿選定。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:18:10.000Z"
+      },
+      {
+        "id": "test-mission-3",
+        "objective": "沖縄・石垣島での4泊5日家族旅行プラン。小さな子供連れでも安全に楽しめるビーチと体験アクティビティの提案。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:19:10.000Z"
+      },
+      {
+        "id": "test-mission-4",
+        "objective": "福岡・佐賀の1泊2日美食探訪の旅。屋台、イカの活き造り、嬉野温泉などのグルメ＆温泉満喫プラン。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:20:10.000Z"
+      },
+      {
+        "id": "test-mission-5",
+        "objective": "アメリカ・西海岸の1週間ドライブ旅行計画。ロサンゼルスからサンフランシスコまでの101号線ルート選定。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:21:10.000Z"
+      },
+      {
+        "id": "test-mission-6",
+        "objective": "欧州・パリとローマの2カ国周遊7日間弾丸ツアーの計画。主要美術館の予約ガイドと観光マップ。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:22:10.000Z"
+      },
+      {
+        "id": "test-mission-7",
+        "objective": "アジア・タイ（バンコクとプーケット）の5泊6日リフレッシュ旅行プラン。マッサージ、寺院、プライベートビーチ巡り。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:23:10.000Z"
+      },
+      {
+        "id": "test-mission-8",
+        "objective": "長野・軽井沢での週末1泊2日ワーケーションプラン。静かなカフェ、Wi-Fi環境の良いホテル、自然散策路の設計。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:24:10.000Z"
+      },
+      {
+        "id": "test-mission-9",
+        "objective": "静岡・伊豆半島を巡る温泉三昧のドライブ旅計画。露天風呂付き客室がある高級旅館と絶景スポット巡り。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:25:10.000Z"
+      },
+      {
+        "id": "test-mission-10",
+        "objective": "スイス・アルプスハイキングの5日間旅程。鉄道パスの活用、初心者向けハイキングルートと展望台の選定。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:26:10.000Z"
+      },
+      {
+        "id": "test-mission-11",
+        "objective": "製造業向けAI外観検査ソリューション of 営業提案書骨子の作成。ROI改善効果と導入ステップを提示。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:27:10.000Z"
+      },
+      {
+        "id": "test-mission-12",
+        "objective": "ECサイトの売上を2倍にするための最新マーケティングオートメーションツールの紹介スライド構成案。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:28:10.000Z"
+      },
+      {
+        "id": "test-mission-13",
+        "objective": "地方自治体向けデジタル窓口（スマート申請）導入による業務効率化の提案ドキュメント策定。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:29:10.000Z"
+      },
+      {
+        "id": "test-mission-14",
+        "objective": "不動産業界向けVR内見システムの営業用プレゼンアジェンダと各スライドの解説ナレーション設計。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:30:10.000Z"
+      },
+      {
+        "id": "test-mission-15",
+        "objective": "アパレルブランド向けサステナブル素材を用いた新規制服導入のコンセプト提案書作成。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:31:10.000Z"
+      },
+      {
+        "id": "test-mission-16",
+        "objective": "フィンテック新サービスの銀行・金融機関向けアライアンス提携提案書のドラフト作成。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:32:10.000Z"
+      },
+      {
+        "id": "test-mission-17",
+        "objective": "クラウド型勤怠管理システムの100人規模企業向け導入効果比較レポートと営業ピッチブック。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:33:10.000Z"
+      },
+      {
+        "id": "test-mission-18",
+        "objective": "医療機関向け電子カルテ移行サービスのセキュリティ信頼性担保に関する技術提案書の策定。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:34:10.000Z"
+      },
+      {
+        "id": "test-mission-19",
+        "objective": "物流企業向け自動配送ルート最適化アルゴリズムの削減コストシミュレーション付き提案書作成。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:35:10.000Z"
+      },
+      {
+        "id": "test-mission-20",
+        "objective": "大手食品メーカーに対するプラントベースフード（代替肉）共同開発企画の営業用ファクトシート。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:36:10.000Z"
+      },
+      {
+        "id": "test-mission-21",
+        "objective": "TypeScript/Reactによるアニメーション付きドラッグ＆ドロップ対応タスクカードコンポーネントの実装コード。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:37:10.000Z"
+      },
+      {
+        "id": "test-mission-22",
+        "objective": "Express.jsでのJWT認証ミドルウェアと安全なパスワードハッシュ化ハンドラーの実装コード。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:38:10.000Z"
+      },
+      {
+        "id": "test-mission-23",
+        "objective": "Python/FastAPIでのCSVアップロード＆Pandasデータ集計・JSON出力APIのエンドポイント実装。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:39:10.000Z"
+      },
+      {
+        "id": "test-mission-24",
+        "objective": "MySQLデータベースでの外部キー制約付き注文管理システム（Users, Orders, Items）のスキーマ設計DDL。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:40:10.000Z"
+      },
+      {
+        "id": "test-mission-25",
+        "objective": "Node.jsでのRedisを用いたAPIレートリミッター（Token Bucketアルゴリズム）の実装スクリプト。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:41:10.000Z"
+      },
+      {
+        "id": "test-mission-26",
+        "objective": "React/Vite環境でのTailwind CSSを用いたレスポンシブなサイドバー・ナビゲーションレイアウトの作成。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:42:10.000Z"
+      },
+      {
+        "id": "test-mission-27",
+        "objective": "MongoDB接続用のMongooseスキーマ設計とアグリゲーションパイプラインによる売上レポート集計関数。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:43:10.000Z"
+      },
+      {
+        "id": "test-mission-28",
+        "objective": "Dockerを用いたNode.jsアプリとPostgreSQLデータベースのマルチコンテナ構成を定義するdocker-compose.ymlの作成。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:44:10.000Z"
+      },
+      {
+        "id": "test-mission-29",
+        "objective": "TypeScriptでの二分探索木（BST）の実装と、各ノードの挿入・検索・トラバース関数の記述。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:45:10.000Z"
+      },
+      {
+        "id": "test-mission-30",
+        "objective": "Next.js (App Router)でのダイナミックルーティングとAPIからデータを取得する非同期コンポーネントコード。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:46:10.000Z"
+      },
+      {
+        "id": "test-mission-31",
+        "objective": "Q3売上目標達成に向けたマーケティング部週次ミーティングの決定事項、各自のToDo、保留項目の整理議事録。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:47:10.000Z"
+      },
+      {
+        "id": "test-mission-32",
+        "objective": "新規SaaSサービス開発キックオフミーティングでの開発スケジュール調整、要件定義の合意内容まとめ。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:48:10.000Z"
+      },
+      {
+        "id": "test-mission-33",
+        "objective": "カスタマーサポート体制移行に向けたオペレーション変更共有会の議事録とFAQリストの作成。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:49:10.000Z"
+      },
+      {
+        "id": "test-mission-34",
+        "objective": "社内セキュリティポリシー改定会議での重要議論点、アクセス権管理の変更要件のファクト整理。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:50:10.000Z"
+      },
+      {
+        "id": "test-mission-35",
+        "objective": "新規オフィスのレイアウト選定に関する役員会議の決定プロセスとToDoマッピング議事録。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:51:10.000Z"
+      },
+      {
+        "id": "test-mission-36",
+        "objective": "人事評価制度改定に向けた管理職ヒアリングメモからの課題抽出、要件定義へのマッピング報告書。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:52:10.000Z"
+      },
+      {
+        "id": "test-mission-37",
+        "objective": "ECサイト決済手段追加（モバイル決済対応）検討会議での各サービス手数料・開発期間比較の議事録。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:53:10.000Z"
+      },
+      {
+        "id": "test-mission-38",
+        "objective": "株主総会に向けた準備委員会の週次報告会議の進捗、残りタスク、担当者アサイン一覧の作成。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:54:10.000Z"
+      },
+      {
+        "id": "test-mission-39",
+        "objective": "AIプロダクトローンチ前のリスク評価（ハルシネーション・セキュリティ）対策会議の議論整理議事録。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:55:10.000Z"
+      },
+      {
+        "id": "test-mission-40",
+        "objective": "全社テレワーク継続とオフィス縮小に関する労務・総務部合同ミーティングの合意内容まとめ。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:56:10.000Z"
+      },
+      {
+        "id": "test-mission-41",
+        "objective": "ソフトウェア受託開発契約書（準委任・一括受託）の重要条項（瑕疵担保、知的財産権、損害賠償制限）のチェックリスト。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:57:10.000Z"
+      },
+      {
+        "id": "test-mission-42",
+        "objective": "共同開発プロジェクトにおける秘密保持契約書（NDA）の片務・双務パターン比較とサンプル条項策定。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:58:10.000Z"
+      },
+      {
+        "id": "test-mission-43",
+        "objective": "新規SaaSサービスのユーザー向け利用規約（Terms of Service）における免責事項とデータ所有権の条項作成。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T11:59:10.000Z"
+      },
+      {
+        "id": "test-mission-44",
+        "objective": "外部フリーランスデザイナーとの業務委託契約書における成果物帰属、支払条件、守秘義務のレビュー要点。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:00:10.000Z"
+      },
+      {
+        "id": "test-mission-45",
+        "objective": "コンテンツ配信パートナーとのライセンス許諾契約における配信可能地域、ロイヤリティ算出方法の契約ドラフト。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:01:10.000Z"
+      },
+      {
+        "id": "test-mission-46",
+        "objective": "オフィステナント入居契約書における原状回復義務、中途解約違約金に関するリーガルリスク評価。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:02:10.000Z"
+      },
+      {
+        "id": "test-mission-47",
+        "objective": "AIサービスAPI利用に関する免責とサービスレベルアグリーメント（SLA）定義条項のチェックポイント。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:03:10.000Z"
+      },
+      {
+        "id": "test-mission-48",
+        "objective": "個人情報取り扱いに関するプライバシーポリシーの改定要件（GDPR/改正個人情報保護法対応）の整理リスト。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:04:10.000Z"
+      },
+      {
+        "id": "test-mission-49",
+        "objective": "フランチャイズ加盟契約における競合避止義務、ロイヤリティ、解約損害金の法的解釈とリスク対策。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:05:10.000Z"
+      },
+      {
+        "id": "test-mission-50",
+        "objective": "合併・買収（M&A）における基本合意書（LOI）の法的拘束力有無と独占交渉権に関する条項ドラフト。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:06:10.000Z"
+      },
+      {
+        "id": "test-mission-51",
+        "objective": "最新AIタスク管理アプリのローンチに向けた、X（旧Twitter）向けの魅力的な告知投稿（3パターン）。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:07:10.000Z"
+      },
+      {
+        "id": "test-mission-52",
+        "objective": "Instagram向け、オーガニックコーヒー豆専門店の新商品紹介ビジュアル用キャプションとハッシュタグ選定。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:08:10.000Z"
+      },
+      {
+        "id": "test-mission-53",
+        "objective": "ビジネス特化型SNS（LinkedIn）向け、キャリアアップに繋がる時間管理術の長文Tips投稿ドラフト。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:09:10.000Z"
+      },
+      {
+        "id": "test-mission-54",
+        "objective": "TikTok/YouTubeショート向け、プログラミング初心者向けお役立ちツール紹介動画の15秒アテレコ台本。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:10:10.000Z"
+      },
+      {
+        "id": "test-mission-55",
+        "objective": "フィットネスアプリの新規会員登録率（CVR）を上げるための、LP（ランディングページ）ヘッドコピー案（5種）。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:11:10.000Z"
+      },
+      {
+        "id": "test-mission-56",
+        "objective": "新感覚ノンアルコールカクテルのプレスリリース向け、目を惹くタイトルとリード文のライティング。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:12:10.000Z"
+      },
+      {
+        "id": "test-mission-57",
+        "objective": "パーソナルカラー診断サロンの開業を知らせる、LINE公式アカウント用の挨拶文と特典クーポンの案内メッセージ。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:13:10.000Z"
+      },
+      {
+        "id": "test-mission-58",
+        "objective": "AIスマートグラスのクラウドファンディング開始に向けた、共感を呼ぶセールスコピーとストーリー構成。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:14:10.000Z"
+      },
+      {
+        "id": "test-mission-59",
+        "objective": "オンライン英語学習サービスの冬期限定割引キャンペーン用、メールマガジンの魅力的なタイトル＆本文。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:15:10.000Z"
+      },
+      {
+        "id": "test-mission-60",
+        "objective": "企業のサステナビリティ（ESG）活動を社外へアピールするための、公式ブログ向けストーリーテリング構成案。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:16:10.000Z"
+      },
+      {
+        "id": "test-mission-61",
+        "objective": "SF宇宙ステーションでのホログラフィックなコックピット。サイバーパンク風の照明と未来のUIディスプレイ構成（プロンプト生成）。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:17:10.000Z"
+      },
+      {
+        "id": "test-mission-62",
+        "objective": "伝統的な和モダンカフェの店舗フロントデザイン。木の温もり、暖簾、竹林の借景を取り入れた内装コンセプト（プロンプト設計）。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:18:10.000Z"
+      },
+      {
+        "id": "test-mission-63",
+        "objective": "北欧風ミニマリストなリビングルームのインテリア。アースカラーの家具、観葉植物、柔らかな自然光の演出（プロンプト生成）。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:19:10.000Z"
+      },
+      {
+        "id": "test-mission-64",
+        "objective": "スマートヘルスウォッチの洗練された製品モックアップ。高精細な湾曲ディスプレイと上質なチタンバンドのディテール描写。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:20:10.000Z"
+      },
+      {
+        "id": "test-mission-65",
+        "objective": "架空 of SFアドベンチャーゲームのシネマティックポスター。そびえ立つ未知の惑星の遺跡と、それを見上げる宇宙飛行士の構図。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:21:10.000Z"
+      },
+      {
+        "id": "test-mission-66",
+        "objective": "高級メンズ香水ボトルのエレガントな広告ビジュアル。漆黒のガラスボトルに反射する水滴と、金色のフォントデザイン。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:22:10.000Z"
+      },
+      {
+        "id": "test-mission-67",
+        "objective": "オーガニック・スキンケア商品のパッケージデザイン。クラフト紙の質感、パステルグリーンの繊細な植物イラストの調和。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:23:10.000Z"
+      },
+      {
+        "id": "test-mission-68",
+        "objective": "未来都市「ネオ・トウキョウ」の雨に濡れたストリート。ネオンサイン、空飛ぶ乗り物、アスファルトに反射する光彩。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:24:10.000Z"
+      },
+      {
+        "id": "test-mission-69",
+        "objective": "ファンタジー小説のブックカバー用イラストプロンプト。古代の魔法図書館、宙を浮く魔導書、金色の魔術エフェクト。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:25:10.000Z"
+      },
+      {
+        "id": "test-mission-70",
+        "objective": "スタートアップ企業の「知恵と協調」を表現したロゴデザインのコンセプトスケッチ用テキスト指示書。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:26:10.000Z"
+      },
+      {
+        "id": "test-mission-71",
+        "objective": "アパレル小売店における過去12ヶ月の売上データから、季節要因、店舗ごとの売上貢献度、売れ筋商品の相関分析。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:27:10.000Z"
+      },
+      {
+        "id": "test-mission-72",
+        "objective": "SaaSビジネスにおける顧客生涯価値（LTV）と顧客獲得コスト（CAC）の比率算出、およびチャーン率の感度分析モデル。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:28:10.000Z"
+      },
+      {
+        "id": "test-mission-73",
+        "objective": "飲食チェーンの店舗オペレーションデータから、ピークタイムの席回転数とバイト人員配置の最適化分析レポート。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:29:10.000Z"
+      },
+      {
+        "id": "test-mission-74",
+        "objective": "過去3年間の財務諸表（貸借対照表、損益計算書）に基づく、自己資本比率、ROA、ROEの時系列評価と経営健全性診断。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:30:10.000Z"
+      },
+      {
+        "id": "test-mission-75",
+        "objective": "ECサイトのコンバージョンファネル分析。ユーザーが離脱しやすいステップ（商品詳細、カート、決済）の特定と対策提案。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:31:10.000Z"
+      },
+      {
+        "id": "test-mission-76",
+        "objective": "製造業の在庫データ分析。安全在庫の最適計算、リードタイムのバラつきによる欠品リスク予測モデル。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:32:10.000Z"
+      },
+      {
+        "id": "test-mission-77",
+        "objective": "広告キャンペーンの投資対効果（ROAS）分析。Google、Meta、Twitter各チャネルごとのコンバージョン単価比較。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:33:10.000Z"
+      },
+      {
+        "id": "test-mission-78",
+        "objective": "新規サブスクリプションサービスのキャッシュフロー予測（3年分）。加入者増加数に応じた資金ショートリスクの評価。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:34:10.000Z"
+      },
+      {
+        "id": "test-mission-79",
+        "objective": "不動産投資における物件利回り分析。修繕費、空室率、金利の変動によるキャッシュオンキャッシュ（CoC）リターン試算。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:35:10.000Z"
+      },
+      {
+        "id": "test-mission-80",
+        "objective": "物流センターの配送トラック稼働データ分析。平均積載率の推移と、共同配送導入によるコスト削減シミュレーション。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:36:10.000Z"
+      },
+      {
+        "id": "test-mission-81",
+        "objective": "世界のEV（電気自動車）市場の最新トレンド調査。主要3社のシェア比較、充電インフラの課題、次世代バッテリーの動向。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:37:10.000Z"
+      },
+      {
+        "id": "test-mission-82",
+        "objective": "対話型AIを活用したビジネスアシスタント市場の競合マップ。機能、ポジショニング、価格設定の比較分析。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:38:10.000Z"
+      },
+      {
+        "id": "test-mission-83",
+        "objective": "オンラインパーソナルトレーニングサービスの市場規模推移と、急成長している主要スタートアップの差別化戦略。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:39:10.000Z"
+      },
+      {
+        "id": "test-mission-84",
+        "objective": "植物由来（代替肉）食品の日本国内における消費者購買態度と、主要メーカーのポジショニング比較調査。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:40:10.000Z"
+      },
+      {
+        "id": "test-mission-85",
+        "objective": "スマート農業・精密農業ツールの現状分析。普及を阻むボトルネック（コスト、ITリテラシー）と今後の成長率予測。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:41:10.000Z"
+      },
+      {
+        "id": "test-mission-86",
+        "objective": "EdTech（教育テクノロジー）における子供向けAIプログラミング教育市場の主要競合4社のサービス・価格・特徴比較。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:42:10.000Z"
+      },
+      {
+        "id": "test-mission-87",
+        "objective": "世界の旅行・ホスピタリティテックにおける生成AI活用サービスの事例調査と、日本国内でのローカライズ機会評価。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:43:10.000Z"
+      },
+      {
+        "id": "test-mission-88",
+        "objective": "法人向けクラウドセキュリティ（SASE/Zero Trust）市場のトレンド、需要の高い機能、および大手ベンダーの強み分析。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:44:10.000Z"
+      },
+      {
+        "id": "test-mission-89",
+        "objective": "シェアリングエコノミー（コワーキングスペース、カーシェア）の国内市場シェア動向と顧客体験価値の競合比較。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:45:10.000Z"
+      },
+      {
+        "id": "test-mission-90",
+        "objective": "メンタルヘルス・マインドフルネスアプリ市場のユーザー層（ペルソナ）分析と、リピート率を高める機能設計の競合調査。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:46:10.000Z"
+      },
+      {
+        "id": "test-mission-91",
+        "objective": "「AIによる契約書自動修正アシスタント」の新規事業企画。ターゲット層、競合優位性、ユニットエコノミクス設計。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:47:10.000Z"
+      },
+      {
+        "id": "test-mission-92",
+        "objective": "社内ナレッジの整理・検索効率を向上させる「社内Wiki自動要約bot」のプロダクト仕様と開発要件定義書。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:48:10.000Z"
+      },
+      {
+        "id": "test-mission-93",
+        "objective": "地方特産品をD2Cモデルで販売する「ふるさと美食便」のコンセプト企画、物流ルート構築案、プロモーション設計。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:49:10.000Z"
+      },
+      {
+        "id": "test-mission-94",
+        "objective": "不要になったオフィス家具のサーキュラーエコノミー（循環シェアリング）プラットフォームのビジネスモデル構築。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:50:10.000Z"
+      },
+      {
+        "id": "test-mission-95",
+        "objective": "AI音声アシスタントを活用した、高齢者の独居生活をサポートする「会話＆見守りデバイス」の企画・仕様書。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:51:10.000Z"
+      },
+      {
+        "id": "test-mission-96",
+        "objective": "個人の学習履歴から最適なキャリアロードマップを提示する「パーソナルAIリスキリング塾」のカリキュラムとビジネスモデル設計。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:52:10.000Z"
+      },
+      {
+        "id": "test-mission-97",
+        "objective": "不動産オーナー向け「空き家再生＆民泊化」のパッケージ型サービスの仕組み、法規制クリア条件、収支予測の立案。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:53:10.000Z"
+      },
+      {
+        "id": "test-mission-98",
+        "objective": "飲食店向け「スマート発注・自動在庫管理」システムの要件定義。POSレジ、仕入れ先問屋のシステム連携範囲の定義。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:54:10.000Z"
+      },
+      {
+        "id": "test-mission-99",
+        "objective": "メタバース空間での「バーチャル展示会・ネットワーキング」の企画構成案、参加者エンゲージメント施策、システム基盤要件。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:55:10.000Z"
+      },
+      {
+        "id": "test-mission-100",
+        "objective": "企業の採用プロセス（レジュメスクリーニングから一次面接調整）を自動化する「AIリクルーティングエージェント」のワークフロー設計。",
+        "currentState": "COMPLETED",
+        "tasks_count": 4,
+        "created_at": "2026-06-30T12:56:10.000Z"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "task-1-1",
+        "mission_id": "test-mission-1",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-1-2",
+        "mission_id": "test-mission-1",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-1-3",
+        "mission_id": "test-mission-1",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-1-4",
+        "mission_id": "test-mission-1",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-2-1",
+        "mission_id": "test-mission-2",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-2-2",
+        "mission_id": "test-mission-2",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-2-3",
+        "mission_id": "test-mission-2",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-2-4",
+        "mission_id": "test-mission-2",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-3-1",
+        "mission_id": "test-mission-3",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-3-2",
+        "mission_id": "test-mission-3",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-3-3",
+        "mission_id": "test-mission-3",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-3-4",
+        "mission_id": "test-mission-3",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-4-1",
+        "mission_id": "test-mission-4",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-4-2",
+        "mission_id": "test-mission-4",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-4-3",
+        "mission_id": "test-mission-4",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-4-4",
+        "mission_id": "test-mission-4",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-5-1",
+        "mission_id": "test-mission-5",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-5-2",
+        "mission_id": "test-mission-5",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-5-3",
+        "mission_id": "test-mission-5",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-5-4",
+        "mission_id": "test-mission-5",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-6-1",
+        "mission_id": "test-mission-6",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-6-2",
+        "mission_id": "test-mission-6",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-6-3",
+        "mission_id": "test-mission-6",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-6-4",
+        "mission_id": "test-mission-6",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-7-1",
+        "mission_id": "test-mission-7",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-7-2",
+        "mission_id": "test-mission-7",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-7-3",
+        "mission_id": "test-mission-7",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-7-4",
+        "mission_id": "test-mission-7",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-8-1",
+        "mission_id": "test-mission-8",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-8-2",
+        "mission_id": "test-mission-8",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-8-3",
+        "mission_id": "test-mission-8",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-8-4",
+        "mission_id": "test-mission-8",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-9-1",
+        "mission_id": "test-mission-9",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-9-2",
+        "mission_id": "test-mission-9",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-9-3",
+        "mission_id": "test-mission-9",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-9-4",
+        "mission_id": "test-mission-9",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-10-1",
+        "mission_id": "test-mission-10",
+        "description": "Sub-task 1 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-10-2",
+        "mission_id": "test-mission-10",
+        "description": "Sub-task 2 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-10-3",
+        "mission_id": "test-mission-10",
+        "description": "Sub-task 3 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      },
+      {
+        "id": "task-10-4",
+        "mission_id": "test-mission-10",
+        "description": "Sub-task 4 for 旅行計画",
+        "assigned_agent_id": "AGT-955BEOBDT",
+        "status": "COMPLETED"
+      }
+    ],
+    "agents": [
+      {
+        "id": "AGT-955BEOBDT",
+        "role": "Travel Strategist",
+        "category": "旅行計画"
+      },
+      {
+        "id": "AGT-Y66ZM9I5R",
+        "role": "Gastronomy Expert",
+        "category": "旅行計画"
+      },
+      {
+        "id": "AGT-B94GPEJFH",
+        "role": "Business Analyst",
+        "category": "営業提案・資料"
+      }
+    ]
+  }
+}

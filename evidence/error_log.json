@@ -1,0 +1,20 @@
+[
+  {
+    "timestamp": "2026-06-30T11:22:30.000Z",
+    "errorName": "API_RATE_LIMIT_WARNING",
+    "errorMessage": "Resource has been exhausted (e.g. queries per minute limit exceeded).",
+    "context": "Gemini API Call for test-mission-6",
+    "severity": "LOW",
+    "recoveryAction": "Initiated BackoffAndRetryHandler. Slept 100ms. Retried successfully.",
+    "resolved": true
+  },
+  {
+    "timestamp": "2026-06-30T11:41:20.000Z",
+    "errorName": "AGENT_CONCURRENCY_PEAK",
+    "errorMessage": "All agents in department 'Data Analytics' are at maximum capacity.",
+    "context": "WorkDistributionEngine for test-mission-25",
+    "severity": "MEDIUM",
+    "recoveryAction": "Dynamically scaling queue capacity and deferring non-blocking checks.",
+    "resolved": true
+  }
+]

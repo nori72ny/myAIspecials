@@ -1,0 +1,127 @@
+[
+  {
+    "requestIndex": 1,
+    "timestamp": "2026-06-30T11:17:10.000Z",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Client": "genai-js/0.1.0"
+    },
+    "requestPayloadSummary": {
+      "model": "gemini-2.5-flash",
+      "promptLength": 2450,
+      "temperature": 0.2
+    },
+    "responseMetadata": {
+      "statusCode": 200,
+      "statusText": "OK",
+      "latencyMs": 459,
+      "tokensUsed": {
+        "promptTokens": 2450,
+        "completionTokens": 840,
+        "totalTokens": 3290
+      }
+    }
+  },
+  {
+    "requestIndex": 2,
+    "timestamp": "2026-06-30T11:19:10.000Z",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Client": "genai-js/0.1.0"
+    },
+    "requestPayloadSummary": {
+      "model": "gemini-2.5-flash",
+      "promptLength": 2450,
+      "temperature": 0.2
+    },
+    "responseMetadata": {
+      "statusCode": 200,
+      "statusText": "OK",
+      "latencyMs": 428,
+      "tokensUsed": {
+        "promptTokens": 2450,
+        "completionTokens": 840,
+        "totalTokens": 3290
+      }
+    }
+  },
+  {
+    "requestIndex": 3,
+    "timestamp": "2026-06-30T11:21:10.000Z",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Client": "genai-js/0.1.0"
+    },
+    "requestPayloadSummary": {
+      "model": "gemini-2.5-flash",
+      "promptLength": 2450,
+      "temperature": 0.2
+    },
+    "responseMetadata": {
+      "statusCode": 200,
+      "statusText": "OK",
+      "latencyMs": 388,
+      "tokensUsed": {
+        "promptTokens": 2450,
+        "completionTokens": 840,
+        "totalTokens": 3290
+      }
+    }
+  },
+  {
+    "requestIndex": 4,
+    "timestamp": "2026-06-30T11:23:10.000Z",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Client": "genai-js/0.1.0"
+    },
+    "requestPayloadSummary": {
+      "model": "gemini-2.5-flash",
+      "promptLength": 2450,
+      "temperature": 0.2
+    },
+    "responseMetadata": {
+      "statusCode": 200,
+      "statusText": "OK",
+      "latencyMs": 396,
+      "tokensUsed": {
+        "promptTokens": 2450,
+        "completionTokens": 840,
+        "totalTokens": 3290
+      }
+    }
+  },
+  {
+    "requestIndex": 5,
+    "timestamp": "2026-06-30T11:25:10.000Z",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Client": "genai-js/0.1.0"
+    },
+    "requestPayloadSummary": {
+      "model": "gemini-2.5-flash",
+      "promptLength": 2450,
+      "temperature": 0.2
+    },
+    "responseMetadata": {
+      "statusCode": 200,
+      "statusText": "OK",
+      "latencyMs": 410,
+      "tokensUsed": {
+        "promptTokens": 2450,
+        "completionTokens": 840,
+        "totalTokens": 3290
+      }
+    }
+  }
+]

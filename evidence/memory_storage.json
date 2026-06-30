@@ -1,0 +1,212 @@
+[
+  {
+    "memoryId": "mem-1",
+    "missionId": "test-mission-1",
+    "category": "旅行計画",
+    "key": "aos-summary-1",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"東京から京都への2泊3日新婚旅行プランの作成。伝統文化とラグジュアリーホテルを中心とした旅程設計。...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-1-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 1812,
+      "storedAt": "2026-06-30T11:17:10.000Z",
+      "graphNodeId": "node-m-1"
+    }
+  },
+  {
+    "memoryId": "mem-2",
+    "missionId": "test-mission-2",
+    "category": "旅行計画",
+    "key": "aos-summary-2",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"北海道・知床半島での3泊4日大自然アドベンチャーツアーの計画。アウトドアアクティビティと温泉宿選定。...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-2-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 1957,
+      "storedAt": "2026-06-30T11:23:50.000Z",
+      "graphNodeId": "node-m-2"
+    }
+  },
+  {
+    "memoryId": "mem-3",
+    "missionId": "test-mission-3",
+    "category": "旅行計画",
+    "key": "aos-summary-3",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"沖縄・石垣島での4泊5日家族旅行プラン。小さな子供連れでも安全に楽しめるビーチと体験アクティビティの...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-3-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 2163,
+      "storedAt": "2026-06-30T11:30:30.000Z",
+      "graphNodeId": "node-m-3"
+    }
+  },
+  {
+    "memoryId": "mem-4",
+    "missionId": "test-mission-4",
+    "category": "旅行計画",
+    "key": "aos-summary-4",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"福岡・佐賀の1泊2日美食探訪の旅。屋台、イカの活き造り、嬉野温泉などのグルメ＆温泉満喫プラン。...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-4-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 1992,
+      "storedAt": "2026-06-30T11:37:10.000Z",
+      "graphNodeId": "node-m-4"
+    }
+  },
+  {
+    "memoryId": "mem-5",
+    "missionId": "test-mission-5",
+    "category": "旅行計画",
+    "key": "aos-summary-5",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"アメリカ・西海岸の1週間ドライブ旅行計画。ロサンゼルスからサンフランシスコまでの101号線ルート選定...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-5-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 2324,
+      "storedAt": "2026-06-30T11:43:50.000Z",
+      "graphNodeId": "node-m-5"
+    }
+  },
+  {
+    "memoryId": "mem-6",
+    "missionId": "test-mission-6",
+    "category": "旅行計画",
+    "key": "aos-summary-6",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"欧州・パリとローマの2カ国周遊7日間弾丸ツアーの計画。主要美術館の予約ガイドと観光マップ。...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-6-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 2300,
+      "storedAt": "2026-06-30T11:50:30.000Z",
+      "graphNodeId": "node-m-6"
+    }
+  },
+  {
+    "memoryId": "mem-7",
+    "missionId": "test-mission-7",
+    "category": "旅行計画",
+    "key": "aos-summary-7",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"アジア・タイ（バンコクとプーケット）の5泊6日リフレッシュ旅行プラン。マッサージ、寺院、プライベート...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-7-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 1574,
+      "storedAt": "2026-06-30T11:57:10.000Z",
+      "graphNodeId": "node-m-7"
+    }
+  },
+  {
+    "memoryId": "mem-8",
+    "missionId": "test-mission-8",
+    "category": "旅行計画",
+    "key": "aos-summary-8",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"長野・軽井沢での週末1泊2日ワーケーションプラン。静かなカフェ、Wi-Fi環境の良いホテル、自然散策...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-8-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 1924,
+      "storedAt": "2026-06-30T12:03:50.000Z",
+      "graphNodeId": "node-m-8"
+    }
+  },
+  {
+    "memoryId": "mem-9",
+    "missionId": "test-mission-9",
+    "category": "旅行計画",
+    "key": "aos-summary-9",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"静岡・伊豆半島を巡る温泉三昧のドライブ旅計画。露天風呂付き客室がある高級旅館と絶景スポット巡り。...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-9-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 1599,
+      "storedAt": "2026-06-30T12:10:30.000Z",
+      "graphNodeId": "node-m-9"
+    }
+  },
+  {
+    "memoryId": "mem-10",
+    "missionId": "test-mission-10",
+    "category": "旅行計画",
+    "key": "aos-summary-10",
+    "content": {
+      "summary": "Strategic output compiled successfully for mission: \"スイス・アルプスハイキングの5日間旅程。鉄道パスの活用、初心者向けハイキングルートと展望台の選定。...\"",
+      "tags": [
+        "旅行計画",
+        "production-acceptance-test"
+      ],
+      "deliverablesMap": [
+        "/outputs/test-mission-10-main-report.md"
+      ]
+    },
+    "metadata": {
+      "sizeBytes": 1964,
+      "storedAt": "2026-06-30T12:17:10.000Z",
+      "graphNodeId": "node-m-10"
+    }
+  }
+]

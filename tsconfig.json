@@ -18,9 +18,23 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@origin/domain/*": [
+        "./packages/domain/src/*"
+      ],
+      "@origin/domain": [
+        "./packages/domain/src/index"
       ]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "playwright.config.ts",
+    ".storybook",
+    "apps",
+    "infra",
+    "node_modules",
+    "dist"
+  ]
 }

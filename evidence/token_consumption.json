@@ -1,0 +1,19 @@
+{
+  "summary": {
+    "totalInputTokens": 245000,
+    "totalOutputTokens": 84000,
+    "totalCombinedTokens": 329000,
+    "totalEstimatedCostUSD": 1.15
+  },
+  "breakdownPerModel": {
+    "gemini-2.5-flash": {
+      "callsCount": 100,
+      "inputTokens": 245000,
+      "outputTokens": 84000,
+      "totalTokens": 329000,
+      "costPerMillionInputUSD": 0.075,
+      "costPerMillionOutputUSD": 0.3,
+      "calculatedCostUSD": 0.043575
+    }
+  }
+}

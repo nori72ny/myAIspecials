@@ -1,0 +1,27 @@
+<testsuites id="" name="" tests="1" failures="0" skipped="0" errors="1" time="3.1888770000000006">
+<testsuite name="acos.spec.ts" timestamp="2026-06-30T11:51:41.526Z" hostname="chromium" tests="1" failures="0" skipped="0" time="0.004" errors="1">
+<testcase name="ACOS 2.0 Full Lifecycle E2E Test › should execute a complete mission lifecycle from UI" classname="acos.spec.ts" time="0.004">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|../test-results/acos-ACOS-2-0-Full-Lifecyc-ed0fe-e-mission-lifecycle-from-UI-chromium/error-context.md]]
+]]>
+</system-out>
+<error message="browserType.launch: Executable doesn&apos;t exist at /root/.cache/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-linux64/chrome-headless-shell" type="Error">
+<![CDATA[  [chromium] › acos.spec.ts:4:3 › ACOS 2.0 Full Lifecycle E2E Test › should execute a complete mission lifecycle from UI 
+
+    Error: browserType.launch: Executable doesn't exist at /root/.cache/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     npx playwright install                                 ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: ../../test-results/acos-ACOS-2-0-Full-Lifecyc-ed0fe-e-mission-lifecycle-from-UI-chromium/error-context.md
+]]>
+</error>
+</testcase>
+</testsuite>
+</testsuites>

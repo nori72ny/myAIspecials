@@ -1,0 +1,49 @@
+508:        <motion.div
+526:        </motion.div>
+539:            <motion.div
+660:              <motion.div key="dashboard" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+662:              </motion.div>
+665:              <motion.div key="chat" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+667:              </motion.div>
+670:              <motion.div key="multi-ai" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+672:              </motion.div>
+675:              <motion.div key="workflows" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex items-center justify-center min-h-0 h-[calc(100vh-140px)]">
+681:              </motion.div>
+684:              <motion.div key="memory" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex items-center justify-center min-h-0 h-[calc(100vh-140px)]">
+690:              </motion.div>
+693:              <motion.div key="settings" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex items-center justify-center min-h-0 h-[calc(100vh-140px)]">
+699:              </motion.div>
+703:              <motion.div key="mission" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex flex-col gap-6">
+706:              <motion.div
+933:                  <motion.div
+983:                  </motion.div>
+987:                  <motion.div
+1049:                  </motion.div>
+1053:                  <motion.div
+1132:                  </motion.div>
+1136:                  <motion.div
+1201:                  </motion.div>
+1205:                  <motion.div
+1263:                  </motion.div>
+1267:                  <motion.div
+1336:                  </motion.div>
+1340:                  <motion.div
+1402:                  </motion.div>
+1406:                  <motion.div
+1492:                  </motion.div>
+1496:                  <motion.div
+1568:                  </motion.div>
+1572:                  <motion.div
+1637:                  </motion.div>
+1641:                  <motion.div
+1730:                  </motion.div>
+1732:              </motion.div>
+1737:              <motion.div
+1811:                      <motion.div 
+1827:                      </motion.div>
+1834:                  <motion.div
+1868:                        <motion.div
+2009:                  </motion.div>
+2014:                  <motion.div 
+2032:                  </motion.div>
+2034:              </motion.div>

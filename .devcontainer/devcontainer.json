@@ -1,0 +1,22 @@
+{
+  "name": "ORIGIN OS Development Container",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:20",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "styled-components.vscode-styled-components",
+        "bennypowers.lit-css",
+        "editorconfig.editorconfig"
+      ]
+    }
+  },
+  "forwardPorts": [3000, 6006],
+  "postCreateCommand": "corepack enable && pnpm install",
+  "remoteUser": "node"
+}

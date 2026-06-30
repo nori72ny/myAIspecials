@@ -218,6 +218,78 @@ export interface AnalysisResult {
 
   // 24. ORIGIN Mission Engine Specification (Document 001)
   originMissionEngineSpec?: OriginMissionEngineSpec;
+
+  // 25. ORIGIN Kernel Specification (Version 1.0)
+  originKernelSpec?: OriginKernelSpec;
+
+  // 26. AI Evaluation Framework (OAEF)
+  originAiEvaluationFramework?: OriginAiEvaluationFramework;
+
+  // 27. Mission Success Engine (MSE)
+  originMissionSuccessEngineSpec?: OriginMissionSuccessEngine;
+}
+
+export interface OriginMissionSuccessEngine {
+  mission: string;
+  steps: {
+    number: number;
+    title: string;
+    description: string;
+    status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  }[];
+  postMission: {
+    successRate: number;
+    improvements: string[];
+    reusableKnowledge: string[];
+  };
+  finalRule: {
+    title: string;
+    description: string;
+    isFollowed: boolean;
+  };
+}
+
+export interface OriginAiEvaluationFramework {
+  mission: string;
+  categories: {
+    id: string;
+    name: string;
+    metrics: string[];
+  }[];
+  evaluatedModels: {
+    modelName: string;
+    overallEvaluation: "Gold" | "Silver" | "Bronze" | "Review Required";
+    scores: {
+      categoryName: string;
+      scoreValue: number;
+    }[];
+    missionSuccessRate: {
+      domain: string;
+      successRate: number;
+    }[];
+    advantage: string;
+  }[];
+  updates: {
+    daily: string;
+    weekly: string;
+    monthly: string;
+  };
+  finalRule: {
+    title: string;
+    description: string;
+    isFollowed: boolean;
+  };
+}
+
+export interface OriginKernelSpec {
+  version: string;
+  mission: string;
+  modules: string[];
+  priority: string[];
+  rule: string;
+  state: string[];
+  event: string[];
+  principle: string;
 }
 
 export interface OriginMissionEngineSpec {
