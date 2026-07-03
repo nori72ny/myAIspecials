@@ -32,11 +32,33 @@ interface NeuralNode {
   glowColor: string;
   angle: number; // in radians, for circular layout
   description: string;
+  jpDescription: string;
 }
 
 export default function DynamicBrain() {
+  // Load settings for isEn localization
+  const [isEn, setIsEn] = useState(false);
+
+  useEffect(() => {
+    const handleSettingsChange = () => {
+      try {
+        const stored = localStorage.getItem("workspace_settings");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setIsEn(parsed.language === "en");
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    handleSettingsChange();
+    window.addEventListener("storage", handleSettingsChange);
+    return () => window.removeEventListener("storage", handleSettingsChange);
+  }, []);
+
   // Live states for thinking and metrics
-  const [thinkingMode, setThinkingMode] = useState<"Thinking" | "Planning" | "Reasoning" | "Learning" | "Researching" | "Comparing" | "Synthesizing">("Thinking");
+  const [thinkingMode, setThinkingMode] = useState<string>("Thinking");
   const [activeThoughts, setActiveThoughts] = useState<string[]>([
     "Initializing neural core matrix...",
     "Synchronizing organizational knowledge layers..."
@@ -75,12 +97,13 @@ export default function DynamicBrain() {
     {
       id: "mission",
       label: "Mission",
-      jpLabel: "ミッション定義",
+      jpLabel: "ミッション",
       icon: <Target className="w-4 h-4" />,
       color: "from-pink-500 to-rose-500",
       glowColor: "rgba(244, 63, 94, 0.4)",
       angle: -Math.PI / 2, // 12 o'clock
-      description: "自律タスク、ゴール設定、コンテキスト制約の管理"
+      description: "Manage autonomous tasks, strategic goal settings, and context parameters.",
+      jpDescription: "自律タスク、戦略ゴール設定、コンテキスト制約パラメータの管理"
     },
     {
       id: "workspace",
@@ -90,7 +113,8 @@ export default function DynamicBrain() {
       color: "from-amber-500 to-orange-500",
       glowColor: "rgba(245, 158, 11, 0.4)",
       angle: -Math.PI / 2 + (2 * Math.PI) / 7,
-      description: "成果物、添付のインテリジェンス資料、Debate記録の保存"
+      description: "Storage of deliverables, intelligent attachments, and deep debate logs.",
+      jpDescription: "成果物、添付のインテリジェンス資料、および詳細なDebate審議記録の保存"
     },
     {
       id: "marketplace",
@@ -100,27 +124,30 @@ export default function DynamicBrain() {
       color: "from-fuchsia-500 to-purple-500",
       glowColor: "rgba(217, 70, 239, 0.4)",
       angle: -Math.PI / 2 + (2 * (2 * Math.PI)) / 7,
-      description: "プロフェッショナルな事前構成済み検証テンプレート"
+      description: "Pre-configured validation templates and specialized intelligence pipelines.",
+      jpDescription: "プロフェッショナルな事前構成済み検証テンプレートとインテリジェンス構造"
     },
     {
       id: "agent",
       label: "Agent",
-      jpLabel: "エージェント群",
+      jpLabel: "エージェント",
       icon: <Bot className="w-4 h-4" />,
       color: "from-red-500 to-coral-500",
       glowColor: "rgba(239, 68, 68, 0.4)",
       angle: -Math.PI / 2 + (3 * (2 * Math.PI)) / 7,
-      description: "Gemini / Claude / OpenAI などの複数協調推論エンジンの実行"
+      description: "Execution of collaborative reasoning engines (Gemini, Claude, OpenAI, etc.).",
+      jpDescription: "Gemini / Claude / OpenAI などの複数協調推論エンジンの並列実行"
     },
     {
       id: "organization",
       label: "Organization",
-      jpLabel: "組織・ガバナンス",
+      jpLabel: "オーガニゼーション",
       icon: <Shield className="w-4 h-4" />,
       color: "from-blue-500 to-cyan-500",
       glowColor: "rgba(59, 130, 246, 0.4)",
       angle: -Math.PI / 2 + (4 * (2 * Math.PI)) / 7,
-      description: "UQI品質ゲート、リスク許容値、ポリシー制約の監視"
+      description: "Monitor UQI quality gates, risk levels, and organizational policy constraints.",
+      jpDescription: "UQI品質ゲート、監査検証スコア、ポリシー制約の動的リアルタイム監視"
     },
     {
       id: "knowledge",
@@ -130,7 +157,8 @@ export default function DynamicBrain() {
       color: "from-teal-500 to-emerald-500",
       glowColor: "rgba(20, 184, 166, 0.4)",
       angle: -Math.PI / 2 + (5 * (2 * Math.PI)) / 7,
-      description: "OEvE（組織進化エンジン）によるファクト蓄積・長期記憶"
+      description: "Consolidation of fact storage and long-term memory via OEvE engine.",
+      jpDescription: "OEvE（組織進化エンジン）によるファクト蓄積と長期永続化メモリ"
     },
     {
       id: "memory",
@@ -140,7 +168,8 @@ export default function DynamicBrain() {
       color: "from-indigo-500 to-violet-500",
       glowColor: "rgba(99, 102, 241, 0.4)",
       angle: -Math.PI / 2 + (6 * (2 * Math.PI)) / 7,
-      description: "過去の意思決定パスとセッション・ベクトルのインデックス同期"
+      description: "Synchronize index pathways and historic vector session embeddings.",
+      jpDescription: "過去の意思決定パスとセッション・ベクトル表現のインデックス同期"
     }
   ], []);
 
@@ -186,11 +215,14 @@ export default function DynamicBrain() {
 
   // Real-time Thinking Mode and Log fluctuation
   useEffect(() => {
-    const thinkingModes: Array<"Thinking" | "Planning" | "Reasoning" | "Learning" | "Researching" | "Comparing" | "Synthesizing"> = [
+    const thinkingModesEn = [
       "Thinking", "Planning", "Reasoning", "Learning", "Researching", "Comparing", "Synthesizing"
     ];
+    const thinkingModesJp = [
+      "思考中", "計画中", "推論中", "学習中", "調査中", "比較中", "統合中"
+    ];
 
-    const thinkingLogs = [
+    const thinkingLogsEn = [
       "Analyzing organizational risk postures...",
       "Synthesizing high-value SWOT deliverables...",
       "Evaluating financial ROI forecasts...",
@@ -203,6 +235,23 @@ export default function DynamicBrain() {
       "Compiling tactical execution blueprints...",
       "Balancing knowledge network node density..."
     ];
+
+    const thinkingLogsJp = [
+      "組織のリスク姿勢を分析中...",
+      "高価値SWOT成果物の統合中...",
+      "財務的なROI予測値を検証中...",
+      "構造的タスク適合性（UQI）を検証中...",
+      "長期的なベクトル・シナプスの呼び出し中...",
+      "複数モデルによるクロス審議プールを統合中...",
+      "モデルの重みパラメータと合意定義を調和中...",
+      "セマンティック妥当性のヒューリスティックを走査中...",
+      "法的判例・前提条件ライブラリを精査中...",
+      "戦術的実行ブループリントを構築中...",
+      "ナレッジネットワークのノード密度を平滑化中..."
+    ];
+
+    const thinkingModes = isEn ? thinkingModesEn : thinkingModesJp;
+    const thinkingLogs = isEn ? thinkingLogsEn : thinkingLogsJp;
 
     const interval = setInterval(() => {
       // Toggle random thinking mode
@@ -247,7 +296,7 @@ export default function DynamicBrain() {
     }, 2800);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [isEn]);
 
   return (
     <div className="space-y-6 w-full">
@@ -261,7 +310,7 @@ export default function DynamicBrain() {
           <div className="space-y-0.5">
             <h3 className="text-[11px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
               <Activity className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
-              Organizational Neuralink Sphere (ACOS-Core)
+              {isEn ? "Organizational Neuralink Sphere (ACOS-Core)" : "組織内ニューラリンク・スフィア (ACOS-Core)"}
             </h3>
             <p className="text-[10px] text-slate-400 font-semibold font-mono">STATUS: HIGH_FIDELITY_LIVE • SYNC_RATE: 100%</p>
           </div>
@@ -270,7 +319,7 @@ export default function DynamicBrain() {
         <div className="flex items-center gap-2">
           <span className="text-[9.5px] font-mono font-bold text-indigo-500 dark:text-indigo-400 px-2.5 py-1 bg-indigo-500/5 dark:bg-indigo-500/15 border border-indigo-500/10 rounded-full flex items-center gap-1.5">
             <RefreshCw className="w-3 h-3 animate-spin" />
-            <span>NEURAL CORE EFFICIENCY: {metrics.accuracy}%</span>
+            <span>{isEn ? "NEURAL CORE EFFICIENCY" : "神経コア伝達効率"}: {metrics.accuracy}%</span>
           </span>
         </div>
       </div>
@@ -290,7 +339,7 @@ export default function DynamicBrain() {
           <div className="absolute top-4 left-4 z-10 bg-white/5 border border-white/[0.04] px-3 py-1.5 rounded-xl pointer-events-none">
             <p className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <Compass className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Click core or hover nodes to sync</span>
+              <span>{isEn ? "Click core or hover nodes to sync" : "コアをクリック、またはノードホバーで同期"}</span>
             </p>
           </div>
 
@@ -537,7 +586,7 @@ export default function DynamicBrain() {
                       </div>
                     </g>
 
-                    {/* Label Pair (English display + Japanese subtle tag) */}
+                    {/* Label Pair (English display + Japanese display according to isEn) */}
                     <text
                       x={node.x}
                       y={node.y + 42}
@@ -547,7 +596,7 @@ export default function DynamicBrain() {
                         isHovered ? "fill-white" : "fill-slate-400"
                       )}
                     >
-                      {node.label}
+                      {isEn ? node.label : node.jpLabel}
                     </text>
 
                     <text
@@ -556,7 +605,7 @@ export default function DynamicBrain() {
                       textAnchor="middle"
                       className="text-[8px] font-sans text-neutral-600 fill-slate-500 font-bold tracking-wide"
                     >
-                      {node.jpLabel}
+                      {isEn ? node.jpLabel : node.label}
                     </text>
                   </motion.g>
                 );
@@ -578,11 +627,13 @@ export default function DynamicBrain() {
                   <div className="flex items-center gap-2 justify-center">
                     <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping" />
                     <h4 className="text-[11px] font-black tracking-widest text-indigo-300 uppercase font-mono">
-                      {positionedNodes.find(n => n.id === hoveredNode)?.label} SPECIFICATION
+                      {isEn ? `${positionedNodes.find(n => n.id === hoveredNode)?.label} SPECIFICATION` : `${positionedNodes.find(n => n.id === hoveredNode)?.jpLabel} 仕様定義`}
                     </h4>
                   </div>
                   <p className="text-[10px] text-slate-300 font-semibold mt-1 font-sans">
-                    {positionedNodes.find(n => n.id === hoveredNode)?.description}
+                    {isEn 
+                      ? positionedNodes.find(n => n.id === hoveredNode)?.description 
+                      : positionedNodes.find(n => n.id === hoveredNode)?.jpDescription}
                   </p>
                 </motion.div>
               ) : (
@@ -592,7 +643,9 @@ export default function DynamicBrain() {
                   animate={{ opacity: 0.6 }}
                   className="text-[9.5px] font-mono text-slate-500 tracking-widest uppercase"
                 >
-                  SYSTEM ENGAGED • HOVER SEGMENTS TO EXPLORE INTERNAL SPECIFICATIONS
+                  {isEn 
+                    ? "SYSTEM ENGAGED • HOVER SEGMENTS TO EXPLORE INTERNAL SPECIFICATIONS" 
+                    : "システム起動中 • 各セグメントへのホバーで詳細な内部仕様を展開"}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -606,14 +659,16 @@ export default function DynamicBrain() {
           <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-3xl space-y-4">
             <h4 className="text-[10px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
               <TrendingUp className="w-4 h-4 text-pink-500 animate-bounce" />
-              Cognitive Performance Metrics
+              {isEn ? "Cognitive Performance Metrics" : "認知能力・パフォーマンス統計指標"}
             </h4>
 
             <div className="grid grid-cols-2 gap-4">
               
               {/* Thinking Speed */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Thinking Speed</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  {isEn ? "Thinking Speed" : "思考処理速度"}
+                </span>
                 <div className="text-sm font-black text-slate-800 dark:text-white mt-1 font-mono tracking-tight flex items-baseline gap-1">
                   {metrics.thinkingSpeed}
                   <span className="text-[8px] font-medium text-slate-400 font-sans">T/S</span>
@@ -622,7 +677,9 @@ export default function DynamicBrain() {
 
               {/* Knowledge Density */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Knowledge DNA</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  {isEn ? "Knowledge DNA" : "知識DNA蓄積"}
+                </span>
                 <div className="text-sm font-black text-slate-800 dark:text-white mt-1 font-mono tracking-tight flex items-baseline gap-1">
                   {metrics.knowledgeDensity}
                   <span className="text-[8px] font-medium text-slate-400 font-sans">GB</span>
@@ -631,7 +688,9 @@ export default function DynamicBrain() {
 
               {/* Alignment / Accuracy */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">UQI Accuracy</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  {isEn ? "UQI Accuracy" : "UQI適合精度"}
+                </span>
                 <div className="text-sm font-black text-emerald-500 mt-1 font-mono tracking-tight">
                   {metrics.accuracy}%
                 </div>
@@ -639,7 +698,9 @@ export default function DynamicBrain() {
 
               {/* Reasoning depth */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Reasoning Depth</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  {isEn ? "Reasoning Depth" : "推論処理深度"}
+                </span>
                 <div className="text-sm font-black text-indigo-400 mt-1 font-mono tracking-tight flex items-baseline gap-1">
                   Lvl {metrics.reasoningDepth}
                   <span className="text-[8px] font-medium text-slate-400 font-sans">Mesh</span>
@@ -648,7 +709,9 @@ export default function DynamicBrain() {
 
               {/* Context window */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Context Load</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  {isEn ? "Context Load" : "文脈リソース負荷"}
+                </span>
                 <div className="text-sm font-black text-slate-800 dark:text-white mt-1 font-mono tracking-tight flex items-baseline gap-1">
                   {metrics.contextUsage}%
                   <span className="text-[8px] font-medium text-slate-400 font-sans">Active</span>
@@ -657,7 +720,9 @@ export default function DynamicBrain() {
 
               {/* Learning Rate */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Learning Rate</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  {isEn ? "Learning Rate" : "動的学習効率"}
+                </span>
                 <div className="text-sm font-black text-amber-500 mt-1 font-mono tracking-tight">
                   η={metrics.learningRate}
                 </div>
@@ -670,17 +735,17 @@ export default function DynamicBrain() {
           <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-3xl space-y-3.5">
             <h4 className="text-[10px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
               <Cpu className="w-4 h-4 text-indigo-500" />
-              Active Synapse Agents
+              {isEn ? "Active Synapse Agents" : "アクティブ同期エージェント"}
             </h4>
 
             <div className="grid grid-cols-2 gap-2">
               {[
-                { key: "gemini", name: "Gemini Flash", logo: "♊", desc: "高速並列推論" },
-                { key: "claude", name: "Claude Sonnet", logo: "🍁", desc: "高品質コード" },
-                { key: "openai", name: "OpenAI GPT", logo: "🟢", desc: "総合論理判定" },
-                { key: "perplexity", name: "Perplexity", logo: "🔍", desc: "リアルタイム検索" },
-                { key: "deepseek", name: "DeepSeek-R1", logo: "🐳", desc: "数理推論・Standby" },
-                { key: "qwen", name: "Qwen Coder", logo: "🚀", desc: "技術コード・Standby" }
+                { key: "gemini", name: "Gemini Flash", logo: "♊", desc: isEn ? "Parallel reasoning" : "高速並列推論" },
+                { key: "claude", name: "Claude Sonnet", logo: "🍁", desc: isEn ? "High-quality code" : "高品質コード" },
+                { key: "openai", name: "OpenAI GPT", logo: "🟢", desc: isEn ? "Global logic check" : "総合論理判定" },
+                { key: "perplexity", name: "Perplexity", logo: "🔍", desc: isEn ? "Real-time search" : "リアルタイム検索" },
+                { key: "deepseek", name: "DeepSeek-R1", logo: "🐳", desc: isEn ? "Math & reasoning" : "数理推論・Standby" },
+                { key: "qwen", name: "Qwen Coder", logo: "🚀", desc: isEn ? "Tech & coding" : "技術コード・Standby" }
               ].map((ag) => {
                 const isPulse = agentPulses[ag.key as keyof typeof agentPulses];
                 return (
@@ -717,7 +782,9 @@ export default function DynamicBrain() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-indigo-400">
                 <Terminal className="w-4 h-4 animate-pulse" />
-                <span className="font-bold text-[9.5px] font-mono uppercase tracking-widest">Cognitive Core Stream</span>
+                <span className="font-bold text-[9.5px] font-mono uppercase tracking-widest">
+                  {isEn ? "Cognitive Core Stream" : "認知コア・ストリームログ"}
+                </span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />

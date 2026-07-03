@@ -34,18 +34,35 @@ interface BoardroomAgent {
 }
 
 export default function Boardroom({ onComplete, missionTitle }: { onComplete?: () => void, missionTitle?: string }) {
+  // Get language from localStorage settings
+  const [language, setLanguage] = useState<"ja" | "en">("ja");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("workspace_settings");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.language) {
+          setLanguage(parsed.language);
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  const isEn = language === "en";
+
   // Debate control state
   const [isPlaying, setIsPlaying] = useState(true);
   const [debateSpeed, setDebateSpeed] = useState<"normal" | "fast" | "hyper">("normal");
 
   // Dynamic AI statuses
   const [agentStatuses, setAgentStatuses] = useState<Record<string, string>>({
-    gemini: "Thinking",
-    claude: "Reasoning",
-    openai: "Fact Checking",
-    perplexity: "Researching",
-    deepseek: "Comparing",
-    qwen: "Synthesizing"
+    gemini: isEn ? "Thinking" : "思考中",
+    claude: isEn ? "Reasoning" : "推論中",
+    openai: isEn ? "Fact Checking" : "ファクトチェック",
+    perplexity: isEn ? "Researching" : "調査中",
+    deepseek: isEn ? "Comparing" : "比較中",
+    qwen: isEn ? "Synthesizing" : "統合中"
   });
 
   // Current perspectives displayed when clicking on an AI node
@@ -64,12 +81,21 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
   });
 
   // Real-time flowing console logs
-  const [logs, setLogs] = useState<string[]>([
-    "Initializing High-Fidelity Boardroom Matrix...",
-    "Synchronizing multi-agent routing sockets...",
-    "ACOS-Core: Fetching latest SWOT vectors...",
-    "Consensus Engine initialized on thread #9"
-  ]);
+  const [logs, setLogs] = useState<string[]>(
+    isEn
+      ? [
+          "Initializing High-Fidelity Boardroom Matrix...",
+          "Synchronizing multi-agent routing sockets...",
+          "ACOS-Core: Fetching latest SWOT vectors...",
+          "Consensus Engine initialized on thread #9"
+        ]
+      : [
+          "高精度審議ボードルーム・マトリクスを起動中...",
+          "マルチエージェント・ルーティングソケットを同期中...",
+          "ACOSコア: 最新のSWOTベクトルを読み込んでいます...",
+          "スレッド #9 にて合意エンジンが初期化されました"
+        ]
+  );
 
   // Right-panel Phase progress states (0 to 100)
   const [phaseProgress, setPhaseProgress] = useState({
@@ -83,37 +109,61 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
 
   // Selected AI's current debate statement simulation
   const agentPerspectives = useMemo(() => ({
-    gemini: [
+    gemini: isEn ? [
       "I recommend utilizing a dual-stage execution model to bypass standard token latency limits.",
       "Parsing semantic overlaps in the user's domain. Let's optimize for maximum parallel output.",
       "The ROI projection can be enhanced by about 12.4% if we route low-level items to sub-threads."
+    ] : [
+      "標準のトークン遅延限界をバイパスするために、2段階の実行モデルを使用することを推奨します。",
+      "ユーザーのドメインでのセマンティックな重なりを解析しています。並列出力を最大化させましょう。",
+      "低レベルなタスクをサブスレッドにルーティングすれば、ROIの予測値を約12.4%向上させることが可能です。"
     ],
-    claude: [
+    claude: isEn ? [
       "We must enforce strict compliance with Rule #4 (UQI) and not compromise on the code correctness.",
       "Analyzing the structural integrity of the requested deliverables. Applying robust type contracts.",
       "My reasoning depth suggests a slight bottleneck in the memory network layer. Rectifying schema paths now."
+    ] : [
+      "ルール#4（UQI）との厳格な適合を強制し、コードの正確さにおいて決して妥協すべきではありません。",
+      "要求された成果物の構造的整合性を分析しています。堅牢な型規約を適用します。",
+      "私の推論深度によれば、メモリネットワークレイヤーにわずかなボトルネックが検出されました。スキーマパスを修復中です。"
     ],
-    openai: [
+    openai: isEn ? [
       "Analyzing high-level risk audit trails. Financial projections look highly favorable, confidence index: 96.2%.",
       "Fact-checking the core claims with our unified cross-reference databases.",
       "I have finalized the primary consensus parameters. Let's initiate the next deliberation phase."
+    ] : [
+      "高度なリスク監査証跡を分析中。財務予測は非常に良好、信頼性インデックスは96.2%です。",
+      "統合された相互参照データベースを用いて、コアとなる主張のファクトチェックを行っています。",
+      "プライマリの合意パラメータを確定させました。次の審議フェーズを開始しましょう。"
     ],
-    perplexity: [
+    perplexity: isEn ? [
       "Freshness score is high. Retrieved 24 new papers and competitor pricing datasets from the web.",
       "Scanning latest market reports for GEO (Generative Engine Optimization) trends.",
       "No overlapping trademarks detected in the proposed system scope."
+    ] : [
+      "情報の鮮度スコアは極めて高値。ウェブから競合価格データセットと最新論文24報を収集しました。",
+      "GEO（生成エンジン最適化）トレンドに関する最新の市場レポートをスキャンしています。",
+      "提案されたシステムスコープにおいて、重複する商標や特許は検知されませんでした。"
     ],
-    deepseek: [
+    deepseek: isEn ? [
       "Let us formulate this task as a mathematically proven constraint satisfaction problem.",
       "Re-weighting current debate parameters. The consensus gradient is settling at 0.942.",
       "Simulating 1,000 parallel monte-carlo runs on the ROI outcomes."
+    ] : [
+      "この課題を数学的に実証可能な制約充足問題として定式化しましょう。",
+      "現在の審議パラメータを再重み付け中。合意勾配は0.942に収束しつつあります。",
+      "ROI結果に対して1,000回の並列モンテカルロ・シミュレーションを実行中。"
     ],
-    qwen: [
+    qwen: isEn ? [
       "I am translating the parsed architecture into scalable technical system blueprints.",
       "Double-checking code snippets against world-class performance optimization presets.",
       "Formatting the final outcome files with elegant, error-free TypeScript structures."
+    ] : [
+      "解析されたアーキテクチャをスケーラブルな技術システム設計図に変換しています。",
+      "世界最高峰のパフォーマンス最適化プリセットに対して、コードスニペットをダブルチェックしています。",
+      "完成した成果物ファイルを、エラーのない洗練されたTypeScript構造にフォーマット中です。"
     ]
-  }), []);
+  }), [isEn]);
 
   // Set circular coordinates for neural net rendering
   const cx = 350;
@@ -130,11 +180,11 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
   ], []);
 
   // Neural net secondary nodes
-  const coreNodes = [
-    { id: "neural-core", label: "Neural Core", x: cx, y: cy, color: "rgba(99, 102, 241, 0.8)" },
-    { id: "consensus", label: "Consensus Engine", x: cx - 60, y: cy + 90, color: "rgba(236, 72, 153, 0.8)" },
-    { id: "memory", label: "Knowledge Memory", x: cx + 60, y: cy + 90, color: "rgba(20, 184, 166, 0.8)" }
-  ];
+  const coreNodes = useMemo(() => [
+    { id: "neural-core", label: isEn ? "Neural Core" : "神経コア", x: cx, y: cy, color: "rgba(99, 102, 241, 0.8)" },
+    { id: "consensus", label: isEn ? "Consensus Engine" : "合意エンジン", x: cx - 60, y: cy + 90, color: "rgba(236, 72, 153, 0.8)" },
+    { id: "memory", label: isEn ? "Knowledge Memory" : "知識メモリ", x: cx + 60, y: cy + 90, color: "rgba(20, 184, 166, 0.8)" }
+  ], [isEn, cx, cy]);
 
   // Dynamic status triggers & logging stream
   useEffect(() => {
@@ -142,23 +192,37 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
 
     const intervalTime = debateSpeed === "hyper" ? 600 : debateSpeed === "fast" ? 1500 : 2500;
 
-    const possibleStatuses = [
-      "Thinking", "Researching", "Reasoning", "Comparing", "Synthesizing", "Fact Checking", "Debating", "Verifying Code"
-    ];
+    const possibleStatuses = isEn
+      ? ["Thinking", "Researching", "Reasoning", "Comparing", "Synthesizing", "Fact Checking", "Debating", "Verifying Code"]
+      : ["思考中", "調査中", "推論中", "比較検証中", "統合中", "事実検証中", "審議中", "コード検証中"];
 
-    const possibleLogs = [
-      "Comparing competitive price dynamics...",
-      "Analyzing legal compliance templates...",
-      "Resolving logical conflicts via debate matrix...",
-      "Analyzing potential hallucination vectors...",
-      "Syncing with cloud Spanner databases...",
-      "Extracting semantic embeddings for deliverables...",
-      "UQI Gate: Compliance validation level set to 95%...",
-      "Optimizing cost models based on token footprint...",
-      "Assembling robust ROI projections...",
-      "Consensus Engine: Harmonizing multi-agent outputs...",
-      "Updating knowledge DNA graphs..."
-    ];
+    const possibleLogs = isEn
+      ? [
+          "Comparing competitive price dynamics...",
+          "Analyzing legal compliance templates...",
+          "Resolving logical conflicts via debate matrix...",
+          "Analyzing potential hallucination vectors...",
+          "Syncing with cloud Spanner databases...",
+          "Extracting semantic embeddings for deliverables...",
+          "UQI Gate: Compliance validation level set to 95%...",
+          "Optimizing cost models based on token footprint...",
+          "Assembling robust ROI projections...",
+          "Consensus Engine: Harmonizing multi-agent outputs...",
+          "Updating knowledge DNA graphs..."
+        ]
+      : [
+          "競合価格のダイナミクスを比較中...",
+          "法的事実・適合性テンプレートを分析中...",
+          "審議マトリクスによる論理的衝突の解決中...",
+          "潜在的なハルシネーション領域の分析中...",
+          "クラウドSpannerデータベースと同期中...",
+          "成果物用セマンティック・エンベディングの抽出中...",
+          "UQIゲート: 品質適合レベルを95%以上に設定中...",
+          "トークン消費量に基づくコスト構造最適化中...",
+          "信頼性の高いROI予測値を組み立て中...",
+          "合意エンジン: マルチエージェント出力を調和中...",
+          "知識DNAグラフをアップデート中..."
+        ];
 
     const interval = setInterval(() => {
       // Fluctuate statuses
@@ -225,7 +289,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
     }, intervalTime);
 
     return () => clearInterval(interval);
-  }, [isPlaying, debateSpeed, onComplete, agents]);
+  }, [isPlaying, debateSpeed, onComplete, agents, isEn]);
 
   return (
     <div className="bg-[#030306]/98 text-white min-h-[640px] border border-white/[0.06] rounded-3xl p-6 overflow-hidden relative shadow-2xl font-sans flex flex-col justify-between">
@@ -240,10 +304,10 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
         <div className="space-y-1">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-500/10 border border-indigo-400/20 rounded-full text-[10px] font-bold text-indigo-300 uppercase tracking-widest font-mono">
             <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-            <span>Multi-Agent Executive Boardroom</span>
+            <span>{isEn ? "Multi-Agent Executive Boardroom" : "マルチエージェント・エグゼクティブ審議会"}</span>
           </div>
           <h2 className="text-xl font-black tracking-tight bg-gradient-to-r from-white via-indigo-100 to-indigo-300 bg-clip-text text-transparent">
-            {missionTitle || "Autonomous Business Intelligence Matrix"}
+            {missionTitle || (isEn ? "Autonomous Business Intelligence Matrix" : "自律型ビジネス・インテリジェンス・マトリクス")}
           </h2>
         </div>
 
@@ -255,7 +319,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
               "p-2 rounded-xl transition-all flex items-center justify-center cursor-pointer",
               isPlaying ? "bg-indigo-600 text-white shadow-lg" : "bg-neutral-800 text-slate-400 hover:text-white"
             )}
-            title={isPlaying ? "Pause debate simulation" : "Play debate simulation"}
+            title={isPlaying ? (isEn ? "Pause debate simulation" : "審議シミュレーションを一時停止") : (isEn ? "Play debate simulation" : "審議シミュレーションを開始")}
           >
             {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           </button>
@@ -287,7 +351,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
               className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold rounded-lg transition-all cursor-pointer font-mono shrink-0 ml-1 flex items-center gap-1"
             >
               <CheckCircle2 className="w-3 h-3" />
-              <span>DELIVER</span>
+              <span>{isEn ? "DELIVER" : "成果物を保存"}</span>
             </button>
           )}
         </div>
@@ -303,7 +367,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
           <div className="bg-neutral-900/40 border border-white/[0.04] p-4 rounded-2xl space-y-3.5 flex-1 min-h-[220px]">
             <h3 className="text-[10px] font-black text-slate-400 tracking-widest font-mono uppercase flex items-center gap-1.5">
               <Bot className="w-3.5 h-3.5 text-indigo-400" />
-              Intelligence Board
+              {isEn ? "Intelligence Board" : "審議メンバー / Board"}
             </h3>
 
             <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
@@ -354,7 +418,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
             <div className="flex items-center justify-between border-b border-white/[0.03] pb-1.5">
               <span className="font-mono text-[9px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1">
                 <Terminal className="w-3 h-3 animate-spin" />
-                <span>Live Stream logs</span>
+                <span>{isEn ? "Live Stream logs" : "リアルタイム審議ログ"}</span>
               </span>
               <span className="text-[7.5px] font-mono text-slate-500 uppercase">SYS_ACTIVE</span>
             </div>
@@ -575,10 +639,10 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <h4 className="text-[10.5px] font-black text-indigo-300 font-mono tracking-wider uppercase">
-                      {agents.find(a => a.id === selectedAgentId)?.name} Perspicacity
+                      {agents.find(a => a.id === selectedAgentId)?.name} {isEn ? "Perspicacity" : "見解・洞察"}
                     </h4>
                     <span className="text-[8px] bg-pink-500/10 text-pink-400 px-1.5 py-0.5 rounded font-mono font-black animate-pulse">
-                      DELIBERATING
+                      {isEn ? "DELIBERATING" : "審議中"}
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-200 mt-1 leading-relaxed font-sans">
@@ -598,18 +662,18 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
           <div className="bg-neutral-900/40 border border-white/[0.04] p-4 rounded-2xl space-y-4 flex-1">
             <h3 className="text-[10px] font-black text-slate-400 tracking-widest font-mono uppercase flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-pink-500" />
-              Mission Progress
+              {isEn ? "Mission Progress" : "ミッション進捗状況"}
             </h3>
 
             {/* Individual step bars */}
             <div className="space-y-3">
               {[
-                { key: "planning", label: "Planning", color: "from-pink-500 to-rose-500" },
-                { key: "research", label: "Research", color: "from-amber-500 to-orange-500" },
-                { key: "debate", label: "Debate Panel", color: "from-indigo-500 to-violet-500" },
-                { key: "factCheck", label: "Fact Check", color: "from-emerald-500 to-teal-500" },
-                { key: "quality", label: "Quality Audit", color: "from-cyan-500 to-blue-500" },
-                { key: "output", label: "Output Stream", color: "from-purple-500 to-fuchsia-500" }
+                { key: "planning", label: isEn ? "Planning" : "プラン計画", color: "from-pink-500 to-rose-500" },
+                { key: "research", label: isEn ? "Research" : "リサーチ調査", color: "from-amber-500 to-orange-500" },
+                { key: "debate", label: isEn ? "Debate Panel" : "ディベート審議", color: "from-indigo-500 to-violet-500" },
+                { key: "factCheck", label: isEn ? "Fact Check" : "事実整合検証", color: "from-emerald-500 to-teal-500" },
+                { key: "quality", label: isEn ? "Quality Audit" : "品質監査・推敲", color: "from-cyan-500 to-blue-500" },
+                { key: "output", label: isEn ? "Output Stream" : "アウトプット構築", color: "from-purple-500 to-fuchsia-500" }
               ].map((ph) => {
                 const progress = phaseProgress[ph.key as keyof typeof phaseProgress];
                 return (
@@ -638,8 +702,14 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
               <Zap className="w-4 h-4 animate-bounce" />
             </div>
             <div>
-              <p className="text-[9.5px] font-bold text-indigo-200">Consensus Optimizer Active</p>
-              <p className="text-[8px] text-slate-400 leading-snug">Multiple cross-model debating is active to verify accurate evidence logs.</p>
+              <p className="text-[9.5px] font-bold text-indigo-200">
+                {isEn ? "Consensus Optimizer Active" : "合意最適化プロセッサ稼働中"}
+              </p>
+              <p className="text-[8px] text-slate-400 leading-snug">
+                {isEn 
+                  ? "Multiple cross-model debating is active to verify accurate evidence logs." 
+                  : "複数の異なるAIモデルが自律的に主張を交わし、正確な証跡データを構築しています。"}
+              </p>
             </div>
           </div>
 
@@ -651,14 +721,14 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
       <div className="bg-[#0b0c10]/80 border border-white/[0.05] p-4 rounded-2xl backdrop-blur-3xl z-10 relative">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
           {[
-            { label: "Consensus", val: `${metrics.consensusScore}%`, icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> },
-            { label: "Confidence", val: `${metrics.confidence}%`, icon: <Shield className="w-3.5 h-3.5 text-indigo-400" /> },
-            { label: "UQI Gate", val: `${metrics.uqi}%`, icon: <Sparkles className="w-3.5 h-3.5 text-pink-400" /> },
-            { label: "Est. ROI", val: `${metrics.roi}%`, icon: <TrendingUp className="w-3.5 h-3.5 text-amber-400" /> },
-            { label: "Risk Factor", val: `${metrics.risk}%`, icon: <Activity className="w-3.5 h-3.5 text-rose-400" /> },
-            { label: "Accuracy", val: `${metrics.accuracy}%`, icon: <Compass className="w-3.5 h-3.5 text-cyan-400" /> },
-            { label: "Token Usage", val: metrics.tokenUsage.toLocaleString(), icon: <Coins className="w-3.5 h-3.5 text-slate-400" /> },
-            { label: "Reasoning Depth", val: `Lvl ${metrics.reasoningDepth}`, icon: <Cpu className="w-3.5 h-3.5 text-indigo-400" /> }
+            { label: isEn ? "Consensus" : "合意スコア", val: `${metrics.consensusScore}%`, icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> },
+            { label: isEn ? "Confidence" : "信頼性インデックス", val: `${metrics.confidence}%`, icon: <Shield className="w-3.5 h-3.5 text-indigo-400" /> },
+            { label: isEn ? "UQI Gate" : "UQI適合度", val: `${metrics.uqi}%`, icon: <Sparkles className="w-3.5 h-3.5 text-pink-400" /> },
+            { label: isEn ? "Est. ROI" : "想定利益率 / ROI", val: `${metrics.roi}%`, icon: <TrendingUp className="w-3.5 h-3.5 text-amber-400" /> },
+            { label: isEn ? "Risk Factor" : "リスク要因", val: `${metrics.risk}%`, icon: <Activity className="w-3.5 h-3.5 text-rose-400" /> },
+            { label: isEn ? "Accuracy" : "総合精度", val: `${metrics.accuracy}%`, icon: <Compass className="w-3.5 h-3.5 text-cyan-400" /> },
+            { label: isEn ? "Token Usage" : "消費トークン量", val: metrics.tokenUsage.toLocaleString(), icon: <Coins className="w-3.5 h-3.5 text-slate-400" /> },
+            { label: isEn ? "Reasoning Depth" : "推論深度", val: `Lvl ${metrics.reasoningDepth}`, icon: <Cpu className="w-3.5 h-3.5 text-indigo-400" /> }
           ].map((m, index) => (
             <div key={index} className="flex flex-col gap-1 border-r border-white/5 last:border-0 pr-2">
               <div className="flex items-center gap-1.5 text-slate-400">

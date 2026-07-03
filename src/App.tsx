@@ -225,10 +225,32 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAssistantOpen, setIsAssistantOpen] = useState(true);
-  const [settings, setSettings] = useState<Settings>({
-    autoRoute: true,
-    selectedAgents: ["gemini", "openai"] // Active models by default
+  const [settings, setSettings] = useState<Settings>(() => {
+    try {
+      const stored = localStorage.getItem("acos_settings");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (!parsed.language) parsed.language = "ja";
+        return parsed;
+      }
+    } catch (e) {
+      console.warn("localStorage settings read error", e);
+    }
+    return {
+      autoRoute: true,
+      selectedAgents: ["gemini", "openai"],
+      language: "ja"
+    };
   });
+
+  const updateSettings = (newSettings: Settings) => {
+    setSettings(newSettings);
+    try {
+      localStorage.setItem("acos_settings", JSON.stringify(newSettings));
+    } catch (e) {
+      console.warn("localStorage settings write error", e);
+    }
+  };
 
   const saveToHistory = (newPrompt: string) => {
     const trimmed = newPrompt.trim();
@@ -399,11 +421,13 @@ export default function App() {
   };
 
   const renderSidebarBody = (onItemClick?: () => void) => {
+    const isEn = settings.language === "en";
+
     return (
       <>
         <div className="p-4 space-y-1 overflow-y-auto flex-1">
           <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 mb-2">
-            ACOS Applications
+            {isEn ? "ACOS Applications" : "ACOS アプリケーション"}
           </div>
           <button
             onClick={() => {
@@ -418,7 +442,7 @@ export default function App() {
             )}
           >
             <Home className="w-4 h-4" />
-            <span>Home</span>
+            <span>{isEn ? "Home" : "ホーム"}</span>
           </button>
 
           <button
@@ -434,7 +458,7 @@ export default function App() {
             )}
           >
             <Briefcase className="w-4 h-4" />
-            <span>Workspace</span>
+            <span>{isEn ? "Workspace" : "ワークスペース"}</span>
           </button>
 
           <button
@@ -450,7 +474,7 @@ export default function App() {
             )}
           >
             <BrainCircuit className="w-4 h-4" />
-            <span>Brain</span>
+            <span>{isEn ? "Brain" : "ブレイン"}</span>
           </button>
 
           <button
@@ -466,7 +490,7 @@ export default function App() {
             )}
           >
             <Sparkles className="w-4 h-4" />
-            <span>Marketplace</span>
+            <span>{isEn ? "Marketplace" : "マーケットプレイス"}</span>
           </button>
 
           <button
@@ -482,14 +506,14 @@ export default function App() {
             )}
           >
             <Shield className="w-4 h-4" />
-            <span>Organization</span>
+            <span>{isEn ? "Organization" : "組織設定 / Cockpit"}</span>
           </button>
 
           {/* Active Agents status panel */}
           <div className="pt-6 border-t border-slate-800/80 mt-4 space-y-3">
             <div className="flex items-center justify-between px-3">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                Active Agents
+                {isEn ? "Active Agents" : "稼働AIメンバー"}
               </span>
               <button
                 onClick={() => {
@@ -497,7 +521,7 @@ export default function App() {
                   onItemClick?.();
                 }}
                 className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
-                title="モデル設定"
+                title={isEn ? "Model Settings" : "モデル設定"}
               >
                 <Settings2 className="w-3.5 h-3.5" />
               </button>
@@ -520,8 +544,8 @@ export default function App() {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               </div>
 
-              <div className="p-2 rounded-lg bg-slate-900/30 text-[9px] text-slate-500 border border-dashed border-slate-800">
-                将来対応予定: Claude, Perplexity, DeepSeek...
+              <div className="p-2 rounded-lg bg-slate-900/30 text-[9px] text-slate-500 border border-dashed border-slate-800 leading-relaxed">
+                {isEn ? "Coming Soon: Claude, Perplexity, DeepSeek..." : "将来対応予定: Claude, Perplexity, DeepSeek..."}
               </div>
             </div>
           </div>
@@ -532,12 +556,12 @@ export default function App() {
               <div className="flex items-center justify-between px-3">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
                   <History className="w-3 h-3" />
-                  タスク履歴
+                  {isEn ? "Task History" : "タスク履歴"}
                 </span>
                 <button
                   onClick={clearHistory}
                   className="p-1 hover:bg-slate-800 rounded-lg text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"
-                  title="履歴を全削除"
+                  title={isEn ? "Clear all history" : "履歴を全削除"}
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -832,7 +856,7 @@ export default function App() {
             )}
             {currentApp === "organization" && (
               <motion.div key="organization" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
-                <OrganizationApp settings={settings} updateSettings={setSettings} />
+                <OrganizationApp settings={settings} updateSettings={updateSettings} />
               </motion.div>
             )}
 
