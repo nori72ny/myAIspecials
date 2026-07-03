@@ -20,6 +20,7 @@ import WorkspaceCard from "./components/os/WorkspaceCard";
 import HomeScreen from "./components/os/HomeScreen";
 import WorkspaceApp from "./components/os/WorkspaceApp";
 import OrganizationApp from "./components/os/OrganizationApp";
+import Boardroom from "./components/os/Boardroom";
 import { 
   Search, 
   Shield,
@@ -1940,155 +1941,19 @@ export default function App() {
                   </div>
                 )}
 
-                {/* LOADING SCREEN (Steps 3, 4, 5, 6 from Core Journey) */}
+                {/* LOADING SCREEN (Steps 3, 4, 5, 6 from Core Journey replaced with high-end Boardroom matrix) */}
                 {taskMode === "loading" && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.98 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="p-6 md:p-8 bg-slate-950 text-white rounded-3xl border border-indigo-500/20 shadow-2xl space-y-8 max-w-3xl mx-auto"
+                    className="w-full"
                   >
-                    {/* Header */}
-                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                      <div className="flex items-center gap-3">
-                        <span className="relative flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
-                        </span>
-                        <div>
-                          <h3 className="text-sm font-black tracking-widest text-indigo-300 uppercase font-mono">
-                            Intelligence Assembly Engine v2.0
-                          </h3>
-                          <p className="text-[10px] text-slate-400 font-medium">UQI 12-Factor Quality Auditor Active</p>
-                        </div>
-                      </div>
-                      <div className="font-mono text-xs text-slate-500 flex items-center gap-2">
-                        <span className="animate-pulse">COMPILE PHASE</span>
-                        <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 rounded-md border border-indigo-500/20">
-                          {loadingStep}/4
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[11px] font-mono text-slate-400">
-                        <span>統合プロセス進捗</span>
-                        <span>{Math.round((loadingStep / 4) * 100)}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                        <motion.div
-                          initial={{ width: "0%" }}
-                          animate={{ width: `${(loadingStep / 4) * 100}%` }}
-                          transition={{ duration: 0.8, ease: "easeInOut" }}
-                          className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Sequential Theatrical Steps */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      
-                      {/* Step 1: Planning */}
-                      <div className={cn(
-                        "p-4 rounded-2xl border transition-all duration-500",
-                        loadingStep >= 1
-                          ? "bg-slate-900/80 border-indigo-500/30 text-white"
-                          : "bg-slate-900/20 border-white/5 text-slate-600"
-                      )}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-indigo-400 font-bold">[PHASE 01]</span>
-                          <h4 className="text-xs font-black">Planning (Mission Definition)</h4>
-                        </div>
-                        <ul className="space-y-1 text-[11px] font-medium text-slate-400 font-mono">
-                          <li className="flex items-center gap-1.5">
-                            <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
-                            <span>OEE Analysis: Goal mapping complete</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
-                            <span>Team Assembly: Multi-agent routing active</span>
-                          </li>
-                        </ul>
-                      </div>
-
-                      {/* Step 2: Execution & Review */}
-                      <div className={cn(
-                        "p-4 rounded-2xl border transition-all duration-500",
-                        loadingStep >= 2
-                          ? "bg-slate-900/80 border-indigo-500/30 text-white"
-                          : "bg-slate-900/20 border-white/5 text-slate-600"
-                      )}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-emerald-400 font-bold">[PHASE 02]</span>
-                          <h4 className="text-xs font-black">Execution & Review (SIL Audit)</h4>
-                        </div>
-                        <ul className="space-y-1.5 text-[10px] font-medium text-slate-400 font-mono mt-3">
-                           <li className="flex justify-between items-center border-b border-white/5 pb-1">
-                             <span>Agent Execution</span>
-                             <span className={loadingStep >= 2 ? "text-emerald-400" : "text-slate-600"}>DONE</span>
-                           </li>
-                           <li className="flex justify-between items-center border-b border-white/5 pb-1">
-                             <span>Quality Assurance (UQI)</span>
-                             <span className={loadingStep >= 2 ? "text-emerald-400" : "text-slate-600"}>PASSED</span>
-                           </li>
-                        </ul>
-                      </div>
-
-                      {/* Step 3: Consensus & Evolution */}
-                      <div className={cn(
-                        "p-4 rounded-2xl border transition-all duration-500",
-                        loadingStep >= 3
-                          ? "bg-slate-900/80 border-indigo-500/30 text-white"
-                          : "bg-slate-900/20 border-white/5 text-slate-600"
-                      )}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-amber-400 font-bold">[PHASE 03]</span>
-                          <h4 className="text-xs font-black">Consensus & Evolution (OEvE)</h4>
-                        </div>
-                        <div className="flex gap-2 text-[10px] font-mono mt-3 flex-wrap">
-                          <div className="flex items-center gap-1">
-                            <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
-                            <span>Cross-Model Agreement</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
-                            <span>Memory Synthesis Update</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Step 4: Completion */}
-                      <div className={cn(
-                        "p-4 rounded-2xl border transition-all duration-500",
-                        loadingStep >= 4
-                          ? "bg-slate-900/80 border-indigo-500/30 text-white"
-                          : "bg-slate-900/20 border-white/5 text-slate-600"
-                      )}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-blue-400 font-bold">[PHASE 04]</span>
-                          <h4 className="text-xs font-black">Mission Completed (Delivery)</h4>
-                        </div>
-                        <ul className="space-y-1.5 text-[10px] font-medium text-slate-400 font-mono">
-                          <li className="flex justify-between items-center">
-                            <span>Format Output</span>
-                            <span className={loadingStep >= 4 ? "text-emerald-400" : "text-slate-600"}>
-                              {loadingStep >= 4 ? "100% READY" : "PENDING"}
-                            </span>
-                          </li>
-                        </ul>
-                      </div>
-
-                    </div>
-
-                    {/* Dynamic Status Log */}
-                    <div className="bg-slate-900/60 p-3 rounded-2xl border border-white/5 text-center">
-                      <p className="text-[11px] text-slate-400 font-semibold font-sans animate-pulse">
-                        {loadingStep === 1 && "⚡ Phase 1: Planning - Analyzing mission parameters and assembling AI team..."}
-                        {loadingStep === 2 && "⚡ Phase 2: Execution & Review - Generating content and performing quality audit..."}
-                        {loadingStep === 3 && "⚡ Phase 3: Consensus & Evolution - Resolving conflicts and updating organizational memory..."}
-                        {loadingStep === 4 && "⚡ Phase 4: Mission Completed - Finalizing outputs for human review..."}
-                      </p>
-                    </div>
+                    <Boardroom 
+                      missionTitle={prompt} 
+                      onComplete={() => {
+                        setTaskMode("result");
+                      }} 
+                    />
                   </motion.div>
                 )}
 
