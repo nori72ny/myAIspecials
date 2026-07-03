@@ -1,271 +1,751 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Brain, Database, Shield, Zap, RefreshCw, Terminal, Cpu } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { 
+  Brain, 
+  Database, 
+  Shield, 
+  Zap, 
+  RefreshCw, 
+  Terminal, 
+  Cpu, 
+  BookOpen, 
+  Sparkles, 
+  Target, 
+  Briefcase, 
+  TrendingUp, 
+  Bot, 
+  Activity, 
+  Check,
+  Award,
+  Lock,
+  Compass
+} from "lucide-react";
 import { cn } from "../../utils";
 
+// Types for our node system
+interface NeuralNode {
+  id: string;
+  label: string;
+  jpLabel: string;
+  icon: React.ReactNode;
+  color: string;
+  glowColor: string;
+  angle: number; // in radians, for circular layout
+  description: string;
+}
+
 export default function DynamicBrain() {
-  const [bpiActive, setBpiActive] = useState(98.4);
+  // Live states for thinking and metrics
+  const [thinkingMode, setThinkingMode] = useState<"Thinking" | "Planning" | "Reasoning" | "Learning" | "Researching" | "Comparing" | "Synthesizing">("Thinking");
   const [activeThoughts, setActiveThoughts] = useState<string[]>([
-    "Initializing cognitive core...",
-    "ACOS 2.0 Boardroom standby."
+    "Initializing neural core matrix...",
+    "Synchronizing organizational knowledge layers..."
   ]);
-  const [nodesSynced, setNodesSynced] = useState(142);
-  const [rulesCompliance, setRulesCompliance] = useState(98.4);
-  
-  // Real-time canvas for the Knowledge Graph particle system
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [synapticBursts, setSynapticBursts] = useState<{ id: number; x: number; y: number }[]>([]);
+  const [burstCounter, setBurstCounter] = useState(0);
 
-  // Particle System Effect for Knowledge Graph
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  // Fluctuating real-time cognitive metrics
+  const [metrics, setMetrics] = useState({
+    thinkingSpeed: 1240,
+    knowledgeDensity: 4.82,
+    accuracy: 98.4,
+    reasoningDepth: 8,
+    contextUsage: 64,
+    learningRate: 0.0035
+  });
 
-    let animationFrameId: number;
-    let width = canvas.offsetWidth;
-    let height = canvas.offsetHeight;
-    canvas.width = width;
-    canvas.height = height;
+  // Active agents status tracking
+  const [agentPulses, setAgentPulses] = useState({
+    gemini: true,
+    claude: true,
+    openai: true,
+    perplexity: true,
+    deepseek: false,
+    qwen: false
+  });
 
-    // Responsive sizing
-    const handleResize = () => {
-      if (!canvas) return;
-      width = canvas.offsetWidth;
-      height = canvas.offsetHeight;
-      canvas.width = width;
-      canvas.height = height;
-    };
-    window.addEventListener("resize", handleResize);
+  // Circular layout parameters
+  const cx = 400;
+  const cy = 250;
+  const rOffset = 180; // Distance of nodes from center
 
-    // Node particle definition
-    const particles: Array<{
-      x: number;
-      y: number;
-      vx: number;
-      vy: number;
-      radius: number;
-      glow: number;
-    }> = Array.from({ length: 15 }, () => ({
-      x: Math.random() * width,
-      y: Math.random() * height,
-      vx: (Math.random() - 0.5) * 0.4,
-      vy: (Math.random() - 0.5) * 0.4,
-      radius: Math.random() * 2 + 1.5,
-      glow: Math.random() * 5 + 2
+  // Node Definitions
+  const nodes: NeuralNode[] = useMemo(() => [
+    {
+      id: "mission",
+      label: "Mission",
+      jpLabel: "ミッション定義",
+      icon: <Target className="w-4 h-4" />,
+      color: "from-pink-500 to-rose-500",
+      glowColor: "rgba(244, 63, 94, 0.4)",
+      angle: -Math.PI / 2, // 12 o'clock
+      description: "自律タスク、ゴール設定、コンテキスト制約の管理"
+    },
+    {
+      id: "workspace",
+      label: "Workspace",
+      jpLabel: "ワークスペース",
+      icon: <Briefcase className="w-4 h-4" />,
+      color: "from-amber-500 to-orange-500",
+      glowColor: "rgba(245, 158, 11, 0.4)",
+      angle: -Math.PI / 2 + (2 * Math.PI) / 7,
+      description: "成果物、添付のインテリジェンス資料、Debate記録の保存"
+    },
+    {
+      id: "marketplace",
+      label: "Marketplace",
+      jpLabel: "マーケットプレイス",
+      icon: <Sparkles className="w-4 h-4" />,
+      color: "from-fuchsia-500 to-purple-500",
+      glowColor: "rgba(217, 70, 239, 0.4)",
+      angle: -Math.PI / 2 + (2 * (2 * Math.PI)) / 7,
+      description: "プロフェッショナルな事前構成済み検証テンプレート"
+    },
+    {
+      id: "agent",
+      label: "Agent",
+      jpLabel: "エージェント群",
+      icon: <Bot className="w-4 h-4" />,
+      color: "from-red-500 to-coral-500",
+      glowColor: "rgba(239, 68, 68, 0.4)",
+      angle: -Math.PI / 2 + (3 * (2 * Math.PI)) / 7,
+      description: "Gemini / Claude / OpenAI などの複数協調推論エンジンの実行"
+    },
+    {
+      id: "organization",
+      label: "Organization",
+      jpLabel: "組織・ガバナンス",
+      icon: <Shield className="w-4 h-4" />,
+      color: "from-blue-500 to-cyan-500",
+      glowColor: "rgba(59, 130, 246, 0.4)",
+      angle: -Math.PI / 2 + (4 * (2 * Math.PI)) / 7,
+      description: "UQI品質ゲート、リスク許容値、ポリシー制約の監視"
+    },
+    {
+      id: "knowledge",
+      label: "Knowledge",
+      jpLabel: "ナレッジベース",
+      icon: <BookOpen className="w-4 h-4" />,
+      color: "from-teal-500 to-emerald-500",
+      glowColor: "rgba(20, 184, 166, 0.4)",
+      angle: -Math.PI / 2 + (5 * (2 * Math.PI)) / 7,
+      description: "OEvE（組織進化エンジン）によるファクト蓄積・長期記憶"
+    },
+    {
+      id: "memory",
+      label: "Memory",
+      jpLabel: "メモリ・シンク",
+      icon: <Database className="w-4 h-4" />,
+      color: "from-indigo-500 to-violet-500",
+      glowColor: "rgba(99, 102, 241, 0.4)",
+      angle: -Math.PI / 2 + (6 * (2 * Math.PI)) / 7,
+      description: "過去の意思決定パスとセッション・ベクトルのインデックス同期"
+    }
+  ], []);
+
+  // Compute node coordinate positions on the 800x500 viewport
+  const positionedNodes = useMemo(() => {
+    return nodes.map(n => ({
+      ...n,
+      x: cx + rOffset * Math.cos(n.angle),
+      y: cy + rOffset * Math.sin(n.angle)
     }));
+  }, [nodes]);
 
-    // Paint loop
-    const render = () => {
-      ctx.clearRect(0, 0, width, height);
+  // Handle clicking the neural core to trigger dynamic bursts
+  const triggerSynapticBurst = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
 
-      // Draw connections
-      ctx.strokeStyle = "rgba(99, 102, 241, 0.08)";
-      ctx.lineWidth = 0.8;
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const dx = particles[i].x - particles[j].x;
-          const dy = particles[i].y - particles[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
+    // Only trigger if click is relatively close to the center neural core
+    const distToCenter = Math.sqrt(Math.pow(clickX - cx, 2) + Math.pow(clickY - cy, 2));
+    if (distToCenter < 70) {
+      const newBurst = {
+        id: burstCounter,
+        x: cx,
+        y: cy
+      };
+      setSynapticBursts(prev => [...prev, newBurst]);
+      setBurstCounter(prev => prev + 1);
 
-          if (dist < 55) {
-            ctx.beginPath();
-            ctx.moveTo(particles[i].x, particles[i].y);
-            ctx.lineTo(particles[j].x, particles[j].y);
-            ctx.stroke();
-          }
-        }
-      }
+      // Clean up burst after animation finishes
+      setTimeout(() => {
+        setSynapticBursts(prev => prev.filter(b => b.id !== newBurst.id));
+      }, 1000);
 
-      // Draw and update particles
-      particles.forEach((p, idx) => {
-        p.x += p.vx;
-        p.y += p.vy;
+      // Momentarily boost metrics!
+      setMetrics(prev => ({
+        ...prev,
+        thinkingSpeed: Math.min(2200, prev.thinkingSpeed + 180),
+        accuracy: Math.min(100, prev.accuracy + 0.3)
+      }));
+    }
+  };
 
-        // Bounce borders
-        if (p.x < 0 || p.x > width) p.vx *= -1;
-        if (p.y < 0 || p.y > height) p.vy *= -1;
-
-        // Draw particle node
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = idx === 0 ? "rgba(236, 72, 153, 0.8)" : "rgba(99, 102, 241, 0.8)";
-        ctx.shadowBlur = p.glow;
-        ctx.shadowColor = "rgba(99, 102, 241, 0.4)";
-        ctx.fill();
-        ctx.shadowBlur = 0; // reset
-      });
-
-      animationFrameId = requestAnimationFrame(render);
-    };
-
-    render();
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, []);
-
-  // Live thinking pulse log scrolling
+  // Real-time Thinking Mode and Log fluctuation
   useEffect(() => {
-    const logPhrases = [
-      "Evaluating cognitive nodes...",
-      "Consolidating SWOT strategy factors...",
-      "UQI fact compliance verified: 98.4%",
-      "Memory synapsis cache refreshed",
-      "Analyzing ROI predictions...",
-      "Broadcasting cross-model boardroom weights...",
-      "Updating semantic vector alignments...",
-      "Reinforcing system safety protocols...",
-      "Grounded source materials matching completed",
-      "Adjusting agent allocation matrix (OEE: 98.8%)",
-      "Synthesizing OEvE core consensus...",
-      "Assembling tactical company deliverables..."
+    const thinkingModes: Array<"Thinking" | "Planning" | "Reasoning" | "Learning" | "Researching" | "Comparing" | "Synthesizing"> = [
+      "Thinking", "Planning", "Reasoning", "Learning", "Researching", "Comparing", "Synthesizing"
     ];
 
-    const timer = setInterval(() => {
-      setBpiActive(prev => {
-        const delta = (Math.random() - 0.5) * 0.15;
-        return parseFloat(Math.min(100, Math.max(97.5, prev + delta)).toFixed(2));
+    const thinkingLogs = [
+      "Analyzing organizational risk postures...",
+      "Synthesizing high-value SWOT deliverables...",
+      "Evaluating financial ROI forecasts...",
+      "Verifying structural task compliance (UQI)...",
+      "Retrieving long-term vector synapses...",
+      "Consolidating multiple cross-model debate pools...",
+      "Aligning model weights with consensus parameters...",
+      "Running semantic validation heuristics...",
+      "Scanning legal precedent libraries...",
+      "Compiling tactical execution blueprints...",
+      "Balancing knowledge network node density..."
+    ];
+
+    const interval = setInterval(() => {
+      // Toggle random thinking mode
+      const nextMode = thinkingModes[Math.floor(Math.random() * thinkingModes.length)];
+      setThinkingMode(nextMode);
+
+      // Fluctuate metrics realistically
+      setMetrics(prev => {
+        const speedDelta = Math.floor((Math.random() - 0.5) * 60);
+        const accuracyDelta = parseFloat(((Math.random() - 0.5) * 0.1).toFixed(2));
+        const contextDelta = Math.random() > 0.8 ? (Math.random() > 0.5 ? 1 : -1) : 0;
+        const learningDelta = (Math.random() - 0.5) * 0.0002;
+
+        return {
+          thinkingSpeed: Math.min(1900, Math.max(950, prev.thinkingSpeed + speedDelta)),
+          knowledgeDensity: parseFloat(Math.min(5.2, Math.max(4.4, prev.knowledgeDensity + (Math.random() - 0.5) * 0.01)).toFixed(2)),
+          accuracy: parseFloat(Math.min(100, Math.max(97.8, prev.accuracy + accuracyDelta)).toFixed(2)),
+          reasoningDepth: Math.random() > 0.8 ? Math.min(10, Math.max(6, prev.reasoningDepth + (Math.random() > 0.5 ? 1 : -1))) : prev.reasoningDepth,
+          contextUsage: Math.min(100, Math.max(40, prev.contextUsage + contextDelta)),
+          learningRate: parseFloat(Math.min(0.005, Math.max(0.001, prev.learningRate + learningDelta)).toFixed(4))
+        };
       });
 
-      setNodesSynced(prev => {
-        const delta = Math.random() > 0.7 ? (Math.random() > 0.5 ? 1 : -1) : 0;
-        return Math.min(250, Math.max(120, prev + delta));
-      });
+      // Fluctuate active agents
+      setAgentPulses(prev => ({
+        ...prev,
+        gemini: Math.random() > 0.15,
+        claude: Math.random() > 0.2,
+        openai: Math.random() > 0.25,
+        perplexity: Math.random() > 0.3,
+        deepseek: Math.random() > 0.6,
+        qwen: Math.random() > 0.7
+      }));
 
-      setRulesCompliance(prev => {
-        const delta = (Math.random() - 0.5) * 0.05;
-        return parseFloat(Math.min(100, Math.max(98, prev + delta)).toFixed(2));
-      });
-
+      // Add thinking log stream
       setActiveThoughts(prev => {
-        const nextPhrase = logPhrases[Math.floor(Math.random() * logPhrases.length)];
-        const updated = [...prev, nextPhrase];
+        const nextLog = thinkingLogs[Math.floor(Math.random() * thinkingLogs.length)];
+        const updated = [...prev, `[${nextMode.toUpperCase()}] ${nextLog}`];
         if (updated.length > 5) updated.shift();
         return updated;
       });
     }, 2800);
 
-    return () => clearInterval(timer);
+    return () => clearInterval(interval);
   }, []);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+    <div className="space-y-6 w-full">
+      {/* High-level system info bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-1 border-b border-slate-200/50 dark:border-white/[0.04] pb-4">
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
           </span>
-          <h3 className="text-[11px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono">
-            Supreme Live Cognitive Core (Dynamic Brain)
-          </h3>
+          <div className="space-y-0.5">
+            <h3 className="text-[11px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
+              Organizational Neuralink Sphere (ACOS-Core)
+            </h3>
+            <p className="text-[10px] text-slate-400 font-semibold font-mono">STATUS: HIGH_FIDELITY_LIVE • SYNC_RATE: 100%</p>
+          </div>
         </div>
+
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono font-bold text-indigo-500 dark:text-indigo-400 px-2 py-0.5 bg-indigo-500/5 dark:bg-indigo-500/15 border border-indigo-500/10 rounded-full">
-            BPI: {bpiActive}% Active Efficiency
+          <span className="text-[9.5px] font-mono font-bold text-indigo-500 dark:text-indigo-400 px-2.5 py-1 bg-indigo-500/5 dark:bg-indigo-500/15 border border-indigo-500/10 rounded-full flex items-center gap-1.5">
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            <span>NEURAL CORE EFFICIENCY: {metrics.accuracy}%</span>
           </span>
         </div>
       </div>
 
-      {/* Grid of the 4 interactive animated cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Main glassmorphic layout panel split */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Card 1: Knowledge DNA / Particle network graph */}
-        <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-2xl shadow-xs hover:border-indigo-500/30 transition-all flex flex-col justify-between group overflow-hidden relative min-h-[155px]">
-          <div className="absolute inset-0 z-0 opacity-40">
-            <canvas ref={canvasRef} className="w-full h-full" />
-          </div>
-          <div className="flex items-center justify-between relative z-10">
-            <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
-              <Brain className="w-4 h-4 animate-pulse text-pink-500" />
-              <span className="font-bold text-xs font-mono tracking-wide uppercase">Knowledge DNA</span>
-            </div>
-            <span className="text-[9px] font-bold bg-pink-500/10 text-pink-500 px-1.5 py-0.5 rounded font-mono animate-pulse">
-              LIVE GRAPH
-            </span>
-          </div>
-          <div className="mt-4 relative z-10 bg-gradient-to-t from-white/90 dark:from-neutral-900/90 pt-2">
-            <div className="text-2xl font-black text-slate-800 dark:text-white tracking-tight flex items-baseline gap-1.5">
-              4.82<span className="text-xs font-medium text-slate-400">GB</span>
-            </div>
-            <p className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium mt-1 leading-normal">
-              Self-balancing node matrix compiling neural connection paths.
+        {/* SVG Neural Interactive Arena (Takes 2 columns) */}
+        <div className="lg:col-span-2 bg-[#08080C]/90 dark:bg-neutral-950/60 backdrop-blur-3xl border border-white/[0.06] rounded-3xl p-4 overflow-hidden shadow-2xl relative min-h-[510px] flex items-center justify-center group/arena">
+          
+          {/* Immersive background glow elements (Apple Vision Pro style) */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.08),transparent_50%)] pointer-events-none" />
+          <div className="absolute -left-20 -top-20 w-80 h-80 bg-pink-500/5 rounded-full blur-[80px] pointer-events-none transition-transform duration-1000 group-hover/arena:translate-x-5" />
+          <div className="absolute -right-20 -bottom-20 w-80 h-80 bg-indigo-500/5 rounded-full blur-[80px] pointer-events-none transition-transform duration-1000 group-hover/arena:-translate-x-5" />
+
+          {/* Core instructions helper label */}
+          <div className="absolute top-4 left-4 z-10 bg-white/5 border border-white/[0.04] px-3 py-1.5 rounded-xl pointer-events-none">
+            <p className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Compass className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Click core or hover nodes to sync</span>
             </p>
           </div>
-        </div>
 
-        {/* Card 2: Memory Sync */}
-        <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-2xl shadow-xs hover:border-emerald-500/30 transition-all flex flex-col justify-between group overflow-hidden relative min-h-[155px]">
-          <div className="absolute right-0 bottom-0 translate-x-3 translate-y-3 opacity-[0.02] group-hover:opacity-[0.05] pointer-events-none duration-500">
-            <Database className="w-32 h-32 text-emerald-500" />
-          </div>
-          <div className="flex items-center justify-between relative z-10">
-            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-              <Database className="w-4 h-4 text-emerald-500" />
-              <span className="font-bold text-xs font-mono tracking-wide uppercase">OEvE Memory Sync</span>
-            </div>
-            <span className="text-[9px] font-bold bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded font-mono flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-              {nodesSynced} SYNAPSE
+          {/* Real-time thinking tag */}
+          <div className="absolute top-4 right-4 z-10">
+            <span className="text-[9.5px] font-mono font-bold bg-pink-500/10 text-pink-400 border border-pink-500/20 px-2.5 py-1 rounded-full uppercase tracking-widest animate-pulse flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-pink-500" />
+              {thinkingMode}...
             </span>
           </div>
 
-          {/* Animated sound/pulse wave SVGs */}
-          <div className="my-2 h-6 flex items-end gap-0.5 overflow-hidden justify-center opacity-70">
-            {Array.from({ length: 16 }).map((_, i) => (
-              <span 
-                key={i} 
-                className="w-1 bg-gradient-to-t from-emerald-500 to-teal-400 rounded-full transition-all duration-300"
-                style={{
-                  height: `${Math.sin(i * 0.4 + Date.now() / 300) * 8 + 12}px`,
-                  animation: `bounce 1s ease-in-out infinite alternate`,
-                  animationDelay: `${i * 0.08}s`
+          {/* SVG Graph Canvas */}
+          <svg 
+            viewBox="0 0 800 500" 
+            className="w-full h-full max-w-2xl relative z-10 cursor-default select-none overflow-visible"
+            onClick={triggerSynapticBurst}
+          >
+            {/* Defs for absolute gradients & styling */}
+            <defs>
+              <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#818cf8" stopOpacity="0.45" />
+                <stop offset="60%" stopColor="#6366f1" stopOpacity="0.15" />
+                <stop offset="100%" stopColor="#4338ca" stopOpacity="0" />
+              </radialGradient>
+              <linearGradient id="glowLine" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#ec4899" stopOpacity="0.8" />
+                <stop offset="50%" stopColor="#6366f1" stopOpacity="0.8" />
+                <stop offset="100%" stopColor="#14b8a6" stopOpacity="0.8" />
+              </linearGradient>
+            </defs>
+
+            {/* Neural connection line network (slow breathing lines) */}
+            <g className="connections">
+              {positionedNodes.map((node) => {
+                const isHovered = hoveredNode === node.id;
+                return (
+                  <g key={`link-${node.id}`}>
+                    {/* Glowing wider shadow line */}
+                    <motion.line
+                      x1={cx}
+                      y1={cy}
+                      x2={node.x}
+                      y2={node.y}
+                      stroke={isHovered ? "url(#glowLine)" : "rgba(99, 102, 241, 0.25)"}
+                      strokeWidth={isHovered ? 3 : 1.2}
+                      className="transition-all duration-300"
+                      initial={{ opacity: 0.3 }}
+                      animate={{ 
+                        opacity: isHovered ? 0.9 : [0.3, 0.5, 0.3],
+                      }}
+                      transition={{
+                        opacity: { repeat: Infinity, duration: 4, ease: "easeInOut" }
+                      }}
+                    />
+
+                    {/* Secondary mesh outer loop connections (Neuralink mesh effect) */}
+                    {positionedNodes.map((otherNode, idx) => {
+                      // Connect adjacent nodes
+                      const otherIdx = (positionedNodes.indexOf(node) + 1) % positionedNodes.length;
+                      if (positionedNodes[otherIdx].id === otherNode.id) {
+                        return (
+                          <motion.line
+                            key={`adjacent-${node.id}-${otherNode.id}`}
+                            x1={node.x}
+                            y1={node.y}
+                            x2={otherNode.x}
+                            y2={otherNode.y}
+                            stroke="rgba(99, 102, 241, 0.08)"
+                            strokeWidth={0.8}
+                            strokeDasharray="4 4"
+                          />
+                        );
+                      }
+                      return null;
+                    })}
+
+                    {/* Knowledge Flow (flowing light particles travelling along the lines) */}
+                    <motion.circle
+                      r={isHovered ? 5.5 : 3.5}
+                      fill={isHovered ? "#ec4899" : "#818cf8"}
+                      filter={isHovered ? "drop-shadow(0 0 8px #ec4899)" : "drop-shadow(0 0 5px #818cf8)"}
+                      animate={{
+                        cx: [cx, node.x],
+                        cy: [cy, node.y],
+                        opacity: [0, 0.9, 0.9, 0]
+                      }}
+                      transition={{
+                        duration: isHovered ? 1.8 : (2.8 + Math.random() * 1.5),
+                        repeat: Infinity,
+                        ease: "linear",
+                        delay: nodes.indexOf(node) * 0.35
+                      }}
+                    />
+                  </g>
+                );
+              })}
+            </g>
+
+            {/* Tap Cognitive Core Shockwave bursts */}
+            <AnimatePresence>
+              {synapticBursts.map((b) => (
+                <motion.circle
+                  key={b.id}
+                  cx={b.x}
+                  cy={b.y}
+                  initial={{ r: 10, opacity: 0.8, strokeWidth: 2 }}
+                  animate={{ r: 240, opacity: 0, strokeWidth: 0.5 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 1.2, ease: "easeOut" }}
+                  stroke="url(#glowLine)"
+                  fill="none"
+                  className="pointer-events-none"
+                />
+              ))}
+            </AnimatePresence>
+
+            {/* Neural Center Core (The main nucleus) */}
+            <g className="neural-core">
+              {/* Outer massive ambient glow orb */}
+              <circle cx={cx} cy={cy} r="100" fill="url(#coreGlow)" className="pointer-events-none" />
+
+              {/* Breathing neon outline orbits */}
+              <motion.circle
+                cx={cx}
+                cy={cy}
+                r="45"
+                fill="none"
+                stroke="rgba(129, 140, 248, 0.3)"
+                strokeWidth="1"
+                animate={{ scale: [1, 1.15, 1], opacity: [0.3, 0.6, 0.3] }}
+                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+              />
+
+              <motion.circle
+                cx={cx}
+                cy={cy}
+                r="55"
+                fill="none"
+                stroke="rgba(236, 72, 153, 0.2)"
+                strokeWidth="0.8"
+                strokeDasharray="6 12"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 16, repeat: Infinity, ease: "linear" }}
+              />
+
+              {/* Central glowing core body */}
+              <motion.circle
+                cx={cx}
+                cy={cy}
+                r="30"
+                className="fill-indigo-600/80 dark:fill-indigo-950/90 filter drop-shadow-[0_0_15px_rgba(99,102,241,0.6)] cursor-pointer"
+                whileHover={{ scale: 1.12 }}
+                whileTap={{ scale: 0.93 }}
+                animate={{
+                  boxShadow: ["0 0 10px rgba(99,102,241,0.4)", "0 0 25px rgba(236,72,153,0.5)", "0 0 10px rgba(99,102,241,0.4)"]
                 }}
               />
-            ))}
-          </div>
 
-          <div className="relative z-10">
-            <p className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium leading-normal">
-              Consolidated long-term vector embeddings synchronized with active context.
-            </p>
+              {/* Innermost pulsing light center */}
+              <motion.circle
+                cx={cx}
+                cy={cy}
+                r="10"
+                fill="#ffffff"
+                filter="drop-shadow(0 0 10px #ffffff)"
+                animate={{
+                  scale: [1, 1.35, 1],
+                  opacity: [0.7, 1, 0.7]
+                }}
+                transition={{
+                  duration: 1.5,
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }}
+                className="pointer-events-none"
+              />
+
+              <motion.circle
+                cx={cx}
+                cy={cy}
+                r="22"
+                fill="none"
+                stroke="#6366f1"
+                strokeWidth="1.5"
+                strokeDasharray="4 8"
+                animate={{ rotate: -360 }}
+                transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                className="pointer-events-none"
+              />
+            </g>
+
+            {/* Circular surrounding nodes */}
+            <g className="surrounding-nodes">
+              {positionedNodes.map((node) => {
+                const isHovered = hoveredNode === node.id;
+                
+                return (
+                  <motion.g
+                    key={node.id}
+                    onMouseEnter={() => setHoveredNode(node.id)}
+                    onMouseLeave={() => setHoveredNode(null)}
+                    className="cursor-pointer"
+                    initial={{ scale: 1 }}
+                    animate={{ 
+                      scale: isHovered ? 1.15 : [1, 1.04, 1],
+                      y: isHovered ? -4 : 0
+                    }}
+                    transition={{
+                      scale: isHovered 
+                        ? { type: "spring", stiffness: 400, damping: 20 }
+                        : { duration: 2.2 + Math.random(), repeat: Infinity, ease: "easeInOut" }
+                    }}
+                  >
+                    {/* High-quality Glass node backing */}
+                    <circle
+                      cx={node.x}
+                      cy={node.y}
+                      r="26"
+                      fill="#0e0e12"
+                      stroke={isHovered ? "#ffffff" : "rgba(255,255,255,0.08)"}
+                      strokeWidth={isHovered ? 1.5 : 1}
+                      filter={`drop-shadow(0 0 15px ${isHovered ? node.glowColor : 'rgba(0,0,0,0.5)'})`}
+                      className="transition-colors duration-300"
+                    />
+
+                    {/* Gradient colored accent ring */}
+                    <circle
+                      cx={node.x}
+                      cy={node.y}
+                      r="21"
+                      fill="none"
+                      stroke={isHovered ? "#6366f1" : "rgba(255,255,255,0.03)"}
+                      strokeWidth="1"
+                      className="transition-colors duration-300"
+                    />
+
+                    {/* Node Lucide Icon centered inside circle */}
+                    <g transform={`translate(${node.x - 8}, ${node.y - 8})`} className="text-white/80">
+                      <div className={cn(
+                        "w-4 h-4 flex items-center justify-center transition-colors duration-300",
+                        isHovered ? "text-pink-400" : "text-indigo-300"
+                      )}>
+                        {node.icon}
+                      </div>
+                    </g>
+
+                    {/* Label Pair (English display + Japanese subtle tag) */}
+                    <text
+                      x={node.x}
+                      y={node.y + 42}
+                      textAnchor="middle"
+                      className={cn(
+                        "text-[10px] font-mono tracking-wider font-black uppercase transition-colors duration-300",
+                        isHovered ? "fill-white" : "fill-slate-400"
+                      )}
+                    >
+                      {node.label}
+                    </text>
+
+                    <text
+                      x={node.x}
+                      y={node.y + 53}
+                      textAnchor="middle"
+                      className="text-[8px] font-sans text-neutral-600 fill-slate-500 font-bold tracking-wide"
+                    >
+                      {node.jpLabel}
+                    </text>
+                  </motion.g>
+                );
+              })}
+            </g>
+          </svg>
+
+          {/* Interactive contextual description (Apple Vision Pro HUD vibe) */}
+          <div className="absolute bottom-5 inset-x-5 text-center pointer-events-none">
+            <AnimatePresence mode="wait">
+              {hoveredNode ? (
+                <motion.div
+                  key={hoveredNode}
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  className="bg-slate-900/90 border border-white/[0.08] p-3 rounded-2xl max-w-md mx-auto backdrop-blur-xl"
+                >
+                  <div className="flex items-center gap-2 justify-center">
+                    <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping" />
+                    <h4 className="text-[11px] font-black tracking-widest text-indigo-300 uppercase font-mono">
+                      {positionedNodes.find(n => n.id === hoveredNode)?.label} SPECIFICATION
+                    </h4>
+                  </div>
+                  <p className="text-[10px] text-slate-300 font-semibold mt-1 font-sans">
+                    {positionedNodes.find(n => n.id === hoveredNode)?.description}
+                  </p>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="default"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.6 }}
+                  className="text-[9.5px] font-mono text-slate-500 tracking-widest uppercase"
+                >
+                  SYSTEM ENGAGED • HOVER SEGMENTS TO EXPLORE INTERNAL SPECIFICATIONS
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
-        {/* Card 3: Thinking Pulse Terminal */}
-        <div className="md:col-span-2 bg-neutral-950 border border-white/[0.06] p-4 rounded-2xl shadow-xs hover:border-indigo-500/30 transition-all flex flex-col justify-between relative min-h-[155px]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-indigo-400">
-              <Terminal className="w-4 h-4 text-indigo-400" />
-              <span className="font-bold text-xs font-mono tracking-wide uppercase">Thinking Pulse Log</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
-              <span className="text-[9px] font-mono text-slate-400 font-bold uppercase">Consensus Active</span>
-            </div>
-          </div>
+        {/* Side Controls, Agents pulses & Live metrics panel */}
+        <div className="space-y-6">
+          
+          {/* Section 1: Real-time Fluctuating Cognitive Analytics */}
+          <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-3xl space-y-4">
+            <h4 className="text-[10px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
+              <TrendingUp className="w-4 h-4 text-pink-500 animate-bounce" />
+              Cognitive Performance Metrics
+            </h4>
 
-          {/* Live terminal-style scroll log */}
-          <div className="my-3 font-mono text-[9.5px] leading-relaxed text-slate-300 space-y-1 h-[68px] overflow-hidden pr-2 flex flex-col justify-end">
-            {activeThoughts.map((t, idx) => (
-              <div key={idx} className="flex items-start gap-1.5 truncate">
-                <span className="text-indigo-400 select-none shrink-0">&gt;&gt;</span>
-                <span className={cn(
-                  "truncate",
-                  idx === activeThoughts.length - 1 ? "text-indigo-300 font-bold" : "text-slate-500"
-                )}>
-                  {t}
-                </span>
+            <div className="grid grid-cols-2 gap-4">
+              
+              {/* Thinking Speed */}
+              <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Thinking Speed</span>
+                <div className="text-sm font-black text-slate-800 dark:text-white mt-1 font-mono tracking-tight flex items-baseline gap-1">
+                  {metrics.thinkingSpeed}
+                  <span className="text-[8px] font-medium text-slate-400 font-sans">T/S</span>
+                </div>
               </div>
-            ))}
+
+              {/* Knowledge Density */}
+              <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Knowledge DNA</span>
+                <div className="text-sm font-black text-slate-800 dark:text-white mt-1 font-mono tracking-tight flex items-baseline gap-1">
+                  {metrics.knowledgeDensity}
+                  <span className="text-[8px] font-medium text-slate-400 font-sans">GB</span>
+                </div>
+              </div>
+
+              {/* Alignment / Accuracy */}
+              <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">UQI Accuracy</span>
+                <div className="text-sm font-black text-emerald-500 mt-1 font-mono tracking-tight">
+                  {metrics.accuracy}%
+                </div>
+              </div>
+
+              {/* Reasoning depth */}
+              <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Reasoning Depth</span>
+                <div className="text-sm font-black text-indigo-400 mt-1 font-mono tracking-tight flex items-baseline gap-1">
+                  Lvl {metrics.reasoningDepth}
+                  <span className="text-[8px] font-medium text-slate-400 font-sans">Mesh</span>
+                </div>
+              </div>
+
+              {/* Context window */}
+              <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Context Load</span>
+                <div className="text-sm font-black text-slate-800 dark:text-white mt-1 font-mono tracking-tight flex items-baseline gap-1">
+                  {metrics.contextUsage}%
+                  <span className="text-[8px] font-medium text-slate-400 font-sans">Active</span>
+                </div>
+              </div>
+
+              {/* Learning Rate */}
+              <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Learning Rate</span>
+                <div className="text-sm font-black text-amber-500 mt-1 font-mono tracking-tight">
+                  η={metrics.learningRate}
+                </div>
+              </div>
+
+            </div>
           </div>
 
-          <div className="flex items-center justify-between text-[8px] text-slate-500 font-mono border-t border-white/[0.04] pt-2">
-            <span>THREAD ID: OS-COGNITIVE-MAIN</span>
-            <span>SYSTEM AUDIT RATE: 100%</span>
+          {/* Section 2: Active AI Agent Ticker rail */}
+          <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-3xl space-y-3.5">
+            <h4 className="text-[10px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
+              <Cpu className="w-4 h-4 text-indigo-500" />
+              Active Synapse Agents
+            </h4>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { key: "gemini", name: "Gemini Flash", logo: "♊", desc: "高速並列推論" },
+                { key: "claude", name: "Claude Sonnet", logo: "🍁", desc: "高品質コード" },
+                { key: "openai", name: "OpenAI GPT", logo: "🟢", desc: "総合論理判定" },
+                { key: "perplexity", name: "Perplexity", logo: "🔍", desc: "リアルタイム検索" },
+                { key: "deepseek", name: "DeepSeek-R1", logo: "🐳", desc: "数理推論・Standby" },
+                { key: "qwen", name: "Qwen Coder", logo: "🚀", desc: "技術コード・Standby" }
+              ].map((ag) => {
+                const isPulse = agentPulses[ag.key as keyof typeof agentPulses];
+                return (
+                  <div
+                    key={ag.key}
+                    className={cn(
+                      "flex items-center gap-2 p-2 rounded-xl border select-none transition-all",
+                      isPulse 
+                        ? "bg-indigo-500/[0.03] border-indigo-500/25 dark:border-indigo-500/15" 
+                        : "bg-transparent border-slate-100 dark:border-neutral-900 opacity-55"
+                    )}
+                  >
+                    <div className="relative flex items-center justify-center w-7 h-7 bg-slate-100 dark:bg-neutral-900 border border-slate-200/60 dark:border-white/[0.05] rounded-lg text-sm font-sans">
+                      {ag.logo}
+                      {isPulse && (
+                        <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-pink-500"></span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[9.5px] font-black text-slate-700 dark:text-neutral-300 truncate">{ag.name}</p>
+                      <p className="text-[8px] text-slate-400 truncate">{ag.desc}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+
+          {/* Section 3: Live AI Thinking Console logs (Raycast/Claude terminal style) */}
+          <div className="bg-neutral-950 border border-white/[0.06] p-4 rounded-3xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-indigo-400">
+                <Terminal className="w-4 h-4 animate-pulse" />
+                <span className="font-bold text-[9.5px] font-mono uppercase tracking-widest">Cognitive Core Stream</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                <span className="text-[8.5px] font-mono text-slate-400 uppercase font-black">LOG_ACTIVE</span>
+              </div>
+            </div>
+
+            {/* Live active logging console */}
+            <div className="my-1 font-mono text-[9px] leading-relaxed text-slate-300 space-y-1.5 h-[100px] overflow-hidden flex flex-col justify-end">
+              {activeThoughts.map((t, idx) => (
+                <div key={idx} className="flex items-start gap-1.5 truncate">
+                  <span className="text-pink-400 select-none shrink-0 font-bold">&gt;&gt;</span>
+                  <span className={cn(
+                    "truncate",
+                    idx === activeThoughts.length - 1 ? "text-indigo-300 font-bold" : "text-slate-500"
+                  )}>
+                    {t}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between text-[7.5px] text-slate-500 font-mono border-t border-white/[0.04] pt-2">
+              <span>THREAD_ID: OS-LIVE-NEURALINK</span>
+              <span>Uptime: 2,410 pulses</span>
+            </div>
+          </div>
+
         </div>
 
       </div>
