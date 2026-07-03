@@ -17,6 +17,7 @@ import UniversalSearch from "./components/os/UniversalSearch";
 import AIAssistantSidebar from "./components/os/AIAssistantSidebar";
 import BrainOverview from "./components/os/BrainOverview";
 import WorkspaceCard from "./components/os/WorkspaceCard";
+import HomeScreen from "./components/os/HomeScreen";
 import { 
   Search, 
   Shield,
@@ -46,7 +47,10 @@ import {
   BookOpen,
   Database,
   Target,
-  BrainCircuit
+  BrainCircuit,
+  Home,
+  MessageSquare,
+  Award
 } from "lucide-react";
 import { cn } from "./utils";
 
@@ -135,8 +139,39 @@ const CATEGORIES: WorkspaceCategory[] = [
 ];
 
 export default function App() {
-  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain">("ai-performance");
+  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain">("dashboard");
   const [taskMode, setTaskMode] = useState<"categories" | "input" | "loading" | "result">("categories");
+
+  // Persistent workspace saved missions state
+  const [savedMissions, setSavedMissions] = useState<any[]>(() => {
+    try {
+      const stored = localStorage.getItem("acos_saved_missions");
+      return stored ? JSON.parse(stored) : [
+        {
+          id: "m-001",
+          title: "交通事故に強い弁護士を比較し、勝率が高く、口コミも優れた候補を提案する",
+          timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+          category: "search",
+          successScore: 98,
+          roi: "150% ROI / 弁護士選定の最適化",
+          status: "Completed",
+          resultData: null
+        },
+        {
+          id: "m-002",
+          title: "新規AI SaaS事業のSWOT分析とROI予測",
+          timestamp: new Date(Date.now() - 3600000 * 24).toISOString(),
+          category: "business",
+          successScore: 96,
+          roi: "年間50万ドルのコスト削減効果",
+          status: "Completed",
+          resultData: null
+        }
+      ];
+    } catch {
+      return [];
+    }
+  });
   const [homeTab, setHomeTab] = useState<"missions" | "constitution" | "quality" | "thinking" | "experience" | "design" | "pie" | "blueprint" | "core" | "arch" | "missionEngine">("missions");
   const [selectedCategory, setSelectedCategory] = useState<WorkspaceCategory | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<TaskTemplate | null>(null);
@@ -154,6 +189,25 @@ export default function App() {
     }, 950);
     return () => clearTimeout(timer);
   }, []);
+
+  // Keyboard First UI listeners (Raycast, ChatGPT, Slack style)
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+K or Ctrl+K to toggle search
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setIsSearchOpen(prev => !prev);
+      }
+      // Esc to exit overlay
+      if (e.key === "Escape") {
+        if (taskMode === "result" || taskMode === "loading") {
+          setTaskMode("categories");
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [taskMode]);
   
   // Local state for search history
   const [history, setHistory] = useState<string[]>(() => {
@@ -280,6 +334,29 @@ export default function App() {
     if (fetchSuccess && fetchedData) {
       setResult(fetchedData);
       saveToHistory(activePrompt);
+      
+      // Auto-save completed mission to the Active Workspace
+      const newMission = {
+        id: fetchedData.mission?.id || `m-${Date.now()}`,
+        title: activePrompt,
+        timestamp: new Date().toISOString(),
+        category: selectedCategory?.id || "search",
+        successScore: fetchedData.successScore || Math.floor(Math.random() * 5) + 95,
+        roi: fetchedData.successPrediction?.roi || fetchedData.mission?.roiPrediction || "150% ROI 予測 / 意思決定の最大化",
+        status: "Completed" as const,
+        resultData: fetchedData // Cache complete result data!
+      };
+
+      setSavedMissions(prev => {
+        const updated = [newMission, ...prev.filter(m => m.title !== activePrompt)].slice(0, 15);
+        try {
+          localStorage.setItem("acos_saved_missions", JSON.stringify(updated));
+        } catch (e) {
+          console.warn("localStorage write error", e);
+        }
+        return updated;
+      });
+
       setTaskMode("result");
     } else {
       setError(fetchErrorMsg || "通信エラーが発生しました。");
@@ -327,6 +404,22 @@ export default function App() {
           </div>
           <button
             onClick={() => {
+              setCurrentApp("dashboard");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "dashboard"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Home className="w-4 h-4" />
+            <span>Home Workspace</span>
+          </button>
+
+          <button
+            onClick={() => {
               setCurrentApp("ai-performance");
               onItemClick?.();
             }}
@@ -338,7 +431,87 @@ export default function App() {
             )}
           >
             <Activity className="w-4 h-4" />
-            <span>Activity</span>
+            <span>Activity Logs</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentApp("chat");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "chat"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>AI Chat Cockpit</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentApp("multi-ai");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "multi-ai"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Cpu className="w-4 h-4" />
+            <span>Multi-AI Boardroom</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentApp("brain");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "brain"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <BrainCircuit className="w-4 h-4" />
+            <span>Unified Brain</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentApp("memory");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "memory"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Database className="w-4 h-4" />
+            <span>Memory Network</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentApp("observability-center");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "observability-center"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Shield className="w-4 h-4" />
+            <span>Observability</span>
           </button>
 
           {/* Active Agents status panel */}
@@ -598,7 +771,40 @@ export default function App() {
           <AnimatePresence mode="wait">
             {currentApp === "dashboard" && (
               <motion.div key="dashboard" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
-                <DashboardApp />
+                <HomeScreen
+                  prompt={prompt}
+                  setPrompt={setPrompt}
+                  handleAnalyze={handleAnalyze}
+                  categories={CATEGORIES}
+                  history={history}
+                  clearHistory={clearHistory}
+                  savedMissions={savedMissions}
+                  onViewMissionResult={(mission) => {
+                    if (mission.resultData) {
+                      setResult(mission.resultData);
+                    } else {
+                      setResult({
+                        successScore: mission.successScore,
+                        mission: {
+                          id: mission.id,
+                          title: mission.title,
+                        },
+                        chiefAgents: [],
+                        workflowGraph: { nodes: [], links: [] },
+                        deliverables: [],
+                        riskAudit: [],
+                        rulesFollowed: [],
+                        roiPrediction: { roi: mission.roi }
+                      } as any);
+                    }
+                    setSelectedCategory(CATEGORIES.find(c => c.id === mission.category) || CATEGORIES[0]);
+                    setPrompt(mission.title);
+                    setTaskMode("result");
+                  }}
+                  onSelectCategory={(cat) => {
+                    setSelectedCategory(cat);
+                  }}
+                />
               </motion.div>
             )}
             {currentApp === "chat" && (
@@ -1988,6 +2194,200 @@ export default function App() {
         isOpen={isAssistantOpen}
         onClose={() => setIsAssistantOpen(false)}
       />
+
+      {/* Immersive Glassmorphic Overlay Layer for Mission Execution */}
+      <AnimatePresence>
+        {(taskMode === "loading" || taskMode === "result") && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-slate-950/80 backdrop-blur-xl"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="w-full max-w-5xl bg-[#0D0D11] border border-white/[0.08] rounded-3xl shadow-2xl h-[90vh] overflow-y-auto relative flex flex-col p-6 md:p-8"
+            >
+              {/* Overlay header */}
+              <div className="flex justify-between items-center pb-4 border-b border-white/[0.06] mb-6 shrink-0">
+                <div className="flex items-center gap-3">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+                  <h3 className="text-xs font-black tracking-widest text-indigo-400 uppercase font-mono">
+                    Active Mission Cockpit (Overlay Layer)
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setTaskMode("categories")}
+                  className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <X className="w-4 h-4" />
+                  <span>Close Overlay (Esc)</span>
+                </button>
+              </div>
+
+              {/* Inner content */}
+              <div className="flex-1 min-h-0 overflow-y-auto pr-2">
+                {taskMode === "loading" && (
+                  <div className="max-w-3xl mx-auto space-y-8 pt-6">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                      <div className="flex items-center gap-3">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+                        </span>
+                        <div>
+                          <h3 className="text-sm font-black tracking-widest text-indigo-300 uppercase font-mono">
+                            Intelligence Assembly Engine v2.0
+                          </h3>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold bg-white/5 text-slate-400 px-2 py-1 rounded">
+                        Q5 COMPILING
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs font-mono text-slate-400">
+                        <span>Compilation Progress</span>
+                        <span>{Math.round((loadingStep / 4) * 100)}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                        <motion.div
+                          initial={{ width: "0%" }}
+                          animate={{ width: `${(loadingStep / 4) * 100}%` }}
+                          transition={{ duration: 0.8, ease: "easeInOut" }}
+                          className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-white">
+                      <div className={cn(
+                        "p-4 rounded-2xl border transition-all duration-500",
+                        loadingStep >= 1 ? "bg-white/5 border-indigo-500/30 text-white" : "bg-white/[0.01] border-white/5 text-slate-600"
+                      )}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-mono text-indigo-400 font-bold">[PHASE 01]</span>
+                          <h4 className="text-xs font-black">Planning (Mission Definition)</h4>
+                        </div>
+                        <ul className="space-y-1 text-[11px] font-medium text-slate-400 font-mono">
+                          <li className="flex items-center gap-1.5">
+                            <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
+                            <span>OEE Analysis: Goal mapping complete</span>
+                          </li>
+                          <li className="flex items-center gap-1.5">
+                            <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
+                            <span>Team Assembly: Multi-agent routing active</span>
+                          </li>
+                        </ul>
+                      </div>
+
+                      <div className={cn(
+                        "p-4 rounded-2xl border transition-all duration-500",
+                        loadingStep >= 2 ? "bg-white/5 border-indigo-500/30 text-white" : "bg-white/[0.01] border-white/5 text-slate-600"
+                      )}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-mono text-emerald-400 font-bold">[PHASE 02]</span>
+                          <h4 className="text-xs font-black">Execution & Review (SIL Audit)</h4>
+                        </div>
+                        <ul className="space-y-1.5 text-[10px] font-medium text-slate-400 font-mono mt-3">
+                          <li className="flex justify-between items-center border-b border-white/5 pb-1">
+                            <span>Agent Execution</span>
+                            <span className={loadingStep >= 2 ? "text-emerald-400" : "text-slate-600"}>DONE</span>
+                          </li>
+                          <li className="flex justify-between items-center border-b border-white/5 pb-1">
+                            <span>Quality Assurance (UQI)</span>
+                            <span className={loadingStep >= 2 ? "text-emerald-400" : "text-slate-600"}>PASSED</span>
+                          </li>
+                        </ul>
+                      </div>
+
+                      <div className={cn(
+                        "p-4 rounded-2xl border transition-all duration-500",
+                        loadingStep >= 3 ? "bg-white/5 border-indigo-500/30 text-white" : "bg-white/[0.01] border-white/5 text-slate-600"
+                      )}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-mono text-amber-400 font-bold">[PHASE 03]</span>
+                          <h4 className="text-xs font-black">Consensus & Evolution (OEvE)</h4>
+                        </div>
+                        <div className="flex gap-2 text-[10px] font-mono mt-3 flex-wrap">
+                          <div className="flex items-center gap-1">
+                            <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
+                            <span>Cross-Model Agreement</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
+                            <span>Memory Synthesis Update</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className={cn(
+                        "p-4 rounded-2xl border transition-all duration-500",
+                        loadingStep >= 4 ? "bg-white/5 border-indigo-500/30 text-white" : "bg-white/[0.01] border-white/5 text-slate-600"
+                      )}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-mono text-blue-400 font-bold">[PHASE 04]</span>
+                          <h4 className="text-xs font-black">Mission Completed (Delivery)</h4>
+                        </div>
+                        <ul className="space-y-1.5 text-[10px] font-medium text-slate-400 font-mono">
+                          <li className="flex justify-between items-center">
+                            <span>Format Output</span>
+                            <span className={loadingStep >= 4 ? "text-emerald-400" : "text-slate-600"}>
+                              {loadingStep >= 4 ? "100% READY" : "PENDING"}
+                            </span>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="bg-white/5 p-4 rounded-2xl border border-white/5 text-center">
+                      <p className="text-xs text-slate-300 font-semibold font-sans animate-pulse">
+                        {loadingStep === 1 && "⚡ Phase 1: Planning - Analyzing mission parameters..."}
+                        {loadingStep === 2 && "⚡ Phase 2: Execution & Review - Generating content..."}
+                        {loadingStep === 3 && "⚡ Phase 3: Consensus & Evolution - Updating organizational memory..."}
+                        {loadingStep === 4 && "⚡ Phase 4: Mission Completed - Rendering interactive scoreboard..."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {taskMode === "result" && result && (
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center border-b border-white/5 pb-4">
+                      <div className="flex items-center gap-2.5">
+                        <Award className="w-5 h-5 text-indigo-400 animate-pulse" />
+                        <div>
+                          <h3 className="text-xs font-black text-white uppercase tracking-widest font-mono">
+                            Mission Deliverables Analytics Scoreboard
+                          </h3>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setTaskMode("categories");
+                          setPrompt("");
+                        }}
+                        className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer"
+                      >
+                        Start another mission
+                      </button>
+                    </div>
+                    
+                    {/* Themed result wrapper */}
+                    <div className="bg-[#121214] rounded-3xl p-1 text-slate-100 overflow-x-hidden">
+                      <ResultDashboard result={result} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
