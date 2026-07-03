@@ -1,5 +1,18 @@
 # ORIGIN - Mission Intelligence Operating System
 
+---
+
+### 🚀 ACOS 2.0 Release Candidate 1 (RC1) is Live!
+The core team is pleased to announce **ACOS 2.0 RC1**, evolving the AI Runtime paradigm into a fully modular, enterprise-grade **Agentic Operating System (AI OS)**. Engineered for Clean Architecture, DDD, and high-concurrency (orchestrating 1,000+ collaborative agents), ACOS 2.0 has completed validation with a **98% Architectural Score**.
+
+#### 📂 Release Artifacts & Guides:
+*   [**Release Notes**](./RELEASE_NOTES.md) — Detailed highlights, validation metrics, and capabilities.
+*   [**Changelog**](./CHANGELOG.md) — Exact version history, upgrades, and structural modifications.
+*   [**Future Roadmap**](./ROADMAP.md) — Development milestones across 2026 and 2027.
+*   [**License (MIT)**](./LICENSE) — Open source governance terms.
+
+---
+
 > 世界最高品質のAIネイティブOS「ORIGIN」の開発基盤（Foundation）へようこそ。
 > 本リポジトリは、将来的に100種類以上のAIモデルとの連携、イベント駆動、スケーラブルなマイクロサービス構成に耐えうる頑健なモノレポ（Monorepo）構成として設計されています。
 

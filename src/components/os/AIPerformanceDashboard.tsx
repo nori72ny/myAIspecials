@@ -68,8 +68,8 @@ export default function AIPerformanceDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
-            <Activity className="w-6 h-6 text-indigo-600" />
-            AI Performance Dashboard
+            <Activity className="w-6 h-6 text-indigo-600 animate-pulse" />
+            Activity Dashboard
           </h2>
           <p className="text-sm text-slate-500 font-medium mt-1">Real-time metrics and health status across all active LLM providers</p>
         </div>

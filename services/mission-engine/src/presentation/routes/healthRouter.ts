@@ -1,13 +1,20 @@
 import { Router } from "express";
 import { MetricsCollector } from "../../infrastructure/observability/MetricsCollector";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { PostgresClient } from "../../infrastructure/database/PostgresClient";
+import { RedisClient } from "../../infrastructure/database/RedisClient";
 
 export const createHealthRouter = () => {
   const router = Router();
 
   // Basic System Health
-  router.get("/", (req, res) => {
+  router.get("/", asyncHandler(async (req, res) => {
     const memoryUsage = process.memoryUsage();
+    
+    // Check external dependencies
+    const pgHealth = await PostgresClient.getInstance().testConnection();
+    const redisHealth = await RedisClient.getInstance().testConnection();
+
     res.json({
       status: "UP",
       service: "mission-engine",
@@ -17,9 +24,20 @@ export const createHealthRouter = () => {
         heapTotalMs: Math.round(memoryUsage.heapTotal / 1024 / 1024) + " MB",
         heapUsedMs: Math.round(memoryUsage.heapUsed / 1024 / 1024) + " MB",
         rss: Math.round(memoryUsage.rss / 1024 / 1024) + " MB"
+      },
+      dependencies: {
+        postgresql: {
+          status: pgHealth.connected ? "HEALTHY" : "DEGRADED",
+          error: pgHealth.error || null
+        },
+        redis: {
+          status: redisHealth.connected ? "HEALTHY" : "DEGRADED",
+          error: redisHealth.error || null
+        }
       }
     });
-  });
+  }));
+
 
   // Detailed Observability Metrics
   router.get("/metrics", asyncHandler(async (req, res) => {

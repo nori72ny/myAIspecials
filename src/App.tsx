@@ -15,6 +15,8 @@ import AIPerformanceDashboard from "./components/os/AIPerformanceDashboard";
 import ObservabilityCenter from "./components/os/ObservabilityCenter";
 import UniversalSearch from "./components/os/UniversalSearch";
 import AIAssistantSidebar from "./components/os/AIAssistantSidebar";
+import BrainOverview from "./components/os/BrainOverview";
+import WorkspaceCard from "./components/os/WorkspaceCard";
 import { 
   Search, 
   Shield,
@@ -43,7 +45,8 @@ import {
   Layout,
   BookOpen,
   Database,
-  Target
+  Target,
+  BrainCircuit
 } from "lucide-react";
 import { cn } from "./utils";
 
@@ -132,7 +135,7 @@ const CATEGORIES: WorkspaceCategory[] = [
 ];
 
 export default function App() {
-  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings">("dashboard");
+  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain">("ai-performance");
   const [taskMode, setTaskMode] = useState<"categories" | "input" | "loading" | "result">("categories");
   const [homeTab, setHomeTab] = useState<"missions" | "constitution" | "quality" | "thinking" | "experience" | "design" | "pie" | "blueprint" | "core" | "arch" | "missionEngine">("missions");
   const [selectedCategory, setSelectedCategory] = useState<WorkspaceCategory | null>(null);
@@ -324,112 +327,6 @@ export default function App() {
           </div>
           <button
             onClick={() => {
-              setCurrentApp("dashboard");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "dashboard"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Layout className="w-4 h-4" />
-            <span>Dashboard</span>
-          </button>
-          <button
-            onClick={() => {
-              setCurrentApp("chat");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "chat"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Search className="w-4 h-4" />
-            <span>AI Chat</span>
-          </button>
-          <button
-            onClick={() => {
-              setCurrentApp("multi-ai");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "multi-ai"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Cpu className="w-4 h-4" />
-            <span>Multi-AI Workspace</span>
-          </button>
-          <button
-            onClick={() => {
-              setCurrentApp("mission");
-              resetToHome();
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "mission"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Target className="w-4 h-4" />
-            <span>Mission Generator</span>
-          </button>
-          <button
-            onClick={() => {
-              setCurrentApp("workflows");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer opacity-50",
-              currentApp === "workflows"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Command className="w-4 h-4" />
-            <span>Workflows (Beta)</span>
-          </button>
-          <button
-            onClick={() => {
-              setCurrentApp("memory");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "memory"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Database className="w-4 h-4" />
-            <span>Memory Explorer</span>
-          </button>
-          <button
-            onClick={() => {
-              setCurrentApp("prompt-library");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "prompt-library"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>Prompt Library</span>
-          </button>
-          <button
-            onClick={() => {
               setCurrentApp("ai-performance");
               onItemClick?.();
             }}
@@ -441,37 +338,7 @@ export default function App() {
             )}
           >
             <Activity className="w-4 h-4" />
-            <span>AI Performance</span>
-          </button>
-          <button
-            onClick={() => {
-              setCurrentApp("observability-center");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "observability-center"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Shield className="w-4 h-4" />
-            <span>System Validation</span>
-          </button>
-          <button
-            onClick={() => {
-              setCurrentApp("settings");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "settings"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Settings2 className="w-4 h-4" />
-            <span>Settings</span>
+            <span>Activity</span>
           </button>
 
           {/* Active Agents status panel */}
@@ -666,13 +533,13 @@ export default function App() {
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
         
-        {/* Top bar */}
-        <header className="h-14 bg-white border-b border-slate-200/80 px-4 flex items-center justify-between sticky top-0 z-30">
-          <div className="flex items-center gap-2">
+        {/* Top bar (Apple HIG Compliant Navigation Bar) */}
+        <header className="h-14 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/40 dark:border-white/[0.04] px-6 flex items-center justify-between sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all duration-200">
+          <div className="flex items-center gap-3">
             {/* Hamburger button for mobile */}
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="md:hidden p-2 -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg cursor-pointer"
+              className="md:hidden w-9 h-9 flex items-center justify-center -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100/80 rounded-full transition-all cursor-pointer active:scale-90"
               title="メニューを開く"
             >
               <Menu className="w-5 h-5" />
@@ -681,44 +548,46 @@ export default function App() {
             <WorkspaceSelector />
           </div>
           
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-3">
             <button
               id="universal-search-trigger"
               onClick={() => setIsSearchOpen(true)}
-              className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors cursor-pointer w-64 justify-between"
+              className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-slate-100/50 dark:bg-neutral-800/40 hover:bg-slate-100/80 dark:hover:bg-neutral-800/60 border border-slate-200/40 dark:border-neutral-700/30 rounded-full text-slate-400 dark:text-neutral-500 hover:text-slate-600 dark:hover:text-neutral-300 transition-all cursor-pointer w-64 justify-between shadow-inner"
             >
               <div className="flex items-center gap-2">
-                <Search className="w-4 h-4" />
-                <span className="text-xs font-medium">Search OS...</span>
+                <Search className="w-3.5 h-3.5" />
+                <span className="text-xs font-semibold tracking-wide">Spotlight Search...</span>
               </div>
               <div className="flex items-center gap-0.5">
-                <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[9px] font-bold text-slate-400">⌘</kbd>
-                <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[9px] font-bold text-slate-400">K</kbd>
+                <kbd className="px-1.5 py-0.5 bg-white dark:bg-neutral-900 border border-slate-200/80 dark:border-neutral-700/40 rounded text-[9px] font-bold text-slate-400 dark:text-neutral-500">⌘</kbd>
+                <kbd className="px-1.5 py-0.5 bg-white dark:bg-neutral-900 border border-slate-200/80 dark:border-neutral-700/40 rounded text-[9px] font-bold text-slate-400 dark:text-neutral-500">K</kbd>
               </div>
             </button>
             <button
               onClick={() => setIsSearchOpen(true)}
-              className="md:hidden p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              className="md:hidden w-9 h-9 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-all cursor-pointer active:scale-90"
             >
               <Search className="w-5 h-5" />
             </button>
 
-            <div className="h-6 w-px bg-slate-200 mx-1"></div>
+            <div className="h-5 w-px bg-slate-200 dark:bg-neutral-800 mx-1"></div>
 
-            <NotificationCenter />
-            
-            <button
-              onClick={() => setIsAssistantOpen(!isAssistantOpen)}
-              className={cn(
-                "p-2 rounded-lg transition-colors cursor-pointer",
-                isAssistantOpen 
-                  ? "bg-indigo-100 text-indigo-600 hover:bg-indigo-200" 
-                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
-              )}
-              title="Toggle AI Assistant"
-            >
-              <Sparkles className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <NotificationCenter />
+              
+              <button
+                onClick={() => setIsAssistantOpen(!isAssistantOpen)}
+                className={cn(
+                  "w-9 h-9 flex items-center justify-center rounded-full transition-all cursor-pointer active:scale-90",
+                  isAssistantOpen 
+                    ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/40" 
+                    : "text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-neutral-100 hover:bg-slate-100 dark:hover:bg-neutral-800/60 border border-transparent"
+                )}
+                title="Toggle AI Assistant"
+              >
+                <Sparkles className="w-4.5 h-4.5" />
+              </button>
+            </div>
           </div>
         </header>
 
@@ -740,6 +609,11 @@ export default function App() {
             {currentApp === "multi-ai" && (
               <motion.div key="multi-ai" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
                 <MultiAIApp />
+              </motion.div>
+            )}
+            {currentApp === "brain" && (
+              <motion.div key="brain" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+                <BrainOverview />
               </motion.div>
             )}
             {currentApp === "workflows" && (
@@ -1028,38 +902,13 @@ export default function App() {
 
                     {/* Categories Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                      {CATEGORIES.map((cat) => (
-                        <div
+                      {CATEGORIES.map((cat, index) => (
+                        <WorkspaceCard
                           key={cat.id}
-                          onClick={() => selectCategoryHandler(cat)}
-                          className={cn(
-                            "group p-5 rounded-2xl border border-slate-200/80 bg-white shadow-sm hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer flex flex-col justify-between min-h-[160px]"
-                          )}
-                        >
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-2xl bg-slate-50 w-11 h-11 rounded-xl flex items-center justify-center border border-slate-100 group-hover:scale-105 transition-transform">
-                                {cat.icon}
-                              </span>
-                              <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded", cat.bgColor, cat.accentColor)}>
-                                {cat.templates.length} テンプレート
-                              </span>
-                            </div>
-                            <div className="space-y-1">
-                              <h4 className="text-sm font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
-                                {cat.name}
-                              </h4>
-                              <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                                {cat.description}
-                              </p>
-                            </div>
-                          </div>
-                          
-                          <div className="pt-3 border-t border-slate-50 flex items-center justify-between text-[10px] font-bold text-slate-400 group-hover:text-indigo-600 transition-colors">
-                            <span>Missionを設計する</span>
-                            <span>→</span>
-                          </div>
-                        </div>
+                          category={cat}
+                          onClick={selectCategoryHandler}
+                          index={index}
+                        />
                       ))}
                     </div>
                   </motion.div>
@@ -2090,6 +1939,32 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+          {/* Premium Apple HIG Compliant Footer */}
+          <footer id="app-footer" className="mt-auto pt-10 pb-4 border-t border-slate-200/40 dark:border-white/[0.04] text-[11px] font-medium text-slate-400 dark:text-neutral-500">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <span className="font-bold tracking-tight bg-gradient-to-r from-slate-500 to-slate-400 bg-clip-text text-transparent">Intelligence OS</span>
+                <span>•</span>
+                <span>Copyright © {new Date().getFullYear()} Enterprise Squad. All rights reserved.</span>
+              </div>
+              
+              <div className="flex flex-wrap items-center justify-center gap-4">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/10 dark:border-emerald-500/20 rounded-full text-emerald-600 dark:text-emerald-400 font-mono text-[10px]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>System Status: Operational</span>
+                </div>
+                
+                <div className="hidden sm:block h-3 w-px bg-slate-200 dark:bg-neutral-800" />
+                
+                <div className="flex items-center gap-3">
+                  <a href="#" className="hover:text-slate-600 dark:hover:text-neutral-300 transition-colors">Privacy Policy</a>
+                  <a href="#" className="hover:text-slate-600 dark:hover:text-neutral-300 transition-colors">Terms of Service</a>
+                  <a href="#" className="hover:text-slate-600 dark:hover:text-neutral-300 transition-colors">Support</a>
+                </div>
+              </div>
+            </div>
+          </footer>
 
         </div>
       </main>
