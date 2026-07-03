@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../utils";
 import { WorkspaceCategory, TaskTemplate } from "../../types";
+import DynamicBrain from "./DynamicBrain";
 
 interface SavedMission {
   id: string;
@@ -105,121 +106,7 @@ export default function HomeScreen({
     <div className="space-y-8 py-2 animate-fade-in">
       
       {/* ④ BRAIN CARD AT THE VERY TOP (Bento Grid) */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
-            <h3 className="text-xs font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono">
-              Supreme Cognitive Core
-            </h3>
-          </div>
-          <span className="text-[10px] font-bold font-mono text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 dark:text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-100/50 dark:border-indigo-900/30">
-            BPI: {cognitivePower}% Active
-          </span>
-        </div>
-
-        {/* Bento Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          
-          {/* Card 1: Knowledge DNA */}
-          <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between group overflow-hidden relative min-h-[140px]">
-            <div className="absolute right-0 bottom-0 translate-x-3 translate-y-3 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity pointer-events-none duration-500">
-              <Brain className="w-32 h-32 text-indigo-500" />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
-                <BrainCircuit className="w-4 h-4 animate-pulse" />
-                <span className="font-bold text-xs font-mono tracking-wide uppercase">Knowledge DNA</span>
-              </div>
-              <span className="text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded font-mono">
-                v2.4
-              </span>
-            </div>
-            <div className="mt-4">
-              <div className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">4.8 GB</div>
-              <p className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium mt-1 leading-relaxed">
-                12 Active Layers compiled with self-adapting neural synapses.
-              </p>
-            </div>
-          </div>
-
-          {/* Card 2: Memory */}
-          <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between group overflow-hidden relative min-h-[140px]">
-            <div className="absolute right-0 bottom-0 translate-x-3 translate-y-3 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity pointer-events-none duration-500">
-              <Database className="w-32 h-32 text-emerald-500" />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                <Database className="w-4 h-4" />
-                <span className="font-bold text-xs font-mono tracking-wide uppercase">OEvE Memory</span>
-              </div>
-              <span className="text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded font-mono">
-                Live
-              </span>
-            </div>
-            <div className="mt-4">
-              <div className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">142 Logs</div>
-              <p className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium mt-1 leading-relaxed">
-                2,410 Long-term synapses consolidated and ready for context.
-              </p>
-            </div>
-          </div>
-
-          {/* Card 3: Org Learning */}
-          <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between group overflow-hidden relative min-h-[140px]">
-            <div className="absolute right-0 bottom-0 translate-x-3 translate-y-3 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity pointer-events-none duration-500">
-              <Shield className="w-32 h-32 text-amber-500" />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-amber-500">
-                <Shield className="w-4 h-4" />
-                <span className="font-bold text-xs font-mono tracking-wide uppercase">Org Learning</span>
-              </div>
-              <span className="text-[9px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-500 px-1.5 py-0.5 rounded font-mono">
-                98.4%
-              </span>
-            </div>
-            <div className="mt-4">
-              <div className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">28 Rules</div>
-              <p className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium mt-1 leading-relaxed">
-                Adaptive behavior compliance actively governing task delivery.
-              </p>
-            </div>
-          </div>
-
-          {/* Card 4: Recent Missions */}
-          <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between group overflow-hidden relative min-h-[140px]">
-            <div className="absolute right-0 bottom-0 translate-x-3 translate-y-3 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity pointer-events-none duration-500">
-              <Clock className="w-32 h-32 text-blue-500" />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-indigo-500">
-                <Clock className="w-4 h-4" />
-                <span className="font-bold text-xs font-mono tracking-wide uppercase">Recent Activity</span>
-              </div>
-              <span className="text-[9px] font-bold bg-slate-100 dark:bg-neutral-800 text-slate-500 dark:text-neutral-400 px-1.5 py-0.5 rounded font-mono">
-                Pulses
-              </span>
-            </div>
-            <div className="mt-3 space-y-1.5 overflow-hidden max-h-[72px]">
-              {savedMissions.slice(0, 2).map((m, idx) => (
-                <div 
-                  key={m.id || idx} 
-                  onClick={() => onViewMissionResult(m)}
-                  className="flex items-center justify-between text-[10px] p-1 hover:bg-slate-50 dark:hover:bg-neutral-800/50 rounded transition-colors cursor-pointer border-b border-slate-100 dark:border-neutral-800 last:border-none"
-                >
-                  <span className="font-bold text-slate-700 dark:text-neutral-300 truncate max-w-[130px]">{m.title}</span>
-                  <span className="font-mono text-emerald-500 font-black shrink-0">{m.successScore}%</span>
-                </div>
-              ))}
-              {savedMissions.length === 0 && (
-                <p className="text-[9px] text-slate-400 italic">No recent missions. Run your first mission below!</p>
-              )}
-            </div>
-          </div>
-
-        </div>
-      </div>
+      <DynamicBrain />
 
       {/* ① HOME中央: UNIVERSAL MISSION INPUT */}
       <div className="max-w-3xl mx-auto w-full py-6 space-y-6 relative">

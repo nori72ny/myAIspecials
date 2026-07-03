@@ -18,6 +18,8 @@ import AIAssistantSidebar from "./components/os/AIAssistantSidebar";
 import BrainOverview from "./components/os/BrainOverview";
 import WorkspaceCard from "./components/os/WorkspaceCard";
 import HomeScreen from "./components/os/HomeScreen";
+import WorkspaceApp from "./components/os/WorkspaceApp";
+import OrganizationApp from "./components/os/OrganizationApp";
 import { 
   Search, 
   Shield,
@@ -139,7 +141,7 @@ const CATEGORIES: WorkspaceCategory[] = [
 ];
 
 export default function App() {
-  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain">("dashboard");
+  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain" | "workspace" | "organization" | "marketplace">("dashboard");
   const [taskMode, setTaskMode] = useState<"categories" | "input" | "loading" | "result">("categories");
 
   // Persistent workspace saved missions state
@@ -415,55 +417,23 @@ export default function App() {
             )}
           >
             <Home className="w-4 h-4" />
-            <span>Home Workspace</span>
+            <span>Home</span>
           </button>
 
           <button
             onClick={() => {
-              setCurrentApp("ai-performance");
+              setCurrentApp("workspace");
               onItemClick?.();
             }}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "ai-performance"
+              currentApp === "workspace"
                 ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
                 : "text-slate-400 hover:text-white hover:bg-slate-800/50"
             )}
           >
-            <Activity className="w-4 h-4" />
-            <span>Activity Logs</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setCurrentApp("chat");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "chat"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>AI Chat Cockpit</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setCurrentApp("multi-ai");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "multi-ai"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Cpu className="w-4 h-4" />
-            <span>Multi-AI Boardroom</span>
+            <Briefcase className="w-4 h-4" />
+            <span>Workspace</span>
           </button>
 
           <button
@@ -479,39 +449,39 @@ export default function App() {
             )}
           >
             <BrainCircuit className="w-4 h-4" />
-            <span>Unified Brain</span>
+            <span>Brain</span>
           </button>
 
           <button
             onClick={() => {
-              setCurrentApp("memory");
+              setCurrentApp("marketplace");
               onItemClick?.();
             }}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "memory"
+              currentApp === "marketplace"
                 ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
                 : "text-slate-400 hover:text-white hover:bg-slate-800/50"
             )}
           >
-            <Database className="w-4 h-4" />
-            <span>Memory Network</span>
+            <Sparkles className="w-4 h-4" />
+            <span>Marketplace</span>
           </button>
 
           <button
             onClick={() => {
-              setCurrentApp("observability-center");
+              setCurrentApp("organization");
               onItemClick?.();
             }}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "observability-center"
+              currentApp === "organization"
                 ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
                 : "text-slate-400 hover:text-white hover:bg-slate-800/50"
             )}
           >
             <Shield className="w-4 h-4" />
-            <span>Observability</span>
+            <span>Organization</span>
           </button>
 
           {/* Active Agents status panel */}
@@ -522,7 +492,7 @@ export default function App() {
               </span>
               <button
                 onClick={() => {
-                  setIsSettingsOpen(true);
+                  setCurrentApp("organization");
                   onItemClick?.();
                 }}
                 className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
@@ -807,6 +777,38 @@ export default function App() {
                 />
               </motion.div>
             )}
+            {currentApp === "workspace" && (
+              <motion.div key="workspace" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+                <WorkspaceApp 
+                  savedMissions={savedMissions}
+                  onViewMissionResult={(mission) => {
+                    if (mission.resultData) {
+                      setResult(mission.resultData);
+                    } else {
+                      setResult({
+                        successScore: mission.successScore,
+                        mission: {
+                          id: mission.id,
+                          title: mission.title,
+                        },
+                        chiefAgents: [],
+                        workflowGraph: { nodes: [], links: [] },
+                        deliverables: [],
+                        riskAudit: [],
+                        rulesFollowed: [],
+                        roiPrediction: { roi: mission.roi }
+                      } as any);
+                    }
+                    setTaskMode("result");
+                  }}
+                  onNavigateToApp={(app) => {
+                    if (app === "chat") setCurrentApp("chat");
+                    if (app === "multi-ai") setCurrentApp("multi-ai");
+                    if (app === "brain") setCurrentApp("brain");
+                  }}
+                />
+              </motion.div>
+            )}
             {currentApp === "chat" && (
               <motion.div key="chat" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
                 <ChatApp />
@@ -822,42 +824,14 @@ export default function App() {
                 <BrainOverview />
               </motion.div>
             )}
-            {currentApp === "workflows" && (
-              <motion.div key="workflows" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex items-center justify-center min-h-0 h-[calc(100vh-140px)]">
-                <div className="text-center text-slate-500">
-                  <Command className="w-12 h-12 mx-auto mb-4 opacity-50 text-indigo-500" />
-                  <h2 className="text-xl font-bold text-slate-800">Workflows Engine</h2>
-                  <p className="mt-2 text-sm">Visual workflow execution is currently in beta. Coming soon.</p>
-                </div>
-              </motion.div>
-            )}
-            {currentApp === "memory" && (
-              <motion.div key="memory" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
-                <MemoryExplorer />
-              </motion.div>
-            )}
-            {currentApp === "prompt-library" && (
-              <motion.div key="prompt-library" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+            {currentApp === "marketplace" && (
+              <motion.div key="marketplace" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
                 <PromptLibrary />
               </motion.div>
             )}
-            {currentApp === "ai-performance" && (
-              <motion.div key="ai-performance" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
-                <AIPerformanceDashboard />
-              </motion.div>
-            )}
-            {currentApp === "observability-center" && (
-              <motion.div key="observability-center" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
-                <ObservabilityCenter />
-              </motion.div>
-            )}
-            {currentApp === "settings" && (
-              <motion.div key="settings" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex items-center justify-center min-h-0 h-[calc(100vh-140px)]">
-                <div className="text-center text-slate-500">
-                  <Settings2 className="w-12 h-12 mx-auto mb-4 opacity-50 text-indigo-500" />
-                  <h2 className="text-xl font-bold text-slate-800">OS Settings</h2>
-                  <p className="mt-2 text-sm">Organization and workspace configuration module.</p>
-                </div>
+            {currentApp === "organization" && (
+              <motion.div key="organization" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+                <OrganizationApp settings={settings} updateSettings={setSettings} />
               </motion.div>
             )}
 
@@ -2187,6 +2161,27 @@ export default function App() {
       <UniversalSearch
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
+        onSelectApp={(app) => setCurrentApp(app as any)}
+        onViewMission={(mission) => {
+          if (mission.resultData) {
+            setResult(mission.resultData);
+          } else {
+            setResult({
+              successScore: mission.successScore,
+              mission: {
+                id: mission.id,
+                title: mission.title,
+              },
+              chiefAgents: [],
+              workflowGraph: { nodes: [], links: [] },
+              deliverables: [],
+              riskAudit: [],
+              rulesFollowed: [],
+              roiPrediction: { roi: mission.roi }
+            } as any);
+          }
+          setTaskMode("result");
+        }}
       />
 
       {/* AI Assistant Sidebar */}
