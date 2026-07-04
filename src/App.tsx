@@ -21,6 +21,7 @@ import HomeScreen from "./components/os/HomeScreen";
 import WorkspaceApp from "./components/os/WorkspaceApp";
 import OrganizationApp from "./components/os/OrganizationApp";
 import Boardroom from "./components/os/Boardroom";
+import DesignSystemV3 from "./components/os/DesignSystemV3";
 import { 
   Search, 
   Shield,
@@ -1400,76 +1401,7 @@ export default function App() {
                 )}
 
                 {homeTab === "design" && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="space-y-6"
-                  >
-                    <div className="p-6 bg-gradient-to-br from-fuchsia-950 via-slate-900 to-black border border-fuchsia-500/20 rounded-2xl space-y-4">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-2xl">🎨</span>
-                        <div>
-                          <h3 className="text-base font-black text-white">ORIGIN Design System (Version 1.0)</h3>
-                          <p className="text-xs text-fuchsia-300">Mission: 世界最高品質のUI/UXを一貫して実現する。</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {["静かである", "知的である", "迷わせない", "信頼できる", "余計なものを見せない", "成果に集中できる"].map((phil, idx) => (
-                          <span key={idx} className="text-[10px] font-bold text-fuchsia-200 bg-fuchsia-500/20 border border-fuchsia-500/30 px-2 py-1 rounded">
-                            {phil}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                        <PenTool className="w-4 h-4 text-fuchsia-500" />
-                        Design Rules
-                      </h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {[
-                          { cat: "Visual Identity", details: ["未来感ではなく知性を感じるデザイン。"] },
-                          { cat: "Color Rules", details: ["Primary: 知性", "Secondary: 信頼", "Accent: 成功", "Warning: 注意", "Error: 危険", "Background: 静寂"] },
-                          { cat: "Typography", details: ["見出し、本文、補足、Evidence、Codeすべて階層を統一。"] },
-                          { cat: "Spacing", details: ["8px Grid", "16px, 24px, 32px, 48px, 64px のみ使用。"] },
-                          { cat: "Corner Radius", details: ["統一。"] },
-                          { cat: "Shadow", details: ["最小限。"] },
-                          { cat: "Animation", details: ["300ms以内。", "目的のないアニメーションは禁止。"] },
-                          { cat: "Interaction", details: ["クリック数は最小。", "説明より操作。"] },
-                          { cat: "Information", details: ["重要情報だけ先に表示。", "詳細は必要時のみ。"] },
-                          { cat: "Mission First", details: ["画面の主役はMission。", "AIではない。"] },
-                        ].map((rule, idx) => (
-                          <div key={idx} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
-                            <span className="text-xs font-black text-fuchsia-600 bg-fuchsia-50 px-2 py-0.5 rounded-full w-fit">
-                              {rule.cat}
-                            </span>
-                            <ul className="space-y-1.5 mt-2">
-                              {rule.details.map((detail, dIdx) => (
-                                <li key={dIdx} className="text-xs font-medium text-slate-700 leading-snug flex items-start gap-1.5">
-                                  <span className="text-fuchsia-400 mt-0.5">•</span>
-                                  {detail}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-fuchsia-50 border border-fuchsia-100 rounded-2xl flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-fuchsia-100 flex items-center justify-center flex-shrink-0">
-                          <span className="text-fuchsia-600 font-black text-lg">!</span>
-                        </div>
-                        <div>
-                          <p className="text-xs text-fuchsia-600 font-bold mb-0.5">Final Rule</p>
-                          <p className="text-sm text-fuchsia-900 font-black">美しさより理解しやすさ。<br/>理解しやすさよりMission成功。</p>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
+                  <DesignSystemV3 />
                 )}
 
                 {homeTab === "pie" && (
