@@ -895,3 +895,96 @@ export const responseSchema: Schema = {
     "originMissionSuccessEngineSpec"
   ]
 };
+
+export const swarmSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    agents: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.STRING },
+          name: { type: Type.STRING },
+          role: { type: Type.STRING },
+          icon: { type: Type.STRING },
+          status: { type: Type.STRING },
+          color: { type: Type.STRING },
+          provider: { type: Type.STRING },
+          x: { type: Type.INTEGER },
+          y: { type: Type.INTEGER }
+        },
+        required: ["id", "name", "role", "icon", "status", "color", "provider", "x", "y"]
+      }
+    },
+    messages: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.STRING },
+          from: { type: Type.STRING },
+          to: { type: Type.STRING },
+          text: { type: Type.STRING },
+          type: { type: Type.STRING },
+          thought: { type: Type.STRING },
+          timestamp: { type: Type.STRING }
+        },
+        required: ["id", "from", "to", "text", "type", "thought", "timestamp"]
+      }
+    },
+    decisions: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.STRING },
+          decision: { type: Type.STRING },
+          reason: { type: Type.STRING },
+          confidence: { type: Type.INTEGER },
+          uqi: { type: Type.NUMBER },
+          timestamp: { type: Type.STRING }
+        },
+        required: ["id", "decision", "reason", "confidence", "uqi", "timestamp"]
+      }
+    },
+    events: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.STRING },
+          type: { type: Type.STRING },
+          message: { type: Type.STRING },
+          timestamp: { type: Type.STRING }
+        },
+        required: ["id", "type", "message", "timestamp"]
+      }
+    },
+    consensus: {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        uqiScore: { type: Type.NUMBER },
+        confidenceScore: { type: Type.NUMBER },
+        votes: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              agentId: { type: Type.STRING },
+              vote: { type: Type.STRING },
+              reason: { type: Type.STRING }
+            },
+            required: ["agentId", "vote", "reason"]
+          }
+        },
+        finalDecision: { type: Type.STRING },
+        reason: { type: Type.STRING },
+        savedToWorkspace: { type: Type.BOOLEAN }
+      },
+      required: ["title", "uqiScore", "confidenceScore", "votes", "finalDecision", "reason", "savedToWorkspace"]
+    }
+  },
+  required: ["agents", "messages", "decisions", "events", "consensus"]
+};

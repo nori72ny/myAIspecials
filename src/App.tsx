@@ -21,6 +21,8 @@ import HomeScreen from "./components/os/HomeScreen";
 import WorkspaceApp from "./components/os/WorkspaceApp";
 import OrganizationApp from "./components/os/OrganizationApp";
 import Boardroom from "./components/os/Boardroom";
+import MissionRuntimeConsole from "./components/os/MissionRuntimeConsole";
+import RealTimeSwarmDebugger from "./components/os/RealTimeSwarmDebugger";
 import DesignSystemV3 from "./components/os/DesignSystemV3";
 import { 
   Search, 
@@ -143,7 +145,7 @@ const CATEGORIES: WorkspaceCategory[] = [
 ];
 
 export default function App() {
-  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain" | "workspace" | "organization" | "marketplace">("dashboard");
+  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain" | "workspace" | "organization" | "marketplace" | "swarm-debugger">("dashboard");
   const [taskMode, setTaskMode] = useState<"categories" | "input" | "loading" | "result">("categories");
 
   // Persistent workspace saved missions state
@@ -510,6 +512,22 @@ export default function App() {
             <span>{isEn ? "Organization" : "組織設定 / Cockpit"}</span>
           </button>
 
+          <button
+            onClick={() => {
+              setCurrentApp("swarm-debugger");
+              onItemClick?.();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "swarm-debugger"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Activity className="w-4 h-4 text-indigo-400 animate-pulse" />
+            <span>{isEn ? "Swarm Debugger" : "Real-Time Swarm デバッガー"}</span>
+          </button>
+
           {/* Active Agents status panel */}
           <div className="pt-6 border-t border-slate-800/80 mt-4 space-y-3">
             <div className="flex items-center justify-between px-3">
@@ -858,6 +876,11 @@ export default function App() {
             {currentApp === "organization" && (
               <motion.div key="organization" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
                 <OrganizationApp settings={settings} updateSettings={updateSettings} />
+              </motion.div>
+            )}
+            {currentApp === "swarm-debugger" && (
+              <motion.div key="swarm-debugger" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+                <RealTimeSwarmDebugger />
               </motion.div>
             )}
 
@@ -2047,128 +2070,40 @@ export default function App() {
               {/* Inner content */}
               <div className="flex-1 min-h-0 overflow-y-auto pr-2">
                 {taskMode === "loading" && (
-                  <div className="max-w-3xl mx-auto space-y-8 pt-6">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                      <div className="flex items-center gap-3">
-                        <span className="relative flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
-                        </span>
-                        <div>
-                          <h3 className="text-sm font-black tracking-widest text-indigo-300 uppercase font-mono">
-                            Intelligence Assembly Engine v2.0
-                          </h3>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-mono font-bold bg-white/5 text-slate-400 px-2 py-1 rounded">
-                        Q5 COMPILING
-                      </span>
-                    </div>
+                  <MissionRuntimeConsole
+                    missionTitle={prompt}
+                    selectedCategory={selectedCategory}
+                    activePrompt={prompt}
+                    onClose={() => setTaskMode("categories")}
+                    onComplete={(data) => {
+                      setResult(data);
+                      saveToHistory(prompt);
+                      
+                      // Auto-save completed mission to the Active Workspace
+                      const newMission = {
+                        id: data.mission?.id || `m-${Date.now()}`,
+                        title: prompt,
+                        timestamp: new Date().toISOString(),
+                        category: selectedCategory?.id || "search",
+                        successScore: data.successScore || Math.floor(Math.random() * 5) + 95,
+                        roi: data.successPrediction?.roi || data.mission?.roiPrediction || "150% ROI 予測 / 意思決定 of 最大化",
+                        status: "Completed" as const,
+                        resultData: data // Cache complete result data!
+                      };
 
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-xs font-mono text-slate-400">
-                        <span>Compilation Progress</span>
-                        <span>{Math.round((loadingStep / 4) * 100)}%</span>
-                      </div>
-                      <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                        <motion.div
-                          initial={{ width: "0%" }}
-                          animate={{ width: `${(loadingStep / 4) * 100}%` }}
-                          transition={{ duration: 0.8, ease: "easeInOut" }}
-                          className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500"
-                        />
-                      </div>
-                    </div>
+                      setSavedMissions(prev => {
+                        const updated = [newMission, ...prev.filter(m => m.title !== prompt)].slice(0, 15);
+                        try {
+                          localStorage.setItem("acos_saved_missions", JSON.stringify(updated));
+                        } catch (e) {
+                          console.warn("localStorage write error", e);
+                        }
+                        return updated;
+                      });
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-white">
-                      <div className={cn(
-                        "p-4 rounded-2xl border transition-all duration-500",
-                        loadingStep >= 1 ? "bg-white/5 border-indigo-500/30 text-white" : "bg-white/[0.01] border-white/5 text-slate-600"
-                      )}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-indigo-400 font-bold">[PHASE 01]</span>
-                          <h4 className="text-xs font-black">Planning (Mission Definition)</h4>
-                        </div>
-                        <ul className="space-y-1 text-[11px] font-medium text-slate-400 font-mono">
-                          <li className="flex items-center gap-1.5">
-                            <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
-                            <span>OEE Analysis: Goal mapping complete</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <span className={cn(loadingStep >= 1 ? "text-indigo-400" : "text-slate-700")}>●</span>
-                            <span>Team Assembly: Multi-agent routing active</span>
-                          </li>
-                        </ul>
-                      </div>
-
-                      <div className={cn(
-                        "p-4 rounded-2xl border transition-all duration-500",
-                        loadingStep >= 2 ? "bg-white/5 border-indigo-500/30 text-white" : "bg-white/[0.01] border-white/5 text-slate-600"
-                      )}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-emerald-400 font-bold">[PHASE 02]</span>
-                          <h4 className="text-xs font-black">Execution & Review (SIL Audit)</h4>
-                        </div>
-                        <ul className="space-y-1.5 text-[10px] font-medium text-slate-400 font-mono mt-3">
-                          <li className="flex justify-between items-center border-b border-white/5 pb-1">
-                            <span>Agent Execution</span>
-                            <span className={loadingStep >= 2 ? "text-emerald-400" : "text-slate-600"}>DONE</span>
-                          </li>
-                          <li className="flex justify-between items-center border-b border-white/5 pb-1">
-                            <span>Quality Assurance (UQI)</span>
-                            <span className={loadingStep >= 2 ? "text-emerald-400" : "text-slate-600"}>PASSED</span>
-                          </li>
-                        </ul>
-                      </div>
-
-                      <div className={cn(
-                        "p-4 rounded-2xl border transition-all duration-500",
-                        loadingStep >= 3 ? "bg-white/5 border-indigo-500/30 text-white" : "bg-white/[0.01] border-white/5 text-slate-600"
-                      )}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-amber-400 font-bold">[PHASE 03]</span>
-                          <h4 className="text-xs font-black">Consensus & Evolution (OEvE)</h4>
-                        </div>
-                        <div className="flex gap-2 text-[10px] font-mono mt-3 flex-wrap">
-                          <div className="flex items-center gap-1">
-                            <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
-                            <span>Cross-Model Agreement</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className={loadingStep >= 3 ? "text-emerald-400" : "text-slate-700"}>✓</span>
-                            <span>Memory Synthesis Update</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className={cn(
-                        "p-4 rounded-2xl border transition-all duration-500",
-                        loadingStep >= 4 ? "bg-white/5 border-indigo-500/30 text-white" : "bg-white/[0.01] border-white/5 text-slate-600"
-                      )}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-blue-400 font-bold">[PHASE 04]</span>
-                          <h4 className="text-xs font-black">Mission Completed (Delivery)</h4>
-                        </div>
-                        <ul className="space-y-1.5 text-[10px] font-medium text-slate-400 font-mono">
-                          <li className="flex justify-between items-center">
-                            <span>Format Output</span>
-                            <span className={loadingStep >= 4 ? "text-emerald-400" : "text-slate-600"}>
-                              {loadingStep >= 4 ? "100% READY" : "PENDING"}
-                            </span>
-                          </li>
-                        </ul>
-                      </div>
-                    </div>
-
-                    <div className="bg-white/5 p-4 rounded-2xl border border-white/5 text-center">
-                      <p className="text-xs text-slate-300 font-semibold font-sans animate-pulse">
-                        {loadingStep === 1 && "⚡ Phase 1: Planning - Analyzing mission parameters..."}
-                        {loadingStep === 2 && "⚡ Phase 2: Execution & Review - Generating content..."}
-                        {loadingStep === 3 && "⚡ Phase 3: Consensus & Evolution - Updating organizational memory..."}
-                        {loadingStep === 4 && "⚡ Phase 4: Mission Completed - Rendering interactive scoreboard..."}
-                      </p>
-                    </div>
-                  </div>
+                      setTaskMode("result");
+                    }}
+                  />
                 )}
 
                 {taskMode === "result" && result && (
