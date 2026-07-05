@@ -227,7 +227,7 @@ export default function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isAssistantOpen, setIsAssistantOpen] = useState(true);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => {
     try {
       const stored = localStorage.getItem("acos_settings");
@@ -439,6 +439,7 @@ export default function App() {
               setCurrentApp("dashboard");
               onItemClick?.();
             }}
+            data-testid="sidebar-dashboard"
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
               currentApp === "dashboard"
@@ -455,6 +456,7 @@ export default function App() {
               setCurrentApp("workspace");
               onItemClick?.();
             }}
+            data-testid="sidebar-workspace"
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
               currentApp === "workspace"
@@ -487,6 +489,7 @@ export default function App() {
               setCurrentApp("marketplace");
               onItemClick?.();
             }}
+            data-testid="sidebar-marketplace"
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
               currentApp === "marketplace"
@@ -512,6 +515,23 @@ export default function App() {
           >
             <Shield className="w-4 h-4" />
             <span>{isEn ? "Organization" : "組織設定 / Cockpit"}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setIsSettingsOpen(true);
+              onItemClick?.();
+            }}
+            data-testid="sidebar-settings"
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              isSettingsOpen
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Settings2 className="w-4 h-4" />
+            <span>{isEn ? "Settings" : "設定管理"}</span>
           </button>
 
           {settings.developerMode && (
@@ -778,6 +798,15 @@ export default function App() {
               >
                 <Sparkles className="w-4.5 h-4.5" />
               </button>
+
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                data-testid="settings-button"
+                className="w-9 h-9 flex items-center justify-center rounded-full text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-neutral-100 hover:bg-slate-100 dark:hover:bg-neutral-800/60 border border-transparent transition-all cursor-pointer active:scale-90"
+                title="Open Settings"
+              >
+                <Settings2 className="w-4.5 h-4.5" />
+              </button>
             </div>
           </div>
         </header>
@@ -890,7 +919,7 @@ export default function App() {
             )}
 
             {currentApp === "mission" && (
-              <motion.div key="mission" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex flex-col gap-6">
+              <motion.div data-testid="mission-screen" key="mission" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex flex-col gap-6">
                 {/* 1. HOMEPAGE: CATEGORY SELECTION CARDS */}
                 {taskMode === "categories" && (
               <motion.div

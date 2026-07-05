@@ -302,7 +302,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
   }, [isPlaying, debateSpeed, onComplete, agents, isEn]);
 
   return (
-    <div className="bg-[#030306]/98 text-white min-h-[640px] border border-white/[0.06] rounded-3xl p-6 overflow-hidden relative shadow-2xl font-sans flex flex-col justify-between"> {/* design-token-lock-ignore */}
+    <div data-testid="boardroom-screen" className="bg-[#030306]/98 text-white min-h-[640px] border border-white/[0.06] rounded-3xl p-6 overflow-hidden relative shadow-2xl font-sans flex flex-col justify-between"> {/* design-token-lock-ignore */}
       
       {/* Background cinematic visuals (Apple Vision Pro style) */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(99,102,241,0.06),transparent_60%)] pointer-events-none" />

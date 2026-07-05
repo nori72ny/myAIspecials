@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Settings, AIAgentConfig } from "../types";
 import { X, Cpu, Check, AlertTriangle, Code } from "lucide-react";
@@ -19,6 +20,20 @@ const AGENTS_LIST: AIAgentConfig[] = [
 ];
 
 export default function SettingsModal({ isOpen, onClose, settings, updateSettings }: Props) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   const toggleAgent = (agentId: string) => {
     const isSelected = settings.selectedAgents.includes(agentId);
     let updated: string[];
@@ -47,6 +62,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
             className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
           />
           <motion.div
+            data-testid="settings-modal"
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
@@ -60,6 +76,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
               </h2>
               <button
                 onClick={onClose}
+                data-testid="close-settings-button"
                 className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors rounded-full hover:bg-gray-100"
               >
                 <X className="w-4.5 h-4.5" />

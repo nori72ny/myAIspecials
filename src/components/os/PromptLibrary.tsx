@@ -13,7 +13,7 @@ export default function PromptLibrary() {
   const [activeCategory, setActiveCategory] = useState("All");
 
   return (
-    <div className="flex h-full w-full bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex-col">
+    <div data-testid="marketplace-screen" className="flex h-full w-full bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex-col">
       <div className="p-6 border-b border-slate-100 flex flex-col gap-4 bg-slate-50">
         <div className="flex justify-between items-center">
           <div>

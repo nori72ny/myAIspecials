@@ -171,7 +171,7 @@ export default function WorkspaceApp({
   ];
 
   return (
-    <div className="space-y-6">
+    <div data-testid="workspace-screen" className="space-y-6">
       
       {/* Header section with sleek workspace stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/50 dark:border-white/[0.04] pb-5">

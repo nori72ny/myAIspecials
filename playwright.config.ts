@@ -16,7 +16,7 @@ export default defineConfig({
     ['list']
   ],
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:3005',
     trace: 'on-first-retry',
     video: 'retain-on-failure',
   },
@@ -27,9 +27,9 @@ export default defineConfig({
     }
   ],
   webServer: {
-    command: 'npm run start',
-    port: 3000,
-    reuseExistingServer: !process.env.CI,
+    command: 'TEST_PORT=3005 npm run start',
+    port: 3005,
+    reuseExistingServer: false,
     timeout: 120000,
   },
 });

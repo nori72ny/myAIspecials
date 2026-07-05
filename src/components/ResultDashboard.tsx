@@ -274,6 +274,7 @@ export default function ResultDashboard({ result }: Props) {
 
   return (
     <motion.div
+      data-testid="result-dashboard"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="grid grid-cols-1 xl:grid-cols-3 gap-6 text-[#E4E4E7] font-sans pb-16"

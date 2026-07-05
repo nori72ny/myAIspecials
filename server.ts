@@ -11,7 +11,7 @@ import { initMissionEngine } from "./services/mission-engine/src/index";
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.TEST_PORT ? parseInt(process.env.TEST_PORT, 10) : 3000;
 
   app.use(express.json());
 

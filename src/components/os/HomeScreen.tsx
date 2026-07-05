@@ -93,7 +93,7 @@ export default function HomeScreen({
   }));
 
   return (
-    <div className="space-y-12 py-4 px-1 max-w-6xl mx-auto">
+    <div data-testid="home-screen" className="space-y-12 py-4 px-1 max-w-6xl mx-auto">
       
       {/* ① BRAIN CARD (主役 - First Eye Contact) */}
       <SovereignGlassCard className="relative overflow-hidden p-1">
@@ -130,6 +130,7 @@ export default function HomeScreen({
               <SovereignInput
                 type="text"
                 value={prompt}
+                data-testid="mission-input-field"
                 onChange={(e) => setPrompt(e.target.value)}
                 onFocus={() => setInputFocused(true)}
                 onBlur={() => setInputFocused(false)}
@@ -144,6 +145,7 @@ export default function HomeScreen({
                 <SovereignButton
                   type="submit"
                   disabled={!prompt.trim()}
+                  data-testid="mission-execute-button"
                   variant="primary"
                   size="sm"
                   className="rounded-xl px-4 py-2 text-xs font-bold"
