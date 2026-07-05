@@ -234,8 +234,8 @@ export default function MissionInput({
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                  <kbd className="px-1.5 py-0.5 rounded-md bg-black/5 dark:bg-white/10 font-sans">⌘</kbd>
-                  <kbd className="px-1.5 py-0.5 rounded-md bg-black/5 dark:bg-white/10 font-sans">K</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded-lg bg-black/5 dark:bg-white/10 font-sans">⌘</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded-lg bg-black/5 dark:bg-white/10 font-sans">K</kbd>
                   <span className="ml-1">to search Workspace</span>
                 </div>
               </div>

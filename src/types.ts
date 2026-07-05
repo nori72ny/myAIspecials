@@ -21,6 +21,7 @@ export interface Settings {
   autoRoute: boolean;
   selectedAgents: string[]; // List of active agent IDs, e.g. ['gemini', 'openai']
   language: "ja" | "en";
+  developerMode?: boolean;
 }
 
 export interface AIAgentConfig {

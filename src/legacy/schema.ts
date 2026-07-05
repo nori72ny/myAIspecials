@@ -981,9 +981,22 @@ export const swarmSchema: Schema = {
         },
         finalDecision: { type: Type.STRING },
         reason: { type: Type.STRING },
-        savedToWorkspace: { type: Type.BOOLEAN }
+        savedToWorkspace: { type: Type.BOOLEAN },
+        appleReviewVerdict: {
+          type: Type.OBJECT,
+          properties: {
+            verdict: { type: Type.STRING },
+            reasoning: { type: Type.STRING },
+            confidenceLevel: { type: Type.INTEGER },
+            blockingIssues: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          },
+          required: ["verdict", "reasoning", "confidenceLevel", "blockingIssues"]
+        }
       },
-      required: ["title", "uqiScore", "confidenceScore", "votes", "finalDecision", "reason", "savedToWorkspace"]
+      required: ["title", "uqiScore", "confidenceScore", "votes", "finalDecision", "reason", "savedToWorkspace", "appleReviewVerdict"]
     }
   },
   required: ["agents", "messages", "decisions", "events", "consensus"]

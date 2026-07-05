@@ -159,22 +159,22 @@ export default function MemoryExplorer() {
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             </button>
-            <div className="flex bg-slate-200/50 p-1 rounded-lg">
+            <div className="flex bg-slate-200/50 p-1 rounded-xl">
               <button 
                 onClick={() => setActiveTab("graph")}
-                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-colors ${activeTab === "graph" ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-colors ${activeTab === "graph" ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 Graph View
               </button>
               <button 
                 onClick={() => setActiveTab("files")}
-                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-colors ${activeTab === "files" ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-colors ${activeTab === "files" ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 List View
               </button>
               <button 
                 onClick={() => setActiveTab("insights")}
-                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-colors ${activeTab === "insights" ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-colors ${activeTab === "insights" ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 OEvE Insights
               </button>

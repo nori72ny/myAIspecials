@@ -234,6 +234,7 @@ export default function App() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (!parsed.language) parsed.language = "ja";
+        if (parsed.developerMode === undefined) parsed.developerMode = false;
         return parsed;
       }
     } catch (e) {
@@ -242,7 +243,8 @@ export default function App() {
     return {
       autoRoute: true,
       selectedAgents: ["gemini", "openai"],
-      language: "ja"
+      language: "ja",
+      developerMode: false
     };
   });
 
@@ -512,21 +514,23 @@ export default function App() {
             <span>{isEn ? "Organization" : "組織設定 / Cockpit"}</span>
           </button>
 
-          <button
-            onClick={() => {
-              setCurrentApp("swarm-debugger");
-              onItemClick?.();
-            }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "swarm-debugger"
-                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-            )}
-          >
-            <Activity className="w-4 h-4 text-indigo-400 animate-pulse" />
-            <span>{isEn ? "Swarm Debugger" : "Real-Time Swarm デバッガー"}</span>
-          </button>
+          {settings.developerMode && (
+            <button
+              onClick={() => {
+                setCurrentApp("swarm-debugger");
+                onItemClick?.();
+              }}
+              className={cn(
+                "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+                currentApp === "swarm-debugger"
+                  ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+              )}
+            >
+              <Activity className="w-4 h-4 text-indigo-400 animate-pulse" />
+              <span>{isEn ? "Swarm Debugger" : "Real-Time Swarm デバッガー"}</span>
+            </button>
+          )}
 
           {/* Active Agents status panel */}
           <div className="pt-6 border-t border-slate-800/80 mt-4 space-y-3">
@@ -593,7 +597,7 @@ export default function App() {
                       handleAnalyze(undefined, h);
                       onItemClick?.();
                     }}
-                    className="w-full text-left text-[10px] text-slate-400 hover:text-white truncate py-1.5 px-2.5 rounded-md hover:bg-slate-800/40 font-mono cursor-pointer"
+                    className="w-full text-left text-[10px] text-slate-400 hover:text-white truncate py-1.5 px-2.5 rounded-lg hover:bg-slate-800/40 font-mono cursor-pointer"
                     title={h}
                   >
                     {h}
@@ -818,6 +822,7 @@ export default function App() {
                   onSelectCategory={(cat) => {
                     setSelectedCategory(cat);
                   }}
+                  developerMode={settings.developerMode}
                 />
               </motion.div>
             )}
@@ -1998,7 +2003,7 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
-        updateSettings={setSettings}
+        updateSettings={updateSettings}
       />
       
       {/* Universal Search Modal */}

@@ -4975,7 +4975,7 @@ export default function ResultDashboard({ result }: Props) {
                       <div className="space-y-0.5 flex-1">
                         <div className="flex items-center justify-between">
                           <span className="text-[11px] font-extrabold text-white tracking-tight">{step.title}</span>
-                          <span className={`text-[8px] font-mono px-1.5 rounded-sm font-black ${
+                          <span className={`text-[8px] font-mono px-1.5 rounded-lg font-black ${
                             step.status === "COMPLETED"
                               ? "bg-emerald-500/10 text-emerald-400"
                               : step.status === "RUNNING"

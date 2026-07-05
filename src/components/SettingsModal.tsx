@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "motion/react";
 import { Settings, AIAgentConfig } from "../types";
-import { X, Cpu, Check, AlertTriangle } from "lucide-react";
+import { X, Cpu, Check, AlertTriangle, Code } from "lucide-react";
 import { cn } from "../utils";
 
 interface Props {
@@ -127,6 +127,49 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Developer Mode Toggle */}
+              <div className="pt-4 border-t border-gray-100">
+                <div
+                  onClick={() => updateSettings({ ...settings, developerMode: !settings.developerMode })}
+                  className={cn(
+                    "flex items-start justify-between p-3.5 rounded-xl border transition-all select-none cursor-pointer",
+                    settings.developerMode
+                      ? "bg-indigo-50/40 border-indigo-200 hover:bg-indigo-50/60"
+                      : "bg-white border-gray-200 hover:bg-gray-50"
+                  )}
+                >
+                  <div className="flex gap-3">
+                    <span className="text-xl bg-gray-100 w-10 h-10 rounded-lg flex items-center justify-center border border-gray-200/50">
+                      <Code className="w-5 h-5 text-indigo-600" />
+                    </span>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-gray-900">
+                          {settings.language === "en" ? "Developer Mode" : "デベロッパーモード"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 max-w-[280px]">
+                        {settings.language === "en"
+                          ? "Enables live telemetry, debug console, and detailed performance metrics across the OS."
+                          : "システム全体のライブテレメトリー、詳細ログ、デバッグコンソール表示を有効化します。"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center self-center pl-2">
+                    {settings.developerMode ? (
+                      <span className="flex items-center gap-1 text-[10px] bg-indigo-500 text-white border border-indigo-600 px-2.5 py-0.5 rounded-full font-bold">
+                        ON
+                      </span>
+                    ) : (
+                      <span className="text-[10px] bg-gray-100 text-gray-400 border border-gray-200 px-2.5 py-0.5 rounded-full font-medium">
+                        OFF
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
             

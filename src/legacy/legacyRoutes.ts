@@ -129,6 +129,14 @@ router.post("/api/swarm/run", async (req, res) => {
 【合意形成システム（consensus）と多数決要件】
 - 最後に、すべてのエージェントが今回のミッションの成果に対して投票（APPROVED, REJECTED, ABSTAINED）を行い、その投票結果（votes 配列）と、最終的な決定事項、多数決を反映した総合UQIスコア（95〜100）、信頼度スコア（95〜100）、およびその根拠となる正当化理由（reason）を明記してください。
 - savedToWorkspace は true を設定してください。
+
+【Apple最終出荷審査（appleReviewVerdict）要件 - 追加質問】
+- 上記の合意形成とは別に、あなたは最後にApple Human Interface Design Team of 首席デザイナーの視点に完全に切り替え、以下の質問に厳格に回答してください。
+  「Appleがこの製品を発売するとしたら、このUIのままGOサインを出しますか？」
+- 回答は迎合や忖度をせず、Design System v3.0（カラートークン5色限定、rounded-3xlのカード角丸統一、300ms以内のアニメーション遷移、Silence is Golden＝内部テレメトリー等のノイズ露出禁止）への実際の準拠状況を根拠に、GO（そのまま発売可）またはNO_GO（要修正）を判定してください。
+- NO_GOの場合は、出荷をブロックする具体的な問題点を blockingIssues 配列に列挙してください。
+- GOの場合は blockingIssues は空配列とし、なぜ妥協なき水準に達したかを reasoning に明記してください。
+- confidenceLevel（0〜100）でこの判定への確信度を示してください。
 `;
 
     const response = await ai.models.generateContent({
@@ -324,7 +332,18 @@ function getFallbackSwarmResponse(prompt: string) {
       ],
       finalDecision: `ミッション「${prompt}」に対する、全10名の自律エージェントの合意に基づく成果物の完全承認。`,
       reason: "全専門部署・役員がそれぞれの観点から成果物をレビューし、異論やハルシネーション等の不整合が0であることを実証。多数決での全会一致と最高度のUQI（98.6%）が得られたため、本戦略を最終決定とし、生産リリースを承認する。",
-      savedToWorkspace: true
+      savedToWorkspace: true,
+      appleReviewVerdict: {
+        verdict: "NO_GO",
+        reasoning: "現行UIはDesign System v3.0が定めるカラートークン5色限定ルールに対し、実装済み画面ではemerald・rose・purple等の非公式カラーが多用されており統一感を欠く。カード角丸もrounded-3xl統一の規定に反しxl/2xl/lgが混在。ホーム画面主要カードのtransitionが規定の300ms上限を超え500msで遷移している。これらはApple HIGが重視する視覚的一貫性の基準を満たしておらず、現状のままの発売は推奨しない。",
+        confidenceLevel: 92,
+        blockingIssues: [
+          "カラートークンが公式5色限定ルールに対しemerald/rose/purple等で逸脱している",
+          "カード角丸がrounded-3xl(公式規定)ではなくrounded-xl/2xl/lgで混在している",
+          "ホーム画面の主要カードのtransition durationが公式上限300msを超過し500msで遷移している",
+          "DesignSystemV3.tsx自体に内部システムメタデータ(TELEMETRY表示等)が残存している"
+        ]
+      }
     }
   };
 }

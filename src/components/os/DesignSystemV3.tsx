@@ -445,7 +445,7 @@ export default function DesignSystemV3() {
                 <div key={idx} className="flex items-center gap-4 text-xs">
                   <span className="w-12 font-mono font-black text-indigo-500 text-right">{sp.size}</span>
                   <div className="flex-1 bg-slate-50 dark:bg-neutral-950/20 p-2 border border-slate-100 dark:border-white/[0.02] rounded-xl flex items-center gap-3">
-                    <div className={cn("bg-indigo-500/10 border border-indigo-500/20 rounded-md shrink-0 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-indigo-400 font-mono", sp.tw)}>
+                    <div className={cn("bg-indigo-500/10 border border-indigo-500/20 rounded-lg shrink-0 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-indigo-400 font-mono", sp.tw)}>
                     </div>
                     <div className="truncate">
                       <span className="text-[11px] font-bold text-slate-800 dark:text-neutral-200">{sp.label}</span>

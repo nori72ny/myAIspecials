@@ -205,7 +205,7 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
 
                         {!isPlanned && (
                           <div className={cn(
-                            "w-5 h-5 rounded-md flex items-center justify-center border transition-all mt-1 shrink-0",
+                            "w-5 h-5 rounded-lg flex items-center justify-center border transition-all mt-1 shrink-0",
                             isActive 
                               ? "bg-blue-500 border-blue-500 text-white" 
                               : "border-slate-300 dark:border-white/10"

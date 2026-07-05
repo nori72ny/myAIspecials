@@ -15,6 +15,7 @@ import {
   Users, 
   MessageSquare, 
   CheckCircle2, 
+  Apple,
   AlertCircle, 
   TrendingUp, 
   Award,
@@ -82,6 +83,12 @@ interface ConsensusBlock {
   finalDecision: string;
   reason: string;
   savedToWorkspace: boolean;
+  appleReviewVerdict?: {
+    verdict: string;
+    reasoning: string;
+    confidenceLevel: number;
+    blockingIssues: string[];
+  };
 }
 
 const PRESET_MISSIONS = [
@@ -428,7 +435,7 @@ export default function RealTimeSwarmDebugger() {
         { agentId: "cfo", vote: "APPROVED", reason: "利益回収予測、コスト効率の良さが明確に裏付けられているため。" },
         { agentId: "coo", vote: "APPROVED", reason: "全プロセスのタスク委任および時間効率化の最大化を確認したため。" },
         { agentId: "research", vote: "APPROVED", reason: "一次ソースデータとの乖離がないこと、現実のビジネスファクトと完全に整合することを確認。" },
-        { agentId: "architecture", vote: "APPROVED", reason: "セキュリティ、12-Factorコンプライアンスのすべての基準が満たされているため。" },
+        { agentId: "architecture", vote: "APPROVED", reason: "セキュリティ、12-Factorコンプライアンス of すべての基準が満たされているため。" },
         { agentId: "developer", vote: "APPROVED", reason: "自身の作成したコードと仕様書に対し自信があり、品質基準Q5への合致を再確認。" },
         { agentId: "qa", vote: "APPROVED", reason: "テストカバレッジ、静的解析、暗号化基準をすべて満たしていると判断。" },
         { agentId: "reviewer", vote: "APPROVED", reason: "ユーザーを迷わせない美しいマテリアルUIと最高度のタイポグラフィ、UXへの適合を賞賛。" },
@@ -436,7 +443,18 @@ export default function RealTimeSwarmDebugger() {
       ],
       finalDecision: `ミッション「${missionTitle}」に対する、全10名の自律エージェントの合意に基づく成果物の完全承認。`,
       reason: "全専門部署・役員がそれぞれの観点から成果物をレビューし、異論やハルシネーション等の不整合が0であることを実証。多数決での全会一致と最高度のUQI（98.6%）が得られたため、本戦略を最終決定とし、生産リリースを承認する。",
-      savedToWorkspace: true
+      savedToWorkspace: true,
+      appleReviewVerdict: {
+        verdict: "NO_GO",
+        reasoning: "現行UIはDesign System v3.0が定めるカラートークン5色限定ルールに対し、実装済み画面ではemerald・rose・purple等の非公式カラーが多用されており統一感を欠く。カード角丸もrounded-3xl統一の規定に反しxl/2xl/lgが混在。ホーム画面主要カードのtransitionが規定の300ms上限を超え500msで遷移している。これらはApple HIGが重視する視覚的一貫性の基準を満たしておらず、現状のままの発売は推奨しない。",
+        confidenceLevel: 92,
+        blockingIssues: [
+          "カラートークンが公式5色限定ルールに対しemerald/rose/purple等で逸脱している",
+          "カード角丸がrounded-3xl(公式規定)ではなくrounded-xl/2xl/lgで混在している",
+          "ホーム画面の主要カードのtransition durationが公式上限300msを超過し500msで遷移している",
+          "DesignSystemV3.tsx自体に内部システムメタデータ(TELEMETRY表示等)が残存している"
+        ]
+      }
     };
 
     setMessagesPool(simulatedMessages);
@@ -948,7 +966,7 @@ export default function RealTimeSwarmDebugger() {
                 <div
                   key={node.id}
                   onClick={() => setSelectedAgent(node)}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group transition-all duration-500 cursor-pointer"
+                  className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group transition-all duration-300 cursor-pointer"
                   style={{ left: `${node.x}%`, top: `${node.y}%` }}
                 >
                   <div className="relative flex items-center justify-center">
@@ -1167,8 +1185,54 @@ export default function RealTimeSwarmDebugger() {
                   </div>
                 </div>
               </div>
-
             </div>
+
+            {consensus.appleReviewVerdict && (
+              <div className="md:col-span-12 border-t border-white/10 pt-6 mt-6 w-full">
+                <h3 className="text-[10px] font-black text-slate-400 font-mono tracking-wider uppercase mb-3 flex items-center gap-2">
+                  <Apple className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Apple Final Shipment Review (Human Interface Design Team Audit)</span>
+                </h3>
+                <div className={`p-5 rounded-3xl border flex flex-col md:flex-row gap-5 items-start md:items-center ${
+                  consensus.appleReviewVerdict.verdict === "GO" 
+                    ? "bg-emerald-500/10 border-emerald-500/25" 
+                    : "bg-red-500/5 border-red-500/15"
+                }`}>
+                  <div className="shrink-0 flex flex-col items-center justify-center font-mono">
+                    <span className="text-[8px] text-slate-500 font-bold uppercase mb-1">VERDICT</span>
+                    <span className={`text-2xl font-black px-4 py-1.5 rounded-2xl border ${
+                      consensus.appleReviewVerdict.verdict === "GO"
+                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                        : "bg-red-500/15 text-red-400 border-red-500/30 animate-pulse"
+                    }`}>
+                      {consensus.appleReviewVerdict.verdict}
+                    </span>
+                    <span className="text-[8px] text-slate-500 font-bold mt-2">CONFIDENCE: {consensus.appleReviewVerdict.confidenceLevel}%</span>
+                  </div>
+                  
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h4 className="text-xs font-black text-white mb-1">Audit Reasoning</h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                        {consensus.appleReviewVerdict.reasoning}
+                      </p>
+                    </div>
+
+                    {consensus.appleReviewVerdict.blockingIssues.length > 0 && (
+                      <div>
+                        <h4 className="text-[10px] font-bold text-red-400 uppercase tracking-wider mb-1.5">Blocking Issues ({consensus.appleReviewVerdict.blockingIssues.length})</h4>
+                        <ul className="list-disc pl-4 space-y-1 text-[10px] text-red-300 font-medium">
+                          {consensus.appleReviewVerdict.blockingIssues.map((issue, idx) => (
+                            <li key={idx}>{issue}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
           </motion.div>
         )}
       </AnimatePresence>

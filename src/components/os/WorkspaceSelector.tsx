@@ -20,7 +20,7 @@ export default function WorkspaceSelector() {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
       >
-        <div className={`w-6 h-6 rounded-md flex items-center justify-center ${active.color}`}>
+        <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${active.color}`}>
           <active.icon className="w-3.5 h-3.5" />
         </div>
         <span className="text-sm font-bold text-slate-700 hidden sm:block">{active.name}</span>
@@ -45,7 +45,7 @@ export default function WorkspaceSelector() {
                     onClick={() => { setActive(ws); setIsOpen(false); }}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${active.id === ws.id ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
                   >
-                    <div className={`w-6 h-6 rounded-md flex items-center justify-center ${ws.color}`}>
+                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${ws.color}`}>
                       <ws.icon className="w-3.5 h-3.5" />
                     </div>
                     <span className={`text-sm font-semibold ${active.id === ws.id ? 'text-indigo-700' : 'text-slate-700'}`}>

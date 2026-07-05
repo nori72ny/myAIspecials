@@ -99,8 +99,8 @@ export default function DynamicBrain() {
       label: "Mission",
       jpLabel: "ミッション",
       icon: <Target className="w-4 h-4" />,
-      color: "from-pink-500 to-rose-500",
-      glowColor: "rgba(244, 63, 94, 0.4)",
+      color: "from-pink-500 to-pink-600",
+      glowColor: "rgba(236, 72, 153, 0.4)",
       angle: -Math.PI / 2, // 12 o'clock
       description: "Manage autonomous tasks, strategic goal settings, and context parameters.",
       jpDescription: "自律タスク、戦略ゴール設定、コンテキスト制約パラメータの管理"
@@ -110,7 +110,7 @@ export default function DynamicBrain() {
       label: "Workspace",
       jpLabel: "ワークスペース",
       icon: <Briefcase className="w-4 h-4" />,
-      color: "from-amber-500 to-orange-500",
+      color: "from-amber-400 to-amber-600",
       glowColor: "rgba(245, 158, 11, 0.4)",
       angle: -Math.PI / 2 + (2 * Math.PI) / 7,
       description: "Storage of deliverables, intelligent attachments, and deep debate logs.",
@@ -121,8 +121,8 @@ export default function DynamicBrain() {
       label: "Marketplace",
       jpLabel: "マーケットプレイス",
       icon: <Sparkles className="w-4 h-4" />,
-      color: "from-fuchsia-500 to-purple-500",
-      glowColor: "rgba(217, 70, 239, 0.4)",
+      color: "from-indigo-500 to-pink-500",
+      glowColor: "rgba(99, 102, 241, 0.4)",
       angle: -Math.PI / 2 + (2 * (2 * Math.PI)) / 7,
       description: "Pre-configured validation templates and specialized intelligence pipelines.",
       jpDescription: "プロフェッショナルな事前構成済み検証テンプレートとインテリジェンス構造"
@@ -131,8 +131,8 @@ export default function DynamicBrain() {
       id: "agent",
       label: "Agent",
       jpLabel: "エージェント",
-      icon: <Bot className="w-4 h-4" />,
-      color: "from-red-500 to-coral-500",
+      icon:Bot ? <Bot className="w-4 h-4" /> : <Cpu className="w-4 h-4" />,
+      color: "from-red-500 to-red-600",
       glowColor: "rgba(239, 68, 68, 0.4)",
       angle: -Math.PI / 2 + (3 * (2 * Math.PI)) / 7,
       description: "Execution of collaborative reasoning engines (Gemini, Claude, OpenAI, etc.).",
@@ -143,7 +143,7 @@ export default function DynamicBrain() {
       label: "Organization",
       jpLabel: "オーガニゼーション",
       icon: <Shield className="w-4 h-4" />,
-      color: "from-blue-500 to-cyan-500",
+      color: "from-blue-500 to-blue-600",
       glowColor: "rgba(59, 130, 246, 0.4)",
       angle: -Math.PI / 2 + (4 * (2 * Math.PI)) / 7,
       description: "Monitor UQI quality gates, risk levels, and organizational policy constraints.",
@@ -154,8 +154,8 @@ export default function DynamicBrain() {
       label: "Knowledge",
       jpLabel: "ナレッジベース",
       icon: <BookOpen className="w-4 h-4" />,
-      color: "from-teal-500 to-emerald-500",
-      glowColor: "rgba(20, 184, 166, 0.4)",
+      color: "from-emerald-400 to-emerald-600",
+      glowColor: "rgba(16, 185, 129, 0.4)",
       angle: -Math.PI / 2 + (5 * (2 * Math.PI)) / 7,
       description: "Consolidation of fact storage and long-term memory via OEvE engine.",
       jpDescription: "OEvE（組織進化エンジン）によるファクト蓄積と長期永続化メモリ"
@@ -165,11 +165,11 @@ export default function DynamicBrain() {
       label: "Memory",
       jpLabel: "メモリ・シンク",
       icon: <Database className="w-4 h-4" />,
-      color: "from-indigo-500 to-violet-500",
+      color: "from-indigo-500 to-indigo-600",
       glowColor: "rgba(99, 102, 241, 0.4)",
       angle: -Math.PI / 2 + (6 * (2 * Math.PI)) / 7,
       description: "Synchronize index pathways and historic vector session embeddings.",
-      jpDescription: "過去の意思決定パスとセッション・ベクトル表現のインデックス同期"
+      jpDescription: "過去の意思決定パスとセッション・ベクトル表現 of インデックス同期"
     }
   ], []);
 
@@ -332,8 +332,8 @@ export default function DynamicBrain() {
           
           {/* Immersive background glow elements (Apple Vision Pro style) */}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.08),transparent_50%)] pointer-events-none" />
-          <div className="absolute -left-20 -top-20 w-80 h-80 bg-pink-500/5 rounded-full blur-[80px] pointer-events-none transition-transform duration-1000 group-hover/arena:translate-x-5" />
-          <div className="absolute -right-20 -bottom-20 w-80 h-80 bg-indigo-500/5 rounded-full blur-[80px] pointer-events-none transition-transform duration-1000 group-hover/arena:-translate-x-5" />
+          <div className="absolute -left-20 -top-20 w-80 h-80 bg-pink-500/5 rounded-full blur-[80px] pointer-events-none transition-transform duration-300 group-hover/arena:translate-x-5" />
+          <div className="absolute -right-20 -bottom-20 w-80 h-80 bg-indigo-500/5 rounded-full blur-[80px] pointer-events-none transition-transform duration-300 group-hover/arena:-translate-x-5" />
 
           {/* Core instructions helper label */}
           <div className="absolute top-4 left-4 z-10 bg-white/5 border border-white/[0.04] px-3 py-1.5 rounded-xl pointer-events-none">

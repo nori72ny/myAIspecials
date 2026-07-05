@@ -36,7 +36,7 @@ export default function ChatApp() {
       <div className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col hidden md:flex">
         <div className="p-4 border-b border-slate-200 flex items-center justify-between">
           <span className="font-bold text-sm text-slate-800">チャット履歴</span>
-          <button className="p-1.5 bg-white border border-slate-200 rounded-md hover:bg-slate-100">
+          <button className="p-1.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-100">
             <Plus className="w-4 h-4 text-slate-600" />
           </button>
         </div>

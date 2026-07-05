@@ -52,6 +52,7 @@ interface HomeScreenProps {
   savedMissions: SavedMission[];
   onViewMissionResult: (mission: SavedMission) => void;
   onSelectCategory: (category: WorkspaceCategory) => void;
+  developerMode?: boolean;
 }
 
 export default function HomeScreen({
@@ -63,7 +64,8 @@ export default function HomeScreen({
   clearHistory,
   savedMissions,
   onViewMissionResult,
-  onSelectCategory
+  onSelectCategory,
+  developerMode = false
 }: HomeScreenProps) {
   const [selectedSuggestCategory, setSelectedSuggestCategory] = useState<WorkspaceCategory>(categories[0]);
   const [inputFocused, setInputFocused] = useState(false);
@@ -141,7 +143,7 @@ export default function HomeScreen({
 
         {/* Vision Pro-style spatial search bar */}
         <div className={cn(
-          "bg-white/60 dark:bg-neutral-950/20 backdrop-blur-3xl rounded-2xl border transition-all duration-500 shadow-xl shadow-slate-100/10 dark:shadow-none p-1.5",
+          "bg-white/60 dark:bg-neutral-950/20 backdrop-blur-3xl rounded-2xl border transition-all duration-300 shadow-xl shadow-slate-100/10 dark:shadow-none p-1.5",
           inputFocused 
             ? "border-indigo-500/40 dark:border-indigo-500/30 ring-8 ring-indigo-500/5 dark:ring-indigo-500/5 scale-[1.005]" 
             : "border-slate-200/50 dark:border-white/[0.04]"
@@ -203,7 +205,7 @@ export default function HomeScreen({
         {/* Dashboard Cards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Active Agents */}
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-500 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
+          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-300 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
             <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
               <Cpu className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Active Agents (OEE)</span>
@@ -215,7 +217,7 @@ export default function HomeScreen({
           </div>
 
           {/* Total Missions */}
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-500 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
+          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-300 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
             <div className="flex items-center gap-2 text-pink-500">
               <Zap className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Total Missions (MOS)</span>
@@ -227,7 +229,7 @@ export default function HomeScreen({
           </div>
 
           {/* Risk Profiles */}
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-500 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
+          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-300 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
             <div className="flex items-center gap-2 text-blue-500">
               <AlertCircle className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Risk Profiles (SIL)</span>
@@ -239,7 +241,7 @@ export default function HomeScreen({
           </div>
 
           {/* Strategic Alignment */}
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-500 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
+          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-300 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
             <div className="flex items-center gap-2 text-indigo-500 dark:text-indigo-400">
               <Shield className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Strategic Alignment</span>
@@ -387,42 +389,79 @@ export default function HomeScreen({
           </div>
 
           {/* Core Latency and Release rules Column */}
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl border border-slate-200/40 dark:border-white/[0.03] rounded-3xl p-6 shadow-xs flex flex-col justify-between min-h-[260px]">
-            <div className="space-y-4">
-              <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono pb-2 block border-b border-slate-100 dark:border-white/[0.02]">
-                Active Boardroom Status
-              </span>
-              
-              <div className="space-y-2 pt-1 font-mono text-[10px]">
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
-                  <span className="text-slate-500 font-semibold font-sans">Gemini Master Brain</span>
-                  <span className="text-blue-500 font-bold">98.4ms latency</span>
-                </div>
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
-                  <span className="text-slate-500 font-semibold font-sans">Claude Analyst Agent</span>
-                  <span className="text-indigo-500 font-bold">74.1ms latency</span>
-                </div>
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
-                  <span className="text-slate-500 font-semibold font-sans">UQI Fact Auditor</span>
-                  <span className="text-pink-500 font-bold">22.5ms latency</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500 font-semibold font-sans">Memory Consolidator</span>
-                  <span className="text-blue-500 font-bold">15.8ms latency</span>
+          {developerMode ? (
+            <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl border border-slate-200/40 dark:border-white/[0.03] rounded-3xl p-6 shadow-xs flex flex-col justify-between min-h-[260px]">
+              <div className="space-y-4">
+                <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono pb-2 block border-b border-slate-100 dark:border-white/[0.02]">
+                  Active Boardroom Status
+                </span>
+                
+                <div className="space-y-2 pt-1 font-mono text-[10px]">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
+                    <span className="text-slate-500 font-semibold font-sans">Gemini Master Brain</span>
+                    <span className="text-indigo-500 font-bold">98.4ms latency</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
+                    <span className="text-slate-500 font-semibold font-sans">Claude Analyst Agent</span>
+                    <span className="text-indigo-500 font-bold">74.1ms latency</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
+                    <span className="text-slate-500 font-semibold font-sans">UQI Fact Auditor</span>
+                    <span className="text-pink-500 font-bold">22.5ms latency</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-semibold font-sans">Memory Consolidator</span>
+                    <span className="text-indigo-500 font-bold">15.8ms latency</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="p-4 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/10 rounded-2xl space-y-1.5 mt-4">
-              <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider font-mono">
-                <Award className="w-3.5 h-3.5" />
-                <span>Q5 Release Core Standard</span>
+              <div className="p-4 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/10 rounded-2xl space-y-1.5 mt-4">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider font-mono">
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Q5 Release Core Standard</span>
+                </div>
+                <p className="text-[11px] text-slate-400 dark:text-neutral-500 leading-normal font-medium">
+                  No deliverables are committed to the persistent Workspace unless UQI evaluation reaches &gt;95 points.
+                </p>
               </div>
-              <p className="text-[11px] text-slate-400 dark:text-neutral-500 leading-normal font-medium">
-                No deliverables are committed to the persistent Workspace unless UQI evaluation reaches &gt;95 points.
-              </p>
             </div>
-          </div>
+          ) : (
+            <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl border border-slate-200/40 dark:border-white/[0.03] rounded-3xl p-6 shadow-xs flex flex-col justify-between min-h-[260px]">
+              <div className="space-y-4">
+                <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-sans pb-2 block border-b border-slate-100 dark:border-white/[0.02]">
+                  Strategic Quality Alignment
+                </span>
+                
+                <div className="space-y-3 pt-1 text-xs">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-neutral-200">Guaranteed Deliverables</h4>
+                      <p className="text-[11px] text-slate-400 dark:text-neutral-500 leading-snug">Every synthesized document undergoes automated multi-agent audit before export.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-neutral-200">Autonomous Compliance</h4>
+                      <p className="text-[11px] text-slate-400 dark:text-neutral-500 leading-snug">100% adherence to Design System v3.0 core rules and sovereign metrics.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/10 rounded-2xl space-y-1.5 mt-4">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider font-sans">
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Q5 Business Grade</span>
+                </div>
+                <p className="text-[11px] text-slate-400 dark:text-neutral-500 leading-normal font-medium">
+                  Autonomous quality threshold guarantees &gt;95/100 readiness for boardroom presentation.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
 
@@ -470,7 +509,7 @@ export default function HomeScreen({
             <button
               key={temp.id}
               onClick={() => handleTemplateClick(temp, selectedSuggestCategory)}
-              className="group flex items-start text-left p-4 rounded-2xl border border-slate-200/40 dark:border-white/[0.03] bg-white/40 dark:bg-neutral-900/10 hover:bg-white/80 dark:hover:bg-neutral-900/30 hover:border-pink-500/20 dark:hover:border-pink-500/20 shadow-xs transition-all duration-500 cursor-pointer hover:-translate-y-0.5"
+              className="group flex items-start text-left p-4 rounded-2xl border border-slate-200/40 dark:border-white/[0.03] bg-white/40 dark:bg-neutral-900/10 hover:bg-white/80 dark:hover:bg-neutral-900/30 hover:border-pink-500/20 dark:hover:border-pink-500/20 shadow-xs transition-all duration-300 cursor-pointer hover:-translate-y-0.5"
             >
               <div className="mr-3 text-pink-500 mt-0.5 bg-pink-500/5 p-2 rounded-xl group-hover:scale-105 transition-transform border border-pink-500/5">
                 <PlusCircle className="w-4 h-4" />

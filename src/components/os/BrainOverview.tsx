@@ -157,7 +157,7 @@ export default function BrainOverview() {
         {
           id: "g1",
           sender: "DeepSeek Coder (Security Audit)",
-          avatarColor: "bg-cyan-500",
+          avatarColor: "bg-blue-500",
           timestamp: "02:06:10",
           content: "We detected standard microservice configurations expose the metadata endpoint (169.254.169.254). This is susceptible to SSRF exploits.",
           agreementRate: 93
@@ -430,7 +430,7 @@ export default function BrainOverview() {
               <span className="text-2xl font-black text-white font-mono">{cognitiveSpeed}%</span>
               <div className="w-full bg-white/10 h-1.5 rounded-full mt-2 overflow-hidden">
                 <div 
-                  className="bg-indigo-500 h-full rounded-full transition-all duration-1000"
+                  className="bg-indigo-500 h-full rounded-full transition-all duration-300"
                   style={{ width: `${cognitiveSpeed}%` }}
                 />
               </div>
@@ -481,7 +481,7 @@ export default function BrainOverview() {
             {/* Neural Map Stack */}
             <div className="space-y-1.5 relative">
               {/* Dynamic Connecting Neural Synaptic Flow Line */}
-              <div className="absolute left-6 top-6 bottom-6 w-0.5 bg-gradient-to-b from-indigo-500/20 via-purple-500/25 to-pink-500/20 pointer-events-none -z-10" />
+              <div className="absolute left-6 top-6 bottom-6 w-0.5 bg-gradient-to-b from-indigo-500/20 via-indigo-500/10 to-pink-500/20 pointer-events-none -z-10" />
               
               {/* Animated pulses going down the spine */}
               {isPlaying && neuralPulses.map((pulse, idx) => (
@@ -490,7 +490,7 @@ export default function BrainOverview() {
                   initial={{ y: "0%", opacity: 0.8 }}
                   animate={{ y: "90%", opacity: 0 }}
                   transition={{ duration: 4, repeat: Infinity, ease: "linear", delay: idx * 1.3 }}
-                  className="absolute left-[23px] w-2 h-2 rounded-full bg-gradient-to-r from-cyan-400 to-indigo-500 blur-xs pointer-events-none -z-10"
+                  className="absolute left-[23px] w-2 h-2 rounded-full bg-gradient-to-r from-blue-400 to-indigo-500 blur-xs pointer-events-none -z-10"
                 />
               ))}
 

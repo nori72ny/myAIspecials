@@ -171,12 +171,12 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
   const rOffset = 130;
 
   const agents: BoardroomAgent[] = useMemo(() => [
-    { id: "gemini", name: "Gemini Pro", logo: "♊", color: "from-blue-500 to-indigo-500", glowColor: "rgba(59, 130, 246, 0.4)", angle: -Math.PI / 2 },
-    { id: "claude", name: "Claude Sonnet", logo: "🍁", color: "from-amber-500 to-rose-500", glowColor: "rgba(245, 158, 11, 0.4)", angle: -Math.PI / 2 + (2 * Math.PI) / 6 },
-    { id: "openai", name: "GPT-4o", logo: "🟢", color: "from-emerald-500 to-teal-500", glowColor: "rgba(16, 185, 129, 0.4)", angle: -Math.PI / 2 + (2 * (2 * Math.PI)) / 6 },
-    { id: "perplexity", name: "Perplexity", logo: "🔍", color: "from-cyan-500 to-blue-500", glowColor: "rgba(6, 182, 212, 0.4)", angle: -Math.PI / 2 + (3 * (2 * Math.PI)) / 6 },
-    { id: "deepseek", name: "DeepSeek-R1", logo: "🐳", color: "from-violet-500 to-purple-500", glowColor: "rgba(139, 92, 246, 0.4)", angle: -Math.PI / 2 + (4 * (2 * Math.PI)) / 6 },
-    { id: "qwen", name: "Qwen Coder", logo: "🚀", color: "from-pink-500 to-rose-500", glowColor: "rgba(236, 72, 153, 0.4)", angle: -Math.PI / 2 + (5 * (2 * Math.PI)) / 6 }
+    { id: "gemini", name: "Gemini Pro", logo: "♊", color: "from-blue-500 to-indigo-600", glowColor: "rgba(59, 130, 246, 0.4)", angle: -Math.PI / 2 },
+    { id: "claude", name: "Claude Sonnet", logo: "🍁", color: "from-amber-400 to-amber-600", glowColor: "rgba(245, 158, 11, 0.4)", angle: -Math.PI / 2 + (2 * Math.PI) / 6 },
+    { id: "openai", name: "GPT-4o", logo: "🟢", color: "from-emerald-400 to-emerald-600", glowColor: "rgba(16, 185, 129, 0.4)", angle: -Math.PI / 2 + (2 * (2 * Math.PI)) / 6 },
+    { id: "perplexity", name: "Perplexity", logo: "🔍", color: "from-blue-500 to-indigo-500", glowColor: "rgba(59, 130, 246, 0.4)", angle: -Math.PI / 2 + (3 * (2 * Math.PI)) / 6 },
+    { id: "deepseek", name: "DeepSeek-R1", logo: "🐳", color: "from-indigo-500 to-indigo-600", glowColor: "rgba(99, 102, 241, 0.4)", angle: -Math.PI / 2 + (4 * (2 * Math.PI)) / 6 },
+    { id: "qwen", name: "Qwen Coder", logo: "🚀", color: "from-pink-500 to-pink-600", glowColor: "rgba(236, 72, 153, 0.4)", angle: -Math.PI / 2 + (5 * (2 * Math.PI)) / 6 }
   ], []);
 
   // Neural net secondary nodes
@@ -668,12 +668,12 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
             {/* Individual step bars */}
             <div className="space-y-3">
               {[
-                { key: "planning", label: isEn ? "Planning" : "プラン計画", color: "from-pink-500 to-rose-500" },
-                { key: "research", label: isEn ? "Research" : "リサーチ調査", color: "from-amber-500 to-orange-500" },
-                { key: "debate", label: isEn ? "Debate Panel" : "ディベート審議", color: "from-indigo-500 to-violet-500" },
-                { key: "factCheck", label: isEn ? "Fact Check" : "事実整合検証", color: "from-emerald-500 to-teal-500" },
-                { key: "quality", label: isEn ? "Quality Audit" : "品質監査・推敲", color: "from-cyan-500 to-blue-500" },
-                { key: "output", label: isEn ? "Output Stream" : "アウトプット構築", color: "from-purple-500 to-fuchsia-500" }
+                { key: "planning", label: isEn ? "Planning" : "プラン計画", color: "from-pink-500 to-pink-600" },
+                { key: "research", label: isEn ? "Research" : "リサーチ調査", color: "from-amber-400 to-amber-600" },
+                { key: "debate", label: isEn ? "Debate Panel" : "ディベート審議", color: "from-indigo-500 to-indigo-600" },
+                { key: "factCheck", label: isEn ? "Fact Check" : "事実整合検証", color: "from-emerald-400 to-emerald-600" },
+                { key: "quality", label: isEn ? "Quality Audit" : "品質監査・推敲", color: "from-blue-500 to-blue-600" },
+                { key: "output", label: isEn ? "Output Stream" : "アウトプット構築", color: "from-indigo-500 to-pink-500" }
               ].map((ph) => {
                 const progress = phaseProgress[ph.key as keyof typeof phaseProgress];
                 return (
