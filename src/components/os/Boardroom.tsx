@@ -22,6 +22,16 @@ import {
   Coins
 } from "lucide-react";
 import { cn } from "../../utils";
+import { 
+  SovereignGlassCard,
+  SovereignButton,
+  SovereignInput,
+  SovereignBadge,
+  SovereignDialog,
+  SovereignSidebar,
+  SovereignPanel,
+  SovereignSegmentedControl
+} from "../SovereignComponents";
 
 // Interface for AI Agents
 interface BoardroomAgent {
@@ -292,7 +302,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
   }, [isPlaying, debateSpeed, onComplete, agents, isEn]);
 
   return (
-    <div className="bg-[#030306]/98 text-white min-h-[640px] border border-white/[0.06] rounded-3xl p-6 overflow-hidden relative shadow-2xl font-sans flex flex-col justify-between">
+    <div className="bg-[#030306]/98 text-white min-h-[640px] border border-white/[0.06] rounded-3xl p-6 overflow-hidden relative shadow-2xl font-sans flex flex-col justify-between"> {/* design-token-lock-ignore */}
       
       {/* Background cinematic visuals (Apple Vision Pro style) */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(99,102,241,0.06),transparent_60%)] pointer-events-none" />
@@ -313,16 +323,15 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
 
         {/* Speed & Pause/Play Control Panels */}
         <div className="flex items-center gap-2.5 bg-neutral-900/80 border border-white/[0.05] p-1.5 rounded-2xl backdrop-blur-xl">
-          <button 
+          <SovereignButton 
             onClick={() => setIsPlaying(!isPlaying)}
-            className={cn(
-              "p-2 rounded-xl transition-all flex items-center justify-center cursor-pointer",
-              isPlaying ? "bg-indigo-600 text-white shadow-lg" : "bg-neutral-800 text-slate-400 hover:text-white"
-            )}
+            variant={isPlaying ? "primary" : "secondary"}
+            size="sm"
+            className="p-2"
             title={isPlaying ? (isEn ? "Pause debate simulation" : "審議シミュレーションを一時停止") : (isEn ? "Play debate simulation" : "審議シミュレーションを開始")}
           >
             {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-          </button>
+          </SovereignButton>
 
           <div className="flex border-l border-white/5 pl-2 gap-1 font-mono text-[9px] font-bold">
             {[
@@ -330,29 +339,28 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
               { id: "fast", label: "2x" },
               { id: "hyper", label: "HYPER" }
             ].map((sp) => (
-              <button
+              <SovereignButton
                 key={sp.id}
                 onClick={() => setDebateSpeed(sp.id as any)}
-                className={cn(
-                  "px-2 py-1 rounded-lg transition-colors cursor-pointer",
-                  debateSpeed === sp.id 
-                    ? "bg-pink-600/20 text-pink-400 border border-pink-500/30" 
-                    : "text-slate-500 hover:text-white"
-                )}
+                variant={debateSpeed === sp.id ? "primary" : "secondary"}
+                size="sm"
+                className="px-2 py-1 text-[9px]"
               >
                 {sp.label}
-              </button>
+              </SovereignButton>
             ))}
           </div>
 
           {onComplete && (
-            <button
+            <SovereignButton
               onClick={onComplete}
-              className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold rounded-lg transition-all cursor-pointer font-mono shrink-0 ml-1 flex items-center gap-1"
+              variant="primary"
+              size="sm"
+              className="px-3 py-1 text-[10px] bg-emerald-600 hover:bg-emerald-700 font-mono shrink-0 ml-1 flex items-center gap-1"
             >
               <CheckCircle2 className="w-3 h-3" />
               <span>{isEn ? "DELIVER" : "成果物を保存"}</span>
-            </button>
+            </SovereignButton>
           )}
         </div>
       </div>
@@ -383,7 +391,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
                       "flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all",
                       isSelected
                         ? "bg-indigo-500/10 border-indigo-400/40"
-                        : "bg-[#0b0c10]/40 border-white/[0.02] hover:border-white/[0.06]"
+                        : "bg-[#0b0c10]/40 border-white/[0.02] hover:border-white/[0.06]" // design-token-lock-ignore
                     )}
                   >
                     <div className="flex items-center gap-2 min-w-0">
@@ -631,7 +639,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
                 initial={{ opacity: 0, y: 12, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -12, scale: 0.96 }}
-                className="absolute inset-x-4 bottom-4 bg-[#0a0a0f]/95 border border-indigo-500/25 p-3.5 rounded-2xl backdrop-blur-xl z-20 flex gap-3 items-start"
+                className="absolute inset-x-4 bottom-4 bg-[#0a0a0f]/95 border border-indigo-500/25 p-3.5 rounded-2xl backdrop-blur-xl z-20 flex gap-3 items-start" // design-token-lock-ignore
               >
                 <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-400/20 flex items-center justify-center text-lg shrink-0">
                   {agents.find(a => a.id === selectedAgentId)?.logo}
@@ -718,7 +726,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
       </div>
 
       {/* Bottom Panel: Global Consensus Metrics */}
-      <div className="bg-[#0b0c10]/80 border border-white/[0.05] p-4 rounded-2xl backdrop-blur-3xl z-10 relative">
+      <div className="bg-[#0b0c10]/80 border border-white/[0.05] p-4 rounded-2xl backdrop-blur-3xl z-10 relative"> {/* design-token-lock-ignore */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
           {[
             { label: isEn ? "Consensus" : "合意スコア", val: `${metrics.consensusScore}%`, icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> },

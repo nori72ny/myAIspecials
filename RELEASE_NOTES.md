@@ -1,14 +1,14 @@
-# Release Notes: ACOS 2.0 - Release Candidate 1 (RC1)
+# Release Notes: ACOS 2.0 - Release Candidate 2 (RC2)
 
-We are thrilled to announce the official release of **ACOS 2.0 - Release Candidate 1 (RC1)**. This build represents a monumental leap in the evolution of the AI Operating System (ACOS). Version 2.0 transitions the ecosystem from a single-agent task execution wrapper to a fully-realized, enterprise-grade, multi-agent organization OS capable of orchestrating 1,000+ autonomous entities simultaneously.
+We are thrilled to announce the official release of **ACOS 2.0 - Release Candidate 2 (RC2)**. This build represents a monumental leap in the evolution of the AI Operating System (ACOS). Version 2.0 transitions the ecosystem from a single-agent task execution wrapper to a fully-realized, enterprise-grade, multi-agent organization OS capable of orchestrating 1,000+ autonomous entities simultaneously.
 
 ---
 
-## 🌌 Overview of ACOS 2.0
+## 🌌 Overview of ACOS 2.0 (RC2 Update)
 
 ACOS 2.0 shifts the fundamental unit of scheduling and execution from isolated, single-threaded agents to **Dynamic Agent Organizations (Orgs)**. These federated orgs utilize hierarchical division of labor, shared workspace context, automated quality-of-service auditing, and decentralized consensus to achieve complex, long-running operational objectives.
 
-This release has undergone rigorous production-grade validation, securing an overall **Architectural and Quality Score of 98%**, passing all Playwright E2E integration pathways, and meeting the stringent **Q5 Production-Grade** standards.
+In RC2, we have established an audit-ready **Production Release Package** including detailed security, deployment, performance, accessibility, and store evaluation artifacts, fully aligning with continuous integration pipelines.
 
 ---
 

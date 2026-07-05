@@ -1,8 +1,8 @@
 import React from "react";
-import { motion } from "motion/react";
 import { Sparkles, ChevronRight, Layers } from "lucide-react";
 import { WorkspaceCategory } from "../../types";
 import { cn } from "../../utils";
+import { SovereignGlassCard } from "../SovereignComponents";
 
 interface WorkspaceCardProps {
   category: WorkspaceCategory;
@@ -12,31 +12,18 @@ interface WorkspaceCardProps {
 
 export default function WorkspaceCard({ category, onClick, index = 0 }: WorkspaceCardProps) {
   return (
-    <motion.div
+    <SovereignGlassCard
       id={`workspace-card-${category.id}`}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ 
-        type: "spring",
-        stiffness: 120,
-        damping: 15,
-        delay: index * 0.05 
-      }}
-      whileHover={{ 
-        scale: 1.015,
-        y: -2,
-        transition: { duration: 0.15, ease: "easeOut" }
-      }}
-      whileTap={{ scale: 0.985 }}
+      delay={index * 0.05}
       onClick={() => onClick(category)}
       className={cn(
-        "group relative p-6 rounded-2xl border bg-white dark:bg-[#0C0C0E]/60 backdrop-blur-md transition-colors cursor-pointer flex flex-col justify-between min-h-[180px] shadow-sm hover:shadow-lg hover:shadow-indigo-500/[0.02]",
-        category.borderColor || "border-slate-200/80 dark:border-white/[0.04]",
+        "group relative p-6 cursor-pointer flex flex-col justify-between min-h-[180px] hover:shadow-lg hover:shadow-indigo-500/[0.02]",
+        category.borderColor || "border-slate-200/40 dark:border-white/[0.03]",
         "hover:border-indigo-500/40 dark:hover:border-indigo-500/30"
       )}
     >
       {/* Background Interactive Ambient Glow */}
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500/[0.01] to-purple-500/[0.01] opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500/[0.01] to-pink-500/[0.01] opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
 
       <div className="space-y-4 relative z-10">
         <div className="flex items-start justify-between">
@@ -73,6 +60,6 @@ export default function WorkspaceCard({ category, onClick, index = 0 }: Workspac
           <ChevronRight className="w-3.5 h-3.5" />
         </span>
       </div>
-    </motion.div>
+    </SovereignGlassCard>
   );
 }

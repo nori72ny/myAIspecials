@@ -363,13 +363,13 @@ export default function BrainOverview() {
     <div className="flex flex-col h-full w-full bg-[#08080C] text-slate-100 font-sans rounded-3xl overflow-hidden border border-white/[0.06] shadow-2xl relative">
       {/* Background Ambience */}
       <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-10 right-1/4 w-[400px] h-[400px] bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-10 right-1/4 w-[400px] h-[400px] bg-pink-500/5 rounded-full blur-3xl pointer-events-none" />
 
       {/* Header Panel */}
       <div className="p-6 border-b border-white/[0.06] flex flex-col sm:flex-row justify-between items-start sm:items-center bg-black/40 gap-4 backdrop-blur-md relative z-10">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/10 border border-white/10">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-blue-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/10 border border-white/10">
               <BrainCircuit className="w-5 h-5 text-white animate-pulse" />
             </div>
             <div>
@@ -393,7 +393,10 @@ export default function BrainOverview() {
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           </button>
           
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-xs font-mono font-bold">
+          <div 
+            title="Brain Performance Index (脳性能指標) - ACOS全体の知的処理・推論パフォーマンスの統合スコア"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-xs font-mono font-bold cursor-help"
+          >
             <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping"></span>
             BPI: {lastBpiScore}%
           </div>
@@ -509,7 +512,7 @@ export default function BrainOverview() {
                     onClick={() => setActiveLayerId(layer.id)}
                     className={`w-full text-left flex items-center justify-between p-3 rounded-2xl transition-all duration-300 relative group cursor-pointer ${
                       isActive 
-                        ? "bg-gradient-to-r from-indigo-950/40 to-purple-950/10 border border-indigo-500/30 shadow-lg shadow-indigo-950/20 scale-[1.01]" 
+                        ? "bg-gradient-to-r from-indigo-950/40 to-indigo-950/10 border border-indigo-500/30 shadow-lg shadow-indigo-950/20 scale-[1.01]" 
                         : "bg-black/10 hover:bg-white/[0.02] border border-white/[0.03] hover:border-white/[0.08]"
                     }`}
                   >
@@ -695,12 +698,12 @@ export default function BrainOverview() {
             </div>
 
             <div className="space-y-1.5">
-              <span className="text-[10px] font-mono text-purple-400 font-bold uppercase tracking-widest block">Memory Horizon Overfit</span>
+              <span className="text-[10px] font-mono text-pink-400 font-bold uppercase tracking-widest block">Memory Horizon Overfit</span>
               <p className="text-xs text-slate-400 leading-normal">Set temporal weighting for User DNA schema persistence.</p>
               <div className="flex items-center gap-3 pt-1">
-                <span className="text-[10px] px-2 py-1 rounded bg-purple-500/10 text-purple-300 font-mono border border-purple-500/20">Short-term Only</span>
+                <span className="text-[10px] px-2 py-1 rounded bg-pink-500/10 text-pink-300 font-mono border border-pink-500/20">Short-term Only</span>
                 <span className="text-slate-500">→</span>
-                <span className="text-[10px] px-2 py-1 rounded bg-purple-500/20 text-purple-400 font-bold font-mono border border-purple-500/30">Complete DNA Match</span>
+                <span className="text-[10px] px-2 py-1 rounded bg-pink-500/20 text-pink-400 font-bold font-mono border border-pink-500/30">Complete DNA Match</span>
               </div>
             </div>
 

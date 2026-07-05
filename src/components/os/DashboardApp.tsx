@@ -46,7 +46,7 @@ export default function DashboardApp() {
       <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
         <div>
           <h2 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
-            <Layers className="w-5 h-5 text-indigo-600 animate-pulse" />
+            <Layers className="w-5 h-5 text-indigo-600" />
             ACOS 2.0 Enterprise Control Center
           </h2>
           <p className="text-xs text-slate-500 font-medium mt-1">

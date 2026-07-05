@@ -39,7 +39,7 @@ export default function MemoryExplorer() {
     if (nodes.length === 0) {
       return (
         <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8">
-          <Share2 className="w-12 h-12 mb-4 text-slate-300 animate-pulse" />
+          <Share2 className="w-12 h-12 mb-4 text-slate-300" />
           <p className="text-sm font-semibold">No Knowledge Graph Nodes available yet</p>
           <p className="text-xs mt-1 text-center max-w-sm">Execute a mission in ACOS to see the self-evolution engine map organizational relationships.</p>
         </div>
@@ -144,11 +144,11 @@ export default function MemoryExplorer() {
         <div className="flex justify-between items-center">
           <div>
             <h2 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
-              <Database className="w-5 h-5 text-indigo-600 animate-pulse" />
+              <Database className="w-5 h-5 text-indigo-600" />
               Memory Explorer (OEvE)
             </h2>
             <p className="text-xs text-slate-500 font-medium mt-1">
-              Browse and visualize the organization's long-term knowledge and dynamic graph relationships
+              Browse and visualize the organization's long-term knowledge and dynamic graph relationships (OEvE: Organizational Evolution Engine / 組織進化エンジン)
             </p>
           </div>
           <div className="flex items-center gap-3">

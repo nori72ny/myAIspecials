@@ -1,6 +1,16 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { AnalysisResult, NetworkNode } from "../types";
+import { 
+  SovereignGlassCard,
+  SovereignButton,
+  SovereignInput,
+  SovereignBadge,
+  SovereignDialog,
+  SovereignSidebar,
+  SovereignPanel,
+  SovereignSegmentedControl
+} from "./SovereignComponents";
 import {
   Brain,
   BrainCircuit,
@@ -5098,100 +5108,91 @@ export default function ResultDashboard({ result }: Props) {
       </div>
 
       {/* MIE Approval Certificate Modal */}
-      <AnimatePresence>
-        {showMIEModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-gradient-to-b from-[#141418] to-[#0A0A0C] border border-[#10B981]/30 rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl relative overflow-hidden"
-            >
-              {/* Glowing decorative lights */}
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-12 -right-12 w-36 h-36 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
-
-              <div className="text-center space-y-6">
-                <div className="flex justify-center">
-                  <div className="relative">
-                    <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-xl animate-pulse" />
-                    <div className="w-16 h-16 rounded-full bg-[#10B981]/15 border border-[#10B981]/30 text-[#10B981] flex items-center justify-center relative">
-                      <ShieldCheck className="w-8 h-8" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <span className="text-[10px] font-mono tracking-widest text-[#10B981] uppercase font-black">ORIGIN BUILD 004 : SECURE SYSTEM VERIFICATION</span>
-                  <h3 className="text-xl md:text-2xl font-black text-white tracking-tight">Master Intelligence Engine 成果物承認書</h3>
-                  <p className="text-xs text-white/55 font-mono">Certificate ID: {result.mission?.id || "MIE-004-VERIFIED"}</p>
-                </div>
-
-                {/* Verification Metrics Badge */}
-                <div className="grid grid-cols-3 gap-2.5 p-4 bg-white/2 border border-white/5 rounded-2xl">
-                  <div className="text-center space-y-1">
-                    <div className="text-[9px] text-white/40 font-mono">TRUTH SCORE</div>
-                    <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.truthScore || 99)}%</div>
-                    <div className="text-[8px] text-white/30 font-mono">&gt;=99% Passed</div>
-                  </div>
-                  <div className="text-center space-y-1">
-                    <div className="text-[9px] text-white/40 font-mono">CONFIDENCE</div>
-                    <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.confidenceScore || 98)}%</div>
-                    <div className="text-[8px] text-white/30 font-mono">&gt;=98% Passed</div>
-                  </div>
-                  <div className="text-center space-y-1">
-                    <div className="text-[9px] text-white/40 font-mono">QUALITY ACCURACY</div>
-                    <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.successScore || 95)}/100</div>
-                    <div className="text-[8px] text-white/30 font-mono">&gt;=95 Passed</div>
-                  </div>
-                </div>
-
-                {/* Final Rule Text Box */}
-                <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl text-left space-y-2.5">
-                  <span className="text-[10px] font-bold text-[#10B981] font-mono block">◆ MIE FINAL RULE:</span>
-                  <p className="text-[11px] text-[#10B981] leading-relaxed font-semibold">
-                    「AIは答えを返さない。Master Intelligenceが承認した結果だけを返す。」
-                  </p>
-                  <p className="text-[11px] text-white/70 leading-relaxed">
-                    本システムにおける成果物は、MIEが10の基本判定機能（Mission理解、AI選定、Team編成、Workflow生成、品質判定、Truth判定、ROI判定、リスク判定、完成判定、学習）を実行・通過し、99%以上の絶対真実性と98%以上の確信度をもって最適化した結果です。
-                  </p>
-                </div>
-
-                {/* Knowledge DNA synchronization visualizer */}
-                <div className="flex items-center justify-between p-3.5 bg-black/40 border border-white/5 rounded-2xl text-xs text-left">
-                  <div className="flex items-center gap-2.5">
-                    <Database className="w-4 h-4 text-emerald-400 animate-pulse shrink-0" />
-                    <div>
-                      <h4 className="font-bold text-white text-[11px]">Knowledge DNA 永続化同期完了</h4>
-                      <p className="text-[10px] text-white/50">このミッションの成功パターンを長期記憶層に書き込みました。</p>
-                    </div>
-                  </div>
-                  <span className="text-[9px] font-mono text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded font-bold">LOCKED IN</span>
-                </div>
-
-                {/* Footer Buttons */}
-                <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <button 
-                    onClick={() => {
-                      alert("MIE承認済み最終成果マトリクスが正常にエクスポートされました。");
-                      setShowMIEModal(false);
-                    }}
-                    className="w-full py-3 rounded-xl bg-[#10B981] hover:bg-[#059669] text-black font-extrabold text-xs tracking-wider uppercase transition-all shadow-lg"
-                  >
-                    成果物のエクスポート / 納品
-                  </button>
-                  <button 
-                    onClick={() => setShowMIEModal(false)}
-                    className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 font-bold text-xs transition-all border border-white/5"
-                  >
-                    閉じる (ダッシュボードに戻る)
-                  </button>
-                </div>
+      <SovereignDialog
+        isOpen={showMIEModal}
+        onClose={() => setShowMIEModal(false)}
+        title="Master Intelligence Engine 成果物承認書"
+      >
+        <div className="text-center space-y-6">
+          <div className="flex justify-center">
+            <div className="relative">
+              <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-xl animate-pulse" />
+              <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center relative">
+                <ShieldCheck className="w-8 h-8" />
               </div>
-            </motion.div>
+            </div>
           </div>
-        )}
-      </AnimatePresence>
+
+          <div className="space-y-2">
+            <span className="text-[10px] font-mono tracking-widest text-emerald-400 uppercase font-black">ORIGIN BUILD 004 : SECURE SYSTEM VERIFICATION</span>
+            <h3 className="text-xl md:text-2xl font-black text-white tracking-tight">Master Intelligence Engine 成果物承認書</h3>
+            <p className="text-xs text-white/55 font-mono">Certificate ID: {result.mission?.id || "MIE-004-VERIFIED"}</p>
+          </div>
+
+          {/* Verification Metrics Badge */}
+          <div className="grid grid-cols-3 gap-2.5 p-4 bg-white/5 border border-white/10 rounded-2xl">
+            <div className="text-center space-y-1">
+              <div className="text-[9px] text-white/40 font-mono">TRUTH SCORE</div>
+              <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.truthScore || 99)}%</div>
+              <div className="text-[8px] text-white/30 font-mono">&gt;=99% Passed</div>
+            </div>
+            <div className="text-center space-y-1">
+              <div className="text-[9px] text-white/40 font-mono">CONFIDENCE</div>
+              <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.confidenceScore || 98)}%</div>
+              <div className="text-[8px] text-white/30 font-mono">&gt;=98% Passed</div>
+            </div>
+            <div className="text-center space-y-1">
+              <div className="text-[9px] text-white/40 font-mono">QUALITY ACCURACY</div>
+              <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.successScore || 95)}/100</div>
+              <div className="text-[8px] text-white/30 font-mono">&gt;=95 Passed</div>
+            </div>
+          </div>
+
+          {/* Final Rule Text Box */}
+          <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl text-left space-y-2.5">
+            <span className="text-[10px] font-bold text-emerald-400 font-mono block">◆ MIE FINAL RULE:</span>
+            <p className="text-[11px] text-emerald-400 leading-relaxed font-semibold">
+              「AIは答えを返さない。Master Intelligenceが承認した結果だけを返す。」
+            </p>
+            <p className="text-[11px] text-white/70 leading-relaxed">
+              本システムにおける成果物は、MIEが10の基本判定機能（Mission理解、AI選定、Team編成、Workflow生成、品質判定、Truth判定、ROI判定、リスク判定、完成判定、学習）を実行・通過し、99%以上の絶対真実性と98%以上の確信度をもって最適化した結果です。
+            </p>
+          </div>
+
+          {/* Knowledge DNA synchronization visualizer */}
+          <div className="flex items-center justify-between p-3.5 bg-black/40 border border-white/5 rounded-2xl text-xs text-left">
+            <div className="flex items-center gap-2.5">
+              <Database className="w-4 h-4 text-emerald-400 animate-pulse shrink-0" />
+              <div>
+                <h4 className="font-bold text-white text-[11px]">Knowledge DNA 永続化同期完了</h4>
+                <p className="text-[10px] text-white/50">このミッションの成功パターンを長期記憶層に書き込みました。</p>
+              </div>
+            </div>
+            <span className="text-[9px] font-mono text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded font-bold">LOCKED IN</span>
+          </div>
+
+          {/* Footer Buttons */}
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <SovereignButton 
+              onClick={() => {
+                alert("MIE承認済み最終成果マトリクスが正常にエクスポートされました。");
+                setShowMIEModal(false);
+              }}
+              variant="primary"
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs tracking-wider uppercase transition-all shadow-lg"
+            >
+              成果物のエクスポート / 納品
+            </SovereignButton>
+            <SovereignButton 
+              onClick={() => setShowMIEModal(false)}
+              variant="secondary"
+              className="w-full py-3 text-white/80 font-bold text-xs"
+            >
+              閉じる (ダッシュボードに戻る)
+            </SovereignButton>
+          </div>
+        </div>
+      </SovereignDialog>
 
     </motion.div>
   );

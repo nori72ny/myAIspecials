@@ -1,6 +1,44 @@
-<testsuites id="" name="" tests="1" failures="0" skipped="0" errors="0" time="28.546957">
-<testsuite name="acos.spec.ts" timestamp="2026-07-01T19:30:44.987Z" hostname="chromium" tests="1" failures="0" skipped="0" time="26.567" errors="0">
-<testcase name="ACOS 2.0 Full Lifecycle E2E Test › should execute a complete mission lifecycle from UI" classname="acos.spec.ts" time="26.567">
+<testsuites id="" name="" tests="1" failures="1" skipped="0" errors="0" time="18.633010000000002">
+<testsuite name="acos.spec.ts" timestamp="2026-07-05T09:56:55.201Z" hostname="chromium" tests="1" failures="1" skipped="0" time="16.376" errors="0">
+<testcase name="ACOS 2.0 Full Lifecycle E2E Test › should execute a complete mission lifecycle from UI" classname="acos.spec.ts" time="16.376">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|../test-results/acos-ACOS-2-0-Full-Lifecyc-ed0fe-e-mission-lifecycle-from-UI-chromium/video.webm]]
+
+[[ATTACHMENT|../test-results/acos-ACOS-2-0-Full-Lifecyc-ed0fe-e-mission-lifecycle-from-UI-chromium/error-context.md]]
+]]>
+</system-out>
+<failure message="expect(locator).toBeVisible() failed" type="expect.toBeVisible">
+<![CDATA[  [chromium] › acos.spec.ts:4:3 › ACOS 2.0 Full Lifecycle E2E Test › should execute a complete mission lifecycle from UI 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('button:has-text("Mission Generator")').first()
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for locator('button:has-text("Mission Generator")').first()
+
+
+       8 |     // Click the "Mission Generator" sidebar button to navigate to the cockpit
+       9 |     const missionGeneratorTab = page.locator('button:has-text("Mission Generator")').first();
+    > 10 |     await expect(missionGeneratorTab).toBeVisible({ timeout: 15000 });
+         |                                       ^
+      11 |     await missionGeneratorTab.click();
+      12 |
+      13 |     // Wait for the main input to be visible (using its placeholder to avoid matching the Copilot input in the sidebar)
+        at /app/applet/tests/e2e/acos.spec.ts:10:39
+
+    attachment #1: video (video/webm) ──────────────────────────────────────────────────────────────
+    ../../test-results/acos-ACOS-2-0-Full-Lifecyc-ed0fe-e-mission-lifecycle-from-UI-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../test-results/acos-ACOS-2-0-Full-Lifecyc-ed0fe-e-mission-lifecycle-from-UI-chromium/error-context.md
+]]>
+</failure>
 </testcase>
 </testsuite>
 </testsuites>

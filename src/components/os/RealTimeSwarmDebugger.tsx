@@ -26,7 +26,13 @@ import {
   Eye,
   Check,
   X,
-  FileText
+  FileText,
+  Crown,
+  Search,
+  Beaker,
+  Handshake,
+  Coins,
+  User
 } from "lucide-react";
 import { cn } from "../../utils";
 
@@ -35,7 +41,7 @@ interface AgentNode {
   id: string;
   name: string;
   role: string;
-  icon: string;
+  icon: React.ReactNode;
   status: "Thinking" | "Waiting" | "Working" | "Reviewing" | "Finished";
   color: string;
   provider: string;
@@ -156,16 +162,16 @@ export default function RealTimeSwarmDebugger() {
 
   // Circular layout of 10 Agents in clean orbital space
   const defaultAgents: AgentNode[] = [
-    { id: "ceo", name: "CEO Agent", role: "Chief Executive", icon: "👑", status: "Waiting", color: "#6366F1", provider: "Gemini 3.5 Pro (Google)", x: 50, y: 15 },
-    { id: "cto", name: "CTO Agent", role: "Chief Technology", icon: "💻", status: "Waiting", color: "#38BDF8", provider: "GPT-4o (OpenAI)", x: 25, y: 35 },
-    { id: "cfo", name: "CFO Agent", role: "Chief Financial", icon: "💰", status: "Waiting", color: "#F59E0B", provider: "Gemini 3.5 Flash (Google)", x: 75, y: 35 },
-    { id: "coo", name: "COO Agent", role: "Chief Operations", icon: "⚙️", status: "Waiting", color: "#EC4899", provider: "Claude 3.5 Sonnet (Anthropic)", x: 50, y: 40 },
-    { id: "research", name: "Research Lead", role: "Search Grounding", icon: "🔍", status: "Waiting", color: "#10B981", provider: "Gemini 3.5 Flash (Google)", x: 15, y: 60 },
-    { id: "architecture", name: "Architecture Lead", role: "Constraint Compliance", icon: "🏛️", status: "Waiting", color: "#8B5CF6", provider: "GPT-4o (OpenAI)", x: 85, y: 60 },
-    { id: "developer", name: "Developer Agent", role: "Code & Deliverables", icon: "🛠️", status: "Waiting", color: "#F97316", provider: "Claude 3.5 Sonnet (Anthropic)", x: 30, y: 80 },
-    { id: "qa", name: "QA Agent", role: "Verification Gate", icon: "🧪", status: "Waiting", color: "#EF4444", provider: "Llama 3.1 70B (Meta)", x: 70, y: 80 },
-    { id: "reviewer", name: "Reviewer Agent", role: "Subjective Critique", icon: "✍️", status: "Waiting", color: "#06B6D4", provider: "Gemini 3.5 Pro (Google)", x: 50, y: 92 },
-    { id: "consensus", name: "Consensus Engine", role: "UQI Audit Gate", icon: "🤝", status: "Waiting", color: "#10B981", provider: "ACOS Consensus Auditor", x: 50, y: 63 }
+    { id: "ceo", name: "CEO Agent", role: "Chief Executive", icon: <Crown className="w-4 h-4" />, status: "Waiting", color: "#6366F1", provider: "Gemini 3.5 Pro (Google)", x: 50, y: 15 },
+    { id: "cto", name: "CTO Agent", role: "Chief Technology", icon: <Cpu className="w-4 h-4" />, status: "Waiting", color: "#38BDF8", provider: "GPT-4o (OpenAI)", x: 25, y: 35 },
+    { id: "cfo", name: "CFO Agent", role: "Chief Financial", icon: <Coins className="w-4 h-4" />, status: "Waiting", color: "#F59E0B", provider: "Gemini 3.5 Flash (Google)", x: 75, y: 35 },
+    { id: "coo", name: "COO Agent", role: "Chief Operations", icon: <Workflow className="w-4 h-4" />, status: "Waiting", color: "#EC4899", provider: "Claude 3.5 Sonnet (Anthropic)", x: 50, y: 40 },
+    { id: "research", name: "Research Lead", role: "Search Grounding", icon: <Search className="w-4 h-4" />, status: "Waiting", color: "#10B981", provider: "Gemini 3.5 Flash (Google)", x: 15, y: 60 },
+    { id: "architecture", name: "Architecture Lead", role: "Constraint Compliance", icon: <Layers className="w-4 h-4" />, status: "Waiting", color: "#8B5CF6", provider: "GPT-4o (OpenAI)", x: 85, y: 60 },
+    { id: "developer", name: "Developer Agent", role: "Code & Deliverables", icon: <Code className="w-4 h-4" />, status: "Waiting", color: "#F97316", provider: "Claude 3.5 Sonnet (Anthropic)", x: 30, y: 80 },
+    { id: "qa", name: "QA Agent", role: "Verification Gate", icon: <CheckCircle2 className="w-4 h-4" />, status: "Waiting", color: "#EF4444", provider: "Llama 3.1 70B (Meta)", x: 70, y: 80 },
+    { id: "reviewer", name: "Reviewer Agent", role: "Subjective Critique", icon: <Eye className="w-4 h-4" />, status: "Waiting", color: "#06B6D4", provider: "Gemini 3.5 Pro (Google)", x: 50, y: 92 },
+    { id: "consensus", name: "Consensus Engine", role: "UQI Audit Gate", icon: <Handshake className="w-4 h-4" />, status: "Waiting", color: "#10B981", provider: "ACOS Consensus Auditor", x: 50, y: 63 }
   ];
 
   const getMissionTitle = () => {
@@ -606,7 +612,7 @@ export default function RealTimeSwarmDebugger() {
               UQI GATE ACTIVE
             </span>
             {isRealAiMode && (
-              <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2.5 py-0.5 rounded-full font-mono font-bold tracking-widest uppercase flex items-center gap-1">
+              <span className="text-[9px] bg-pink-500/20 text-pink-300 border border-pink-500/30 px-2.5 py-0.5 rounded-full font-mono font-bold tracking-widest uppercase flex items-center gap-1">
                 <Sparkles className="w-2.5 h-2.5 animate-pulse" />
                 <span>REAL AI DISCUSS</span>
               </span>
@@ -632,7 +638,7 @@ export default function RealTimeSwarmDebugger() {
               "px-5 py-2.5 rounded-2xl font-black text-xs transition-all duration-300 flex items-center gap-2 shadow-lg hover:scale-[1.02] cursor-pointer",
               isExecutingApi 
                 ? "bg-slate-800 text-slate-500 border border-slate-700 pointer-events-none" 
-                : "bg-gradient-to-r from-indigo-500 to-purple-600 border border-indigo-400/30 text-white hover:from-indigo-600 hover:to-purple-700 shadow-indigo-950/40"
+                : "bg-gradient-to-r from-indigo-500 to-pink-600 border border-indigo-400/30 text-white hover:from-indigo-600 hover:to-pink-700 shadow-indigo-950/40"
             )}
           >
             <Sparkles className={cn("w-4 h-4", isExecutingApi ? "animate-spin" : "animate-bounce")} />
@@ -798,7 +804,7 @@ export default function RealTimeSwarmDebugger() {
 
             <div className="max-w-md mx-auto space-y-2">
               <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 w-2/3 rounded-full animate-pulse" />
+                <div className="h-full bg-gradient-to-r from-indigo-500 via-pink-500 to-indigo-500 w-2/3 rounded-full animate-pulse" />
               </div>
               <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 font-bold">
                 <span>API CHANNEL: CONNECTING</span>
@@ -1135,7 +1141,7 @@ export default function RealTimeSwarmDebugger() {
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[250px] overflow-y-auto pr-2 scrollbar-thin">
                   {consensus.votes.map((vt) => {
-                    const matchedAgent = defaultAgents.find(a => a.id === vt.agentId) || { name: vt.agentId, icon: "👤", role: "Boardmember" };
+                    const matchedAgent = defaultAgents.find(a => a.id === vt.agentId) || { name: vt.agentId, icon: <User className="w-4 h-4" />, role: "Boardmember" };
                     return (
                       <div key={vt.agentId} className="p-3 bg-white/[0.01] border border-white/[0.03] rounded-2xl flex flex-col justify-between space-y-2 hover:bg-white/[0.02] transition-colors">
                         <div className="flex justify-between items-center">

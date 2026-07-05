@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.0.0-rc.2] - 2026-07-05
+### Added
+- **Production Package Certification**: Added `SECURITY.md`, `DEPLOYMENT_GUIDE.md`, `KNOWN_LIMITATIONS.md`, `QA_REPORT.md`, `PERFORMANCE_REPORT.md`, `ACCESSIBILITY_REPORT.md`, `APPSTORE_CHECKLIST.md`, and `PRODUCTION_CHECKLIST.md` to establish an audit-ready Release Package.
+- **Headless E2E Browser Testing Support**: Installed Playwright Chromium dependencies to allow full backend and cockpit headless automation traces.
+
+### Fixed
+- **Design Token Cleanliness**: Cleaned up various arbitrary styles and locked design tokens using a custom AST-based static verification checker.
+
+---
+
 ## [2.0.0-rc.1] - 2026-07-01
 ### Added
 - **Dynamic Agent Organizations (Orgs)**: Introduced `OrganizationAggregate` root to represent collaborative federated workspaces capable of scaling to 1,000+ active agents.

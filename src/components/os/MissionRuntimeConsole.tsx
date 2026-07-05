@@ -440,7 +440,7 @@ export default function MissionRuntimeConsole({
                 initial={{ width: "0%" }}
                 animate={{ width: `${progress}%` }}
                 transition={{ duration: 0.3 }}
-                className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500"
+                className="h-full bg-gradient-to-r from-indigo-500 via-pink-500 to-blue-500"
               />
             </div>
             <p className="text-xs text-indigo-300 italic font-medium">
@@ -577,7 +577,7 @@ export default function MissionRuntimeConsole({
           <div className="bg-neutral-950 border border-white/[0.05] p-4 rounded-2xl h-[230px] flex flex-col justify-between">
             <div className="flex items-center justify-between border-b border-white/[0.03] pb-2">
               <span className="font-mono text-[9px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
-                <Terminal className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                <Terminal className="w-3.5 h-3.5 text-indigo-500" />
                 <span>Live Execution logs</span>
               </span>
               <span className="text-[8px] font-mono text-slate-500 bg-white/5 px-1.5 py-0.5 rounded uppercase font-black">SYS_LOGS</span>

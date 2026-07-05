@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Activity, Zap, DollarSign, Target, CheckCircle, BarChart3, Clock, AlertCircle } from "lucide-react";
+import { Activity, Zap, DollarSign, Target, CheckCircle, BarChart3, Clock, AlertCircle, Star } from "lucide-react";
 import { cn } from "../../utils";
 
 const PROVIDERS = [
@@ -68,7 +68,7 @@ export default function AIPerformanceDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
-            <Activity className="w-6 h-6 text-indigo-600 animate-pulse" />
+            <Activity className="w-6 h-6 text-indigo-600" />
             Activity Dashboard
           </h2>
           <p className="text-sm text-slate-500 font-medium mt-1">Real-time metrics and health status across all active LLM providers</p>
@@ -137,7 +137,7 @@ export default function AIPerformanceDashboard() {
               </div>
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-                  <StarIcon className="w-3 h-3" /> Review Score
+                  <Star className="w-3 h-3" /> Review Score
                 </div>
                 <div className="text-lg font-black text-slate-800">{provider.reviewScore}</div>
               </div>
@@ -155,13 +155,5 @@ export default function AIPerformanceDashboard() {
         ))}
       </div>
     </div>
-  );
-}
-
-function StarIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
   );
 }

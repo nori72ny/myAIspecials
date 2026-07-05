@@ -1,25 +1,25 @@
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import { 
   Briefcase, 
   FileText, 
   MessageSquare, 
   Paperclip, 
   Users, 
-  Sparkles, 
   Plus, 
-  ArrowUpRight, 
   File, 
   Trash2, 
   Search, 
-  Clock, 
-  CheckCircle2, 
   ChevronRight,
-  TrendingUp,
-  Cpu,
-  BookOpen
+  TrendingUp
 } from "lucide-react";
 import { cn } from "../../utils";
+import { 
+  SovereignGlassCard,
+  SovereignButton,
+  SovereignInput,
+  SovereignBadge,
+  SovereignSegmentedControl
+} from "../SovereignComponents";
 
 interface SavedMission {
   id: string;
@@ -51,7 +51,7 @@ export default function WorkspaceApp({
   onViewMissionResult,
   onNavigateToApp
 }: WorkspaceAppProps) {
-  const [activeTab, setActiveTab] = useState<"all" | "missions" | "chats" | "files" | "debates">("all");
+  const [activeTab, setActiveTab] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   
   // Local state for attached materials (real local uploader state)
@@ -67,8 +67,8 @@ export default function WorkspaceApp({
     }
   });
 
-  // Local state for AI debate threads (simulated but persistent and beautiful)
-  const [debates, setDebates] = useState([
+  // Local state for AI debate threads
+  const [debates] = useState([
     {
       id: "d-01",
       topic: "SWOT Strategy Validation on Legal Tech SaaS",
@@ -162,16 +162,24 @@ export default function WorkspaceApp({
     d.topic.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const tabOptions = [
+    { id: "all", label: "All Assets" },
+    { id: "missions", label: `Missions (${filteredMissions.length})` },
+    { id: "chats", label: "AI Chats" },
+    { id: "files", label: `Materials (${filteredFiles.length})` },
+    { id: "debates", label: `AI Debates (${filteredDebates.length})` }
+  ];
+
   return (
     <div className="space-y-6">
       
       {/* Header section with sleek workspace stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/50 dark:border-white/[0.04] pb-5">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-500/10 dark:bg-indigo-500/20 border border-indigo-500/20 rounded-full text-[10px] text-indigo-600 dark:text-indigo-300 font-bold font-mono tracking-widest uppercase">
-            <Briefcase className="w-3.5 h-3.5" />
+          <SovereignBadge variant="indigo">
+            <Briefcase className="w-3.5 h-3.5 mr-1.5" />
             UNIFIED CURRENT WORKING SPACE
-          </div>
+          </SovereignBadge>
           <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">
             Active Intelligence Desk
           </h2>
@@ -197,35 +205,21 @@ export default function WorkspaceApp({
 
       {/* Workspace search and filtering tab bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white/40 dark:bg-neutral-900/20 border border-slate-200/60 dark:border-white/[0.04] p-2 rounded-2xl backdrop-blur-md">
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-none shrink-0">
-          {(["all", "missions", "chats", "files", "debates"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setActiveTab(t)}
-              className={cn(
-                "px-3.5 py-1.5 rounded-xl text-xs font-bold capitalize transition-all cursor-pointer whitespace-nowrap",
-                activeTab === t
-                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
-                  : "text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-neutral-200 hover:bg-slate-50 dark:hover:bg-neutral-800/30"
-              )}
-            >
-              {t === "all" && "All Assets"}
-              {t === "missions" && `Missions (${filteredMissions.length})`}
-              {t === "chats" && "AI Chats"}
-              {t === "files" && `Materials (${filteredFiles.length})`}
-              {t === "debates" && `AI Debates (${filteredDebates.length})`}
-            </button>
-          ))}
-        </div>
+        <SovereignSegmentedControl
+          options={tabOptions}
+          selectedValue={activeTab}
+          onChange={(id) => setActiveTab(id)}
+          className="w-full sm:max-w-xl"
+        />
 
         <div className="relative flex items-center w-full sm:w-64">
           <Search className="w-4 h-4 text-slate-400 absolute left-3" />
-          <input
+          <SovereignInput
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search workspace assets..."
-            className="w-full bg-slate-50 dark:bg-neutral-900 border border-slate-200/60 dark:border-neutral-800 rounded-xl py-1.5 pl-9 pr-4 text-xs font-semibold text-slate-800 dark:text-neutral-200 placeholder:text-slate-400"
+            className="w-full pl-9"
           />
         </div>
       </div>
@@ -245,10 +239,10 @@ export default function WorkspaceApp({
               </h3>
               <div className="space-y-2.5">
                 {filteredMissions.map((m) => (
-                  <div
+                  <SovereignGlassCard
                     key={m.id}
                     onClick={() => onViewMissionResult(m)}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white/80 dark:bg-neutral-900/30 border border-slate-200/50 dark:border-white/[0.04] rounded-2xl hover:border-indigo-500/30 hover:shadow-md transition-all cursor-pointer group"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 hover:border-indigo-500/30 hover:shadow-md cursor-pointer group"
                   >
                     <div className="flex items-start gap-3 truncate max-w-[80%]">
                       <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center shrink-0 border border-indigo-100/50 dark:border-indigo-900/30 group-hover:scale-105 transition-all">
@@ -268,14 +262,12 @@ export default function WorkspaceApp({
                       </div>
                     </div>
                     <div className="flex items-center gap-3 mt-2 sm:mt-0 justify-end shrink-0">
-                      <div className="text-right">
-                        <span className="text-[10px] font-black text-emerald-500 dark:text-emerald-400 font-mono px-2 py-0.5 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/10 rounded">
-                          UQI: {m.successScore}%
-                        </span>
-                      </div>
+                      <SovereignBadge variant="emerald" className="shrink-0">
+                        UQI: {m.successScore}%
+                      </SovereignBadge>
                       <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
                     </div>
-                  </div>
+                  </SovereignGlassCard>
                 ))}
                 {filteredMissions.length === 0 && (
                   <p className="text-xs text-slate-400 italic py-4">No completed mission deliverables found matching search parameters.</p>
@@ -293,10 +285,10 @@ export default function WorkspaceApp({
               </h3>
               <div className="space-y-2.5">
                 {filteredDebates.map((d) => (
-                  <div
+                  <SovereignGlassCard
                     key={d.id}
                     onClick={() => onNavigateToApp("multi-ai")}
-                    className="p-4 bg-white/80 dark:bg-neutral-900/30 border border-slate-200/50 dark:border-white/[0.04] rounded-2xl hover:border-pink-500/30 hover:shadow-md transition-all cursor-pointer group"
+                    className="p-4 hover:border-pink-500/30 hover:shadow-md cursor-pointer group"
                   >
                     <div className="flex items-start justify-between">
                       <div className="space-y-1">
@@ -311,19 +303,14 @@ export default function WorkspaceApp({
                           ))}
                         </div>
                       </div>
-                      <span className={cn(
-                        "text-[9px] font-bold px-2 py-0.5 rounded font-mono shrink-0",
-                        d.status === "Resolved" 
-                          ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/10"
-                          : "bg-pink-500/10 text-pink-500 border border-pink-500/10 animate-pulse"
-                      )}>
+                      <SovereignBadge variant={d.status === "Resolved" ? "emerald" : "pink"} className="shrink-0">
                         {d.status}
-                      </span>
+                      </SovereignBadge>
                     </div>
                     <p className="text-[11px] text-slate-400 dark:text-neutral-500 font-medium mt-3 font-mono bg-slate-50 dark:bg-neutral-950/40 p-2.5 rounded-lg border border-slate-100 dark:border-white/[0.02] truncate">
                       {d.lastMessage}
                     </p>
-                  </div>
+                  </SovereignGlassCard>
                 ))}
               </div>
             </div>
@@ -338,16 +325,16 @@ export default function WorkspaceApp({
               </h3>
               
               {/* Drag and Drop Zone */}
-              <div
+              <SovereignGlassCard
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
                 className={cn(
-                  "border-2 border-dashed rounded-2xl p-6 text-center transition-all cursor-pointer",
+                  "border-2 border-dashed p-6 text-center transition-all cursor-pointer",
                   dragActive
                     ? "border-indigo-500 bg-indigo-50/20 dark:bg-indigo-950/10"
-                    : "border-slate-200/80 dark:border-white/[0.04] bg-white/40 dark:bg-neutral-900/10 hover:border-indigo-500/20 dark:hover:border-indigo-500/20"
+                    : "hover:border-indigo-500/20 dark:hover:border-indigo-500/20"
                 )}
               >
                 <input 
@@ -366,14 +353,14 @@ export default function WorkspaceApp({
                     Supports TXT, PDF, DOCX, XLSX and images to grounds AI analysis
                   </p>
                 </label>
-              </div>
+              </SovereignGlassCard>
 
               {/* Uploaded files catalog */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {filteredFiles.map((file) => (
-                  <div
+                  <SovereignGlassCard
                     key={file.id}
-                    className="flex items-center justify-between p-3.5 bg-white/80 dark:bg-neutral-900/30 border border-slate-200/50 dark:border-white/[0.04] rounded-xl group relative overflow-hidden"
+                    className="flex items-center justify-between p-3.5 group relative overflow-hidden"
                   >
                     <div className="flex items-center gap-3 truncate max-w-[80%]">
                       <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100/50 dark:border-emerald-900/30 flex items-center justify-center shrink-0">
@@ -388,13 +375,15 @@ export default function WorkspaceApp({
                         </p>
                       </div>
                     </div>
-                    <button
+                    <SovereignButton
+                      variant="ghost"
+                      size="sm"
                       onClick={(e) => handleDeleteFile(file.id, e)}
-                      className="p-1.5 bg-rose-500/5 hover:bg-rose-500/10 text-rose-400 rounded-lg hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
+                      className="p-1.5 hover:bg-rose-500/10 text-rose-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <Trash2 className="w-4.5 h-4.5" />
-                    </button>
-                  </div>
+                    </SovereignButton>
+                  </SovereignGlassCard>
                 ))}
               </div>
             </div>
@@ -406,7 +395,7 @@ export default function WorkspaceApp({
         <div className="space-y-6">
           
           {/* Active Cockpit Summary */}
-          <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-2xl shadow-xs space-y-4">
+          <SovereignGlassCard className="p-5 space-y-4">
             <h4 className="text-xs font-black text-slate-800 dark:text-neutral-300 uppercase tracking-widest font-mono">
               Working Workspace Summary
             </h4>
@@ -430,15 +419,17 @@ export default function WorkspaceApp({
             </div>
 
             <div className="pt-2">
-              <button
+              <SovereignButton
+                variant="secondary"
+                size="md"
                 onClick={() => onNavigateToApp("chat")}
-                className="w-full py-2.5 bg-slate-50 dark:bg-neutral-900 hover:bg-slate-100 dark:hover:bg-neutral-800/60 border border-slate-200/60 dark:border-neutral-800 rounded-xl text-xs font-bold text-slate-700 dark:text-neutral-300 transition-all text-center cursor-pointer flex items-center justify-center gap-1.5"
+                className="w-full flex items-center justify-center gap-1.5"
               >
                 <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
                 <span>Jump into Active Chat Cockpit</span>
-              </button>
+              </SovereignButton>
             </div>
-          </div>
+          </SovereignGlassCard>
 
           {/* OEvE Cognitive Compliance Card */}
           <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-900 text-white rounded-2xl p-5 border border-white/5 space-y-3">

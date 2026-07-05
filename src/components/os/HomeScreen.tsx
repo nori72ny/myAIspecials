@@ -1,35 +1,31 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import { 
-  Brain, 
-  BrainCircuit, 
-  Database, 
-  Sparkles, 
-  TrendingUp, 
-  Clock, 
-  ChevronRight, 
   Cpu, 
   Zap, 
   AlertCircle, 
   CheckCircle2, 
-  Command, 
   PlusCircle, 
-  Layout, 
   Search, 
   Briefcase, 
   Shield, 
   Layers, 
-  ArrowUpRight, 
   Activity,
   Award,
-  Terminal,
-  RefreshCw,
-  HelpCircle,
-  FileText
+  FileText,
+  ChevronRight,
+  Sparkles,
+  TrendingUp
 } from "lucide-react";
 import { cn } from "../../utils";
 import { WorkspaceCategory, TaskTemplate } from "../../types";
 import DynamicBrain from "./DynamicBrain";
+import { 
+  SovereignGlassCard,
+  SovereignButton,
+  SovereignInput,
+  SovereignBadge,
+  SovereignSegmentedControl
+} from "../SovereignComponents";
 
 interface SavedMission {
   id: string;
@@ -69,7 +65,6 @@ export default function HomeScreen({
 }: HomeScreenProps) {
   const [selectedSuggestCategory, setSelectedSuggestCategory] = useState<WorkspaceCategory>(categories[0]);
   const [inputFocused, setInputFocused] = useState(false);
-  const [brainActivityPulse, setBrainActivityPulse] = useState(true);
   const [cognitivePower, setCognitivePower] = useState(98.2);
 
   // Periodic simulation for brain immersion
@@ -79,21 +74,9 @@ export default function HomeScreen({
         const delta = (Math.random() - 0.5) * 0.2;
         return parseFloat(Math.min(100, Math.max(95, prev + delta)).toFixed(1));
       });
-      setBrainActivityPulse(prev => !prev);
     }, 4000);
     return () => clearInterval(timer);
   }, []);
-
-  const handlePresetClick = (preset: string) => {
-    setPrompt(preset);
-    const matchingCat = categories.find(c => 
-      c.templates.some(t => t.placeholder === preset || t.name === preset)
-    );
-    if (matchingCat) {
-      onSelectCategory(matchingCat);
-    }
-    handleAnalyze(undefined, preset);
-  };
 
   const handleTemplateClick = (temp: TaskTemplate, cat: WorkspaceCategory) => {
     setPrompt(temp.placeholder);
@@ -103,36 +86,27 @@ export default function HomeScreen({
 
   const activeSuggestTemplates = selectedSuggestCategory?.templates || [];
 
+  const categoryOptions = categories.map(cat => ({
+    id: cat.id,
+    label: cat.name,
+    icon: <span className="mr-1">{cat.icon}</span>
+  }));
+
   return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.6, ease: "easeOut" }}
-      className="space-y-12 py-4 px-1 max-w-6xl mx-auto"
-    >
+    <div className="space-y-12 py-4 px-1 max-w-6xl mx-auto">
       
       {/* ① BRAIN CARD (主役 - First Eye Contact) */}
-      <motion.div 
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.8, ease: "easeOut" }}
-        className="relative rounded-3xl overflow-hidden bg-white/30 dark:bg-neutral-900/10 backdrop-blur-2xl border border-slate-200/40 dark:border-white/[0.03] shadow-lg shadow-slate-100/5 dark:shadow-none p-1"
-      >
+      <SovereignGlassCard className="relative overflow-hidden p-1">
         <DynamicBrain />
-      </motion.div>
+      </SovereignGlassCard>
 
       {/* ② UNIVERSAL MISSION INPUT (第二優先 - Interactive Action Center) */}
-      <motion.div 
-        initial={{ y: 15, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.8, delay: 0.1, ease: "easeOut" }}
-        className="max-w-3xl mx-auto w-full space-y-6 text-center"
-      >
+      <div className="max-w-3xl mx-auto w-full space-y-6 text-center">
         <div className="space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/10 rounded-full text-[10px] text-indigo-600 dark:text-indigo-400 font-bold font-mono tracking-widest uppercase">
-            <Sparkles className="w-3 h-3 text-indigo-500" />
+          <SovereignBadge variant="indigo">
+            <Sparkles className="w-3 h-3 text-indigo-500 mr-1.5 animate-pulse" />
             MISSION FIRST COMMAND SYSTEM
-          </div>
+          </SovereignBadge>
           <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
             What is your next mission?
           </h2>
@@ -142,50 +116,49 @@ export default function HomeScreen({
         </div>
 
         {/* Vision Pro-style spatial search bar */}
-        <div className={cn(
-          "bg-white/60 dark:bg-neutral-950/20 backdrop-blur-3xl rounded-2xl border transition-all duration-300 shadow-xl shadow-slate-100/10 dark:shadow-none p-1.5",
-          inputFocused 
-            ? "border-indigo-500/40 dark:border-indigo-500/30 ring-8 ring-indigo-500/5 dark:ring-indigo-500/5 scale-[1.005]" 
-            : "border-slate-200/50 dark:border-white/[0.04]"
-        )}>
-          <form onSubmit={(e) => handleAnalyze(e)} className="relative flex items-center">
-            <div className="absolute left-4 text-slate-400 dark:text-neutral-500">
-              <Search className="w-4 h-4" />
-            </div>
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onFocus={() => setInputFocused(true)}
-              onBlur={() => setInputFocused(false)}
-              placeholder="Describe your target... (e.g. SWOT analysis, competitor market intelligence)"
-              className="w-full bg-transparent border-none outline-none pl-12 pr-28 py-3.5 text-xs font-semibold text-slate-800 dark:text-neutral-200 placeholder:text-slate-400 dark:placeholder:text-neutral-600"
-            />
-            <div className="absolute right-2 flex items-center gap-2">
-              <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-bold text-slate-400 dark:text-neutral-500 px-1.5 py-1 bg-slate-50/80 dark:bg-neutral-900/80 border border-slate-200/30 dark:border-white/[0.02] rounded-lg">
-                <span>Enter</span>
-                <span className="text-[10px]">↵</span>
-              </span>
-              <button
-                type="submit"
-                disabled={!prompt.trim()}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-neutral-900/40 dark:disabled:text-neutral-700 text-white rounded-xl text-xs font-bold transition-all duration-300 active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-sm shadow-indigo-600/10"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Execute</span>
-              </button>
-            </div>
-          </form>
+        <div className="max-w-3xl mx-auto w-full">
+          <SovereignGlassCard className={cn(
+            "p-1.5 bg-white/70 dark:bg-neutral-950/20 transition-all duration-300",
+            inputFocused 
+              ? "border-indigo-500/40 dark:border-indigo-500/30 ring-8 ring-indigo-500/5 dark:ring-indigo-500/5 scale-[1.005]" 
+              : ""
+          )}>
+            <form onSubmit={(e) => handleAnalyze(e)} className="relative flex items-center">
+              <div className="absolute left-4 text-slate-400 dark:text-neutral-500">
+                <Search className="w-4 h-4" />
+              </div>
+              <SovereignInput
+                type="text"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
+                placeholder="Describe your target... (e.g. SWOT analysis, competitor market intelligence)"
+                className="w-full bg-transparent border-none outline-none pl-12 pr-28 py-3.5 text-xs font-semibold text-slate-800 dark:text-neutral-200 placeholder:text-slate-400 dark:placeholder:text-neutral-600 focus:ring-0 focus:border-transparent shadow-none"
+              />
+              <div className="absolute right-2 flex items-center gap-2">
+                <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-bold text-slate-400 dark:text-neutral-500 px-1.5 py-1 bg-slate-50/80 dark:bg-neutral-900/80 border border-slate-200/30 dark:border-white/[0.02] rounded-lg">
+                  <span>Enter</span>
+                  <span className="text-[10px]">↵</span>
+                </span>
+                <SovereignButton
+                  type="submit"
+                  disabled={!prompt.trim()}
+                  variant="primary"
+                  size="sm"
+                  className="rounded-xl px-4 py-2 text-xs font-bold"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Execute</span>
+                </SovereignButton>
+              </div>
+            </form>
+          </SovereignGlassCard>
         </div>
-      </motion.div>
+      </div>
 
       {/* ③ INTEGRATED OPERATIONS DASHBOARD (第三優先 - System Analytics) */}
-      <motion.div 
-        initial={{ y: 15, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
-        className="space-y-6"
-      >
+      <div className="space-y-6">
         <div className="flex items-center justify-between px-1">
           <div className="space-y-1">
             <h3 className="text-[10px] font-bold tracking-widest text-slate-400 dark:text-neutral-500 uppercase font-mono flex items-center gap-2">
@@ -196,16 +169,16 @@ export default function HomeScreen({
               Real-time core system status, active agent allocation, and Strategic Intelligence recommendations.
             </p>
           </div>
-          <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/5 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/10 rounded-full text-[10px] font-bold font-mono">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+          <SovereignBadge variant="cyan">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse mr-1.5"></span>
             SYSTEM ONLINE
-          </span>
+          </SovereignBadge>
         </div>
 
         {/* Dashboard Cards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Active Agents */}
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-300 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
+          <SovereignGlassCard className="p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
             <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
               <Cpu className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Active Agents (OEE)</span>
@@ -214,10 +187,10 @@ export default function HomeScreen({
               <div className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">12 Agents</div>
               <p className="text-[10px] text-indigo-500/80 font-semibold mt-1 font-mono">Multi-model active staff</p>
             </div>
-          </div>
+          </SovereignGlassCard>
 
           {/* Total Missions */}
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-300 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
+          <SovereignGlassCard className="p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
             <div className="flex items-center gap-2 text-pink-500">
               <Zap className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Total Missions (MOS)</span>
@@ -226,10 +199,10 @@ export default function HomeScreen({
               <div className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">{savedMissions.length + 8} executed</div>
               <p className="text-[10px] text-pink-500/80 font-semibold mt-1 font-mono">Active processing pipeline</p>
             </div>
-          </div>
+          </SovereignGlassCard>
 
           {/* Risk Profiles */}
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-300 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
+          <SovereignGlassCard className="p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
             <div className="flex items-center gap-2 text-blue-500">
               <AlertCircle className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Risk Profiles (SIL)</span>
@@ -238,10 +211,10 @@ export default function HomeScreen({
               <div className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">0 High-Risk</div>
               <p className="text-[10px] text-blue-500/80 font-semibold mt-1 font-mono">Audited and fully aligned</p>
             </div>
-          </div>
+          </SovereignGlassCard>
 
           {/* Strategic Alignment */}
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs flex flex-col justify-between transition-all duration-300 hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
+          <SovereignGlassCard className="p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
             <div className="flex items-center gap-2 text-indigo-500 dark:text-indigo-400">
               <Shield className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Strategic Alignment</span>
@@ -250,12 +223,12 @@ export default function HomeScreen({
               <div className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">98.4%</div>
               <p className="text-[10px] text-indigo-500/80 font-semibold mt-1 font-mono">Target accuracy guarantee</p>
             </div>
-          </div>
+          </SovereignGlassCard>
         </div>
 
         {/* Detailed recommendations cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs">
+          <SovereignGlassCard className="p-6">
             <h4 className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono mb-4 flex items-center gap-2">
               <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
               Strategic Recommendations (SIL Engine)
@@ -274,9 +247,9 @@ export default function HomeScreen({
                 </p>
               </div>
             </div>
-          </div>
+          </SovereignGlassCard>
 
-          <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl p-6 rounded-3xl border border-slate-200/40 dark:border-white/[0.03] shadow-xs">
+          <SovereignGlassCard className="p-6">
             <h4 className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono mb-4 flex items-center gap-2">
               <TrendingUp className="w-3.5 h-3.5 text-pink-500" />
               Core Decisions Pulse
@@ -287,27 +260,22 @@ export default function HomeScreen({
                   <div className="text-xs font-bold text-slate-800 dark:text-neutral-200">Durable Cloud Sync active</div>
                   <p className="text-[11px] text-slate-400 dark:text-neutral-500 mt-1 leading-relaxed">Ensuring mission artifacts survive cache resets.</p>
                 </div>
-                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/5 dark:bg-indigo-500/15 border border-indigo-500/10 px-2.5 py-1 rounded-lg shrink-0">Active</span>
+                <SovereignBadge variant="indigo" className="shrink-0">Active</SovereignBadge>
               </div>
               <div className="p-4 bg-slate-50/50 dark:bg-white/[0.01] border border-slate-100 dark:border-white/[0.02] rounded-2xl flex items-center justify-between">
                 <div className="pr-4">
                   <div className="text-xs font-bold text-slate-800 dark:text-neutral-200">Automated Q5 quality checks</div>
                   <p className="text-[11px] text-slate-400 dark:text-neutral-500 mt-1 leading-relaxed">Enforcing rigid fact audit rules at compilation.</p>
                 </div>
-                <span className="text-[10px] font-bold text-pink-600 dark:text-pink-400 bg-pink-500/5 dark:bg-pink-500/15 border border-pink-500/10 px-2.5 py-1 rounded-lg shrink-0">Enforced</span>
+                <SovereignBadge variant="pink" className="shrink-0">Enforced</SovereignBadge>
               </div>
             </div>
-          </div>
+          </SovereignGlassCard>
         </div>
-      </motion.div>
+      </div>
 
       {/* ④ ACTIVE WORKSPACE (第四優先 - Local Document Workspace) */}
-      <motion.div 
-        initial={{ y: 15, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.8, delay: 0.3, ease: "easeOut" }}
-        className="space-y-6"
-      >
+      <div className="space-y-6">
         <div className="flex items-center justify-between px-1">
           <div className="space-y-1">
             <h3 className="text-[10px] font-bold tracking-widest text-slate-400 dark:text-neutral-500 uppercase font-mono flex items-center gap-2">
@@ -318,18 +286,16 @@ export default function HomeScreen({
               Completed missions are automatically saved to this persistent working desk.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/10 px-3 py-1 rounded-full text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-              Auto-Sync Active
-            </div>
-          </div>
+          <SovereignBadge variant="indigo">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse mr-1.5" />
+            Auto-Sync Active
+          </SovereignBadge>
         </div>
 
         {/* Workspace Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Saved Documents Column */}
-          <div className="lg:col-span-2 bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl border border-slate-200/40 dark:border-white/[0.03] rounded-3xl p-6 shadow-xs flex flex-col justify-between min-h-[260px]">
+          <SovereignGlassCard className="lg:col-span-2 p-6 flex flex-col justify-between min-h-[260px]">
             <div className="space-y-4 w-full">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-white/[0.02]">
                 <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono">
@@ -361,9 +327,9 @@ export default function HomeScreen({
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[9px] font-bold text-pink-600 dark:text-pink-400 font-mono bg-pink-500/5 dark:bg-pink-500/10 border border-pink-500/10 px-2 py-0.5 rounded">
+                      <SovereignBadge variant="pink" className="shrink-0">
                         Score: {m.successScore}%
-                      </span>
+                      </SovereignBadge>
                       <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-600 group-hover:translate-x-0.5 transition-transform" />
                     </div>
                   </div>
@@ -378,19 +344,21 @@ export default function HomeScreen({
             
             <div className="border-t border-slate-100 dark:border-white/[0.02] pt-4 mt-6 flex items-center justify-between text-[10px] text-slate-400 dark:text-neutral-500">
               <span className="font-mono">WORKSPACE SYNC: CLOUD SECURE</span>
-              <button 
+              <SovereignButton 
+                variant="ghost" 
+                size="sm"
                 onClick={() => alert("Creating custom files is currently managed via automated mission outputs.")}
-                className="hover:text-indigo-600 dark:hover:text-indigo-400 font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                className="hover:text-indigo-600 dark:hover:text-indigo-400 font-bold"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
                 Add External Asset
-              </button>
+              </SovereignButton>
             </div>
-          </div>
+          </SovereignGlassCard>
 
           {/* Core Latency and Release rules Column */}
           {developerMode ? (
-            <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl border border-slate-200/40 dark:border-white/[0.03] rounded-3xl p-6 shadow-xs flex flex-col justify-between min-h-[260px]">
+            <SovereignGlassCard className="p-6 flex flex-col justify-between min-h-[260px]">
               <div className="space-y-4">
                 <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono pb-2 block border-b border-slate-100 dark:border-white/[0.02]">
                   Active Boardroom Status
@@ -425,9 +393,9 @@ export default function HomeScreen({
                   No deliverables are committed to the persistent Workspace unless UQI evaluation reaches &gt;95 points.
                 </p>
               </div>
-            </div>
+            </SovereignGlassCard>
           ) : (
-            <div className="bg-white/40 dark:bg-neutral-900/20 backdrop-blur-2xl border border-slate-200/40 dark:border-white/[0.03] rounded-3xl p-6 shadow-xs flex flex-col justify-between min-h-[260px]">
+            <SovereignGlassCard className="p-6 flex flex-col justify-between min-h-[260px]">
               <div className="space-y-4">
                 <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-sans pb-2 block border-b border-slate-100 dark:border-white/[0.02]">
                   Strategic Quality Alignment
@@ -460,18 +428,13 @@ export default function HomeScreen({
                   Autonomous quality threshold guarantees &gt;95/100 readiness for boardroom presentation.
                 </p>
               </div>
-            </div>
+            </SovereignGlassCard>
           )}
         </div>
-      </motion.div>
+      </div>
 
       {/* ⑤ MARKETPLACE TEMPLATES SUGGESTION (第五優先 - Capability Marketplace Ecosystem) */}
-      <motion.div 
-        initial={{ y: 15, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.8, delay: 0.4, ease: "easeOut" }}
-        className="space-y-6"
-      >
+      <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1 border-b border-slate-200/50 dark:border-white/[0.03] pb-4">
           <div className="space-y-1">
             <h3 className="text-[10px] font-bold tracking-widest text-slate-400 dark:text-neutral-500 uppercase font-mono flex items-center gap-2">
@@ -484,32 +447,24 @@ export default function HomeScreen({
           </div>
           
           {/* iOS Segmented Control style category switcher */}
-          <div className="flex bg-slate-100/80 dark:bg-neutral-900/60 p-1 rounded-full border border-slate-200/40 dark:border-white/[0.02] gap-0.5 overflow-x-auto scrollbar-none self-start sm:self-auto max-w-full">
-            {categories.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedSuggestCategory(cat)}
-                className={cn(
-                  "px-3 py-1 rounded-full text-[10px] font-bold transition-all duration-300 cursor-pointer whitespace-nowrap flex items-center gap-1.5",
-                  selectedSuggestCategory.id === cat.id
-                    ? "bg-white dark:bg-neutral-800 text-indigo-600 dark:text-indigo-400 shadow-sm"
-                    : "text-slate-400 dark:text-neutral-500 hover:text-slate-700 dark:hover:text-neutral-300"
-                )}
-              >
-                <span>{cat.icon}</span>
-                <span>{cat.name}</span>
-              </button>
-            ))}
-          </div>
+          <SovereignSegmentedControl
+            options={categoryOptions}
+            selectedValue={selectedSuggestCategory.id}
+            onChange={(id) => {
+              const cat = categories.find(c => c.id === id);
+              if (cat) setSelectedSuggestCategory(cat);
+            }}
+            className="w-full sm:max-w-md"
+          />
         </div>
 
         {/* Suggest templates list - refined clean cards with hover glow */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {activeSuggestTemplates.map(temp => (
-            <button
+            <SovereignGlassCard
               key={temp.id}
               onClick={() => handleTemplateClick(temp, selectedSuggestCategory)}
-              className="group flex items-start text-left p-4 rounded-2xl border border-slate-200/40 dark:border-white/[0.03] bg-white/40 dark:bg-neutral-900/10 hover:bg-white/80 dark:hover:bg-neutral-900/30 hover:border-pink-500/20 dark:hover:border-pink-500/20 shadow-xs transition-all duration-300 cursor-pointer hover:-translate-y-0.5"
+              className="group flex items-start text-left p-4 hover:bg-white/80 dark:hover:bg-neutral-900/30 hover:border-pink-500/20 dark:hover:border-pink-500/20 shadow-xs cursor-pointer hover:-translate-y-0.5"
             >
               <div className="mr-3 text-pink-500 mt-0.5 bg-pink-500/5 p-2 rounded-xl group-hover:scale-105 transition-transform border border-pink-500/5">
                 <PlusCircle className="w-4 h-4" />
@@ -522,11 +477,11 @@ export default function HomeScreen({
                   {temp.hint}
                 </p>
               </div>
-            </button>
+            </SovereignGlassCard>
           ))}
         </div>
-      </motion.div>
+      </div>
 
-    </motion.div>
+    </div>
   );
 }
