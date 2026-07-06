@@ -1,50 +1,35 @@
-name: ORIGIN Monorepo CI
+name: ACOS CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches:
+      - main
+      - develop
+
   pull_request:
-    branches: [ main, develop ]
 
 jobs:
-  verify:
+
+  build:
+
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Enable Corepack & pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
+      - run: npm install
 
-      - name: Get pnpm cache directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+      - run: npm run lint
 
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+      - run: npm run build
 
-      - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+      - run: npm run test
 
-      - name: Run Linter
-        run: pnpm run lint
+      - run: npx playwright install --with-deps chromium
 
-      - name: Run Unit & Integration Tests
-        run: pnpm run test
-
-      - name: Build Application
-        run: pnpm run build
+      - run: npm run test:e2e
