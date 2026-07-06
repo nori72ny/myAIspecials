@@ -113,7 +113,7 @@ export const SovereignInput = React.forwardRef<HTMLInputElement, SovereignInputP
         ref={ref}
         id={id}
         className={cn(
-          "w-full bg-slate-50/50 dark:bg-neutral-900/40 border border-slate-200/60 dark:border-white/[0.04] rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-8 focus:ring-indigo-500/5 focus:border-indigo-500/40 transition-all duration-300 shadow-inner",
+          "w-full bg-slate-50/50 dark:bg-neutral-900/40 border border-slate-200/60 dark:border-white/[0.04] rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-white placeholder:text-slate-400 focus-visible:ring-8 focus-visible:ring-indigo-500/5 focus-visible:border-indigo-500/40 transition-all duration-300 shadow-inner outline-none",
           className
         )}
         {...props}
@@ -243,6 +243,7 @@ interface SovereignSidebarProps {
   id?: string;
   className?: string;
   title?: string;
+  "data-testid"?: string;
 }
 
 export function SovereignSidebar({
@@ -251,7 +252,8 @@ export function SovereignSidebar({
   children,
   id,
   className,
-  title
+  title,
+  "data-testid": dataTestId,
 }: SovereignSidebarProps) {
   return (
     <AnimatePresence>
@@ -270,6 +272,7 @@ export function SovereignSidebar({
           {/* Sidebar element */}
           <motion.div
             id={id}
+            data-testid={dataTestId}
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
@@ -288,6 +291,7 @@ export function SovereignSidebar({
                 <span className="text-xs font-black font-mono tracking-widest uppercase text-slate-400">{title}</span>
                 <button
                   onClick={onClose}
+                  data-testid="close-sidebar-button"
                   className="p-1 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
                 >
                   ✕

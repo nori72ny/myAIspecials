@@ -57,7 +57,7 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
   const isEn = settings.language === "en";
 
   return (
-    <div className="space-y-6">
+    <div data-testid="settings-screen" className="space-y-6">
       
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/50 dark:border-white/[0.04] pb-5">

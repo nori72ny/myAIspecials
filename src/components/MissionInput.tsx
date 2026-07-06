@@ -133,7 +133,7 @@ export default function MissionInput({
               onFocus={() => setIsFocused(true)}
               onBlur={() => setTimeout(() => setIsFocused(false), 200)}
               placeholder={placeholder}
-              className="flex-1 bg-transparent border-none text-2xl sm:text-3xl font-medium tracking-tight text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-0 leading-tight"
+              className="flex-1 bg-transparent border-none text-2xl sm:text-3xl font-medium tracking-tight text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus-visible:ring-0 focus-visible:outline-none leading-tight"
             />
 
             {/* Right Actions */}

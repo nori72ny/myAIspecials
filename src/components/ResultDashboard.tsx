@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import DOMPurify from "dompurify";
 import { AnalysisResult, NetworkNode } from "../types";
+import { ProductionLogger } from "../utils";
 import { 
   SovereignGlassCard,
   SovereignButton,
@@ -73,12 +75,12 @@ export default function ResultDashboard({ result }: Props) {
     fetch("/api/evolution")
       .then(res => res.json())
       .then(data => setEvolutionData(data))
-      .catch(console.error);
+      .catch(err => ProductionLogger.error("Failed to fetch evolution data", err));
       
     fetch("/api/strategic")
       .then(res => res.json())
       .then(data => setStrategicData(data))
-      .catch(console.error);
+      .catch(err => ProductionLogger.error("Failed to fetch strategic data", err));
   }, []);
   
   // MIE (Master Intelligence Engine) specific states
@@ -545,6 +547,7 @@ export default function ResultDashboard({ result }: Props) {
                 {mieTuningProgress ? (
                   <button 
                     disabled 
+                    aria-label="MIE 自律最適化再チューニング中"
                     className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-indigo-600/30 border border-indigo-500/20 text-indigo-300 text-xs font-mono flex items-center justify-center gap-2"
                   >
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -557,6 +560,7 @@ export default function ResultDashboard({ result }: Props) {
                     </span>
                     <button 
                       onClick={handleForceTuning}
+                      aria-label="MIE強制アライメント実行"
                       className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-black text-xs font-bold font-mono shrink-0 transition-all shadow-lg flex items-center justify-center gap-1.5 animate-bounce"
                     >
                       <Sparkles className="w-4 h-4 shrink-0" />
@@ -570,6 +574,7 @@ export default function ResultDashboard({ result }: Props) {
                     </span>
                     <button 
                       onClick={() => setShowMIEModal(true)}
+                      aria-label="MIE 最終成果提出"
                       className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-500 hover:to-teal-600 text-black text-xs font-bold uppercase tracking-wider shadow-xl transition-all shrink-0 flex items-center justify-center gap-1.5"
                     >
                       <BookmarkCheck className="w-4.5 h-4.5" />
@@ -732,6 +737,7 @@ export default function ResultDashboard({ result }: Props) {
                     <button
                       key={tab}
                       onClick={() => setOieActiveTab(tab)}
+                      aria-label={`OIEタブ選択: ${tab === "board" ? "成果マトリクス" : tab === "analysis" ? "ROI・価値分析" : "学習DNA"}`}
                       className={`px-3 py-1 rounded-lg text-[9px] font-bold tracking-tight transition-all cursor-pointer ${
                         oieActiveTab === tab
                           ? "bg-[#2EC4B6] text-black shadow-sm font-black"
@@ -860,6 +866,7 @@ export default function ResultDashboard({ result }: Props) {
                         <button
                           onClick={handleRecalculateROI}
                           disabled={isRecalculatingROI}
+                          aria-label="ROIシミュレーション実行"
                           className="text-[9px] text-[#2EC4B6] hover:text-white border border-[#2EC4B6]/20 hover:border-[#2EC4B6]/50 bg-white/2 hover:bg-[#2EC4B6]/10 px-2.5 py-1 rounded-xl transition-all flex items-center gap-1 cursor-pointer"
                         >
                           {isRecalculatingROI ? (
@@ -922,6 +929,7 @@ export default function ResultDashboard({ result }: Props) {
                           <button
                             onClick={handleVerifyEvidence}
                             disabled={isVerifyingEvidence}
+                            aria-label="証拠の再検証"
                             className="text-[9px] text-[#2EC4B6] border border-[#2EC4B6]/20 bg-[#2EC4B6]/5 hover:bg-[#2EC4B6]/10 px-2 py-0.5 rounded font-mono transition-all flex items-center gap-1 cursor-pointer"
                           >
                             {isVerifyingEvidence ? (
@@ -954,6 +962,7 @@ export default function ResultDashboard({ result }: Props) {
                           <button
                             onClick={handleCommitDNA}
                             disabled={isCommitingDNA}
+                            aria-label="Knowledge DNA 書き込み"
                             className="text-[9.5px] font-bold text-black bg-[#2EC4B6] hover:bg-[#259b90] px-3 py-1 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-lg"
                           >
                             {isCommitingDNA ? (
@@ -1028,6 +1037,13 @@ export default function ResultDashboard({ result }: Props) {
                 <button
                   key={tab}
                   onClick={() => setMissionTab(tab)}
+                  aria-label={`ミッションタブ選択: ${
+                    tab === "core" ? "目的・要件" : 
+                    tab === "agents" ? "エージェント" : 
+                    tab === "workflow" ? "ワークフロー" : 
+                    tab === "quality" ? "品質" : 
+                    tab === "evolution" ? "進化" : "戦略"
+                  }`}
                   className={`flex-1 lg:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-tight transition-all cursor-pointer ${
                     missionTab === tab
                       ? "bg-slate-800 text-white shadow-sm border border-white/10"
@@ -1823,6 +1839,7 @@ export default function ResultDashboard({ result }: Props) {
                   <button
                     key={tab.id}
                     onClick={() => setActiveExecuteTab(tab.id as ExecuteTab)}
+                    aria-label={`実行タブ選択: ${tab.label}`}
                     className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-left text-xs font-bold transition-all whitespace-nowrap ${
                       isActive 
                         ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" 
@@ -1869,11 +1886,12 @@ export default function ResultDashboard({ result }: Props) {
                           value={imagePromptInput}
                           onChange={(e) => setImagePromptInput(e.target.value)}
                           placeholder="生成したいイメージの英文プロンプト（例: A futuristic tech control room, 8k, photorealistic）"
-                          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/20 focus:outline-none focus:border-indigo-500/60"
+                          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/20 focus-visible:ring-2 focus-visible:ring-indigo-500 focus:border-indigo-500/60"
                         />
                         <button
                           onClick={triggerImageGeneration}
                           disabled={imageLoading || !imagePromptInput.trim()}
+                          aria-label="画像生成実行"
                           className="bg-indigo-500 hover:bg-indigo-600 disabled:opacity-45 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0 flex items-center gap-1.5"
                         >
                           {imageLoading ? (
@@ -1970,6 +1988,7 @@ export default function ResultDashboard({ result }: Props) {
                       ) : (
                         <button
                           onClick={() => runSim("video", "Video")}
+                          aria-label="動画生成を開始"
                           className="bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
@@ -2019,6 +2038,7 @@ export default function ResultDashboard({ result }: Props) {
                       ) : (
                         <button
                           onClick={() => runSim("slides", "Slides")}
+                          aria-label="プレゼン資料を自動構成"
                           className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 self-center"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
@@ -2054,7 +2074,23 @@ export default function ResultDashboard({ result }: Props) {
                           <p className="text-xs font-mono text-emerald-300">Compiling JSX & Tailwind Config layers...</p>
                         </div>
                       ) : simOutputs.web ? (
-                        <div className="w-full" dangerouslySetInnerHTML={{ __html: simOutputs.web }} />
+                        <div className="w-full" dangerouslySetInnerHTML={{ 
+                          __html: DOMPurify.sanitize(simOutputs.web || "", {
+                            ALLOWED_TAGS: [
+                              "div", "span", "p", "a", "img", "h1", "h2", "h3", "h4", "h5", "h6",
+                              "ul", "ol", "li", "br", "hr", "b", "i", "strong", "em", "code", "pre",
+                              "table", "thead", "tbody", "tr", "th", "td", "blockquote", "style",
+                              "svg", "path", "circle", "rect", "line", "polyline", "polygon", "g",
+                              "button", "input", "label", "select", "option", "textarea"
+                            ],
+                            ALLOWED_ATTR: [
+                              "class", "id", "style", "href", "src", "alt", "title", "target", "rel",
+                              "type", "value", "placeholder", "name", "disabled", "checked",
+                              "viewBox", "d", "fill", "stroke", "stroke-width", "cx", "cy", "r", "x", "y", "width", "height"
+                            ],
+                            ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|data):|[^&\/?:#]*(?:[?#]|$))/i,
+                          })
+                        }} />
                       ) : (
                         <button
                           onClick={() => runSim("web", "Web")}
@@ -2184,6 +2220,7 @@ export default function ResultDashboard({ result }: Props) {
                     setImnUnderstanding(false);
                   }, 5000);
                 }}
+                aria-label="AI自律理解シンク実行"
                 className={`px-3 py-1.5 rounded-xl text-[10px] font-mono font-bold border transition-all flex items-center gap-1.5 ${
                   imnUnderstanding
                     ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40 animate-pulse"
@@ -2200,6 +2237,7 @@ export default function ResultDashboard({ result }: Props) {
                     setImnAutolinked(false);
                   }, 5000);
                 }}
+                aria-label="新ミッション自動関連付け実行"
                 className={`px-3 py-1.5 rounded-xl text-[10px] font-mono font-bold border transition-all flex items-center gap-1.5 ${
                   imnAutolinked
                     ? "bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse"
@@ -2230,6 +2268,7 @@ export default function ResultDashboard({ result }: Props) {
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setImnTab("graph")}
+                aria-label="高次元ダイアグラムタブ表示"
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                   imnTab === "graph" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                 }`}
@@ -2238,6 +2277,7 @@ export default function ResultDashboard({ result }: Props) {
               </button>
               <button
                 onClick={() => setImnTab("list")}
+                aria-label="ノード関係一覧タブ表示"
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                   imnTab === "list" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                 }`}
@@ -2250,6 +2290,7 @@ export default function ResultDashboard({ result }: Props) {
               <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 shrink-0">
                 <button
                   onClick={() => setActiveFilter("all")}
+                  aria-label="全表示フィルター"
                   className={`px-2.5 py-1 rounded-lg text-[10px] font-mono transition-all ${
                     activeFilter === "all" ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "text-white/40 hover:text-white/70"
                   }`}
@@ -2258,6 +2299,7 @@ export default function ResultDashboard({ result }: Props) {
                 </button>
                 <button
                   onClick={() => setActiveFilter("life-chain")}
+                  aria-label="人生構造連鎖フィルター"
                   className={`px-2.5 py-1 rounded-lg text-[10px] font-mono transition-all ${
                     activeFilter === "life-chain" ? "bg-violet-500/20 text-violet-300 border border-violet-500/30" : "text-white/40 hover:text-white/70"
                   }`}
@@ -2266,6 +2308,7 @@ export default function ResultDashboard({ result }: Props) {
                 </button>
                 <button
                   onClick={() => setActiveFilter("execution")}
+                  aria-label="成果結合ネットワークフィルター"
                   className={`px-2.5 py-1 rounded-lg text-[10px] font-mono transition-all ${
                     activeFilter === "execution" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "text-white/40 hover:text-white/70"
                   }`}
@@ -2749,6 +2792,7 @@ export default function ResultDashboard({ result }: Props) {
 
                     <button
                       onClick={() => setSelectedImnNodeId(null)}
+                      aria-label="ノード詳細を閉じる"
                       className="w-full py-2 rounded-xl text-[10px] font-mono font-bold bg-white/5 hover:bg-white/10 text-white/70 border border-white/10 transition-colors"
                     >
                       閉じる
@@ -2837,6 +2881,7 @@ export default function ResultDashboard({ result }: Props) {
                       setAuditProgress("audited");
                     }, 2000);
                   }}
+                  aria-label="IPF適合性自律監査実行"
                   className={`px-3 py-1.5 rounded-xl text-[10px] font-mono font-bold border transition-all flex items-center gap-1.5 ${
                     auditProgress === "audited"
                       ? "bg-green-500/20 text-green-300 border-green-500/40"
@@ -2866,6 +2911,7 @@ export default function ResultDashboard({ result }: Props) {
               <div className="flex items-center gap-1 bg-white/2 border border-white/5 rounded-2xl p-1 overflow-x-auto">
                 <button
                   onClick={() => setIpfTab("audit")}
+                  aria-label="10大知性行動規則タブ表示"
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                     ipfTab === "audit" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
@@ -2874,6 +2920,7 @@ export default function ResultDashboard({ result }: Props) {
                 </button>
                 <button
                   onClick={() => setIpfTab("facts")}
+                  aria-label="事実 vs 推測タブ表示"
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                     ipfTab === "facts" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
@@ -2882,6 +2929,7 @@ export default function ResultDashboard({ result }: Props) {
                 </button>
                 <button
                   onClick={() => setIpfTab("optimal")}
+                  aria-label="非迎合最適提案タブ表示"
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                     ipfTab === "optimal" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
@@ -2890,6 +2938,7 @@ export default function ResultDashboard({ result }: Props) {
                 </button>
                 <button
                   onClick={() => setIpfTab("comparison")}
+                  aria-label="選択肢＆リスクタブ表示"
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                     ipfTab === "comparison" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
@@ -3358,6 +3407,7 @@ export default function ResultDashboard({ result }: Props) {
                       setConstitutionAuditProgress("audited");
                     }, 2000);
                   }}
+                  aria-label="憲法適合性自律監査実行"
                   className={`px-3 py-1.5 rounded-xl text-[10px] font-mono font-bold border transition-all flex items-center gap-1.5 ${
                     constitutionAuditProgress === "audited"
                       ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
@@ -3394,6 +3444,7 @@ export default function ResultDashboard({ result }: Props) {
               <div className="flex items-center gap-1 bg-white/2 border border-white/5 rounded-2xl p-1 overflow-x-auto">
                 <button
                   onClick={() => setConstitutionTab("principles")}
+                  aria-label="15の非妥協原則タブ表示"
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                     constitutionTab === "principles" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
@@ -3402,6 +3453,7 @@ export default function ResultDashboard({ result }: Props) {
                 </button>
                 <button
                   onClick={() => setConstitutionTab("audit")}
+                  aria-label="最終原則タブ表示"
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                     constitutionTab === "audit" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
@@ -3410,6 +3462,7 @@ export default function ResultDashboard({ result }: Props) {
                 </button>
                 <button
                   onClick={() => setConstitutionTab("governance")}
+                  aria-label="データガバナンスタブ表示"
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                     constitutionTab === "governance" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
@@ -3563,6 +3616,7 @@ export default function ResultDashboard({ result }: Props) {
                             {/* Toggle Switch */}
                             <button
                               onClick={() => setAllowDataLearning(!allowDataLearning)}
+                              aria-label="AI学習用データの寄付トグル"
                               className={`w-11 h-6 rounded-full p-1 transition-all relative shrink-0 ${
                                 allowDataLearning ? "bg-indigo-500" : "bg-white/10"
                               }`}

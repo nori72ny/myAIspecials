@@ -16,8 +16,10 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@types/dompurify": "^3.0.5",
     "@vitejs/plugin-react": "^5.0.4",
     "clsx": "^2.1.1",
+    "dompurify": "^3.4.11",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",

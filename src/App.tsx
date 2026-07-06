@@ -1,29 +1,30 @@
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Settings, AnalysisResult, WorkspaceCategory, TaskTemplate } from "./types";
-import SettingsModal from "./components/SettingsModal";
-import ResultDashboard from "./components/ResultDashboard";
-import MissionInput from "./components/MissionInput";
-import ChatApp from "./components/os/ChatApp";
-import MultiAIApp from "./components/os/MultiAIApp";
-import DashboardApp from "./components/os/DashboardApp";
-import WorkspaceSelector from "./components/os/WorkspaceSelector";
-import NotificationCenter from "./components/os/NotificationCenter";
-import MemoryExplorer from "./components/os/MemoryExplorer";
-import PromptLibrary from "./components/os/PromptLibrary";
-import AIPerformanceDashboard from "./components/os/AIPerformanceDashboard";
-import ObservabilityCenter from "./components/os/ObservabilityCenter";
-import UniversalSearch from "./components/os/UniversalSearch";
-import AIAssistantSidebar from "./components/os/AIAssistantSidebar";
-import BrainOverview from "./components/os/BrainOverview";
-import WorkspaceCard from "./components/os/WorkspaceCard";
-import HomeScreen from "./components/os/HomeScreen";
-import WorkspaceApp from "./components/os/WorkspaceApp";
-import OrganizationApp from "./components/os/OrganizationApp";
-import Boardroom from "./components/os/Boardroom";
-import MissionRuntimeConsole from "./components/os/MissionRuntimeConsole";
-import RealTimeSwarmDebugger from "./components/os/RealTimeSwarmDebugger";
-import DesignSystemV3 from "./components/os/DesignSystemV3";
+
+const SettingsModal = React.lazy(() => import("./components/SettingsModal"));
+const ResultDashboard = React.lazy(() => import("./components/ResultDashboard"));
+const MissionInput = React.lazy(() => import("./components/MissionInput"));
+const ChatApp = React.lazy(() => import("./components/os/ChatApp"));
+const MultiAIApp = React.lazy(() => import("./components/os/MultiAIApp"));
+const DashboardApp = React.lazy(() => import("./components/os/DashboardApp"));
+const WorkspaceSelector = React.lazy(() => import("./components/os/WorkspaceSelector"));
+const NotificationCenter = React.lazy(() => import("./components/os/NotificationCenter"));
+const MemoryExplorer = React.lazy(() => import("./components/os/MemoryExplorer"));
+const PromptLibrary = React.lazy(() => import("./components/os/PromptLibrary"));
+const AIPerformanceDashboard = React.lazy(() => import("./components/os/AIPerformanceDashboard"));
+const ObservabilityCenter = React.lazy(() => import("./components/os/ObservabilityCenter"));
+const UniversalSearch = React.lazy(() => import("./components/os/UniversalSearch"));
+const AIAssistantSidebar = React.lazy(() => import("./components/os/AIAssistantSidebar"));
+const BrainOverview = React.lazy(() => import("./components/os/BrainOverview"));
+const WorkspaceCard = React.lazy(() => import("./components/os/WorkspaceCard"));
+const HomeScreen = React.lazy(() => import("./components/os/HomeScreen"));
+const WorkspaceApp = React.lazy(() => import("./components/os/WorkspaceApp"));
+const OrganizationApp = React.lazy(() => import("./components/os/OrganizationApp"));
+const Boardroom = React.lazy(() => import("./components/os/Boardroom"));
+const MissionRuntimeConsole = React.lazy(() => import("./components/os/MissionRuntimeConsole"));
+const RealTimeSwarmDebugger = React.lazy(() => import("./components/os/RealTimeSwarmDebugger"));
+const DesignSystemV3 = React.lazy(() => import("./components/os/DesignSystemV3"));
 import { 
   Search, 
   Shield,
@@ -58,7 +59,7 @@ import {
   MessageSquare,
   Award
 } from "lucide-react";
-import { cn } from "./utils";
+import { cn, ProductionLogger, SafeStorage } from "./utils";
 
 const CATEGORIES: WorkspaceCategory[] = [
   {
@@ -150,33 +151,30 @@ export default function App() {
 
   // Persistent workspace saved missions state
   const [savedMissions, setSavedMissions] = useState<any[]>(() => {
-    try {
-      const stored = localStorage.getItem("acos_saved_missions");
-      return stored ? JSON.parse(stored) : [
-        {
-          id: "m-001",
-          title: "交通事故に強い弁護士を比較し、勝率が高く、口コミも優れた候補を提案する",
-          timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
-          category: "search",
-          successScore: 98,
-          roi: "150% ROI / 弁護士選定の最適化",
-          status: "Completed",
-          resultData: null
-        },
-        {
-          id: "m-002",
-          title: "新規AI SaaS事業のSWOT分析とROI予測",
-          timestamp: new Date(Date.now() - 3600000 * 24).toISOString(),
-          category: "business",
-          successScore: 96,
-          roi: "年間50万ドルのコスト削減効果",
-          status: "Completed",
-          resultData: null
-        }
-      ];
-    } catch {
-      return [];
-    }
+    const defaultMissions = [
+      {
+        id: "m-001",
+        title: "交通事故に強い弁護士を比較し、勝率が高く、口コミも優れた候補を提案する",
+        timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+        category: "search",
+        successScore: 98,
+        roi: "150% ROI / 弁護士選定の最適化",
+        status: "Completed",
+        resultData: null
+      },
+      {
+        id: "m-002",
+        title: "新規AI SaaS事業のSWOT分析とROI予測",
+        timestamp: new Date(Date.now() - 3600000 * 24).toISOString(),
+        category: "business",
+        successScore: 96,
+        roi: "年間50万ドルのコスト削減効果",
+        status: "Completed",
+        resultData: null
+      }
+    ];
+    const stored = SafeStorage.get<any[]>("acos_saved_missions", (data) => Array.isArray(data));
+    return stored || defaultMissions;
   });
   const [homeTab, setHomeTab] = useState<"missions" | "constitution" | "quality" | "thinking" | "experience" | "design" | "pie" | "blueprint" | "core" | "arch" | "missionEngine">("missions");
   const [selectedCategory, setSelectedCategory] = useState<WorkspaceCategory | null>(null);
@@ -217,44 +215,32 @@ export default function App() {
   
   // Local state for search history
   const [history, setHistory] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem("workspace_query_history");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
+    const stored = SafeStorage.get<string[]>("workspace_query_history", (data) => Array.isArray(data));
+    return stored || [];
   });
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => {
-    try {
-      const stored = localStorage.getItem("acos_settings");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (!parsed.language) parsed.language = "ja";
-        if (parsed.developerMode === undefined) parsed.developerMode = false;
-        return parsed;
-      }
-    } catch (e) {
-      console.warn("localStorage settings read error", e);
-    }
-    return {
+    const defaultSettings: Settings = {
       autoRoute: true,
       selectedAgents: ["gemini", "openai"],
       language: "ja",
       developerMode: false
     };
+    const stored = SafeStorage.get<Settings>("acos_settings", (data) => typeof data === "object" && data !== null);
+    if (stored) {
+      if (!stored.language) stored.language = "ja";
+      if (stored.developerMode === undefined) stored.developerMode = false;
+      return stored;
+    }
+    return defaultSettings;
   });
 
   const updateSettings = (newSettings: Settings) => {
     setSettings(newSettings);
-    try {
-      localStorage.setItem("acos_settings", JSON.stringify(newSettings));
-    } catch (e) {
-      console.warn("localStorage settings write error", e);
-    }
+    SafeStorage.set("acos_settings", newSettings);
   };
 
   const saveToHistory = (newPrompt: string) => {
@@ -262,11 +248,7 @@ export default function App() {
     if (!trimmed) return;
     const updated = [trimmed, ...history.filter((h) => h !== trimmed)].slice(0, 10);
     setHistory(updated);
-    try {
-      localStorage.setItem("workspace_query_history", JSON.stringify(updated));
-    } catch (e) {
-      console.warn("localStorage quota exceeded or generic storage error", e);
-    }
+    SafeStorage.set("workspace_query_history", updated);
   };
 
   const handleAnalyze = async (e?: React.FormEvent, customPrompt?: string) => {
@@ -281,6 +263,7 @@ export default function App() {
     setError("");
     setRawError(null);
     setTaskMode("loading");
+    setCurrentApp("mission");
     setLoadingStep(1);
     setResult(null);
 
@@ -343,7 +326,7 @@ export default function App() {
       fetchedData = await response.json() as AnalysisResult;
       fetchSuccess = true;
     } catch (err: any) {
-      console.error(err);
+      ProductionLogger.error("Failed to analyze task prompt via backend API", err);
       fetchErrorMsg = err instanceof Error ? err.message : "AIバックエンドとの通信中にエラーが発生しました。";
     }
 
@@ -379,11 +362,7 @@ export default function App() {
 
       setSavedMissions(prev => {
         const updated = [newMission, ...prev.filter(m => m.title !== activePrompt)].slice(0, 15);
-        try {
-          localStorage.setItem("acos_saved_missions", JSON.stringify(updated));
-        } catch (e) {
-          console.warn("localStorage write error", e);
-        }
+        SafeStorage.set("acos_saved_missions", updated);
         return updated;
       });
 
@@ -420,9 +399,7 @@ export default function App() {
 
   const clearHistory = () => {
     setHistory([]);
-    try {
-      localStorage.removeItem("workspace_query_history");
-    } catch (e) {}
+    SafeStorage.remove("workspace_query_history");
   };
 
   const renderSidebarBody = (onItemClick?: () => void) => {
@@ -440,6 +417,7 @@ export default function App() {
               onItemClick?.();
             }}
             data-testid="sidebar-dashboard"
+            aria-label={isEn ? "Go to Home Dashboard" : "ホームダッシュボードを表示"}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
               currentApp === "dashboard"
@@ -457,6 +435,7 @@ export default function App() {
               onItemClick?.();
             }}
             data-testid="sidebar-workspace"
+            aria-label={isEn ? "Go to Workspace" : "ワークスペースを表示"}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
               currentApp === "workspace"
@@ -473,6 +452,7 @@ export default function App() {
               setCurrentApp("brain");
               onItemClick?.();
             }}
+            aria-label={isEn ? "Go to Brain System" : "ブレインシステムを表示"}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
               currentApp === "brain"
@@ -490,6 +470,7 @@ export default function App() {
               onItemClick?.();
             }}
             data-testid="sidebar-marketplace"
+            aria-label={isEn ? "Go to Marketplace" : "マーケットプレイスを表示"}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
               currentApp === "marketplace"
@@ -506,6 +487,8 @@ export default function App() {
               setCurrentApp("organization");
               onItemClick?.();
             }}
+            data-testid="sidebar-organization"
+            aria-label={isEn ? "Go to Organization Settings" : "組織設定・コックピットを表示"}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
               currentApp === "organization"
@@ -523,6 +506,7 @@ export default function App() {
               onItemClick?.();
             }}
             data-testid="sidebar-settings"
+            aria-label={isEn ? "Open Settings Manager" : "設定管理画面を開く"}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
               isSettingsOpen
@@ -540,6 +524,7 @@ export default function App() {
                 setCurrentApp("swarm-debugger");
                 onItemClick?.();
               }}
+              aria-label={isEn ? "Open Swarm Debugger" : "Swarmデバッガーを開く"}
               className={cn(
                 "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
                 currentApp === "swarm-debugger"
@@ -563,6 +548,7 @@ export default function App() {
                   setCurrentApp("organization");
                   onItemClick?.();
                 }}
+                aria-label={isEn ? "Configure AI Model Settings" : "AIモデル設定画面を開く"}
                 className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
                 title={isEn ? "Model Settings" : "モデル設定"}
               >
@@ -603,6 +589,7 @@ export default function App() {
                 </span>
                 <button
                   onClick={clearHistory}
+                  aria-label={isEn ? "Clear all query history" : "すべての検索履歴を消去する"}
                   className="p-1 hover:bg-slate-800 rounded-lg text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"
                   title={isEn ? "Clear all history" : "履歴を全削除"}
                 >
@@ -617,6 +604,7 @@ export default function App() {
                       handleAnalyze(undefined, h);
                       onItemClick?.();
                     }}
+                    aria-label={`${isEn ? "Analyze historical task" : "過去のタスクを実行"}: ${h}`}
                     className="w-full text-left text-[10px] text-slate-400 hover:text-white truncate py-1.5 px-2.5 rounded-lg hover:bg-slate-800/40 font-mono cursor-pointer"
                     title={h}
                   >
@@ -664,7 +652,19 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-800 flex flex-col md:flex-row selection:bg-[#4F46E5]/20">
+    <Suspense fallback={
+      <div className="flex flex-col items-center justify-center min-h-screen text-slate-400 dark:text-slate-500 bg-slate-900 font-sans text-sm gap-4">
+        <div className="relative flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full border-2 border-slate-800 border-t-indigo-500 animate-spin" />
+          <span className="absolute text-[10px] font-bold font-mono tracking-wider text-indigo-400">ACOS</span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <span className="font-bold tracking-tight text-slate-200">Intelligence OS Loading</span>
+          <span className="text-[10px] font-mono text-slate-500">Initializing Core Cognitive Modules...</span>
+        </div>
+      </div>
+    }>
+      <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-800 flex flex-col md:flex-row selection:bg-[#4F46E5]/20">
       
       {/* MOBILE SIDEBAR DRAWER */}
       <AnimatePresence>
@@ -708,6 +708,7 @@ export default function App() {
                 </div>
                 <button
                   onClick={() => setIsMobileMenuOpen(false)}
+                  aria-label={settings.language === "en" ? "Close menu" : "メニューを閉じる"}
                   className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
                   title="メニューを閉じる"
                 >
@@ -750,6 +751,7 @@ export default function App() {
             {/* Hamburger button for mobile */}
             <button
               onClick={() => setIsMobileMenuOpen(true)}
+              aria-label={settings.language === "en" ? "Open navigation menu" : "メニューを開く"}
               className="md:hidden w-9 h-9 flex items-center justify-center -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100/80 rounded-full transition-all cursor-pointer active:scale-90"
               title="メニューを開く"
             >
@@ -763,6 +765,7 @@ export default function App() {
             <button
               id="universal-search-trigger"
               onClick={() => setIsSearchOpen(true)}
+              aria-label={settings.language === "en" ? "Open search overlay" : "検索パネルを開く"}
               className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-slate-100/50 dark:bg-neutral-800/40 hover:bg-slate-100/80 dark:hover:bg-neutral-800/60 border border-slate-200/40 dark:border-neutral-700/30 rounded-full text-slate-400 dark:text-neutral-500 hover:text-slate-600 dark:hover:text-neutral-300 transition-all cursor-pointer w-64 justify-between shadow-inner"
             >
               <div className="flex items-center gap-2">
@@ -776,6 +779,7 @@ export default function App() {
             </button>
             <button
               onClick={() => setIsSearchOpen(true)}
+              aria-label={settings.language === "en" ? "Open search overlay" : "検索パネルを開く"}
               className="md:hidden w-9 h-9 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-all cursor-pointer active:scale-90"
             >
               <Search className="w-5 h-5" />
@@ -788,6 +792,7 @@ export default function App() {
               
               <button
                 onClick={() => setIsAssistantOpen(!isAssistantOpen)}
+                aria-label={settings.language === "en" ? "Toggle AI Assistant Sidebar" : "AIアシスタント側面の開閉"}
                 className={cn(
                   "w-9 h-9 flex items-center justify-center rounded-full transition-all cursor-pointer active:scale-90",
                   isAssistantOpen 
@@ -802,6 +807,7 @@ export default function App() {
               <button
                 onClick={() => setIsSettingsOpen(true)}
                 data-testid="settings-button"
+                aria-label={settings.language === "en" ? "Open Settings Manager" : "設定管理画面を開く"}
                 className="w-9 h-9 flex items-center justify-center rounded-full text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-neutral-100 hover:bg-slate-100 dark:hover:bg-neutral-800/60 border border-transparent transition-all cursor-pointer active:scale-90"
                 title="Open Settings"
               >
@@ -977,7 +983,7 @@ export default function App() {
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       placeholder="例: 交通事故に強い弁護士を比較し、勝率が高く、口コミも優れた候補を提案する"
-                      className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl py-4 pl-5 pr-20 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-semibold transition-all shadow-inner"
+                      className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl py-4 pl-5 pr-20 text-sm text-slate-800 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 focus:border-indigo-500 font-semibold transition-all shadow-inner outline-none"
                     />
                     <button
                       type="submit"
@@ -1886,6 +1892,7 @@ export default function App() {
                   {/* Category resets */}
                   <button
                     onClick={resetToHome}
+                    aria-label={settings.language === "en" ? "Change workspace category" : "カテゴリを変更する"}
                     className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors self-end sm:self-auto cursor-pointer"
                   >
                     ← カテゴリを変更する
@@ -1904,6 +1911,7 @@ export default function App() {
                         <button
                           key={temp.id}
                           onClick={() => selectTemplateHandler(temp)}
+                          aria-label={`${settings.language === "en" ? "Select template" : "テンプレートを選択"}: ${temp.name}`}
                           className={cn(
                             "px-3.5 py-2 rounded-xl text-xs font-bold transition-all border text-left cursor-pointer shrink-0",
                             isSelected
@@ -1983,6 +1991,7 @@ export default function App() {
                       </h3>
                       <button
                         onClick={() => setTaskMode("input")}
+                        aria-label={settings.language === "en" ? "Edit prompt again" : "プロンプトを再編集する"}
                         className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 cursor-pointer"
                       >
                         プロンプトを再編集する
@@ -2067,112 +2076,7 @@ export default function App() {
         isOpen={isAssistantOpen}
         onClose={() => setIsAssistantOpen(false)}
       />
-
-      {/* Immersive Glassmorphic Overlay Layer for Mission Execution */}
-      <AnimatePresence>
-        {(taskMode === "loading" || taskMode === "result") && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-slate-950/80 backdrop-blur-xl"
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 20 }}
-              transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="w-full max-w-5xl bg-[#0D0D11] border border-white/[0.08] rounded-3xl shadow-2xl h-[90vh] overflow-y-auto relative flex flex-col p-6 md:p-8"
-            >
-              {/* Overlay header */}
-              <div className="flex justify-between items-center pb-4 border-b border-white/[0.06] mb-6 shrink-0">
-                <div className="flex items-center gap-3">
-                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
-                  <h3 className="text-xs font-black tracking-widest text-indigo-400 uppercase font-mono">
-                    Active Mission Cockpit (Overlay Layer)
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setTaskMode("categories")}
-                  className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <X className="w-4 h-4" />
-                  <span>Close Overlay (Esc)</span>
-                </button>
-              </div>
-
-              {/* Inner content */}
-              <div className="flex-1 min-h-0 overflow-y-auto pr-2">
-                {taskMode === "loading" && (
-                  <MissionRuntimeConsole
-                    missionTitle={prompt}
-                    selectedCategory={selectedCategory}
-                    activePrompt={prompt}
-                    onClose={() => setTaskMode("categories")}
-                    onComplete={(data) => {
-                      setResult(data);
-                      saveToHistory(prompt);
-                      
-                      // Auto-save completed mission to the Active Workspace
-                      const newMission = {
-                        id: data.mission?.id || `m-${Date.now()}`,
-                        title: prompt,
-                        timestamp: new Date().toISOString(),
-                        category: selectedCategory?.id || "search",
-                        successScore: data.successScore || Math.floor(Math.random() * 5) + 95,
-                        roi: data.successPrediction?.roi || data.mission?.roiPrediction || "150% ROI 予測 / 意思決定 of 最大化",
-                        status: "Completed" as const,
-                        resultData: data // Cache complete result data!
-                      };
-
-                      setSavedMissions(prev => {
-                        const updated = [newMission, ...prev.filter(m => m.title !== prompt)].slice(0, 15);
-                        try {
-                          localStorage.setItem("acos_saved_missions", JSON.stringify(updated));
-                        } catch (e) {
-                          console.warn("localStorage write error", e);
-                        }
-                        return updated;
-                      });
-
-                      setTaskMode("result");
-                    }}
-                  />
-                )}
-
-                {taskMode === "result" && result && (
-                  <div className="space-y-6">
-                    <div className="flex justify-between items-center border-b border-white/5 pb-4">
-                      <div className="flex items-center gap-2.5">
-                        <Award className="w-5 h-5 text-indigo-400 animate-pulse" />
-                        <div>
-                          <h3 className="text-xs font-black text-white uppercase tracking-widest font-mono">
-                            Mission Deliverables Analytics Scoreboard
-                          </h3>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setTaskMode("categories");
-                          setPrompt("");
-                        }}
-                        className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer"
-                      >
-                        Start another mission
-                      </button>
-                    </div>
-                    
-                    {/* Themed result wrapper */}
-                    <div className="bg-[#121214] rounded-3xl p-1 text-slate-100 overflow-x-hidden">
-                      <ResultDashboard result={result} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
+    </Suspense>
   );
 }

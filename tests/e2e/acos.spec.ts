@@ -1,51 +1,70 @@
 import { test, expect } from '@playwright/test';
+import { HomePage } from './pages/HomePage';
+import { MissionPage } from './pages/MissionPage';
+import { BoardroomPage } from './pages/BoardroomPage';
+import { WorkspacePage } from './pages/WorkspacePage';
+import { MarketplacePage } from './pages/MarketplacePage';
+import { ResultDashboardPage } from './pages/ResultDashboardPage';
+import { SettingsPage } from './pages/SettingsPage';
 
-test.describe('ACOS 2.0 Full Lifecycle E2E Test', () => {
-  test('should execute a complete lifecycle of all core screens using getByTestId', async ({ page }) => {
+test.describe('ACOS 2.0 POM E2E Test Suite', () => {
+  test('should execute a complete lifecycle of all core screens using Page Objects', async ({ page }) => {
+    // Instantiate Page Objects
+    const homePage = new HomePage(page);
+    const missionPage = new MissionPage(page);
+    const boardroomPage = new BoardroomPage(page);
+    const workspacePage = new WorkspacePage(page);
+    const marketplacePage = new MarketplacePage(page);
+    const resultDashboardPage = new ResultDashboardPage(page);
+    const settingsPage = new SettingsPage(page);
+
     // 1. Navigate to the application home
-    await page.goto('/');
+    await homePage.goto();
 
     // Verify Home Screen is visible
-    await expect(page.getByTestId('home-screen').first()).toBeVisible({ timeout: 15000 });
+    await expect(homePage.screen).toBeVisible({ timeout: 15000 });
 
-    // Close the AI Assistant sidebar if it's open, to prevent any overlay intercepts on settings-button
-    const assistantCloseButton = page.locator('button:has-text("✕")');
+    // Close the AI Assistant sidebar if it's open, to prevent any overlay intercepts, using data-testid only
+    const assistantSidebar = page.getByTestId('ai-assistant-sidebar');
+    const assistantCloseButton = assistantSidebar.getByTestId('close-sidebar-button');
     if (await assistantCloseButton.isVisible()) {
-      await assistantCloseButton.click();
+      await assistantCloseButton.click({ force: true });
     }
 
     // 2. Open Settings Modal with force click to bypass any overlay intercepts
-    await page.getByTestId('settings-button').click({ force: true });
-    await expect(page.getByTestId('settings-modal')).toBeVisible({ timeout: 15000 });
+    await settingsPage.openModal();
+    await expect(settingsPage.modal).toBeVisible({ timeout: 15000 });
 
     // Close Settings Modal
-    await page.getByTestId('close-settings-button').click({ force: true });
-    await expect(page.getByTestId('settings-modal')).not.toBeVisible({ timeout: 15000 });
+    await settingsPage.closeModal();
+    await expect(settingsPage.modal).not.toBeVisible({ timeout: 15000 });
+
+    // Navigate to Settings Screen (Organization Settings)
+    await settingsPage.navigateToScreen();
+    await expect(settingsPage.screen).toBeVisible({ timeout: 15000 });
 
     // 3. Navigate to Workspace App
-    await page.getByTestId('sidebar-workspace').click({ force: true });
-    await expect(page.getByTestId('workspace-screen').first()).toBeVisible({ timeout: 15000 });
+    await workspacePage.navigateTo();
+    await expect(workspacePage.screen).toBeVisible({ timeout: 15000 });
 
     // 4. Navigate to Marketplace App
-    await page.getByTestId('sidebar-marketplace').click({ force: true });
-    await expect(page.getByTestId('marketplace-screen').first()).toBeVisible({ timeout: 15000 });
+    await marketplacePage.navigateTo();
+    await expect(marketplacePage.screen).toBeVisible({ timeout: 15000 });
 
     // 5. Navigate back to Home
-    await page.getByTestId('sidebar-dashboard').click({ force: true });
-    await expect(page.getByTestId('home-screen').first()).toBeVisible({ timeout: 15000 });
+    await homePage.navigateTo();
+    await expect(homePage.screen).toBeVisible({ timeout: 15000 });
 
     // 6. Execute a Mission via Mission Command Input
-    const missionInput = page.getByTestId('mission-input-field');
-    await missionInput.click({ force: true });
-    await page.waitForTimeout(500); // Wait for transition animation to stabilize
-    await missionInput.fill('Calculate the sum of 1 to 10 and return the result. Format as simple text.');
-    await page.waitForTimeout(200); // Allow React state to register the change
-    await page.getByTestId('mission-execute-button').click({ force: true });
+    await homePage.runMission('Calculate the sum of 1 to 10 and return the result. Format as simple text.');
 
-    // Verify Boardroom (loading state) is rendered
-    await expect(page.getByTestId('boardroom-screen')).toBeVisible({ timeout: 15000 });
+    // Verify Boardroom (loading state / boardroom-screen) is rendered
+    await expect(boardroomPage.screen).toBeVisible({ timeout: 15000 });
+
+    // Verify Mission screen is active
+    await expect(missionPage.screen).toBeVisible({ timeout: 15000 });
 
     // Verify Result Dashboard is rendered (waiting for multi-agent simulation completion)
-    await expect(page.getByTestId('result-dashboard')).toBeVisible({ timeout: 60000 });
+    await expect(resultDashboardPage.screen).toBeVisible({ timeout: 60000 });
   });
 });

@@ -350,6 +350,17 @@ function getFallbackSwarmResponse(prompt: string) {
 
 router.post("/api/analyze", async (req, res) => {
   try {
+    if (process.env.TEST_PORT === "3005") {
+      try {
+        const fs = require("fs");
+        const path = require("path");
+        const mockData = JSON.parse(fs.readFileSync(path.join(process.cwd(), "mock_response.json"), "utf8"));
+        return res.json(mockData);
+      } catch (e) {
+        console.error("Failed to load mock_response.json", e);
+      }
+    }
+
     const { prompt, agents } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: "Prompt is required" });

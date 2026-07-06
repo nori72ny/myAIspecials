@@ -13,6 +13,7 @@ export default function AIAssistantSidebar({ isOpen, onClose }: { isOpen: boolea
       onClose={onClose}
       title="ACOS Copilot"
       className="pt-14"
+      data-testid="ai-assistant-sidebar"
     >
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         
