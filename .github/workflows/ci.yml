@@ -15,6 +15,8 @@ concurrency:
 permissions:
   contents: write # Required for generating Releases and Changelogs
   actions: read
+  security-events: write # Required for security uploads
+  pull-requests: write # Required for PR comments in dependency review
 
 jobs:
   build-and-test:
@@ -23,10 +25,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20.x, 22.x, 24.x]
+        node-version: [22.x, 24.x]
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Fetch all history for accurate secret scanning
+        
+    - name: Run Secret Scanning (Gitleaks)
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true # Audit-only mode so minor false-positives do not break production deployment
     
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v4
@@ -38,7 +48,7 @@ jobs:
       run: npm ci
       
     - name: Run Security Audit
-      run: npm audit --audit-level=high || echo "Audit found vulnerabilities, continuing pipeline..."
+      run: npm audit --audit-level=critical
       
     - name: Run linter
       run: npm run lint
@@ -95,6 +105,7 @@ jobs:
         name: test-results-node-${{ matrix.node-version }}
         path: test-results/
         retention-days: 30
+        if-no-files-found: ignore
         
     - name: Upload Production Evidence Report
       if: always()
@@ -103,6 +114,36 @@ jobs:
         name: production-evidence-report-node-${{ matrix.node-version }}
         path: PRODUCTION_EVIDENCE_REPORT.md
         retention-days: 30
+
+    - name: Generate SBOM (Software Bill of Materials)
+      if: always()
+      uses: anchore/sbom-action@v0
+      with:
+        format: 'spdx-json'
+        output-file: 'sbom.spdx.json'
+      continue-on-error: true # Ensure the pipeline doesn't block if SBOM tool is rate-limited
+        
+    - name: Upload SBOM Artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom-node-${{ matrix.node-version }}
+        path: sbom.spdx.json
+        retention-days: 30
+        if-no-files-found: ignore
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
 
   release:
     name: Generate CHANGELOG & GitHub Release
