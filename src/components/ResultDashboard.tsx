@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import DOMPurify from "dompurify";
 import { AnalysisResult, NetworkNode } from "../types";
 import { ProductionLogger } from "../utils";
@@ -62,6 +62,8 @@ interface Props {
 type ExecuteTab = "image" | "video" | "slides" | "web" | "app" | "agent";
 
 export default function ResultDashboard({ result }: Props) {
+  const prefersReducedMotion = useReducedMotion();
+  const transitionY = prefersReducedMotion ? 0 : 10;
   // Local state for checking off mission conditions and risk improvements
   const [missionTab, setMissionTab] = useState<"core" | "agents" | "workflow" | "quality" | "evolution" | "strategic">("core");
   const [selectedChiefIndex, setSelectedChiefIndex] = useState<number>(0);
@@ -2636,14 +2638,23 @@ export default function ResultDashboard({ result }: Props) {
                         <div
                           key={node.id}
                           style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: "translate(-50%, -50%)" }}
-                          className="absolute z-20 cursor-pointer"
+                          className="absolute z-20 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 rounded-lg"
                           onMouseEnter={() => setHoveredImnNodeId(node.id)}
                           onMouseLeave={() => setHoveredImnNodeId(null)}
                           onClick={() => setSelectedImnNodeId(isSelected ? null : node.id)}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`ノード: ${node.label}`}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              setSelectedImnNodeId(isSelected ? null : node.id);
+                              e.preventDefault();
+                            }
+                          }}
                         >
                           <motion.div
                             animate={{
-                              scale: isSelected ? 1.15 : hoveredImnNodeId === node.id ? 1.08 : 1,
+                              scale: prefersReducedMotion ? 1 : (isSelected ? 1.15 : hoveredImnNodeId === node.id ? 1.08 : 1),
                               borderColor: isSelected ? "#F59E0B" : undefined
                             }}
                             className={`px-2 py-1 rounded-lg border text-[9px] font-mono whitespace-nowrap transition-all ${getNodeStyle()} flex items-center gap-1.5`}
@@ -2683,7 +2694,16 @@ export default function ResultDashboard({ result }: Props) {
                       <div 
                         key={node.id}
                         onClick={() => setSelectedImnNodeId(node.id)}
-                        className={`p-3 rounded-xl border transition-all cursor-pointer ${
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`ノード一覧項目: ${node.label}`}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            setSelectedImnNodeId(node.id);
+                            e.preventDefault();
+                          }
+                        }}
+                        className={`p-3 rounded-xl border transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                           selectedImnNodeId === node.id 
                             ? "bg-indigo-500/10 border-indigo-500 text-white" 
                             : "bg-white/2 border-white/5 text-white/70 hover:bg-white/5"
@@ -3832,10 +3852,19 @@ export default function ResultDashboard({ result }: Props) {
                     return (
                       <motion.div
                         key={idx}
-                        whileHover={{ scale: 1.03, translateY: -1 }}
-                        whileTap={{ scale: 0.97 }}
+                        whileHover={prefersReducedMotion ? undefined : { scale: 1.03, translateY: -1 }}
+                        whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
                         onClick={() => setSelectedChiefIndex(itemIndex)}
-                        className={`cursor-pointer p-2.5 rounded-xl border text-center transition-all flex flex-col items-center justify-between min-h-[92px] relative ${
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`メンバー選択: ${actualMember.aiName}`}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            setSelectedChiefIndex(itemIndex);
+                            e.preventDefault();
+                          }
+                        }}
+                        className={`cursor-pointer p-2.5 rounded-xl border text-center transition-all flex flex-col items-center justify-between min-h-[92px] relative focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 ${
                           isSelected
                             ? "bg-indigo-500/10 border-indigo-500/80 shadow-md shadow-indigo-500/5 text-white"
                             : "bg-white/1 border-white/5 text-white/60 hover:bg-white/3 hover:border-white/10"
@@ -4082,7 +4111,17 @@ export default function ResultDashboard({ result }: Props) {
                     <div
                       key={idx}
                       onClick={() => toggleImprovement(idx)}
-                      className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 text-xs transition-colors ${
+                      tabIndex={0}
+                      role="checkbox"
+                      aria-checked={isChecked}
+                      aria-label={`改善項目: ${imp}`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          toggleImprovement(idx);
+                          e.preventDefault();
+                        }
+                      }}
+                      className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                         isChecked 
                           ? "bg-indigo-500/10 border-indigo-500/30 text-white" 
                           : "bg-white/2 border-white/5 hover:bg-white/5 text-white/70"

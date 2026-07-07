@@ -143,13 +143,13 @@ export function SovereignBadge({
   const baseClass = "inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full border tracking-wide uppercase font-mono transition-all duration-300";
   
   const variantClasses = {
-    indigo: "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-100 dark:border-indigo-950/40",
-    pink: "bg-pink-50 dark:bg-pink-950/20 text-pink-600 dark:text-pink-400 border-pink-100 dark:border-pink-950/40",
-    emerald: "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-950/40",
-    amber: "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-950/40",
-    red: "bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-950/40",
-    cyan: "bg-cyan-50 dark:bg-cyan-950/20 text-cyan-600 dark:text-cyan-400 border-cyan-100 dark:border-cyan-950/40",
-    slate: "bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 border-slate-100 dark:border-white/[0.03]"
+    indigo: "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-950/40",
+    pink: "bg-pink-50 dark:bg-pink-950/20 text-pink-700 dark:text-pink-400 border-pink-100 dark:border-pink-950/40",
+    emerald: "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-950/40",
+    amber: "bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-100 dark:border-amber-950/40",
+    red: "bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-100 dark:border-red-950/40",
+    cyan: "bg-cyan-50 dark:bg-cyan-950/20 text-cyan-700 dark:text-cyan-400 border-cyan-100 dark:border-cyan-950/40",
+    slate: "bg-slate-50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-400 border-slate-100 dark:border-white/[0.03]"
   };
 
   return (
@@ -380,7 +380,7 @@ export function SovereignSegmentedControl({
               "flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-full transition-all duration-300 relative cursor-pointer z-10",
               isActive
                 ? "bg-white dark:bg-neutral-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
-                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             )}
           >
             {opt.icon}

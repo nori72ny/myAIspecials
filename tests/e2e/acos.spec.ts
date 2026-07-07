@@ -6,6 +6,7 @@ import { WorkspacePage } from './pages/WorkspacePage';
 import { MarketplacePage } from './pages/MarketplacePage';
 import { ResultDashboardPage } from './pages/ResultDashboardPage';
 import { SettingsPage } from './pages/SettingsPage';
+import AxeBuilder from '@axe-core/playwright';
 
 test.describe('ACOS 2.0 POM E2E Test Suite', () => {
   test('should execute a complete lifecycle of all core screens using Page Objects', async ({ page }) => {
@@ -23,6 +24,17 @@ test.describe('ACOS 2.0 POM E2E Test Suite', () => {
 
     // Verify Home Screen is visible
     await expect(homePage.screen).toBeVisible({ timeout: 15000 });
+
+    // Run accessibility scan to automatically block structural accessibility failures
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'best-practice'])
+      .analyze();
+    
+    const criticalViolations = results.violations.filter(v => ['critical', 'serious'].includes(v.impact || ''));
+    if (criticalViolations.length > 0) {
+      console.error('Accessibility violations found:', JSON.stringify(criticalViolations, null, 2));
+    }
+    expect(criticalViolations.length).toBe(0);
 
     // Close the AI Assistant sidebar if it's open, to prevent any overlay intercepts, using data-testid only
     const assistantSidebar = page.getByTestId('ai-assistant-sidebar');

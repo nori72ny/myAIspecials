@@ -308,16 +308,16 @@ export default function DynamicBrain() {
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
           </span>
           <div className="space-y-0.5">
-            <h3 className="text-[11px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
+            <h3 className="text-[11px] font-black text-slate-600 dark:text-neutral-400 uppercase tracking-widest font-mono flex items-center gap-1.5">
               <Activity className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
               {isEn ? "Organizational Neuralink Sphere (ACOS-Core)" : "組織内ニューラリンク・スフィア (ACOS-Core)"}
             </h3>
-            <p className="text-[10px] text-slate-400 font-semibold font-mono">STATUS: HIGH_FIDELITY_LIVE • SYNC_RATE: 100%</p>
+            <p className="text-[10px] text-slate-600 dark:text-neutral-400 font-semibold font-mono">STATUS: HIGH_FIDELITY_LIVE • SYNC_RATE: 100%</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[9.5px] font-mono font-bold text-indigo-500 dark:text-indigo-400 px-2.5 py-1 bg-indigo-500/5 dark:bg-indigo-500/15 border border-indigo-500/10 rounded-full flex items-center gap-1.5">
+          <span className="text-[9.5px] font-mono font-bold text-indigo-700 dark:text-indigo-300 px-2.5 py-1 bg-indigo-500/5 dark:bg-indigo-500/15 border border-indigo-500/10 rounded-full flex items-center gap-1.5">
             <RefreshCw className="w-3 h-3 animate-spin" />
             <span>{isEn ? "NEURAL CORE EFFICIENCY" : "神経コア伝達効率"}: {metrics.accuracy}%</span>
           </span>
@@ -657,7 +657,7 @@ export default function DynamicBrain() {
           
           {/* Section 1: Real-time Fluctuating Cognitive Analytics */}
           <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-3xl space-y-4">
-            <h4 className="text-[10px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
+            <h4 className="text-[10px] font-black text-slate-600 dark:text-neutral-400 uppercase tracking-widest font-mono flex items-center gap-1.5">
               <TrendingUp className="w-4 h-4 text-pink-500 animate-bounce" />
               {isEn ? "Cognitive Performance Metrics" : "認知能力・パフォーマンス統計指標"}
             </h4>
@@ -666,64 +666,64 @@ export default function DynamicBrain() {
               
               {/* Thinking Speed */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                <span className="text-[9px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-wider font-mono">
                   {isEn ? "Thinking Speed" : "思考処理速度"}
                 </span>
                 <div className="text-sm font-black text-slate-800 dark:text-white mt-1 font-mono tracking-tight flex items-baseline gap-1">
                   {metrics.thinkingSpeed}
-                  <span className="text-[8px] font-medium text-slate-400 font-sans">T/S</span>
+                  <span className="text-[8px] font-medium text-slate-600 dark:text-neutral-400 font-sans">T/S</span>
                 </div>
               </div>
 
               {/* Knowledge Density */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                <span className="text-[9px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-wider font-mono">
                   {isEn ? "Knowledge DNA" : "知識DNA蓄積"}
                 </span>
                 <div className="text-sm font-black text-slate-800 dark:text-white mt-1 font-mono tracking-tight flex items-baseline gap-1">
                   {metrics.knowledgeDensity}
-                  <span className="text-[8px] font-medium text-slate-400 font-sans">GB</span>
+                  <span className="text-[8px] font-medium text-slate-600 dark:text-neutral-400 font-sans">GB</span>
                 </div>
               </div>
 
               {/* Alignment / Accuracy */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                <span className="text-[9px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-wider font-mono">
                   {isEn ? "UQI Accuracy" : "UQI適合精度"}
                 </span>
-                <div className="text-sm font-black text-emerald-500 mt-1 font-mono tracking-tight">
+                <div className="text-sm font-black text-emerald-800 dark:text-emerald-400 mt-1 font-mono tracking-tight">
                   {metrics.accuracy}%
                 </div>
               </div>
 
               {/* Reasoning depth */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                <span className="text-[9px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-wider font-mono">
                   {isEn ? "Reasoning Depth" : "推論処理深度"}
                 </span>
-                <div className="text-sm font-black text-indigo-400 mt-1 font-mono tracking-tight flex items-baseline gap-1">
+                <div className="text-sm font-black text-indigo-800 dark:text-indigo-300 mt-1 font-mono tracking-tight flex items-baseline gap-1">
                   Lvl {metrics.reasoningDepth}
-                  <span className="text-[8px] font-medium text-slate-400 font-sans">Mesh</span>
+                  <span className="text-[8px] font-medium text-slate-600 dark:text-neutral-400 font-sans">Mesh</span>
                 </div>
               </div>
 
               {/* Context window */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                <span className="text-[9px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-wider font-mono">
                   {isEn ? "Context Load" : "文脈リソース負荷"}
                 </span>
                 <div className="text-sm font-black text-slate-800 dark:text-white mt-1 font-mono tracking-tight flex items-baseline gap-1">
                   {metrics.contextUsage}%
-                  <span className="text-[8px] font-medium text-slate-400 font-sans">Active</span>
+                  <span className="text-[8px] font-medium text-slate-600 dark:text-neutral-400 font-sans">Active</span>
                 </div>
               </div>
 
               {/* Learning Rate */}
               <div className="bg-slate-50 dark:bg-neutral-950/40 p-3 rounded-2xl border border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                <span className="text-[9px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-wider font-mono">
                   {isEn ? "Learning Rate" : "動的学習効率"}
                 </span>
-                <div className="text-sm font-black text-amber-500 mt-1 font-mono tracking-tight">
+                <div className="text-sm font-black text-amber-800 dark:text-amber-400 mt-1 font-mono tracking-tight">
                   η={metrics.learningRate}
                 </div>
               </div>
@@ -733,7 +733,7 @@ export default function DynamicBrain() {
 
           {/* Section 2: Active AI Agent Ticker rail */}
           <div className="bg-white/80 dark:bg-neutral-900/40 backdrop-blur-md border border-slate-200/60 dark:border-white/[0.04] p-5 rounded-3xl space-y-3.5">
-            <h4 className="text-[10px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
+            <h4 className="text-[10px] font-black text-slate-600 dark:text-neutral-400 uppercase tracking-widest font-mono flex items-center gap-1.5">
               <Cpu className="w-4 h-4 text-indigo-500" />
               {isEn ? "Active Synapse Agents" : "アクティブ同期エージェント"}
             </h4>
@@ -769,7 +769,7 @@ export default function DynamicBrain() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-[9.5px] font-black text-slate-700 dark:text-neutral-300 truncate">{ag.name}</p>
-                      <p className="text-[8px] text-slate-400 truncate">{ag.desc}</p>
+                      <p className="text-[8px] text-slate-600 dark:text-neutral-400 truncate">{ag.desc}</p>
                     </div>
                   </div>
                 );
@@ -788,7 +788,7 @@ export default function DynamicBrain() {
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                <span className="text-[8.5px] font-mono text-slate-400 uppercase font-black">LOG_ACTIVE</span>
+                <span className="text-[8.5px] font-mono text-slate-300 uppercase font-black">LOG_ACTIVE</span>
               </div>
             </div>
 
@@ -799,7 +799,7 @@ export default function DynamicBrain() {
                   <span className="text-pink-400 select-none shrink-0 font-bold">&gt;&gt;</span>
                   <span className={cn(
                     "truncate",
-                    idx === activeThoughts.length - 1 ? "text-indigo-300 font-bold" : "text-slate-500"
+                    idx === activeThoughts.length - 1 ? "text-indigo-300 font-bold" : "text-slate-300"
                   )}>
                     {t}
                   </span>
@@ -807,7 +807,7 @@ export default function DynamicBrain() {
               ))}
             </div>
 
-            <div className="flex items-center justify-between text-[7.5px] text-slate-500 font-mono border-t border-white/[0.04] pt-2">
+            <div className="flex items-center justify-between text-[7.5px] text-slate-300 font-mono border-t border-white/[0.04] pt-2">
               <span>THREAD_ID: OS-LIVE-NEURALINK</span>
               <span>Uptime: 2,410 pulses</span>
             </div>

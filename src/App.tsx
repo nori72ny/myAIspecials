@@ -1,5 +1,5 @@
 import React, { useState, Suspense } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Settings, AnalysisResult, WorkspaceCategory, TaskTemplate } from "./types";
 
 const SettingsModal = React.lazy(() => import("./components/SettingsModal"));
@@ -146,6 +146,9 @@ const CATEGORIES: WorkspaceCategory[] = [
 ];
 
 export default function App() {
+  const prefersReducedMotion = useReducedMotion();
+  const transitionY = prefersReducedMotion ? 0 : 15;
+  const transitionX = prefersReducedMotion ? "0%" : "-100%";
   const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain" | "workspace" | "organization" | "marketplace" | "swarm-debugger">("dashboard");
   const [taskMode, setTaskMode] = useState<"categories" | "input" | "loading" | "result">("categories");
 
@@ -408,7 +411,7 @@ export default function App() {
     return (
       <>
         <div className="p-4 space-y-1 overflow-y-auto flex-1">
-          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 mb-2">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-2">
             {isEn ? "ACOS Applications" : "ACOS アプリケーション"}
           </div>
           <button
@@ -540,7 +543,7 @@ export default function App() {
           {/* Active Agents status panel */}
           <div className="pt-6 border-t border-slate-800/80 mt-4 space-y-3">
             <div className="flex items-center justify-between px-3">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 {isEn ? "Active Agents" : "稼働AIメンバー"}
               </span>
               <button
@@ -573,7 +576,7 @@ export default function App() {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               </div>
 
-              <div className="p-2 rounded-lg bg-slate-900/30 text-[9px] text-slate-500 border border-dashed border-slate-800 leading-relaxed">
+              <div className="p-2 rounded-lg bg-slate-900/30 text-[9px] text-slate-400 border border-dashed border-slate-800 leading-relaxed">
                 {isEn ? "Coming Soon: Claude, Perplexity, DeepSeek..." : "将来対応予定: Claude, Perplexity, DeepSeek..."}
               </div>
             </div>
@@ -583,7 +586,7 @@ export default function App() {
           {history.length > 0 && (
             <div className="pt-6 border-t border-slate-800/80 mt-4 space-y-2">
               <div className="flex items-center justify-between px-3">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
                   <History className="w-3 h-3" />
                   {isEn ? "Task History" : "タスク履歴"}
                 </span>
@@ -617,9 +620,9 @@ export default function App() {
         </div>
 
         {/* Footer info */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/40 text-[10px] text-slate-500 text-center flex flex-col gap-1 font-medium mt-auto">
+        <div className="p-4 border-t border-slate-800 bg-slate-950/40 text-[10px] text-slate-400 text-center flex flex-col gap-1 font-medium mt-auto">
           <div>Intelligence OS v2.0</div>
-          <div className="text-[9px] opacity-70">Supreme Intellect Parallel Boardroom</div>
+          <div className="text-[9px]">Supreme Intellect Parallel Boardroom</div>
         </div>
       </>
     );
@@ -681,9 +684,9 @@ export default function App() {
             
             {/* Drawer Content */}
             <motion.aside
-              initial={{ x: "-100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
+              initial={{ x: transitionX }}
+              animate={{ x: "0%" }}
+              exit={{ x: transitionX }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
               className="relative w-80 max-w-[85vw] bg-slate-900 text-white flex flex-col h-full shadow-2xl z-50 border-r border-slate-800"
             >
@@ -766,15 +769,15 @@ export default function App() {
               id="universal-search-trigger"
               onClick={() => setIsSearchOpen(true)}
               aria-label={settings.language === "en" ? "Open search overlay" : "検索パネルを開く"}
-              className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-slate-100/50 dark:bg-neutral-800/40 hover:bg-slate-100/80 dark:hover:bg-neutral-800/60 border border-slate-200/40 dark:border-neutral-700/30 rounded-full text-slate-400 dark:text-neutral-500 hover:text-slate-600 dark:hover:text-neutral-300 transition-all cursor-pointer w-64 justify-between shadow-inner"
+              className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-slate-100/50 dark:bg-neutral-800/40 hover:bg-slate-100/80 dark:hover:bg-neutral-800/60 border border-slate-200/40 dark:border-neutral-700/30 rounded-full text-slate-600 dark:text-neutral-400 hover:text-slate-700 dark:hover:text-neutral-300 transition-all cursor-pointer w-64 justify-between shadow-inner"
             >
               <div className="flex items-center gap-2">
                 <Search className="w-3.5 h-3.5" />
                 <span className="text-xs font-semibold tracking-wide">Spotlight Search...</span>
               </div>
               <div className="flex items-center gap-0.5">
-                <kbd className="px-1.5 py-0.5 bg-white dark:bg-neutral-900 border border-slate-200/80 dark:border-neutral-700/40 rounded text-[9px] font-bold text-slate-400 dark:text-neutral-500">⌘</kbd>
-                <kbd className="px-1.5 py-0.5 bg-white dark:bg-neutral-900 border border-slate-200/80 dark:border-neutral-700/40 rounded text-[9px] font-bold text-slate-400 dark:text-neutral-500">K</kbd>
+                <kbd className="px-1.5 py-0.5 bg-white dark:bg-neutral-900 border border-slate-200/80 dark:border-neutral-700/40 rounded text-[9px] font-bold text-slate-500 dark:text-neutral-400">⌘</kbd>
+                <kbd className="px-1.5 py-0.5 bg-white dark:bg-neutral-900 border border-slate-200/80 dark:border-neutral-700/40 rounded text-[9px] font-bold text-slate-500 dark:text-neutral-400">K</kbd>
               </div>
             </button>
             <button
@@ -823,7 +826,7 @@ export default function App() {
           
           <AnimatePresence mode="wait">
             {currentApp === "dashboard" && (
-              <motion.div key="dashboard" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+              <motion.div key="dashboard" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
                 <HomeScreen
                   prompt={prompt}
                   setPrompt={setPrompt}
@@ -862,7 +865,7 @@ export default function App() {
               </motion.div>
             )}
             {currentApp === "workspace" && (
-              <motion.div key="workspace" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+              <motion.div key="workspace" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
                 <WorkspaceApp 
                   savedMissions={savedMissions}
                   onViewMissionResult={(mission) => {
@@ -894,45 +897,45 @@ export default function App() {
               </motion.div>
             )}
             {currentApp === "chat" && (
-              <motion.div key="chat" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+              <motion.div key="chat" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
                 <ChatApp />
               </motion.div>
             )}
             {currentApp === "multi-ai" && (
-              <motion.div key="multi-ai" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
+              <motion.div key="multi-ai" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
                 <MultiAIApp />
               </motion.div>
             )}
             {currentApp === "brain" && (
-              <motion.div key="brain" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+              <motion.div key="brain" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
                 <BrainOverview />
               </motion.div>
             )}
             {currentApp === "marketplace" && (
-              <motion.div key="marketplace" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+              <motion.div key="marketplace" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
                 <PromptLibrary />
               </motion.div>
             )}
             {currentApp === "organization" && (
-              <motion.div key="organization" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+              <motion.div key="organization" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
                 <OrganizationApp settings={settings} updateSettings={updateSettings} />
               </motion.div>
             )}
             {currentApp === "swarm-debugger" && (
-              <motion.div key="swarm-debugger" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 min-h-0">
+              <motion.div key="swarm-debugger" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
                 <RealTimeSwarmDebugger />
               </motion.div>
             )}
 
             {currentApp === "mission" && (
-              <motion.div data-testid="mission-screen" key="mission" initial={{opacity: 0, y: 15}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -15}} className="flex-1 flex flex-col gap-6">
+              <motion.div data-testid="mission-screen" key="mission" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 flex flex-col gap-6">
                 {/* 1. HOMEPAGE: CATEGORY SELECTION CARDS */}
                 {taskMode === "categories" && (
               <motion.div
                 key="categories"
-                initial={{ opacity: 0, y: 15 }}
+                initial={{ opacity: 0, y: transitionY }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
+                exit={{ opacity: 0, y: -transitionY }}
                 className="space-y-8 py-4"
               >
                 {/* Visual Banner */}
@@ -2008,16 +2011,16 @@ export default function App() {
       </AnimatePresence>
 
           {/* Premium Apple HIG Compliant Footer */}
-          <footer id="app-footer" className="mt-auto pt-10 pb-4 border-t border-slate-200/40 dark:border-white/[0.04] text-[11px] font-medium text-slate-400 dark:text-neutral-500">
+          <footer id="app-footer" className="mt-auto pt-10 pb-4 border-t border-slate-200/40 dark:border-white/[0.04] text-[11px] font-medium text-slate-600 dark:text-neutral-400">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-2">
-                <span className="font-bold tracking-tight bg-gradient-to-r from-slate-500 to-slate-400 bg-clip-text text-transparent">Intelligence OS</span>
+                <span className="font-bold tracking-tight bg-gradient-to-r from-slate-600 to-slate-500 bg-clip-text text-transparent">Intelligence OS</span>
                 <span>•</span>
                 <span>Copyright © {new Date().getFullYear()} Enterprise Squad. All rights reserved.</span>
               </div>
               
               <div className="flex flex-wrap items-center justify-center gap-4">
-                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/10 dark:border-emerald-500/20 rounded-full text-emerald-600 dark:text-emerald-400 font-mono text-[10px]">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/10 dark:border-emerald-500/20 rounded-full text-emerald-800 dark:text-emerald-400 font-mono text-[10px]">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   <span>System Status: Operational</span>
                 </div>
@@ -2025,9 +2028,9 @@ export default function App() {
                 <div className="hidden sm:block h-3 w-px bg-slate-200 dark:bg-neutral-800" />
                 
                 <div className="flex items-center gap-3">
-                  <a href="#" className="hover:text-slate-600 dark:hover:text-neutral-300 transition-colors">Privacy Policy</a>
-                  <a href="#" className="hover:text-slate-600 dark:hover:text-neutral-300 transition-colors">Terms of Service</a>
-                  <a href="#" className="hover:text-slate-600 dark:hover:text-neutral-300 transition-colors">Support</a>
+                  <a href="#" className="text-slate-600 hover:text-slate-900 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors">Privacy Policy</a>
+                  <a href="#" className="text-slate-600 hover:text-slate-900 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors">Terms of Service</a>
+                  <a href="#" className="text-slate-600 hover:text-slate-900 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors">Support</a>
                 </div>
               </div>
             </div>

@@ -10,6 +10,7 @@ export default function NotificationCenter() {
     <div className="relative">
       <button 
         onClick={() => setIsOpen(!isOpen)}
+        aria-label="Open notifications"
         className="relative p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
       >
         <Bell className="w-5 h-5" />

@@ -110,7 +110,7 @@ export default function HomeScreen({
           <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
             What is your next mission?
           </h2>
-          <p className="text-xs text-slate-400 dark:text-neutral-500 font-medium max-w-md mx-auto leading-relaxed">
+          <p className="text-xs text-slate-600 dark:text-neutral-400 font-medium max-w-md mx-auto leading-relaxed">
             AI boardroom orchestration executes complex research and workflows, formulating strategic deliverables instantly.
           </p>
         </div>
@@ -138,7 +138,7 @@ export default function HomeScreen({
                 className="w-full bg-transparent border-none outline-none pl-12 pr-28 py-3.5 text-xs font-semibold text-slate-800 dark:text-neutral-200 placeholder:text-slate-400 dark:placeholder:text-neutral-600 focus:ring-0 focus:border-transparent shadow-none"
               />
               <div className="absolute right-2 flex items-center gap-2">
-                <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-bold text-slate-400 dark:text-neutral-500 px-1.5 py-1 bg-slate-50/80 dark:bg-neutral-900/80 border border-slate-200/30 dark:border-white/[0.02] rounded-lg">
+                <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-bold text-slate-600 dark:text-neutral-400 px-1.5 py-1 bg-slate-50/80 dark:bg-neutral-900/80 border border-slate-200/30 dark:border-white/[0.02] rounded-lg">
                   <span>Enter</span>
                   <span className="text-[10px]">↵</span>
                 </span>
@@ -163,11 +163,11 @@ export default function HomeScreen({
       <div className="space-y-6">
         <div className="flex items-center justify-between px-1">
           <div className="space-y-1">
-            <h3 className="text-[10px] font-bold tracking-widest text-slate-400 dark:text-neutral-500 uppercase font-mono flex items-center gap-2">
+            <h3 className="text-[10px] font-bold tracking-widest text-slate-600 dark:text-neutral-400 uppercase font-mono flex items-center gap-2">
               <Activity className="w-4 h-4 text-indigo-500" />
               Integrated Operations Dashboard
             </h3>
-            <p className="text-xs text-slate-400 dark:text-neutral-500 font-medium">
+            <p className="text-xs text-slate-600 dark:text-neutral-400 font-medium">
               Real-time core system status, active agent allocation, and Strategic Intelligence recommendations.
             </p>
           </div>
@@ -181,49 +181,49 @@ export default function HomeScreen({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Active Agents */}
           <SovereignGlassCard className="p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
-            <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+            <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400">
               <Cpu className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Active Agents (OEE)</span>
             </div>
             <div className="mt-4">
               <div className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">12 Agents</div>
-              <p className="text-[10px] text-indigo-500/80 font-semibold mt-1 font-mono">Multi-model active staff</p>
+              <p className="text-[10px] text-indigo-700 dark:text-indigo-400 font-semibold mt-1 font-mono">Multi-model active staff</p>
             </div>
           </SovereignGlassCard>
 
           {/* Total Missions */}
           <SovereignGlassCard className="p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
-            <div className="flex items-center gap-2 text-pink-500">
+            <div className="flex items-center gap-2 text-pink-700 dark:text-pink-400">
               <Zap className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Total Missions (MOS)</span>
             </div>
             <div className="mt-4">
               <div className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">{savedMissions.length + 8} executed</div>
-              <p className="text-[10px] text-pink-500/80 font-semibold mt-1 font-mono">Active processing pipeline</p>
+              <p className="text-[10px] text-pink-700 dark:text-pink-400 font-semibold mt-1 font-mono">Active processing pipeline</p>
             </div>
           </SovereignGlassCard>
 
           {/* Risk Profiles */}
           <SovereignGlassCard className="p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
-            <div className="flex items-center gap-2 text-blue-500">
+            <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
               <AlertCircle className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Risk Profiles (SIL)</span>
             </div>
             <div className="mt-4">
               <div className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">0 High-Risk</div>
-              <p className="text-[10px] text-blue-500/80 font-semibold mt-1 font-mono">Audited and fully aligned</p>
+              <p className="text-[10px] text-blue-700 dark:text-blue-400 font-semibold mt-1 font-mono">Audited and fully aligned</p>
             </div>
           </SovereignGlassCard>
 
           {/* Strategic Alignment */}
           <SovereignGlassCard className="p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-white/[0.08] hover:-translate-y-0.5">
-            <div className="flex items-center gap-2 text-indigo-500 dark:text-indigo-400">
+            <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400">
               <Shield className="w-4 h-4" />
               <span className="font-bold text-xs font-sans tracking-tight">Strategic Alignment</span>
             </div>
             <div className="mt-4">
               <div className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">98.4%</div>
-              <p className="text-[10px] text-indigo-500/80 font-semibold mt-1 font-mono">Target accuracy guarantee</p>
+              <p className="text-[10px] text-indigo-700 dark:text-indigo-400 font-semibold mt-1 font-mono">Target accuracy guarantee</p>
             </div>
           </SovereignGlassCard>
         </div>
@@ -231,20 +231,20 @@ export default function HomeScreen({
         {/* Detailed recommendations cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <SovereignGlassCard className="p-6">
-            <h4 className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono mb-4 flex items-center gap-2">
+            <h4 className="text-[10px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-widest font-mono mb-4 flex items-center gap-2">
               <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
               Strategic Recommendations (SIL Engine)
             </h4>
             <div className="space-y-3">
               <div className="p-4 bg-slate-50/50 dark:bg-white/[0.01] border border-slate-100 dark:border-white/[0.02] rounded-2xl">
                 <div className="text-xs font-bold text-slate-800 dark:text-neutral-200">API Allocation Efficiency</div>
-                <p className="text-[11px] text-slate-400 dark:text-neutral-500 mt-1 leading-relaxed">
+                <p className="text-[11px] text-slate-600 dark:text-neutral-400 mt-1 leading-relaxed">
                   SIL detected optimal performance utilizing cross-engine prompt templates. Saving 12% compute resources.
                 </p>
               </div>
               <div className="p-4 bg-slate-50/50 dark:bg-white/[0.01] border border-slate-100 dark:border-white/[0.02] rounded-2xl">
                 <div className="text-xs font-bold text-slate-800 dark:text-neutral-200">Self-Adapting Web Caching</div>
-                <p className="text-[11px] text-slate-400 dark:text-neutral-500 mt-1 leading-relaxed">
+                <p className="text-[11px] text-slate-600 dark:text-neutral-400 mt-1 leading-relaxed">
                   Frequent SWOT analyses detected. Recommended automatic caching in persistent knowledge DNA.
                 </p>
               </div>
@@ -252,7 +252,7 @@ export default function HomeScreen({
           </SovereignGlassCard>
 
           <SovereignGlassCard className="p-6">
-            <h4 className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono mb-4 flex items-center gap-2">
+            <h4 className="text-[10px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-widest font-mono mb-4 flex items-center gap-2">
               <TrendingUp className="w-3.5 h-3.5 text-pink-500" />
               Core Decisions Pulse
             </h4>
@@ -260,14 +260,14 @@ export default function HomeScreen({
               <div className="p-4 bg-slate-50/50 dark:bg-white/[0.01] border border-slate-100 dark:border-white/[0.02] rounded-2xl flex items-center justify-between">
                 <div className="pr-4">
                   <div className="text-xs font-bold text-slate-800 dark:text-neutral-200">Durable Cloud Sync active</div>
-                  <p className="text-[11px] text-slate-400 dark:text-neutral-500 mt-1 leading-relaxed">Ensuring mission artifacts survive cache resets.</p>
+                  <p className="text-[11px] text-slate-600 dark:text-neutral-400 mt-1 leading-relaxed">Ensuring mission artifacts survive cache resets.</p>
                 </div>
                 <SovereignBadge variant="indigo" className="shrink-0">Active</SovereignBadge>
               </div>
               <div className="p-4 bg-slate-50/50 dark:bg-white/[0.01] border border-slate-100 dark:border-white/[0.02] rounded-2xl flex items-center justify-between">
                 <div className="pr-4">
                   <div className="text-xs font-bold text-slate-800 dark:text-neutral-200">Automated Q5 quality checks</div>
-                  <p className="text-[11px] text-slate-400 dark:text-neutral-500 mt-1 leading-relaxed">Enforcing rigid fact audit rules at compilation.</p>
+                  <p className="text-[11px] text-slate-600 dark:text-neutral-400 mt-1 leading-relaxed">Enforcing rigid fact audit rules at compilation.</p>
                 </div>
                 <SovereignBadge variant="pink" className="shrink-0">Enforced</SovereignBadge>
               </div>
@@ -280,11 +280,11 @@ export default function HomeScreen({
       <div className="space-y-6">
         <div className="flex items-center justify-between px-1">
           <div className="space-y-1">
-            <h3 className="text-[10px] font-bold tracking-widest text-slate-400 dark:text-neutral-500 uppercase font-mono flex items-center gap-2">
+            <h3 className="text-[10px] font-bold tracking-widest text-slate-600 dark:text-neutral-400 uppercase font-mono flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-blue-500" />
               Active Workspace
             </h3>
-            <p className="text-xs text-slate-400 dark:text-neutral-500 font-medium">
+            <p className="text-xs text-slate-600 dark:text-neutral-400 font-medium">
               Completed missions are automatically saved to this persistent working desk.
             </p>
           </div>
@@ -300,10 +300,10 @@ export default function HomeScreen({
           <SovereignGlassCard className="lg:col-span-2 p-6 flex flex-col justify-between min-h-[260px]">
             <div className="space-y-4 w-full">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-white/[0.02]">
-                <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono">
+                <span className="text-[10px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-widest font-mono">
                   Saved Assets & Documents
                 </span>
-                <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 font-mono">
+                <span className="text-[10px] font-bold text-slate-600 dark:text-neutral-400 font-mono">
                   {savedMissions.length} files
                 </span>
               </div>
@@ -311,9 +311,9 @@ export default function HomeScreen({
               <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-none">
                 {savedMissions.map((m) => (
                   <div 
-                    key={m.id}
-                    onClick={() => onViewMissionResult(m)}
-                    className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-white/[0.01] hover:bg-indigo-500/[0.03] dark:hover:bg-indigo-500/[0.03] border border-slate-100 dark:border-white/[0.01] hover:border-indigo-500/20 dark:hover:border-indigo-500/20 rounded-2xl transition-all duration-300 cursor-pointer group"
+                     key={m.id}
+                     onClick={() => onViewMissionResult(m)}
+                     className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-white/[0.01] hover:bg-indigo-500/[0.03] dark:hover:bg-indigo-500/[0.03] border border-slate-100 dark:border-white/[0.01] hover:border-indigo-500/20 dark:hover:border-indigo-500/20 rounded-2xl transition-all duration-300 cursor-pointer group"
                   >
                     <div className="flex items-center gap-3 truncate max-w-[70%]">
                       <div className="w-8 h-8 rounded-xl bg-indigo-500/5 dark:bg-indigo-500/10 flex items-center justify-center shrink-0 border border-indigo-500/5 dark:border-indigo-500/10 group-hover:scale-105 transition-transform">
@@ -323,7 +323,7 @@ export default function HomeScreen({
                         <p className="text-xs font-bold text-slate-800 dark:text-neutral-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors truncate">
                           {m.title}
                         </p>
-                        <p className="text-[9px] text-slate-400 dark:text-neutral-500 mt-0.5 font-mono">
+                        <p className="text-[9px] text-slate-600 dark:text-neutral-400 mt-0.5 font-mono">
                           {new Date(m.timestamp).toLocaleDateString()} • {m.roi || "ROI Predictor"}
                         </p>
                       </div>
@@ -344,7 +344,7 @@ export default function HomeScreen({
               </div>
             </div>
             
-            <div className="border-t border-slate-100 dark:border-white/[0.02] pt-4 mt-6 flex items-center justify-between text-[10px] text-slate-400 dark:text-neutral-500">
+            <div className="border-t border-slate-100 dark:border-white/[0.02] pt-4 mt-6 flex items-center justify-between text-[10px] text-slate-600 dark:text-neutral-400">
               <span className="font-mono">WORKSPACE SYNC: CLOUD SECURE</span>
               <SovereignButton 
                 variant="ghost" 
@@ -391,7 +391,7 @@ export default function HomeScreen({
                   <Award className="w-3.5 h-3.5" />
                   <span>Q5 Release Core Standard</span>
                 </div>
-                <p className="text-[11px] text-slate-400 dark:text-neutral-500 leading-normal font-medium">
+                <p className="text-[11px] text-slate-600 dark:text-neutral-400 leading-normal font-medium">
                   No deliverables are committed to the persistent Workspace unless UQI evaluation reaches &gt;95 points.
                 </p>
               </div>
@@ -399,7 +399,7 @@ export default function HomeScreen({
           ) : (
             <SovereignGlassCard className="p-6 flex flex-col justify-between min-h-[260px]">
               <div className="space-y-4">
-                <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-sans pb-2 block border-b border-slate-100 dark:border-white/[0.02]">
+                <span className="text-[10px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-widest font-sans pb-2 block border-b border-slate-100 dark:border-white/[0.02]">
                   Strategic Quality Alignment
                 </span>
                 
@@ -408,14 +408,14 @@ export default function HomeScreen({
                     <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                     <div>
                       <h4 className="font-bold text-slate-800 dark:text-neutral-200">Guaranteed Deliverables</h4>
-                      <p className="text-[11px] text-slate-400 dark:text-neutral-500 leading-snug">Every synthesized document undergoes automated multi-agent audit before export.</p>
+                      <p className="text-[11px] text-slate-600 dark:text-neutral-400 leading-snug">Every synthesized document undergoes automated multi-agent audit before export.</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
                     <div>
                       <h4 className="font-bold text-slate-800 dark:text-neutral-200">Autonomous Compliance</h4>
-                      <p className="text-[11px] text-slate-400 dark:text-neutral-500 leading-snug">100% adherence to Design System v3.0 core rules and sovereign metrics.</p>
+                      <p className="text-[11px] text-slate-600 dark:text-neutral-400 leading-snug">100% adherence to Design System v3.0 core rules and sovereign metrics.</p>
                     </div>
                   </div>
                 </div>
@@ -426,7 +426,7 @@ export default function HomeScreen({
                   <Award className="w-3.5 h-3.5" />
                   <span>Q5 Business Grade</span>
                 </div>
-                <p className="text-[11px] text-slate-400 dark:text-neutral-500 leading-normal font-medium">
+                <p className="text-[11px] text-slate-600 dark:text-neutral-400 leading-normal font-medium">
                   Autonomous quality threshold guarantees &gt;95/100 readiness for boardroom presentation.
                 </p>
               </div>
@@ -435,15 +435,15 @@ export default function HomeScreen({
         </div>
       </div>
 
-      {/* ⑤ MARKETPLACE TEMPLATES SUGGESTION (第五優先 - Capability Marketplace Ecosystem) */}
+      {/* ① MARKETPLACE TEMPLATES SUGGESTION (第五優先 - Capability Marketplace Ecosystem) */}
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1 border-b border-slate-200/50 dark:border-white/[0.03] pb-4">
           <div className="space-y-1">
-            <h3 className="text-[10px] font-bold tracking-widest text-slate-400 dark:text-neutral-500 uppercase font-mono flex items-center gap-2">
+            <h3 className="text-[10px] font-bold tracking-widest text-slate-600 dark:text-neutral-400 uppercase font-mono flex items-center gap-2">
               <Layers className="w-4 h-4 text-pink-500" />
               Capability Ecosystem Suggestions
             </h3>
-            <p className="text-xs text-slate-400 dark:text-neutral-500 font-medium">
+            <p className="text-xs text-slate-600 dark:text-neutral-400 font-medium">
               3-clicks capabilities deployment. Select category to browse specialized autonomous workflow templates.
             </p>
           </div>
@@ -475,7 +475,7 @@ export default function HomeScreen({
                 <h4 className="text-xs font-bold text-slate-800 dark:text-neutral-200 group-hover:text-pink-600 dark:group-hover:text-pink-400 transition-colors">
                   {temp.name}
                 </h4>
-                <p className="text-[11px] text-slate-400 dark:text-neutral-500 font-medium leading-relaxed">
+                <p className="text-[11px] text-slate-600 dark:text-neutral-400 font-medium leading-relaxed">
                   {temp.hint}
                 </p>
               </div>

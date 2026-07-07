@@ -1,6 +1,6 @@
-<testsuites id="" name="" tests="1" failures="0" skipped="0" errors="0" time="17.477325">
-<testsuite name="acos.spec.ts" timestamp="2026-07-06T11:35:48.855Z" hostname="chromium" tests="1" failures="0" skipped="0" time="13.8" errors="0">
-<testcase name="ACOS 2.0 POM E2E Test Suite › should execute a complete lifecycle of all core screens using Page Objects" classname="acos.spec.ts" time="13.8">
+<testsuites id="" name="" tests="1" failures="0" skipped="0" errors="0" time="22.738223">
+<testsuite name="acos.spec.ts" timestamp="2026-07-07T01:02:12.967Z" hostname="chromium" tests="1" failures="0" skipped="0" time="19.59" errors="0">
+<testcase name="ACOS 2.0 POM E2E Test Suite › should execute a complete lifecycle of all core screens using Page Objects" classname="acos.spec.ts" time="19.59">
 </testcase>
 </testsuite>
 </testsuites>
