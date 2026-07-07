@@ -755,7 +755,7 @@ export default function DynamicBrain() {
                       "flex items-center gap-2 p-2 rounded-xl border select-none transition-all",
                       isPulse 
                         ? "bg-indigo-500/[0.03] border-indigo-500/25 dark:border-indigo-500/15" 
-                        : "bg-transparent border-slate-100 dark:border-neutral-900 opacity-55"
+                        : "bg-transparent border-slate-100 dark:border-neutral-900"
                     )}
                   >
                     <div className="relative flex items-center justify-center w-7 h-7 bg-slate-100 dark:bg-neutral-900 border border-slate-200/60 dark:border-white/[0.05] rounded-lg text-sm font-sans">

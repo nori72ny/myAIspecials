@@ -37,14 +37,17 @@ export default defineConfig(() => {
               if (id.includes('react-dom')) {
                 return 'vendor-react-dom';
               }
-              if (id.includes('react') || id.includes('scheduler')) {
+              if (id.includes('lucide-react') || id.includes('@lucide')) {
+                return 'vendor-lucide';
+              }
+              if (id.includes('react/') || id.includes('react@') || id.includes('/react/')) {
+                return 'vendor-react';
+              }
+              if (id.includes('scheduler')) {
                 return 'vendor-react';
               }
               if (id.includes('motion') || id.includes('framer-motion')) {
                 return 'vendor-motion';
-              }
-              if (id.includes('lucide-react') || id.includes('@lucide')) {
-                return 'vendor-lucide';
               }
               if (id.includes('dompurify')) {
                 return 'vendor-dompurify';

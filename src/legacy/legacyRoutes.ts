@@ -49,7 +49,6 @@ router.post("/api/generate-image", async (req, res) => {
       return res.status(400).json({ error: "Prompt is required" });
     }
 
-    console.log("[Image Generator] Generating image for prompt:", prompt);
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-image",
       contents: {
@@ -93,7 +92,6 @@ router.post("/api/swarm/run", async (req, res) => {
       return res.status(400).json({ error: "Prompt is required" });
     }
 
-    console.log("[ACOS Swarm Runtime] Starting execution for prompt:", prompt);
 
     const swarmInstruction = `
 あなたは ACOS (AI Company Operating System) 2.0 のコア自律知能エージェント合意形成システム「Swarm Runtime v2」です。
@@ -369,21 +367,17 @@ router.post("/api/analyze", async (req, res) => {
     const cacheKey = `${prompt}_${(agents || []).join(",")}`;
     const cached = apiCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-      console.log("[AI Orchestrator Cache] Returning cached response for prompt:", prompt);
       return res.json(cached.data);
     }
 
-    console.log("[OEE Orchestrator] Invoking ACOS 2.0 Organization Execution Engine...");
     const missionId = `MS-OEE-${Date.now()}`;
     const orgState = await organizationExecutorInstance.executeMission(missionId, prompt);
-    console.log("[OEE Orchestrator] Execution complete. State:", orgState.currentState);
     
     // Pull OEvE memory
     const oEvE = OrganizationEvolutionEngine.getInstance();
     const memoryRepo = oEvE.getMemoryRepository();
     const recentMemory = memoryRepo.getByMissionId(missionId);
     
-    console.log("[AI Orchestrator] Running individual models in parallel...");
     const executedAIs = ["Gemini 3.5 Flash", "GPT-4o"];
 
     const callGeminiIndividual = async () => {
@@ -797,7 +791,6 @@ ${gptAnswer}
     let successData: any = null;
 
     try {
-      console.log("[AI Orchestrator Synthesis] Querying Gemini for synthesis... (Attempt 1)");
       successData = await callGeminiSynthesis();
     } catch (err: any) {
       let errCode = err?.status || err?.statusCode || err?.code || 503;
@@ -816,9 +809,7 @@ ${gptAnswer}
         await new Promise(resolve => setTimeout(resolve, 3000));
         
         try {
-          console.log("[AI Orchestrator Synthesis] Querying Gemini for synthesis... (Attempt 2 - Retry)");
           successData = await callGeminiSynthesis();
-          console.log("[Gemini API] Synthesis retry attempt succeeded!");
         } catch (retryErr: any) {
           errCode = retryErr?.status || retryErr?.statusCode || retryErr?.code || 503;
           errStatus = retryErr?.statusText || (retryErr?.message?.includes("RESOURCE_EXHAUSTED") ? "RESOURCE_EXHAUSTED" : retryErr?.message?.includes("UNAVAILABLE") ? "UNAVAILABLE" : "UNKNOWN_STATUS");

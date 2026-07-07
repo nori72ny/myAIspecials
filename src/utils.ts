@@ -10,7 +10,7 @@ export class ProductionLogger {
 
   static log(message: string, ...optionalParams: any[]) {
     if (!this.isProd) {
-      console.log(`[ACOS INFO]: ${message}`, ...optionalParams);
+      void 0 //(`[ACOS INFO]: ${message}`, ...optionalParams);
     }
   }
 
