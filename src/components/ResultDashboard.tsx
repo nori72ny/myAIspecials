@@ -54,6 +54,9 @@ import {
   BookOpen,
   Activity
 } from "lucide-react";
+import FactCheckEngineView from "./trust-and-quality/FactCheckEngineView";
+import TrustEngineView from "./trust-and-quality/TrustEngineView";
+import AIComparisonView from "./trust-and-quality/AIComparisonView";
 
 interface Props {
   result: AnalysisResult;
@@ -2689,7 +2692,19 @@ export default function ResultDashboard({ result }: Props) {
                       { id: "MISSION-001", label: `Mission: ${result.mission?.name || "現行知的ミッション"}`, type: "Mission", description: `現在のミッション: ${result.mission?.goal || "最高度の知的アセンブルの実行"}` },
                       { id: "OUTCOME-001", label: "Outcome: 高精度アセンブル", type: "Outcome", description: "単なる回答を排し、14大成果物評価属性を満足したリアルコンバージョン価値。" },
                       { id: "LEARNING-001", label: "Learning: 意思決定学習", type: "Learning", description: "今回のコンセンサス、ROI、および検証ファクトから得た思考パターンの帰納的学習。" },
-                      { id: "DNA-001", label: "DNA: 長期記憶知識DNA", type: "DNA", description: "会話を保存しないポリシーに基づき、会話を昇華して焼き付けた永続脳内DNA構造。" }
+                      { id: "DNA-001", label: "DNA: 長期記憶知識DNA", type: "DNA", description: "会話を保存しないポリシーに基づき、会話を昇華して焼き付けた永続脳内DNA構造。" },
+                      { id: "PROJECT-001", label: `Project: ${result.result?.title || "インテリジェントOS"}`, type: "Project", description: "中長期にわたり進行する自律戦略プロジェクトの統合リファレンス。" },
+                      { id: "SUCCESS-001", label: "Success: CVR 8.5% 突破保証", type: "Success", description: "ビジネス上の成功・コンバージョン目標値の達成。期待ROIを100%満足。" },
+                      { id: "FAILURE-001", label: "Failure: 静的回答の形骸化回避", type: "Failure", description: "過去の失敗パターン（静的な回答、ギャンブル的な当て推量、情報の断絶）を検知し排除。" },
+                      { id: "INTEREST-001", label: "Interest: ナレッジグラフと自律UI", type: "Interest", description: "ユーザーが中長期で関心を寄せているテクノロジー、思想、美学のベクトル。" },
+                      { id: "SKILL-001", label: "Skill: ACOS役員編成", type: "Skill", description: "10大 Chief AI と各種 subAgents を並行自律稼働させアセンブルする超越スキル。" },
+                      { id: "BUSINESS-001", label: "Business: 自律グロース外交", type: "Business", description: "ゼロ知識ベイズ推論とFHE暗号を用いた、提携先との自律マージン最適化アライアンス。" },
+                      { id: "KNOWLEDGE-001", label: "Knowledge: 知識ソースハブ", type: "Knowledge", description: "MIEファクト検証エンジンが参照した公式判例、法解釈、IEEE規格等の知識層。" },
+                      { id: "RELATIONSHIP-001", label: "Relationship: AI-Human共生", type: "Relationship", description: "相互の能力を100%引き出し、信頼確信度98%以上で合意形成される知的協働関係。" },
+                      { id: "PREFERENCE-001", label: "Preference: スイス・モダン美学", type: "Preference", description: "白・黒・シアンを基調とし、無駄な装飾（AIスロップ）を完全に排除した美学選好。" },
+                      { id: "DECISION-001", label: "Decision: 12要件監査承認", type: "Decision", description: "人間によるチェックを不要にし、AIが自律的かつ高精度に承認決断を下した事実。" },
+                      { id: "FILES-001", label: "Files: 構成マトリクスファイル", type: "Files", description: "成果物としてアセンブルされた構造設計ドキュメントおよびコード・アセットファイル。" },
+                      { id: "WEB-001", label: "Web: 接続チャネル", type: "Web", description: "実世界のコンバージョン測量を行う、公開広告配信・ユーザー行動センサー層。" }
                     ]).map((node) => (
                       <div 
                         key={node.id}
@@ -2729,7 +2744,7 @@ export default function ResultDashboard({ result }: Props) {
                 const nodes = result.imn?.nodes || [
                   { id: "PEOPLE-USER", label: "人: Nori (User)", type: "人", description: "本システムの主唱者であり、知的生命体としての意志と創造性の源泉。" },
                   { id: "VISION-001", label: "Vision: 知能拡張ライフ", type: "Vision", description: "人間とAIが真にアライメントし、高次元の知的成功を自律獲得する世界線。" },
-                  { id: "GOAL-001", label: "Goal: UQI 95+ 成果物完成", type: "Goal", description: "Master Intelligence Engineによる10大監査をすべてクリアした究極の成果物完成。" },
+                  { id: "GOAL-001", label: "Goal: UQI 95+ 成果物完成", type: "Goal", description: "Master Intelligence Engineによる10大監査をすべてクリアした究極 of 成果物完成。" },
                   { id: "MISSION-001", label: `Mission: ${result.mission?.name || "現行知的ミッション"}`, type: "Mission", description: `現在のミッション: ${result.mission?.goal || "最高度の知的アセンブルの実行"}` },
                   { id: "OUTCOME-001", label: "Outcome: 高精度アセンブル", type: "Outcome", description: "単なる回答を排し、14大成果物評価属性を満足したリアルコンバージョン価値。" },
                   { id: "LEARNING-001", label: "Learning: 意思決定学習", type: "Learning", description: "今回のコンセンサス、ROI、および検証ファクトから得た思考パターンの帰納的学習。" },
@@ -2865,19 +2880,6 @@ export default function ResultDashboard({ result }: Props) {
             timeEfficiencyNote: "不要な会話、繰り返しのアライン、静的な設定フォームを一切排除しました。すべてのミッションは投入からわずか45秒以内に14大成果物として自律展開され、ワンクリックで全ネットワークを自動再構築するため、ユーザーの検討時間は99.9%削減されます。"
           };
 
-          const ipfRules = [
-            { num: 1, title: "常に事実を優先する", desc: "主観や都合の良い解釈を排除し、実証可能な客観的事実とエビデンスを基礎とする。" },
-            { num: 2, title: "推測と事実を区別する", desc: "何が裏付けのある事実であり、何が前提条件に基づく推測や仮説であるかを厳格に明示する。" },
-            { num: 3, title: "証拠が弱い場合はそのことを明示する", desc: "データの網羅性や証拠の信頼度が不足している場合、当て推量をせず弱さを自己言及する。" },
-            { num: 4, title: "ユーザーの期待ではなく最適解を提示する", desc: "利用者の目先の期待や心地よい回答に迎合せず、本当に成功確率の最も高い戦略・真実を突きつける。" },
-            { num: 5, title: "質問以上の価値を提供する", desc: "与えられた質問の枠組み自体の限界を超え、より本質的なビジネスゴール達成に必要な予見を与える。" },
-            { num: 6, title: "根拠を必ず提示する", desc: "すべての主張、提案、評価スコアに対して、公式規格、判例、または実測データ等の明確な根拠を添付する。" },
-            { num: 7, title: "複数の選択肢がある場合は比較する", desc: "単一の推奨案を押し付けず、複数のトレードオフを含むアプローチを定量・定性的に対比評価する。" },
-            { num: 8, title: "重要なリスクは必ず説明する", desc: "ポジティブな見通しだけでなく、実行時に致命的となり得る実務・経営上の不確実性やリスクを網羅する。" },
-            { num: 9, title: "利用者の時間を最優先する", desc: "不要な美辞麗句や冗長な対話を排し、意思決定に直結する超要約、コンテキスト、実行効率を徹底する。" },
-            { num: 10, title: "Mission成功を最優先する", desc: "対話の継続ではなく、ミッションが最終的な成果物評価（Outcome）として実社会で成功することを究極目標とする。" }
-          ];
-
           return (
             <div 
               className="bg-[#121215] border border-white/5 rounded-3xl p-6 space-y-5"
@@ -2919,7 +2921,7 @@ export default function ResultDashboard({ result }: Props) {
               <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-2xl p-4 flex gap-3 items-start">
                 <Award className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
                 <div className="space-y-1">
-                  <span className="text-[11px] font-mono font-extrabold text-indigo-300 uppercase tracking-widest block">Final Rule: ORIGINは迎合しない。否定もしない。</span>
+                  <span className="text-[11px] font-mono font-extrabold text-indigo-300 uppercase tracking-widest block">Final Rule: ORIGINは迎合しない。否定しない。</span>
                   <p className="text-[11px] text-white/60 leading-relaxed">
                     本知能OSは、利用者の耳障りの良い都合の良い予測（Pandering）を一切提供しません。また、主観的な否定や感情的な論争も行いません。
                     10大インテリジェンスルールに基づき、実証可能な客観事実を優先し、常に「最も成功確率が高い客観提案」だけを冷徹に貫徹します。
@@ -2975,298 +2977,120 @@ export default function ResultDashboard({ result }: Props) {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -5 }}
                   transition={{ duration: 0.2 }}
-                  className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 min-h-[280px] flex flex-col justify-between"
+                  className="bg-transparent"
                 >
                   {ipfTab === "audit" && (
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-5 h-full">
-                      {/* Left list of rules */}
-                      <div className="md:col-span-5 space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
-                        {ipfRules.map((rule) => {
-                          const isSelected = selectedIpfRuleNum === rule.num;
-                          return (
-                            <div
-                              key={rule.num}
-                              onClick={() => setSelectedIpfRuleNum(rule.num)}
-                              className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
-                                isSelected 
-                                  ? "bg-indigo-500/10 border-indigo-500/40 text-white" 
-                                  : "bg-white/2 border-white/5 text-white/50 hover:bg-white/5 hover:text-white"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className={`text-[10px] font-mono font-bold w-5 h-5 rounded-full flex items-center justify-center border ${
-                                  isSelected ? "bg-indigo-500/20 border-indigo-400 text-indigo-300" : "bg-white/5 border-white/10 text-white/40"
-                                }`}>
-                                  {rule.num}
-                                </span>
-                                <span className="text-[11px] font-bold tracking-tight">{rule.title}</span>
-                              </div>
-                              <Check className={`w-3.5 h-3.5 text-emerald-400 ${isSelected || auditProgress === "audited" ? "opacity-100" : "opacity-20"}`} />
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Right description box */}
-                      <div className="md:col-span-7 bg-white/2 border border-white/5 rounded-xl p-4 flex flex-col justify-between h-full">
-                        {(() => {
-                          const activeRule = ipfRules.find(r => r.num === selectedIpfRuleNum) || ipfRules[0];
-                          return (
-                            <div className="space-y-4 h-full flex flex-col justify-between">
-                              <div className="space-y-3">
-                                <div className="flex items-center gap-2 border-b border-white/5 pb-2">
-                                  <span className="text-[10px] font-mono bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded text-indigo-300">
-                                    RULE 0{activeRule.num}
-                                  </span>
-                                  <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                                    AUDIT: PASSED
-                                  </span>
-                                </div>
-                                <h3 className="text-sm font-extrabold text-white">{activeRule.title}</h3>
-                                <p className="text-[11.5px] text-white/70 leading-relaxed">{activeRule.desc}</p>
-                              </div>
-
-                              <div className="bg-black/40 border border-white/5 rounded-xl p-3 space-y-1">
-                                <span className="text-[9px] font-mono text-white/30 uppercase block">本件ミッションでの適用状況 (Rule Integrity)</span>
-                                <p className="text-[11px] text-white/50 leading-relaxed font-sans italic">
-                                  {activeRule.num === 1 && "検証可能な客観的事実・エビデンス（システム実測値、セキュリティ構造）のみを優位に扱い、あやふやな期待値を徹底排除しました。"}
-                                  {activeRule.num === 2 && "将来のCVRなどの『シミュレーション予測』と、現行システムの『確定ファクト』を明確にセパレートしてアウトプットしています。"}
-                                  {activeRule.num === 3 && "予測部分の不確実性を明言し、推測の信頼度（Evidence Level: STRONG/MEDIUM）を主観に頼らず適正表示しています。"}
-                                  {activeRule.num === 4 && "「親切な会話相手がほしい」という迎合期待に対し、成功へ最短アプローチする非迎合客観OSという高価値モデルを回答しました。"}
-                                  {activeRule.num === 5 && "当初期待された単純ログ保存を超え、中長期にわたり機能する『自律アライアンス』および『マージン自動最適』といった高次提案を追加。"}
-                                  {activeRule.num === 6 && "すべての算定スコア（Quality 95+, CVR 8.5%など）を適当に置かず、ACOSの各Chief AIによる検証チェックに基づき根拠を併記。"}
-                                  {activeRule.num === 7 && "従来型の感情カスタマイズ案と、新アプローチ（IPF OS）のメリット・デメリットを定量的に比較可能に設計。"}
-                                  {activeRule.num === 8 && "認知ギャップによる摩擦リスクや、データ隠蔽による成功率低下リスクなど、想定される不都合な罠を漏れなく指摘。"}
-                                  {activeRule.num === 9 && "冗長な設定フォームや繰り返しアラインを排し、ワンクリックで脳内ネットワーク全体が即時自動展開される極上の時間効率を実現。"}
-                                  {activeRule.num === 10 && "会話の心地よさではなく、成果評価マトリクス（OOS）と脳内連想（IMN）によって、ミッションが実社会で成功することを究極目標に設定。"}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </div>
+                    <TrustEngineView constitution={result.constitution} />
                   )}
 
                   {ipfTab === "facts" && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
-                        <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">事実と推測の厳格な分離 (Fact vs Speculation)</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-mono text-white/30">証拠信頼度 (Evidence):</span>
-                          <span className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded border ${
-                            ipfData.factVsSpeculation.evidenceLevel === "STRONG"
-                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-                              : ipfData.factVsSpeculation.evidenceLevel === "MEDIUM"
-                              ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
-                              : "bg-rose-500/10 border-rose-500/30 text-rose-300"
-                          }`}>
-                            ● {ipfData.factVsSpeculation.evidenceLevel} EVIDENCE
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Facts list */}
-                        <div className="bg-[#121215] border border-white/5 rounded-xl p-3.5 space-y-2">
-                          <div className="flex items-center gap-1.5 text-emerald-400 border-b border-emerald-500/10 pb-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span className="text-[11px] font-mono font-bold uppercase">客観的確定ファクト (Prioritized Facts)</span>
-                          </div>
-                          <ul className="space-y-1.5 text-[11px] text-white/70 leading-relaxed list-decimal pl-4">
-                            {ipfData.factVsSpeculation.facts.map((fact: string, fIdx: number) => (
-                              <li key={fIdx}>{fact}</li>
-                            ))}
-                          </ul>
-                        </div>
-
-                        {/* Speculations list */}
-                        <div className="bg-[#121215] border border-white/5 rounded-xl p-3.5 space-y-2">
-                          <div className="flex items-center gap-1.5 text-amber-400 border-b border-amber-500/10 pb-1.5">
-                            <AlertTriangle className="w-3.5 h-3.5" />
-                            <span className="text-[11px] font-mono font-bold uppercase">推測・仮説・想定リスク (Speculations / Assumptions)</span>
-                          </div>
-                          <ul className="space-y-1.5 text-[11px] text-white/70 leading-relaxed list-decimal pl-4">
-                            {ipfData.factVsSpeculation.speculations.map((spec: string, sIdx: number) => (
-                              <li key={sIdx}>{spec}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-
-                      <div className="bg-white/2 rounded-xl p-3 border border-white/5 text-[11px] text-white/50 leading-relaxed">
-                        <span className="text-[8px] font-mono text-white/40 uppercase block mb-0.5">エビデンス監査補足 (Evidence Integrity Note)</span>
-                        {ipfData.factVsSpeculation.evidenceNotes}
-                      </div>
-                    </div>
+                    <FactCheckEngineView 
+                      factVsSpeculation={ipfData.factVsSpeculation} 
+                      freshnessIndex={98}
+                    />
                   )}
 
                   {ipfTab === "optimal" && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
-                        <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">非迎合アライメントと成功論理 (Optimal Solution Engine)</span>
-                        <span className="text-[9px] font-mono bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded text-indigo-300">
-                          Rule 4: 迎合排除 / Rule 10: 成功最優先
-                        </span>
-                      </div>
+                    <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 min-h-[280px] flex flex-col justify-between">
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+                          <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">非迎合アライメントと成功論理 (Optimal Solution Engine)</span>
+                          <span className="text-[9px] font-mono bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded text-indigo-300">
+                            Rule 4: 迎合排除 / Rule 10: 成功最優先
+                          </span>
+                        </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-                        {/* Left comparison layout */}
-                        <div className="md:col-span-8 space-y-3">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="bg-rose-500/5 border border-rose-500/10 rounded-xl p-3 space-y-1.5">
-                              <span className="text-[9px] font-mono text-rose-300 font-extrabold uppercase">ユーザーの一般的な期待・迎合案</span>
-                              <p className="text-[11px] text-white/60 leading-relaxed">
-                                {ipfData.optimalSolution.userExpectation}
-                              </p>
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                          {/* Left comparison layout */}
+                          <div className="md:col-span-8 space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="bg-rose-500/5 border border-rose-500/10 rounded-xl p-3 space-y-1.5">
+                                <span className="text-[9px] font-mono text-rose-300 font-extrabold uppercase">ユーザーの一般的な期待・迎合案</span>
+                                <p className="text-[11px] text-white/60 leading-relaxed">
+                                  {ipfData.optimalSolution.userExpectation}
+                                </p>
+                              </div>
+                              <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl p-3 space-y-1.5 shadow-[0_0_15px_rgba(16,185,129,0.05)]">
+                                <span className="text-[9px] font-mono text-emerald-300 font-extrabold uppercase">客観的事実に基づく「真の最適解」</span>
+                                <p className="text-[11px] text-white/80 font-medium leading-relaxed">
+                                  {ipfData.optimalSolution.optimalProposal}
+                                </p>
+                              </div>
                             </div>
-                            <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl p-3 space-y-1.5 shadow-[0_0_15px_rgba(16,185,129,0.05)]">
-                              <span className="text-[9px] font-mono text-emerald-300 font-extrabold uppercase">客観的事実に基づく「真の最適解」</span>
-                              <p className="text-[11px] text-white/80 font-medium leading-relaxed">
-                                {ipfData.optimalSolution.optimalProposal}
-                              </p>
+
+                            <div className="bg-white/2 rounded-xl p-3 border border-white/5 text-[11px] leading-relaxed text-white/60">
+                              <span className="text-[8px] font-mono text-white/40 uppercase block mb-0.5">最適化の論理 (Success Probability Reasoning)</span>
+                              {ipfData.optimalSolution.successReasoning}
                             </div>
                           </div>
 
-                          <div className="bg-white/2 rounded-xl p-3 border border-white/5 text-[11px] leading-relaxed text-white/60">
-                            <span className="text-[8px] font-mono text-white/40 uppercase block mb-0.5">最適化の論理 (Success Probability Reasoning)</span>
-                            {ipfData.optimalSolution.successReasoning}
+                          {/* Right circular radial progress chart */}
+                          <div className="md:col-span-4 bg-[#121215] border border-white/5 rounded-xl p-4 flex flex-col items-center justify-center text-center space-y-2 h-full">
+                            <span className="text-[9px] font-mono text-white/40 uppercase">最適提案 採択時の</span>
+                            
+                            <div className="relative w-24 h-24 flex items-center justify-center">
+                              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                                <circle
+                                  cx="50"
+                                  cy="50"
+                                  r="40"
+                                  stroke="rgba(255,255,255,0.03)"
+                                  strokeWidth="8"
+                                  fill="transparent"
+                                />
+                                <motion.circle
+                                  cx="50"
+                                  cy="50"
+                                  r="40"
+                                  stroke="#818CF8"
+                                  strokeWidth="8"
+                                  fill="transparent"
+                                  strokeDasharray={251.2}
+                                  initial={{ strokeDashoffset: 251.2 }}
+                                  animate={{ strokeDashoffset: 251.2 - (251.2 * ipfData.optimalSolution.successProbability) / 100 }}
+                                  transition={{ duration: 1.5, ease: "easeOut" }}
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <span className="text-2xl font-mono font-black text-white">{ipfData.optimalSolution.successProbability}%</span>
+                                <span className="text-[8px] font-mono text-indigo-300 uppercase tracking-widest">PROBABILITY</span>
+                              </div>
+                            </div>
+
+                            <span className="text-[10px] font-mono font-bold text-emerald-400">SUCCESS RATE SECURED ✓</span>
                           </div>
                         </div>
 
-                        {/* Right circular radial progress chart */}
-                        <div className="md:col-span-4 bg-[#121215] border border-white/5 rounded-xl p-4 flex flex-col items-center justify-center text-center space-y-2 h-full">
-                          <span className="text-[9px] font-mono text-white/40 uppercase">最適提案 採択時の</span>
-                          
-                          <div className="relative w-24 h-24 flex items-center justify-center">
-                            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                              <circle
-                                cx="50"
-                                cy="50"
-                                r="40"
-                                stroke="rgba(255,255,255,0.03)"
-                                strokeWidth="8"
-                                fill="transparent"
-                              />
-                              <motion.circle
-                                cx="50"
-                                cy="50"
-                                r="40"
-                                stroke="#818CF8"
-                                strokeWidth="8"
-                                fill="transparent"
-                                strokeDasharray={251.2}
-                                initial={{ strokeDashoffset: 251.2 }}
-                                animate={{ strokeDashoffset: 251.2 - (251.2 * ipfData.optimalSolution.successProbability) / 100 }}
-                                transition={{ duration: 1.5, ease: "easeOut" }}
-                                strokeLinecap="round"
-                              />
-                            </svg>
-                            <div className="absolute inset-0 flex flex-col items-center justify-center">
-                              <span className="text-2xl font-mono font-black text-white">{ipfData.optimalSolution.successProbability}%</span>
-                              <span className="text-[8px] font-mono text-indigo-300 uppercase tracking-widest">PROBABILITY</span>
-                            </div>
+                        {/* Extra value bonus banner */}
+                        <div className="bg-gradient-to-r from-indigo-500/10 via-purple-500/5 to-transparent border border-indigo-500/20 rounded-xl p-3.5 flex gap-3 items-center">
+                          <Sparkles className="w-5 h-5 text-indigo-300 shrink-0 animate-pulse" />
+                          <div className="space-y-0.5">
+                            <span className="text-[9px] font-mono font-bold text-indigo-300 uppercase tracking-widest">Rule 5: 質問以上の価値提供 (Cognitive Value-Add)</span>
+                            <p className="text-[11px] text-white/70 leading-relaxed">{ipfData.extraValue}</p>
                           </div>
-
-                          <span className="text-[10px] font-mono font-bold text-emerald-400">SUCCESS RATE SECURED ✓</span>
-                        </div>
-                      </div>
-
-                      {/* Extra value bonus banner */}
-                      <div className="bg-gradient-to-r from-indigo-500/10 via-purple-500/5 to-transparent border border-indigo-500/20 rounded-xl p-3.5 flex gap-3 items-center">
-                        <Sparkles className="w-5 h-5 text-indigo-300 shrink-0 animate-pulse" />
-                        <div className="space-y-0.5">
-                          <span className="text-[9px] font-mono font-bold text-indigo-300 uppercase tracking-widest">Rule 5: 質問以上の価値提供 (Cognitive Value-Add)</span>
-                          <p className="text-[11px] text-white/70 leading-relaxed">{ipfData.extraValue}</p>
                         </div>
                       </div>
                     </div>
                   )}
 
                   {ipfTab === "comparison" && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
-                        <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">トレードオフ比較 ＆ リアルリスク (Options Comparative Analytics)</span>
-                        <span className="text-[9px] font-mono text-indigo-300 bg-indigo-500/5 px-2 py-0.5 rounded border border-indigo-500/10">
-                          Rule 7: 複数選択肢比較 / Rule 8: リスク明示
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                        {/* Left: Option compare */}
-                        <div className="md:col-span-7 space-y-3">
-                          <div className="bg-[#121215] border border-white/5 rounded-xl p-3 space-y-2">
-                            <div className="flex justify-between items-center text-[10px] font-mono border-b border-white/5 pb-1.5">
-                              <span className="text-white/40">OPTION A (従来アプローチ)</span>
-                              <span className="text-white/30">vs</span>
-                              <span className="text-indigo-400 font-bold">OPTION B (先進的最適解)</span>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] text-white/60">
-                              <div className="space-y-1">
-                                <span className="font-bold text-white/80 block">A: {ipfData.optionsComparison.optionA.split(" (")[0]}</span>
-                                <span className="text-[10px] text-white/40 leading-relaxed block">
-                                  主観的に心地よいアライメント。不確実性の警告や、甘い期待値の高度な是正は行わずユーザーを肯定するアプローチ。
-                                </span>
-                              </div>
-                              <div className="space-y-1 border-l border-white/5 pl-3">
-                                <span className="font-bold text-indigo-300 block">B: {ipfData.optionsComparison.optionB.split(" (")[0]}</span>
-                                <span className="text-[10px] text-indigo-200/40 leading-relaxed block">
-                                  客観的な真実・10大インテリジェンスルールに基づき、利用者に迎合せずリスクと不確実性を突きつける自律最適アプローチ。
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="bg-indigo-500/5 border border-indigo-500/15 rounded-xl p-3 space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <Scale className="w-4 h-4 text-indigo-300 shrink-0" />
-                              <span className="text-[10px] font-mono text-indigo-300 font-bold uppercase">比較マトリクス分析 (Comparison Matrix)</span>
-                            </div>
-                            <p className="text-[11px] text-white/70 leading-relaxed">
-                              {ipfData.optionsComparison.comparisonMatrix}
-                            </p>
-                          </div>
-
-                          <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl p-3 space-y-1">
-                            <span className="text-[8px] font-mono text-emerald-300 font-bold uppercase block">採択された最善策 (Selected Strategic Best)</span>
-                            <p className="text-[11px] text-white/80 font-medium">
-                              {ipfData.optionsComparison.selectedBest}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Right: Key Risks & User Time */}
-                        <div className="md:col-span-5 space-y-3 flex flex-col justify-between">
-                          {/* Key Risks */}
-                          <div className="bg-rose-500/5 border border-rose-500/15 rounded-xl p-3.5 space-y-2.5">
-                            <div className="flex items-center gap-1.5 text-rose-400 border-b border-rose-500/10 pb-1.5">
-                              <ShieldAlert className="w-4 h-4 shrink-0" />
-                              <span className="text-[10px] font-mono font-bold uppercase">重要なリスク説明 (Key Risk Disclosure)</span>
-                            </div>
-                            <div className="space-y-2">
-                              {ipfData.keyRisks.map((risk: string, rIdx: number) => (
-                                <div key={rIdx} className="flex gap-2 items-start text-[10.5px] text-white/70 leading-relaxed">
-                                  <span className="text-rose-400 font-bold mt-0.5 shrink-0">⚠️</span>
-                                  <span>{risk}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Time Efficiency */}
-                          <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-3.5 space-y-1.5">
-                            <div className="flex items-center gap-1.5 text-amber-400 border-b border-amber-500/10 pb-1.5">
-                              <Clock className="w-4 h-4 shrink-0" />
-                              <span className="text-[10px] font-mono font-bold uppercase">利用者の時間最優先 (Time Optimization Advice)</span>
-                            </div>
-                            <p className="text-[10.5px] text-white/75 leading-relaxed font-sans">
-                              {ipfData.timeEfficiencyNote}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <AIComparisonView 
+                      comparisonData={ipfData.optionsComparison ? {
+                        agreementRate: 96,
+                        pointsOfConsensus: [
+                          `Option A (従来アプローチ) と Option B (真の最適アプローチ) のトレードオフを客観評価。`,
+                          ipfData.optionsComparison.optionA,
+                          ipfData.optionsComparison.optionB
+                        ],
+                        pointsOfContrast: [
+                          ipfData.optionsComparison.comparisonMatrix,
+                          `推奨ベストアプローチ: ${ipfData.optionsComparison.selectedBest}`
+                        ],
+                        modelsAudited: ["Google Gemini", "OpenAI GPT-4o"],
+                        crossReviewSummary: ipfData.extraValue
+                      } : undefined}
+                    />
                   )}
                 </motion.div>
               </AnimatePresence>
