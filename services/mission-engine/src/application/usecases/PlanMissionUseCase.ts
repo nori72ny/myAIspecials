@@ -17,7 +17,7 @@ export class PlanMissionUseCase {
     
     let taskList: { description: string, capability: string }[] = [];
     try {
-      const response = await this.llmClient.generateText(prompt, systemPrompt, "gemini-2.5-pro");
+      const response = await this.llmClient.generateText(prompt, systemPrompt, "gemini-3.5-flash");
       const jsonStr = response.replace(/```json/g, "").replace(/```/g, "").trim();
       taskList = JSON.parse(jsonStr);
     } catch (e) {

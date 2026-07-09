@@ -57,9 +57,17 @@ import {
   BrainCircuit,
   Home,
   MessageSquare,
-  Award
+  Award,
+  Bot,
+  Network,
+
+
+
+
 } from "lucide-react";
 import { cn, ProductionLogger, SafeStorage } from "./utils";
+import PersonalEditionApp from "./components/personal/PersonalEditionApp";
+import RoutingTester from "./components/personal/RoutingTester";
 
 const CATEGORIES: WorkspaceCategory[] = [
   {
@@ -149,7 +157,7 @@ export default function App() {
   const prefersReducedMotion = useReducedMotion();
   const transitionY = prefersReducedMotion ? 0 : 15;
   const transitionX = prefersReducedMotion ? "0%" : "-100%";
-  const [currentApp, setCurrentApp] = useState<"mission" | "chat" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain" | "workspace" | "organization" | "marketplace" | "swarm-debugger">("dashboard");
+  const [currentApp, setCurrentApp] = useState<"personal" | "mission" | "dashboard" | "chat" | "routing-tester" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "dashboard" | "settings" | "brain" | "workspace" | "organization" | "marketplace" | "swarm-debugger">("personal");
   const [taskMode, setTaskMode] = useState<"categories" | "input" | "loading" | "result">("categories");
 
   // Persistent workspace saved missions state
@@ -416,21 +424,22 @@ export default function App() {
           </div>
           <button
             onClick={() => {
-              setCurrentApp("dashboard");
+              setCurrentApp("personal");
               onItemClick?.();
             }}
             data-testid="sidebar-dashboard"
             aria-label={isEn ? "Go to Home Dashboard" : "ホームダッシュボードを表示"}
             className={cn(
               "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
-              currentApp === "dashboard"
+              currentApp === "personal"
                 ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
                 : "text-slate-400 hover:text-white hover:bg-slate-800/50"
             )}
           >
             <Home className="w-4 h-4" />
-            <span>{isEn ? "Home" : "ホーム"}</span>
+            <span>{isEn ? "Personal Edition" : "Personal Edition"}</span>
           </button>
+          <button onClick={() => { setCurrentApp("routing-tester"); onItemClick?.(); }} className={cn("w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer", currentApp === "routing-tester" ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10" : "text-slate-400 hover:text-white hover:bg-slate-800/50")}> <Bot className="w-4 h-4" /> <span>Routing Engine v2 Test</span> </button>
 
           <button
             onClick={() => {
@@ -654,6 +663,9 @@ export default function App() {
     );
   }
 
+  if (currentApp === "personal") {
+    return <PersonalEditionApp onSwitchToEnterprise={() => setCurrentApp("dashboard")} />;
+  }
   return (
     <Suspense fallback={
       <div className="flex flex-col items-center justify-center min-h-screen text-slate-400 dark:text-slate-500 bg-slate-900 font-sans text-sm gap-4">
@@ -904,6 +916,11 @@ export default function App() {
             {currentApp === "multi-ai" && (
               <motion.div key="multi-ai" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0 h-[calc(100vh-140px)]">
                 <MultiAIApp />
+              </motion.div>
+            )}
+            {currentApp === "routing-tester" && (
+              <motion.div key="routing-tester" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
+                <RoutingTester />
               </motion.div>
             )}
             {currentApp === "brain" && (

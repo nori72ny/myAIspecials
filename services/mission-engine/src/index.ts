@@ -7,6 +7,7 @@ import { createMissionRouter } from "./presentation/routes/missionRouter";
 import { createTaskRouter } from "./presentation/routes/taskRouter";
 import { createAgentRouter } from "./presentation/routes/agentRouter";
 import { createHealthRouter } from "./presentation/routes/healthRouter";
+import { createExecutiveRouter } from "./presentation/routes/executiveRouter";
 import { createOrganizationRouter } from "./application/organization/DashboardAPI";
 import { errorHandler } from "./presentation/middlewares/errorHandler";
 
@@ -26,6 +27,7 @@ export const initMissionEngine = (): Router => {
   router.use("/tasks", createTaskRouter(taskRepo));
   router.use("/agents", createAgentRouter(agentRepo));
   router.use("/organizations", createOrganizationRouter());
+  router.use("/executive", createExecutiveRouter(llmClient));
 
   // 4. Centralized error handling middleware (MUST be loaded after all routers)
   router.use(errorHandler);

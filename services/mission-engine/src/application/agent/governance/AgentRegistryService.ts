@@ -21,19 +21,19 @@ export class AgentRegistryService {
     this.registerWithId("agent-1", "ARCHITECT", [AgentCapability.Planning, AgentCapability.Writing, AgentCapability.ToolUse], {
       allowedTools: ["WebTool", "FileTool", "CalculatorTool"],
       allowedMemory: ["mission-context", "global-facts"],
-      allowedModels: ["gemini-2.5-flash", "gemini-2.5-pro"]
+      allowedModels: ["gemini-3.5-flash"]
     }, AgentLifecycleState.Active, 8);
 
     this.registerWithId("agent-2", "RESEARCHER", [AgentCapability.Research, AgentCapability.Vision, AgentCapability.ToolUse], {
       allowedTools: ["WebTool"],
       allowedMemory: ["mission-context"],
-      allowedModels: ["gemini-2.5-flash"]
+      allowedModels: ["gemini-3.5-flash"]
     }, AgentLifecycleState.Active, 6);
 
     this.registerWithId("agent-default", "GENERAL", [AgentCapability.Writing, AgentCapability.ToolUse], {
       allowedTools: ["CalculatorTool"],
       allowedMemory: ["scratchpad"],
-      allowedModels: ["gemini-2.5-flash"]
+      allowedModels: ["gemini-3.5-flash"]
     }, AgentLifecycleState.Active, 5);
   }
 

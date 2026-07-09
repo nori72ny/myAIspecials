@@ -23,7 +23,7 @@ export class GeminiLLMClient implements ILLMClient {
     }
   }
 
-  async generateText(prompt: string, systemPrompt?: string, model: string = "gemini-2.5-pro"): Promise<string> {
+  async generateText(prompt: string, systemPrompt?: string, model: string = "gemini-3.5-flash"): Promise<string> {
     const startTime = Date.now();
     Logger.info(`Initiating LLM call using model: ${model}`);
 

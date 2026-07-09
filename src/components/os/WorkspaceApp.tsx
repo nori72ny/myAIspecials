@@ -13,6 +13,7 @@ import {
   TrendingUp
 } from "lucide-react";
 import { cn } from "../../utils";
+import GitHubWorkspace from "./GitHubWorkspace";
 import { 
   SovereignGlassCard,
   SovereignButton,
@@ -167,7 +168,8 @@ export default function WorkspaceApp({
     { id: "missions", label: `Missions (${filteredMissions.length})` },
     { id: "chats", label: "AI Chats" },
     { id: "files", label: `Materials (${filteredFiles.length})` },
-    { id: "debates", label: `AI Debates (${filteredDebates.length})` }
+    { id: "debates", label: `AI Debates (${filteredDebates.length})` },
+    { id: "github", label: "GitHub Workspace" }
   ];
 
   return (
@@ -225,7 +227,19 @@ export default function WorkspaceApp({
       </div>
 
       {/* Main Grid content matching the filters */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {activeTab === "github" ? (
+        <GitHubWorkspace
+          language="ja"
+          onAddWorkspaceFile={(newFile) => {
+            setAttachedFiles(prev => {
+              const updated = [newFile, ...prev];
+              localStorage.setItem("acos_workspace_files", JSON.stringify(updated));
+              return updated;
+            });
+          }}
+        />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Left 2 Cols: Main cabinet blocks */}
         <div className="lg:col-span-2 space-y-6">
@@ -452,6 +466,7 @@ export default function WorkspaceApp({
         </div>
 
       </div>
+      )}
 
     </div>
   );

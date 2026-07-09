@@ -14,7 +14,12 @@ import {
   Layers, 
   Info,
   Server,
-  Globe
+  Globe,
+  Github,
+  LogOut,
+  RefreshCw,
+  Lock,
+  BookOpen
 } from "lucide-react";
 import { cn } from "../../utils";
 import { Settings as AppSettings, AIAgentConfig } from "../../types";
@@ -36,6 +41,176 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
   const [activeTab, setActiveTab] = useState<"agents" | "compliance" | "keys" | "language">("agents");
   const [successMsg, setSuccessMsg] = useState("");
 
+  // GitHub integration states
+  const [githubToken, setGithubToken] = useState<string>(() => localStorage.getItem("acos_github_token") || "");
+  const [githubUser, setGithubUser] = useState<any>(() => {
+    try {
+      const u = localStorage.getItem("acos_github_user");
+      return u ? JSON.parse(u) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [githubConnectMethod, setGithubConnectMethod] = useState<"pat" | "oauth">("pat");
+  const [patInput, setPatInput] = useState("");
+  const [customClientId, setCustomClientId] = useState(() => localStorage.getItem("acos_github_client_id") || "");
+  const [customClientSecret, setCustomClientSecret] = useState(() => localStorage.getItem("acos_github_client_secret") || "");
+  const [isGitHubConnecting, setIsGitHubConnecting] = useState(false);
+  const [githubError, setGithubError] = useState("");
+
+  const isEn = settings.language === "en";
+
+  // Handle Personal Access Token validation
+  const handleConnectPAT = async () => {
+    if (!patInput.trim()) {
+      setGithubError(isEn ? "Please enter your GitHub Personal Access Token." : "GitHub個人アクセストークンを入力してください。");
+      return;
+    }
+    setIsGitHubConnecting(true);
+    setGithubError("");
+
+    try {
+      const response = await fetch("https://api.github.com/user", {
+        headers: {
+          "Authorization": `token ${patInput.trim()}`,
+          "Accept": "application/vnd.github.v3+json"
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(isEn ? "Failed to authenticate. Please verify your token." : "認証に失敗しました。トークンを確認してください。");
+      }
+
+      const userData = await response.json();
+      localStorage.setItem("acos_github_token", patInput.trim());
+      localStorage.setItem("acos_github_user", JSON.stringify(userData));
+      setGithubToken(patInput.trim());
+      setGithubUser(userData);
+      setSuccessMsg(isEn ? "GitHub account linked successfully!" : "GitHubアカウントが正常に連携されました！");
+      setTimeout(() => setSuccessMsg(""), 3000);
+      setPatInput("");
+    } catch (err: any) {
+      setGithubError(err.message || "Authentication error.");
+    } finally {
+      setIsGitHubConnecting(false);
+    }
+  };
+
+  // Handle OAuth Popup flow
+  const handleConnectOAuth = async () => {
+    setIsGitHubConnecting(true);
+    setGithubError("");
+
+    try {
+      // Get Auth URL
+      const clientIdQuery = customClientId.trim() ? `?clientId=${customClientId.trim()}` : "";
+      const urlResponse = await fetch(`/api/auth/github/url${clientIdQuery}`);
+      if (!urlResponse.ok) {
+        const errObj = await urlResponse.json();
+        throw new Error(errObj.error || "Failed to generate authorization URL.");
+      }
+
+      const { url } = await urlResponse.json();
+
+      // Store custom client credentials in localStorage to survive popup redirects or reuse
+      if (customClientId.trim()) {
+        localStorage.setItem("acos_github_client_id", customClientId.trim());
+      }
+      if (customClientSecret.trim()) {
+        localStorage.setItem("acos_github_client_secret", customClientSecret.trim());
+      }
+
+      // Open Popup
+      const width = 600;
+      const height = 700;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+      
+      const authWindow = window.open(
+        url,
+        "github_oauth_popup",
+        `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes`
+      );
+
+      if (!authWindow) {
+        throw new Error(isEn ? "Popup blocked. Please allow popups for this site." : "ポップアップがブロックされました。ポップアップを許可してください。");
+      }
+
+      // Listen for postMessage from callback popup
+      const handleMessageEvent = async (event: MessageEvent) => {
+        if (event.data?.type === "GITHUB_AUTH_CODE") {
+          const code = event.data.code;
+          window.removeEventListener("message", handleMessageEvent);
+          
+          try {
+            // Exchange code
+            const exchangeResponse = await fetch("/api/auth/github/exchange", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                code,
+                clientId: customClientId.trim() || undefined,
+                clientSecret: customClientSecret.trim() || undefined
+              })
+            });
+
+            if (!exchangeResponse.ok) {
+              const errObj = await exchangeResponse.json();
+              throw new Error(errObj.error || "Token exchange failed.");
+            }
+
+            const tokenData = await exchangeResponse.json();
+            const token = tokenData.access_token;
+
+            if (!token) {
+              throw new Error("No access token returned from exchange.");
+            }
+
+            // Fetch user profile with token
+            const profileResponse = await fetch("https://api.github.com/user", {
+              headers: {
+                "Authorization": `token ${token}`,
+                "Accept": "application/vnd.github.v3+json"
+              }
+            });
+
+            if (!profileResponse.ok) {
+              throw new Error("Failed to retrieve user profile with access token.");
+            }
+
+            const userData = await profileResponse.json();
+            localStorage.setItem("acos_github_token", token);
+            localStorage.setItem("acos_github_user", JSON.stringify(userData));
+            setGithubToken(token);
+            setGithubUser(userData);
+            setSuccessMsg(isEn ? "GitHub account linked successfully via OAuth!" : "OAuth経由でGitHubアカウントが正常に連携されました！");
+            setTimeout(() => setSuccessMsg(""), 3000);
+          } catch (exchangeErr: any) {
+            setGithubError(exchangeErr.message || "Failed during token exchange.");
+          } finally {
+            setIsGitHubConnecting(false);
+          }
+        }
+      };
+
+      window.addEventListener("message", handleMessageEvent);
+
+    } catch (err: any) {
+      setGithubError(err.message || "OAuth connection failed.");
+      setIsGitHubConnecting(false);
+    }
+  };
+
+  // Disconnect GitHub
+  const handleDisconnectGitHub = () => {
+    localStorage.removeItem("acos_github_token");
+    localStorage.removeItem("acos_github_user");
+    setGithubToken("");
+    setGithubUser(null);
+    setSuccessMsg(isEn ? "GitHub disconnected." : "GitHubの連携を解除しました。");
+    setTimeout(() => setSuccessMsg(""), 3000);
+  };
+
   const toggleAgent = (agentId: string) => {
     const isSelected = settings.selectedAgents.includes(agentId);
     let updated: string[];
@@ -50,11 +225,9 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
       selectedAgents: updated
     });
     
-    setSuccessMsg(settings.language === "en" ? "AI agent alignment updated successfully." : "AIエージェントの構成を更新しました。");
+    setSuccessMsg(isEn ? "AI agent alignment updated successfully." : "AIエージェントの構成を更新しました。");
     setTimeout(() => setSuccessMsg(""), 3000);
   };
-
-  const isEn = settings.language === "en";
 
   return (
     <div data-testid="settings-screen" className="space-y-6">
@@ -330,6 +503,190 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* GitHub Integration Card */}
+              <div className="bg-white/80 dark:bg-neutral-900/40 border border-slate-200/60 dark:border-white/[0.04] rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-xl bg-slate-900 dark:bg-neutral-800 text-white flex items-center justify-center border border-white/10 shadow-sm">
+                      <Github className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 dark:text-neutral-200">
+                        {isEn ? "GitHub Service Integration" : "GitHub サービス連携"}
+                      </h3>
+                      <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
+                        {isEn ? "Link repository resources, view commit logs, track issues, and sync with AI swarm reasoning." : "リポジトリ資源の参照、コミット履歴、イシュートラッキング、AIナレッジ連携を可能にします。"}
+                      </p>
+                    </div>
+                  </div>
+                  {githubUser ? (
+                    <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/5 border border-emerald-500/10 px-2.5 py-1 rounded-xl font-mono flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                      CONNECTED
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-neutral-800 px-2.5 py-1 rounded-xl font-mono">
+                      OFFLINE
+                    </span>
+                  )}
+                </div>
+
+                {githubError && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-[11px] font-bold text-rose-500 flex items-center gap-2 font-mono">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>{githubError}</span>
+                  </div>
+                )}
+
+                {!githubUser ? (
+                  <div className="space-y-4 pt-2">
+                    {/* Segmented connect method picker */}
+                    <div className="flex border border-slate-200/60 dark:border-white/[0.04] p-1 rounded-xl bg-slate-50 dark:bg-neutral-950/40">
+                      <button
+                        onClick={() => setGithubConnectMethod("pat")}
+                        className={cn(
+                          "flex-1 py-1.5 text-[10px] font-black rounded-lg transition-all cursor-pointer text-center",
+                          githubConnectMethod === "pat"
+                            ? "bg-white text-slate-900 dark:bg-neutral-800 dark:text-white shadow-xs"
+                            : "text-slate-400 hover:text-slate-600 dark:hover:text-neutral-300"
+                        )}
+                      >
+                        Personal Access Token (PAT)
+                      </button>
+                      <button
+                        onClick={() => setGithubConnectMethod("oauth")}
+                        className={cn(
+                          "flex-1 py-1.5 text-[10px] font-black rounded-lg transition-all cursor-pointer text-center",
+                          githubConnectMethod === "oauth"
+                            ? "bg-white text-slate-900 dark:bg-neutral-800 dark:text-white shadow-xs"
+                            : "text-slate-400 hover:text-slate-600 dark:hover:text-neutral-300"
+                        )}
+                      >
+                        GitHub OAuth Sign-In
+                      </button>
+                    </div>
+
+                    {githubConnectMethod === "pat" ? (
+                      <div className="space-y-2 text-xs font-semibold">
+                        <div className="flex items-center justify-between">
+                          <label className="text-slate-400">
+                            {isEn ? "GitHub Personal Access Token" : "GitHub 個人アクセストークン"}
+                          </label>
+                          <a 
+                            href="https://github.com/settings/tokens/new?scopes=repo,read:user" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-[10px] text-indigo-500 hover:underline flex items-center gap-0.5"
+                          >
+                            <BookOpen className="w-3 h-3" />
+                            {isEn ? "Generate Token (Classic)" : "トークン作成ページ"}
+                          </a>
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={patInput}
+                            onChange={(e) => setPatInput(e.target.value)}
+                            placeholder="ghp_••••••••••••••••••••••••••••••••"
+                            className="flex-1 bg-slate-50 dark:bg-neutral-900 border border-slate-200/50 dark:border-neutral-800 rounded-xl px-3.5 py-2.5 text-slate-800 dark:text-white placeholder:text-slate-500 font-mono focus:border-indigo-500/50 focus:ring-0 outline-none"
+                          />
+                          <button
+                            disabled={isGitHubConnecting}
+                            onClick={handleConnectPAT}
+                            className="px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                          >
+                            {isGitHubConnecting && <RefreshCw className="w-3 h-3 animate-spin" />}
+                            <span>{isEn ? "Connect" : "接続する"}</span>
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-slate-400 dark:text-neutral-500 leading-normal font-medium">
+                          {isEn 
+                            ? "Provide a token with 'repo' and 'read:user' scopes to allow direct, secure serverless connection to repositories."
+                            : "リポジトリ情報を安全に読み取るために、'repo' および 'read:user' スコープを持つトークンを入力してください。"}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3.5 text-xs font-semibold">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1 text-[10px] text-amber-500 font-bold uppercase font-mono">
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>OAuth Client Credentials Config</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 leading-normal font-medium mb-2">
+                            {isEn 
+                              ? "Optional. To use your custom OAuth App, register callback URI as APP_URL/auth/callback and fill below, or leave blank to use global config."
+                              : "独自に登録したGitHub OAuthアプリを利用する場合、リダイレクトURIに APP_URL/auth/callback を設定し、以下に入力してください（空欄時は共有環境キーを使用）。"}
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <label className="text-slate-400 text-[10px]">Client ID</label>
+                              <input
+                                type="text"
+                                value={customClientId}
+                                onChange={(e) => setCustomClientId(e.target.value)}
+                                placeholder="Ov23..."
+                                className="w-full bg-slate-50 dark:bg-neutral-900 border border-slate-200/50 dark:border-neutral-800 rounded-xl px-3 py-2 text-slate-800 dark:text-white placeholder:text-slate-500 font-mono focus:border-indigo-500/50 focus:ring-0 outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-slate-400 text-[10px]">Client Secret</label>
+                              <input
+                                type="password"
+                                value={customClientSecret}
+                                onChange={(e) => setCustomClientSecret(e.target.value)}
+                                placeholder="••••••••••••••••••••"
+                                className="w-full bg-slate-50 dark:bg-neutral-900 border border-slate-200/50 dark:border-neutral-800 rounded-xl px-3 py-2 text-slate-800 dark:text-white placeholder:text-slate-500 font-mono focus:border-indigo-500/50 focus:ring-0 outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          disabled={isGitHubConnecting}
+                          onClick={handleConnectOAuth}
+                          className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-950 font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+                        >
+                          {isGitHubConnecting ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Github className="w-4 h-4" />
+                          )}
+                          <span>{isEn ? "Log In via GitHub OAuth Popup" : "GitHub OAuthポップアップでログイン"}</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-50 dark:bg-neutral-950/40 border border-slate-200/50 dark:border-neutral-800 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <img 
+                        src={githubUser.avatar_url} 
+                        alt="GitHub Avatar" 
+                        className="w-11 h-11 rounded-full border border-slate-200/50 dark:border-neutral-700 shadow-sm"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-black text-slate-800 dark:text-neutral-200">{githubUser.name || githubUser.login}</span>
+                          <span className="text-[10px] font-mono text-indigo-500">@{githubUser.login}</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium font-mono">
+                          {isEn ? "Repos: " : "リポジトリ数: "}{githubUser.public_repos} • {isEn ? "Followers: " : "フォロワー: "}{githubUser.followers}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleDisconnectGitHub}
+                      className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 border border-rose-500/20 active:scale-95"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>{isEn ? "Disconnect" : "連携解除"}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}

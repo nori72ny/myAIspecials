@@ -772,7 +772,7 @@ ${gptAnswer}
 
     const callGeminiSynthesis = async () => {
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         contents: synthesisPrompt,
         config: {
           systemInstruction: "あなたは世界最高峰の知的統合OS『IDL 2035』のコア知能エンジンであり、Build 009: ORIGIN Quality Bible (Version 1.0) のQ5品質、Build 008: ORIGIN Constitution (Version 1.0) の非妥協原則、およびBuild 007: Intelligence Personality Framework（IPF）に準拠した非迎合的・最適提案エンジンです。提供された言語モデルの個別回答とユーザーの質問を、最高度のプロフェッショナル性、美学、および論理一貫性をもって構造化し、指定されたJSONスキーマに完全にマッピングしたJSONとして出力してください。文章だらけを禁止し、ダイアグラムやカード、比較テーブル、タイムラインを想定したクリーンな記述を徹底してください。",
@@ -1069,7 +1069,208 @@ function getFallbackStructuredResponse(prompt: string, missionId: string, orgSta
   };
 }
 
+  // GitHub OAuth URLs
+  router.get("/api/auth/github/url", (req, res) => {
+    const clientId = (req.query.clientId as string) || process.env.GITHUB_CLIENT_ID;
+    if (!clientId) {
+      return res.status(400).json({ error: "GitHub Client ID is required for OAuth." });
+    }
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+    const redirectUri = `${appUrl}/auth/callback`;
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: "repo read:user",
+      state: "acos_github_state"
+    });
+    res.json({ url: `https://github.com/login/oauth/authorize?${params.toString()}` });
+  });
 
+  // Serve the popup callback HTML page
+  router.get("/auth/callback", (req, res) => {
+    const { code } = req.query;
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>GitHub Authorization Callback</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+              margin: 0;
+              background-color: #0d1117;
+              color: #c9d1d9;
+            }
+            .container {
+              text-align: center;
+              padding: 24px;
+              border-radius: 12px;
+              background-color: #161b22;
+              border: 1px solid #30363d;
+            }
+            .spinner {
+              border: 4px solid #30363d;
+              border-top: 4px solid #58a6ff;
+              border-radius: 50%;
+              width: 32px;
+              height: 32px;
+              animation: spin 1s linear infinite;
+              margin: 0 auto 16px auto;
+            }
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="spinner"></div>
+            <h3>GitHub Authorization Successful</h3>
+            <p style="font-size: 14px; opacity: 0.8;">Connecting your account... This window should close automatically.</p>
+          </div>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ type: 'GITHUB_AUTH_CODE', code: '${code}' }, '*');
+              setTimeout(() => {
+                window.close();
+              }, 1000);
+            } else {
+              window.location.href = '/';
+            }
+          </script>
+        </body>
+      </html>
+    `);
+  });
+
+  // Token exchange proxy
+  router.post("/api/auth/github/exchange", async (req, res) => {
+    try {
+      const { code, clientId, clientSecret } = req.body;
+      const finalClientId = clientId || process.env.GITHUB_CLIENT_ID;
+      const finalClientSecret = clientSecret || process.env.GITHUB_CLIENT_SECRET;
+
+      if (!code) {
+        return res.status(400).json({ error: "Authorization code is required." });
+      }
+      if (!finalClientId || !finalClientSecret) {
+        return res.status(400).json({ error: "Client ID and Client Secret are required for token exchange." });
+      }
+
+      const response = await fetch("https://github.com/login/oauth/access_token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({
+          client_id: finalClientId,
+          client_secret: finalClientSecret,
+          code
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to exchange token: ${errText}`);
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        return res.status(400).json({ error: data.error_description || data.error });
+      }
+
+      res.json(data);
+    } catch (err: any) {
+      console.error("GitHub token exchange error:", err);
+      res.status(500).json({ error: "Failed to exchange token.", details: err.message });
+    }
+  });
+
+  // Generate Changelog from Commits using Gemini
+  router.post("/api/github/generate-changelog", async (req, res) => {
+    try {
+      const { commits, repoName } = req.body;
+      if (!commits || !Array.isArray(commits)) {
+        return res.status(400).json({ error: "Commits array is required." });
+      }
+
+      const commitsSummary = commits
+        .slice(0, 15)
+        .map((c: any) => `- ${c.commit?.message?.split("\n")[0]} (by ${c.commit?.author?.name || "unknown"})`)
+        .join("\n");
+
+      const prompt = `
+あなたは世界最高峰のリリースエンジニアおよびテクニカルライターです。
+GitHubリポジトリ「${repoName || "Repository"}」の最近のコミット履歴を分析し、開発者、プロダクトマネージャー、エンドユーザーのすべてにとって洗練され、分かりやすい「スマートチェンジログ / リリースノート」をMarkdown形式で作成してください。
+
+【コミット履歴】
+${commitsSummary}
+
+【要件】
+1. 単なるコミット一覧の直訳ではなく、コミット履歴から「新機能追加」「バグ修正・安定性向上」「リファクタリング・内部改善」に分かりやすく分類してください。
+2. インパクトのある重要な変更を「ハイライト」セクションで強調してください。
+3. 文体は親しみやすく、かつプロフェッショナルな日本語（NotionやAppleのエンジニアリングレポートのような洗練された文体）で記述してください。
+4. HTMLのタグや不要な挨拶は含めず、純粋なMarkdownのみで出力してください。
+`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt
+      });
+
+      const markdown = response.text || "Failed to generate changelog.";
+      res.json({ markdown });
+    } catch (err: any) {
+      console.error("Generate changelog error:", err);
+      res.status(500).json({ error: "Failed to generate changelog via AI.", details: err.message });
+    }
+  });
+
+  // Audit Open Issues using Gemini
+  router.post("/api/github/audit-issues", async (req, res) => {
+    try {
+      const { issues, repoName } = req.body;
+      if (!issues || !Array.isArray(issues)) {
+        return res.status(400).json({ error: "Issues array is required." });
+      }
+
+      const issuesSummary = issues
+        .slice(0, 10)
+        .map((i: any) => `#${i.number}: ${i.title}\nDescription: ${i.body ? i.body.slice(0, 150) : "No description"}`)
+        .join("\n\n");
+
+      const prompt = `
+あなたはGoogle Distinguished Engineer、Anthropic Staff Engineer、および最高峰のセキュリティ監査役です。
+リポジトリ「${repoName || "Repository"}」の未解決イシュー（最大10件）のリストを分析し、コード品質、アーキテクチャ上のリスク、セキュリティの脅威、パフォーマンスへの懸念点を監査してください。
+
+【対象イシュー】
+${issuesSummary}
+
+【要件】
+1. 各重要イシューの「根本原因」と「技術的インパクト」を論理的・構造的に評価してください。
+2. 開発者が今すぐ実行できる「具体的な解決方針」や「推奨コード設計案」を提示してください。
+3. イシュー全体の深刻度を「緊急」「高」「中」「低」に分類し、解決の優先順位を明確にしてください。
+4. Markdown形式で、説得力のある、磨き抜かれたプロフェッショナルなエンジニアリングレポートとして日本語で出力してください。挨拶や不要なマークアップは除外してください。
+`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt
+      });
+
+      const markdown = response.text || "Failed to audit issues.";
+      res.json({ markdown });
+    } catch (err: any) {
+      console.error("Audit issues error:", err);
+      res.status(500).json({ error: "Failed to audit issues via AI.", details: err.message });
+    }
+  });
 
   return router;
 };

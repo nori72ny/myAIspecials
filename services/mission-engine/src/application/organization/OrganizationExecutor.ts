@@ -86,7 +86,7 @@ export class OrganizationExecutor {
         const permissions = {
           allowedTools: ["WebTool", "FileTool", "CalculatorTool"],
           allowedMemory: ["mission-context", "global-facts"],
-          allowedModels: ["gemini-2.5-flash"]
+          allowedModels: ["gemini-3.5-flash"]
         };
         // Registering a designated agent via update or registry manipulation
         // Since we want specific IDs, let's register with ID using dynamic reflection if possible, or just seed via update/register

@@ -1,0 +1,90 @@
+[
+  {
+    "id": "gpt-4o",
+    "name": "GPT-4o",
+    "provider": "OpenAI",
+    "speed": 8,
+    "cost": 7,
+    "quality": 9,
+    "failureRate": 0.01,
+    "available": true,
+    "specialties": ["Reasoning", "Text Generation", "Code", "Math", "Marketing", "Law", "Medical"]
+  },
+  {
+    "id": "claude-3.5-sonnet",
+    "name": "Claude 3.5 Sonnet",
+    "provider": "Anthropic",
+    "speed": 9,
+    "cost": 6,
+    "quality": 9,
+    "failureRate": 0.01,
+    "available": true,
+    "specialties": ["Reasoning", "Text Generation", "Code", "Presentation"]
+  },
+  {
+    "id": "gemini-1.5-pro",
+    "name": "Gemini 1.5 Pro",
+    "provider": "Google",
+    "speed": 8,
+    "cost": 6,
+    "quality": 9,
+    "failureRate": 0.02,
+    "available": true,
+    "specialties": ["Reasoning", "Research", "Text Generation", "Code", "Math"]
+  },
+  {
+    "id": "sonar-reasoning-pro",
+    "name": "Perplexity Sonar Pro",
+    "provider": "Perplexity",
+    "speed": 7,
+    "cost": 5,
+    "quality": 8,
+    "failureRate": 0.05,
+    "available": true,
+    "specialties": ["Research", "Reasoning"]
+  },
+  {
+    "id": "deepseek-coder-v2",
+    "name": "DeepSeek Coder V2",
+    "provider": "DeepSeek",
+    "speed": 8,
+    "cost": 3,
+    "quality": 8,
+    "failureRate": 0.03,
+    "available": true,
+    "specialties": ["Code", "Math"]
+  },
+  {
+    "id": "grok-2",
+    "name": "Grok 2",
+    "provider": "xAI",
+    "speed": 9,
+    "cost": 6,
+    "quality": 8,
+    "failureRate": 0.04,
+    "available": true,
+    "specialties": ["Text Generation", "Reasoning"]
+  },
+  {
+    "id": "dall-e-3",
+    "name": "DALL-E 3",
+    "provider": "OpenAI",
+    "speed": 5,
+    "cost": 8,
+    "quality": 9,
+    "failureRate": 0.02,
+    "available": true,
+    "specialties": ["Image Generation"]
+  },
+  {
+    "id": "openrouter-auto",
+    "name": "OpenRouter Auto",
+    "provider": "OpenRouter",
+    "speed": 8,
+    "cost": 5,
+    "quality": 8,
+    "failureRate": 0.05,
+    "available": true,
+    "specialties": ["Reasoning", "Text Generation", "Code"]
+  }
+]

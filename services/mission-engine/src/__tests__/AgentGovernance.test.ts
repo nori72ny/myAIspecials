@@ -377,9 +377,9 @@ describe("=== Version 1.3 Agent Governance Platform Unit Tests ===", () => {
       expect(agent?.permissions.allowedTools).toContain("FileTool");
     });
 
-    it("3.10 should retrieve correct allowed models for Researcher (gemini-2.5-flash)", () => {
+    it("3.10 should retrieve correct allowed models for Researcher (gemini-3.5-flash)", () => {
       const agent = registry.getAgent("agent-2");
-      expect(agent?.permissions.allowedModels).toContain("gemini-2.5-flash");
+      expect(agent?.permissions.allowedModels).toContain("gemini-3.5-flash");
     });
   });
 
