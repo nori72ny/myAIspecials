@@ -268,8 +268,39 @@ export function useAppState() {
         throw new Error(errMsg);
       }
 
-      fetchedData = await response.json() as AnalysisResult;
-      fetchSuccess = true;
+      // Read streamed SSE events
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const dataStr = line.slice(6).trim();
+              if (!dataStr) continue;
+              try {
+                const event = JSON.parse(dataStr);
+                if (event.type === "result") {
+                  fetchedData = event.data;
+                  fetchSuccess = true;
+                } else if (event.type === "error") {
+                  throw new Error(event.details || "API Stream error");
+                }
+              } catch (e) {
+                console.warn("Failed to parse SSE line in useAppState:", e);
+              }
+            }
+          }
+        }
+      }
     } catch (err: any) {
       ProductionLogger.error("Failed to analyze task prompt via backend API", err);
       fetchErrorMsg = err instanceof Error ? err.message : "AIバックエンドとの通信中にエラーが発生しました。";

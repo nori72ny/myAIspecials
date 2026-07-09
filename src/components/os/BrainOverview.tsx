@@ -22,6 +22,7 @@ import {
   Play, 
   Pause, 
   RefreshCw,
+  HelpCircle,
   Search,
   ChevronRight,
   TrendingUp,
@@ -410,6 +411,42 @@ export default function BrainOverview() {
 
       {/* Main Panel Body */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6 relative z-10">
+        
+        {/* Help & Explanation Card */}
+        <div className="bg-gradient-to-r from-indigo-500/10 via-blue-500/10 to-transparent border border-indigo-500/20 p-5 rounded-2xl relative overflow-hidden backdrop-blur-sm">
+          <div className="absolute top-0 right-0 p-3 opacity-10">
+            <HelpCircle className="w-24 h-24 text-indigo-400" />
+          </div>
+          <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="space-y-1.5 max-w-3xl">
+              <h3 className="text-sm font-black text-white flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500 text-white font-mono uppercase tracking-wider">
+                  Enterprise Concept
+                </span>
+                ACOS Cognitive Brain とは？
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                ACOS Unified Cognitive Brain（統合認知脳）は、ユーザーから提示されたミッションに対して最適な思考パスを決定し、複数の自律AIエージェントによる合意形成（ディベート）をリアルタイムに制御・シミュレートする統合司令塔です。
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400 font-mono mt-2">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                  <strong>10大インテリジェンス層:</strong> 各専門脳（記憶・未来予測・品質等）の性能を監視
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                  <strong>合意形成ディベート:</strong> LLM同士の高度な推論対話をリアルタイムに追跡
+                </span>
+              </div>
+            </div>
+            <div className="shrink-0 flex items-center gap-2 bg-black/40 border border-white/5 p-2 rounded-xl text-xs text-slate-400 self-stretch md:self-auto justify-center">
+              <span className="font-mono text-indigo-300 text-[11px] font-bold">💡 使い方:</span>
+              <p className="text-[11px] leading-tight font-sans">
+                下部パネルからトピックを選択して、<br />AI間の論理検証をリアルタイムに確認。
+              </p>
+            </div>
+          </div>
+        </div>
         
         {/* TOP COGNITIVE STATS SECTION */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

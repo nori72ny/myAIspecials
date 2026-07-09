@@ -8,27 +8,30 @@ export default function ChatApp() {
     { role: "ai", text: "ACOS Chatへようこそ。どのようなミッションを始めますか？", time: new Date().toLocaleTimeString() }
   ]);
   const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const handleSend = () => {
-    if (!input.trim()) return;
+    if (!input.trim() || isTyping) return;
     const newMsg = { role: "user" as const, text: input, time: new Date().toLocaleTimeString() };
-    setMessages([...messages, newMsg]);
+    setMessages(prev => [...prev, newMsg]);
     setInput("");
+    setIsTyping(true);
     
     // Simulate AI typing
     setTimeout(() => {
+      setIsTyping(false);
       setMessages(prev => [...prev, { 
         role: "ai", 
         text: `「${newMsg.text}」に関する分析を開始します。OEEにタスクをキューイングしました。`, 
         time: new Date().toLocaleTimeString() 
       }]);
-    }, 1000);
+    }, 1200);
   };
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isTyping]);
 
   return (
     <div className="flex h-full w-full bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
@@ -98,6 +101,30 @@ export default function ChatApp() {
               </div>
             </motion.div>
           ))}
+          
+          {isTyping && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex gap-4"
+            >
+              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-indigo-600 shrink-0">
+                <Bot className="w-4 h-4 text-white animate-pulse" />
+              </div>
+              <div className="flex flex-col items-start max-w-[80%]">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] text-slate-400 font-medium">Analyzing...</span>
+                  <span className="text-xs font-bold text-slate-700">ACOS AI</span>
+                </div>
+                <div className="px-4 py-3 bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce" />
+                  <span className="w-1.5 h-1.5 bg-purple-600 rounded-full animate-bounce [animation-delay:0.2s]" />
+                  <span className="w-1.5 h-1.5 bg-pink-600 rounded-full animate-bounce [animation-delay:0.4s]" />
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           <div ref={endRef} />
         </div>
         

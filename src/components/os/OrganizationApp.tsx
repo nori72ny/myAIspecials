@@ -250,6 +250,29 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
         </div>
       </div>
 
+      {/* Cockpit Introduction & Quick Guide */}
+      <div className="bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-white/[0.04] p-4 rounded-2xl relative overflow-hidden flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="space-y-1 max-w-2xl">
+          <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 font-mono">
+            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+            {isEn ? "WHAT IS THE COCKPIT?" : "コクピット機能の目的と使い方"}
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-neutral-400 leading-relaxed font-sans">
+            {isEn
+              ? "The Cockpit serves as the centralized governance framework for your enterprise workspace. It controls parallel agent distribution, UQI security protocols, and secure OAuth connectivity."
+              : "組織コクピットは、ワークスペース全体を統制・監査するための「管理・設定司令塔」です。自律並列処理を行うAIメンバーの管理、コンプライアンス（品質保証）、およびGitHub連携をセキュアに構成します。"}
+          </p>
+        </div>
+        <div className="shrink-0 flex items-center gap-2 bg-slate-100 dark:bg-zinc-800/50 px-3 py-2 rounded-xl text-xs text-slate-500 dark:text-neutral-400 self-stretch sm:self-auto justify-center border border-slate-200/50 dark:border-white/5 font-mono">
+          <span className="font-bold text-blue-500">💡 {isEn ? "How to use:" : "使い方:"}</span>
+          <p className="text-[11px] leading-tight font-sans">
+            {isEn 
+              ? "Switch tabs to select AI members, set audit limits, or connect Git." 
+              : "タブを切り替えて、AI構成の調整、UQI品質限界値、Gitトークン等を設定。"}
+          </p>
+        </div>
+      </div>
+
       {/* Sub Tabs */}
       <div className="flex flex-wrap items-center gap-1.5 bg-white/40 dark:bg-neutral-900/20 border border-slate-200/60 dark:border-white/[0.04] p-1.5 rounded-2xl max-w-xl backdrop-blur-md">
         <button

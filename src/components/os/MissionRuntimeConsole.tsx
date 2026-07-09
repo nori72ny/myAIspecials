@@ -56,6 +56,13 @@ export default function MissionRuntimeConsole({
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [backendData, setBackendData] = useState<any>(null);
   const [selectedQueueTaskId, setSelectedQueueTaskId] = useState<string | null>(null);
+  const [agentStates, setAgentStates] = useState({
+    ceo: "Pending",
+    research: "Pending",
+    writer: "Pending",
+    quality: "Pending"
+  });
+  const [triggerFetchCount, setTriggerFetchCount] = useState(0);
 
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
@@ -104,9 +111,16 @@ export default function MissionRuntimeConsole({
     let active = true;
 
     async function runBackend() {
-      addLog("⚡ Initiating asynchronous full-stack OEE pipeline execution...");
+      addLog("⚡ Initiating real-time streaming OEE pipeline execution...");
       addLog(`⚡ Objective registered: "${missionTitle}"`);
-      addLog("⚡ Querying legacy model cluster & Gemini API orchestration...");
+      addLog("⚡ Querying corporate multi-agent organization...");
+
+      setAgentStates({
+        ceo: "Pending",
+        research: "Pending",
+        writer: "Pending",
+        quality: "Pending"
+      });
 
       try {
         const response = await fetch("/api/analyze", {
@@ -119,20 +133,72 @@ export default function MissionRuntimeConsole({
         });
 
         if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.details || "API execution rejected by Gemini server cluster.");
+          throw new Error("API execution rejected by Gemini server cluster.");
         }
 
-        const data = await response.json();
-        if (active) {
-          setBackendData(data);
-          addLog("✅ Backend compilation success! Content generated.");
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+
+        if (reader) {
+          while (active) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const dataStr = line.slice(6).trim();
+                if (!dataStr) continue;
+
+                try {
+                  const event = JSON.parse(dataStr);
+                  if (event.type === "progress") {
+                    if (active) {
+                      setProgress(event.progress);
+                      setCurrentStep(event.phase);
+                      setStatusText(event.statusText);
+                      addLog(event.message);
+                    }
+                  } else if (event.type === "agent_status") {
+                    if (active) {
+                      addLog(event.message);
+                      const currentAgent = event.agent;
+                      if (currentAgent === "ceo") {
+                        setAgentStates({ ceo: "Active", research: "Pending", writer: "Pending", quality: "Pending" });
+                      } else if (currentAgent === "research") {
+                        setAgentStates({ ceo: "Completed", research: "Active", writer: "Pending", quality: "Pending" });
+                      } else if (currentAgent === "writer") {
+                        setAgentStates({ ceo: "Completed", research: "Completed", writer: "Active", quality: "Pending" });
+                      } else if (currentAgent === "quality") {
+                        setAgentStates({ ceo: "Completed", research: "Completed", writer: "Completed", quality: "Active" });
+                      }
+                    }
+                  } else if (event.type === "result") {
+                    if (active) {
+                      setBackendData(event.data);
+                      setAgentStates({ ceo: "Completed", research: "Completed", writer: "Completed", quality: "Completed" });
+                      setProgress(100);
+                      addLog("🏆 Stream execution complete! Consensus finalized.");
+                      completeSuccessfully();
+                    }
+                  } else if (event.type === "error") {
+                    throw new Error(event.details || "Stream execution error");
+                  }
+                } catch (e) {
+                  console.warn("Failed to parse event line:", e);
+                }
+              }
+            }
+          }
         }
       } catch (err: any) {
         if (active) {
           console.error("Backend error in Mission Runtime Console:", err);
           setErrorMessage(err.message || "Communication failure with the AI host server.");
-          // We don't immediately crash; we let the step execution continue to display error beautifully during Phase 5/6, or we can flag it.
         }
       }
     }
@@ -142,7 +208,7 @@ export default function MissionRuntimeConsole({
     return () => {
       active = false;
     };
-  }, [missionTitle]);
+  }, [missionTitle, triggerFetchCount]);
 
   // Main step increment simulation loop
   useEffect(() => {
@@ -292,27 +358,13 @@ export default function MissionRuntimeConsole({
     setLogMessages([]);
     setBackendData(null);
     setStatusText("Re-initializing ORIGIN Runtime Environment...");
-    
-    // Re-trigger API
-    fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        prompt: missionTitle,
-        agents: ["gemini", "openai"]
-      }),
-    })
-    .then(res => {
-      if (!res.ok) throw new Error("API compilation failed during retry.");
-      return res.json();
-    })
-    .then(data => {
-      setBackendData(data);
-      addLog("✅ Retry Backend Success!");
-    })
-    .catch(err => {
-      setErrorMessage(err.message || "Retry failed.");
+    setAgentStates({
+      ceo: "Pending",
+      research: "Pending",
+      writer: "Pending",
+      quality: "Pending"
     });
+    setTriggerFetchCount(prev => prev + 1);
   };
 
   const handleForceComplete = () => {
@@ -446,6 +498,54 @@ export default function MissionRuntimeConsole({
             <p className="text-xs text-indigo-300 italic font-medium">
               💡 Status: {statusText}
             </p>
+          </div>
+
+          {/* OEE Active Agents Monitor */}
+          <div className="bg-slate-900/40 border border-white/[0.04] rounded-2xl p-5 space-y-4">
+            <h3 className="text-[10px] font-black text-slate-400 tracking-widest font-mono uppercase flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-400" />
+              OEE Active Agents Monitor
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { key: "ceo", name: "CEO Agent", icon: "👔", desc: "戦略・意思決定" },
+                { key: "research", name: "Research Agent", icon: "🔍", desc: "一次情報・ファクト" },
+                { key: "writer", name: "Writer Agent", icon: "✍️", desc: "成果物作成・比較" },
+                { key: "quality", name: "Quality Agent", icon: "🛡️", desc: "Q5 監査・適合" }
+              ].map((ag) => {
+                const status = (agentStates as any)[ag.key] || "Pending";
+                const isActive = status === "Active";
+                const isDone = status === "Completed";
+
+                return (
+                  <div
+                    key={ag.key}
+                    className={cn(
+                      "p-3 rounded-xl border flex flex-col justify-between transition-all duration-300",
+                      isActive ? "bg-indigo-500/10 border-indigo-500/50 shadow-md shadow-indigo-950/20" :
+                      isDone ? "bg-emerald-500/5 border-emerald-500/30 opacity-90" :
+                      "bg-white/[0.01] border-white/5 opacity-50"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg">{ag.icon}</span>
+                      <span className={cn(
+                        "text-[8px] font-mono font-bold px-1.5 py-0.5 rounded uppercase tracking-wider",
+                        isActive ? "bg-indigo-500/20 text-indigo-400 animate-pulse" :
+                        isDone ? "bg-emerald-500/20 text-emerald-400" :
+                        "bg-white/5 text-slate-500"
+                      )}>
+                        {status}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-left">
+                      <p className="text-[11px] font-bold text-white">{ag.name}</p>
+                      <p className="text-[9px] text-slate-400 mt-0.5">{ag.desc}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Interactive Steps Visual Map */}

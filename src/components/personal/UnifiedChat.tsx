@@ -41,32 +41,55 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
     }
   }, [messages, isTyping]);
 
-  const handleSend = (overrideInput?: string) => {
+  const handleSend = async (overrideInput?: string) => {
     const textToSend = overrideInput || input;
     if (!textToSend.trim()) return;
 
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: textToSend };
-    setMessages(prev => [...prev, userMsg]);
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInput('');
     setIsTyping(true);
 
-    // Simulate Intent Analysis and AI Routing
-    setTimeout(() => {
-      setIsTyping(false);
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ messages: updatedMessages.map(m => ({ role: m.role, content: m.content })) })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to communicate with ACOS Brain.");
+      }
+
+      const data = await response.json();
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'ai',
-        content: `Based on your request, I've compiled the following information:\n\n1. **Analysis**: We've processed the intent seamlessly.\n2. **Strategy**: The unified core determined the most efficient path.\n\nLet me know if you need further refinement.`,
-        routing: {
-          model: 'gemini-3.5-flash',
-          reason: 'High speed and adequate reasoning capability for general query.',
-          score: 98,
-          timeMs: 450,
-          cost: 0.0001
-        }
+        content: data.content,
+        routing: data.routing
       };
       setMessages(prev => [...prev, aiMsg]);
-    }, 1500);
+    } catch (error: any) {
+      console.error(error);
+      const errMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'ai',
+        content: `Error occurred: ${error.message || "Failed to process message."}`,
+        routing: {
+          model: 'error-recovery-node',
+          reason: 'API routing failed, system default error handler engaged.',
+          score: 50,
+          timeMs: 120,
+          cost: 0
+        }
+      };
+      setMessages(prev => [...prev, errMsg]);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   return (

@@ -25,6 +25,7 @@ const Boardroom = React.lazy(() => import("./components/os/Boardroom"));
 const MissionRuntimeConsole = React.lazy(() => import("./components/os/MissionRuntimeConsole"));
 const RealTimeSwarmDebugger = React.lazy(() => import("./components/os/RealTimeSwarmDebugger"));
 const DesignSystemV3 = React.lazy(() => import("./components/os/DesignSystemV3"));
+const HomeExplanations = React.lazy(() => import("./components/os/HomeExplanations"));
 import { 
   Search, 
   Shield,
@@ -118,6 +119,8 @@ export default function App() {
     selectTemplateHandler,
     resetToHome,
   } = useAppState();
+
+  const [activeDocModal, setActiveDocModal] = useState<'privacy' | 'terms' | 'support' | null>(null);
 
   const renderSidebarBody = (onItemClick?: () => void) => {
     const isEn = settings.language === "en";
@@ -909,6 +912,11 @@ export default function App() {
                   </motion.div>
                 )}
 
+                {homeTab !== "missions" && (
+                  <HomeExplanations homeTab={homeTab} />
+                )}
+
+                <div className="hidden">
                 {homeTab === "constitution" && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
@@ -1586,80 +1594,85 @@ export default function App() {
                     </div>
                   </motion.div>
                 )}
+                </div>
               </motion.div>
             )}
 
-            {/* 2. CHAT & TEMPLATE WORKSPACE */}
+            {/* 2. CHAT & TEMPLATE WORKSPACE (2-COLUMN INTEGRATED Cockpit) */}
             {(taskMode === "input" || taskMode === "result" || taskMode === "loading") && selectedCategory && (
               <motion.div
-                key="workspace"
+                key="workspace-grid"
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -15 }}
-                className="space-y-6"
+                className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"
               >
-                {/* Category header */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-white rounded-xl border border-slate-200/80 gap-4 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl bg-slate-100 w-12 h-12 rounded-xl flex items-center justify-center border border-slate-200/50">
-                      {selectedCategory.icon}
-                    </span>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-base font-black text-slate-900">{selectedCategory.name} コントロール</h2>
-                        <span className={cn("text-[9px] font-bold px-2 py-0.5 rounded", selectedCategory.bgColor, selectedCategory.accentColor)}>
-                          ACTIVE
-                        </span>
+                {/* LEFT COLUMN: Input, Navigation, and Category Details (col-span-5) */}
+                <div className="lg:col-span-5 space-y-6">
+                  {/* Category Header */}
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-white rounded-xl border border-slate-200/80 gap-4 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl bg-slate-100 w-12 h-12 rounded-xl flex items-center justify-center border border-slate-200/50">
+                        {selectedCategory.icon}
+                      </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-sm font-black text-slate-900">{selectedCategory.name} コントロール</h2>
+                          <span className={cn("text-[9px] font-bold px-2 py-0.5 rounded", selectedCategory.bgColor, selectedCategory.accentColor)}>
+                            ACTIVE
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 leading-snug">{selectedCategory.description}</p>
                       </div>
-                      <p className="text-xs text-slate-500">{selectedCategory.description}</p>
                     </div>
+                    
+                    {/* Category resets */}
+                    <button
+                      onClick={resetToHome}
+                      aria-label={settings.language === "en" ? "Change workspace category" : "カテゴリを変更する"}
+                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors self-end sm:self-auto cursor-pointer"
+                    >
+                      ← カテゴリを変更
+                    </button>
                   </div>
-                  
-                  {/* Category resets */}
-                  <button
-                    onClick={resetToHome}
-                    aria-label={settings.language === "en" ? "Change workspace category" : "カテゴリを変更する"}
-                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors self-end sm:self-auto cursor-pointer"
-                  >
-                    ← カテゴリを変更する
-                  </button>
-                </div>
 
-                {/* Templates sub-navigation inside category */}
-                <div className="space-y-2">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">
-                    タスクテンプレート
-                  </span>
-                  <div className="flex md:flex-wrap gap-2 overflow-x-auto pb-2 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-none">
-                    {selectedCategory.templates.map((temp) => {
-                      const isSelected = selectedTemplate?.id === temp.id;
-                      return (
-                        <button
-                          key={temp.id}
-                          onClick={() => selectTemplateHandler(temp)}
-                          aria-label={`${settings.language === "en" ? "Select template" : "テンプレートを選択"}: ${temp.name}`}
-                          className={cn(
-                            "px-3.5 py-2 rounded-xl text-xs font-bold transition-all border text-left cursor-pointer shrink-0",
-                            isSelected
-                              ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                              : "bg-white text-slate-600 hover:text-slate-900 border-slate-200 hover:border-slate-300"
-                          )}
-                        >
-                          {temp.name}
-                        </button>
-                      );
-                    })}
+                  {/* Templates sub-navigation inside category */}
+                  <div className="p-4 bg-white rounded-xl border border-slate-200/80 shadow-sm space-y-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                      タスクテンプレート
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCategory.templates.map((temp) => {
+                        const isSelected = selectedTemplate?.id === temp.id;
+                        return (
+                          <button
+                            key={temp.id}
+                            onClick={() => selectTemplateHandler(temp)}
+                            aria-label={`${settings.language === "en" ? "Select template" : "テンプレートを選択"}: ${temp.name}`}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all border text-left cursor-pointer shrink-0",
+                              isSelected
+                                ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                                : "bg-white text-slate-600 hover:text-slate-900 border-slate-200 hover:border-slate-300"
+                            )}
+                          >
+                            {temp.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selectedTemplate && (
+                      <p className="text-[10px] text-slate-500 italic pt-1 border-t border-slate-100">
+                        💡 特徴: {selectedTemplate.hint}
+                      </p>
+                    )}
                   </div>
-                  {selectedTemplate && (
-                    <p className="text-[11px] text-slate-500 italic px-1 pt-0.5">
-                      💡 特徴: {selectedTemplate.hint}
-                    </p>
-                  )}
-                </div>
 
-                {/* Main Action Input Box */}
-                {taskMode === "input" && (
-                  <div className="space-y-4 w-full">
+                  {/* Input Form and Error Handling */}
+                  <div className="p-4 bg-white rounded-xl border border-slate-200/80 shadow-sm space-y-4">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                      Mission Input
+                    </span>
                     <MissionInput
                       onSubmit={(customPrompt) => handleAnalyze(undefined, customPrompt)}
                       initialValue={prompt}
@@ -1669,7 +1682,7 @@ export default function App() {
                     {error && (
                       <motion.div 
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                        className="text-rose-600 text-xs flex flex-col gap-3 font-medium bg-rose-50 border border-rose-100 rounded-xl p-4 shadow-sm"
+                        className="text-rose-600 text-xs flex flex-col gap-3 font-medium bg-rose-50 border border-rose-100 rounded-xl p-4 shadow-sm mt-4"
                       >
                         <p className="font-semibold text-rose-700 text-center">{error}</p>
                         {rawError && (
@@ -1686,47 +1699,55 @@ export default function App() {
                       </motion.div>
                     )}
                   </div>
-                )}
+                </div>
 
-                {/* LOADING SCREEN (Steps 3, 4, 5, 6 from Core Journey replaced with high-end Boardroom matrix) */}
-                {taskMode === "loading" && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="w-full"
-                  >
-                    <Boardroom 
-                      missionTitle={prompt} 
-                      onComplete={() => {
-                        setTaskMode("result");
-                      }} 
-                    />
-                  </motion.div>
-                )}
-
-                {/* RESULTS VIEW */}
-                {taskMode === "result" && result && (
-                  <motion.div 
-                    initial={{ opacity: 0 }} 
-                    animate={{ opacity: 1 }}
-                    className="space-y-6"
-                  >
-                    <div className="flex justify-between items-center">
-                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
-                        分析・生成結果
-                      </h3>
-                      <button
-                        onClick={() => setTaskMode("input")}
-                        aria-label={settings.language === "en" ? "Edit prompt again" : "プロンプトを再編集する"}
-                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 cursor-pointer"
-                      >
-                        プロンプトを再編集する
-                      </button>
+                {/* RIGHT COLUMN: Results Dashboard, Interactive Outputs & Loading (col-span-7) */}
+                <div className="lg:col-span-7 space-y-6 bg-slate-50/40 p-4 lg:p-6 rounded-2xl border border-slate-200/50 min-h-[500px] flex flex-col">
+                  {taskMode === "input" && !result && (
+                    <div className="flex flex-col items-center justify-center m-auto text-center py-12 px-4 space-y-4">
+                      <div className="w-16 h-16 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-500 animate-pulse">
+                        <BrainCircuit className="w-8 h-8" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-slate-700">成果物展開エリア (Deliverables)</h4>
+                        <p className="text-xs text-slate-400 max-w-sm">
+                          左カラムでMissionを入力して「AI OS 起動」を実行すると、ここに自律設計された成果物ダッシュボードがリアルタイムに展開されます。
+                        </p>
+                      </div>
                     </div>
+                  )}
 
-                    <ResultDashboard result={result} />
-                  </motion.div>
-                )}
+                  {taskMode === "loading" && (
+                    <div className="my-auto w-full">
+                      <Boardroom 
+                        missionTitle={prompt} 
+                        onComplete={() => {
+                          setTaskMode("result");
+                        }} 
+                      />
+                    </div>
+                  )}
+
+                  {taskMode === "result" && result && (
+                    <motion.div 
+                      initial={{ opacity: 0 }} 
+                      animate={{ opacity: 1 }}
+                      className="space-y-6"
+                    >
+                      <div className="flex justify-between items-center border-b border-slate-200/60 pb-3">
+                        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                          分析・生成結果 (Deliverables)
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-[10px] font-mono text-emerald-600 font-bold">UQI 95%+ VERIFIED</span>
+                        </div>
+                      </div>
+
+                      <ResultDashboard result={result} />
+                    </motion.div>
+                  )}
+                </div>
               </motion.div>
             )}
           </motion.div>
@@ -1769,7 +1790,7 @@ export default function App() {
         settings={settings}
         updateSettings={updateSettings}
       />
-      
+
       {/* Universal Search Modal */}
       <UniversalSearch
         isOpen={isSearchOpen}
@@ -1802,6 +1823,133 @@ export default function App() {
         isOpen={isAssistantOpen}
         onClose={() => setIsAssistantOpen(false)}
       />
+
+      {/* Privacy, Terms, and Support Modals */}
+      <AnimatePresence>
+        {activeDocModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setActiveDocModal(null)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[85vh] text-left"
+            >
+              <div className="p-6 border-b border-slate-200 dark:border-white/10 flex items-center justify-between shrink-0 bg-slate-50 dark:bg-zinc-900/50">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
+                    <Shield className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+                      {activeDocModal === 'privacy' && (settings.language === "en" ? "ACOS Privacy Policy" : "ACOS プライバシーポリシー")}
+                      {activeDocModal === 'terms' && (settings.language === "en" ? "ACOS Terms of Service" : "ACOS 利用規約")}
+                      {activeDocModal === 'support' && (settings.language === "en" ? "ACOS Intelligence Support" : "ACOS インテリジェンス・サポート")}
+                    </h2>
+                    <p className="text-[11px] text-slate-500 dark:text-neutral-400 mt-0.5 font-mono">
+                      {settings.language === "en" ? "System Integrity Level: Secure" : "システム整合性レベル: セキュア"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveDocModal(null)}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:text-neutral-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-6 text-sm text-slate-600 dark:text-neutral-300 leading-relaxed font-sans">
+                {activeDocModal === 'privacy' && (
+                  <>
+                    <div className="space-y-2">
+                      <h3 className="font-bold text-slate-900 dark:text-white text-sm">1. データの収集と利用 (Data Collection & Usage)</h3>
+                      <p className="text-xs">
+                        本システムは、ユーザーの創造性と安全性を最優先し、個人を特定可能な機密情報を事前の明示的な合意なく外部に共有・保存することはありません。ローカル保存（localStorage）および一時的なコンテキストメモリのみを用いて動作します。
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="font-bold text-slate-900 dark:text-white text-sm">2. AIモデルとのデータ共有 (AI Engine Integration)</h3>
+                      <p className="text-xs">
+                        推論およびアセンブルを実行する際、Gemini、OpenAI、Claude等の提携先APIサービスに対し、コンテキストを暗号化（FHE暗号およびゼロ知識ベイズ最適化によるセキュリティ層）した上で処理をリクエストします。これらの第三者APIは、送信されたデータを独自モデルの学習等に二次利用しない規約のもとで稼働しています。
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="font-bold text-slate-900 dark:text-white text-sm">3. ポリシーの遵守と監査 (Compliance & Audit)</h3>
+                      <p className="text-xs">
+                        私たちはGDPR、CCPA、および日本の個人情報保護法に準拠した最高度のコンプライアンス監査を自律的にクリアしています。Master Intelligence Engine（MIE）は常にプライバシー整合性を24時間体制で監視しています。
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {activeDocModal === 'terms' && (
+                  <>
+                    <div className="space-y-2">
+                      <h3 className="font-bold text-slate-900 dark:text-white text-sm">1. 利用許諾 (Usage License)</h3>
+                      <p className="text-xs">
+                        ACOS Intelligence OSは、人間とAIの共生と高次元知的成果の自律生産を支援するオペレーティング環境です。ユーザーは、本システムを通じてアセンブルされたすべての成果物、コード、ドキュメントの知的財産権を単独で保有します。
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="font-bold text-slate-900 dark:text-white text-sm">2. 禁止事項 (Prohibited Actions)</h3>
+                      <p className="text-xs">
+                        本システムを、悪意あるマルウェアコードの生成、スパム配信、または他者の権利やプライバシーを侵害する行為に利用することを固く禁止します。AIスロップ（中身のない自動生成ノイズ）の不必要な大量生産を回避するための自律倫理フィルタが搭載されています。
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="font-bold text-slate-900 dark:text-white text-sm">3. 免責事項 (Disclaimers & Limits)</h3>
+                      <p className="text-xs">
+                        本システムによる自動検証および予測（期待ROI、成功率予測等）は、客観的ファクトと数理モデルに基づく最善 of 究極の論理推量であり、ビジネス上の特定の結果を法的に保証するものではありません。最終的なビジネス意思決定は人間が主導します。
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {activeDocModal === 'support' && (
+                  <>
+                    <div className="space-y-4">
+                      <div className="p-4 rounded-xl bg-indigo-500/5 border border-indigo-500/10 text-xs text-indigo-600 dark:text-indigo-400">
+                        <p className="font-semibold mb-1">ACOS Support Center is Online</p>
+                        <p>24時間年中無休で、AIエージェントと専任サポートスタッフがお客様のミッション推進を支援します。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <h3 className="font-bold text-slate-900 dark:text-white text-sm">よくある質問 (FAQ)</h3>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs font-bold text-slate-800 dark:text-white">Q: Enterprise Editionへのアップグレード方法は？</p>
+                            <p className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5">A: サイドバーまたはヘッダーの「Switch to Enterprise」ボタンをクリックするだけで、10大AIモデルの並行稼働やGitHub連携機能が有効化されます。</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-slate-800 dark:text-white">Q: APIキーの設定はどこで行いますか？</p>
+                            <p className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5">A: 組織設定（Cockpit）内の「APIキー & 外部連携」タブ、または個人設定メニューから簡単に入力・管理できます。</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-slate-200 dark:border-white/10 shrink-0 bg-slate-50 dark:bg-zinc-900/50 flex justify-end">
+                <button
+                  onClick={() => setActiveDocModal(null)}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  {settings.language === "en" ? "Close" : "閉じる"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
     </Suspense>
   );

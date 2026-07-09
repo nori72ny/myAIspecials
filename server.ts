@@ -5,6 +5,7 @@ import "dotenv/config";
 
 // Legacy imports
 import { createLegacyRouter } from "./src/legacy/legacyRoutes";
+import { createAnalyzeRouter } from "./src/legacy/analyzeRoute";
 
 // New architecture imports (Mission Engine)
 import { initMissionEngine } from "./services/mission-engine/src/index";
@@ -13,7 +14,24 @@ async function startServer() {
   const app = express();
   const PORT = process.env.TEST_PORT ? parseInt(process.env.TEST_PORT, 10) : 3000;
 
+  // Set Content Security Policy (CSP) for security hardening
+  app.use((req, res, next) => {
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "img-src 'self' data: https: blob:; " +
+      "font-src 'self' https://fonts.gstatic.com; " +
+      "connect-src 'self' ws: wss: https:;"
+    );
+    next();
+  });
+
   app.use(express.json());
+
+  // Intercept analyze with streaming router first
+  app.use(createAnalyzeRouter());
 
   // 1. Mount Legacy Endpoints (/api/generate-image, /api/analyze)
   app.use(createLegacyRouter());

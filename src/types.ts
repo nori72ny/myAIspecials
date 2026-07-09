@@ -59,6 +59,8 @@ export interface MissionDetail {
   workflow: string[]; // Workflow (自動生成)
   status: "Planning" | "Running" | "Review" | "Completed"; // Status (ステータス)
   learning: string; // Learning (Knowledge DNAへ保存)
+  freshness?: string;
+  reliability?: string;
 }
 
 export interface AIMeetingMember {
