@@ -30,6 +30,7 @@ const UniversalCommandPalette = React.lazy(() => import("./components/os/Univers
 const UniversalHistoryModal = React.lazy(() => import("./components/os/UniversalHistoryModal"));
 const FloatingAIAssistant = React.lazy(() => import("./components/os/FloatingAIAssistant"));
 const UniversalContextMenu = React.lazy(() => import("./components/os/UniversalContextMenu"));
+const UniversalAgentFramework = React.lazy(() => import("./components/os/UniversalAgentFramework"));
 import { 
   Search, 
   Shield,
@@ -243,6 +244,57 @@ export default function App() {
           >
             <Shield className="w-4 h-4" />
             <span>{isEn ? "Organization" : "組織設定 / Cockpit"}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentApp("observability-center");
+              onItemClick?.();
+            }}
+            aria-label={isEn ? "Go to Daily Use Validation Suite" : "Daily Use Validation Suiteを表示"}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "observability-center"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Award className="w-4 h-4 text-amber-400" />
+            <span>{isEn ? "Validation & Replay" : "品質監査 & リプレイ"}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentApp("ai-performance");
+              onItemClick?.();
+            }}
+            aria-label={isEn ? "Go to Performance Observatory" : "Performance Observatoryを表示"}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "ai-performance"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Zap className="w-4 h-4 text-emerald-400 animate-pulse" />
+            <span>{isEn ? "Performance Observatory" : "パフォーマンス監視台"}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentApp("universal-agent-framework");
+              onItemClick?.();
+            }}
+            aria-label={isEn ? "Go to Universal Agent Framework" : "Universal Agent Frameworkを表示"}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+              currentApp === "universal-agent-framework"
+                ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10"
+                : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+            )}
+          >
+            <Network className="w-4 h-4 text-violet-400 animate-pulse" />
+            <span>{isEn ? "Universal Agent Framework" : "UAF / AI連邦基盤"}</span>
           </button>
 
           <button
@@ -724,6 +776,27 @@ export default function App() {
             {currentApp === "swarm-debugger" && (
               <motion.div key="swarm-debugger" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
                 <RealTimeSwarmDebugger />
+              </motion.div>
+            )}
+            {currentApp === "universal-agent-framework" && (
+              <motion.div key="universal-agent-framework" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
+                <Suspense fallback={<div className="p-6 text-xs font-bold text-slate-500 animate-pulse">Loading Universal Agent Framework...</div>}>
+                  <UniversalAgentFramework />
+                </Suspense>
+              </motion.div>
+            )}
+            {currentApp === "observability-center" && (
+              <motion.div key="observability-center" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
+                <Suspense fallback={<div className="p-6 text-xs font-bold text-slate-500 animate-pulse">Loading Observability Suite...</div>}>
+                  <ObservabilityCenter />
+                </Suspense>
+              </motion.div>
+            )}
+            {currentApp === "ai-performance" && (
+              <motion.div key="ai-performance" initial={{opacity: 0, y: transitionY}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -transitionY}} className="flex-1 min-h-0">
+                <Suspense fallback={<div className="p-6 text-xs font-bold text-slate-500 animate-pulse">Loading Performance Observatory...</div>}>
+                  <AIPerformanceDashboard />
+                </Suspense>
               </motion.div>
             )}
 

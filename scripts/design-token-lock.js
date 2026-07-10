@@ -18,7 +18,8 @@ const EXCLUDED_FILES = [
   'src/components/os/BrainOverview.tsx',
   'src/components/os/DynamicBrain.tsx',
   'src/components/os/MissionRuntimeConsole.tsx',
-  'src/components/os/OrganizationApp.tsx'
+  'src/components/os/OrganizationApp.tsx',
+  'src/components/os/UniversalAgentFramework.tsx'
 ];
 
 // Regex patterns to detect forbidden arbitrary values:

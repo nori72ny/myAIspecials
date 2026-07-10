@@ -64,6 +64,7 @@ import AIComparisonView from "./trust-and-quality/AIComparisonView";
 import OutputAutoImprovementEngineView from "./trust-and-quality/OutputAutoImprovementEngineView";
 import UniversalExportMenu from "./os/UniversalExportMenu";
 import OutputEvaluationEngineView from "./trust-and-quality/OutputEvaluationEngineView";
+import RealWorldValidationCenter from "./trust-and-quality/RealWorldValidationCenter";
 import { generateARP } from "../utils/arpGenerator";
 import { generateOEEPrompt } from "../utils/oeeGenerator";
 
@@ -142,7 +143,7 @@ export default function ResultDashboard({ result }: Props) {
 
   // Module ⑭: Intelligence Personality Framework (IPF) Build 007 specific states
   const [selectedIpfRuleNum, setSelectedIpfRuleNum] = useState<number | null>(1);
-  const [ipfTab, setIpfTab] = useState<"audit" | "facts" | "optimal" | "comparison" | "oee" | "oaie">("audit");
+  const [ipfTab, setIpfTab] = useState<"audit" | "facts" | "optimal" | "comparison" | "oee" | "oaie" | "rwv">("rwv");
   const [auditProgress, setAuditProgress] = useState<"idle" | "auditing" | "audited">("idle");
 
   // Module ⑮: ORIGIN Constitution (Build 008) specific states
@@ -3598,6 +3599,18 @@ export default function ResultDashboard({ result }: Props) {
                     自動改善 (OAIE)
                   </span>
                 </button>
+                <button
+                  onClick={() => setIpfTab("rwv")}
+                  aria-label="リアルワールド検証RWVタブ表示"
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                    ipfTab === "rwv" ? "bg-white/10 text-amber-400" : "text-white/50 hover:text-white"
+                  }`}
+                >
+                  <span className="flex items-center gap-1">
+                    <Award className="w-3.5 h-3.5" />
+                    リアルワールド検証 (RWV)
+                  </span>
+                </button>
               </div>
 
               {/* IPF Active Tab Content */}
@@ -3610,6 +3623,10 @@ export default function ResultDashboard({ result }: Props) {
                   transition={{ duration: 0.2 }}
                   className="bg-transparent"
                 >
+                  {ipfTab === "rwv" && (
+                    <RealWorldValidationCenter result={result} />
+                  )}
+
                   {ipfTab === "oee" && (
                     <OutputEvaluationEngineView />
                   )}

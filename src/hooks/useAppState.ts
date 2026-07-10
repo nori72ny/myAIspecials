@@ -87,7 +87,7 @@ export const CATEGORIES: WorkspaceCategory[] = [
   }
 ];
 
-export type AppView = "personal" | "mission" | "dashboard" | "chat" | "routing-tester" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "settings" | "brain" | "workspace" | "organization" | "marketplace" | "swarm-debugger";
+export type AppView = "personal" | "mission" | "dashboard" | "chat" | "routing-tester" | "multi-ai" | "workflows" | "memory" | "prompt-library" | "ai-performance" | "observability-center" | "settings" | "brain" | "workspace" | "organization" | "marketplace" | "swarm-debugger" | "universal-agent-framework";
 export type TaskStateMode = "categories" | "input" | "loading" | "result";
 
 export function useAppState() {
