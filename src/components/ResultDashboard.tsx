@@ -55,12 +55,17 @@ import {
   Activity,
   Lock,
   User,
-  BarChart2
+  BarChart2,
+  Copy
 } from "lucide-react";
 import FactCheckEngineView from "./trust-and-quality/FactCheckEngineView";
 import TrustEngineView from "./trust-and-quality/TrustEngineView";
 import AIComparisonView from "./trust-and-quality/AIComparisonView";
+import OutputAutoImprovementEngineView from "./trust-and-quality/OutputAutoImprovementEngineView";
 import UniversalExportMenu from "./os/UniversalExportMenu";
+import OutputEvaluationEngineView from "./trust-and-quality/OutputEvaluationEngineView";
+import { generateARP } from "../utils/arpGenerator";
+import { generateOEEPrompt } from "../utils/oeeGenerator";
 
 interface Props {
   result: AnalysisResult;
@@ -137,7 +142,7 @@ export default function ResultDashboard({ result }: Props) {
 
   // Module ⑭: Intelligence Personality Framework (IPF) Build 007 specific states
   const [selectedIpfRuleNum, setSelectedIpfRuleNum] = useState<number | null>(1);
-  const [ipfTab, setIpfTab] = useState<"audit" | "facts" | "optimal" | "comparison">("audit");
+  const [ipfTab, setIpfTab] = useState<"audit" | "facts" | "optimal" | "comparison" | "oee" | "oaie">("audit");
   const [auditProgress, setAuditProgress] = useState<"idle" | "auditing" | "audited">("idle");
 
   // Module ⑮: ORIGIN Constitution (Build 008) specific states
@@ -582,11 +587,50 @@ export default function ResultDashboard({ result }: Props) {
                       MIE 10大機能検証プロセス完了。本成果物は Master Intelligence Engine により最高レベルで承認されました。
                     </span>
                     <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <button
+                        onClick={() => {
+                          const oeeContent = generateOEEPrompt(result);
+                          navigator.clipboard.writeText(oeeContent).then(() => {
+                            const btn = document.getElementById("oee-copy-btn");
+                            if (btn) {
+                              const orig = btn.innerHTML;
+                              btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"/></svg> Copied!`;
+                              setTimeout(() => { btn.innerHTML = orig; }, 2000);
+                            }
+                          });
+                        }}
+                        id="oee-copy-btn"
+                        className="w-full sm:w-auto px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 text-xs font-bold tracking-wider shadow-xl transition-all shrink-0 flex items-center justify-center gap-1.5 cursor-pointer border border-emerald-500/30"
+                        title="AIが自動採点するためのOutput Evaluation Engineプロンプトをコピーします"
+                      >
+                        <Zap className="w-4 h-4" />
+                        OEEプロンプトをコピー
+                      </button>
+                      <button
+                        onClick={() => {
+                          const arpContent = generateARP(result, "");
+                          navigator.clipboard.writeText(arpContent).then(() => {
+                            // Simple visual feedback
+                            const btn = document.getElementById("arp-copy-btn");
+                            if (btn) {
+                              const orig = btn.innerHTML;
+                              btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"/></svg> Copied!`;
+                              setTimeout(() => { btn.innerHTML = orig; }, 2000);
+                            }
+                          });
+                        }}
+                        id="arp-copy-btn"
+                        className="w-full sm:w-auto px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold tracking-wider shadow-xl transition-all shrink-0 flex items-center justify-center gap-1.5 cursor-pointer border border-white/10"
+                        title="第三者AIへ貼るだけでレビューできる状態をコピーします"
+                      >
+                        <Copy className="w-4 h-4" />
+                        AI Review Packageをコピー
+                      </button>
                       <UniversalExportMenu onExport={(fmt) => console.log("Export format:", fmt)} />
                       <button 
                         onClick={() => setShowMIEModal(true)}
                         aria-label="MIE 最終成果提出"
-                        className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-500 hover:to-teal-600 text-black text-xs font-bold uppercase tracking-wider shadow-xl transition-all shrink-0 flex items-center justify-center gap-1.5"
+                        className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-500 hover:to-teal-600 text-black text-xs font-bold uppercase tracking-wider shadow-xl transition-all shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <BookmarkCheck className="w-4.5 h-4.5" />
                         MIE APPROVED 最終成果提出
@@ -3530,6 +3574,30 @@ export default function ResultDashboard({ result }: Props) {
                 >
                   選択肢＆リスク (Decisions & Risks)
                 </button>
+                <button
+                  onClick={() => setIpfTab("oee")}
+                  aria-label="品質監査OEEタブ表示"
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                    ipfTab === "oee" ? "bg-white/10 text-emerald-400" : "text-white/50 hover:text-white"
+                  }`}
+                >
+                  <span className="flex items-center gap-1">
+                    <Activity className="w-3.5 h-3.5" />
+                    品質監査 (OEE)
+                  </span>
+                </button>
+                <button
+                  onClick={() => setIpfTab("oaie")}
+                  aria-label="自動改善OAIEタブ表示"
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                    ipfTab === "oaie" ? "bg-white/10 text-indigo-400" : "text-white/50 hover:text-white"
+                  }`}
+                >
+                  <span className="flex items-center gap-1">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    自動改善 (OAIE)
+                  </span>
+                </button>
               </div>
 
               {/* IPF Active Tab Content */}
@@ -3542,6 +3610,14 @@ export default function ResultDashboard({ result }: Props) {
                   transition={{ duration: 0.2 }}
                   className="bg-transparent"
                 >
+                  {ipfTab === "oee" && (
+                    <OutputEvaluationEngineView />
+                  )}
+
+                  {ipfTab === "oaie" && (
+                    <OutputAutoImprovementEngineView />
+                  )}
+
                   {ipfTab === "audit" && (
                     <TrustEngineView constitution={result.constitution} />
                   )}
