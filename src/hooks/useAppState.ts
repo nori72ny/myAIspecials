@@ -95,8 +95,12 @@ export function useAppState() {
   const transitionY = prefersReducedMotion ? 0 : 15;
   const transitionX = prefersReducedMotion ? "0%" : "-100%";
 
-  const [currentApp, setCurrentApp] = useState<AppView>("personal");
-  const [taskMode, setTaskMode] = useState<TaskStateMode>("categories");
+  const [currentApp, setCurrentApp] = useState<AppView>(() => {
+    return (SafeStorage.get("acos_ctx_currentApp", (d) => typeof d === "string") as AppView) || "personal";
+  });
+  const [taskMode, setTaskMode] = useState<TaskStateMode>(() => {
+    return (SafeStorage.get("acos_ctx_taskMode", (d) => typeof d === "string") as TaskStateMode) || "categories";
+  });
 
   // Persistent workspace saved missions state
   const [savedMissions, setSavedMissions] = useState<any[]>(() => {
@@ -126,10 +130,14 @@ export function useAppState() {
     return stored || defaultMissions;
   });
 
-  const [homeTab, setHomeTab] = useState<string>("missions");
+  const [homeTab, setHomeTab] = useState<string>(() => {
+    return (SafeStorage.get("acos_ctx_homeTab", (d) => typeof d === "string") as string) || "missions";
+  });
   const [selectedCategory, setSelectedCategory] = useState<WorkspaceCategory | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<TaskTemplate | null>(null);
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(() => {
+    return (SafeStorage.get("acos_ctx_prompt", (d) => typeof d === "string") as string) || "";
+  });
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState("");
   const [rawError, setRawError] = useState<{ code: string; status: string; message: string } | null>(null);
@@ -145,16 +153,25 @@ export function useAppState() {
       autoRoute: true,
       selectedAgents: ["gemini", "openai"],
       language: "ja",
-      developerMode: false
+      developerMode: false,
+      uiMode: "normal"
     };
     const stored = SafeStorage.get<Settings>("acos_settings", (data) => typeof data === "object" && data !== null);
     if (stored) {
       if (!stored.language) stored.language = "ja";
       if (stored.developerMode === undefined) stored.developerMode = false;
+      if (!stored.uiMode) stored.uiMode = "normal";
       return stored;
     }
     return defaultSettings;
   });
+
+  useEffect(() => {
+    SafeStorage.set("acos_ctx_currentApp", currentApp);
+    SafeStorage.set("acos_ctx_taskMode", taskMode);
+    SafeStorage.set("acos_ctx_homeTab", homeTab);
+    SafeStorage.set("acos_ctx_prompt", prompt);
+  }, [currentApp, taskMode, homeTab, prompt]);
 
   const [history, setHistory] = useState<string[]>(() => {
     const stored = SafeStorage.get<string[]>("workspace_query_history", (data) => Array.isArray(data));

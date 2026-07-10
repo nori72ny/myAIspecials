@@ -52,11 +52,15 @@ import {
   PenTool,
   Layout,
   BookOpen,
-  Activity
+  Activity,
+  Lock,
+  User,
+  BarChart2
 } from "lucide-react";
 import FactCheckEngineView from "./trust-and-quality/FactCheckEngineView";
 import TrustEngineView from "./trust-and-quality/TrustEngineView";
 import AIComparisonView from "./trust-and-quality/AIComparisonView";
+import UniversalExportMenu from "./os/UniversalExportMenu";
 
 interface Props {
   result: AnalysisResult;
@@ -68,7 +72,7 @@ export default function ResultDashboard({ result }: Props) {
   const prefersReducedMotion = useReducedMotion();
   const transitionY = prefersReducedMotion ? 0 : 10;
   // Local state for checking off mission conditions and risk improvements
-  const [missionTab, setMissionTab] = useState<"core" | "agents" | "workflow" | "quality" | "evolution" | "strategic">("core");
+  const [missionTab, setMissionTab] = useState<"core" | "agents" | "workflow" | "quality" | "evolution" | "strategic" | "evidence" | "predictive" | "living" | "governance" | "eval">("core");
   const [selectedChiefIndex, setSelectedChiefIndex] = useState<number>(0);
   const [checkedConditions, setCheckedConditions] = useState<Record<number, boolean>>({});
   const [checkedImprovements, setCheckedImprovements] = useState<Record<number, boolean>>({});
@@ -577,14 +581,17 @@ export default function ResultDashboard({ result }: Props) {
                     <span className="text-[11px] text-emerald-400 leading-tight">
                       MIE 10大機能検証プロセス完了。本成果物は Master Intelligence Engine により最高レベルで承認されました。
                     </span>
-                    <button 
-                      onClick={() => setShowMIEModal(true)}
-                      aria-label="MIE 最終成果提出"
-                      className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-500 hover:to-teal-600 text-black text-xs font-bold uppercase tracking-wider shadow-xl transition-all shrink-0 flex items-center justify-center gap-1.5"
-                    >
-                      <BookmarkCheck className="w-4.5 h-4.5" />
-                      MIE APPROVED 最終成果提出
-                    </button>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <UniversalExportMenu onExport={(fmt) => console.log("Export format:", fmt)} />
+                      <button 
+                        onClick={() => setShowMIEModal(true)}
+                        aria-label="MIE 最終成果提出"
+                        className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-500 hover:to-teal-600 text-black text-xs font-bold uppercase tracking-wider shadow-xl transition-all shrink-0 flex items-center justify-center gap-1.5"
+                      >
+                        <BookmarkCheck className="w-4.5 h-4.5" />
+                        MIE APPROVED 最終成果提出
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1038,7 +1045,7 @@ export default function ResultDashboard({ result }: Props) {
 
             {/* Futuristic Tab Controller */}
             <div className="flex flex-wrap gap-1 bg-white/5 p-1 rounded-xl border border-white/5 w-full lg:w-auto">
-              {(["core", "agents", "workflow", "quality", "evolution", "strategic"] as const).map((tab) => (
+              {(["core", "agents", "workflow", "quality", "evolution", "strategic", "evidence", "predictive", "living", "governance", "eval"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setMissionTab(tab)}
@@ -1047,7 +1054,12 @@ export default function ResultDashboard({ result }: Props) {
                     tab === "agents" ? "エージェント" : 
                     tab === "workflow" ? "ワークフロー" : 
                     tab === "quality" ? "品質" : 
-                    tab === "evolution" ? "進化" : "戦略"
+                    tab === "evolution" ? "進化" : 
+                    tab === "strategic" ? "戦略" : 
+                    tab === "evidence" ? "証拠エンジン" : 
+                    tab === "predictive" ? "予測" :
+                    tab === "living" ? "Living AI" : 
+                    tab === "governance" ? "ガバナンス" : "第三者評価"
                   }`}
                   className={`flex-1 lg:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-tight transition-all cursor-pointer ${
                     missionTab === tab
@@ -1058,25 +1070,29 @@ export default function ResultDashboard({ result }: Props) {
                   {tab === "core" && (
                     <>
                       <Bookmark className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>目的・要件</span>
+                      <span className="hidden sm:inline">目的・要件</span>
+                      <span className="sm:hidden">目的</span>
                     </>
                   )}
                   {tab === "agents" && (
                     <>
                       <BrainCircuit className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>AI Company</span>
+                      <span className="hidden sm:inline">AI Company</span>
+                      <span className="sm:hidden">AI</span>
                     </>
                   )}
                   {tab === "workflow" && (
                     <>
                       <Sliders className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>自律フロー</span>
+                      <span className="hidden sm:inline">自律フロー</span>
+                      <span className="sm:hidden">フロー</span>
                     </>
                   )}
                   {tab === "quality" && (
                     <>
                       <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>品質 & DNA</span>
+                      <span className="hidden sm:inline">品質 & DNA</span>
+                      <span className="sm:hidden">品質</span>
                     </>
                   )}
                   {tab === "evolution" && (
@@ -1089,6 +1105,41 @@ export default function ResultDashboard({ result }: Props) {
                     <>
                       <Activity className="w-3.5 h-3.5 text-rose-400" />
                       <span>SIL</span>
+                    </>
+                  )}
+                  {tab === "evidence" && (
+                    <>
+                      <Search className="w-3.5 h-3.5 text-teal-400" />
+                      <span className="hidden sm:inline">証拠 (EE)</span>
+                      <span className="sm:hidden">EE</span>
+                    </>
+                  )}
+                  {tab === "predictive" && (
+                    <>
+                      <Clock className="w-3.5 h-3.5 text-orange-400" />
+                      <span className="hidden sm:inline">予測 (PT)</span>
+                      <span className="sm:hidden">PT</span>
+                    </>
+                  )}
+                  {tab === "living" && (
+                    <>
+                      <Database className="w-3.5 h-3.5 text-fuchsia-400" />
+                      <span className="hidden sm:inline">Living AI</span>
+                      <span className="sm:hidden">Live</span>
+                    </>
+                  )}
+                  {tab === "governance" && (
+                    <>
+                      <Lock className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="hidden sm:inline">ガバナンス</span>
+                      <span className="sm:hidden">Gov</span>
+                    </>
+                  )}
+                  {tab === "eval" && (
+                    <>
+                      <BarChart2 className="w-3.5 h-3.5 text-cyan-400" />
+                      <span className="hidden sm:inline">第三者評価</span>
+                      <span className="sm:hidden">Eval</span>
                     </>
                   )}
                 </button>
@@ -1669,6 +1720,454 @@ export default function ResultDashboard({ result }: Props) {
                     </div>
                   </>
                 )}
+              </motion.div>
+            )}
+
+            {missionTab === "evidence" && (
+              <motion.div
+                key="evidence"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {!result.evidenceEngine ? (
+                  <div className="flex justify-center p-8">
+                    <Search className="w-6 h-6 text-teal-400 animate-pulse" />
+                    <span className="ml-3 text-sm text-white/70">Evidence Engine is initializing...</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 space-y-4 relative overflow-hidden">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-teal-500" />
+                      <div className="flex items-center gap-2 mb-2">
+                        <Search className="w-4 h-4 text-teal-400" />
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Evidence Engine</h3>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5 flex flex-col justify-center items-center">
+                          <span className="text-[10px] text-white/40 block mb-1">Overall Status</span>
+                          <span className={`text-sm font-bold tracking-widest uppercase ${result.evidenceEngine.overallVerificationStatus === 'Verified' ? 'text-teal-400' : 'text-amber-400'}`}>
+                            {result.evidenceEngine.overallVerificationStatus}
+                          </span>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5 flex flex-col justify-center items-center">
+                          <span className="text-[10px] text-white/40 block mb-1">AI Agreement Rate</span>
+                          <span className="text-xl font-bold text-indigo-300 font-mono">
+                            {result.evidenceEngine.averageAgreementRate}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      {result.evidenceEngine.verifications?.map((v: any, idx: number) => (
+                        <div key={idx} className="bg-white/5 border border-white/5 rounded-xl p-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <h4 className="text-sm font-bold text-white">{v.claim}</h4>
+                            <SovereignBadge variant={v.status === 'Verified' ? 'emerald' : 'amber'}>
+                              {v.status}
+                            </SovereignBadge>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-white/50 mb-3">
+                            <span className="uppercase tracking-widest bg-white/10 px-1.5 py-0.5 rounded">{v.category}</span>
+                            <span>Confidence: {v.confidenceScore}%</span>
+                            <span>Agreement: {v.aiAgreementRate}%</span>
+                          </div>
+                          <p className="text-xs text-white/70 mb-3">{v.reasoning}</p>
+                          {v.sources && v.sources.length > 0 && (
+                            <div className="bg-black/30 rounded-lg p-3 space-y-2 border border-white/5">
+                              <span className="text-[10px] font-mono text-teal-400 uppercase tracking-widest block mb-1">Primary Sources</span>
+                              {v.sources.map((src: any, sIdx: number) => (
+                                <a key={sIdx} href={src.url} target="_blank" rel="noreferrer" className="flex items-center justify-between group hover:bg-white/5 p-1.5 rounded transition-colors">
+                                  <div className="flex items-center gap-2">
+                                    <ExternalLink className="w-3 h-3 text-white/40 group-hover:text-teal-400 transition-colors" />
+                                    <span className="text-xs text-white/80">{src.title}</span>
+                                  </div>
+                                  <div className="text-[10px] font-mono text-white/40">
+                                    Trust: <span className="text-teal-300">{src.reliabilityScore}</span>
+                                    <span className="mx-2">•</span>
+                                    Updated: {new Date(src.lastUpdated).toLocaleDateString()}
+                                  </div>
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                          <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
+                            <div className="text-[10px] text-teal-400 font-mono font-bold flex items-center gap-1.5">
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              VERIFIED BY: MULTI-AGENT CROSS-CHECK (Agreement: {v.aiAgreementRate}%)
+                            </div>
+                            {v.recalculatedValue && (
+                              <div className="text-[10px] text-white/50 font-mono">
+                                Recalculated: <span className="text-white">{v.recalculatedValue}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </motion.div>
+            )}
+
+            {missionTab === "predictive" && (
+              <motion.div
+                key="predictive"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {(!result.predictiveTimeline && !result.proactiveSuggestions && !result.automatedWorkflow) ? (
+                  <div className="flex justify-center p-8">
+                    <Clock className="w-6 h-6 text-orange-400 animate-pulse" />
+                    <span className="ml-3 text-sm text-white/70">Predictive timeline generating...</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Predictive Timeline */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 border-b border-white/5 pb-2">
+                        <Clock className="w-4 h-4 text-orange-400" />
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Predictive Timeline ({result.predictiveTimeline?.horizon})</h3>
+                      </div>
+                      <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-white/10 before:to-transparent">
+                        {result.predictiveTimeline?.events?.map((event: any, idx: number) => (
+                          <div key={event.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                            <div className="flex items-center justify-center w-10 h-10 rounded-full border border-orange-500/30 bg-[#0B0B0C] text-orange-400 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
+                              <span className="text-[10px] font-bold">{event.probability}%</span>
+                            </div>
+                            <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white/5 p-3 rounded-xl border border-white/5">
+                              <div className="flex justify-between items-center mb-1">
+                                <h4 className="text-xs font-bold text-white">{event.title}</h4>
+                                <span className="text-[9px] text-white/40 font-mono">{new Date(event.timestamp).toLocaleDateString()}</span>
+                              </div>
+                              <p className="text-[10px] text-white/60 mb-2">{event.description}</p>
+                              {event.recommendedAction && (
+                                <div className="text-[10px] text-orange-300 bg-orange-500/10 px-2 py-1 rounded inline-block">
+                                  Action: {event.recommendedAction}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Proactive Agent & Workflow */}
+                    <div className="space-y-6">
+                      {/* Proactive Suggestions */}
+                      {result.proactiveSuggestions && (
+                        <div className="bg-[#0B0B0C] border border-orange-500/10 rounded-2xl p-4">
+                          <h4 className="text-[10px] text-orange-400 font-mono tracking-widest uppercase mb-3 flex items-center gap-1.5">
+                            <Zap className="w-3.5 h-3.5" /> Proactive Agent
+                          </h4>
+                          <ul className="space-y-3">
+                            {result.proactiveSuggestions.map((ps: any) => (
+                              <li key={ps.id} className="text-[11px] text-white/70 bg-white/5 p-3 rounded-lg border border-white/5">
+                                <div className="flex justify-between items-center mb-2">
+                                  <span className="font-bold text-white">{ps.suggestion}</span>
+                                  <SovereignBadge variant="indigo">{ps.actionType}</SovereignBadge>
+                                </div>
+                                <div className="flex items-center justify-between text-[10px] text-white/50">
+                                  <span>Trigger: {ps.triggerEvent}</span>
+                                  <span>Confidence: {ps.confidence}%</span>
+                                </div>
+                                {!ps.isExecuted && (
+                                  <SovereignButton variant="secondary" className="w-full mt-3 py-1.5 text-[10px]">
+                                    Approve & Execute
+                                  </SovereignButton>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Workflow Automation */}
+                      {result.automatedWorkflow && (
+                        <div className="bg-[#0B0B0C] border border-blue-500/10 rounded-2xl p-4">
+                          <h4 className="text-[10px] text-blue-400 font-mono tracking-widest uppercase mb-3 flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5" /> Workflow Automation
+                          </h4>
+                          <div className="space-y-2">
+                            {result.automatedWorkflow.steps.map((step: any) => (
+                              <div key={step.stepId} className="flex items-center gap-3 bg-white/5 p-2 rounded-lg border border-white/5">
+                                <div className={`w-2 h-2 rounded-full ${step.status === 'Success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : step.status === 'Pending' ? 'bg-amber-400' : 'bg-white/20'}`} />
+                                <div className="flex-1">
+                                  <div className="text-[11px] font-bold text-white">{step.action}</div>
+                                  {step.result && <div className="text-[9px] text-white/50">{step.result}</div>}
+                                </div>
+                                <div className="text-[9px] font-mono text-white/40">{step.status}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {missionTab === "living" && (
+              <motion.div
+                key="living"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {!result.livingMemory ? (
+                  <div className="flex justify-center p-8">
+                    <Database className="w-6 h-6 text-fuchsia-400 animate-pulse" />
+                    <span className="ml-3 text-sm text-white/70">Initializing Living Memory...</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 border-b border-white/5 pb-2">
+                        <Database className="w-4 h-4 text-fuchsia-400" />
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Living Memory</h3>
+                      </div>
+                      <div className="space-y-3">
+                        {result.livingMemory.map((mem: any) => (
+                          <div key={mem.memoryId} className="bg-[#0B0B0C] border border-white/5 p-4 rounded-xl space-y-2">
+                            <div className="flex justify-between items-start">
+                              <span className="text-[9px] font-mono text-fuchsia-400 bg-fuchsia-500/10 px-2 py-1 rounded">ID: {mem.memoryId}</span>
+                              <span className="text-[9px] text-white/40">Accessed: {new Date(mem.lastAccessed).toLocaleString()}</span>
+                            </div>
+                            <p className="text-[11px] text-white/80">{mem.context}</p>
+                            <div className="flex items-center gap-2 mt-2">
+                              {mem.entities.map((ent: string, i: number) => (
+                                <span key={i} className="text-[9px] text-white/50 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded">
+                                  {ent}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="mt-2 text-[10px] text-white/40">
+                              Relevance Score: <span className="text-fuchsia-300 font-mono font-bold">{mem.relevanceScore}/100</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-6">
+                      {result.humanPreference && (
+                        <div className="bg-[#0B0B0C] border border-white/5 p-4 rounded-xl space-y-3">
+                          <h4 className="text-[10px] text-fuchsia-400 font-mono tracking-widest uppercase flex items-center gap-1.5">
+                            <User className="w-3.5 h-3.5" /> Human Preference Model
+                          </h4>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white/5 p-2 rounded border border-white/5">
+                              <div className="text-[9px] text-white/40 uppercase mb-1">UI Mode</div>
+                              <div className="text-[11px] text-white capitalize">{result.humanPreference.preferredUiMode}</div>
+                            </div>
+                            <div className="bg-white/5 p-2 rounded border border-white/5">
+                              <div className="text-[9px] text-white/40 uppercase mb-1">Verbosity</div>
+                              <div className="text-[11px] text-white capitalize">{result.humanPreference.verbosity}</div>
+                            </div>
+                          </div>
+                          <div className="bg-white/5 p-2 rounded border border-white/5">
+                            <div className="text-[9px] text-white/40 uppercase mb-1">Active Optimizations</div>
+                            <ul className="list-disc pl-4 text-[10px] text-white/70 space-y-1">
+                              {result.humanPreference.workflowOptimizations.map((opt: string, i: number) => (
+                                <li key={i}>{opt}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {missionTab === "governance" && (
+              <motion.div
+                key="governance"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {!result.governanceEngine ? (
+                  <div className="flex justify-center p-8">
+                    <Lock className="w-6 h-6 text-slate-400 animate-pulse" />
+                    <span className="ml-3 text-sm text-white/70">Governance Engine is auditing...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-[#0B0B0C] border border-emerald-500/20 p-4 rounded-xl relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500" />
+                        <h4 className="text-[10px] text-white/50 font-mono tracking-widest uppercase mb-1">Status</h4>
+                        <div className="text-lg font-bold text-emerald-400 uppercase">{result.governanceEngine.complianceStatus}</div>
+                        <div className="text-[9px] text-white/40 mt-1">Audit: {new Date(result.governanceEngine.lastAuditTime).toLocaleString()}</div>
+                      </div>
+                      
+                      <div className="bg-[#0B0B0C] border border-white/5 p-4 rounded-xl">
+                        <h4 className="text-[10px] text-white/50 font-mono tracking-widest uppercase mb-1">Unified Score</h4>
+                        <div className="text-2xl font-bold font-mono text-indigo-300">{result.governanceEngine.unifiedScore}</div>
+                        <div className="text-[9px] text-white/40 mt-1">Truth + Evidence + Quality</div>
+                      </div>
+                      
+                      <div className="bg-[#0B0B0C] border border-white/5 p-4 rounded-xl">
+                        <h4 className="text-[10px] text-white/50 font-mono tracking-widest uppercase mb-1">Active Rules</h4>
+                        <ul className="text-[10px] text-white/70 space-y-1">
+                          {result.governanceEngine.activeRules.map((rule: string, i: number) => (
+                            <li key={i} className="flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3 text-slate-400" />
+                              <span>{rule}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                    
+                    {/* AI Performance Optimizer */}
+                    {result.aiPerformance && (
+                      <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 space-y-4">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-rose-400" />
+                          AI Performance Optimizer
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="border-b border-white/10">
+                                <th className="py-2 text-[10px] font-mono text-white/40 uppercase">Model</th>
+                                <th className="py-2 text-[10px] font-mono text-white/40 uppercase">Quality</th>
+                                <th className="py-2 text-[10px] font-mono text-white/40 uppercase">Speed (ms)</th>
+                                <th className="py-2 text-[10px] font-mono text-white/40 uppercase">Cost/Token</th>
+                                <th className="py-2 text-[10px] font-mono text-white/40 uppercase">Success %</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {result.aiPerformance.map((ai: any) => (
+                                <tr key={ai.aiId} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                  <td className="py-3 text-[11px] font-bold text-white">{ai.aiName}</td>
+                                  <td className="py-3 text-[11px] font-mono text-emerald-400">{ai.qualityScore}</td>
+                                  <td className="py-3 text-[11px] font-mono text-white/70">{ai.speedMs}</td>
+                                  <td className="py-3 text-[11px] font-mono text-white/70">${ai.costPerToken}</td>
+                                  <td className="py-3 text-[11px] font-mono text-indigo-300">{ai.successRate}%</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Autonomous Improvements */}
+                    {result.autonomousImprovements && (
+                      <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 space-y-4">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                          <RefreshCw className="w-4 h-4 text-indigo-400" />
+                          Autonomous Improvement Proposals
+                        </h3>
+                        <div className="space-y-3">
+                          {result.autonomousImprovements.map((imp: any) => (
+                            <div key={imp.id} className="bg-white/5 p-3 rounded-xl border border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <SovereignBadge variant={imp.priority === 'high' ? 'red' : imp.priority === 'medium' ? 'amber' : 'indigo'}>
+                                    {imp.priority}
+                                  </SovereignBadge>
+                                  <span className="text-[10px] font-mono text-white/40 uppercase bg-white/10 px-1.5 py-0.5 rounded">{imp.area}</span>
+                                </div>
+                                <div className="text-[11px] font-bold text-white">{imp.suggestion}</div>
+                                <div className="text-[10px] text-emerald-400 mt-1">Impact: {imp.potentialImpact}</div>
+                              </div>
+                              {!imp.isImplemented && (
+                                <SovereignButton variant="secondary" size="sm" className="text-[10px]">
+                                  Apply Fix
+                                </SovereignButton>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {/* TAB 11: THIRD-PARTY EVALUATION                   */}
+            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {missionTab === "eval" && (
+              <motion.div
+                key="eval"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                    <div>
+                      <h3 className="text-lg font-bold text-white mb-1">第三者AIレビュー機構 (Third-Party Evaluation)</h3>
+                      <p className="text-xs text-white/50">
+                        外部のトップモデル（ChatGPT, Claude, Gemini, Manusなど）による厳格なソースコード・設計レビューを行い、世界トップ企業水準との差分を定量評価します。
+                      </p>
+                    </div>
+                    <SovereignButton variant="primary" className="shrink-0 flex items-center gap-2" onClick={() => window.alert("CI/CD pipeline integration is ready. Extracting workspace to review models...")}>
+                      <BarChart2 className="w-4 h-4" />
+                      評価スクリプトを起動
+                    </SovereignButton>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-white/5 border border-white/5 rounded-xl p-4">
+                      <h4 className="text-[10px] font-mono tracking-wider text-cyan-400 uppercase mb-3">Model Verification Status</h4>
+                      <ul className="space-y-2">
+                        {[
+                          { model: "ChatGPT (GPT-4o)", status: "Pending", org: "OpenAI" },
+                          { model: "Claude (3.5 Sonnet)", status: "Pending", org: "Anthropic" },
+                          { model: "Gemini (1.5 Pro)", status: "Pending", org: "Google" },
+                          { model: "Manus", status: "Pending", org: "Manus" }
+                        ].map(ai => (
+                          <li key={ai.model} className="flex items-center justify-between p-2 bg-black/40 rounded-lg border border-white/5">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-white">{ai.model}</span>
+                              <span className="text-[9px] text-white/40">{ai.org}</span>
+                            </div>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-white/50">
+                              {ai.status}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="bg-white/5 border border-white/5 rounded-xl p-4">
+                      <h4 className="text-[10px] font-mono tracking-wider text-cyan-400 uppercase mb-3">Evaluation Metrics (UQI)</h4>
+                      <ul className="space-y-3">
+                        {[
+                          { label: "Code Architecture (SOLID)", target: "95+" },
+                          { label: "Performance & Scalability", target: "90+" },
+                          { label: "Security & Validation", target: "98+" },
+                          { label: "UX/UI (Design Tokens)", target: "95+" }
+                        ].map(metric => (
+                          <div key={metric.label}>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-white/70">{metric.label}</span>
+                              <span className="text-white font-mono">Target: {metric.target}</span>
+                            </div>
+                            <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                              <div className="w-0 h-full bg-cyan-500/50" />
+                            </div>
+                          </div>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

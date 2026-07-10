@@ -18,7 +18,7 @@ const UniversalSearch = React.lazy(() => import("./components/os/UniversalSearch
 const AIAssistantSidebar = React.lazy(() => import("./components/os/AIAssistantSidebar"));
 const BrainOverview = React.lazy(() => import("./components/os/BrainOverview"));
 const WorkspaceCard = React.lazy(() => import("./components/os/WorkspaceCard"));
-const HomeScreen = React.lazy(() => import("./components/os/HomeScreen"));
+const HomeScreen = React.lazy(() => import("./components/os/HomeScreen")) as any;
 const WorkspaceApp = React.lazy(() => import("./components/os/WorkspaceApp"));
 const OrganizationApp = React.lazy(() => import("./components/os/OrganizationApp"));
 const Boardroom = React.lazy(() => import("./components/os/Boardroom"));
@@ -26,6 +26,10 @@ const MissionRuntimeConsole = React.lazy(() => import("./components/os/MissionRu
 const RealTimeSwarmDebugger = React.lazy(() => import("./components/os/RealTimeSwarmDebugger"));
 const DesignSystemV3 = React.lazy(() => import("./components/os/DesignSystemV3"));
 const HomeExplanations = React.lazy(() => import("./components/os/HomeExplanations"));
+const UniversalCommandPalette = React.lazy(() => import("./components/os/UniversalCommandPalette"));
+const UniversalHistoryModal = React.lazy(() => import("./components/os/UniversalHistoryModal"));
+const FloatingAIAssistant = React.lazy(() => import("./components/os/FloatingAIAssistant"));
+const UniversalContextMenu = React.lazy(() => import("./components/os/UniversalContextMenu"));
 import { 
   Search, 
   Shield,
@@ -61,6 +65,9 @@ import {
   Award,
   Bot,
   Network,
+  Columns,
+  Eye,
+  Monitor,
 
 
 
@@ -68,6 +75,7 @@ import {
 } from "lucide-react";
 import { cn, ProductionLogger, SafeStorage } from "./utils";
 import { useAppState, CATEGORIES } from "./hooks/useAppState";
+import { dnaEngine } from "./lib/dna-engine/DNAEngine";
 
 const PersonalEditionApp = React.lazy(() => import("./components/personal/PersonalEditionApp"));
 const RoutingTester = React.lazy(() => import("./components/personal/RoutingTester"));
@@ -121,6 +129,22 @@ export default function App() {
   } = useAppState();
 
   const [activeDocModal, setActiveDocModal] = useState<'privacy' | 'terms' | 'support' | null>(null);
+  const [focusMode, setFocusMode] = useState<"balanced" | "left" | "right" | "comparison">("balanced");
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
+  React.useEffect(() => {
+    dnaEngine.initialize();
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(open => !open);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const renderSidebarBody = (onItemClick?: () => void) => {
     const isEn = settings.language === "en";
@@ -388,7 +412,13 @@ export default function App() {
         </div>
       </div>
     }>
-      <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-800 flex flex-col md:flex-row selection:bg-[#4F46E5]/20">
+      <div className={cn(
+        "min-h-screen flex flex-col md:flex-row transition-all duration-500",
+        settings.uiMode === "developer" && "bg-[#090C15] font-mono text-slate-100 selection:bg-emerald-500/20",
+        settings.uiMode === "business" && "bg-[#FAF9F6] font-sans text-slate-900 selection:bg-amber-500/20",
+        settings.uiMode === "family" && "bg-orange-50/20 font-sans text-slate-800 selection:bg-rose-500/10",
+        (!settings.uiMode || settings.uiMode === "normal") && "bg-[#F8FAFC] font-sans text-slate-800 selection:bg-[#4F46E5]/20"
+      )}>
       
       {/* MOBILE SIDEBAR DRAWER */}
       <AnimatePresence>
@@ -424,9 +454,20 @@ export default function App() {
                     <Layers className="w-4.5 h-4.5 text-white" />
                   </div>
                   <div>
-                    <h1 className="text-sm font-black tracking-wider bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
-                      Intelligence OS
-                    </h1>
+                    <div className="flex items-center gap-1.5">
+                      <h1 className="text-sm font-black tracking-wider bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
+                        Intelligence OS
+                      </h1>
+                      <span className={cn(
+                        "text-[7px] font-bold px-1.5 py-0.5 rounded font-sans uppercase tracking-wider shrink-0",
+                        settings.uiMode === "developer" && "bg-emerald-500/25 text-emerald-400 border border-emerald-500/30",
+                        settings.uiMode === "business" && "bg-amber-500/25 text-amber-400 border border-amber-500/30",
+                        settings.uiMode === "family" && "bg-pink-500/25 text-pink-400 border border-pink-500/30",
+                        (!settings.uiMode || settings.uiMode === "normal") && "bg-indigo-500/25 text-indigo-400 border border-indigo-500/30"
+                      )}>
+                        {settings.uiMode || "normal"}
+                      </span>
+                    </div>
                     <p className="text-[9px] text-slate-400 font-medium">Supreme Intellect OS</p>
                   </div>
                 </div>
@@ -455,9 +496,20 @@ export default function App() {
               <Layers className="w-4.5 h-4.5 text-white" />
             </div>
             <div>
-              <h1 className="text-sm font-black tracking-wider bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
-                Intelligence OS
-              </h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-sm font-black tracking-wider bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
+                  Intelligence OS
+                </h1>
+                <span className={cn(
+                  "text-[7px] font-bold px-1.5 py-0.5 rounded font-sans uppercase tracking-wider shrink-0",
+                  settings.uiMode === "developer" && "bg-emerald-500/25 text-emerald-400 border border-emerald-500/30",
+                  settings.uiMode === "business" && "bg-amber-500/25 text-amber-400 border border-amber-500/30",
+                  settings.uiMode === "family" && "bg-pink-500/25 text-pink-400 border border-pink-500/30",
+                  (!settings.uiMode || settings.uiMode === "normal") && "bg-indigo-500/25 text-indigo-400 border border-indigo-500/30"
+                )}>
+                  {settings.uiMode || "normal"}
+                </span>
+              </div>
               <p className="text-[9px] text-slate-400 font-medium">Supreme Intellect OS</p>
             </div>
           </div>
@@ -486,6 +538,27 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-3">
+            {/* Elegant Segmented UI Mode Selector */}
+            <div className="hidden lg:flex items-center bg-slate-100/60 dark:bg-[#151928]/40 border border-slate-200/40 dark:border-white/[0.04] p-1 rounded-full text-xs font-bold font-sans select-none shrink-0">
+              {(["normal", "developer", "business", "family"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => updateSettings({ ...settings, uiMode: mode })}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[10px] uppercase tracking-wider transition-all duration-300 cursor-pointer font-black",
+                    settings.uiMode === mode
+                      ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-md font-extrabold"
+                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                  )}
+                >
+                  {mode === "normal" && "Normal"}
+                  {mode === "developer" && "Developer"}
+                  {mode === "business" && "Business"}
+                  {mode === "family" && "Family"}
+                </button>
+              ))}
+            </div>
+
             <button
               id="universal-search-trigger"
               onClick={() => setIsSearchOpen(true)}
@@ -582,6 +655,7 @@ export default function App() {
                     setSelectedCategory(cat);
                   }}
                   developerMode={settings.developerMode}
+                  uiMode={settings.uiMode}
                 />
               </motion.div>
             )}
@@ -1600,15 +1674,114 @@ export default function App() {
 
             {/* 2. CHAT & TEMPLATE WORKSPACE (2-COLUMN INTEGRATED Cockpit) */}
             {(taskMode === "input" || taskMode === "result" || taskMode === "loading") && selectedCategory && (
-              <motion.div
-                key="workspace-grid"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"
-              >
-                {/* LEFT COLUMN: Input, Navigation, and Category Details (col-span-5) */}
-                <div className="lg:col-span-5 space-y-6">
+              <div className="space-y-6 w-full">
+                {/* SPRINT 7: ACOS SUPREME EXPERIENCE COCKPIT CONTROLLER */}
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-3 bg-white/75 dark:bg-[#0E111A]/85 backdrop-blur-xl border border-slate-200/50 dark:border-white/[0.05] rounded-2xl shadow-xl flex flex-col xl:flex-row items-center justify-between gap-4 w-full select-none"
+                >
+                  {/* Left Section: UI Theme Selector */}
+                  <div className="flex flex-col sm:flex-row items-center gap-3 w-full xl:w-auto">
+                    <span className="text-[10px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono shrink-0 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                      {settings.language === "en" ? "Engine UI Mode" : "UIモード"}
+                    </span>
+                    <div className="grid grid-cols-4 sm:flex bg-slate-100/80 dark:bg-[#151928]/60 p-0.5 rounded-xl text-xs font-bold font-sans border border-slate-200/30 dark:border-white/[0.02] w-full sm:w-auto">
+                      {[
+                        { id: "normal", label: "Normal", icon: "🍃", tooltip: "Default Harmonized HIG Theme" },
+                        { id: "developer", label: "Developer", icon: "💻", tooltip: "Low-level system telemetry & code stats" },
+                        { id: "business", label: "Business", icon: "📈", tooltip: "SWOT cash flow & ROI scorecard focus" },
+                        { id: "family", label: "Family", icon: "🏡", tooltip: "Friendly wording & warm visual canvas" }
+                      ].map((mode) => {
+                        const isSelected = settings.uiMode === mode.id;
+                        return (
+                          <button
+                            key={mode.id}
+                            onClick={() => updateSettings({ ...settings, uiMode: mode.id as any })}
+                            title={mode.tooltip}
+                            className={cn(
+                              "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all duration-300 cursor-pointer flex items-center justify-center gap-1 shrink-0",
+                              isSelected 
+                                ? "bg-slate-950 text-white dark:bg-indigo-600 dark:text-white shadow-md font-extrabold" 
+                                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                            )}
+                          >
+                            <span>{mode.icon}</span>
+                            <span>{mode.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Right Section: Focus Layout Selector */}
+                  <div className="flex flex-col sm:flex-row items-center gap-3 w-full xl:w-auto">
+                    <span className="text-[10px] font-black text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono shrink-0 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      {settings.language === "en" ? "Focus Layout" : "フォーカス"}
+                    </span>
+                    <div className="grid grid-cols-4 sm:flex bg-slate-100/80 dark:bg-[#151928]/60 p-0.5 rounded-xl text-xs font-bold font-sans border border-slate-200/30 dark:border-white/[0.02] w-full sm:w-auto">
+                      {(["balanced", "left", "right", "comparison"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={() => setFocusMode(mode)}
+                          className={cn(
+                            "px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-wider transition-all duration-300 cursor-pointer font-black flex items-center justify-center gap-1.5 shrink-0",
+                            focusMode === mode
+                              ? "bg-slate-950 text-white dark:bg-emerald-600 dark:text-white shadow-md font-extrabold"
+                              : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                          )}
+                        >
+                          {mode === "balanced" && (
+                            <>
+                              <Columns className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">{settings.language === "en" ? "Split" : "標準分割"}</span>
+                            </>
+                          )}
+                          {mode === "left" && (
+                            <>
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">{settings.language === "en" ? "Chat" : "チャット"}</span>
+                            </>
+                          )}
+                          {mode === "right" && (
+                            <>
+                              <Eye className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">{settings.language === "en" ? "Result" : "成果物"}</span>
+                            </>
+                          )}
+                          {mode === "comparison" && (
+                            <>
+                              <Monitor className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">{settings.language === "en" ? "Compare" : "会議体"}</span>
+                            </>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="hidden md:flex items-center gap-1.5 text-[9px] text-slate-400 dark:text-slate-500 font-bold font-mono">
+                      <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-neutral-700 rounded text-[8px]">⌘K</kbd>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  key="workspace-grid"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start w-full"
+                >
+                  {/* LEFT COLUMN: Input, Navigation, and Category Details */}
+                  <div className={cn(
+                    "space-y-6 transition-all duration-500",
+                    focusMode === "balanced" && "lg:col-span-5",
+                    focusMode === "left" && "lg:col-span-12",
+                    focusMode === "comparison" && "lg:col-span-6",
+                    focusMode === "right" && "hidden lg:hidden"
+                  )}>
                   {/* Category Header */}
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-white rounded-xl border border-slate-200/80 gap-4 shadow-sm">
                     <div className="flex items-center gap-3">
@@ -1701,8 +1874,21 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* RIGHT COLUMN: Results Dashboard, Interactive Outputs & Loading (col-span-7) */}
-                <div className="lg:col-span-7 space-y-6 bg-slate-50/40 p-4 lg:p-6 rounded-2xl border border-slate-200/50 min-h-[500px] flex flex-col">
+                {/* RIGHT COLUMN: Results Dashboard, Interactive Outputs & Loading */}
+                <div className={cn(
+                  "space-y-6 flex flex-col min-h-[500px] transition-all duration-500",
+                  settings.uiMode === "developer"
+                    ? "bg-[#0E1220]/80 border-emerald-500/20 text-emerald-400 p-4 lg:p-6 rounded-2xl border"
+                    : settings.uiMode === "business"
+                      ? "bg-amber-50/10 border-amber-200/30 p-4 lg:p-6 rounded-2xl border text-amber-950"
+                      : settings.uiMode === "family"
+                        ? "bg-rose-50/30 border-rose-100 p-4 lg:p-6 rounded-2xl border text-slate-800"
+                        : "bg-slate-50/40 border-slate-200/50 p-4 lg:p-6 rounded-2xl border text-slate-800",
+                  focusMode === "balanced" && "lg:col-span-7",
+                  focusMode === "right" && "lg:col-span-12",
+                  focusMode === "comparison" && "lg:col-span-6",
+                  focusMode === "left" && "hidden lg:hidden"
+                )}>
                   {taskMode === "input" && !result && (
                     <div className="flex flex-col items-center justify-center m-auto text-center py-12 px-4 space-y-4">
                       <div className="w-16 h-16 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-500 animate-pulse">
@@ -1749,6 +1935,7 @@ export default function App() {
                   )}
                 </div>
               </motion.div>
+              </div>
             )}
           </motion.div>
         )}
@@ -1816,6 +2003,10 @@ export default function App() {
           }
           setTaskMode("result");
         }}
+        uiMode={settings.uiMode}
+        onSelectUIMode={(mode) => updateSettings({ ...settings, uiMode: mode })}
+        focusMode={focusMode}
+        onSelectFocusMode={setFocusMode}
       />
 
       {/* AI Assistant Sidebar */}
@@ -1950,6 +2141,25 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      <UniversalCommandPalette 
+        isOpen={isCommandPaletteOpen} 
+        onClose={() => setIsCommandPaletteOpen(false)} 
+        onSelectAction={(action) => {
+          console.log("Selected action:", action);
+          if (action.id === 'settings') setIsSettingsOpen(true);
+          if (action.id === 'open-history') setIsHistoryModalOpen(true);
+        }} 
+      />
+      <FloatingAIAssistant onInvokeAction={(q) => console.log("AI Assistant Invoked with:", q)} />
+      <UniversalContextMenu />
+
+      <UniversalHistoryModal 
+        isOpen={isHistoryModalOpen} 
+        onClose={() => setIsHistoryModalOpen(false)} 
+        savedMissions={savedMissions} 
+      />
+
     </div>
     </Suspense>
   );

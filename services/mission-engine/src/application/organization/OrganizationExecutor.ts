@@ -550,7 +550,7 @@ export class OrganizationExecutor {
     return this.missionHistory;
   }
 
-  public async executeMission(missionId: string, objective: string): Promise<OrganizationState> {
+  public async executeMission(missionId: string, objective: string, customClient?: any): Promise<OrganizationState> {
     // 1. Create Organization State
     const state = this.createOrganization(missionId, "IDL 2035 Autonomic Corp");
     state.teamFormation = this.determineTeams(objective);
@@ -567,7 +567,7 @@ export class OrganizationExecutor {
       });
     }
 
-    const client = new GeminiLLMClient();
+    const client = customClient || new GeminiLLMClient();
     
     // Stage A: Board Directive Stage
     state.currentState = OrgExecutionState.BOARD_DISTRIBUTED;

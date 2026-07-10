@@ -14,7 +14,8 @@ import {
   FileText,
   ChevronRight,
   Sparkles,
-  TrendingUp
+  TrendingUp,
+  Code
 } from "lucide-react";
 import { cn } from "../../utils";
 import { WorkspaceCategory, TaskTemplate } from "../../types";
@@ -49,6 +50,7 @@ interface HomeScreenProps {
   onViewMissionResult: (mission: SavedMission) => void;
   onSelectCategory: (category: WorkspaceCategory) => void;
   developerMode?: boolean;
+  uiMode?: "normal" | "developer" | "business" | "family";
 }
 
 export default function HomeScreen({
@@ -61,7 +63,8 @@ export default function HomeScreen({
   savedMissions,
   onViewMissionResult,
   onSelectCategory,
-  developerMode = false
+  developerMode = false,
+  uiMode = "normal"
 }: HomeScreenProps) {
   const [selectedSuggestCategory, setSelectedSuggestCategory] = useState<WorkspaceCategory>(categories[0]);
   const [inputFocused, setInputFocused] = useState(false);
@@ -103,16 +106,65 @@ export default function HomeScreen({
       {/* ② UNIVERSAL MISSION INPUT (第二優先 - Interactive Action Center) */}
       <div className="max-w-3xl mx-auto w-full space-y-6 text-center">
         <div className="space-y-3">
-          <SovereignBadge variant="indigo">
-            <Sparkles className="w-3 h-3 text-indigo-500 mr-1.5 animate-pulse" />
-            MISSION FIRST COMMAND SYSTEM
-          </SovereignBadge>
-          <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
-            What is your next mission?
-          </h2>
-          <p className="text-xs text-slate-600 dark:text-neutral-400 font-medium max-w-md mx-auto leading-relaxed">
-            AI boardroom orchestration executes complex research and workflows, formulating strategic deliverables instantly.
-          </p>
+          {uiMode === "developer" && (
+            <>
+              <SovereignBadge variant="emerald">
+                <Code className="w-3 h-3 text-emerald-500 mr-1.5 animate-pulse" />
+                ACOS COGNITIVE PIPELINE INTERFACE v2.1
+              </SovereignBadge>
+              <h2 className="text-2xl md:text-3xl font-mono font-bold text-emerald-400 tracking-wider">
+                &gt;_ ENTER_COGNITIVE_INSTRUCTIONS
+              </h2>
+              <p className="text-xs text-slate-400 font-mono max-w-lg mx-auto leading-relaxed">
+                Execute parallel LLM orchestrations with reactive event-logs, custom state hydration, and OQI-bible compliance constraints.
+              </p>
+            </>
+          )}
+
+          {uiMode === "business" && (
+            <>
+              <SovereignBadge variant="amber">
+                <TrendingUp className="w-3 h-3 text-amber-500 mr-1.5 animate-pulse" />
+                STRATEGIC VALUE FORMULATION COCKPIT
+              </SovereignBadge>
+              <h2 className="text-2xl md:text-3xl font-bold text-amber-900 dark:text-amber-200 tracking-tight">
+                Corporate Intelligence & Analysis Center
+              </h2>
+              <p className="text-xs text-slate-600 dark:text-neutral-400 font-medium max-w-md mx-auto leading-relaxed">
+                Formulate comprehensive competitor dossiers, structured SWOT matrices, and real-time cash flow ROI projection plans.
+              </p>
+            </>
+          )}
+
+          {uiMode === "family" && (
+            <>
+              <SovereignBadge variant="pink">
+                <Sparkles className="w-3 h-3 text-rose-500 mr-1.5 animate-pulse" />
+                おうちのAIファミリーコンシェルジュ 🌸
+              </SovereignBadge>
+              <h2 className="text-2xl md:text-3xl font-black text-rose-600 dark:text-rose-400 tracking-tight">
+                きょうはどんなことをお手伝いしましょうか？
+              </h2>
+              <p className="text-xs text-rose-700 dark:text-rose-300 font-bold max-w-md mx-auto leading-relaxed">
+                わからない調べもの、おうちのスケジュール整理、おいしいごはんのレシピ提案など、なんでもやさしくお答えします！
+              </p>
+            </>
+          )}
+
+          {(!uiMode || uiMode === "normal") && (
+            <>
+              <SovereignBadge variant="indigo">
+                <Sparkles className="w-3 h-3 text-indigo-500 mr-1.5 animate-pulse" />
+                LIVING AI ORCHESTRATION OS (ACOS 2.0)
+              </SovereignBadge>
+              <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
+                毎日進化するAIオーケストレーション
+              </h2>
+              <p className="text-xs text-slate-600 dark:text-neutral-400 font-medium max-w-md mx-auto leading-relaxed">
+                あなたと共に成長し、一歩先の未来を予測して行動する。世界最高のマルチエージェントOSが次のミッションを成功に導きます。
+              </p>
+            </>
+          )}
         </div>
 
         {/* Vision Pro-style spatial search bar */}
@@ -120,7 +172,13 @@ export default function HomeScreen({
           <SovereignGlassCard className={cn(
             "p-1.5 bg-white/70 dark:bg-neutral-950/20 transition-all duration-300",
             inputFocused 
-              ? "border-indigo-500/40 dark:border-indigo-500/30 ring-8 ring-indigo-500/5 dark:ring-indigo-500/5 scale-[1.005]" 
+              ? uiMode === "developer" 
+                ? "border-emerald-500/40 ring-8 ring-emerald-500/5 scale-[1.005]"
+                : uiMode === "business"
+                  ? "border-amber-500/40 ring-8 ring-amber-500/5 scale-[1.005]"
+                  : uiMode === "family"
+                    ? "border-rose-500/40 ring-8 ring-rose-500/5 scale-[1.005]"
+                    : "border-indigo-500/40 ring-8 ring-indigo-500/5 scale-[1.005]"
               : ""
           )}>
             <form onSubmit={(e) => handleAnalyze(e)} className="relative flex items-center">
@@ -134,7 +192,15 @@ export default function HomeScreen({
                 onChange={(e) => setPrompt(e.target.value)}
                 onFocus={() => setInputFocused(true)}
                 onBlur={() => setInputFocused(false)}
-                placeholder="Describe your target... (e.g. SWOT analysis, competitor market intelligence)"
+                placeholder={
+                  uiMode === "developer"
+                    ? "root@acos_kernel:~$ exec_pipeline --task=\"SWOT analysis\" --target=\"New AI SaaS\""
+                    : uiMode === "business"
+                      ? "新規事業展開に向けたSWOT戦略立案と3年間の期待利益予測モデルの構築"
+                      : uiMode === "family"
+                        ? "おうちでできる簡単で美味しいパスタのレシピと買い出しリストを考えて！"
+                        : "次のミッションを記述してください... (例: 最新の生成AI市場調査と3年後のシナリオ予測)"
+                }
                 className="w-full bg-transparent border-none outline-none pl-12 pr-28 py-3.5 text-xs font-semibold text-slate-800 dark:text-neutral-200 placeholder:text-slate-400 dark:placeholder:text-neutral-600 focus:ring-0 focus:border-transparent shadow-none"
               />
               <div className="absolute right-2 flex items-center gap-2">
@@ -148,10 +214,29 @@ export default function HomeScreen({
                   data-testid="mission-execute-button"
                   variant="primary"
                   size="sm"
-                  className="rounded-xl px-4 py-2 text-xs font-bold"
+                  className={cn(
+                    "rounded-xl px-4 py-2 text-xs font-bold transition-all duration-300",
+                    uiMode === "developer" && "bg-emerald-600 hover:bg-emerald-500 border-emerald-500 hover:shadow-lg hover:shadow-emerald-500/20",
+                    uiMode === "family" && "bg-rose-500 hover:bg-rose-400 border-rose-400 hover:shadow-lg hover:shadow-rose-500/10",
+                    uiMode === "business" && "bg-amber-600 hover:bg-amber-500 border-amber-500 hover:shadow-lg hover:shadow-amber-500/20"
+                  )}
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Execute</span>
+                  {uiMode === "developer" ? (
+                    <>
+                      <Code className="w-3.5 h-3.5 animate-pulse" />
+                      <span>COMPILE & RUN</span>
+                    </>
+                  ) : uiMode === "family" ? (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>きいてみる</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>ミッション実行</span>
+                    </>
+                  )}
                 </SovereignButton>
               </div>
             </form>
@@ -359,17 +444,20 @@ export default function HomeScreen({
           </SovereignGlassCard>
 
           {/* Core Latency and Release rules Column */}
-          {developerMode ? (
-            <SovereignGlassCard className="p-6 flex flex-col justify-between min-h-[260px]">
+          {uiMode === "developer" || (uiMode === "normal" && developerMode) ? (
+            <SovereignGlassCard className="p-6 flex flex-col justify-between min-h-[260px] border-emerald-500/25">
               <div className="space-y-4">
-                <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-widest font-mono pb-2 block border-b border-slate-100 dark:border-white/[0.02]">
-                  Active Boardroom Status
-                </span>
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-white/[0.02]">
+                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest font-mono block">
+                    ⚡ Developer System Telemetry
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 rounded text-[8px] font-mono font-bold uppercase tracking-wider">UQI ACTIVE</span>
+                </div>
                 
                 <div className="space-y-2 pt-1 font-mono text-[10px]">
                   <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
                     <span className="text-slate-500 font-semibold font-sans">Gemini Master Brain</span>
-                    <span className="text-indigo-500 font-bold">98.4ms latency</span>
+                    <span className="text-emerald-500 font-bold">98.4ms latency</span>
                   </div>
                   <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
                     <span className="text-slate-500 font-semibold font-sans">Claude Analyst Agent</span>
@@ -386,13 +474,79 @@ export default function HomeScreen({
                 </div>
               </div>
 
-              <div className="p-4 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/10 rounded-2xl space-y-1.5 mt-4">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider font-mono">
+              <div className="p-4 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/10 rounded-2xl space-y-1.5 mt-4">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider font-mono">
                   <Award className="w-3.5 h-3.5" />
                   <span>Q5 Release Core Standard</span>
                 </div>
                 <p className="text-[11px] text-slate-600 dark:text-neutral-400 leading-normal font-medium">
                   No deliverables are committed to the persistent Workspace unless UQI evaluation reaches &gt;95 points.
+                </p>
+              </div>
+            </SovereignGlassCard>
+          ) : uiMode === "business" ? (
+            <SovereignGlassCard className="p-6 flex flex-col justify-between min-h-[260px] border-amber-500/25">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-white/[0.02]">
+                  <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-widest font-sans block">
+                    📈 Business ROI & Strategy
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 rounded text-[8px] font-sans font-bold uppercase tracking-wider">SWOT CONFIRMED</span>
+                </div>
+                
+                <div className="space-y-3 pt-1 text-xs">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
+                    <span className="text-slate-500 font-bold">ROI Projection Alignment</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">+180% / Q1 Forecast</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-white/[0.02]">
+                    <span className="text-slate-500 font-bold">Regulatory Compliance</span>
+                    <span className="text-slate-900 dark:text-white font-extrabold">100% Audit Passed</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-bold">Risk Exposure Rating</span>
+                    <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">Negligible (Q5 Level)</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/10 rounded-2xl space-y-1.5 mt-4">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider font-sans">
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Strategic Advantage Vector</span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-neutral-400 leading-normal font-medium">
+                  Autonomous workspace modules align with GAAP rules, organizational security guidelines, and business ROI scores.
+                </p>
+              </div>
+            </SovereignGlassCard>
+          ) : uiMode === "family" ? (
+            <SovereignGlassCard className="p-6 flex flex-col justify-between min-h-[260px] border-rose-400/20 bg-rose-50/5">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-white/[0.02]">
+                  <span className="text-[10px] font-bold text-rose-500 uppercase tracking-widest block">
+                    🏡 ファミリーアシスタント
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded text-[8px] font-bold uppercase tracking-wider">かんたんモード</span>
+                </div>
+                
+                <div className="space-y-3 pt-1 text-xs text-slate-700 dark:text-slate-300">
+                  <p className="leading-relaxed font-medium">
+                    難しい設定や専門的な数字はすべておまかせ。AIがご家族の使いやすさを最優先にサポートします。
+                  </p>
+                  <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 font-black">
+                    <span>⭐ 毎日がんばるマーク:</span>
+                    <span className="px-2 py-0.5 bg-rose-100 rounded-full text-[10px]">はなまる継続中！</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-rose-100/40 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/30 rounded-2xl space-y-1.5 mt-4">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider">
+                  <span>🏡 ご家族のあんしんルール</span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-neutral-400 leading-normal font-medium">
+                  自動安全フィルターが作動しています。個人情報や難しいデータは自動的に分かりやすく整理されます。
                 </p>
               </div>
             </SovereignGlassCard>

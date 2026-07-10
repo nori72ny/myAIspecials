@@ -22,6 +22,7 @@ export interface Settings {
   selectedAgents: string[]; // List of active agent IDs, e.g. ['gemini', 'openai']
   language: "ja" | "en";
   developerMode?: boolean;
+  uiMode?: "normal" | "developer" | "business" | "family";
 }
 
 export interface AIAgentConfig {
@@ -149,6 +150,67 @@ export interface OutcomeObject {
   dnaUpdate: string;          // Knowledge DNA更新
 }
 
+export interface EvidenceSource {
+  title: string;
+  url: string;
+  type: "primary" | "secondary" | "user" | "internal";
+  reliabilityScore: number; // 0-100
+  lastUpdated: string; // ISO date
+}
+
+export interface VerificationResult {
+  claim: string;
+  category: "fact" | "estimate" | "opinion";
+  status: "Verified" | "Partially Verified" | "Needs Review";
+  confidenceScore: number; // 0-100
+  sources: EvidenceSource[];
+  aiAgreementRate: number; // 0-100
+  recalculatedValue?: string; // For math/numbers
+  reasoning: string;
+}
+
+export interface EvidenceEngineData {
+  overallVerificationStatus: "Verified" | "Partially Verified" | "Needs Review";
+  averageAgreementRate: number;
+  verifications: VerificationResult[];
+}
+
+export interface PredictiveEvent {
+  id: string;
+  timestamp: string; // Expected time
+  title: string;
+  description: string;
+  probability: number; // 0-100
+  recommendedAction?: string;
+  contextSources: string[]; // Links to Knowledge/Memory graph nodes
+}
+
+export interface PredictiveTimelineData {
+  events: PredictiveEvent[];
+  horizon: string; // e.g. "Next 30 Days"
+}
+
+export interface ProactiveSuggestion {
+  id: string;
+  triggerEvent: string; // what triggered this suggestion
+  suggestion: string;
+  confidence: number;
+  actionType: "Automation" | "Notification" | "Pre-computation";
+  isExecuted: boolean;
+}
+
+export interface AutomatedWorkflow {
+  workflowId: string;
+  triggerMissionId: string;
+  steps: {
+    stepId: string;
+    action: string;
+    status: "Pending" | "Running" | "Success" | "Failed";
+    result?: string;
+  }[];
+  isComplete: boolean;
+}
+
 export interface AnalysisResult {
   // 1. Header & Metadata
   successScore: number;
@@ -231,6 +293,63 @@ export interface AnalysisResult {
 
   // 27. Mission Success Engine (MSE)
   originMissionSuccessEngineSpec?: OriginMissionSuccessEngine;
+  
+  // SPRINT 8 ADDITIONS
+  evidenceEngine?: EvidenceEngineData;
+  predictiveTimeline?: PredictiveTimelineData;
+  proactiveSuggestions?: ProactiveSuggestion[];
+  automatedWorkflow?: AutomatedWorkflow;
+  
+  // SPRINT 9 ADDITIONS
+  livingMemory?: LivingMemory[];
+  humanPreference?: HumanPreferenceModel;
+  autonomousImprovements?: AutonomousImprovement[];
+  aiPerformance?: AIPerformanceStats[];
+  governanceEngine?: GovernanceEngine;
+}
+
+// SPRINT 9 INTERFACES
+
+export interface LivingMemory {
+  memoryId: string;
+  context: string;
+  relevanceScore: number;
+  lastAccessed: string;
+  entities: string[];
+}
+
+export interface HumanPreferenceModel {
+  preferredUiMode: "normal" | "developer" | "business" | "family";
+  verbosity: "low" | "medium" | "high";
+  autoExecution: boolean;
+  theme: "light" | "dark" | "system";
+  workflowOptimizations: string[];
+}
+
+export interface AutonomousImprovement {
+  id: string;
+  area: "speed" | "quality" | "cost" | "usability";
+  suggestion: string;
+  priority: "high" | "medium" | "low";
+  potentialImpact: string;
+  isImplemented: boolean;
+}
+
+export interface AIPerformanceStats {
+  aiId: string;
+  aiName: string;
+  qualityScore: number; // 0-100
+  speedMs: number;
+  costPerToken: number;
+  successRate: number; // 0-100
+}
+
+export interface GovernanceEngine {
+  auditLogId: string;
+  complianceStatus: "Compliant" | "Needs Review" | "Violation";
+  lastAuditTime: string;
+  activeRules: string[];
+  unifiedScore: number; // Combines Truth, Evidence, Quality
 }
 
 export interface OriginMissionSuccessEngine {

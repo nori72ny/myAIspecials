@@ -15,7 +15,13 @@ import {
   Paperclip,
   TrendingUp,
   Shield,
-  HelpCircle
+  HelpCircle,
+  Code,
+  Users,
+  LayoutGrid,
+  Monitor,
+  Eye,
+  Columns
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "../../utils";
@@ -25,18 +31,31 @@ interface UniversalSearchProps {
   onClose: () => void;
   onSelectApp?: (app: string) => void;
   onViewMission?: (mission: any) => void;
+  uiMode?: "normal" | "developer" | "business" | "family";
+  onSelectUIMode?: (mode: "normal" | "developer" | "business" | "family") => void;
+  focusMode?: "balanced" | "left" | "right" | "comparison";
+  onSelectFocusMode?: (mode: "balanced" | "left" | "right" | "comparison") => void;
 }
 
 interface SearchItem {
   id: string;
-  category: "Project" | "Mission" | "Knowledge" | "Workspace" | "Marketplace";
+  category: "Project" | "Mission" | "Knowledge" | "Workspace" | "Marketplace" | "Command";
   title: string;
   subtitle: string;
   icon: React.ReactNode;
   action: () => void;
 }
 
-export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMission }: UniversalSearchProps) {
+export default function UniversalSearch({ 
+  isOpen, 
+  onClose, 
+  onSelectApp, 
+  onViewMission,
+  uiMode = "normal",
+  onSelectUIMode,
+  focusMode = "balanced",
+  onSelectFocusMode
+}: UniversalSearchProps) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -69,7 +88,7 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
     {
       id: "app-home",
       category: "Project",
-      title: "Home Workspace",
+      title: "Home Workspace / ホームワークスペース",
       subtitle: "Run new AI missions and view executive cockpit OEE logs",
       icon: <Home className="w-4 h-4 text-indigo-400" />,
       action: () => { onSelectApp?.("dashboard"); onClose(); }
@@ -77,7 +96,7 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
     {
       id: "app-workspace",
       category: "Project",
-      title: "Unified Active Workspace",
+      title: "Unified Active Workspace / ワークスペース",
       subtitle: "Manage all results, attached documents, briefings & AI debate threads",
       icon: <Briefcase className="w-4 h-4 text-amber-400" />,
       action: () => { onSelectApp?.("workspace"); onClose(); }
@@ -85,7 +104,7 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
     {
       id: "app-brain",
       category: "Project",
-      title: "Unified Brain Overview",
+      title: "Unified Brain Overview / ブレインシステム",
       subtitle: "Visualise OEvE cognitive knowledge maps, and memory networks",
       icon: <BrainCircuit className="w-4 h-4 text-emerald-400" />,
       action: () => { onSelectApp?.("brain"); onClose(); }
@@ -93,7 +112,7 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
     {
       id: "app-marketplace",
       category: "Project",
-      title: "Marketplace Templates",
+      title: "Marketplace Templates / テンプレートストア",
       subtitle: "Find professional pre-configured mission templates",
       icon: <Sparkles className="w-4 h-4 text-pink-400" />,
       action: () => { onSelectApp?.("marketplace"); onClose(); }
@@ -101,13 +120,80 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
     {
       id: "app-organization",
       category: "Project",
-      title: "Organization & Compliance Control",
+      title: "Organization & Compliance Control / 組織設定コックピット",
       subtitle: "Configure active model API credentials and OQI rule guidelines",
       icon: <Shield className="w-4 h-4 text-blue-400" />,
       action: () => { onSelectApp?.("organization"); onClose(); }
     },
 
-    // 2. Templates (Marketplace)
+    // 2. Command Palette Actions (UI Mode Selector & Focus Mode)
+    {
+      id: "cmd-mode-normal",
+      category: "Command",
+      title: "Switch to Normal UI Mode / ノーマルモード切替",
+      subtitle: "デフォルトの調和されたACOS 2.0インターフェースに切り替えます",
+      icon: <LayoutGrid className="w-4 h-4 text-indigo-400" />,
+      action: () => { onSelectUIMode?.("normal"); onClose(); }
+    },
+    {
+      id: "cmd-mode-developer",
+      category: "Command",
+      title: "Switch to Developer UI Mode / デベロッパーモード切替",
+      subtitle: "コード・低レベルシステム統計、ログ、詳細テレメトリーを表示します",
+      icon: <Code className="w-4 h-4 text-emerald-400" />,
+      action: () => { onSelectUIMode?.("developer"); onClose(); }
+    },
+    {
+      id: "cmd-mode-business",
+      category: "Command",
+      title: "Switch to Business UI Mode / ビジネスモード切替",
+      subtitle: "ROI予測、SWOT、OQI適合性などの経営ダッシュボードを前面に表示します",
+      icon: <TrendingUp className="w-4 h-4 text-amber-400" />,
+      action: () => { onSelectUIMode?.("business"); onClose(); }
+    },
+    {
+      id: "cmd-mode-family",
+      category: "Command",
+      title: "Switch to Family UI Mode / ファミリーモード切替",
+      subtitle: "大きなフォント、優しい言葉遣いと親しみやすい案内画面に切り替えます",
+      icon: <Users className="w-4 h-4 text-rose-400" />,
+      action: () => { onSelectUIMode?.("family"); onClose(); }
+    },
+
+    {
+      id: "cmd-focus-balanced",
+      category: "Command",
+      title: "Focus Mode: Balanced / バランス分割表示",
+      subtitle: "入力フォームと成果物ダッシュボードを標準の左右2カラムで並べて表示します",
+      icon: <Columns className="w-4 h-4 text-indigo-400" />,
+      action: () => { onSelectFocusMode?.("balanced"); onClose(); }
+    },
+    {
+      id: "cmd-focus-left",
+      category: "Command",
+      title: "Focus Mode: Chat & Input Only / 入力チャットに集中",
+      subtitle: "左カラムのミッション入力・チャット構成エリアを全画面最大化します",
+      icon: <MessageSquare className="w-4 h-4 text-blue-400" />,
+      action: () => { onSelectFocusMode?.("left"); onClose(); }
+    },
+    {
+      id: "cmd-focus-right",
+      category: "Command",
+      title: "Focus Mode: Deliverables Only / 成果物ダッシュボードに集中",
+      subtitle: "右カラムのAI成果物・分析ダッシュボードを全画面最大化します",
+      icon: <Eye className="w-4 h-4 text-emerald-400" />,
+      action: () => { onSelectFocusMode?.("right"); onClose(); }
+    },
+    {
+      id: "cmd-focus-comparison",
+      category: "Command",
+      title: "Focus Mode: Comparison (Boardroom Split) / 比較並行ビュー",
+      subtitle: "複数エージェント会議体の詳細比較や並行議論ログを全画面最大化します",
+      icon: <Monitor className="w-4 h-4 text-purple-400" />,
+      action: () => { onSelectFocusMode?.("comparison"); onClose(); }
+    },
+
+    // 3. Templates (Marketplace)
     {
       id: "tpl-lawyer",
       category: "Marketplace",
@@ -133,7 +219,7 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
       action: () => { onSelectApp?.("dashboard"); onClose(); }
     },
 
-    // 3. Static Knowledge Nodes
+    // 4. Static Knowledge Nodes
     {
       id: "kn-ove",
       category: "Knowledge",
@@ -222,7 +308,7 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
       >
         {/* Spotlight Search Header */}
         <div className="flex items-center gap-3.5 px-5 py-4 border-b border-white/[0.06] bg-[#0E0E12]">
-          <Search className="w-5 h-5 text-indigo-400" />
+          <Search className="w-5 h-5 text-indigo-400 animate-pulse" />
           <input
             ref={inputRef}
             type="text"
@@ -231,7 +317,7 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
               setQuery(e.target.value);
               setSelectedIndex(0);
             }}
-            placeholder="Search missions, assets, knowledge, templates, projects... (Arrow keys, Enter)"
+            placeholder="Type 'developer', 'business', 'focus', 'swot' or any mission item..."
             className="flex-1 bg-transparent border-none text-sm outline-none placeholder:text-slate-500 text-slate-100 font-semibold"
           />
           <div className="flex items-center gap-1.5">
@@ -245,8 +331,8 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
           {filteredItems.length === 0 ? (
             <div className="p-10 text-center text-slate-500 flex flex-col items-center">
               <Command className="w-10 h-10 text-slate-800 mb-3 animate-pulse" />
-              <p className="text-xs font-bold text-slate-400">No matching assets found</p>
-              <p className="text-[10px] text-slate-600 mt-1">Try typing 'swot', 'workspace', 'home' or a custom mission term.</p>
+              <p className="text-xs font-bold text-slate-400">No matching commands or assets found</p>
+              <p className="text-[10px] text-slate-600 mt-1">Try typing 'developer', 'family', 'balanced' or 'swot' for rapid actions.</p>
             </div>
           ) : (
             filteredItems.map((item, idx) => {
@@ -262,7 +348,7 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
                       : "bg-transparent border-transparent text-slate-300 hover:bg-white/[0.03] hover:border-white/[0.04]"
                   )}
                 >
-                  <div className="flex items-center gap-3.5 truncate max-w-[85%]">
+                  <div className="flex items-center gap-3.5 truncate max-w-[80%]">
                     <div className={cn(
                       "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border",
                       isSelected 
@@ -289,10 +375,12 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
 
                   <div className="flex items-center gap-2 shrink-0 font-mono">
                     <span className={cn(
-                      "text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider",
-                      isSelected
-                        ? "bg-white/20 text-white"
-                        : "bg-white/5 text-slate-400"
+                      "text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider font-mono",
+                      item.category === "Command"
+                        ? (isSelected ? "bg-amber-400 text-slate-950 font-black" : "bg-amber-400/20 text-amber-300 border border-amber-500/10")
+                        : isSelected
+                          ? "bg-white/20 text-white"
+                          : "bg-white/5 text-slate-400"
                     )}>
                       {item.category}
                     </span>
@@ -311,7 +399,7 @@ export default function UniversalSearch({ isOpen, onClose, onSelectApp, onViewMi
         <div className="bg-[#09090D] px-5 py-3 border-t border-white/[0.06] flex items-center justify-between text-[10px] font-semibold text-slate-400 font-sans">
           <div className="flex items-center gap-1.5 text-indigo-400">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>ACOS Raycast Command Palette v2.0</span>
+            <span>ACOS Raycast Command Palette v2.1 (Sprint 7)</span>
           </div>
           <span className="text-[9px] text-slate-500">↑↓ keys to select • Enter to launch</span>
         </div>

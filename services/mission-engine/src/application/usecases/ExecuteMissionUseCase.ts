@@ -22,7 +22,7 @@ export class ExecuteMissionUseCase {
     }
 
     // Orchestrate with the Standard OEE Engine
-    await organizationExecutorInstance.executeMission(missionIdStr, objective);
+    await organizationExecutorInstance.executeMission(missionIdStr, objective, this.llmClient);
     
     // Sync the mission status in repository
     if (mission) {

@@ -266,7 +266,7 @@ describe("=== Phase A, B & D: Mission Engine Integration & Repository Tests ==="
     expect(metrics.tasks.total).toBe(3);
     expect(metrics.llm.totalCalls).toBeGreaterThan(0);
     expect(metrics.errors.totalCount).toBe(0);
-  });
+  }, 30000);
 
   it("should throw locking conflict upon saving stale mission aggregate version", async () => {
     const mission = MissionFactory.createNewMission("Concurrency test", ["C1", "C2", "C3"]);

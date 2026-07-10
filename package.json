@@ -11,7 +11,8 @@
     "lint": "tsc --noEmit && node scripts/design-token-lock.js",
     "test": "vitest run",
     "test:api": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
-    "test:e2e": "npm run test:api && npx playwright test"
+    "test:e2e": "npm run test:api && npx playwright test",
+    "eval:prepare": "tsx scripts/evaluate-codebase.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
