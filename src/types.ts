@@ -53,8 +53,8 @@ export interface MissionDetail {
   expectedOutput: string; // Expected Output (成果物)
   outputFormat: "PDF" | "PPT" | "WEB" | "APP" | "VIDEO" | "IMAGE" | "DOCUMENT"; // Output Format (成果物形式)
   qualityThreshold: string; // Quality Threshold (品質基準)
-  truthScore: number; // Truth Score (真実性)
-  confidenceScore: number; // Confidence Score (信頼度)
+  truthScore: number | string; // Truth Score (真実性)
+  confidenceScore: number | string; // Confidence Score (信頼度)
   roiPrediction: string; // ROI Prediction (期待利益)
   risk: string; //想定リスク
   workflow: string[]; // Workflow (自動生成)
@@ -153,15 +153,17 @@ export interface OutcomeObject {
 export interface EvidenceSource {
   title: string;
   url: string;
-  type: "primary" | "secondary" | "user" | "internal";
+  type: "official" | "paper" | "news" | "primary" | "secondary" | "user" | "internal" | string;
   reliabilityScore: number; // 0-100
   lastUpdated: string; // ISO date
+  fetchedAt: string; // ISO date/time of when the evidence was fetched
+  quote?: string; // 引用箇所 (exact cited text snippet)
 }
 
 export interface VerificationResult {
   claim: string;
   category: "fact" | "estimate" | "opinion";
-  status: "Verified" | "Partially Verified" | "Needs Review";
+  status: "Verified" | "Partially Verified" | "Needs Review" | "Unverified";
   confidenceScore: number; // 0-100
   sources: EvidenceSource[];
   aiAgreementRate: number; // 0-100
@@ -170,7 +172,7 @@ export interface VerificationResult {
 }
 
 export interface EvidenceEngineData {
-  overallVerificationStatus: "Verified" | "Partially Verified" | "Needs Review";
+  overallVerificationStatus: "Verified" | "Partially Verified" | "Needs Review" | "Unverified";
   averageAgreementRate: number;
   verifications: VerificationResult[];
 }

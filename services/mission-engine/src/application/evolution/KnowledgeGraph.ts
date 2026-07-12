@@ -1,8 +1,9 @@
-import { AgentRelation, AgentNode } from "./EvolutionTypes";
+import { AgentRelation, AgentNode, IntelligenceDNA } from "./EvolutionTypes";
 
 export class KnowledgeGraph {
   private nodes: Map<string, AgentNode> = new Map();
   private edges: AgentRelation[] = [];
+  private dnas: Map<string, IntelligenceDNA> = new Map();
 
   private static instance: KnowledgeGraph;
 
@@ -29,6 +30,18 @@ export class KnowledgeGraph {
 
   public getAllRelations(): AgentRelation[] {
     return this.edges;
+  }
+
+  public saveDNA(dna: IntelligenceDNA) {
+    this.dnas.set(dna.missionId, dna);
+  }
+
+  public getAllDNAs(): IntelligenceDNA[] {
+    return Array.from(this.dnas.values());
+  }
+
+  public getDNAByMissionId(missionId: string): IntelligenceDNA | undefined {
+    return this.dnas.get(missionId);
   }
 
   public recordInteraction(sourceId: string, targetId: string, type: "COLLABORATION" | "REVIEW" | "DELEGATION", success: boolean) {

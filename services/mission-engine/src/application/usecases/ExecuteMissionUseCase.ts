@@ -22,7 +22,7 @@ export class ExecuteMissionUseCase {
     }
 
     // Orchestrate with the Standard OEE Engine
-    await organizationExecutorInstance.executeMission(missionIdStr, objective, this.llmClient);
+    const orgState = await organizationExecutorInstance.executeMission(missionIdStr, objective, this.llmClient);
     
     // Sync the mission status in repository
     if (mission) {
@@ -51,6 +51,19 @@ export class ExecuteMissionUseCase {
       if (mission.status === MissionStatus.Active) {
         mission.startReview();
       }
+
+      // Run Output Validation using our OutputValidatorService
+      const { OutputValidatorService } = await import("../agent/governance/OutputValidatorService");
+      const validationResult = OutputValidatorService.validate(objective, orgState);
+
+      if (!validationResult.isValid) {
+        // Discontinue/Fail the mission
+        mission.discontinue(createUserId("system-admin"), `Output validation failed: ${validationResult.failureReason}`);
+        metrics.recordMissionEnd(mission.id, "Discontinued", taskIds.length);
+        await this.missionRepo.save(mission);
+        return;
+      }
+
       mission.complete(createUserId("system-admin"));
       metrics.recordMissionEnd(mission.id, "Completed", taskIds.length);
       await this.missionRepo.save(mission);

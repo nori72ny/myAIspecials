@@ -1,5 +1,6 @@
 import { AIModel, AICapability, RoutingRequest, RoutingResponse } from './types';
 import aiModelsData from './data/ai-models.json';
+import capabilityRules from './data/capability-rules.json';
 
 export class RoutingEngine {
   private models: AIModel[];
@@ -15,16 +16,13 @@ export class RoutingEngine {
     const text = input.toLowerCase();
     const capabilities = new Set<AICapability>();
 
-    if (text.match(/(考え|推論|理由|なぜ|理由を教えて|思考)/)) capabilities.add("Reasoning");
-    if (text.match(/(調べ|検索|最新|ニュース|リサーチ)/)) capabilities.add("Research");
-    if (text.match(/(文章|書いて|作成して|生成|ブログ|記事)/)) capabilities.add("Text Generation");
-    if (text.match(/(画像|絵|イラスト|写真)/)) capabilities.add("Image Generation");
-    if (text.match(/(コード|プログラム|実装|バグ|エラー|スクリプト|プログラミング)/)) capabilities.add("Code");
-    if (text.match(/(計算|数学|数式|統計|確率)/)) capabilities.add("Math");
-    if (text.match(/(法律|規約|契約|法務|リーガル)/)) capabilities.add("Law");
-    if (text.match(/(医療|病気|症状|健康|診断)/)) capabilities.add("Medical");
-    if (text.match(/(マーケティング|広告|宣伝|ペルソナ|ターゲット|市場)/)) capabilities.add("Marketing");
-    if (text.match(/(資料|スライド|プレゼン|パワポ)/)) capabilities.add("Presentation");
+    // Load and match using external rules config to avoid hardcoded regex
+    for (const rule of capabilityRules) {
+      const isMatched = rule.keywords.some(keyword => text.includes(keyword.toLowerCase()));
+      if (isMatched) {
+        capabilities.add(rule.capability as AICapability);
+      }
+    }
 
     // デフォルトはテキスト生成と推論とする
     if (capabilities.size === 0) {

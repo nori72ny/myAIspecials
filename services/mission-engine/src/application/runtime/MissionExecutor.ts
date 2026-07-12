@@ -97,6 +97,58 @@ export class MissionExecutor {
 
       // 3. Complete Mission
       // === START TRANSACTION ===
+      // Build a representation of OrganizationState for validation
+      const activeTasks = [];
+      const deliverables = [];
+      for (const taskId of tasks) {
+        const tObj = await this.taskRepo.findById(taskId);
+        if (tObj) {
+          activeTasks.push({
+            id: tObj.id,
+            missionId: tObj.missionId,
+            title: tObj.description,
+            description: tObj.description,
+            requiredCapability: "Research", // fallback/approx
+            priority: 5,
+            department: "Engineering" as any,
+            status: "Completed" as any,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          if (tObj.result) {
+            deliverables.push({
+              id: `del-${tObj.id}`,
+              taskId: tObj.id,
+              content: tObj.result,
+              authorAgentId: tObj.assignedAgentId || "agent-default",
+              version: 1,
+              createdAt: new Date()
+            });
+          }
+        }
+      }
+
+      const dummyState = {
+        orgId: "dummy-org",
+        missionId: mission.id,
+        currentState: "COMPLETED" as any,
+        activeTasks,
+        deliverables,
+        reviews: [],
+        escalations: [],
+        consensusRounds: [],
+        departments: {} as any,
+        roleMapping: {},
+        updatedAt: new Date()
+      };
+
+      const { OutputValidatorService } = await import("../agent/governance/OutputValidatorService");
+      const validationResult = OutputValidatorService.validate(mission.objective, dummyState);
+
+      if (!validationResult.isValid) {
+        throw new Error(`Output validation failed: ${validationResult.failureReason}`);
+      }
+
       mission.complete(createUserId("system-admin"));
       await this.missionRepo.save(mission);
       // === COMMIT TRANSACTION ===

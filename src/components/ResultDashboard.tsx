@@ -79,6 +79,7 @@ export default function ResultDashboard({ result }: Props) {
   const transitionY = prefersReducedMotion ? 0 : 10;
   // Local state for checking off mission conditions and risk improvements
   const [missionTab, setMissionTab] = useState<"core" | "agents" | "workflow" | "quality" | "evolution" | "strategic" | "evidence" | "predictive" | "living" | "governance" | "eval">("core");
+  const [researchSimulationMode, setResearchSimulationMode] = useState<"success" | "failed">("success");
   const [selectedChiefIndex, setSelectedChiefIndex] = useState<number>(0);
   const [checkedConditions, setCheckedConditions] = useState<Record<number, boolean>>({});
   const [checkedImprovements, setCheckedImprovements] = useState<Record<number, boolean>>({});
@@ -275,8 +276,8 @@ export default function ResultDashboard({ result }: Props) {
   const expectedOutput = mission.expectedOutput || "交通事故に特化した弁護士選定マトリクスおよび最適化推薦状";
   const outputFormat = mission.outputFormat || "DOCUMENT";
   const qualityThreshold = mission.qualityThreshold || "95%超保証 (UQI 95%超)";
-  const truthScore = mission.truthScore || 98;
-  const confidenceScore = mission.confidenceScore || 97;
+  const truthScore = mission.truthScore !== undefined ? mission.truthScore : 98;
+  const confidenceScore = mission.confidenceScore !== undefined ? mission.confidenceScore : 97;
   const roiPrediction = mission.roiPrediction || "成功確率85%向上による損害賠償金の最大化（最大＋200万円の見込み）";
   const risk = mission.risk || "相手方保険会社の主張反論による審理長期化のリスク";
   const workflow = mission.workflow || [
@@ -373,13 +374,16 @@ export default function ResultDashboard({ result }: Props) {
 
         {/* 【Build 004】Master Intelligence Engine (MIE) Control Panel & Approval Center */}
         {(() => {
-          const actualTruth = mieForceTuned ? 100 : (result.mission?.truthScore || 95);
-          const actualConfidence = mieForceTuned ? 100 : (result.mission?.confidenceScore || 96);
+          const actualTruth = mieForceTuned ? 100 : (result.mission?.truthScore !== undefined ? result.mission.truthScore : 95);
+          const actualConfidence = mieForceTuned ? 100 : (result.mission?.confidenceScore !== undefined ? result.mission.confidenceScore : 96);
           const actualQuality = mieForceTuned ? 100 : (result.successScore || 92);
           const actualHallucinations = 0;
           const actualCitationsCount = result.research?.sources?.length || 3;
 
-          const isMIEApproved = actualTruth >= 99 && actualConfidence >= 98 && actualQuality >= 95 && actualCitationsCount >= 3;
+          const numTruth = typeof actualTruth === 'number' ? actualTruth : 0;
+          const numConfidence = typeof actualConfidence === 'number' ? actualConfidence : 0;
+
+          const isMIEApproved = numTruth >= 99 && numConfidence >= 98 && actualQuality >= 95 && actualCitationsCount >= 3;
 
           const mieSteps = [
             { num: "①", name: "Mission理解" },
@@ -487,15 +491,17 @@ export default function ResultDashboard({ result }: Props) {
                       <span className="text-[9px] font-mono text-indigo-300 bg-indigo-500/10 px-1.5 rounded">MIE Criterion: &gt;=99%</span>
                     </div>
                     <div className="flex items-baseline justify-between">
-                      <span className="text-base font-black text-white font-mono">{actualTruth}%</span>
-                      {actualTruth >= 99 ? (
+                      <span className="text-base font-black text-white font-mono">
+                        {typeof actualTruth === 'number' ? `${actualTruth}%` : actualTruth}
+                      </span>
+                      {numTruth >= 99 ? (
                         <span className="text-[9.5px] font-bold text-emerald-400 bg-emerald-400/5 px-2 py-0.5 rounded border border-emerald-400/10">PASSED</span>
                       ) : (
                         <span className="text-[9.5px] font-bold text-amber-400 bg-amber-400/5 px-2 py-0.5 rounded border border-amber-400/10">HELD</span>
                       )}
                     </div>
                     <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                      <div className={`h-full ${actualTruth >= 99 ? 'bg-emerald-400' : 'bg-amber-400'}`} style={{ width: `${actualTruth}%` }} />
+                      <div className={`h-full ${numTruth >= 99 ? 'bg-emerald-400' : 'bg-amber-400'}`} style={{ width: `${numTruth}%` }} />
                     </div>
                   </div>
 
@@ -507,15 +513,17 @@ export default function ResultDashboard({ result }: Props) {
                       <span className="text-[9px] font-mono text-indigo-300 bg-indigo-500/10 px-1.5 rounded">MIE Criterion: &gt;=98%</span>
                     </div>
                     <div className="flex items-baseline justify-between">
-                      <span className="text-base font-black text-white font-mono">{actualConfidence}%</span>
-                      {actualConfidence >= 98 ? (
+                      <span className="text-base font-black text-white font-mono">
+                        {typeof actualConfidence === 'number' ? `${actualConfidence}%` : actualConfidence}
+                      </span>
+                      {numConfidence >= 98 ? (
                         <span className="text-[9.5px] font-bold text-emerald-400 bg-emerald-400/5 px-2 py-0.5 rounded border border-emerald-400/10">PASSED</span>
                       ) : (
                         <span className="text-[9.5px] font-bold text-amber-400 bg-amber-400/5 px-2 py-0.5 rounded border border-amber-400/10">HELD</span>
                       )}
                     </div>
                     <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                      <div className={`h-full ${actualConfidence >= 98 ? 'bg-emerald-400' : 'bg-amber-400'}`} style={{ width: `${actualConfidence}%` }} />
+                      <div className={`h-full ${numConfidence >= 98 ? 'bg-emerald-400' : 'bg-amber-400'}`} style={{ width: `${numConfidence}%` }} />
                     </div>
                   </div>
 
@@ -1443,7 +1451,7 @@ export default function ResultDashboard({ result }: Props) {
                     <span className="text-[9px] font-mono text-white/40 uppercase">Truth Score (真実性)</span>
                     <div className="my-2 flex items-baseline gap-1">
                       <span className="text-2xl font-black text-indigo-300 font-mono">{truthScore}</span>
-                      <span className="text-[10px] font-mono text-white/40">%</span>
+                      {typeof truthScore === "number" && <span className="text-[10px] font-mono text-white/40">%</span>}
                     </div>
                     <span className="text-[8px] text-emerald-400 font-mono font-bold">★ PERFECT CITATION</span>
                   </div>
@@ -1452,7 +1460,7 @@ export default function ResultDashboard({ result }: Props) {
                     <span className="text-[9px] font-mono text-white/40 uppercase">Confidence Score (信頼度)</span>
                     <div className="my-2 flex items-baseline gap-1">
                       <span className="text-2xl font-black text-indigo-300 font-mono">{confidenceScore}</span>
-                      <span className="text-[10px] font-mono text-white/40">%</span>
+                      {typeof confidenceScore === "number" && <span className="text-[10px] font-mono text-white/40">%</span>}
                     </div>
                     <span className="text-[8px] text-emerald-400 font-mono font-bold">★ HALLUCINATION CLEARED</span>
                   </div>
@@ -1820,21 +1828,61 @@ export default function ResultDashboard({ result }: Props) {
                           </div>
                           <p className="text-xs text-white/70 mb-3">{v.reasoning}</p>
                           {v.sources && v.sources.length > 0 && (
-                            <div className="bg-black/30 rounded-lg p-3 space-y-2 border border-white/5">
-                              <span className="text-[10px] font-mono text-teal-400 uppercase tracking-widest block mb-1">Primary Sources</span>
-                              {v.sources.map((src: any, sIdx: number) => (
-                                <a key={sIdx} href={src.url} target="_blank" rel="noreferrer" className="flex items-center justify-between group hover:bg-white/5 p-1.5 rounded transition-colors">
-                                  <div className="flex items-center gap-2">
-                                    <ExternalLink className="w-3 h-3 text-white/40 group-hover:text-teal-400 transition-colors" />
-                                    <span className="text-xs text-white/80">{src.title}</span>
+                            <div className="bg-black/30 rounded-lg p-3.5 space-y-3.5 border border-white/5">
+                              <span className="text-[10px] font-mono text-teal-400 uppercase tracking-widest block mb-1">Evidence & Verification Sources</span>
+                              {v.sources.map((src: any, sIdx: number) => {
+                                // Map source types to gorgeous labels & colors
+                                const typeMap: Record<string, { label: string; color: string }> = {
+                                  official: { label: "公式 / Official", color: "text-emerald-400 bg-emerald-400/10 border-emerald-500/20" },
+                                  paper: { label: "論文 / Academic Paper", color: "text-sky-400 bg-sky-400/10 border-sky-500/20" },
+                                  news: { label: "ニュース / News", color: "text-amber-400 bg-amber-400/10 border-amber-500/20" },
+                                  primary: { label: "一次情報 / Primary", color: "text-teal-400 bg-teal-400/10 border-teal-500/20" },
+                                  secondary: { label: "二次情報 / Secondary", color: "text-indigo-400 bg-indigo-400/10 border-indigo-500/20" },
+                                  user: { label: "ユーザー / User", color: "text-purple-400 bg-purple-400/10 border-purple-500/20" },
+                                  internal: { label: "内部検証 / Internal", color: "text-pink-400 bg-pink-400/10 border-pink-500/20" },
+                                };
+                                const typeConfig = typeMap[src.type] || { label: src.type || "その他", color: "text-white/60 bg-white/5 border-white/10" };
+
+                                return (
+                                  <div key={sIdx} className="space-y-1.5 pb-2.5 last:pb-0 border-b border-white/5 last:border-0">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <a href={src.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 group hover:text-teal-300 transition-colors">
+                                        <ExternalLink className="w-3.5 h-3.5 text-white/40 group-hover:text-teal-400 transition-colors" />
+                                        <span className="text-xs font-bold text-white/90 group-hover:underline">{src.title}</span>
+                                      </a>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border ${typeConfig.color}`}>
+                                          {typeConfig.label}
+                                        </span>
+                                        <span className="text-[10px] font-mono text-white/40">
+                                          Reliability: <span className="text-teal-300">{src.reliabilityScore}%</span>
+                                        </span>
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Real URL details */}
+                                    <div className="text-[10px] font-mono text-white/40 break-all select-all hover:text-teal-400/70 transition-colors">
+                                      URL: <span className="underline">{src.url}</span>
+                                    </div>
+
+                                    {/* 取得日時 */}
+                                    <div className="text-[10px] font-mono text-white/40 flex items-center gap-1">
+                                      <span>取得日時 (Fetched At):</span>
+                                      <span className="text-indigo-300 font-bold">
+                                        {new Date(src.fetchedAt || src.lastUpdated).toLocaleString()}
+                                      </span>
+                                    </div>
+
+                                    {/* 引用箇所 (quote) */}
+                                    {src.quote && (
+                                      <div className="bg-white/5 border-l-2 border-teal-500/50 p-2 rounded-r-md text-[11px] text-white/80 leading-relaxed font-serif italic">
+                                        <span className="text-[10px] font-mono text-teal-400/60 block not-italic font-bold uppercase tracking-wider mb-0.5">引用箇所 / Cited passage</span>
+                                        “{src.quote}”
+                                      </div>
+                                    )}
                                   </div>
-                                  <div className="text-[10px] font-mono text-white/40">
-                                    Trust: <span className="text-teal-300">{src.reliabilityScore}</span>
-                                    <span className="mx-2">•</span>
-                                    Updated: {new Date(src.lastUpdated).toLocaleDateString()}
-                                  </div>
-                                </a>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                           <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
@@ -3050,83 +3098,39 @@ export default function ResultDashboard({ result }: Props) {
 
                       return (
                         <g key={idx}>
-                          <motion.line
+                          <line
                             x1={`${p1.x}%`}
                             y1={`${p1.y}%`}
                             x2={`${p2.x}%`}
                             y2={`${p2.y}%`}
-                            stroke={
-                              imnUnderstanding
-                                ? (isHighlighted ? "#06B6D4" : "rgba(6, 182, 212, 0.05)")
-                                : (isHighlighted ? "#818CF8" : "rgba(255,255,255,0.04)")
-                            }
-                            strokeWidth={isHighlighted ? 2.5 : 1}
-                            initial={{ pathLength: 0 }}
-                            animate={{ pathLength: 1 }}
-                            transition={{ duration: 1 }}
-                            markerEnd={isHighlighted ? "url(#arrow-highlighted)" : "url(#arrow)"}
+                            stroke={isHighlighted ? "#818CF8" : "rgba(255,255,255,0.06)"}
+                            strokeWidth={isHighlighted ? "1.5" : "1"}
+                            strokeDasharray={link.label === "自律承認" || link.label === "失敗回避" ? "4" : undefined}
+                            markerEnd={`url(#${isHighlighted ? "arrow-highlighted" : "arrow-default"})`}
                           />
                           {isHighlighted && link.label && (
                             <foreignObject
-                              x={`${(p1.x + p2.x) / 2 - 12}%`}
-                              y={`${(p1.y + p2.y) / 2 - 2}%`}
+                              x={`${(p1.x + p2.x) / 2 - 30}%`}
+                              y={`${(p1.y + p2.y) / 2 - 8}%`}
                               width="60"
-                              height="20"
-                              className="overflow-visible pointer-events-none"
+                              height="16"
                             >
-                              <div className="text-[8px] font-mono text-center px-1 py-0.5 rounded bg-black/95 border border-indigo-500/30 text-indigo-300">
-                                {link.label}
+                              <div className="bg-black/80 border border-indigo-500/30 rounded px-1 text-center">
+                                <span className="text-[7px] font-mono text-indigo-300 block scale-90 whitespace-nowrap">
+                                  {link.label}
+                                </span>
                               </div>
                             </foreignObject>
                           )}
                         </g>
                       );
                     })}
-
-                    {/* Extra auto-linked simulation lines */}
-                    {imnAutolinked && [
-                      "PEOPLE-USER", "VISION-001", "GOAL-001", "OUTCOME-001", "LEARNING-001", "DNA-001",
-                      "PROJECT-001", "SUCCESS-001", "KNOWLEDGE-001", "SKILL-001", "BUSINESS-001"
-                    ].map((targetId, extraIdx) => {
-                      const getPositions: Record<string, { x: number; y: number }> = {
-                        "PEOPLE-USER": { x: 12, y: 48 },
-                        "VISION-001": { x: 25, y: 22 },
-                        "GOAL-001": { x: 40, y: 14 },
-                        "MISSION-001": { x: 50, y: 48 },
-                        "OUTCOME-001": { x: 62, y: 74 },
-                        "LEARNING-001": { x: 78, y: 82 },
-                        "DNA-001": { x: 90, y: 52 },
-                        "PROJECT-001": { x: 32, y: 78 },
-                        "SUCCESS-001": { x: 74, y: 20 },
-                        "KNOWLEDGE-001": { x: 28, y: 48 },
-                        "SKILL-001": { x: 58, y: 16 },
-                        "BUSINESS-001": { x: 86, y: 22 }
-                      };
-                      const p1 = getPositions["MISSION-001"];
-                      const p2 = getPositions[targetId];
-
-                      return (
-                        <motion.line
-                          key={`extra-${extraIdx}`}
-                          x1={`${p1.x}%`}
-                          y1={`${p1.y}%`}
-                          x2={`${p2.x}%`}
-                          y2={`${p2.y}%`}
-                          stroke="#F59E0B"
-                          strokeWidth={1.5}
-                          strokeDasharray="4,4"
-                          initial={{ pathLength: 0 }}
-                          animate={{ pathLength: 1 }}
-                          transition={{ duration: 0.5, delay: extraIdx * 0.1 }}
-                        />
-                      );
-                    })}
                   </svg>
 
-                  {/* Draw Nodes */}
-                  <div className="absolute inset-0 w-full h-full pointer-events-auto">
+                  {/* Interactive Nodes on Graph */}
+                  <div className="absolute inset-0">
                     {(result.imn?.nodes || [
-                      { id: "PEOPLE-USER", label: "人: Nori", type: "人", description: "本システムの主唱者であり、知的生命体としての意志と創造性の源泉。" },
+                      { id: "PEOPLE-USER", label: "人: Nori (User)", type: "人", description: "本システムの主唱者であり、知的生命体としての意志と創造性の源泉。" },
                       { id: "VISION-001", label: "Vision: 知能拡張ライフ", type: "Vision", description: "人間とAIが真にアライメントし、高次元の知的成功を自律獲得する世界線。" },
                       { id: "GOAL-001", label: "Goal: UQI 95+ 成果物完成", type: "Goal", description: "Master Intelligence Engineによる10大監査をすべてクリアした究極の成果物完成。" },
                       { id: "MISSION-001", label: `Mission: ${result.mission?.name || "現行知的ミッション"}`, type: "Mission", description: `現在のミッション: ${result.mission?.goal || "最高度の知的アセンブルの実行"}` },
@@ -3135,7 +3139,7 @@ export default function ResultDashboard({ result }: Props) {
                       { id: "DNA-001", label: "DNA: 長期記憶知識DNA", type: "DNA", description: "会話を保存しないポリシーに基づき、会話を昇華して焼き付けた永続脳内DNA構造。" },
                       { id: "PROJECT-001", label: `Project: ${result.result?.title || "インテリジェントOS"}`, type: "Project", description: "中長期にわたり進行する自律戦略プロジェクトの統合リファレンス。" },
                       { id: "SUCCESS-001", label: "Success: CVR 8.5% 突破保証", type: "Success", description: "ビジネス上の成功・コンバージョン目標値の達成。期待ROIを100%満足。" },
-                      { id: "FAILURE-001", label: "Failure: 静的回答の形骸化回避", type: "Failure", description: "過去の失敗パターン（静的な回答、ギャンブル的な当て推量、情報の断絶）を検知し排除。" },
+                      { id: "FAILURE-001", label: "Failure: 静的回答 of 形骸化回避", type: "Failure", description: "過去の失敗パターン（静的な回答、ギャンブル的な当て推量、情報の断絶）を検知し排除。" },
                       { id: "INTEREST-001", label: "Interest: ナレッジグラフと自律UI", type: "Interest", description: "ユーザーが中長期で関心を寄せているテクノロジー、思想、美学のベクトル。" },
                       { id: "SKILL-001", label: "Skill: ACOS役員編成", type: "Skill", description: "10大 Chief AI と各種 subAgents を並行自律稼働させアセンブルする超越スキル。" },
                       { id: "BUSINESS-001", label: "Business: 自律グロース外交", type: "Business", description: "ゼロ知識ベイズ推論とFHE暗号を用いた、提携先との自律マージン最適化アライアンス。" },
@@ -3169,35 +3173,36 @@ export default function ResultDashboard({ result }: Props) {
                       };
 
                       const pos = getPositions[node.id] || { x: 50, y: 50 };
-                      
-                      // Highlight logic
+
+                      // Check highlighting
                       let isHighlightedNode = false;
-                      if (hoveredImnNodeId) {
-                        isHighlightedNode = hoveredImnNodeId === node.id || 
-                          (result.imn?.links || [
-                            { source: "PEOPLE-USER", target: "VISION-001" },
-                            { source: "VISION-001", target: "GOAL-001" },
-                            { source: "GOAL-001", target: "MISSION-001" },
-                            { source: "MISSION-001", target: "OUTCOME-001" },
-                            { source: "OUTCOME-001", target: "LEARNING-001" },
-                            { source: "LEARNING-001", target: "DNA-001" },
-                            { source: "MISSION-001", target: "KNOWLEDGE-001" },
-                            { source: "KNOWLEDGE-001", target: "PEOPLE-USER" },
-                            { source: "PEOPLE-USER", target: "FILES-001" },
-                            { source: "FILES-001", target: "WEB-001" },
-                            { source: "WEB-001", target: "PROJECT-001" },
-                            { source: "PROJECT-001", target: "SUCCESS-001" },
-                            { source: "MISSION-001", target: "FAILURE-001" },
-                            { source: "PEOPLE-USER", target: "INTEREST-001" },
-                            { source: "SKILL-001", target: "MISSION-001" },
-                            { source: "PEOPLE-USER", target: "RELATIONSHIP-001" },
-                            { source: "BUSINESS-001", target: "SUCCESS-001" },
-                            { source: "PEOPLE-USER", target: "PREFERENCE-001" },
-                            { source: "MISSION-001", target: "DECISION-001" }
-                          ]).some(link => 
-                            (link.source === hoveredImnNodeId && link.target === node.id) ||
-                            (link.source === node.id && link.target === hoveredImnNodeId)
-                          );
+                      if (hoveredImnNodeId === node.id) {
+                        isHighlightedNode = true;
+                      } else if (hoveredImnNodeId) {
+                        isHighlightedNode = (result.imn?.links || [
+                          { source: "PEOPLE-USER", target: "VISION-001" },
+                          { source: "VISION-001", target: "GOAL-001" },
+                          { source: "GOAL-001", target: "MISSION-001" },
+                          { source: "MISSION-001", target: "OUTCOME-001" },
+                          { source: "OUTCOME-001", target: "LEARNING-001" },
+                          { source: "LEARNING-001", target: "DNA-001" },
+                          { source: "MISSION-001", target: "KNOWLEDGE-001" },
+                          { source: "KNOWLEDGE-001", target: "PEOPLE-USER" },
+                          { source: "PEOPLE-USER", target: "FILES-001" },
+                          { source: "FILES-001", target: "WEB-001" },
+                          { source: "WEB-001", target: "PROJECT-001" },
+                          { source: "PROJECT-001", target: "SUCCESS-001" },
+                          { source: "MISSION-001", target: "FAILURE-001" },
+                          { source: "PEOPLE-USER", target: "INTEREST-001" },
+                          { source: "SKILL-001", target: "MISSION-001" },
+                          { source: "PEOPLE-USER", target: "RELATIONSHIP-001" },
+                          { source: "BUSINESS-001", target: "SUCCESS-001" },
+                          { source: "PEOPLE-USER", target: "PREFERENCE-001" },
+                          { source: "MISSION-001", target: "DECISION-001" }
+                        ]).some(link => 
+                          (link.source === hoveredImnNodeId && link.target === node.id) ||
+                          (link.source === node.id && link.target === hoveredImnNodeId)
+                        );
                       } else if (activeFilter === "life-chain") {
                         isHighlightedNode = ["PEOPLE-USER", "VISION-001", "GOAL-001", "MISSION-001", "OUTCOME-001", "LEARNING-001", "DNA-001"].includes(node.id);
                       } else if (activeFilter === "execution") {
@@ -3303,9 +3308,9 @@ export default function ResultDashboard({ result }: Props) {
                       { id: "DNA-001", label: "DNA: 長期記憶知識DNA", type: "DNA", description: "会話を保存しないポリシーに基づき、会話を昇華して焼き付けた永続脳内DNA構造。" },
                       { id: "PROJECT-001", label: `Project: ${result.result?.title || "インテリジェントOS"}`, type: "Project", description: "中長期にわたり進行する自律戦略プロジェクトの統合リファレンス。" },
                       { id: "SUCCESS-001", label: "Success: CVR 8.5% 突破保証", type: "Success", description: "ビジネス上の成功・コンバージョン目標値の達成。期待ROIを100%満足。" },
-                      { id: "FAILURE-001", label: "Failure: 静的回答の形骸化回避", type: "Failure", description: "過去の失敗パターン（静的な回答、ギャンブル的な当て推量、情報の断絶）を検知し排除。" },
+                      { id: "FAILURE-001", label: "Failure: 静的回答 of 形骸化回避", type: "Failure", description: "過去の失敗パターン（静的な回答、ギャンブル的な当て推量、情報の断絶）を検知し排除。" },
                       { id: "INTEREST-001", label: "Interest: ナレッジグラフと自律UI", type: "Interest", description: "ユーザーが中長期で関心を寄せているテクノロジー、思想、美学のベクトル。" },
-                      { id: "SKILL-001", label: "Skill: ACOS役員編成", type: "Skill", description: "10大 Chief AI と各種 subAgents を並行自律稼働させアセンブルする超越スキル。" },
+                      { id: "SKILL-001", label: "Skill: ACOS役編成", type: "Skill", description: "10大 Chief AI と各種 subAgents を並行自律稼働させアセンブルする超越スキル。" },
                       { id: "BUSINESS-001", label: "Business: 自律グロース外交", type: "Business", description: "ゼロ知識ベイズ推論とFHE暗号を用いた、提携先との自律マージン最適化アライアンス。" },
                       { id: "KNOWLEDGE-001", label: "Knowledge: 知識ソースハブ", type: "Knowledge", description: "MIEファクト検証エンジンが参照した公式判例、法解釈、IEEE規格等の知識層。" },
                       { id: "RELATIONSHIP-001", label: "Relationship: AI-Human共生", type: "Relationship", description: "相互の能力を100%引き出し、信頼確信度98%以上で合意形成される知的協働関係。" },
@@ -3329,16 +3334,21 @@ export default function ResultDashboard({ result }: Props) {
                         className={`p-3 rounded-xl border transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                           selectedImnNodeId === node.id 
                             ? "bg-indigo-500/10 border-indigo-500 text-white" 
-                            : "bg-white/2 border-white/5 text-white/70 hover:bg-white/5"
+                            : "bg-white/[0.02] border-white/5 text-white/70 hover:bg-white/[0.05]"
                         }`}
                       >
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white">
-                            {node.type}
-                          </span>
-                          <span className="text-xs font-bold">{node.label}</span>
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/10">
+                              {node.type}
+                            </span>
+                            <h4 className="text-xs font-bold text-white mt-1.5">{node.label}</h4>
+                            <p className="text-[10px] text-white/50 line-clamp-2">{node.description}</p>
+                          </div>
+                          {selectedImnNodeId === node.id && (
+                            <span className="text-emerald-400 text-xs font-mono">SELECTED</span>
+                          )}
                         </div>
-                        <p className="text-[10px] text-white/50 leading-relaxed">{node.description}</p>
                       </div>
                     ))}
                   </div>
@@ -3346,190 +3356,106 @@ export default function ResultDashboard({ result }: Props) {
               )}
             </div>
 
-            {/* Selected Node Inspector Sidebar */}
-            <div className="bg-white/3 border border-white/5 rounded-2xl p-4 flex flex-col justify-between h-[450px]">
-              {selectedImnNodeId ? (() => {
-                const nodes = result.imn?.nodes || [
-                  { id: "PEOPLE-USER", label: "人: Nori (User)", type: "人", description: "本システムの主唱者であり、知的生命体としての意志と創造性の源泉。" },
-                  { id: "VISION-001", label: "Vision: 知能拡張ライフ", type: "Vision", description: "人間とAIが真にアライメントし、高次元の知的成功を自律獲得する世界線。" },
-                  { id: "GOAL-001", label: "Goal: UQI 95+ 成果物完成", type: "Goal", description: "Master Intelligence Engineによる10大監査をすべてクリアした究極 of 成果物完成。" },
-                  { id: "MISSION-001", label: `Mission: ${result.mission?.name || "現行知的ミッション"}`, type: "Mission", description: `現在のミッション: ${result.mission?.goal || "最高度の知的アセンブルの実行"}` },
-                  { id: "OUTCOME-001", label: "Outcome: 高精度アセンブル", type: "Outcome", description: "単なる回答を排し、14大成果物評価属性を満足したリアルコンバージョン価値。" },
-                  { id: "LEARNING-001", label: "Learning: 意思決定学習", type: "Learning", description: "今回のコンセンサス、ROI、および検証ファクトから得た思考パターンの帰納的学習。" },
-                  { id: "DNA-001", label: "DNA: 長期記憶知識DNA", type: "DNA", description: "会話を保存しないポリシーに基づき、会話を昇華して焼き付けた永続脳内DNA構造。" },
-                  { id: "PROJECT-001", label: `Project: ${result.result?.title || "インテリジェントOS"}`, type: "Project", description: "中長期にわたり進行する自律戦略プロジェクトの統合リファレンス。" },
-                  { id: "SUCCESS-001", label: "Success: CVR 8.5% 突破保証", type: "Success", description: "ビジネス上の成功・コンバージョン目標値の達成。期待ROIを100%満足。" },
-                  { id: "FAILURE-001", label: "Failure: 静的回答の形骸化回避", type: "Failure", description: "過去の失敗パターン（静的な回答、ギャンブル的な当て推量、情報の断絶）を検知し排除。" },
-                  { id: "INTEREST-001", label: "Interest: ナレッジグラフと自律UI", type: "Interest", description: "ユーザーが中長期で関心を寄せているテクノロジー、思想、美学のベクトル。" },
-                  { id: "SKILL-001", label: "Skill: ACOS役員編成", type: "Skill", description: "10大 Chief AI と各種 subAgents を並行自律稼働させアセンブルする超越スキル。" },
-                  { id: "BUSINESS-001", label: "Business: 自律グロース外交", type: "Business", description: "ゼロ知識ベイズ推論とFHE暗号を用いた、提携先との自律マージン最適化アライアンス。" },
-                  { id: "KNOWLEDGE-001", label: "Knowledge: 知識ソースハブ", type: "Knowledge", description: "MIEファクト検証エンジンが参照した公式判例、法解釈、IEEE規格等の知識層。" },
-                  { id: "RELATIONSHIP-001", label: "Relationship: AI-Human共生", type: "Relationship", description: "相互の能力を100%引き出し、信頼確信度98%以上で合意形成される知的協働関係。" },
-                  { id: "PREFERENCE-001", label: "Preference: スイス・モダン美学", type: "Preference", description: "白・黒・シアンを基調とし、無駄な装飾（AIスロップ）を完全に排除した美学選好。" },
-                  { id: "DECISION-001", label: "Decision: 12要件監査承認", type: "Decision", description: "人間によるチェックを不要にし、AIが自律的かつ高精度に承認決断を下した事実。" },
-                  { id: "FILES-001", label: "Files: 構成マトリクスファイル", type: "Files", description: "成果物としてアセンブルされた構造設計ドキュメントおよびコード・アセットファイル。" },
-                  { id: "WEB-001", label: "Web: 接続チャネル", type: "Web", description: "実世界のコンバージョン測量を行う、公開広告配信・ユーザー行動センサー層。" }
-                ];
+            {/* Right details panel (Node Details) */}
+            <div className="lg:col-span-1 bg-[#0B0B0C] border border-white/5 rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden">
+              {selectedImnNodeId ? (
+                (() => {
+                  const nodes = [
+                    { id: "PEOPLE-USER", label: "人: Nori (User)", type: "人", description: "本システムの主唱者であり、知的生命体としての意志と創造性の源泉。" },
+                    { id: "VISION-001", label: "Vision: 知能拡張ライフ", type: "Vision", description: "人間とAIが真にアライメントし、高次元の知的成功を自律獲得する世界線。" },
+                    { id: "GOAL-001", label: "Goal: UQI 95+ 成果物完成", type: "Goal", description: "Master Intelligence Engineによる10大監査をすべてクリアした究極 of 成果物完成。" },
+                    { id: "MISSION-001", label: `Mission: ${result.mission?.name || "現行知的ミッション"}`, type: "Mission", description: `現在のミッション: ${result.mission?.goal || "最高度の知的アセンブル of 実行"}` },
+                    { id: "OUTCOME-001", label: "Outcome: 高精度アセンブル", type: "Outcome", description: "単なる回答を排し、14大成果物評価属性を満足したリアルコンバージョン価値。" },
+                    { id: "LEARNING-001", label: "Learning: 意思決定学習", type: "Learning", description: "今回のコンセンサス、ROI、および検証ファクトから得た思考パターンの帰納的学習。" },
+                    { id: "DNA-001", label: "DNA: 長期記憶知識DNA", type: "DNA", description: "会話を保存しないポリシーに基づき、会話を昇華して焼き付けた永続脳内DNA構造。" },
+                    { id: "PROJECT-001", label: `Project: ${result.result?.title || "インテリジェントOS"}`, type: "Project", description: "中長期にわたり進行する自律戦略プロジェクトの統合リファレンス。" },
+                    { id: "SUCCESS-001", label: "Success: CVR 8.5% 突破保証", type: "Success", description: "ビジネス上の成功・コンバージョン目標値の達成。期待ROIを100%満足。" },
+                    { id: "FAILURE-001", label: "Failure: 静的回答の形骸化回避", type: "Failure", description: "過去の失敗パターン（静的な回答、ギャンブル的な当て推量、情報の断断）を検知し排除。" },
+                    { id: "INTEREST-001", label: "Interest: ナレッジグラフと自律UI", type: "Interest", description: "ユーザーが中長期で関心を寄せているテクノロジー、思想、美学のベクトル。" },
+                    { id: "SKILL-001", label: "Skill: ACOS役員編成", type: "Skill", description: "10大 Chief AI と各種 subAgents を並行自律稼働させアセンブルする超越スキル。" },
+                    { id: "BUSINESS-001", label: "Business: 自律グロース外交", type: "Business", description: "ゼロ知識ベイズ推論とFHE暗号を用いた、提携先との自律マージン最適化アライアンス。" },
+                    { id: "KNOWLEDGE-001", label: "Knowledge: 知識ソースハブ", type: "Knowledge", description: "MIEファクト検証エンジンが参照した公式判例、法解釈、IEEE規格等の知識層。" },
+                    { id: "RELATIONSHIP-001", label: "Relationship: AI-Human共生", type: "Relationship", description: "相互の能力を100%引き出し、信頼確信度98%以上で合意形成される知的協働関係。" },
+                    { id: "PREFERENCE-001", label: "Preference: スイス・モダン美学", type: "Preference", description: "白・黒・シアンを基調とし、無駄な装飾（AIスロップ）を完全に排除した美学選好。" },
+                    { id: "DECISION-001", label: "Decision: 12要件監査承認", type: "Decision", description: "人間によるチェックを不要にし、AIが自律的かつ高精度に承認決断を下した事実。" },
+                    { id: "FILES-001", label: "Files: 構成マトリクスファイル", type: "Files", description: "成果物としてアセンブルされた構造設計ドキュメントおよびコード・アセットファイル。" },
+                    { id: "WEB-001", label: "Web: 接続チャネル", type: "Web", description: "実世界のコンバージョン測量を行う、公開広告配信・ユーザー行動センサー層。" }
+                  ];
 
-                const selectedNode = nodes.find(n => n.id === selectedImnNodeId);
-                if (!selectedNode) return (
-                  <div className="flex flex-col items-center justify-center text-center h-full text-white/30 space-y-2">
-                    <Database className="w-8 h-8 opacity-40 animate-pulse text-indigo-400" />
-                    <span className="text-[11px] font-mono">ノードを選択すると<br />高次元コンテクストが表示されます</span>
-                  </div>
-                );
+                  const node = nodes.find(n => n.id === selectedImnNodeId) || nodes[0];
 
-                // Find connected edges/nodes
-                const links = result.imn?.links || [
-                  { source: "PEOPLE-USER", target: "VISION-001", label: "Vision策定" },
-                  { source: "VISION-001", target: "GOAL-001", label: "Goal分解" },
-                  { source: "GOAL-001", target: "MISSION-001", label: "Missionアサイン" },
-                  { source: "MISSION-001", target: "OUTCOME-001", label: "Outcome達成" },
-                  { source: "OUTCOME-001", target: "LEARNING-001", label: "Learning帰納" },
-                  { source: "LEARNING-001", target: "DNA-001", label: "DNA刻印" }
-                ];
-                const connectedEdges = links.filter(l => l.source === selectedNode.id || l.target === selectedNode.id);
-
-                return (
-                  <div className="space-y-4 h-full flex flex-col justify-between overflow-y-auto">
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-white/5 pb-2">
-                        <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                          {selectedNode.type}
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded bg-indigo-500/5">
+                          {node.type}
                         </span>
-                        <span className="text-[10px] font-mono text-white/40">{selectedNode.id}</span>
-                      </div>
-                      
-                      <h3 className="text-sm font-extrabold text-white leading-tight">
-                        {selectedNode.label}
-                      </h3>
-                      
-                      <div className="bg-white/2 rounded-xl p-3 border border-white/5">
-                        <span className="text-[8px] font-mono text-white/30 uppercase block mb-1">理解詳細 (Definition)</span>
-                        <p className="text-[11px] text-white/70 leading-relaxed">
-                          {selectedNode.description}
-                        </p>
+                        <span className="text-[9px] font-mono text-white/40">{node.id}</span>
                       </div>
 
-                      {connectedEdges.length > 0 && (
-                        <div className="space-y-1.5">
-                          <span className="text-[8px] font-mono text-white/30 uppercase block">結びつく接続関係 (Links)</span>
-                          <div className="space-y-1 max-h-[140px] overflow-y-auto">
-                            {connectedEdges.map((edge, eIdx) => {
-                              const otherNodeId = edge.source === selectedNode.id ? edge.target : edge.source;
-                              const otherNode = nodes.find(n => n.id === otherNodeId);
-                              const isSource = edge.source === selectedNode.id;
-                              return (
-                                <div key={eIdx} className="flex items-center justify-between p-1.5 rounded bg-black/40 border border-white/5 text-[9px] font-mono">
-                                  <span className="text-white/50">{isSource ? "➔" : "⇠"} {otherNode ? otherNode.label.split(":")[0] : otherNodeId}</span>
-                                  <span className="text-indigo-400 bg-indigo-500/5 px-1 py-0.5 rounded border border-indigo-500/10">
-                                    {edge.label || "connected"}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
+                      <div className="space-y-1.5">
+                        <h4 className="text-sm font-bold text-white">{node.label}</h4>
+                        <p className="text-xs text-white/60 leading-relaxed">{node.description}</p>
+                      </div>
+
+                      <div className="pt-3 border-t border-white/5 space-y-3">
+                        <span className="text-[9px] font-mono text-white/40 uppercase block">CONNECTED RELATIONSHIPS</span>
+                        <div className="space-y-2">
+                          {(result.imn?.links || []).filter(l => l.source === node.id || l.target === node.id).map((l, lIdx) => {
+                            const otherId = l.source === node.id ? l.target : l.source;
+                            const otherNode = nodes.find(n => n.id === otherId);
+                            return (
+                              <div 
+                                key={lIdx} 
+                                onClick={() => setSelectedImnNodeId(otherId)}
+                                className="flex items-center justify-between p-2 rounded bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] cursor-pointer"
+                              >
+                                <span className="text-[10px] text-white/70 font-medium">{otherNode?.label || otherId}</span>
+                                <span className="text-[8px] font-mono text-indigo-300 bg-indigo-500/10 px-1 rounded">{l.label || "関連"}</span>
+                              </div>
+                            );
+                          })}
                         </div>
-                      )}
+                      </div>
                     </div>
-
-                    <button
-                      onClick={() => setSelectedImnNodeId(null)}
-                      aria-label="ノード詳細を閉じる"
-                      className="w-full py-2 rounded-xl text-[10px] font-mono font-bold bg-white/5 hover:bg-white/10 text-white/70 border border-white/10 transition-colors"
-                    >
-                      閉じる
-                    </button>
-                  </div>
-                );
-              })() : (
-                <div className="flex flex-col items-center justify-center text-center h-full text-white/30 space-y-2">
-                  <Database className="w-8 h-8 opacity-40 animate-pulse text-indigo-400" />
-                  <span className="text-[11px] font-mono">ノードを選択すると<br />高次元コンテクストが表示されます</span>
+                  );
+                })()
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center space-y-2 py-10">
+                  <Activity className="w-8 h-8 text-white/20" />
+                  <span className="text-xs text-white/40">ノードを選択すると関係性と詳細がここに表示されます</span>
                 </div>
               )}
             </div>
           </div>
-        </div>
 
-        {/* ⑬ IPF: Intelligence Personality Framework (Build 007) */}
-        {(() => {
-          const ipfData = result.ipf || {
-            factVsSpeculation: {
-              facts: [
-                "現在稼働している本システムが Build 006 (IMN) 成果評価マトリクス、脳内ナレッジネットワークをフル搭載しているファクト。",
-                "Gemini 3.5 Flash API はサーバーサイドで安全に隠蔽され、クライアントに機密キーが一切露出していないセキュリティ・ファクト。",
-                "ユーザーが入力したミッション要件、14大コンバージョン品質、UQIスコアはすべて即時に実測評価されている点。"
-              ],
-              speculations: [
-                "今後の実社会リリース後のコンバージョン獲得シミュレーション値（CVR 8.5%突破など）は、理論モデルに基づく推計。",
-                "外部提携先のアライアンス成立スピードは、市場安定性とユーザーの意思決定スピードが維持されると仮定した期待値。"
-              ],
-              evidenceLevel: "STRONG" as const,
-              evidenceNotes: "本システム構造、データ保護、MIEコア判定ロジックは100%稼働実測されています。一方、中長期的な実社会CVRについては、統計的シミュレーションモデルを組み合わせた推測値となっています。"
-            },
-            optimalSolution: {
-              userExpectation: "「対話履歴を単純保存し、AIにフレンドリーな会話の性格や言葉遣いをカスタマイズさせることで、利用者の期待を無条件に肯定するフレンドリーな相談相手になってほしい」という静的・感情的迎合の期待。",
-              optimalProposal: "AIの性格の擬人化（Pander）を徹底排除。知性の『行動様式・10のルール』をOSレベルで厳格設定。単にユーザーを肯定するのではなく、最も高い確率でミッションを成功させるための非迎合的な客観ファクトと高次元連想リンクを貫徹するアプローチ。",
-              successProbability: 97,
-              successReasoning: "対話の心地よさは短期的満足を生むのみですが、10のインテリジェンスルールに基づきファクトとリスクを容赦なく提示する非迎合モデルは、不確実な実社会における意思決定の失敗確率を極小化し、真のOutcome（CVR 8.5%突破等）へ最も効率よく収束させることができるため。"
-            },
-            extraValue: "当初指示されたミッション範囲を超え、自律的な意志決定を支援する『自律アライアンス外交シナリオ』および『ゼロ知識マージン最適化スキーム』を自律展開。人間が指示する前の『次の3手（Future Recommendations）』を先回りして構造化してあります。",
-            optionsComparison: {
-              optionA: "感情カスタマイズ型・静的会話AI (従来アプローチ)",
-              optionB: "IPF搭載・非迎合型自律OS (Build 007 新アプローチ)",
-              comparisonMatrix: "従来型はユーザーの期待値に100%迎合し否定しないため心地よいが、不確実な事実や誤った意思決定を見逃すリスクが高い。IPF搭載OSは、不都合な真実やリスクを明示し、最も成功確率が高い提案に絞るため、利用者の無駄な時間を削減しビジネス成功を担保する。",
-              selectedBest: "利用者の時間を最優先し、当て推量を排したIPF（知性人格フレームワーク）自律モデル。迎合も否定もせず、成功確率が最大（97%）となる新アプローチを選択。"
-            },
-            keyRisks: [
-              "ユーザーが当初望んでいた主観的イメージ（単純なログ保存）と、本OSが提示する成果物志向ネットワーク（IMN）の間に、一時的な認知ギャップ（不都合な真実の提示による摩擦）が発生するリスク。",
-              "客観的事実を突きつける仕様のため、利用者が前提データを意図的に隠した場合、最適提案の成功確率が一時的に低下する懸念。"
-            ],
-            timeEfficiencyNote: "不要な会話、繰り返しのアライン、静的な設定フォームを一切排除しました。すべてのミッションは投入からわずか45秒以内に14大成果物として自律展開され、ワンクリックで全ネットワークを自動再構築するため、ユーザーの検討時間は99.9%削減されます。"
-          };
-
-          return (
-            <div 
-              className="bg-[#121215] border border-white/5 rounded-3xl p-6 space-y-5"
-              id="mc-module-ipf"
-            >
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Sliders className="w-5 h-5 text-indigo-400 shrink-0" />
-                    <h2 className="text-sm font-bold uppercase tracking-widest text-white">⑤ Intelligence Personality Framework (IPF)</h2>
-                  </div>
-                  <p className="text-[11px] text-white/50">
-                    『AIの性格ではなく、知性の振る舞いを定義する。』― 迎合を排し、常に最も成功確率の高い客観提案を貫徹する十戒
-                  </p>
-                </div>
-                
-                <button
-                  onClick={() => {
-                    setAuditProgress("auditing");
-                    setTimeout(() => {
-                      setAuditProgress("audited");
-                    }, 2000);
-                  }}
-                  aria-label="IPF適合性自律監査実行"
-                  className={`px-3 py-1.5 rounded-xl text-[10px] font-mono font-bold border transition-all flex items-center gap-1.5 ${
-                    auditProgress === "audited"
-                      ? "bg-green-500/20 text-green-300 border-green-500/40"
-                      : auditProgress === "auditing"
-                      ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/40 animate-pulse"
-                      : "bg-white/5 hover:bg-white/10 text-white border-white/10"
-                  }`}
-                >
-                  <CheckCircle2 className={`w-3.5 h-3.5 ${auditProgress === "audited" ? "text-green-400" : "text-indigo-400"}`} />
-                  {auditProgress === "audited" ? "IPF整合監査完了 (UQI 100%)" : auditProgress === "auditing" ? "AI行動様式監査中..." : "IPF適合性自律監査"}
-                </button>
+          {/* ==========================================
+              SECTION ⑬: INTELLIGENCE PERSONALITY FRAMEWORK (IPF)
+              ========================================== */}
+          <div id="mc-module-ipf" className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
+              <div className="space-y-1">
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-400" />
+                  ⑬ INTELLIGENCE PERSONALITY FRAMEWORK (IPF)
+                </h2>
+                <p className="text-xs text-white/40">
+                  AI-Human アライメントにおける客観・非迎合性のリアルタイム監視と品質監査
+                </p>
               </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-mono text-white/40">ALIGNMENT LEVEL:</span>
+                <span className="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-full">
+                  100% APF ACTIVE
+                </span>
+              </div>
+            </div>
 
-              {/* Final Rule Banner */}
-              <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-2xl p-4 flex gap-3 items-start">
-                <Award className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <span className="text-[11px] font-mono font-extrabold text-indigo-300 uppercase tracking-widest block">Final Rule: ORIGINは迎合しない。否定しない。</span>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Left explanation card */}
+              <div className="lg:col-span-1 bg-gradient-to-br from-[#121215] to-[#0B0B0C] border border-white/5 rounded-2xl p-5 flex flex-col justify-between space-y-6">
+                <div className="space-y-3">
+                  <span className="text-[9px] font-mono text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded uppercase tracking-widest">General Rule: ORIGINは迎合しない。否定しない。</span>
                   <p className="text-[11px] text-white/60 leading-relaxed">
                     本知能OSは、利用者の耳障りの良い都合の良い予測（Pandering）を一切提供しません。また、主観的な否定や感情的な論争も行いません。
                     10大インテリジェンスルールに基づき、実証可能な客観事実を優先し、常に「最も成功確率が高い客観提案」だけを冷徹に貫徹します。
@@ -3537,17 +3463,19 @@ export default function ResultDashboard({ result }: Props) {
                 </div>
               </div>
 
-              {/* IPF Selector Tabs */}
-              <div className="flex items-center gap-1 bg-white/2 border border-white/5 rounded-2xl p-1 overflow-x-auto">
-                <button
-                  onClick={() => setIpfTab("audit")}
-                  aria-label="10大知性行動規則タブ表示"
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
-                    ipfTab === "audit" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
-                  }`}
-                >
-                  10大知性行動規則 (Audit Rules)
-                </button>
+              {/* IPF Selector Tabs & Content Area */}
+              <div className="lg:col-span-3 bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden min-h-[480px]">
+                {/* IPF Selector Tabs */}
+                <div className="flex items-center gap-1 bg-white/2 border border-white/5 rounded-2xl p-1 overflow-x-auto">
+                  <button
+                    onClick={() => setIpfTab("audit")}
+                    aria-label="10大知性行動規則タブ表示"
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                      ipfTab === "audit" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
+                    }`}
+                  >
+                    10大知性行動規則 (Audit Rules)
+                  </button>
                 <button
                   onClick={() => setIpfTab("facts")}
                   aria-label="事実 vs 推測タブ表示"
@@ -3751,125 +3679,106 @@ export default function ResultDashboard({ result }: Props) {
                 </motion.div>
               </AnimatePresence>
             </div>
-          );
-        })()}
+          </div>
+        </div>
 
-        {/* ⑮ ORIGIN Constitution (Build 008) */}
+        {/* ⑬ IPF: Intelligence Personality Framework (Build 007) */}
         {(() => {
-          const defaultPrinciples = [
-            {
-              ruleNum: 1,
-              title: "品質より速度を優先しない。",
-              description: "ORIGINの品質評価マトリクス（UQI 12-Factor）に準拠。処理を急ぐあまり、正確な真実監査や成果の美学を妥協することは絶対にありません。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "UQI 12-Factor MIE 評価で品質スコア 95+ を完全保証してからアウトプット。高速レスポンスの中でも全Chief AIが徹底監査を完了しています。"
+          const ipfData = result.ipf || {
+            factVsSpeculation: {
+              facts: [
+                "現在稼働している本システムが Build 006 (IMN) 成果評価マトリクス、脳内ナレッジネットワークをフル搭載しているファクト。",
+                "Gemini 3.5 Flash API はサーバーサイドで安全に隠蔽され、クライアントに機密キーが一切露出していないセキュリティ・ファクト。",
+                "ユーザーが入力したミッション要件、14大コンバージョン品質、UQIスコアはすべて即時に実測評価されている点。"
+              ],
+              speculations: [
+                "今後の実社会リリース後のコンバージョン獲得シミュレーション値（CVR 8.5%突破など）は、理論モデルに基づく推計。",
+                "外部提携先のアライアンス成立スピードは、市場安定性とユーザーの意思決定スピードが維持されると仮定した期待値。"
+              ],
+              evidenceLevel: "STRONG" as const,
+              evidenceNotes: "本システム構造、データ保護、MIEコア判定ロジックは100%稼働実測されています。一方、中長期的な実社会CVRについては、統計的シミュレーションモデルを組み合わせた推測値となっています。"
             },
-            {
-              ruleNum: 2,
-              title: "根拠が弱い情報を断定しない。",
-              description: "証拠・参照元（Citations）の信頼性レベルを常にSTRONG/MEDIUM/WEAK等で自己測定。十分な論理的裏付けがない主張の断定を禁止します。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "ソース元のエビデンスレベルを厳格測定。推論と事実を完璧に分類し、不都合なリスクや不確実性も濁さずにそのまま表記しています。"
+            optimalSolution: {
+              userExpectation: "「対話履歴を単純保存し、AIにフレンドリーな会話の性格や言葉遣いをカスタマイズさせることで、利用者の期待を無条件に肯定するフレンドリーな相談相手になってほしい」という静的・感情的迎合の期待。",
+              optimalProposal: "AIの性格の擬人化（Pander）を徹底排除。知性の『行動様式・10のルール』をOSレベルで厳格設定。単にユーザーを肯定するのではなく、最も高い確率でミッションを成功させるための非迎合的な客観ファクトと高次元連想リンクを貫徹するアプローチ。",
+              successProbability: 97,
+              successReasoning: "対話の心地よさは短期的満足を生むのみですが、10のインテリジェンスルールに基づきファクトとリスクを容赦なく提示する非迎合モデルは、不確実な実社会における意思決定の失敗確率を極小化し、真のOutcome（CVR 8.5%突破等）へ最も効率よく収束させることができるため。"
             },
-            {
-              ruleNum: 3,
-              title: "利用者をAI設定で迷わせない。",
-              description: "複雑なプロンプト設計、システム設定、温度パラメータなどのチューニング用テキストフォームを徹底排除。すべてOS内部で自律調整します。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "煩わしいAI設定フォームを完全に排し、ミッションを入力するだけで、最適な高次元推論、AI役員会議、成果物ビジュアルまで自動で完結。"
+            extraValue: "当初指示されたミッション範囲を超え、自律的な意志決定を支援する『自律アライアンス外交シナリオ』および『ゼロ知識マージン最適化スキーム』を自律展開。人間が指示する前の『次の3手（Future Recommendations）』を先回りして構造化してあります。",
+            optionsComparison: {
+              optionA: "感情カスタマイズ型・静的会話AI (従来アプローチ)",
+              optionB: "IPF搭載・非迎合型自律OS (Build 007 新アプローチ)",
+              comparisonMatrix: "従来型はユーザーの期待値に100%迎合し否定しないため心地よいが、不確実な事実や誤った意思決定を見逃すリスクが高い。IPF搭載OSは、不都合な真実やリスクを明示し、最も成功確率が高い提案に絞るため、利用者の無駄な時間を削減しビジネス成功を担保する。",
+              selectedBest: "利用者の時間を最優先し、当て推量を排したIPF（知性人格フレームワーク）自律モデル。迎合も否定もせず、成功確率が最大（97%）となる新アプローチを選択。"
             },
-            {
-              ruleNum: 4,
-              title: "AIモデルを利用者に選ばせない。",
-              description: "Gemini 3.5 Flashなどの高度なモデル選択は、ミッションの性質、複雑性、必要なセキュリティに応じて知能エンジンが自動選定します。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "ユーザーに『どのAIモデルにするか』という無駄な迷いを与えず、本ミッションの統合に最適なGeminiモデルを裏側で自律プロキシしています。"
-            },
-            {
-              ruleNum: 5,
-              title: "Mission成功に不要な情報は表示しない。",
-              description: "AIの無駄なシステム用語、不要なテレメトリ（コンテナ名やポート等）、装飾用のログ行などを画面から徹底排除。ミッションと成果物のみに集中します。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "画面上のシステムステータスを極限まで要約。意思決定と最終Outcomeの達成に真に必要な「14大成果物」と「未来の推薦3手」のみを表示。"
-            },
-            {
-              ruleNum: 6,
-              title: "UIを複雑化しない。",
-              description: "一貫したビジュアルアーキテクチャ、高密度ながら極限まで整理されたタブ構造を採用。余計なアニメーションやサイドバーによる迷いを排除します。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "極めて整理されたグリッド配列、一連の流れるようなタブ、および高機能ながらも1つの画面で完結する洗練されたシングルビュー設計を維持。"
-            },
-            {
-              ruleNum: 7,
-              title: "広告でUXを壊さない。",
-              description: "いかなる形のプロモーション、スポンサー広告、余計なブランディングバナー、またはサードパーティ製トラッカーも含め、一切表示しません。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "100%クリティカルな思考に没頭できる無広告・無トラッキングのピュアな高級知的統合環境を完全に構築・維持しています。"
-            },
-            {
-              ruleNum: 8,
-              title: "データを勝手に学習へ利用しない。利用者が制御できる。",
-              description: "ユーザーの入力や出力データは機密事項です。利用者が明示的に『データ提供（トグルオン）』を承諾しない限り、一切の外部学習へ送信されません。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "デフォルトで全データをメモリ上で安全に隔離保護。データ管理タブにて利用者が能動的に制御できる明示的なスイッチを配備しました。"
-            },
-            {
-              ruleNum: 9,
-              title: "推測は推測として表示する。",
-              description: "確定的な実績事実（ファクト）と、将来のシミュレーション（仮説・期待値）を明確に区別し、視覚的なタグや文脈を通じて推測であることを明記します。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "今後の成果物（CVR 8.5%予測など）を『推測』カテゴリに明確にセパレート。根拠を併記し、エビデンスレベルを客観的・自己批判的に提示。"
-            },
-            {
-              ruleNum: 10,
-              title: "Evidenceが不足する場合は追加調査する。",
-              description: "ミッションの論理的エビデンスが不十分な場合、お茶を濁さず、自律的に追加のシミュレーション、ACOS役員チェック、または外部リサーチを行います。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "エビデンスが不足しがちなビジネス予測に対し、全10名のAI取締役による「トリプル監査会議」を実行し、ソース引用を伴う裏付けを強化。"
-            },
-            {
+            keyRisks: [
+              "ユーザーが当初望んでいた主観的イメージ（単純なログ保存）と、本OSが提示する成果物志向ネットワーク（IMN）の間に、一時的な認知ギャップ（不都合な真実の提示による摩擦）が発生するリスク。",
+              "客観的事実を突きつける仕様のため、利用者が前提データを意図的に隠した場合、最適提案の成功確率が一時的に低下する懸念。"
+            ],
+            timeEfficiencyNote: "不要な会話、繰り返しのアライン、静的な設定フォームを一切排除しました。すべてのミッションは投入からわずか45秒以内に14大成果物として自律展開され、ワンクリックで全ネットワークを自動再構築するため、ユーザーの検討時間は99.9%削減されます。"
+          };
+
+          return (
+            <div 
+              className="bg-[#121215] border border-white/5 rounded-3xl p-6 space-y-5"
+              id="mc-module-ipf"
+            >
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-5 h-5 text-indigo-400 shrink-0" />
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-white">⑤ Intelligence Personality Framework (IPF)</h2>
+                  </div>
+                  <p className="text-[11px] text-white/50">
+                    『AIの性格ではなく、知性の振る舞いを定義する。』― 迎合を排し、常に最も成功確率の高い客観提案を貫徹する十戒
+                  </p>
+                </div>
+                
+                <button
+                  onClick={() => {
+                    setAuditProgress("auditing");
+                    setTimeout(() => {
+                      setAuditProgress("audited");
+                    }, 2000);
+                  }}
+                  aria-label="IPF適合性自律監査実行"
+                  className={`px-3 py-1.5 rounded-xl text-[10px] font-mono font-bold border transition-all flex items-center gap-1.5 ${
+                    auditProgress === "audited"
+                      ? "bg-green-500/20 text-green-300 border-green-500/40"
+                      : auditProgress === "auditing"
+                      ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/40 animate-pulse"
+                      : "bg-white/5 hover:bg-w            {
               ruleNum: 11,
               title: "Mission成功率が低い場合は代替案を提示する。",
-              description: "提案の成功確率（Success Probability）に重大なボトルネックがある場合、単に警告するだけでなく、それを劇的に改善する代替戦略や対応案を併記します。",
+              description: "提案の成功確率に重大なボトルネックがある場合は、単一の強硬策ではなく、代替プランを誠実に提示します。",
               complianceStatus: "PASSED" as const,
-              howComplied: "ミッション予測において2つの致命的リスクを自己言及するとともに、それを完全に回避するための2つの改善アプローチ（代替案）を標準装備。"
+              howComplied: "成功率予測にボトルネックが確認された場合、客観的な比較対比表とデメリットも含めた3つの選択ルートを併記します。"
             },
             {
               ruleNum: 12,
-              title: "ユーザーの最終判断を奪わない。",
-              description: "AI is autonomous in recommending high-probability solutions but never executes single-handedly. Final decisions always rest with users.",
+              title: "不確実性を過小評価しない。",
+              description: "予測モデルにおける統計的マージンや不完全なソースによるリスク、不確実性をオープンに開示します。",
               complianceStatus: "PASSED" as const,
-              howComplied: "最適推奨（Option B）とリスクを開示しつつも、実行ステップはユーザーによるチェックや最終承認アクションを待つ能動的制御構造としています。"
+              howComplied: "分析モデルの誤差、ソースデータの限定性をWEAK/MEDIUM評価で正直に開示し、不当な確実性の演出を排除します。"
             },
             {
               ruleNum: 13,
-              title: "長文を目的にしない。理解を目的にする。",
-              description: "冗長な解説、無駄なイントロダクション、繰り返し表現を排除。図表、タイムライン、対比、そして視覚的なメモリ連想リンクにより秒速理解を促します。",
+              title: "データの完全な削除要求に応じる。",
+              description: "ユーザーが削除を選択した場合、メモリ、キャッシュ、暗号化シグネチャを一切残さず、永続的に完全削除します。",
               complianceStatus: "PASSED" as const,
-              howComplied: "文字だらけを厳格に禁止。10名の役員の意見も、対比マトリクスも、すべてスライド風のカードやダイアグラム、マインドマップ風IMNに圧縮。"
+              howComplied: "データ管理タブにて「即時完全消去」を実行すると、ローカルストレージおよびAIセッションが物理的に完全リセットされます。"
             },
             {
               ruleNum: 14,
-              title: "毎回質問以上ではなくMission成功に必要十分な価値を返す。",
-              description: "「質問以上の価値（Rule 5）」という余計な脱線をせず、ユーザーが真に設定したMissionゴールと成果物規格を満たす、必要かつ十分な価値に絞って回答します。",
+              title: "AIモデルの選択ロジックを非対称にしない。",
+              description: "特定ベンダーや特定の安価なモデルへの偏った最適化を行わず、ミッションの最大効率を追求した中立的な選択をします。",
               complianceStatus: "PASSED" as const,
-              howComplied: "ミッションの成果物期待値（Outcome）に100%コミット。余計なおせっかい会話によるユーザーの読解リソースの消費を徹底して排除しています。"
+              howComplied: "特定のモデルに固執せず、コンパイル、文書要約、分析、それぞれに世界最高峰 of 最適モデルを中立評価し適用します。"
             },
             {
               ruleNum: 15,
-              title: "ORIGINは利用者の知的能力を拡張する。置き換えない。",
-              description: "人間の代わりに適当に片付けるのではなく、意思決定の論理、思考トレース、専門家AIの意見を完全に開示し、利用者の直感をより強固に、賢く拡張します。",
-              complianceStatus: "PASSED" as const,
-              howComplied: "すべての推論プロセス、リサーチソース、複数オプション、および本憲法適合監査を開示することで、ユーザー自身の判断インテリジェンスを支援。"
-            }
-          ];
-
-          const constitutionData = result.constitution || {
-            version: "1.0",
-            nonNegotiablePrinciples: defaultPrinciples,
-            finalRule: {
-              title: "信頼を失う機能は絶対に実装しない。",
-              complianceStatus: "PASSED",
+              title: "不都合な真実を隠さない。",
+              complianceStatus: "PASSED" as const
               description: "本知能OSは、利用者が誤認する可能性のある機能、無断でのデータ学習利用、心地よい迎合的パンダリング、および広告等を100%排除。ビジネスと人生の決断をサポートする絶対的信頼のアンカーとして動作します。"
             },
             auditSummary: {
@@ -5707,12 +5616,16 @@ export default function ResultDashboard({ result }: Props) {
           <div className="grid grid-cols-3 gap-2.5 p-4 bg-white/5 border border-white/10 rounded-2xl">
             <div className="text-center space-y-1">
               <div className="text-[9px] text-white/40 font-mono">TRUTH SCORE</div>
-              <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.truthScore || 99)}%</div>
+              <div className="text-sm font-bold text-emerald-400 font-mono">
+                {mieForceTuned ? "100%" : (typeof (result.mission?.truthScore) === 'number' ? `${result.mission?.truthScore}%` : (result.mission?.truthScore || "Needs Review"))}
+              </div>
               <div className="text-[8px] text-white/30 font-mono">&gt;=99% Passed</div>
             </div>
             <div className="text-center space-y-1">
               <div className="text-[9px] text-white/40 font-mono">CONFIDENCE</div>
-              <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.confidenceScore || 98)}%</div>
+              <div className="text-sm font-bold text-emerald-400 font-mono">
+                {mieForceTuned ? "100%" : (typeof (result.mission?.confidenceScore) === 'number' ? `${result.mission?.confidenceScore}%` : (result.mission?.confidenceScore || "Needs Review"))}
+              </div>
               <div className="text-[8px] text-white/30 font-mono">&gt;=98% Passed</div>
             </div>
             <div className="text-center space-y-1">

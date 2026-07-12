@@ -22,6 +22,10 @@ describe("ObservabilityCenter Component", () => {
     expect(screen.getByText((content) => content.includes("Security & Sanitization"))).toBeTruthy();
     expect(screen.getByText((content) => content.includes("Readiness Report"))).toBeTruthy();
     
+    // Click on End-to-End Tests to make its elements visible
+    const e2eTab = screen.getByText((content) => content.includes("End-to-End Tests"));
+    fireEvent.click(e2eTab);
+
     // Check simulation card triggers
     expect(screen.getByText((content) => content.includes("Automated E2E Simulation Center"))).toBeTruthy();
     expect(screen.getByText((content) => content.includes("Execute Validation Suite"))).toBeTruthy();
@@ -30,6 +34,10 @@ describe("ObservabilityCenter Component", () => {
   it("executes simulated E2E test suites on button click", async () => {
     render(<ObservabilityCenter />);
     
+    // Click on End-to-End Tests to make its elements visible
+    const e2eTab = screen.getByText((content) => content.includes("End-to-End Tests"));
+    fireEvent.click(e2eTab);
+
     const runBtn = screen.getByText((content) => content.includes("Execute Validation Suite"));
     expect(runBtn).toBeTruthy();
     

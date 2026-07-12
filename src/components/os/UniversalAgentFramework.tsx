@@ -10,6 +10,7 @@ import {
   Lightbulb, ArrowDown, Trash2
 } from "lucide-react";
 import ValidationSuite from "./ValidationSuite";
+import MissionLibrary from "./MissionLibrary";
 
 // ==================== TYPES & PRESETS ====================
 
@@ -224,7 +225,7 @@ export interface TrustMission {
 }
 
 export default function UniversalAgentFramework() {
-  const [activeTab, setActiveTab] = useState<"validation-suite" | "trust-dashboard" | "brain-dashboard" | "outcome-dashboard" | "goal-success" | "orchestrator" | "user-pattern" | "knowledge" | "evolution" | "proposals">("trust-dashboard");
+  const [activeTab, setActiveTab] = useState<"mission-library" | "validation-suite" | "trust-dashboard" | "brain-dashboard" | "outcome-dashboard" | "goal-success" | "orchestrator" | "user-pattern" | "knowledge" | "evolution" | "proposals">("trust-dashboard");
 
   // ==================== INTELLIGENCE BRAIN STATE (Sprint 19) ====================
   const [brainMissions, setBrainMissions] = useState<BrainMission[]>([
@@ -1440,6 +1441,14 @@ export default function UniversalAgentFramework() {
           <ShieldCheck className="w-4 h-4 text-emerald-400 animate-pulse" /> Trust Dashboard
         </button>
         <button
+          onClick={() => setActiveTab("mission-library")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            activeTab === "mission-library" ? "bg-rose-600 text-white shadow-md shadow-rose-600/20" : "text-slate-400 hover:text-slate-200 border border-slate-800/40"
+          }`}
+        >
+          <BookOpen className="w-4 h-4 text-rose-400 animate-pulse" /> Mission Library (ACOS-ML)
+        </button>
+        <button
           onClick={() => setActiveTab("validation-suite")}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
             activeTab === "validation-suite" ? "bg-rose-600 text-white shadow-md shadow-rose-600/20" : "text-slate-400 hover:text-slate-200 border border-slate-800/40"
@@ -1516,6 +1525,13 @@ export default function UniversalAgentFramework() {
       {/* Main Container */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         
+        {/* ========================================================================= */}
+        {/* TAB: MISSION LIBRARY (Sprint 21) */}
+        {/* ========================================================================= */}
+        {activeTab === "mission-library" && (
+          <MissionLibrary />
+        )}
+
         {/* ========================================================================= */}
         {/* TAB: VALIDATION PROGRAM (RC-1) */}
         {/* ========================================================================= */}

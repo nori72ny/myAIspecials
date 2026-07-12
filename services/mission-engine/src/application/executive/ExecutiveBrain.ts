@@ -1,7 +1,10 @@
 import { EventEmitter } from "events";
+import fs from "fs";
+import path from "path";
 import { ILLMClient } from "../../infrastructure/ai/ILLMClient";
 import { Logger } from "../../infrastructure/logging/Logger";
 import { MetricsCollector } from "../../infrastructure/observability/MetricsCollector";
+import providerConfig from "./provider-config.json";
 
 // ==========================================
 // 1. BRANDED DOMAIN TYPES & VALUE OBJECTS
@@ -365,39 +368,57 @@ export class ProviderSelector implements IProviderSelector {
   async selectProvider(capabilities: AICapability[], strategy: StrategicDirective): Promise<ProviderSelection> {
     const priority = strategy.strategicPriority;
     
-    if (capabilities.includes("IMPLEMENTATION")) {
-      if (priority === "QUALITY") {
-        return {
-          modelId: "openai",
-          providerName: "Anthropic Claude 3.5 Sonnet / GPT-4o",
-          estimatedLatency: 550,
-          reason: "Prioritizing high precision coding implementation."
-        };
+    // Filter available rules from configuration file (Exclude inactive/unavailable providers)
+    const activeRules = (providerConfig.rules || []).filter((rule: any) => rule.available !== false);
+
+    // Find rule that matches capabilities and priority
+    let matchedRule = activeRules.find((rule: any) => {
+      const matchesCap = rule.capabilities.some((cap: any) => capabilities.includes(cap as AICapability));
+      const matchesPriority = rule.priority === priority;
+      return matchesCap && matchesPriority;
+    });
+
+    // If no perfect match found with priority, try to match only by capabilities
+    if (!matchedRule) {
+      matchedRule = activeRules.find((rule: any) => {
+        return rule.capabilities.some((cap: any) => capabilities.includes(cap as AICapability));
+      });
+    }
+
+    const selection: ProviderSelection = matchedRule 
+      ? { ...matchedRule.providerSelection }
+      : { ...providerConfig.fallback };
+
+    // Display routing reason (Routing理由を表示)
+    Logger.info(`[ProviderSelector] Routed capabilities [${capabilities.join(", ")}] with priority '${priority}' to '${selection.providerName}' (model: ${selection.modelId}). Reason: ${selection.reason}`);
+
+    // Save routing result to log file (Routing結果をログ保存)
+    try {
+      const dirPath = path.join(process.cwd(), "evidence");
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
       }
-      return {
-        modelId: "deepseek",
-        providerName: "DeepSeek Coder V2",
-        estimatedLatency: 720,
-        reason: "Highly cost-effective coding generation chosen."
-      };
+      const logFilePath = path.join(dirPath, "routing_log.json");
+      let logs: any[] = [];
+      if (fs.existsSync(logFilePath)) {
+        const data = fs.readFileSync(logFilePath, "utf-8");
+        if (data.trim()) {
+          logs = JSON.parse(data);
+        }
+      }
+      logs.push({
+        timestamp: new Date().toISOString(),
+        requiredCapabilities: capabilities,
+        priority,
+        selectedProvider: selection,
+        objective: strategy.coreObjective
+      });
+      fs.writeFileSync(logFilePath, JSON.stringify(logs, null, 2), "utf-8");
+    } catch (err) {
+      Logger.error("Failed to save routing log", err);
     }
 
-    if (capabilities.includes("REASONING") || capabilities.includes("ANALYSIS")) {
-      return {
-        modelId: "gemini",
-        providerName: "Google Gemini 3.5 Flash",
-        estimatedLatency: 350,
-        reason: "Optimized for massive context ingestion & logical structured analysis."
-      };
-    }
-
-    // Default
-    return {
-      modelId: "gemini",
-      providerName: "Google Gemini 3.5 Flash",
-      estimatedLatency: 320,
-      reason: "Balanced selection for general agent operations."
-    };
+    return selection;
   }
 }
 

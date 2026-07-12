@@ -3,7 +3,8 @@ import { DynamicOrganizationEngine } from "./DynamicOrganizationEngine";
 import { ExecutiveDecisionEngine } from "./ExecutiveDecisionEngine";
 import { KnowledgeGraph } from "./KnowledgeGraph";
 import { OrganizationalMemoryRepository } from "./OrganizationalMemoryRepository";
-import { OrganizationalMemory, ExecutiveDecision } from "./EvolutionTypes";
+import { OrganizationalMemory, ExecutiveDecision, IntelligenceDNA } from "./EvolutionTypes";
+import { generateIntelligenceDNA } from "./DNAGenerator";
 
 export class OrganizationEvolutionEngine {
   private dynamicOrg: DynamicOrganizationEngine;
@@ -32,6 +33,10 @@ export class OrganizationEvolutionEngine {
     const success = state.reviews.every(r => r.status === ReviewStatus.APPROVED);
     const score = state.reviews.reduce((acc, r) => acc + r.score, 0) / (state.reviews.length || 1);
     
+    // Generate the Intelligence DNA (Program 8)
+    const dna = generateIntelligenceDNA(state.missionId, success, score);
+    this.knowledgeGraph.saveDNA(dna);
+
     const memory: OrganizationalMemory = {
       id: `mem-${Date.now()}`,
       missionId: state.missionId,
@@ -46,7 +51,8 @@ export class OrganizationEvolutionEngine {
         reviews: state.reviews.length,
         consensusRounds: state.consensusRounds.length
       },
-      timestamp: new Date()
+      timestamp: new Date(),
+      intelligenceDNA: dna
     };
     
     // 2. Update Knowledge Graph with relationships and interactions

@@ -1,0 +1,42 @@
+[
+  {
+    "capability": "Reasoning",
+    "keywords": ["考え", "推論", "理由", "なぜ", "理由を教えて", "思考", "reasoning", "reason", "think"]
+  },
+  {
+    "capability": "Research",
+    "keywords": ["調べ", "検索", "最新", "ニュース", "リサーチ", "search", "find", "research", "news"]
+  },
+  {
+    "capability": "Text Generation",
+    "keywords": ["文章", "書いて", "作成して", "生成", "ブログ", "記事", "text", "write", "generate", "blog", "article"]
+  },
+  {
+    "capability": "Image Generation",
+    "keywords": ["画像", "絵", "イラスト", "写真", "image", "draw", "paint", "illustration", "photo"]
+  },
+  {
+    "capability": "Code",
+    "keywords": ["コード", "プログラム", "実装", "バグ", "エラー", "スクリプト", "プログラミング", "code", "program", "implement", "bug", "error", "script"]
+  },
+  {
+    "capability": "Math",
+    "keywords": ["計算", "数学", "数式", "統計", "確率", "math", "calculate", "stat", "probability"]
+  },
+  {
+    "capability": "Law",
+    "keywords": ["法律", "規約", "契約", "法務", "リーガル", "law", "legal", "contract"]
+  },
+  {
+    "capability": "Medical",
+    "keywords": ["医療", "病気", "症状", "健康", "診断", "medical", "health", "symptom", "diagnosis"]
+  },
+  {
+    "capability": "Marketing",
+    "keywords": ["マーケティング", "広告", "宣伝", "ペルソナ", "ターゲット", "市場", "marketing", "ad", "target", "market"]
+  },
+  {
+    "capability": "Presentation",
+    "keywords": ["資料", "スライド", "プレゼン", "パワポ", "presentation", "slide", "powerpoint"]
+  }
+]

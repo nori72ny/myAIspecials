@@ -1,0 +1,54 @@
+{
+  "rules": [
+    {
+      "capabilities": ["IMPLEMENTATION"],
+      "priority": "QUALITY",
+      "providerSelection": {
+        "modelId": "openai",
+        "providerName": "Anthropic Claude 3.5 Sonnet / GPT-4o",
+        "estimatedLatency": 550,
+        "reason": "Prioritizing high precision coding implementation based on Quality SLA."
+      },
+      "available": true
+    },
+    {
+      "capabilities": ["IMPLEMENTATION"],
+      "priority": "COST",
+      "providerSelection": {
+        "modelId": "deepseek",
+        "providerName": "DeepSeek Coder V2",
+        "estimatedLatency": 720,
+        "reason": "Highly cost-effective coding generation chosen based on Cost SLA."
+      },
+      "available": true
+    },
+    {
+      "capabilities": ["REASONING"],
+      "priority": "BALANCED",
+      "providerSelection": {
+        "modelId": "gemini",
+        "providerName": "Google Gemini 3.5 Flash",
+        "estimatedLatency": 350,
+        "reason": "Optimized for massive context ingestion & logical structured analysis based on Balanced SLA."
+      },
+      "available": true
+    },
+    {
+      "capabilities": ["ANALYSIS"],
+      "priority": "BALANCED",
+      "providerSelection": {
+        "modelId": "gemini",
+        "providerName": "Google Gemini 3.5 Flash",
+        "estimatedLatency": 350,
+        "reason": "Optimized for massive context ingestion & logical structured analysis based on Balanced SLA."
+      },
+      "available": true
+    }
+  ],
+  "fallback": {
+    "modelId": "gemini",
+    "providerName": "Google Gemini 3.5 Flash",
+    "estimatedLatency": 320,
+    "reason": "Balanced selection for general agent operations."
+  }
+}
