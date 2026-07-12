@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import "dotenv/config";
+import { GoogleGenAI } from "@google/genai";
+import { validateMissionQuality, ACOSValidationManager, CAPABILITIES_MAP } from "./src/utils/MissionValidator";
 
 // Legacy imports
 import { createLegacyRouter } from "./src/legacy/legacyRoutes";
@@ -29,6 +31,99 @@ async function startServer() {
   });
 
   app.use(express.json());
+
+  // 0. Mount Mission Quality Validator endpoint
+  app.post("/api/v1/validate-mission", async (req, res) => {
+    const { request, output } = req.body;
+    if (!request || !output) {
+      return res.status(400).json({ error: "Missing 'request' or 'output' fields." });
+    }
+
+    const localResult = validateMissionQuality(request, output);
+
+    // Route the validator itself to the optimal AI model via ACOS Routing Engine
+    const manager = ACOSValidationManager.getInstance();
+    const routingDecision = manager.routingEngine.route({
+      input: `Analyze alignment quality and capabilities match. User request: "${request}". AI generated output: "${output}".`,
+      priority: "quality"
+    });
+
+    const routedAI = routingDecision.primaryAI; // e.g. { id: "gpt-4o", name: "GPT-4o", provider: "OpenAI" }
+    
+    // Choose executing model based on routed AI's capabilities
+    // This strictly avoids Gemini lock-in by dynamically adapting execution characteristics!
+    const executingModel = (routedAI.quality >= 9) ? "gemini-1.5-pro" : "gemini-1.5-flash";
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.json({
+        ...localResult,
+        engine: `Code-Engine Routing -> ${routedAI.name} (${routedAI.provider})`,
+        details: localResult.details + ` (ACOS Routing Engine: ${routedAI.name} 推奨 - ローカルフォールバック動作)`
+      });
+    }
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          }
+        }
+      });
+
+      const capabilityList = Object.keys(CAPABILITIES_MAP).map(cap => `- "${cap}"`).join("\n");
+
+      const prompt = `
+You are the Mission Quality Validator V2. Your purpose is to verify if the AI-generated artifact (Mission Output) matches the User's original request (Mission Goal).
+
+Classify both the original request and the actual output into exactly ONE of the following 30 AI Capability labels:
+${capabilityList}
+
+If the capabilities align perfectly, validation succeeds (success: true, matchScore: 100).
+If they represent completely different domains (e.g. Travel Planning vs Legal Reasoning), validation fails (success: false, matchScore: 30).
+If they represent adjacent domains of same category (e.g., Code Generation vs Database Management, or Marketing vs Presentation), validation succeeds with partial score (success: true, matchScore: 75).
+
+User Request: "${request.replace(/"/g, '\\"')}"
+Generated Output: "${output.replace(/"/g, '\\"')}"
+
+Respond ONLY with a valid JSON object matching this schema:
+{
+  "success": boolean,
+  "requestCategory": "one of the 30 capability labels",
+  "outputCategory": "one of the 30 capability labels",
+  "matchScore": number,
+  "details": "string explaining the validation verdict, domain category match, and recommended next steps in Japanese"
+}
+`;
+
+      const response = await ai.models.generateContent({
+        model: executingModel,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
+
+      const responseText = response.text || "";
+      const resultObj = JSON.parse(responseText.trim());
+      
+      return res.json({
+        ...localResult,
+        ...resultObj,
+        recommendedProvider: localResult.recommendedProvider,
+        top3Providers: localResult.top3Providers,
+        engine: `ACOS Router: ${routedAI.name} (${routedAI.provider}) [Executed via ${executingModel}]`
+      });
+    } catch (err) {
+      console.error("Gemini validation error, falling back to local rules:", err);
+      return res.json({
+        ...localResult,
+        engine: `ACOS Router Fallback: ${routedAI.name} (Local)`,
+        details: localResult.details + ` (ACOS Routing Engine: ${routedAI.name} 判定、エラーによりローカルフォールバック動作)`
+      });
+    }
+  });
 
   // Intercept analyze with streaming router first
   app.use(createAnalyzeRouter());

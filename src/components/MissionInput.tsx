@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Mic, 
@@ -13,8 +13,18 @@ import {
   ChevronRight,
   BrainCircuit,
   CornerDownLeft,
-  Volume2
+  Volume2,
+  ShieldCheck,
+  AlertTriangle
 } from "lucide-react";
+import { 
+  ACOSValidationManager, 
+  classifyContent,
+  getMissionComplexity,
+  extractEvidence,
+  getProviderSelectionReason,
+  calculateScoreForDisplay
+} from "../utils/MissionValidator";
 
 export interface MissionInputProps {
   /**
@@ -40,6 +50,75 @@ export default function MissionInput({
   const [isFocused, setIsFocused] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const liveScanResult = useMemo(() => {
+    if (!prompt.trim() || prompt.trim().length < 3) return null;
+    const detectedCap = classifyContent(prompt);
+    
+    // Calculate V3 Complexity
+    const complexityInfo = getMissionComplexity(prompt);
+    
+    // Extract keyword matching evidence
+    const evidenceKeywords = extractEvidence(prompt, detectedCap);
+    
+    let validationStatus = "Analyzing...";
+    let statusColor = "text-amber-400";
+    let matchRate = 0;
+    
+    if (prompt.trim().length < 10) {
+      validationStatus = "詳細不足 (Pre-flight保留中)";
+      statusColor = "text-amber-400/80";
+      matchRate = Math.min(60, prompt.trim().length * 6);
+    } else {
+      validationStatus = "Pre-flight検証成功";
+      statusColor = "text-emerald-400";
+      matchRate = Math.min(100, 80 + prompt.trim().length);
+    }
+
+    const manager = ACOSValidationManager.getInstance();
+    const allProviders = manager.registry.getAllProviders();
+
+    // Score and rank for TOP3
+    const scoredList = allProviders.map(p => {
+      const scores = calculateScoreForDisplay(p, [detectedCap], "quality");
+      const selectionReason = getProviderSelectionReason(
+        p.name,
+        p.metrics.quality,
+        p.metrics.cost,
+        p.metrics.latency,
+        detectedCap
+      );
+      return {
+        id: p.id,
+        name: p.name,
+        provider: p.adapterId,
+        quality: p.metrics.quality,
+        cost: p.metrics.cost,
+        latency: p.metrics.latency,
+        health: p.health,
+        overallScore: Number((scores.overall * 10).toFixed(1)),
+        selectionReason,
+        scores
+      };
+    });
+
+    // Sort descending by score
+    scoredList.sort((a, b) => b.overallScore - a.overallScore);
+    const top3 = scoredList.slice(0, 3);
+    const primaryProvider = top3[0];
+    
+    return {
+      capability: detectedCap,
+      matchRate,
+      status: validationStatus,
+      statusColor,
+      complexity: complexityInfo.level,
+      complexityReason: complexityInfo.reason,
+      evidence: evidenceKeywords,
+      top3,
+      primaryProvider
+    };
+  }, [prompt]);
 
   const quickActions = [
     { icon: Zap, label: "Execute Market Research", color: "text-blue-500 dark:text-blue-400", bg: "bg-blue-500/10" },
@@ -159,6 +238,164 @@ export default function MissionInput({
               </button>
             </div>
           </div>
+
+          {liveScanResult && (
+            <div className="px-6 pb-6 pt-2 border-t border-black/5 dark:border-white/5 bg-slate-50/20 dark:bg-white/[0.01]">
+              <div className="p-5 rounded-2xl bg-[#09090C] border border-white/5 space-y-4 shadow-2xl">
+                
+                {/* 1. Card Header */}
+                <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+                  <span className="text-[10px] font-black font-mono tracking-wider text-indigo-400 uppercase flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 animate-pulse text-indigo-400" />
+                    ACOS V3 • EXPLAINABLE ROUTING CONTROL
+                  </span>
+                  <span className={`text-[9px] font-mono font-bold flex items-center gap-1 ${liveScanResult.statusColor}`}>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    {liveScanResult.status}
+                  </span>
+                </div>
+
+                {/* 2. Responsive Side-by-Side Split Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs">
+                  
+                  {/* Left Column: Input Analysis (Complexity & Capability Matches) */}
+                  <div className="lg:col-span-5 space-y-4 border-r border-white/5 pr-0 lg:pr-5">
+                    
+                    {/* Mission Complexity Panel */}
+                    <div className="space-y-1.5">
+                      <div className="text-[9px] text-white/40 font-mono uppercase tracking-wider">Mission Complexity</div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-black font-mono tracking-wide px-2.5 py-0.5 rounded border uppercase ${
+                          liveScanResult.complexity === "Very High"
+                            ? "bg-rose-500/15 text-rose-400 border-rose-500/20"
+                            : liveScanResult.complexity === "High"
+                              ? "bg-amber-500/15 text-amber-400 border-amber-500/20"
+                              : liveScanResult.complexity === "Medium"
+                                ? "bg-blue-500/15 text-blue-400 border-blue-500/20"
+                                : "bg-emerald-500/15 text-emerald-400 border-emerald-500/20"
+                        }`}>
+                          {liveScanResult.complexity}
+                        </span>
+                        <span className="text-[10px] text-white/50">Auto-Detected</span>
+                      </div>
+                      <p className="text-[10.5px] text-white/70 leading-relaxed bg-white/[0.02] p-2 border border-white/5 rounded-lg">
+                        {liveScanResult.complexityReason}
+                      </p>
+                    </div>
+
+                    {/* Capability Match Reasons */}
+                    <div className="space-y-1.5">
+                      <div className="text-[9px] text-white/40 font-mono uppercase tracking-wider">Capability Matching Reason & Evidence</div>
+                      <div className="bg-white/[0.02] border border-white/5 rounded-lg p-2.5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-white text-[11px] font-sans">
+                            {liveScanResult.capability}
+                          </span>
+                          <span className="text-[9px] text-emerald-400 font-mono">Matched {liveScanResult.matchRate}%</span>
+                        </div>
+                        
+                        <div className="space-y-1">
+                          <div className="text-[8.5px] text-white/40 uppercase font-mono">抽出根拠キーワード:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {liveScanResult.evidence.length > 0 ? (
+                              liveScanResult.evidence.map((word, idx) => (
+                                <span key={idx} className="bg-white/5 border border-white/10 text-white/80 text-[9.5px] px-1.5 py-0.2 rounded font-mono">
+                                  ・{word}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[9.5px] text-white/30 italic">文脈キーワードから推論</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Right Column: Dynamic Provider Decision & Top 3 Comparison */}
+                  <div className="lg:col-span-7 space-y-4">
+                    
+                    {/* Why this Provider Card */}
+                    <div className="space-y-1.5">
+                      <div className="text-[9px] text-indigo-400 font-mono uppercase tracking-wider flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        Why this Provider? (選定理由)
+                      </div>
+                      <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between border-b border-indigo-500/10 pb-1.5">
+                          <span className="font-extrabold text-white text-[12px] font-sans">
+                            {liveScanResult.primaryProvider ? liveScanResult.primaryProvider.name : "Evaluating..."}
+                          </span>
+                          <span className="text-[10px] font-mono bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-bold">
+                            Overall Score: {liveScanResult.primaryProvider ? liveScanResult.primaryProvider.overallScore : 0}
+                          </span>
+                        </div>
+                        <p className="text-[10.5px] text-indigo-100/90 leading-relaxed italic">
+                          💡 {liveScanResult.primaryProvider ? liveScanResult.primaryProvider.selectionReason : ""}
+                        </p>
+                        
+                        {/* Dynamic Metrics Badges */}
+                        {liveScanResult.primaryProvider && (
+                          <div className="grid grid-cols-4 gap-1.5 pt-1 text-center text-[9px] font-mono font-bold">
+                            <div className="bg-[#09090C] border border-white/5 p-1 rounded">
+                              <div className="text-white/40 text-[8px] uppercase">Quality</div>
+                              <div className="text-indigo-300 text-[10.5px]">{liveScanResult.primaryProvider.quality}/10</div>
+                            </div>
+                            <div className="bg-[#09090C] border border-white/5 p-1 rounded">
+                              <div className="text-white/40 text-[8px] uppercase">Cost</div>
+                              <div className="text-emerald-400 text-[10.5px]">{11 - liveScanResult.primaryProvider.cost}/10</div>
+                            </div>
+                            <div className="bg-[#09090C] border border-white/5 p-1 rounded">
+                              <div className="text-white/40 text-[8px] uppercase">Latency</div>
+                              <div className="text-cyan-300 text-[10.5px]">{liveScanResult.primaryProvider.latency}ms</div>
+                            </div>
+                            <div className="bg-[#09090C] border border-white/5 p-1 rounded">
+                              <div className="text-white/40 text-[8px] uppercase">Health</div>
+                              <div className="text-emerald-400 text-[10.5px]">10/10</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Top 3 Providers Comparison Panel */}
+                    <div className="space-y-1.5">
+                      <div className="text-[9px] text-white/40 font-mono uppercase tracking-wider">Recommended Provider TOP3</div>
+                      <div className="space-y-1.5">
+                        {liveScanResult.top3.map((prov, index) => {
+                          const placeName = index === 0 ? "1位" : index === 1 ? "2位" : "3位";
+                          const placeColor = index === 0 ? "text-indigo-400 font-black" : index === 1 ? "text-slate-300 font-bold" : "text-amber-600/80 font-bold";
+                          return (
+                            <div key={prov.id} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] border border-white/5 text-[11px] gap-3 hover:bg-white/[0.04] transition-colors">
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className={`text-[10px] w-6 font-mono ${placeColor}`}>{placeName}</span>
+                                <span className="font-bold text-white font-sans">{prov.name}</span>
+                                <span className="text-[8px] text-white/40 font-mono">({prov.provider})</span>
+                              </div>
+                              
+                              {/* Overall Score Progress Bar */}
+                              <div className="flex-1 flex items-center gap-2 justify-end">
+                                <div className="hidden sm:block w-16 bg-white/10 h-1 rounded-full overflow-hidden">
+                                  <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400" style={{ width: `${prov.overallScore}%` }} />
+                                </div>
+                                <span className="text-[10px] font-mono text-white/90 font-bold shrink-0">
+                                  Score: {prov.overallScore}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+            </div>
+          )}
         </form>
 
         {/* Expanded Area: Quick Actions & Recent Missions */}
