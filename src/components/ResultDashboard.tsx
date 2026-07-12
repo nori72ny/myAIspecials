@@ -61,6 +61,7 @@ import FactCheckEngineView from "./trust-and-quality/FactCheckEngineView";
 import TrustEngineView from "./trust-and-quality/TrustEngineView";
 import AIComparisonView from "./trust-and-quality/AIComparisonView";
 import MissionValidatorView from "./trust-and-quality/MissionValidatorView";
+import LiveMissionPipelineView from "./trust-and-quality/LiveMissionPipelineView";
 
 interface Props {
   result: AnalysisResult;
@@ -72,7 +73,7 @@ export default function ResultDashboard({ result }: Props) {
   const prefersReducedMotion = useReducedMotion();
   const transitionY = prefersReducedMotion ? 0 : 10;
   // Local state for checking off mission conditions and risk improvements
-  const [missionTab, setMissionTab] = useState<"core" | "agents" | "workflow" | "quality" | "evolution" | "strategic" | "evidence" | "predictive" | "living" | "governance" | "eval" | "validator">("core");
+  const [missionTab, setMissionTab] = useState<"core" | "agents" | "workflow" | "quality" | "evolution" | "strategic" | "evidence" | "predictive" | "living" | "governance" | "eval" | "validator" | "pipeline">("core");
   const [selectedChiefIndex, setSelectedChiefIndex] = useState<number>(0);
   const [checkedConditions, setCheckedConditions] = useState<Record<number, boolean>>({});
   const [checkedImprovements, setCheckedImprovements] = useState<Record<number, boolean>>({});
@@ -1042,7 +1043,7 @@ export default function ResultDashboard({ result }: Props) {
 
             {/* Futuristic Tab Controller */}
             <div className="flex flex-wrap gap-1 bg-white/5 p-1 rounded-xl border border-white/5 w-full lg:w-auto">
-              {(["core", "agents", "workflow", "quality", "evolution", "strategic", "evidence", "predictive", "living", "governance", "eval", "validator"] as const).map((tab) => (
+              {(["core", "agents", "workflow", "quality", "evolution", "strategic", "evidence", "predictive", "living", "governance", "eval", "validator", "pipeline"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setMissionTab(tab)}
@@ -1057,7 +1058,8 @@ export default function ResultDashboard({ result }: Props) {
                     tab === "predictive" ? "予測" :
                     tab === "living" ? "Living AI" : 
                     tab === "governance" ? "ガバナンス" : 
-                    tab === "eval" ? "第三者評価" : "品質バリデータ"
+                    tab === "eval" ? "第三者評価" : 
+                    tab === "validator" ? "品質バリデータ" : "認識パイプライン"
                   }`}
                   className={`flex-1 lg:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-tight transition-all cursor-pointer ${
                     missionTab === tab
@@ -1145,6 +1147,13 @@ export default function ResultDashboard({ result }: Props) {
                       <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
                       <span className="hidden sm:inline">品質バリデータ</span>
                       <span className="sm:hidden">MQV</span>
+                    </>
+                  )}
+                  {tab === "pipeline" && (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                      <span className="hidden sm:inline">認識パイプライン</span>
+                      <span className="sm:hidden">ACOS</span>
                     </>
                   )}
                 </button>
@@ -2184,6 +2193,20 @@ export default function ResultDashboard({ result }: Props) {
                     </div>
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {/* TAB 12: ACOS COGNITIVE PIPELINE                  */}
+            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {missionTab === "pipeline" && (
+              <motion.div
+                key="pipeline"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+              >
+                <LiveMissionPipelineView mode="static" result={result} />
               </motion.div>
             )}
           </AnimatePresence>

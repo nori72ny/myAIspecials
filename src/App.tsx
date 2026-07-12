@@ -147,6 +147,18 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  React.useEffect(() => {
+    const root = document.documentElement;
+    const theme = settings.selectedTheme || "dark";
+    if (theme === "light") {
+      root.classList.remove("dark");
+      root.classList.add("light");
+    } else {
+      root.classList.remove("light");
+      root.classList.add("dark");
+    }
+  }, [settings.selectedTheme]);
+
   const renderSidebarBody = (onItemClick?: () => void) => {
     const isEn = settings.language === "en";
 
@@ -466,10 +478,15 @@ export default function App() {
     }>
       <div className={cn(
         "min-h-screen flex flex-col md:flex-row transition-all duration-500",
-        settings.uiMode === "developer" && "bg-[#090C15] font-mono text-slate-100 selection:bg-emerald-500/20",
-        settings.uiMode === "business" && "bg-[#FAF9F6] font-sans text-slate-900 selection:bg-amber-500/20",
-        settings.uiMode === "family" && "bg-orange-50/20 font-sans text-slate-800 selection:bg-rose-500/10",
-        (!settings.uiMode || settings.uiMode === "normal") && "bg-[#F8FAFC] font-sans text-slate-800 selection:bg-[#4F46E5]/20"
+        settings.selectedTheme === "light" && "bg-slate-50 text-slate-950 font-sans selection:bg-indigo-500/10",
+        settings.selectedTheme === "oled" && "bg-black text-white selection:bg-indigo-500/30",
+        settings.selectedTheme === "retro" && "bg-[#020502] text-emerald-400 font-mono selection:bg-emerald-500/30",
+        (settings.selectedTheme === "dark" || !settings.selectedTheme) && (
+          settings.uiMode === "developer" ? "bg-[#090C15] font-mono text-slate-100 selection:bg-emerald-500/20" :
+          settings.uiMode === "business" ? "bg-[#151824] font-sans text-slate-100 selection:bg-amber-500/20" :
+          settings.uiMode === "family" ? "bg-slate-900 font-sans text-slate-100 selection:bg-rose-500/10" :
+          "bg-[#0F172A] font-sans text-slate-100 selection:bg-[#4F46E5]/20"
+        )
       )}>
       
       {/* MOBILE SIDEBAR DRAWER */}

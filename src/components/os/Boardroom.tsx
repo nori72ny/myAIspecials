@@ -32,6 +32,7 @@ import {
   SovereignPanel,
   SovereignSegmentedControl
 } from "../SovereignComponents";
+import LiveMissionPipelineView from "../trust-and-quality/LiveMissionPipelineView";
 
 // Interface for AI Agents
 interface BoardroomAgent {
@@ -279,12 +280,8 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
         let newQuality = prev.factCheck > 50 ? Math.min(100, prev.quality + Math.random() * 0.6 * rate) : prev.quality;
         let newOutput = prev.quality > 40 ? Math.min(100, prev.output + Math.random() * 0.5 * rate) : prev.output;
 
-        // If Output progress hits 100%, trigger completion callback
-        if (newOutput >= 100 && onComplete) {
-          setTimeout(() => {
-            onComplete();
-          }, 1500);
-        }
+        // Note: Automatic simulation completion is removed in favor of the Mission Approval Human-in-the-Loop Gate.
+        // The LiveMissionPipelineView will trigger the onComplete callback when the user clicks "Authorize & Complete Mission".
 
         return {
           planning: parseFloat(newPlanning.toFixed(1)),
@@ -664,63 +661,9 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
           </AnimatePresence>
         </div>
 
-        {/* Column 4: Mission Pipeline progress bars (Right) */}
-        <div className="lg:col-span-1 space-y-4 flex flex-col justify-between">
-          
-          <div className="bg-neutral-900/40 border border-white/[0.04] p-4 rounded-2xl space-y-4 flex-1">
-            <h3 className="text-[10px] font-black text-slate-400 tracking-widest font-mono uppercase flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-pink-500" />
-              {isEn ? "Mission Progress" : "ミッション進捗状況"}
-            </h3>
-
-            {/* Individual step bars */}
-            <div className="space-y-3">
-              {[
-                { key: "planning", label: isEn ? "Planning" : "プラン計画", color: "from-pink-500 to-pink-600" },
-                { key: "research", label: isEn ? "Research" : "リサーチ調査", color: "from-amber-400 to-amber-600" },
-                { key: "debate", label: isEn ? "Debate Panel" : "ディベート審議", color: "from-indigo-500 to-indigo-600" },
-                { key: "factCheck", label: isEn ? "Fact Check" : "事実整合検証", color: "from-emerald-400 to-emerald-600" },
-                { key: "quality", label: isEn ? "Quality Audit" : "品質監査・推敲", color: "from-blue-500 to-blue-600" },
-                { key: "output", label: isEn ? "Output Stream" : "アウトプット構築", color: "from-indigo-500 to-pink-500" }
-              ].map((ph) => {
-                const progress = phaseProgress[ph.key as keyof typeof phaseProgress];
-                return (
-                  <div key={ph.key} className="space-y-1">
-                    <div className="flex justify-between items-baseline font-mono text-[9px]">
-                      <span className="text-slate-300 font-bold uppercase tracking-wider">{ph.label}</span>
-                      <span className="text-slate-400 font-bold">{progress}%</span>
-                    </div>
-                    <div className="w-full h-1 bg-white/[0.04] rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: "0%" }}
-                        animate={{ width: `${progress}%` }}
-                        transition={{ duration: 0.5 }}
-                        className={cn("h-full bg-gradient-to-r", ph.color)}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Quick HUD reminder panel */}
-          <div className="bg-gradient-to-br from-indigo-950/20 to-neutral-950 border border-indigo-500/10 p-3.5 rounded-2xl flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 shrink-0">
-              <Zap className="w-4 h-4 animate-bounce" />
-            </div>
-            <div>
-              <p className="text-[9.5px] font-bold text-indigo-200">
-                {isEn ? "Consensus Optimizer Active" : "合意最適化プロセッサ稼働中"}
-              </p>
-              <p className="text-[8px] text-slate-400 leading-snug">
-                {isEn 
-                  ? "Multiple cross-model debating is active to verify accurate evidence logs." 
-                  : "複数の異なるAIモデルが自律的に主張を交わし、正確な証跡データを構築しています。"}
-              </p>
-            </div>
-          </div>
-
+        {/* Column 4: ACOS Live Mission Pipeline (Right) */}
+        <div className="lg:col-span-1 flex flex-col justify-between max-h-[580px] overflow-y-auto pr-1">
+          <LiveMissionPipelineView mode="live" phaseProgress={phaseProgress} onComplete={onComplete} />
         </div>
 
       </div>

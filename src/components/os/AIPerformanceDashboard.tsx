@@ -139,6 +139,37 @@ export default function AIPerformanceDashboard() {
     }
   ]);
 
+  // Sync with dynamic local storage values (Phase 7)
+  useEffect(() => {
+    try {
+      const storedStr = localStorage.getItem("acos_provider_performance_metrics");
+      if (storedStr) {
+        const storedMetrics = JSON.parse(storedStr);
+        setModels(prev => prev.map(m => {
+          let matchingKey = "";
+          if (m.id === "openai") matchingKey = "openrouter/openai/gpt-4o";
+          else if (m.id === "gemini") matchingKey = "openrouter/google/gemini-1.5-pro";
+          else if (m.id === "claude") matchingKey = "openrouter/anthropic/claude-3.5-sonnet";
+          else if (m.id === "deepseek") matchingKey = "openrouter/deepseek/deepseek-coder";
+
+          const metrics = storedMetrics[matchingKey];
+          if (metrics) {
+            return {
+              ...m,
+              latency: metrics.latency || m.latency,
+              successRate: metrics.successRate || m.successRate,
+              qualityScore: (metrics.quality * 10) || m.qualityScore,
+              cost: Number((metrics.cost + (metrics.runsCount * 0.0008)).toFixed(2)) || m.cost
+            };
+          }
+          return m;
+        }));
+      }
+    } catch (e) {
+      console.error("Failed to load custom provider metrics into dashboard", e);
+    }
+  }, []);
+
   // Failover and Routing logs
   const [switchLogs, setSwitchLogs] = useState<SwitchLog[]>([
     {

@@ -23,6 +23,10 @@ export interface Settings {
   language: "ja" | "en";
   developerMode?: boolean;
   uiMode?: "normal" | "developer" | "business" | "family";
+  selectedTheme?: "dark" | "light" | "oled" | "retro"; // Theme settings (Dark, Light, OLED, Retro)
+  maxCostCap?: number; // Cost settings (Max cost cap per mission in USD)
+  retryCount?: number; // Error Recovery: Retry count
+  timeoutSeconds?: number; // Error Recovery: Timeout in seconds
 }
 
 export interface AIAgentConfig {

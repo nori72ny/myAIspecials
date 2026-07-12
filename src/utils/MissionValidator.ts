@@ -289,7 +289,23 @@ export class ACOSValidationManager {
       )
     ];
 
+    // Load dynamically from localStorage if in browser environment
+    let savedMetricsMap: Record<string, any> = {};
+    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+      try {
+        const stored = localStorage.getItem("acos_provider_performance_metrics");
+        if (stored) {
+          savedMetricsMap = JSON.parse(stored);
+        }
+      } catch (e) {
+        // Safe check
+      }
+    }
+
     defaultProviders.forEach(p => {
+      if (savedMetricsMap[p.id]) {
+        p.updateMetrics(savedMetricsMap[p.id]);
+      }
       try {
         this.registry.registerProvider(p);
       } catch (e) {
@@ -468,6 +484,14 @@ export function calculateScoreForDisplay(
       break;
   }
 
+  // Phase 3 Cost Intelligence Bonus:
+  // If quality is relatively high (>= 7) and cost is low (cost <= 4, which means costScoreVal >= 7)
+  // We grant a Cost Intelligence Bonus (+1.5 score points) to prefer low-cost options when quality difference is small.
+  let costIntelligenceBonus = 0;
+  if (metrics.quality >= 7 && metrics.cost <= 4) {
+    costIntelligenceBonus = 1.5;
+  }
+
   let healthMultiplier = 1.0;
   if (provider.health === "degraded") {
     healthMultiplier = 0.6;
@@ -477,7 +501,22 @@ export function calculateScoreForDisplay(
 
   const capabilityWeight = (priority === "balanced" || priority === "quality") ? 0.6 : 0.3;
   const metricsWeight = 1.0 - capabilityWeight;
-  const overall = (baseCapabilityScore * capabilityWeight + metricsScore * metricsWeight) * healthMultiplier;
+  let overall = (baseCapabilityScore * capabilityWeight + metricsScore * metricsWeight) * healthMultiplier;
+
+  // Phase 1 Adaptive Learning:
+  // Adjust the score based on actual historical performance if runs exist.
+  if (metrics.runsCount && metrics.runsCount > 0) {
+    const historicalSuccessRate = metrics.successRate !== undefined ? metrics.successRate / 100 : 0.99;
+    const historicalTruthFactor = metrics.averageTruthScore !== undefined ? metrics.averageTruthScore / 100 : 0.95;
+    const historicalConfidenceFactor = metrics.averageConfidence !== undefined ? metrics.averageConfidence / 100 : 0.95;
+    const historicalFactor = (historicalSuccessRate * 0.4) + (historicalTruthFactor * 0.3) + (historicalConfidenceFactor * 0.3);
+    
+    // Scale score smoothly by performance (up to +-10% deviation based on achievements)
+    overall = overall * (0.9 + 0.2 * historicalFactor);
+  }
+
+  // Add Cost Intelligence Bonus
+  overall += costIntelligenceBonus;
 
   return {
     overall: Math.max(0, overall),
@@ -553,6 +592,17 @@ export function validateMissionQuality(request: string, output: string): Validat
       p.metrics.latency,
       reqCap
     );
+    
+    // Phase 3 Cost Efficiency Score (0-100)
+    // Calculated by dividing Quality score by Cost score
+    const rawEff = Math.round((p.metrics.quality / Math.max(1, p.metrics.cost)) * 10);
+    const costEfficiencyScore = Math.min(100, Math.max(10, rawEff * 10));
+
+    let updatedReason = selectionReason;
+    if (p.metrics.cost <= 4 && p.metrics.quality >= 7) {
+      updatedReason += ` [Cost Efficiency Optimized: コストが非常に低く品質差が軽微なため、高効率プロバイダーを自動で優先しました。コスト効率スコア: ${costEfficiencyScore}%]`;
+    }
+
     return {
       id: p.id,
       name: p.name,
@@ -562,7 +612,8 @@ export function validateMissionQuality(request: string, output: string): Validat
       latency: p.metrics.latency,
       health: p.health,
       overallScore: Number((scores.overall * 10).toFixed(1)), // Scale out of 100
-      selectionReason
+      selectionReason: updatedReason,
+      costEfficiencyScore
     };
   });
 

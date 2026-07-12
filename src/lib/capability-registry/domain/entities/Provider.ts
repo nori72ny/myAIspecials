@@ -5,6 +5,14 @@ export interface ProviderMetrics {
   latency: number;     // Average latency in milliseconds
   quality: number;     // Quality score (1-10, higher is better)
   failureRate: number; // Failure rate (0.0 to 1.0, lower is better)
+  
+  // Phase 1: Adaptive Learning Engine Extended Metrics
+  successRate?: number;          // 0.0 to 100.0 (percentage)
+  averageResponseTime?: number;  // ms
+  averageTruthScore?: number;    // 0.0 to 100.0
+  averageConfidence?: number;    // 0.0 to 100.0
+  averageResearchScore?: number;  // 0.0 to 100.0
+  runsCount?: number;            // Track total runs
 }
 
 export class Provider {
@@ -27,7 +35,25 @@ export class Provider {
     const quality = Math.max(1, Math.min(10, this.metrics.quality));
     const failureRate = Math.max(0.0, Math.min(1.0, this.metrics.failureRate));
     
-    this.metrics = { cost, latency, quality, failureRate };
+    const successRate = this.metrics.successRate !== undefined ? Math.max(0, Math.min(100, this.metrics.successRate)) : 99.0;
+    const averageResponseTime = this.metrics.averageResponseTime !== undefined ? Math.max(0, this.metrics.averageResponseTime) : latency;
+    const averageTruthScore = this.metrics.averageTruthScore !== undefined ? Math.max(0, Math.min(100, this.metrics.averageTruthScore)) : 95.0;
+    const averageConfidence = this.metrics.averageConfidence !== undefined ? Math.max(0, Math.min(100, this.metrics.averageConfidence)) : 95.0;
+    const averageResearchScore = this.metrics.averageResearchScore !== undefined ? Math.max(0, Math.min(100, this.metrics.averageResearchScore)) : 95.0;
+    const runsCount = this.metrics.runsCount !== undefined ? Math.max(0, this.metrics.runsCount) : 1;
+
+    this.metrics = { 
+      cost, 
+      latency, 
+      quality, 
+      failureRate,
+      successRate,
+      averageResponseTime,
+      averageTruthScore,
+      averageConfidence,
+      averageResearchScore,
+      runsCount
+    };
 
     // Clamp capabilities
     for (const [key, value] of this.capabilities.entries()) {
