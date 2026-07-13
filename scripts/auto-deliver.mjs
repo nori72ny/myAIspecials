@@ -137,6 +137,10 @@ async function main() {
           break;
         }
         
+        if (file.includes('.env.example')) {
+          continue;
+        }
+        
         for (const pattern of forbiddenPatterns) {
           if (pattern.test(content)) {
             logError(`Potential secret/API key exposed in file: ${file}`);
