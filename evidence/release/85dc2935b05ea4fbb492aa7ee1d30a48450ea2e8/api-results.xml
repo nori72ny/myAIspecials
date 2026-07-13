@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="6" failures="0" errors="0" time="1.444">
+  <testsuite name="ACOS 2.0 API Full Lifecycle (Live Provider Integration)" errors="0" failures="0" skipped="1" timestamp="2026-07-13T10:47:51" time="0.467" tests="1">
+    <testcase classname="ACOS 2.0 API Full Lifecycle (Live Provider Integration) should complete a full mission successfully using real Provider" name="ACOS 2.0 API Full Lifecycle (Live Provider Integration) should complete a full mission successfully using real Provider" time="0">
+      <skipped/>
+    </testcase>
+  </testsuite>
+  <testsuite name="ACOS 2.0 API Full Lifecycle (Integration)" errors="0" failures="0" skipped="0" timestamp="2026-07-13T10:47:52" time="0.369" tests="5">
+    <testcase classname="ACOS 2.0 API Full Lifecycle (Integration) should complete a full mission successfully without external API dependencies" name="ACOS 2.0 API Full Lifecycle (Integration) should complete a full mission successfully without external API dependencies" time="0.03">
+    </testcase>
+    <testcase classname="ACOS 2.0 API Full Lifecycle (Integration) should not transition to COMPLETED before human approval and should transition to AWAITING_HUMAN_APPROVAL" name="ACOS 2.0 API Full Lifecycle (Integration) should not transition to COMPLETED before human approval and should transition to AWAITING_HUMAN_APPROVAL" time="0.005">
+    </testcase>
+    <testcase classname="ACOS 2.0 API Full Lifecycle (Integration) should transition to REJECTED if human approval is rejected" name="ACOS 2.0 API Full Lifecycle (Integration) should transition to REJECTED if human approval is rejected" time="0.004">
+    </testcase>
+    <testcase classname="ACOS 2.0 API Full Lifecycle (Integration) should reject duplicate approval resolution" name="ACOS 2.0 API Full Lifecycle (Integration) should reject duplicate approval resolution" time="0.062">
+    </testcase>
+    <testcase classname="ACOS 2.0 API Full Lifecycle (Integration) should return undefined when resolving approval with wrong orgId or wrong requestId" name="ACOS 2.0 API Full Lifecycle (Integration) should return undefined when resolving approval with wrong orgId or wrong requestId" time="0.001">
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -1,0 +1,17 @@
+{
+  "project": "ACOS 2.0",
+  "sprint": "7.3",
+  "branch": "sprint-7-3/personal-daily-use-gate",
+  "remoteBranch": "origin/sprint-7-3/personal-daily-use-gate",
+  "baselineCommitSha": "85dc2935b05ea4fbb492aa7ee1d30a48450ea2e8",
+  "testedCommitSha": "85dc2935b05ea4fbb492aa7ee1d30a48450ea2e8",
+  "evidenceCommitSha": "ee6978daa69d9326774129e0f3982f6a166b4516",
+  "workingTreeClean": false,
+  "startedAt": "2026-07-13T10:47:33.776Z",
+  "completedAt": "2026-07-13T10:48:03.777Z",
+  "nodeVersion": "v22.23.0",
+  "npmVersion": "10.9.8",
+  "passCount": 342,
+  "failCount": 0,
+  "skipCount": 0
+}
