@@ -128,7 +128,7 @@ router.post("/api/chat", async (req, res) => {
     }
 
     const lastUserMessage = messages[messages.length - 1].content;
-    const isWeatherQuery = lastUserMessage.includes("天気") || lastUserMessage.toLowerCase().includes("weather");
+    const isWeatherQuery = /(天気(は|って|どう|教えて|知りたい|予報|.*の天気)|傘(は必要|いる)|雨(降る|？)|weather)/i.test(lastUserMessage) && !/(アプリ|API|設計|作る|方法|how to|build|create|気分)/i.test(lastUserMessage);
     const hasLocation = lastUserMessage.includes("東京") || lastUserMessage.includes("大阪") || lastUserMessage.includes("札幌") || lastUserMessage.includes("福岡") || lastUserMessage.match(/[市区町村都道府県]/) || lastUserMessage.match(/\bin\b/i) || lastUserMessage.match(/\bat\b/i);
     
     // Application-level weather check without using LLM
