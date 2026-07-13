@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
+import  { useState, useEffect } from "react";
 import { 
-  Database, Search, Folder, FileText, Share2, MoreVertical, 
+  Database, Search, Folder, FileText, Share2,  
   Filter, ArrowRight, RefreshCw, Layers, Sparkles, X,
   CheckCircle2, AlertTriangle, Target, Award, Zap, Workflow,
   Brain, Cpu, UserCheck, Compass, Network, ArrowDown, TrendingUp,
-  Maximize2, FileCode, Check, ShieldCheck, HeartHandshake
+   FileCode, Check, ShieldCheck, HeartHandshake
 } from "lucide-react";
 
 export default function MemoryExplorer() {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import  { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Palette, 
@@ -12,14 +12,11 @@ import {
   Check, 
   Play, 
   Layers, 
-  Compass, 
-  Activity, 
-  Cpu, 
+   
+   
+   
   PlusCircle, 
-  ChevronRight, 
-  HelpCircle,
-  Code
-} from "lucide-react";
+  ChevronRight } from "lucide-react";
 import { cn } from "../../utils";
 
 export default function DesignSystemV3() {

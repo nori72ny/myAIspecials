@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import  { useState } from "react";
 import { BookOpen, Search, Star, Clock, Download, Plus, Play, MoreHorizontal } from "lucide-react";
 
 const PROMPTS = [

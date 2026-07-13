@@ -1,5 +1,5 @@
 import React from "react";
-import { Sparkles, Bot, Zap, ArrowRight, ChevronRight, X, Maximize2 } from "lucide-react";
+import { Sparkles,  Zap, ArrowRight, ChevronRight,  Maximize2 } from "lucide-react";
 import { 
   SovereignSidebar, 
   SovereignButton, 

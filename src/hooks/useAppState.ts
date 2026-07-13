@@ -484,8 +484,7 @@ export function useAppState() {
     handleAnalyze,
     selectCategoryHandler,
     selectTemplateHandler,
-    resetToHome,
-  };
+    resetToHome };
 }
 
 // Helper to implement the Phase 1 & Phase 2 Adaptive Learning Loop and Knowledge DNA Archive (Phase 2)

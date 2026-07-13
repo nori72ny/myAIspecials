@@ -1,16 +1,13 @@
 import React, { useState, Suspense } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "motion/react";
-import { Settings, AnalysisResult, WorkspaceCategory, TaskTemplate } from "./types";
+import { motion, AnimatePresence } from "motion/react";
 
 const SettingsModal = React.lazy(() => import("./components/SettingsModal"));
 const ResultDashboard = React.lazy(() => import("./components/ResultDashboard"));
 const MissionInput = React.lazy(() => import("./components/MissionInput"));
 const ChatApp = React.lazy(() => import("./components/os/ChatApp"));
 const MultiAIApp = React.lazy(() => import("./components/os/MultiAIApp"));
-const DashboardApp = React.lazy(() => import("./components/os/DashboardApp"));
 const WorkspaceSelector = React.lazy(() => import("./components/os/WorkspaceSelector"));
 const NotificationCenter = React.lazy(() => import("./components/os/NotificationCenter"));
-const MemoryExplorer = React.lazy(() => import("./components/os/MemoryExplorer"));
 const PromptLibrary = React.lazy(() => import("./components/os/PromptLibrary"));
 const AIPerformanceDashboard = React.lazy(() => import("./components/os/AIPerformanceDashboard"));
 const ObservabilityCenter = React.lazy(() => import("./components/os/ObservabilityCenter"));
@@ -22,7 +19,6 @@ const HomeScreen = React.lazy(() => import("./components/os/HomeScreen")) as any
 const WorkspaceApp = React.lazy(() => import("./components/os/WorkspaceApp"));
 const OrganizationApp = React.lazy(() => import("./components/os/OrganizationApp"));
 const Boardroom = React.lazy(() => import("./components/os/Boardroom"));
-const MissionRuntimeConsole = React.lazy(() => import("./components/os/MissionRuntimeConsole"));
 const RealTimeSwarmDebugger = React.lazy(() => import("./components/os/RealTimeSwarmDebugger"));
 const DesignSystemV3 = React.lazy(() => import("./components/os/DesignSystemV3"));
 const HomeExplanations = React.lazy(() => import("./components/os/HomeExplanations"));
@@ -36,22 +32,12 @@ import {
   Shield,
   Briefcase, 
   Activity,
-  FileText, 
-  Code, 
-  PenTool, 
   Settings2, 
   History, 
   Trash2, 
   Sparkles, 
-  Loader2, 
-  Command, 
-  ArrowLeft, 
-  Cpu, 
   Layers, 
   CheckCircle2, 
-  PlusCircle,
-  Clock,
-  HelpCircle,
   Menu,
   X,
   Compass,
@@ -68,13 +54,8 @@ import {
   Network,
   Columns,
   Eye,
-  Monitor,
-
-
-
-
-} from "lucide-react";
-import { cn, ProductionLogger, SafeStorage } from "./utils";
+  Monitor } from "lucide-react";
+import { cn } from "./utils";
 import { useAppState, CATEGORIES } from "./hooks/useAppState";
 import { dnaEngine } from "./lib/dna-engine/DNAEngine";
 
@@ -83,7 +64,6 @@ const RoutingTester = React.lazy(() => import("./components/personal/RoutingTest
 
 export default function App() {
   const {
-    prefersReducedMotion,
     transitionY,
     transitionX,
     currentApp,
@@ -91,27 +71,20 @@ export default function App() {
     taskMode,
     setTaskMode,
     savedMissions,
-    setSavedMissions,
     homeTab,
     setHomeTab,
     selectedCategory,
     setSelectedCategory,
     selectedTemplate,
-    setSelectedTemplate,
     prompt,
     setPrompt,
     result,
     setResult,
     error,
-    setError,
     rawError,
-    setRawError,
     isMobileMenuOpen,
     setIsMobileMenuOpen,
     booting,
-    setBooting,
-    loadingStep,
-    setLoadingStep,
     isSettingsOpen,
     setIsSettingsOpen,
     isSearchOpen,
@@ -119,15 +92,13 @@ export default function App() {
     isAssistantOpen,
     setIsAssistantOpen,
     settings,
-    setSettings,
     updateSettings,
     history,
     clearHistory,
     handleAnalyze,
     selectCategoryHandler,
     selectTemplateHandler,
-    resetToHome,
-  } = useAppState();
+    resetToHome } = useAppState();
 
   const [activeDocModal, setActiveDocModal] = useState<'privacy' | 'terms' | 'support' | null>(null);
   const [focusMode, setFocusMode] = useState<"balanced" | "left" | "right" | "comparison">("balanced");
@@ -706,8 +677,7 @@ export default function App() {
                         successScore: mission.successScore,
                         mission: {
                           id: mission.id,
-                          title: mission.title,
-                        },
+                          title: mission.title },
                         chiefAgents: [],
                         workflowGraph: { nodes: [], links: [] },
                         deliverables: [],
@@ -740,8 +710,7 @@ export default function App() {
                         successScore: mission.successScore,
                         mission: {
                           id: mission.id,
-                          title: mission.title,
-                        },
+                          title: mission.title },
                         chiefAgents: [],
                         workflowGraph: { nodes: [], links: [] },
                         deliverables: [],
@@ -2081,8 +2050,7 @@ export default function App() {
               successScore: mission.successScore,
               mission: {
                 id: mission.id,
-                title: mission.title,
-              },
+                title: mission.title },
               chiefAgents: [],
               workflowGraph: { nodes: [], links: [] },
               deliverables: [],

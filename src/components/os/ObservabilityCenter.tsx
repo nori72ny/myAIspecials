@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { 
   Activity, CheckCircle2, AlertCircle, Shield, Terminal, FileText, 
-  BarChart3, RefreshCw, Play, Search, Sparkles, Cpu, Database, 
-  BookOpen, HelpCircle, HardDrive, Wifi, ShieldAlert, Award, Clock,
-  ThumbsUp, ThumbsDown, Award as Trophy, RefreshCw as LoopIcon, CheckCircle, ArrowRight,
+  BarChart3, RefreshCw, Play,   Cpu, Database, 
+    HardDrive, Wifi, ShieldAlert, Award, Clock,
+  ThumbsUp, ThumbsDown, RefreshCw as LoopIcon,  
   Zap
 } from "lucide-react";
 import { SafeStorage } from "../../utils";

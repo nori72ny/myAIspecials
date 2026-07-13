@@ -6,16 +6,16 @@ import {
   MessageSquare, 
   Database, 
   Sparkles, 
-  X, 
+   
   ChevronRight,
   Home,
   Briefcase,
   BrainCircuit,
-  Settings2,
+  
   Paperclip,
   TrendingUp,
   Shield,
-  HelpCircle,
+  
   Code,
   Users,
   LayoutGrid,
@@ -23,7 +23,7 @@ import {
   Eye,
   Columns
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { cn } from "../../utils";
 
 interface UniversalSearchProps {

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { RefreshCw, ArrowRight, Zap, CheckCircle, Clock, Activity, FileText, ArrowUpRight, ShieldCheck, Cpu, XCircle } from 'lucide-react';
+import  { useState, useEffect } from 'react';
+import { RefreshCw, ArrowRight, Zap, CheckCircle,  Activity,  ArrowUpRight, ShieldCheck, Cpu, XCircle } from 'lucide-react';
 import { cn } from '../../utils';
 
 interface ImprovementStep {

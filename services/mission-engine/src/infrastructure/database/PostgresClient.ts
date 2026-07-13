@@ -25,8 +25,7 @@ export class PostgresClient {
         console.log("Initializing PostgreSQL pool using DATABASE_URL...");
         this.pool = new Pool({
           connectionString,
-          ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
-        });
+          ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false });
       } else {
         const host = process.env.POSTGRES_HOST || "localhost";
         const port = parseInt(process.env.POSTGRES_PORT || "5432", 10);
@@ -40,8 +39,7 @@ export class PostgresClient {
           port,
           user,
           password,
-          database,
-        });
+          database });
       }
 
       // Add pool error handler to prevent crashing the process on unexpected errors

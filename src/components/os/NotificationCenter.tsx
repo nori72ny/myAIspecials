@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Bell, CheckCircle2, AlertCircle, Sparkles, MessageSquare, Database } from "lucide-react";
+import  { useState } from "react";
+import { Bell, CheckCircle2, AlertCircle, Sparkles,  Database } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 export default function NotificationCenter() {

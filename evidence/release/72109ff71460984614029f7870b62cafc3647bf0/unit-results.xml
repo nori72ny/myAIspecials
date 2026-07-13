@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="vitest tests" tests="69" failures="0" errors="0" time="0.313">
+  <testsuite name="AgentCommunication.test.ts" tests="45" failures="0" errors="0" time="0.219">
+  </testsuite>
+  <testsuite name="SecurityHardeningV12.test.ts" tests="24" failures="0" errors="0" time="0.094">
+  </testsuite>
+</testsuites>

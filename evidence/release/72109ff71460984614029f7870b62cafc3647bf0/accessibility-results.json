@@ -1,0 +1,5 @@
+{
+  "status": "NOT VERIFIED",
+  "reason": "Automated accessibility tests (e.g., axe-core) are not configured.",
+  "violations": []
+}

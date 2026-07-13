@@ -1,3 +1,5 @@
+-e STATUS: INVALIDATED - See RELEASE_CERTIFICATION.md
+
 # PRODUCTION_EVIDENCE_REPORT.md - Production Release Candidate Audit Report
 
 **Date of Audit**: July 6, 2026  

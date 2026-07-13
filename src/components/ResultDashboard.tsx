@@ -1,18 +1,15 @@
+import React from "react";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import DOMPurify from "dompurify";
-import { AnalysisResult, NetworkNode } from "../types";
+import { AnalysisResult } from "../types";
 import { ProductionLogger } from "../utils";
 import { 
-  SovereignGlassCard,
+  
   SovereignButton,
-  SovereignInput,
+  
   SovereignBadge,
-  SovereignDialog,
-  SovereignSidebar,
-  SovereignPanel,
-  SovereignSegmentedControl
-} from "./SovereignComponents";
+  SovereignDialog } from "./SovereignComponents";
 import {
   Brain,
   BrainCircuit,
@@ -22,7 +19,7 @@ import {
   ArrowRightLeft,
   BookmarkCheck,
   Target,
-  Calendar,
+  
   Layers,
   Search,
   Cpu,
@@ -32,7 +29,7 @@ import {
   AlertTriangle,
   Compass,
   Sliders,
-  ArrowUpRight,
+  
   Check,
   Play,
   Terminal,
@@ -46,8 +43,8 @@ import {
   RefreshCw,
   Clock,
   ExternalLink,
-  ChevronRight,
-  Scale,
+  
+  
   Zap,
   PenTool,
   Layout,
@@ -69,7 +66,7 @@ interface Props {
 
 type ExecuteTab = "image" | "video" | "slides" | "web" | "app" | "agent";
 
-export default function ResultDashboard({ result }: Props) {
+const ResultDashboard = React.memo(function ResultDashboard({ result }: Props) {
   const prefersReducedMotion = useReducedMotion();
   const transitionY = prefersReducedMotion ? 0 : 10;
   // Local state for checking off mission conditions and risk improvements
@@ -125,8 +122,7 @@ export default function ResultDashboard({ result }: Props) {
   const [memorySavedStates, setMemorySavedStates] = useState<Record<string, "idle" | "saving" | "saved">>({
     project: "idle",
     knowledge: "idle",
-    dna: "idle",
-  });
+    dna: "idle" });
 
   // Module ⑬: Intelligence Memory Network (IMN) Build 006 specific states
   const [hoveredImnNodeId, setHoveredImnNodeId] = useState<string | null>(null);
@@ -167,8 +163,7 @@ export default function ResultDashboard({ result }: Props) {
       const response = await fetch("/api/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: imagePromptInput }),
-      });
+        body: JSON.stringify({ prompt: imagePromptInput }) });
       if (!response.ok) {
         throw new Error("画像生成モデルがビジー状態か、APIキー設定が無効です。");
       }
@@ -213,7 +208,7 @@ export default function ResultDashboard({ result }: Props) {
           web: `
             <div class="p-6 bg-[#121214] text-white rounded-xl border border-indigo-500/30 text-center font-sans">
               <h1 class="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">Sandbox Preview Ready</h1>
-              <p class="text-xs text-gray-400 mt-2">IDL 2035 Design System Mockup rendered flawlessly.</p>
+              <p class="text-[11px] leading-relaxed text-gray-400 mt-2">IDL 2035 Design System Mockup rendered flawlessly.</p>
               <div class="mt-4 flex justify-center gap-2">
                 <span class="px-2.5 py-1 text-[10px] rounded-full bg-indigo-500/20 text-indigo-300 font-mono">React 18</span>
                 <span class="px-2.5 py-1 text-[10px] rounded-full bg-purple-500/20 text-purple-300 font-mono">Tailwind CSS</span>
@@ -321,9 +316,9 @@ export default function ResultDashboard({ result }: Props) {
             <div>
               <h1 className="text-xl md:text-2xl font-black text-white tracking-tight flex items-center gap-2">
                 Mission Control
-                <span className="text-xs font-mono font-medium text-white/40">v2.0 Beta</span>
+                <span className="text-[11px] leading-relaxed font-mono font-medium text-white/40">v2.0 Beta</span>
               </h1>
-              <p className="text-xs text-white/60 flex items-center gap-2 mt-1 font-mono">
+              <p className="text-[11px] leading-relaxed text-white/60 flex items-center gap-2 mt-1 font-mono">
                 <Clock className="w-3.5 h-3.5 text-indigo-400" />
                 System Status:
                 <span className="text-indigo-300 font-bold">{result.aiStatus || "最適化完了"}</span>
@@ -335,7 +330,7 @@ export default function ResultDashboard({ result }: Props) {
           <div className="flex items-center gap-4 bg-white/5 rounded-2xl p-3.5 border border-white/10 z-10 shrink-0 self-stretch justify-between md:justify-end">
             <div className="text-right">
               <div className="text-[10px] font-mono tracking-wider text-white/40 uppercase">Success Score</div>
-              <div className="text-xs font-black text-indigo-300">UQI 12-Factor Optimized</div>
+              <div className="text-[11px] leading-relaxed font-black text-indigo-300">UQI 12-Factor Optimized</div>
             </div>
             <div className="relative w-16 h-16 flex items-center justify-center bg-[#0B0B0C] rounded-xl border border-indigo-500/30">
               <svg className="absolute inset-0 w-full h-full -rotate-90">
@@ -415,7 +410,7 @@ export default function ResultDashboard({ result }: Props) {
                       <span className="text-[9px] font-mono font-black tracking-widest bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">BUILD 004 MIE</span>
                       <span className="text-white/45 text-[10px] font-mono">Decision & Control</span>
                     </div>
-                    <h2 className="text-sm font-bold uppercase tracking-wider text-white">Master Intelligence Engine</h2>
+                    <h2 className="text-[13px] leading-relaxed font-bold uppercase tracking-wider text-white">Master Intelligence Engine</h2>
                     <p className="text-[10px] text-white/55">CEOではない。裁判官でもない。Mission全体を管理・完成承認する最高意思決定AI</p>
                   </div>
                 </div>
@@ -473,7 +468,7 @@ export default function ResultDashboard({ result }: Props) {
               <div className="bg-black/30 border border-white/5 rounded-2xl p-4 space-y-3.5">
                 <span className="text-[10px] font-mono tracking-wider text-white/45 uppercase block">MIE 提出合格基準 (Strict Submission Verification)</span>
                 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-[11px] leading-relaxed">
                   {/* Truth Score */}
                   <div className="p-3 bg-[#09090C] border border-white/5 rounded-xl space-y-1.5 relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-12 h-12 bg-indigo-500/5 rounded-full blur-xl pointer-events-none" />
@@ -558,7 +553,7 @@ export default function ResultDashboard({ result }: Props) {
                   <button 
                     disabled 
                     aria-label="MIE 自律最適化再チューニング中"
-                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-indigo-600/30 border border-indigo-500/20 text-indigo-300 text-xs font-mono flex items-center justify-center gap-2"
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-indigo-600/30 border border-indigo-500/20 text-indigo-300 text-[11px] leading-relaxed font-mono flex items-center justify-center gap-2"
                   >
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     MIE 自律最適化再チューニング中...
@@ -571,7 +566,7 @@ export default function ResultDashboard({ result }: Props) {
                     <button 
                       onClick={handleForceTuning}
                       aria-label="MIE強制アライメント実行"
-                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-black text-xs font-bold font-mono shrink-0 transition-all shadow-lg flex items-center justify-center gap-1.5 animate-bounce"
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-black text-[11px] leading-relaxed font-bold font-mono shrink-0 transition-all shadow-lg flex items-center justify-center gap-1.5 animate-bounce"
                     >
                       <Sparkles className="w-4 h-4 shrink-0" />
                       MIE FORCE TUNING (強制最適アライン)
@@ -585,7 +580,7 @@ export default function ResultDashboard({ result }: Props) {
                     <button 
                       onClick={() => setShowMIEModal(true)}
                       aria-label="MIE 最終成果提出"
-                      className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-500 hover:to-teal-600 text-black text-xs font-bold uppercase tracking-wider shadow-xl transition-all shrink-0 flex items-center justify-center gap-1.5"
+                      className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-500 hover:to-teal-600 text-black text-[11px] leading-relaxed font-bold uppercase tracking-wider shadow-xl transition-all shrink-0 flex items-center justify-center gap-1.5"
                     >
                       <BookmarkCheck className="w-4.5 h-4.5" />
                       MIE APPROVED 最終成果提出
@@ -671,7 +666,7 @@ export default function ResultDashboard({ result }: Props) {
                       <span className="text-[9px] font-mono font-black tracking-widest bg-[#2EC4B6]/20 text-[#2EC4B6] px-2 py-0.5 rounded">BUILD 005 OIE</span>
                       <span className="text-white/45 text-[10px] font-mono">Outcome Management Engine</span>
                     </div>
-                    <h2 className="text-sm font-bold uppercase tracking-wider text-white">Outcome Intelligence Engine</h2>
+                    <h2 className="text-[13px] leading-relaxed font-bold uppercase tracking-wider text-white">Outcome Intelligence Engine</h2>
                     <p className="text-[10.5px] text-white/55">
                       <span className="text-[#2EC4B6] font-extrabold">回答を管理しない。成果を管理する。</span> Mission・Outcome・Successの三層自律駆動
                     </p>
@@ -696,7 +691,7 @@ export default function ResultDashboard({ result }: Props) {
                     <span>Step 01. Mission</span>
                   </div>
                   <div className="mt-1.5">
-                    <h4 className="text-xs font-bold text-white">課題・意図の完全言語化</h4>
+                    <h4 className="text-[11px] leading-relaxed font-bold text-white">課題・意図の完全言語化</h4>
                     <p className="text-[10px] text-white/50 leading-relaxed mt-0.5">ユーザーの曖昧な指示を、ACOS役員が自律的に多角的な成功定義（MOS）として再構築・分解。</p>
                   </div>
                   <div className="mt-2.5 flex items-center justify-between text-[10.5px]">
@@ -712,7 +707,7 @@ export default function ResultDashboard({ result }: Props) {
                     <span>Step 02. Outcome</span>
                   </div>
                   <div className="mt-1.5">
-                    <h4 className="text-xs font-bold text-white">回答の排除・14大属性成果評価</h4>
+                    <h4 className="text-[11px] leading-relaxed font-bold text-white">回答の排除・14大属性成果評価</h4>
                     <p className="text-[10px] text-white/50 leading-relaxed mt-0.5">単なる「文字による回答」ではなく、客観的な価値（ROI・削減時間・Gap分析）を成果物として判定・定義。</p>
                   </div>
                   <div className="mt-2.5 flex items-center justify-between text-[10.5px]">
@@ -728,7 +723,7 @@ export default function ResultDashboard({ result }: Props) {
                     <span>Step 03. Success</span>
                   </div>
                   <div className="mt-1.5">
-                    <h4 className="text-xs font-bold text-white">真実検証・DNA永続記憶保存</h4>
+                    <h4 className="text-[11px] leading-relaxed font-bold text-white">真実検証・DNA永続記憶保存</h4>
                     <p className="text-[10px] text-white/50 leading-relaxed mt-0.5">MIEによる10大監査と実測ファクトチェックを通過し、獲得した知能パターンをナレッジDNAに焼き付け。</p>
                   </div>
                   <div className="mt-2.5 flex items-center justify-between text-[10.5px]">
@@ -770,7 +765,7 @@ export default function ResultDashboard({ result }: Props) {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs"
+                    className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px] leading-relaxed"
                   >
                     {/* Expected Outcome */}
                     <div className="p-3 bg-black/40 border border-white/5 rounded-2xl space-y-1">
@@ -863,7 +858,7 @@ export default function ResultDashboard({ result }: Props) {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] leading-relaxed">
                       {/* ROI */}
                       <div className="p-3 bg-black/40 border border-white/5 rounded-2xl space-y-2 relative">
                         <div className="flex justify-between items-center">
@@ -933,7 +928,7 @@ export default function ResultDashboard({ result }: Props) {
                       </div>
 
                       {/* Evidence */}
-                      <div className="p-3 bg-black/40 border border-white/5 rounded-2xl space-y-2 md:col-span-2 text-xs">
+                      <div className="p-3 bg-black/40 border border-white/5 rounded-2xl space-y-2 md:col-span-2 text-[11px] leading-relaxed">
                         <div className="flex justify-between items-center">
                           <span className="text-[9px] text-white/40 font-mono uppercase tracking-wider block">Evidence (成果物の根拠・証拠)</span>
                           <button
@@ -960,7 +955,7 @@ export default function ResultDashboard({ result }: Props) {
                     </div>
 
                     {/* DNA Update and Long term storage */}
-                    <div className="p-4 bg-black/30 border border-white/5 rounded-2xl text-xs space-y-3">
+                    <div className="p-4 bg-black/30 border border-white/5 rounded-2xl text-[11px] leading-relaxed space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Database className="w-4 h-4 text-[#2EC4B6] animate-pulse" />
@@ -1003,7 +998,7 @@ export default function ResultDashboard({ result }: Props) {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                   <div className="space-y-0.5">
                     <span className="text-[8.5px] font-mono font-black tracking-widest text-red-400 uppercase">OIE BUILD 005 FINAL RULE</span>
-                    <h4 className="text-xs font-black tracking-wide text-white uppercase flex items-center gap-1">
+                    <h4 className="text-[11px] leading-relaxed font-black tracking-wide text-white uppercase flex items-center gap-1">
                       <ShieldAlert className="w-3.5 h-3.5 text-red-400 animate-pulse" />
                       Mission完了では終わらない。Outcome達成で完了する。
                     </h4>
@@ -1034,7 +1029,7 @@ export default function ResultDashboard({ result }: Props) {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <Target className="w-5 h-5 text-indigo-400" />
-                <h2 className="text-sm font-bold uppercase tracking-widest text-white flex items-center gap-2">
+                <h2 className="text-[13px] leading-relaxed font-bold uppercase tracking-widest text-white flex items-center gap-2">
                   ① Mission Object System <span className="text-[10px] bg-indigo-500/15 text-indigo-300 font-mono font-bold px-2 py-0.5 rounded-full border border-indigo-500/20">MOS Cockpit</span>
                 </h2>
               </div>
@@ -1174,7 +1169,7 @@ export default function ResultDashboard({ result }: Props) {
                 className="space-y-5"
               >
                 {/* Meta details banner */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 bg-white/2 border border-white/5 p-4 rounded-2xl text-xs">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 bg-white/2 border border-white/5 p-4 rounded-2xl text-[11px] leading-relaxed">
                   <div className="space-y-1">
                     <span className="text-[9px] font-mono text-white/40 uppercase block">Mission ID</span>
                     <span className="font-mono font-bold text-indigo-300">{missionId}</span>
@@ -1209,13 +1204,13 @@ export default function ResultDashboard({ result }: Props) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-1.5">
                     <span className="text-[10px] font-mono tracking-wider text-indigo-300 uppercase block">Mission Goal (最終ゴール)</span>
-                    <p className="text-xs font-bold text-white/90 leading-relaxed">
+                    <p className="text-[11px] leading-relaxed font-bold text-white/90 leading-relaxed">
                       {missionGoal}
                     </p>
                   </div>
                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-1.5">
                     <span className="text-[10px] font-mono tracking-wider text-indigo-300 uppercase block">True Intent (本質的ニーズ)</span>
-                    <p className="text-xs font-medium text-white/70 leading-relaxed">
+                    <p className="text-[11px] leading-relaxed font-medium text-white/70 leading-relaxed">
                       {missionPurpose}
                     </p>
                   </div>
@@ -1247,7 +1242,7 @@ export default function ResultDashboard({ result }: Props) {
                             {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                           </div>
                           <div className="space-y-1">
-                            <span className="text-xs font-semibold leading-relaxed block">{cond}</span>
+                            <span className="text-[11px] leading-relaxed font-semibold leading-relaxed block">{cond}</span>
                             <span className="text-[9px] font-mono text-white/30 block">
                               {isChecked ? "✓ VERIFIED BY UQI CORE" : "● PENDING AUDIT"}
                             </span>
@@ -1269,13 +1264,13 @@ export default function ResultDashboard({ result }: Props) {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs"
+                className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px] leading-relaxed"
               >
                 {/* Left: Engine & Agents */}
                 <div className="space-y-4">
                   {/* Collaborating AIs */}
                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-3">
-                    <h3 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5 uppercase font-mono tracking-wider">
+                    <h3 className="text-[11px] leading-relaxed font-bold text-indigo-300 flex items-center gap-1.5 uppercase font-mono tracking-wider">
                       <Cpu className="w-3.5 h-3.5 text-indigo-400" />
                       Collaborating AI Engines (稼働言語モデル)
                     </h3>
@@ -1291,7 +1286,7 @@ export default function ResultDashboard({ result }: Props) {
 
                   {/* Dynamic Agents */}
                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-3">
-                    <h3 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5 uppercase font-mono tracking-wider">
+                    <h3 className="text-[11px] leading-relaxed font-bold text-indigo-300 flex items-center gap-1.5 uppercase font-mono tracking-wider">
                       <BrainCircuit className="w-3.5 h-3.5 text-indigo-400" />
                       Active Sub-Agents (動員自律エージェント)
                     </h3>
@@ -1315,7 +1310,7 @@ export default function ResultDashboard({ result }: Props) {
                 <div className="space-y-4">
                   {/* Knowledge base */}
                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-3">
-                    <h3 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5 uppercase font-mono tracking-wider">
+                    <h3 className="text-[11px] leading-relaxed font-bold text-indigo-300 flex items-center gap-1.5 uppercase font-mono tracking-wider">
                       <Database className="w-3.5 h-3.5 text-indigo-400" />
                       Knowledge Sources (準拠・分析リソース)
                     </h3>
@@ -1331,7 +1326,7 @@ export default function ResultDashboard({ result }: Props) {
 
                   {/* Required files */}
                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-3">
-                    <h3 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5 uppercase font-mono tracking-wider">
+                    <h3 className="text-[11px] leading-relaxed font-bold text-indigo-300 flex items-center gap-1.5 uppercase font-mono tracking-wider">
                       <BookmarkCheck className="w-3.5 h-3.5 text-indigo-400" />
                       Deliverable Matrices (必要ファイル・生成資産)
                     </h3>
@@ -1359,7 +1354,7 @@ export default function ResultDashboard({ result }: Props) {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="space-y-4 text-xs"
+                className="space-y-4 text-[11px] leading-relaxed"
               >
                 <div className="bg-white/2 border border-white/5 p-4 rounded-2xl space-y-4">
                   <span className="text-[10px] font-mono tracking-wider text-indigo-300 uppercase block">
@@ -1398,13 +1393,13 @@ export default function ResultDashboard({ result }: Props) {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="space-y-4 text-xs"
+                className="space-y-4 text-[11px] leading-relaxed"
               >
                 {/* Gauges and stats block */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5 flex flex-col justify-between items-center text-center">
                     <span className="text-[9px] font-mono text-white/40 uppercase">Quality Threshold</span>
-                    <div className="my-2 text-sm font-black text-white">{qualityThreshold}</div>
+                    <div className="my-2 text-[13px] leading-relaxed font-black text-white">{qualityThreshold}</div>
                     <span className="text-[8px] text-white/30 font-mono">UQI HIGHEST REQUIREMENT</span>
                   </div>
 
@@ -1430,7 +1425,7 @@ export default function ResultDashboard({ result }: Props) {
                 {/* Truth Engine Verification Panel */}
                 <div className="bg-[#0b0c10]/80 border border-indigo-500/25 rounded-2xl p-5 space-y-4">
                   <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
-                    <h4 className="text-white font-black tracking-wider text-xs uppercase flex items-center gap-2">
+                    <h4 className="text-white font-black tracking-wider text-[11px] leading-relaxed uppercase flex items-center gap-2">
                       <ShieldCheck className="w-4 h-4 text-emerald-400" />
                       Truth Engine v2.0 Real-Time Audit
                     </h4>
@@ -1443,14 +1438,14 @@ export default function ResultDashboard({ result }: Props) {
                     {/* Freshness */}
                     <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1">
                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">情報鮮度</span>
-                      <div className="text-sm font-black text-white">{result.mission?.freshness || "1時間前更新"}</div>
+                      <div className="text-[13px] leading-relaxed font-black text-white">{result.mission?.freshness || "1時間前更新"}</div>
                       <div className="text-[8px] text-emerald-400 font-mono">100% Real-time Sync</div>
                     </div>
 
                     {/* Sources */}
                     <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1">
                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">出典 (Sources)</span>
-                      <div className="text-sm font-black text-white truncate">
+                      <div className="text-[13px] leading-relaxed font-black text-white truncate">
                         {result.research?.sources?.[0] || "公的DB照合"}
                       </div>
                       <div className="text-[8px] text-indigo-300 font-mono">総数 {result.research?.sources?.length || 3} 件の一次ソース</div>
@@ -1459,14 +1454,14 @@ export default function ResultDashboard({ result }: Props) {
                     {/* Reliability */}
                     <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1">
                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">信頼度</span>
-                      <div className="text-sm font-black text-white">{result.mission?.reliability || "極めて高い"}</div>
+                      <div className="text-[13px] leading-relaxed font-black text-white">{result.mission?.reliability || "極めて高い"}</div>
                       <div className="text-[8px] text-emerald-400 font-mono">Q5 適合率: 100%</div>
                     </div>
 
                     {/* AI Consistency */}
                     <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1">
                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">AI一致率</span>
-                      <div className="text-sm font-black text-white">
+                      <div className="text-[13px] leading-relaxed font-black text-white">
                         {result.truthEngine?.aiAgreementRate || 98}%
                       </div>
                       <div className="text-[8px] text-indigo-300 font-mono">Gemini & GPT-4o 対比</div>
@@ -1498,7 +1493,7 @@ export default function ResultDashboard({ result }: Props) {
                       <AlertTriangle className="w-4 h-4 text-rose-400" />
                       想定リスク (Identified Risk)
                     </h4>
-                    <p className="text-xs text-rose-200/80 leading-relaxed font-semibold">
+                    <p className="text-[11px] leading-relaxed text-rose-200/80 leading-relaxed font-semibold">
                       {risk}
                     </p>
                   </div>
@@ -1508,7 +1503,7 @@ export default function ResultDashboard({ result }: Props) {
                       <Award className="w-4 h-4 text-emerald-400" />
                       期待利益 / ROI (ROI Prediction)
                     </h4>
-                    <p className="text-xs text-emerald-200/80 leading-relaxed font-semibold">
+                    <p className="text-[11px] leading-relaxed text-emerald-200/80 leading-relaxed font-semibold">
                       {roiPrediction}
                     </p>
                   </div>
@@ -1518,7 +1513,7 @@ export default function ResultDashboard({ result }: Props) {
                 <div className="bg-indigo-500/5 p-4 rounded-2xl border border-indigo-500/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <h4 className="text-indigo-300 font-bold uppercase tracking-wider text-[10px] font-mono">Knowledge DNA Long-Term Storage (長期DNA学習)</h4>
-                    <p className="text-xs text-white/80 font-medium">
+                    <p className="text-[11px] leading-relaxed text-white/80 font-medium">
                       {learning}
                     </p>
                   </div>
@@ -1551,26 +1546,26 @@ export default function ResultDashboard({ result }: Props) {
                       <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
                       <div className="flex items-center gap-2 mb-2">
                         <Database className="w-4 h-4 text-indigo-400" />
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Organizational Memory & KPI</h3>
+                        <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-wider text-white">Organizational Memory & KPI</h3>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                           <span className="text-[10px] text-white/40 block mb-1">Missions Evaluated</span>
-                          <span className="text-sm font-bold text-white font-mono">{evolutionData.memories?.length || 0}</span>
+                          <span className="text-[13px] leading-relaxed font-bold text-white font-mono">{evolutionData.memories?.length || 0}</span>
                         </div>
                         <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                           <span className="text-[10px] text-white/40 block mb-1">Latest Score</span>
-                          <span className="text-sm font-bold text-indigo-300 font-mono">
+                          <span className="text-[13px] leading-relaxed font-bold text-indigo-300 font-mono">
                             {evolutionData.memories?.length > 0 ? `${evolutionData.memories[evolutionData.memories.length-1].score.toFixed(1)}%` : "N/A"}
                           </span>
                         </div>
                         <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                           <span className="text-[10px] text-white/40 block mb-1">Active Agents</span>
-                          <span className="text-sm font-bold text-white font-mono">{evolutionData.knowledgeNodes?.length || 0}</span>
+                          <span className="text-[13px] leading-relaxed font-bold text-white font-mono">{evolutionData.knowledgeNodes?.length || 0}</span>
                         </div>
                         <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                           <span className="text-[10px] text-white/40 block mb-1">Knowledge Links</span>
-                          <span className="text-sm font-bold text-white font-mono">{evolutionData.knowledgeRelations?.length || 0}</span>
+                          <span className="text-[13px] leading-relaxed font-bold text-white font-mono">{evolutionData.knowledgeRelations?.length || 0}</span>
                         </div>
                       </div>
                     </div>
@@ -1652,24 +1647,24 @@ export default function ResultDashboard({ result }: Props) {
                       <div className="absolute top-0 left-0 w-1 h-full bg-rose-500" />
                       <div className="flex items-center gap-2 mb-2">
                         <Activity className="w-4 h-4 text-rose-400" />
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Future Prediction Engine</h3>
+                        <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-wider text-white">Future Prediction Engine</h3>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                           <span className="text-[10px] text-white/40 block mb-1">Success Probability</span>
-                          <span className="text-sm font-bold text-emerald-400 font-mono">{(strategicData.prediction.successProbability * 100).toFixed(0)}%</span>
+                          <span className="text-[13px] leading-relaxed font-bold text-emerald-400 font-mono">{(strategicData.prediction.successProbability * 100).toFixed(0)}%</span>
                         </div>
                         <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                           <span className="text-[10px] text-white/40 block mb-1">Expected ROI</span>
-                          <span className="text-sm font-bold text-emerald-400 font-mono">{strategicData.prediction.expectedROI}x</span>
+                          <span className="text-[13px] leading-relaxed font-bold text-emerald-400 font-mono">{strategicData.prediction.expectedROI}x</span>
                         </div>
                         <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                           <span className="text-[10px] text-white/40 block mb-1">Expected Quality</span>
-                          <span className="text-sm font-bold text-indigo-300 font-mono">{strategicData.prediction.expectedQuality}%</span>
+                          <span className="text-[13px] leading-relaxed font-bold text-indigo-300 font-mono">{strategicData.prediction.expectedQuality}%</span>
                         </div>
                         <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                           <span className="text-[10px] text-white/40 block mb-1">Confidence Score</span>
-                          <span className="text-sm font-bold text-rose-300 font-mono">{(strategicData.prediction.confidenceScore * 100).toFixed(0)}%</span>
+                          <span className="text-[13px] leading-relaxed font-bold text-rose-300 font-mono">{(strategicData.prediction.confidenceScore * 100).toFixed(0)}%</span>
                         </div>
                       </div>
                     </div>
@@ -1748,7 +1743,7 @@ export default function ResultDashboard({ result }: Props) {
                 {!result.evidenceEngine ? (
                   <div className="flex justify-center p-8">
                     <Search className="w-6 h-6 text-teal-400 animate-pulse" />
-                    <span className="ml-3 text-sm text-white/70">Evidence Engine is initializing...</span>
+                    <span className="ml-3 text-[13px] leading-relaxed text-white/70">Evidence Engine is initializing...</span>
                   </div>
                 ) : (
                   <>
@@ -1756,12 +1751,12 @@ export default function ResultDashboard({ result }: Props) {
                       <div className="absolute top-0 left-0 w-1 h-full bg-teal-500" />
                       <div className="flex items-center gap-2 mb-2">
                         <Search className="w-4 h-4 text-teal-400" />
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Evidence Engine</h3>
+                        <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-wider text-white">Evidence Engine</h3>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="bg-white/5 p-3 rounded-xl border border-white/5 flex flex-col justify-center items-center">
                           <span className="text-[10px] text-white/40 block mb-1">Overall Status</span>
-                          <span className={`text-sm font-bold tracking-widest uppercase ${result.evidenceEngine.overallVerificationStatus === 'Verified' ? 'text-teal-400' : 'text-amber-400'}`}>
+                          <span className={`text-[13px] leading-relaxed font-bold tracking-widest uppercase ${result.evidenceEngine.overallVerificationStatus === 'Verified' ? 'text-teal-400' : 'text-amber-400'}`}>
                             {result.evidenceEngine.overallVerificationStatus}
                           </span>
                         </div>
@@ -1777,7 +1772,7 @@ export default function ResultDashboard({ result }: Props) {
                       {result.evidenceEngine.verifications?.map((v: any, idx: number) => (
                         <div key={idx} className="bg-white/5 border border-white/5 rounded-xl p-4">
                           <div className="flex justify-between items-start mb-2">
-                            <h4 className="text-sm font-bold text-white">{v.claim}</h4>
+                            <h4 className="text-[13px] leading-relaxed font-bold text-white">{v.claim}</h4>
                             <SovereignBadge variant={v.status === 'Verified' ? 'emerald' : 'amber'}>
                               {v.status}
                             </SovereignBadge>
@@ -1787,7 +1782,7 @@ export default function ResultDashboard({ result }: Props) {
                             <span>Confidence: {v.confidenceScore}%</span>
                             <span>Agreement: {v.aiAgreementRate}%</span>
                           </div>
-                          <p className="text-xs text-white/70 mb-3">{v.reasoning}</p>
+                          <p className="text-[11px] leading-relaxed text-white/70 mb-3">{v.reasoning}</p>
                           {v.sources && v.sources.length > 0 && (
                             <div className="bg-black/30 rounded-lg p-3 space-y-2 border border-white/5">
                               <span className="text-[10px] font-mono text-teal-400 uppercase tracking-widest block mb-1">Primary Sources</span>
@@ -1795,7 +1790,7 @@ export default function ResultDashboard({ result }: Props) {
                                 <a key={sIdx} href={src.url} target="_blank" rel="noreferrer" className="flex items-center justify-between group hover:bg-white/5 p-1.5 rounded transition-colors">
                                   <div className="flex items-center gap-2">
                                     <ExternalLink className="w-3 h-3 text-white/40 group-hover:text-teal-400 transition-colors" />
-                                    <span className="text-xs text-white/80">{src.title}</span>
+                                    <span className="text-[11px] leading-relaxed text-white/80">{src.title}</span>
                                   </div>
                                   <div className="text-[10px] font-mono text-white/40">
                                     Trust: <span className="text-teal-300">{src.reliabilityScore}</span>
@@ -1836,7 +1831,7 @@ export default function ResultDashboard({ result }: Props) {
                 {(!result.predictiveTimeline && !result.proactiveSuggestions && !result.automatedWorkflow) ? (
                   <div className="flex justify-center p-8">
                     <Clock className="w-6 h-6 text-orange-400 animate-pulse" />
-                    <span className="ml-3 text-sm text-white/70">Predictive timeline generating...</span>
+                    <span className="ml-3 text-[13px] leading-relaxed text-white/70">Predictive timeline generating...</span>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1844,7 +1839,7 @@ export default function ResultDashboard({ result }: Props) {
                     <div className="space-y-4">
                       <div className="flex items-center gap-2 border-b border-white/5 pb-2">
                         <Clock className="w-4 h-4 text-orange-400" />
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Predictive Timeline ({result.predictiveTimeline?.horizon})</h3>
+                        <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-wider text-white">Predictive Timeline ({result.predictiveTimeline?.horizon})</h3>
                       </div>
                       <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-white/10 before:to-transparent">
                         {result.predictiveTimeline?.events?.map((event: any, idx: number) => (
@@ -1854,7 +1849,7 @@ export default function ResultDashboard({ result }: Props) {
                             </div>
                             <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white/5 p-3 rounded-xl border border-white/5">
                               <div className="flex justify-between items-center mb-1">
-                                <h4 className="text-xs font-bold text-white">{event.title}</h4>
+                                <h4 className="text-[11px] leading-relaxed font-bold text-white">{event.title}</h4>
                                 <span className="text-[9px] text-white/40 font-mono">{new Date(event.timestamp).toLocaleDateString()}</span>
                               </div>
                               <p className="text-[10px] text-white/60 mb-2">{event.description}</p>
@@ -1936,14 +1931,14 @@ export default function ResultDashboard({ result }: Props) {
                 {!result.livingMemory ? (
                   <div className="flex justify-center p-8">
                     <Database className="w-6 h-6 text-fuchsia-400 animate-pulse" />
-                    <span className="ml-3 text-sm text-white/70">Initializing Living Memory...</span>
+                    <span className="ml-3 text-[13px] leading-relaxed text-white/70">Initializing Living Memory...</span>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div className="space-y-4">
                       <div className="flex items-center gap-2 border-b border-white/5 pb-2">
                         <Database className="w-4 h-4 text-fuchsia-400" />
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-white">Living Memory</h3>
+                        <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-wider text-white">Living Memory</h3>
                       </div>
                       <div className="space-y-3">
                         {result.livingMemory.map((mem: any) => (
@@ -2011,7 +2006,7 @@ export default function ResultDashboard({ result }: Props) {
                 {!result.governanceEngine ? (
                   <div className="flex justify-center p-8">
                     <Lock className="w-6 h-6 text-slate-400 animate-pulse" />
-                    <span className="ml-3 text-sm text-white/70">Governance Engine is auditing...</span>
+                    <span className="ml-3 text-[13px] leading-relaxed text-white/70">Governance Engine is auditing...</span>
                   </div>
                 ) : (
                   <div className="space-y-6">
@@ -2045,7 +2040,7 @@ export default function ResultDashboard({ result }: Props) {
                     {/* AI Performance Optimizer */}
                     {result.aiPerformance && (
                       <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 space-y-4">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                        <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-wider text-white flex items-center gap-2">
                           <Activity className="w-4 h-4 text-rose-400" />
                           AI Performance Optimizer
                         </h3>
@@ -2079,7 +2074,7 @@ export default function ResultDashboard({ result }: Props) {
                     {/* Autonomous Improvements */}
                     {result.autonomousImprovements && (
                       <div className="bg-[#0B0B0C] border border-white/5 rounded-2xl p-5 space-y-4">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                        <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-wider text-white flex items-center gap-2">
                           <RefreshCw className="w-4 h-4 text-indigo-400" />
                           Autonomous Improvement Proposals
                         </h3>
@@ -2137,7 +2132,7 @@ export default function ResultDashboard({ result }: Props) {
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                     <div>
                       <h3 className="text-lg font-bold text-white mb-1">第三者AIレビュー機構 (Third-Party Evaluation)</h3>
-                      <p className="text-xs text-white/50">
+                      <p className="text-[11px] leading-relaxed text-white/50">
                         外部のトップモデル（ChatGPT, Claude, Gemini, Manusなど）による厳格なソースコード・設計レビューを行い、世界トップ企業水準との差分を定量評価します。
                       </p>
                     </div>
@@ -2159,7 +2154,7 @@ export default function ResultDashboard({ result }: Props) {
                         ].map(ai => (
                           <li key={ai.model} className="flex items-center justify-between p-2 bg-black/40 rounded-lg border border-white/5">
                             <div className="flex flex-col">
-                              <span className="text-xs font-bold text-white">{ai.model}</span>
+                              <span className="text-[11px] leading-relaxed font-bold text-white">{ai.model}</span>
                               <span className="text-[9px] text-white/40">{ai.org}</span>
                             </div>
                             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-white/50">
@@ -2180,7 +2175,7 @@ export default function ResultDashboard({ result }: Props) {
                           { label: "UX/UI (Design Tokens)", target: "95+" }
                         ].map(metric => (
                           <div key={metric.label}>
-                            <div className="flex justify-between text-xs mb-1">
+                            <div className="flex justify-between text-[11px] leading-relaxed mb-1">
                               <span className="text-white/70">{metric.label}</span>
                               <span className="text-white font-mono">Target: {metric.target}</span>
                             </div>
@@ -2222,11 +2217,11 @@ export default function ResultDashboard({ result }: Props) {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-indigo-400" />
-                <h2 className="text-sm font-bold uppercase tracking-widest text-white">② Strategic Deliverable (成果物)</h2>
+                <h2 className="text-[13px] leading-relaxed font-bold uppercase tracking-widest text-white">② Strategic Deliverable (成果物)</h2>
               </div>
-              <p className="text-xs text-white/40">UQI最高基準：構造化カード、比較グリッド、ロードマップ、ネットワーク構造</p>
+              <p className="text-[11px] leading-relaxed text-white/40">UQI最高基準：構造化カード、比較グリッド、ロードマップ、ネットワーク構造</p>
             </div>
-            <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl px-4 py-1.5 flex items-center gap-2 text-xs text-indigo-300 font-mono">
+            <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl px-4 py-1.5 flex items-center gap-2 text-[11px] leading-relaxed text-indigo-300 font-mono">
               <Award className="w-4 h-4" />
               World Class Quality
             </div>
@@ -2237,7 +2232,7 @@ export default function ResultDashboard({ result }: Props) {
             <h3 className="text-lg md:text-xl font-extrabold text-white tracking-tight">
               {result.result?.title || "統合戦略ソリューションプラン"}
             </h3>
-            <p className="text-sm text-indigo-300 font-semibold">
+            <p className="text-[13px] leading-relaxed text-indigo-300 font-semibold">
               {result.result?.subtitle || "高深度な分析と対比モデルによる知的構築物"}
             </p>
           </div>
@@ -2246,7 +2241,7 @@ export default function ResultDashboard({ result }: Props) {
           <div className="bg-white/5 border border-white/5 rounded-2xl p-5 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 to-purple-500" />
             <span className="text-[10px] font-mono tracking-wider text-white/40 uppercase block mb-2">エグゼクティブ要約 (Executive Summary)</span>
-            <p className="text-sm md:text-base font-medium text-white/90 leading-relaxed italic">
+            <p className="text-[13px] leading-relaxed md:text-base font-medium text-white/90 leading-relaxed italic">
               「{result.result?.executiveSummary || "本成果物は、複数の超高度AIが自律対話を通じて合意した、論理的矛盾のない最高品質の実行ロードマップです。" }」
             </p>
           </div>
@@ -2255,7 +2250,7 @@ export default function ResultDashboard({ result }: Props) {
           <div className="space-y-3">
             <span className="text-[10px] font-mono tracking-wider text-white/40 uppercase block">対比比較グリッド (Comparative Model)</span>
             <div className="overflow-x-auto border border-white/5 rounded-2xl">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-[11px] leading-relaxed">
                 <thead>
                   <tr className="bg-white/5 border-b border-white/5 font-mono text-white/50">
                     <th className="p-4 font-bold uppercase tracking-wider">比較軸 / 観点</th>
@@ -2292,10 +2287,10 @@ export default function ResultDashboard({ result }: Props) {
                 <div key={idx} className="bg-white/5 border border-white/5 rounded-2xl p-4 flex flex-col justify-between hover:border-indigo-500/20 transition-all">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                      <span className="text-xs font-black text-white">{phase.phase}</span>
+                      <span className="text-[11px] leading-relaxed font-black text-white">{phase.phase}</span>
                       <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono font-bold">{phase.duration}</span>
                     </div>
-                    <ul className="space-y-1.5 text-xs text-white/70">
+                    <ul className="space-y-1.5 text-[11px] leading-relaxed text-white/70">
                       {phase.actions.map((act, aIdx) => (
                         <li key={aIdx} className="flex items-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
@@ -2422,7 +2417,7 @@ export default function ResultDashboard({ result }: Props) {
           <div className="flex items-center justify-between border-b border-white/5 pb-3">
             <div className="flex items-center gap-2">
               <Cpu className="w-5 h-5 text-indigo-400" />
-              <h2 className="text-sm font-bold uppercase tracking-widest text-white">③ Tactical Execution Hub</h2>
+              <h2 className="text-[13px] leading-relaxed font-bold uppercase tracking-widest text-white">③ Tactical Execution Hub</h2>
             </div>
             <span className="text-[10px] font-mono bg-white/5 border border-white/10 px-2 py-0.5 rounded text-white/50">
               One-Click Deploy v2
@@ -2447,7 +2442,7 @@ export default function ResultDashboard({ result }: Props) {
                     key={tab.id}
                     onClick={() => setActiveExecuteTab(tab.id as ExecuteTab)}
                     aria-label={`実行タブ選択: ${tab.label}`}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-left text-xs font-bold transition-all whitespace-nowrap ${
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-left text-[11px] leading-relaxed font-bold transition-all whitespace-nowrap ${
                       isActive 
                         ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" 
                         : `text-white/60 ${tab.color} bg-white/2`
@@ -2474,7 +2469,7 @@ export default function ResultDashboard({ result }: Props) {
                   >
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                        <h4 className="text-[11px] leading-relaxed font-black text-white flex items-center gap-1.5">
                           <ImageIcon className="w-4 h-4 text-indigo-400" />
                           REAL-TIME IMAGEN 4.0 INTEGRATION
                         </h4>
@@ -2482,7 +2477,7 @@ export default function ResultDashboard({ result }: Props) {
                           ● Fully Interactive API
                         </span>
                       </div>
-                      <p className="text-xs text-white/50 leading-relaxed">
+                      <p className="text-[11px] leading-relaxed text-white/50 leading-relaxed">
                         プロンプトを指定し「リアル生成」をクリックすると、Imagen 4.0（またはGeminiイメージモデル）に接続して実際に高品質なグラフィックをその場でレンダリングして表示します。
                       </p>
                       
@@ -2493,13 +2488,13 @@ export default function ResultDashboard({ result }: Props) {
                           value={imagePromptInput}
                           onChange={(e) => setImagePromptInput(e.target.value)}
                           placeholder="生成したいイメージの英文プロンプト（例: A futuristic tech control room, 8k, photorealistic）"
-                          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/20 focus-visible:ring-2 focus-visible:ring-indigo-500 focus:border-indigo-500/60"
+                          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-[11px] leading-relaxed text-white placeholder-white/20 focus-visible:ring-2 focus-visible:ring-indigo-500 focus:border-indigo-500/60"
                         />
                         <button
                           onClick={triggerImageGeneration}
                           disabled={imageLoading || !imagePromptInput.trim()}
                           aria-label="画像生成実行"
-                          className="bg-indigo-500 hover:bg-indigo-600 disabled:opacity-45 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0 flex items-center gap-1.5"
+                          className="bg-indigo-500 hover:bg-indigo-600 disabled:opacity-45 text-white font-bold text-[11px] leading-relaxed px-4 py-2 rounded-xl transition-colors shrink-0 flex items-center gap-1.5"
                         >
                           {imageLoading ? (
                             <>
@@ -2521,17 +2516,17 @@ export default function ResultDashboard({ result }: Props) {
                       {imageLoading && (
                         <div className="space-y-3 z-10">
                           <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin mx-auto" />
-                          <p className="text-xs font-mono text-indigo-300">GPU Clusters Rendering Model (Imagen-4.0)...</p>
+                          <p className="text-[11px] leading-relaxed font-mono text-indigo-300">GPU Clusters Rendering Model (Imagen-4.0)...</p>
                         </div>
                       )}
                       {imageError && (
-                        <div className="text-xs text-rose-400 font-medium z-10 max-w-md">
+                        <div className="text-[11px] leading-relaxed text-rose-400 font-medium z-10 max-w-md">
                           <AlertTriangle className="w-5 h-5 text-rose-400 mx-auto mb-1.5" />
                           {imageError}
                         </div>
                       )}
                       {!imageLoading && !imageError && !generatedImage && (
-                        <div className="text-xs text-white/30">
+                        <div className="text-[11px] leading-relaxed text-white/30">
                           プロンプトを入力し「リアル生成」を押してスタートしてください
                         </div>
                       )}
@@ -2565,11 +2560,11 @@ export default function ResultDashboard({ result }: Props) {
                     className="space-y-3 flex-1 flex flex-col justify-between"
                   >
                     <div className="space-y-1">
-                      <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                      <h4 className="text-[11px] leading-relaxed font-black text-white flex items-center gap-1.5">
                         <VideoIcon className="w-4 h-4 text-pink-400" />
                         VEOLI VIDEO SYNTHESIS GENERATOR
                       </h4>
-                      <p className="text-xs text-white/50">
+                      <p className="text-[11px] leading-relaxed text-white/50">
                         「動画生成を開始」を押すと、成果物をもとにAIが自動で16:9プロフェッショナルなプロモーションビジュアル動画を構成します。
                       </p>
                     </div>
@@ -2578,7 +2573,7 @@ export default function ResultDashboard({ result }: Props) {
                       {executingSim.video ? (
                         <div className="space-y-2">
                           <RefreshCw className="w-6 h-6 text-pink-400 animate-spin mx-auto" />
-                          <p className="text-xs font-mono text-pink-300">Veo-3.1 Processing Multi-frame Interpolation...</p>
+                          <p className="text-[11px] leading-relaxed font-mono text-pink-300">Veo-3.1 Processing Multi-frame Interpolation...</p>
                         </div>
                       ) : simOutputs.video ? (
                         <div className="w-full space-y-2">
@@ -2596,7 +2591,7 @@ export default function ResultDashboard({ result }: Props) {
                         <button
                           onClick={() => runSim("video", "Video")}
                           aria-label="動画生成を開始"
-                          className="bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
+                          className="bg-pink-500 hover:bg-pink-600 text-white font-bold text-[11px] leading-relaxed px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
                           動画生成を開始
@@ -2615,11 +2610,11 @@ export default function ResultDashboard({ result }: Props) {
                     className="space-y-3 flex-1 flex flex-col justify-between"
                   >
                     <div className="space-y-1">
-                      <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                      <h4 className="text-[11px] leading-relaxed font-black text-white flex items-center gap-1.5">
                         <Presentation className="w-4 h-4 text-amber-400" />
                         PRESENTATION OUTLINER & EXPORT
                       </h4>
-                      <p className="text-xs text-white/50">
+                      <p className="text-[11px] leading-relaxed text-white/50">
                         成果物をプレゼンテーション用スライドのアウトラインに自動変換し、構造化スライド構成を出力します。
                       </p>
                     </div>
@@ -2628,12 +2623,12 @@ export default function ResultDashboard({ result }: Props) {
                       {executingSim.slides ? (
                         <div className="space-y-2 text-center">
                           <RefreshCw className="w-6 h-6 text-amber-400 animate-spin mx-auto" />
-                          <p className="text-xs font-mono text-amber-300">Synthesizing Presentation Slide Node trees...</p>
+                          <p className="text-[11px] leading-relaxed font-mono text-amber-300">Synthesizing Presentation Slide Node trees...</p>
                         </div>
                       ) : simOutputs.slides ? (
                         <div className="w-full space-y-2 max-h-[150px] overflow-y-auto">
                           {simOutputs.slides.map((slide: any) => (
-                            <div key={slide.slide} className="p-2 rounded bg-white/5 border border-white/5 flex gap-3 text-xs">
+                            <div key={slide.slide} className="p-2 rounded bg-white/5 border border-white/5 flex gap-3 text-[11px] leading-relaxed">
                               <span className="font-mono text-amber-400 font-bold">Slide {slide.slide}</span>
                               <div>
                                 <h5 className="font-extrabold text-white">{slide.title}</h5>
@@ -2646,7 +2641,7 @@ export default function ResultDashboard({ result }: Props) {
                         <button
                           onClick={() => runSim("slides", "Slides")}
                           aria-label="プレゼン資料を自動構成"
-                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 self-center"
+                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] leading-relaxed px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 self-center"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
                           プレゼン資料を自動構成
@@ -2665,11 +2660,11 @@ export default function ResultDashboard({ result }: Props) {
                     className="space-y-3 flex-1 flex flex-col justify-between"
                   >
                     <div className="space-y-1">
-                      <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                      <h4 className="text-[11px] leading-relaxed font-black text-white flex items-center gap-1.5">
                         <Globe className="w-4 h-4 text-emerald-400" />
                         LIVE INTERACTIVE HTML/CSS PREVIEW
                       </h4>
-                      <p className="text-xs text-white/50">
+                      <p className="text-[11px] leading-relaxed text-white/50">
                         成果物を即座にブラウザ上で動く対話型UIコンポーネントコードに変換し、内蔵サンドボックスにマウントします。
                       </p>
                     </div>
@@ -2678,7 +2673,7 @@ export default function ResultDashboard({ result }: Props) {
                       {executingSim.web ? (
                         <div className="space-y-2">
                           <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin mx-auto" />
-                          <p className="text-xs font-mono text-emerald-300">Compiling JSX & Tailwind Config layers...</p>
+                          <p className="text-[11px] leading-relaxed font-mono text-emerald-300">Compiling JSX & Tailwind Config layers...</p>
                         </div>
                       ) : simOutputs.web ? (
                         <div className="w-full" dangerouslySetInnerHTML={{ 
@@ -2695,13 +2690,12 @@ export default function ResultDashboard({ result }: Props) {
                               "type", "value", "placeholder", "name", "disabled", "checked",
                               "viewBox", "d", "fill", "stroke", "stroke-width", "cx", "cy", "r", "x", "y", "width", "height"
                             ],
-                            ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|data):|[^&\/?:#]*(?:[?#]|$))/i,
-                          })
+                            ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|data):|[^&\/?:#]*(?:[?#]|$))/i })
                         }} />
                       ) : (
                         <button
                           onClick={() => runSim("web", "Web")}
-                          className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] leading-relaxed px-4 py-2 rounded-xl transition-all flex items-center gap-1.5"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
                           インタラクティブWeb画面生成
@@ -2720,11 +2714,11 @@ export default function ResultDashboard({ result }: Props) {
                     className="space-y-3 flex-1 flex flex-col justify-between"
                   >
                     <div className="space-y-1">
-                      <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                      <h4 className="text-[11px] leading-relaxed font-black text-white flex items-center gap-1.5">
                         <AppWindow className="w-4 h-4 text-blue-400" />
                         NATIVE MICRO-APP ENGINE
                       </h4>
-                      <p className="text-xs text-white/50">
+                      <p className="text-[11px] leading-relaxed text-white/50">
                         iOS / Android 双方で完全に動作可能な React Native TypeScript のコードスタックを全自動ビルドします。
                       </p>
                     </div>
@@ -2733,7 +2727,7 @@ export default function ResultDashboard({ result }: Props) {
                       {executingSim.app ? (
                         <div className="space-y-2 text-center">
                           <RefreshCw className="w-6 h-6 text-blue-400 animate-spin mx-auto" />
-                          <p className="text-xs font-mono text-blue-300">Scaffolding React Native Expo Templates...</p>
+                          <p className="text-[11px] leading-relaxed font-mono text-blue-300">Scaffolding React Native Expo Templates...</p>
                         </div>
                       ) : simOutputs.app ? (
                         <pre className="w-full text-[10px] font-mono p-3 bg-black border border-white/10 rounded-lg text-emerald-400 overflow-x-auto max-h-[140px]">
@@ -2742,7 +2736,7 @@ export default function ResultDashboard({ result }: Props) {
                       ) : (
                         <button
                           onClick={() => runSim("app", "App")}
-                          className="bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 self-center"
+                          className="bg-blue-500 hover:bg-blue-600 text-white font-bold text-[11px] leading-relaxed px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 self-center"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
                           モバイルAppコードをビルド
@@ -2761,11 +2755,11 @@ export default function ResultDashboard({ result }: Props) {
                     className="space-y-3 flex-1 flex flex-col justify-between"
                   >
                     <div className="space-y-1">
-                      <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                      <h4 className="text-[11px] leading-relaxed font-black text-white flex items-center gap-1.5">
                         <Terminal className="w-4 h-4 text-purple-400" />
                         AUTONOMOUS MULTI-AGENT SWARM
                       </h4>
-                      <p className="text-xs text-white/50">
+                      <p className="text-[11px] leading-relaxed text-white/50">
                         自律サブエージェントをローカルで起動し、引用検証とファクト自動同期のプロシージャを実行させます。
                       </p>
                     </div>
@@ -2774,7 +2768,7 @@ export default function ResultDashboard({ result }: Props) {
                       {executingSim.agent ? (
                         <div className="space-y-2 text-center">
                           <RefreshCw className="w-6 h-6 text-purple-400 animate-spin mx-auto" />
-                          <p className="text-xs font-mono text-purple-300">Spawning Agent worker instances on Cloud VM...</p>
+                          <p className="text-[11px] leading-relaxed font-mono text-purple-300">Spawning Agent worker instances on Cloud VM...</p>
                         </div>
                       ) : simOutputs.agent ? (
                         <div className="w-full space-y-1 font-mono text-[10px] bg-black p-3.5 border border-white/10 rounded-lg text-emerald-400">
@@ -2788,7 +2782,7 @@ export default function ResultDashboard({ result }: Props) {
                       ) : (
                         <button
                           onClick={() => runSim("agent", "Agent")}
-                          className="bg-purple-500 hover:bg-purple-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 self-center"
+                          className="bg-purple-500 hover:bg-purple-600 text-white font-bold text-[11px] leading-relaxed px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 self-center"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
                           サブエージェント自律実行
@@ -2812,7 +2806,7 @@ export default function ResultDashboard({ result }: Props) {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <BrainCircuit className="w-5 h-5 text-cyan-400 shrink-0" />
-                <h2 className="text-sm font-bold uppercase tracking-widest text-white">④ Intelligence Memory Network (IMN)</h2>
+                <h2 className="text-[13px] leading-relaxed font-bold uppercase tracking-widest text-white">④ Intelligence Memory Network (IMN)</h2>
               </div>
               <p className="text-[11px] text-white/50">
                 『会話を保存しない。人生を理解する。』― すべてが線で繋がる高次インテリジェンス・メモリ・ネットワーク
@@ -2876,7 +2870,7 @@ export default function ResultDashboard({ result }: Props) {
               <button
                 onClick={() => setImnTab("graph")}
                 aria-label="高次元ダイアグラムタブ表示"
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-[11px] leading-relaxed font-bold transition-all ${
                   imnTab === "graph" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                 }`}
               >
@@ -2885,7 +2879,7 @@ export default function ResultDashboard({ result }: Props) {
               <button
                 onClick={() => setImnTab("list")}
                 aria-label="ノード関係一覧タブ表示"
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-[11px] leading-relaxed font-bold transition-all ${
                   imnTab === "list" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                 }`}
               >
@@ -3330,7 +3324,7 @@ export default function ResultDashboard({ result }: Props) {
                           <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white">
                             {node.type}
                           </span>
-                          <span className="text-xs font-bold">{node.label}</span>
+                          <span className="text-[11px] leading-relaxed font-bold">{node.label}</span>
                         </div>
                         <p className="text-[10px] text-white/50 leading-relaxed">{node.description}</p>
                       </div>
@@ -3394,7 +3388,7 @@ export default function ResultDashboard({ result }: Props) {
                         <span className="text-[10px] font-mono text-white/40">{selectedNode.id}</span>
                       </div>
                       
-                      <h3 className="text-sm font-extrabold text-white leading-tight">
+                      <h3 className="text-[13px] leading-relaxed font-extrabold text-white leading-tight">
                         {selectedNode.label}
                       </h3>
                       
@@ -3491,7 +3485,7 @@ export default function ResultDashboard({ result }: Props) {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Sliders className="w-5 h-5 text-indigo-400 shrink-0" />
-                    <h2 className="text-sm font-bold uppercase tracking-widest text-white">⑤ Intelligence Personality Framework (IPF)</h2>
+                    <h2 className="text-[13px] leading-relaxed font-bold uppercase tracking-widest text-white">⑤ Intelligence Personality Framework (IPF)</h2>
                   </div>
                   <p className="text-[11px] text-white/50">
                     『AIの性格ではなく、知性の振る舞いを定義する。』― 迎合を排し、常に最も成功確率の高い客観提案を貫徹する十戒
@@ -3536,7 +3530,7 @@ export default function ResultDashboard({ result }: Props) {
                 <button
                   onClick={() => setIpfTab("audit")}
                   aria-label="10大知性行動規則タブ表示"
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 rounded-xl text-[11px] leading-relaxed font-bold transition-all whitespace-nowrap shrink-0 ${
                     ipfTab === "audit" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
                 >
@@ -3545,7 +3539,7 @@ export default function ResultDashboard({ result }: Props) {
                 <button
                   onClick={() => setIpfTab("facts")}
                   aria-label="事実 vs 推測タブ表示"
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 rounded-xl text-[11px] leading-relaxed font-bold transition-all whitespace-nowrap shrink-0 ${
                     ipfTab === "facts" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
                 >
@@ -3554,7 +3548,7 @@ export default function ResultDashboard({ result }: Props) {
                 <button
                   onClick={() => setIpfTab("optimal")}
                   aria-label="非迎合最適提案タブ表示"
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 rounded-xl text-[11px] leading-relaxed font-bold transition-all whitespace-nowrap shrink-0 ${
                     ipfTab === "optimal" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
                 >
@@ -3563,7 +3557,7 @@ export default function ResultDashboard({ result }: Props) {
                 <button
                   onClick={() => setIpfTab("comparison")}
                   aria-label="選択肢＆リスクタブ表示"
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 rounded-xl text-[11px] leading-relaxed font-bold transition-all whitespace-nowrap shrink-0 ${
                     ipfTab === "comparison" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
                 >
@@ -3839,7 +3833,7 @@ export default function ResultDashboard({ result }: Props) {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-5 h-5 text-indigo-400 shrink-0" />
-                    <h2 className="text-sm font-bold uppercase tracking-widest text-white">⑥ ORIGIN Constitution (Version {constitutionData.version})</h2>
+                    <h2 className="text-[13px] leading-relaxed font-bold uppercase tracking-widest text-white">⑥ ORIGIN Constitution (Version {constitutionData.version})</h2>
                   </div>
                   <p className="text-[11px] text-white/50">
                     『ORIGINが絶対に破らない原則を定義する。』― 15の非妥協原則（Non-Negotiable Principles）と絶対的信頼
@@ -3891,7 +3885,7 @@ export default function ResultDashboard({ result }: Props) {
                 <button
                   onClick={() => setConstitutionTab("principles")}
                   aria-label="15の非妥協原則タブ表示"
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 rounded-xl text-[11px] leading-relaxed font-bold transition-all whitespace-nowrap shrink-0 ${
                     constitutionTab === "principles" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
                 >
@@ -3900,7 +3894,7 @@ export default function ResultDashboard({ result }: Props) {
                 <button
                   onClick={() => setConstitutionTab("audit")}
                   aria-label="最終原則タブ表示"
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 rounded-xl text-[11px] leading-relaxed font-bold transition-all whitespace-nowrap shrink-0 ${
                     constitutionTab === "audit" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
                 >
@@ -3909,7 +3903,7 @@ export default function ResultDashboard({ result }: Props) {
                 <button
                   onClick={() => setConstitutionTab("governance")}
                   aria-label="データガバナンスタブ表示"
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 rounded-xl text-[11px] leading-relaxed font-bold transition-all whitespace-nowrap shrink-0 ${
                     constitutionTab === "governance" ? "bg-white/10 text-white" : "text-white/50 hover:text-white"
                   }`}
                 >
@@ -3976,7 +3970,7 @@ export default function ResultDashboard({ result }: Props) {
                                   </div>
                                   <span className="text-[9px] font-mono text-white/30">ORIGIN CONSTITUTION V1.0</span>
                                 </div>
-                                <h3 className="text-sm font-extrabold text-white">非妥協規則: {activeRule.title}</h3>
+                                <h3 className="text-[13px] leading-relaxed font-extrabold text-white">非妥協規則: {activeRule.title}</h3>
                                 <p className="text-[11.5px] text-white/60 leading-relaxed font-serif italic">
                                   「{activeRule.description}」
                                 </p>
@@ -4007,8 +4001,8 @@ export default function ResultDashboard({ result }: Props) {
                       <div className="bg-rose-500/5 border border-rose-500/10 rounded-2xl p-5 flex gap-4 items-start shadow-[0_0_20px_rgba(239,68,68,0.02)]">
                         <Award className="w-8 h-8 text-rose-400 shrink-0 mt-0.5" />
                         <div className="space-y-2.5">
-                          <span className="text-xs font-mono font-extrabold text-rose-300 uppercase tracking-widest block">Final Rule: 信頼を失う機能は絶対に実装しない。</span>
-                          <p className="text-sm text-white/80 leading-relaxed font-serif italic">
+                          <span className="text-[11px] leading-relaxed font-mono font-extrabold text-rose-300 uppercase tracking-widest block">Final Rule: 信頼を失う機能は絶対に実装しない。</span>
+                          <p className="text-[13px] leading-relaxed text-white/80 leading-relaxed font-serif italic">
                             「{constitutionData.finalRule.title}」
                           </p>
                           <p className="text-[11.5px] text-white/60 leading-relaxed">
@@ -4040,7 +4034,7 @@ export default function ResultDashboard({ result }: Props) {
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
                         <div className="md:col-span-7 space-y-3">
                           <div className="space-y-1.5">
-                            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Rule 8: データを勝手に学習へ利用しない。利用者が制御できる。</h3>
+                            <h3 className="text-[11px] leading-relaxed font-bold text-white uppercase tracking-wider">Rule 8: データを勝手に学習へ利用しない。利用者が制御できる。</h3>
                             <p className="text-[11.5px] text-white/70 leading-relaxed">
                               本システムに入力されたミッション条件、リサーチ結果、作成されたビジュアル資産、および高次元メモリネットワークは、
                               外部のAIモデルの勝手な学習トレーニング、品質テスト、またはデータマイニングに利用されることは100%ありません。
@@ -4118,7 +4112,7 @@ export default function ResultDashboard({ result }: Props) {
         >
           <div className="flex items-center gap-2 border-b border-white/5 pb-3">
             <BrainCircuit className="w-4.5 h-4.5 text-indigo-400" />
-            <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑤ Cognitive Reasoning & Research</h3>
+            <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑤ Cognitive Reasoning & Research</h3>
           </div>
 
           <div className="space-y-4">
@@ -4150,7 +4144,7 @@ export default function ResultDashboard({ result }: Props) {
                   "W3C Web UI Architectural Standards for Custom Sandbox",
                   "Dual-AI Semantic Agreement and Convergence (2025 Paper)"
                 ]).map((source, idx) => (
-                  <div key={idx} className="flex items-center gap-2 text-xs text-white/70">
+                  <div key={idx} className="flex items-center gap-2 text-[11px] leading-relaxed text-white/70">
                     <Search className="w-3 h-3 text-indigo-400 shrink-0" />
                     <span className="underline decoration-indigo-500/30 text-[11px] truncate">{source}</span>
                   </div>
@@ -4182,7 +4176,7 @@ export default function ResultDashboard({ result }: Props) {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <MessageSquare className="w-4.5 h-4.5 text-indigo-400" />
-                <h3 className="text-xs font-bold uppercase tracking-widest text-white font-mono">
+                <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white font-mono">
                   ⑥ AI Company Operating System (ACOS)
                 </h3>
               </div>
@@ -4236,7 +4230,7 @@ export default function ResultDashboard({ result }: Props) {
                       </div>
                       <div className="flex flex-col items-center gap-1 mt-1">
                         <Layers className="w-5 h-5 text-indigo-400" />
-                        <h4 className="text-xs font-black tracking-tight">{ceoMember.aiName}</h4>
+                        <h4 className="text-[11px] leading-relaxed font-black tracking-tight">{ceoMember.aiName}</h4>
                         <span className="text-[9px] opacity-60 font-mono">{ceoMember.role}</span>
                         <div className="flex items-center gap-1 text-[8.5px] mt-1 text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded font-mono">
                           <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
@@ -4340,11 +4334,11 @@ export default function ResultDashboard({ result }: Props) {
                     <div className="space-y-3">
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-sm font-black text-indigo-300 shadow-inner">
+                          <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-[13px] leading-relaxed font-black text-indigo-300 shadow-inner">
                             {member.aiName.charAt(0)}
                           </div>
                           <div>
-                            <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                            <h4 className="text-[11px] leading-relaxed font-black text-white flex items-center gap-1.5">
                               {member.aiName}
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                             </h4>
@@ -4362,7 +4356,7 @@ export default function ResultDashboard({ result }: Props) {
                           ”
                         </div>
                         <span className="text-[8.5px] font-mono tracking-wider text-white/35 uppercase block mb-1">部門最高分析 (Executive Decree)</span>
-                        <p className="text-xs text-white/80 leading-relaxed font-normal">
+                        <p className="text-[11px] leading-relaxed text-white/80 leading-relaxed font-normal">
                           「{member.opinion}」
                         </p>
                       </div>
@@ -4381,7 +4375,7 @@ export default function ResultDashboard({ result }: Props) {
                         {(member.subAgents || ["意志決定分解Agent", "部門間調整プロトコルAgent", "進捗整合監査Agent"]).map((agent, aIdx) => (
                           <div 
                             key={aIdx}
-                            className="bg-indigo-500/5 border border-indigo-500/10 hover:border-indigo-500/20 rounded-lg p-2 flex items-center justify-between text-xs text-white/80 transition-colors"
+                            className="bg-indigo-500/5 border border-indigo-500/10 hover:border-indigo-500/20 rounded-lg p-2 flex items-center justify-between text-[11px] leading-relaxed text-white/80 transition-colors"
                           >
                             <div className="flex items-center gap-1.5 font-medium text-[11px]">
                               <span className="text-indigo-400 font-mono">❖</span>
@@ -4421,7 +4415,7 @@ export default function ResultDashboard({ result }: Props) {
         >
           <div className="flex items-center gap-2 border-b border-white/5 pb-3">
             <ShieldCheck className="w-4.5 h-4.5 text-indigo-400" />
-            <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑦ Truth & Quality Engine</h3>
+            <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑦ Truth & Quality Engine</h3>
           </div>
 
           <div className="space-y-4">
@@ -4440,7 +4434,7 @@ export default function ResultDashboard({ result }: Props) {
                 </div>
               </div>
 
-              <div className="space-y-1.5 text-xs">
+              <div className="space-y-1.5 text-[11px] leading-relaxed">
                 <div className="flex justify-between">
                   <span className="text-white/45">規格検証：</span>
                   <span className="font-semibold text-white/95">{result.truthEngine?.officialConfirmation || "IEEE 2035 規格準拠確認"}</span>
@@ -4456,7 +4450,7 @@ export default function ResultDashboard({ result }: Props) {
             <div className="bg-white/3 border border-white/5 rounded-2xl p-4 space-y-3.5">
               <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">UQI 品質多面評価 (Quality Vectors)</span>
               
-              <div className="space-y-2.5 text-xs">
+              <div className="space-y-2.5 text-[11px] leading-relaxed">
                 {[
                   { label: "正確性 (Accuracy)", val: result.qualityEngine?.accuracy || 94 },
                   { label: "確信度 (Confidence)", val: result.qualityEngine?.confidence || 96 },
@@ -4492,7 +4486,7 @@ export default function ResultDashboard({ result }: Props) {
         >
           <div className="flex items-center gap-2 border-b border-white/5 pb-3">
             <Award className="w-4.5 h-4.5 text-indigo-400" />
-            <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑧ Success Prediction</h3>
+            <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑧ Success Prediction</h3>
           </div>
 
           <div className="space-y-4">
@@ -4504,14 +4498,14 @@ export default function ResultDashboard({ result }: Props) {
               </div>
               <div className="text-right space-y-1">
                 <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">費用対効果 (ROI)</span>
-                <span className="text-xs font-bold text-indigo-300">{result.successPrediction?.roi || "短期で初期コスト回収可能"}</span>
+                <span className="text-[11px] leading-relaxed font-bold text-indigo-300">{result.successPrediction?.roi || "短期で初期コスト回収可能"}</span>
               </div>
             </div>
 
             {/* Risks list */}
             <div className="space-y-2">
               <span className="text-[9px] font-mono tracking-wider text-white/40 uppercase block">懸念される重要リスク</span>
-              <div className="space-y-2 text-xs">
+              <div className="space-y-2 text-[11px] leading-relaxed">
                 {(result.successPrediction?.risks || [
                   "想定されるAPIコール増加に伴う急激なトークンコストの上昇",
                   "ユーザー側による設定時、APIキーの環境適合エラー"
@@ -4547,7 +4541,7 @@ export default function ResultDashboard({ result }: Props) {
                           e.preventDefault();
                         }
                       }}
-                      className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                      className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 text-[11px] leading-relaxed transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                         isChecked 
                           ? "bg-indigo-500/10 border-indigo-500/30 text-white" 
                           : "bg-white/2 border-white/5 hover:bg-white/5 text-white/70"
@@ -4575,13 +4569,13 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <ShieldCheck className="w-4.5 h-4.5 text-amber-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑨ ORIGIN Quality Bible</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑨ ORIGIN Quality Bible</h3>
             </div>
             
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
                 <span className="text-[10px] font-mono text-amber-200/60 uppercase">Final Quality Level</span>
-                <span className="text-sm font-black font-mono text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]">
+                <span className="text-[13px] leading-relaxed font-black font-mono text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]">
                   {result.qualityBible.qualityLevel}
                 </span>
               </div>
@@ -4612,7 +4606,7 @@ export default function ResultDashboard({ result }: Props) {
 
               <div className="p-4 bg-rose-500/5 border border-rose-500/20 rounded-2xl flex flex-col gap-1.5">
                 <span className="text-[9px] font-mono tracking-widest text-rose-400 uppercase font-black">Final Rule</span>
-                <span className="text-xs font-black text-rose-300">{result.qualityBible.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-rose-300">{result.qualityBible.finalRule.title}</span>
                 <p className="text-[10px] text-rose-200/70 leading-relaxed mt-1">
                   {result.qualityBible.finalRule.description}
                 </p>
@@ -4638,13 +4632,13 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Brain className="w-4.5 h-4.5 text-indigo-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑩ ORIGIN Thinking Bible</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑩ ORIGIN Thinking Bible</h3>
             </div>
             
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
                 <span className="text-[10px] font-mono text-indigo-200/60 uppercase">Version / Mission</span>
-                <span className="text-xs font-bold font-mono text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.5)]">
+                <span className="text-[11px] leading-relaxed font-bold font-mono text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.5)]">
                   {result.thinkingBible.version} - {result.thinkingBible.mission}
                 </span>
               </div>
@@ -4660,7 +4654,7 @@ export default function ResultDashboard({ result }: Props) {
                           <span className="text-[10px] font-black text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
                             Step {step.step}
                           </span>
-                          <span className="text-xs font-bold text-white/90">{step.name}</span>
+                          <span className="text-[11px] leading-relaxed font-bold text-white/90">{step.name}</span>
                         </div>
                         <span className={`text-[8.5px] font-mono px-2 py-0.5 rounded font-black ${
                           step.status === "COMPLETED" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
@@ -4691,7 +4685,7 @@ export default function ResultDashboard({ result }: Props) {
 
               <div className="p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(99,102,241,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-indigo-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-indigo-300">{result.thinkingBible.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-indigo-300">{result.thinkingBible.finalRule.title}</span>
                 <p className="text-[10px] text-indigo-200/70 leading-relaxed mt-1">
                   {result.thinkingBible.finalRule.description}
                 </p>
@@ -4716,13 +4710,13 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Sparkles className="w-4.5 h-4.5 text-emerald-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑪ ORIGIN Experience Bible</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑪ ORIGIN Experience Bible</h3>
             </div>
             
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
                 <span className="text-[10px] font-mono text-emerald-200/60 uppercase">Version / Mission</span>
-                <span className="text-xs font-bold font-mono text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]">
+                <span className="text-[11px] leading-relaxed font-bold font-mono text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]">
                   {result.experienceBible.version} - {result.experienceBible.mission}
                 </span>
               </div>
@@ -4760,7 +4754,7 @@ export default function ResultDashboard({ result }: Props) {
 
               <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-emerald-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-emerald-300">{result.experienceBible.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-emerald-300">{result.experienceBible.finalRule.title}</span>
                 <p className="text-[10px] text-emerald-200/70 leading-relaxed mt-1">
                   {result.experienceBible.finalRule.description}
                 </p>
@@ -4785,13 +4779,13 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <PenTool className="w-4.5 h-4.5 text-fuchsia-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑫ ORIGIN Design System</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑫ ORIGIN Design System</h3>
             </div>
             
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-2xl bg-fuchsia-500/10 border border-fuchsia-500/20">
                 <span className="text-[10px] font-mono text-fuchsia-200/60 uppercase">Version / Mission</span>
-                <span className="text-xs font-bold font-mono text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.5)]">
+                <span className="text-[11px] leading-relaxed font-bold font-mono text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.5)]">
                   {result.designSystem.version} - {result.designSystem.mission}
                 </span>
               </div>
@@ -4836,7 +4830,7 @@ export default function ResultDashboard({ result }: Props) {
 
               <div className="p-4 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(217,70,239,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-fuchsia-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-fuchsia-300">{result.designSystem.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-fuchsia-300">{result.designSystem.finalRule.title}</span>
                 <p className="text-[10px] text-fuchsia-200/70 leading-relaxed mt-1">
                   {result.designSystem.finalRule.description}
                 </p>
@@ -4861,13 +4855,13 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Zap className="w-4.5 h-4.5 text-amber-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑬ ORIGIN PIE</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑬ ORIGIN PIE</h3>
             </div>
             
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
                 <span className="text-[10px] font-mono text-amber-200/60 uppercase">Build / Mission</span>
-                <span className="text-xs font-bold font-mono text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]">
+                <span className="text-[11px] leading-relaxed font-bold font-mono text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]">
                   Build {result.proactiveIntelligenceEngine.build} - {result.proactiveIntelligenceEngine.mission}
                 </span>
               </div>
@@ -4925,7 +4919,7 @@ export default function ResultDashboard({ result }: Props) {
 
               <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-amber-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-amber-300">{result.proactiveIntelligenceEngine.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-amber-300">{result.proactiveIntelligenceEngine.finalRule.title}</span>
                 <div className="mt-2 flex items-center justify-between text-[10px] font-mono">
                   <span className="text-white/40">COMPLIANCE STATUS</span>
                   {result.proactiveIntelligenceEngine.finalRule.isFollowed ? (
@@ -4947,7 +4941,7 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Layout className="w-4.5 h-4.5 text-indigo-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑭ ORIGIN Blueprint 001</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑭ ORIGIN Blueprint 001</h3>
             </div>
             
             <div className="space-y-4">
@@ -5017,7 +5011,7 @@ export default function ResultDashboard({ result }: Props) {
 
               <div className="p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(99,102,241,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-indigo-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-indigo-300">{result.originBlueprint.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-indigo-300">{result.originBlueprint.finalRule.title}</span>
                 <div className="mt-2 flex items-center justify-between text-[10px] font-mono">
                   <span className="text-white/40">COMPLIANCE STATUS</span>
                   {result.originBlueprint.finalRule.isFollowed ? (
@@ -5039,13 +5033,13 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <BookOpen className="w-4.5 h-4.5 text-red-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑮ ORIGIN Core Specification</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑮ ORIGIN Core Specification</h3>
             </div>
             
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-2xl bg-red-500/10 border border-red-500/20">
                 <span className="text-[10px] font-mono text-red-200/60 uppercase">Version / Mission</span>
-                <span className="text-xs font-bold font-mono text-red-400 drop-shadow-[0_0_8px_rgba(248,113,113,0.5)]">
+                <span className="text-[11px] leading-relaxed font-bold font-mono text-red-400 drop-shadow-[0_0_8px_rgba(248,113,113,0.5)]">
                   {result.originCoreSpecification.version} - {result.originCoreSpecification.mission}
                 </span>
               </div>
@@ -5071,7 +5065,7 @@ export default function ResultDashboard({ result }: Props) {
 
               <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(239,68,68,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-red-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-red-300">{result.originCoreSpecification.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-red-300">{result.originCoreSpecification.finalRule.title}</span>
                 <p className="text-[10px] text-red-200/70 leading-relaxed mt-1">
                   {result.originCoreSpecification.finalRule.description}
                 </p>
@@ -5096,7 +5090,7 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Database className="w-4.5 h-4.5 text-cyan-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑯ ORIGIN System Architecture Bible</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑯ ORIGIN System Architecture Bible</h3>
             </div>
             
             <div className="space-y-4">
@@ -5121,7 +5115,7 @@ export default function ResultDashboard({ result }: Props) {
                         <span className="text-[10px] font-black text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">
                           L{layer.number}
                         </span>
-                        <span className="text-xs font-bold text-white/90">{layer.name}</span>
+                        <span className="text-[11px] leading-relaxed font-bold text-white/90">{layer.name}</span>
                       </div>
                       <div className="flex flex-wrap gap-1.5 pl-1">
                         {layer.components.map((c, cIdx) => (
@@ -5137,7 +5131,7 @@ export default function ResultDashboard({ result }: Props) {
 
               <div className="p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(6,182,212,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-cyan-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-cyan-300">{result.originSystemArchitectureBible.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-cyan-300">{result.originSystemArchitectureBible.finalRule.title}</span>
                 <p className="text-[10px] text-cyan-200/70 leading-relaxed mt-1">
                   {result.originSystemArchitectureBible.finalRule.description}
                 </p>
@@ -5162,7 +5156,7 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Cpu className="w-4.5 h-4.5 text-indigo-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑰ ORIGIN Kernel Specification</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑰ ORIGIN Kernel Specification</h3>
             </div>
             
             <div className="space-y-4">
@@ -5231,11 +5225,11 @@ export default function ResultDashboard({ result }: Props) {
                 <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
                   <div>
                     <span className="text-[10px] text-white/40 uppercase block">Priority Rule:</span>
-                    <span className="text-xs font-bold text-white">{result.originKernelSpec.rule}</span>
+                    <span className="text-[11px] leading-relaxed font-bold text-white">{result.originKernelSpec.rule}</span>
                   </div>
                   <div>
                     <span className="text-[10px] text-white/40 uppercase block">Absolute Principle:</span>
-                    <span className="text-xs font-bold text-indigo-300">{result.originKernelSpec.principle}</span>
+                    <span className="text-[11px] leading-relaxed font-bold text-indigo-300">{result.originKernelSpec.principle}</span>
                   </div>
                 </div>
               </div>
@@ -5251,7 +5245,7 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Target className="w-4.5 h-4.5 text-fuchsia-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑱ ORIGIN Mission Engine</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑱ ORIGIN Mission Engine</h3>
             </div>
             
             <div className="space-y-4">
@@ -5318,7 +5312,7 @@ export default function ResultDashboard({ result }: Props) {
 
               <div className="p-4 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(217,70,239,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-fuchsia-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-fuchsia-300">{result.originMissionEngineSpec.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-fuchsia-300">{result.originMissionEngineSpec.finalRule.title}</span>
                 <p className="text-[10px] text-fuchsia-200/70 leading-relaxed mt-1">
                   {result.originMissionEngineSpec.finalRule.description}
                 </p>
@@ -5343,7 +5337,7 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Award className="w-4.5 h-4.5 text-amber-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑲ AI Evaluation Framework (OAEF)</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑲ AI Evaluation Framework (OAEF)</h3>
             </div>
             
             <div className="space-y-4">
@@ -5451,7 +5445,7 @@ export default function ResultDashboard({ result }: Props) {
               {/* Final Rule Banner */}
               <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-amber-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-amber-300">{result.originAiEvaluationFramework.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-amber-300">{result.originAiEvaluationFramework.finalRule.title}</span>
                 <p className="text-[10px] text-amber-200/70 leading-relaxed mt-1">
                   {result.originAiEvaluationFramework.finalRule.description}
                 </p>
@@ -5476,7 +5470,7 @@ export default function ResultDashboard({ result }: Props) {
           >
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <Target className="w-4.5 h-4.5 text-emerald-400" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white">⑳ Mission Success Engine (MSE)</h3>
+              <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">⑳ Mission Success Engine (MSE)</h3>
             </div>
             
             <div className="space-y-4">
@@ -5498,7 +5492,7 @@ export default function ResultDashboard({ result }: Props) {
                     >
                       <div className="flex flex-col items-center">
                         <span className="text-[9px] font-mono font-black text-white/30 uppercase">Step</span>
-                        <div className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-black font-mono flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform">
+                        <div className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] leading-relaxed font-black font-mono flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform">
                           {step.number}
                         </div>
                       </div>
@@ -5573,7 +5567,7 @@ export default function ResultDashboard({ result }: Props) {
               {/* Final Rule Banner */}
               <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex flex-col gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.05)]">
                 <span className="text-[9px] font-mono tracking-widest text-emerald-400 uppercase font-black">Final Rule Enforcement</span>
-                <span className="text-xs font-black text-emerald-300">{result.originMissionSuccessEngineSpec.finalRule.title}</span>
+                <span className="text-[11px] leading-relaxed font-black text-emerald-300">{result.originMissionSuccessEngineSpec.finalRule.title}</span>
                 <p className="text-[10px] text-emerald-200/70 leading-relaxed mt-1">
                   {result.originMissionSuccessEngineSpec.finalRule.description}
                 </p>
@@ -5597,10 +5591,10 @@ export default function ResultDashboard({ result }: Props) {
         >
           <div className="flex items-center gap-2 border-b border-white/5 pb-3">
             <Compass className="w-4.5 h-4.5 text-[#10B981]" />
-            <h3 className="text-xs font-bold uppercase tracking-widest text-white">㉑ Future Recommendations</h3>
+            <h3 className="text-[11px] leading-relaxed font-bold uppercase tracking-widest text-white">㉑ Future Recommendations</h3>
           </div>
 
-          <div className="space-y-3 text-xs">
+          <div className="space-y-3 text-[11px] leading-relaxed">
             {(result.futureRecommendations || [
               { title: "環境設定ファイル .env の更新", description: "APIキーを設定することで全てのライブ機能が即時アクティブ化します。", priority: "HIGH" },
               { title: "ナレッジDNAリンク構築", description: "Knowledgeへの統合を押し、自動的な推論コンテキスト共有を行います。", priority: "MEDIUM" },
@@ -5646,24 +5640,24 @@ export default function ResultDashboard({ result }: Props) {
           <div className="space-y-2">
             <span className="text-[10px] font-mono tracking-widest text-emerald-400 uppercase font-black">ORIGIN BUILD 004 : SECURE SYSTEM VERIFICATION</span>
             <h3 className="text-xl md:text-2xl font-black text-white tracking-tight">Master Intelligence Engine 成果物承認書</h3>
-            <p className="text-xs text-white/55 font-mono">Certificate ID: {result.mission?.id || "MIE-004-VERIFIED"}</p>
+            <p className="text-[11px] leading-relaxed text-white/55 font-mono">Certificate ID: {result.mission?.id || "MIE-004-VERIFIED"}</p>
           </div>
 
           {/* Verification Metrics Badge */}
           <div className="grid grid-cols-3 gap-2.5 p-4 bg-white/5 border border-white/10 rounded-2xl">
             <div className="text-center space-y-1">
               <div className="text-[9px] text-white/40 font-mono">TRUTH SCORE</div>
-              <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.truthScore || 99)}%</div>
+              <div className="text-[13px] leading-relaxed font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.truthScore || 99)}%</div>
               <div className="text-[8px] text-white/30 font-mono">&gt;=99% Passed</div>
             </div>
             <div className="text-center space-y-1">
               <div className="text-[9px] text-white/40 font-mono">CONFIDENCE</div>
-              <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.confidenceScore || 98)}%</div>
+              <div className="text-[13px] leading-relaxed font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.mission?.confidenceScore || 98)}%</div>
               <div className="text-[8px] text-white/30 font-mono">&gt;=98% Passed</div>
             </div>
             <div className="text-center space-y-1">
               <div className="text-[9px] text-white/40 font-mono">QUALITY ACCURACY</div>
-              <div className="text-sm font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.successScore || 95)}/100</div>
+              <div className="text-[13px] leading-relaxed font-bold text-emerald-400 font-mono">{(mieForceTuned ? 100 : result.successScore || 95)}/100</div>
               <div className="text-[8px] text-white/30 font-mono">&gt;=95 Passed</div>
             </div>
           </div>
@@ -5691,7 +5685,7 @@ export default function ResultDashboard({ result }: Props) {
           </div>
 
           {/* Knowledge DNA synchronization visualizer */}
-          <div className="flex items-center justify-between p-3.5 bg-black/40 border border-white/5 rounded-2xl text-xs text-left">
+          <div className="flex items-center justify-between p-3.5 bg-black/40 border border-white/5 rounded-2xl text-[11px] leading-relaxed text-left">
             <div className="flex items-center gap-2.5">
               <Database className="w-4 h-4 text-emerald-400 animate-pulse shrink-0" />
               <div>
@@ -5710,14 +5704,14 @@ export default function ResultDashboard({ result }: Props) {
                 setShowMIEModal(false);
               }}
               variant="primary"
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs tracking-wider uppercase transition-all shadow-lg"
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] leading-relaxed tracking-wider uppercase transition-all shadow-lg"
             >
               成果物のエクスポート / 納品
             </SovereignButton>
             <SovereignButton 
               onClick={() => setShowMIEModal(false)}
               variant="secondary"
-              className="w-full py-3 text-white/80 font-bold text-xs"
+              className="w-full py-3 text-white/80 font-bold text-[11px] leading-relaxed"
             >
               閉じる (ダッシュボードに戻る)
             </SovereignButton>
@@ -5727,4 +5721,5 @@ export default function ResultDashboard({ result }: Props) {
 
     </motion.div>
   );
-}
+});
+export default ResultDashboard;

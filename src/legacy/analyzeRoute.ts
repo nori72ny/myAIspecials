@@ -7,7 +7,7 @@ import { processTruthAndEvidence } from "../utils/truthCalculator";
 
 export const createAnalyzeRouter = () => {
   const router = Router();
-  const ai = new GoogleGenAI({
+  const _ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
     httpOptions: { headers: { "User-Agent": "aistudio-build" } }
   });

@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React from "react";
+import  { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { 
   MessageSquare, LayoutDashboard, FolderKanban, Brain, 
-  Menu, X, Plus, Search, Sparkles, Clock, Star, 
-  Zap, Settings, ChevronRight, Activity
+  Menu, X, Plus,  Sparkles,   
+     Activity
 } from 'lucide-react';
 import { cn } from '../../utils';
 import PersonalDashboard from './PersonalDashboard';
@@ -13,7 +14,7 @@ import PersonalMemory from './PersonalMemory';
 
 type ViewState = 'dashboard' | 'chat' | 'workspace' | 'memory';
 
-export default function PersonalEditionApp({ onSwitchToEnterprise }: { onSwitchToEnterprise: () => void }) {
+const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEnterprise }: { onSwitchToEnterprise: () => void }) {
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -184,4 +185,5 @@ export default function PersonalEditionApp({ onSwitchToEnterprise }: { onSwitchT
       </main>
     </div>
   );
-}
+});
+export default PersonalEditionApp;

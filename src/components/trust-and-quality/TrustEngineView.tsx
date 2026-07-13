@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { ShieldCheck, Award, AlertCircle, FileText, Check, Shield, Layers } from "lucide-react";
+import  { useState } from "react";
+import { ShieldCheck,    Check, Shield, Layers } from "lucide-react";
 import { cn } from "../../utils";
 
 interface TrustEngineViewProps {

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
-  Brain, 
+   
   Database, 
   Shield, 
-  Zap, 
+   
   RefreshCw, 
   Terminal, 
   Cpu, 
@@ -15,9 +15,9 @@ import {
   TrendingUp, 
   Bot, 
   Activity, 
-  Check,
-  Award,
-  Lock,
+  
+  
+  
   Compass
 } from "lucide-react";
 import { cn } from "../../utils";
@@ -388,8 +388,7 @@ export default function DynamicBrain() {
                       className="transition-all duration-300"
                       initial={{ opacity: 0.3 }}
                       animate={{ 
-                        opacity: isHovered ? 0.9 : [0.3, 0.5, 0.3],
-                      }}
+                        opacity: isHovered ? 0.9 : [0.3, 0.5, 0.3] }}
                       transition={{
                         opacity: { repeat: Infinity, duration: 4, ease: "easeInOut" }
                       }}

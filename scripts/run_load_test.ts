@@ -84,8 +84,7 @@ async function runBatch(count: number, concurrency: number) {
     throughput,
     cpuPercent,
     memoryDeltaBytes: endMemory - startMemory,
-    peakMemoryBytes: process.memoryUsage().heapUsed,
-  };
+    peakMemoryBytes: process.memoryUsage().heapUsed };
 }
 
 async function main() {

@@ -10,13 +10,11 @@ import {
   Zap, 
   LayoutTemplate, 
   Database, 
-  ChevronRight,
+  
   BrainCircuit,
   CornerDownLeft,
   Volume2,
-  ShieldCheck,
-  AlertTriangle
-} from "lucide-react";
+  ShieldCheck } from "lucide-react";
 import { 
   ACOSValidationManager, 
   classifyContent,

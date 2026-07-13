@@ -1,6 +1,5 @@
-import React, { useState } from "react";
-import { Sparkles, Bot, Layers, CheckSquare, AlertTriangle, ShieldAlert } from "lucide-react";
-import { cn } from "../../utils";
+import  { useState } from "react";
+import { Sparkles, Bot, Layers, CheckSquare } from "lucide-react";
 
 interface AIComparisonViewProps {
   comparisonData?: {
@@ -13,7 +12,6 @@ interface AIComparisonViewProps {
 }
 
 export default function AIComparisonView({ comparisonData }: AIComparisonViewProps) {
-  const [selectedTopicIdx, setSelectedTopicIdx] = useState<number>(0);
 
   const defaultConsensus = [
     "Gemini及びGPT-4は、現時点でのACOS 2.0のアーキテクチャ設計（TypeScript/Vite/Expressプロキシ）がWebセキュリティ及び拡張性の基準を満たしていることで完全に一致。",
@@ -28,7 +26,6 @@ export default function AIComparisonView({ comparisonData }: AIComparisonViewPro
   const agreementRate = comparisonData?.agreementRate || 96;
   const pointsOfConsensus = comparisonData?.pointsOfConsensus || defaultConsensus;
   const pointsOfContrast = comparisonData?.pointsOfContrast || defaultContrast;
-  const modelsAudited = comparisonData?.modelsAudited || ["Google Gemini 2.5", "OpenAI GPT-4o"];
   const crossReviewSummary = comparisonData?.crossReviewSummary || "Gemini-2.5-ProとGPT-4oによるリアルタイム並行クロストークにより、出力品質の偏りを極限まで排除。合意形成アルゴリズムによる検証結果、一致率96%の極めて客観性の高いレポートを構成しました。";
 
   return (

@@ -9,7 +9,7 @@ import {
   Shield, 
   Layers, 
   Sparkles, 
-  Server, 
+   
   Terminal, 
   Workflow, 
   Users, 
@@ -18,18 +18,18 @@ import {
   Apple,
   AlertCircle, 
   TrendingUp, 
-  Award,
+  
   ArrowRight,
   Code,
   Network,
-  HelpCircle,
+  
   Eye,
-  Check,
+  
   X,
-  FileText,
+  
   Crown,
   Search,
-  Beaker,
+  
   Handshake,
   Coins,
   User

@@ -51,8 +51,7 @@ export class StrategicIntelligenceLayer {
       alignmentScore: this.goalManager.calculateAlignmentScore(currentMissionPrompt),
       risks: this.riskEngine.generateRiskMissions(state),
       innovations: this.innovationEngine.generateProposals(),
-      decisions: this.decisionIntelligence.generateDecisions(),
-    };
+      decisions: this.decisionIntelligence.generateDecisions() };
   }
 
   public startAutonomousCycle(stateRef: () => OrganizationState, intervalMs: number = 60000) {

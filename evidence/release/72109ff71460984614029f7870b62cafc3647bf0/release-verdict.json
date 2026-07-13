@@ -1,0 +1,10 @@
+{
+  "commitSha": "72109ff71460984614029f7870b62cafc3647bf0",
+  "verdict": {
+    "productionReady": false,
+    "enterpriseReady": false,
+    "worldClassReady": false
+  },
+  "status": "NEEDS_REVIEW",
+  "reason": "Missing evidence for E2E, security, accessibility, and integration tests."
+}

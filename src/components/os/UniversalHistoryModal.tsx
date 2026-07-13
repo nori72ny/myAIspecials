@@ -1,6 +1,6 @@
 import React from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { History, X, Clock, Zap, Target, Search } from "lucide-react";
+import { History, X, Clock, Zap, Target } from "lucide-react";
 
 interface UniversalHistoryModalProps {
   isOpen: boolean;

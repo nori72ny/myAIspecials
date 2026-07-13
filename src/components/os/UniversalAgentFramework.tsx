@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useMemo } from "react";
+import  { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Users, Shield, ShieldCheck, Cpu, Zap, Activity, BarChart3, Database, 
-  Code, RefreshCw, Play, Search, Sparkles, BookOpen, FileText, ArrowRight, 
-  CheckCircle2, AlertCircle, Plus, Terminal, Settings, Settings2, 
-  GitBranch, Network, MessageSquare, ThumbsUp, ThumbsDown, ClipboardCheck, Scale, 
-  Compass, Globe, Award, Layers, AlertTriangle, Eye, HelpCircle, Server, 
-  Check, ArrowUpRight, TrendingUp, DollarSign, Clock, ShieldAlert, FileCheck, Brain, Lock,
-  Lightbulb, ArrowDown, Trash2
+   RefreshCw, Play,  Sparkles, BookOpen,  ArrowRight, 
+  CheckCircle2, AlertCircle, Plus, Terminal,  Settings2, 
+  GitBranch, Network,  ThumbsUp,  ClipboardCheck, Scale, 
+  Compass,  Award, Layers, AlertTriangle,    
+  Check,  TrendingUp,  Clock, ShieldAlert, FileCheck, Brain, Lock,
+  Lightbulb,  Trash2
 } from "lucide-react";
 import ValidationSuite from "./ValidationSuite";
 import MissionLibrary from "./MissionLibrary";

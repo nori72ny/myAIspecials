@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from "react";
+import  { useState, useEffect } from "react";
 import { 
-  Activity, Zap, DollarSign, Target, CheckCircle, BarChart3, Clock, 
+  Activity,  DollarSign, Target, CheckCircle, BarChart3, Clock, 
   AlertCircle, Star, Shield, ArrowLeftRight, Settings, RefreshCw, 
-  Send, Play, Cpu, AlertTriangle, Layers, TrendingUp, Sparkles, 
-  BookOpen, ThumbsUp, Scale, ChevronRight, Gauge, HelpCircle, AlertOctagon
-} from "lucide-react";
+   Play, Cpu, AlertTriangle, Layers, TrendingUp, Sparkles, 
+    Scale, ChevronRight, Gauge } from "lucide-react";
 import { cn } from "../../utils";
 
 // Types

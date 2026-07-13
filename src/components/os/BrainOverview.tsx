@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { 
   Brain, 
   BrainCircuit, 
-  Cpu, 
+   
   Database, 
   ShieldCheck, 
   Sparkles, 
@@ -16,18 +16,16 @@ import {
   Gauge, 
   LineChart, 
   Sliders, 
-  History, 
-  CheckCircle, 
-  AlertTriangle, 
+   
+   
+   
   Play, 
   Pause, 
-  RefreshCw,
+  
   HelpCircle,
   Search,
   ChevronRight,
-  TrendingUp,
-  Workflow
-} from "lucide-react";
+  TrendingUp } from "lucide-react";
 
 // Types
 interface BrainLayer {

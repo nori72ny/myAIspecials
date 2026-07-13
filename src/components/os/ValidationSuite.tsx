@@ -1,33 +1,31 @@
 // ValidationSuite.tsx - Sprint 21: World Class Validation Program Component
-import React, { useState, useMemo } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import  { useState, useMemo } from "react";
+import { motion } from "motion/react";
 import {
   ShieldAlert,
   Search,
-  Filter,
-  AlertCircle,
+  
+  
   TrendingUp,
   Cpu,
   Trophy,
   Activity,
   Award,
   Zap,
-  BarChart3,
-  ListRestart,
+  
+  
   GitBranch,
   Flame,
   CheckCircle2,
   XCircle,
   FileText,
   PlusCircle,
-  ChevronRight,
-  Clipboard,
+  
+  
   RefreshCw,
-  Clock,
-  ThumbsUp,
-  Sliders,
-  HelpCircle
-} from "lucide-react";
+  
+  
+  Sliders } from "lucide-react";
 import {
   generate300Missions,
   VALIDATION_CATEGORIES,
@@ -37,7 +35,7 @@ import {
   INITIAL_WEEKLY_REPORTS
 } from "./ValidationSuiteData";
 import {
-  MissionBenchmark,
+  
   EvaluationScores,
   EvaluationResult,
   WorldBenchmarkStats,

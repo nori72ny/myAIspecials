@@ -1,37 +1,30 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import  { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Cpu, 
   Terminal, 
   Activity, 
-  Layers, 
+   
   Compass, 
-  HelpCircle, 
+   
   TrendingUp, 
   Bot, 
-  Database, 
+   
   Shield, 
-  Zap, 
+   
   CheckCircle2, 
   Play, 
   Pause, 
-  ZapOff,
+  
   Sparkles,
-  RefreshCw,
-  Clock,
+  
+  
   Coins
 } from "lucide-react";
 import { cn } from "../../utils";
 import { 
-  SovereignGlassCard,
-  SovereignButton,
-  SovereignInput,
-  SovereignBadge,
-  SovereignDialog,
-  SovereignSidebar,
-  SovereignPanel,
-  SovereignSegmentedControl
-} from "../SovereignComponents";
+  
+  SovereignButton } from "../SovereignComponents";
 import LiveMissionPipelineView from "../trust-and-quality/LiveMissionPipelineView";
 
 // Interface for AI Agents
@@ -481,8 +474,7 @@ export default function Boardroom({ onComplete, missionTitle }: { onComplete?: (
                       stroke="rgba(99, 102, 241, 0.2)"
                       strokeWidth={1.5}
                       animate={{ 
-                        opacity: isPlaying ? [0.2, 0.45, 0.2] : 0.25,
-                      }}
+                        opacity: isPlaying ? [0.2, 0.45, 0.2] : 0.25 }}
                       transition={{
                         opacity: { repeat: Infinity, duration: 3, ease: "easeInOut" }
                       }}

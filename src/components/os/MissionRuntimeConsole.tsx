@@ -1,31 +1,31 @@
-import React, { useState, useEffect, useRef } from "react";
+import  { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Play, 
   Pause, 
   RotateCcw, 
-  CheckCircle2, 
-  AlertCircle, 
-  ArrowRight, 
+   
+   
+   
   Cpu, 
   Database, 
   Layers, 
   Shield, 
-  Zap, 
+   
   Compass, 
   Activity, 
-  Sparkles, 
+   
   Check, 
   Server, 
   Terminal, 
-  Code2, 
-  FileCode, 
-  FileText,
+   
+   
+  
   Workflow,
-  Search,
-  Users,
-  ChevronRight,
-  TrendingUp,
+  
+  
+  
+  
   Award
 } from "lucide-react";
 import { cn } from "../../utils";
@@ -129,8 +129,7 @@ export default function MissionRuntimeConsole({
           body: JSON.stringify({ 
             prompt: missionTitle,
             agents: ["gemini", "openai"]
-          }),
-        });
+          }) });
 
         if (!response.ok) {
           throw new Error("API execution rejected by Gemini server cluster.");

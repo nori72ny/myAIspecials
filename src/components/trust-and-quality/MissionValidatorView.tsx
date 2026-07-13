@@ -6,10 +6,10 @@ import {
   RefreshCw, 
   Play, 
   CheckCircle2, 
-  XCircle, 
+   
   ArrowRight, 
   Sparkles, 
-  BookOpen, 
+   
   Terminal,
   HelpCircle
 } from "lucide-react";

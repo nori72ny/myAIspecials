@@ -47,7 +47,7 @@ interface AttachedFile {
   type: string;
 }
 
-export default function WorkspaceApp({
+const WorkspaceApp = React.memo(function WorkspaceApp({
   savedMissions,
   onViewMissionResult,
   onNavigateToApp
@@ -470,4 +470,5 @@ export default function WorkspaceApp({
 
     </div>
   );
-}
+});
+export default WorkspaceApp;

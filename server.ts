@@ -67,8 +67,7 @@ async function startServer() {
         apiKey: process.env.GEMINI_API_KEY,
         httpOptions: {
           headers: {
-            "User-Agent": "aistudio-build",
-          }
+            "User-Agent": "aistudio-build" }
         }
       });
 
@@ -101,8 +100,7 @@ Respond ONLY with a valid JSON object matching this schema:
         model: executingModel,
         contents: prompt,
         config: {
-          responseMimeType: "application/json",
-        }
+          responseMimeType: "application/json" }
       });
 
       const responseText = response.text || "";
@@ -138,8 +136,7 @@ Respond ONLY with a valid JSON object matching this schema:
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: "spa",
-    });
+      appType: "spa" });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");

@@ -1,18 +1,18 @@
-import React, { useState } from "react";
+import  { useState } from "react";
 import { motion } from "motion/react";
 import { 
   Shield, 
-  Settings, 
+   
   Cpu, 
   Check, 
   AlertTriangle, 
-  TrendingUp, 
-  Activity, 
+   
+   
   Key, 
-  UserCheck, 
-  Plus, 
-  Layers, 
-  Info,
+   
+   
+   
+  
   Server,
   Globe,
   Github,

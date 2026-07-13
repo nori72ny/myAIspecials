@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Sparkles, X, MessageSquare, Plus, ArrowUp } from "lucide-react";
+import { Sparkles, X,   ArrowUp } from "lucide-react";
 
 interface FloatingAIAssistantProps {
   onInvokeAction?: (action: string) => void;

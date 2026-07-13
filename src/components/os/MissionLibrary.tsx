@@ -1,10 +1,10 @@
 // MissionLibrary.tsx - Sprint 21: High Fidelity ACOS Mission Library Dashboard
-import React, { useState, useMemo, useEffect } from "react";
+import  { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
-  Search, Star, Tag, History, Sparkles, Play, CheckCircle, 
+  Search, Star,  History, Sparkles, Play, CheckCircle, 
   AlertTriangle, Lightbulb, Cpu, Layers, Activity, FileText, 
-  Check, RotateCcw, Info, List, Compass, ChevronRight, Award, Trash2
+  Check, RotateCcw, Info,  Compass, ChevronRight, Award, Trash2
 } from "lucide-react";
 import { Mission, SearchFilters } from "./MissionLibraryTypes";
 import { generateMissions, MISSION_CATEGORIES } from "./MissionLibraryData";

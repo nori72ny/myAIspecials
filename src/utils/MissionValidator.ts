@@ -407,7 +407,7 @@ export function extractEvidence(text: string, capName: string): string[] {
 /**
  * Generates dynamic, highly explainable selection reason for each provider based on metrics
  */
-export function getProviderSelectionReason(pName: string, q: number, c: number, l: number, cap: string): string {
+export function getProviderSelectionReason(_pName: string, q: number, c: number, l: number, cap: string): string {
   if (q >= 9) {
     return `このプロバイダーは最高レベルの知的論理推論（品質スコア: ${q}/10）を保持しており、複雑な「${cap}」の意思決定において間違いのない成果物を構築するのに最も適しています。`;
   }

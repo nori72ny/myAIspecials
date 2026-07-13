@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { motion } from "motion/react";
+import  { useState, useEffect, useMemo } from "react";
 import {
   Github,
-  Key,
+  
   RefreshCw,
   AlertTriangle,
   Check,
@@ -24,7 +23,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "../../utils";
-import { SovereignGlassCard, SovereignButton, SovereignInput, SovereignBadge } from "../SovereignComponents";
+import { SovereignGlassCard, SovereignButton, SovereignInput } from "../SovereignComponents";
 
 interface GitHubWorkspaceProps {
   onAddWorkspaceFile?: (file: { id: string; name: string; size: string; timestamp: string; type: string }) => void;

@@ -1,3 +1,5 @@
+-e STATUS: INVALIDATED - See RELEASE_CERTIFICATION.md
+
 # KNOWN_LIMITATIONS.md - ACOS 2.0 Known Limitations
 
 This document lists the technical trade-offs, scope boundaries, and architectural limitations identified during the validation of the ACOS 2.0 Release Candidate 2.

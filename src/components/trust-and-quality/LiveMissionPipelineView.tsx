@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import  { useState, useEffect, useRef } from "react";
 import { 
   Clock, 
   Coins, 
@@ -9,14 +9,14 @@ import {
   Search, 
   ShieldCheck, 
   Database,
-  HelpCircle,
-  AlertCircle,
+  
+  
   Fingerprint,
-  TrendingUp,
-  Award,
+  
+  
   Lock,
   Layers,
-  Activity,
+  
   Zap,
   Shield
 } from "lucide-react";
@@ -208,8 +208,7 @@ export default function LiveMissionPipelineView({
         claude: (Math.random() - 0.5) * 1.2,
         gpt: (Math.random() - 0.5) * 1.0,
         perp: (Math.random() - 0.5) * 0.8,
-        open: (Math.random() - 0.5) * 0.5,
-      });
+        open: (Math.random() - 0.5) * 0.5 });
     }, 1200);
     return () => clearInterval(timer);
   }, [mode]);

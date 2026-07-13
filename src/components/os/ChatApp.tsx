@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Send, User, Bot, Paperclip, Search, Plus, MessageSquare, Trash2, Folder } from "lucide-react";
+import  { useState, useRef, useEffect } from "react";
+import { Send, User, Bot, Paperclip, Search, Plus, MessageSquare,  Folder } from "lucide-react";
 import { motion } from "motion/react";
 import ReactMarkdown from "react-markdown";
 

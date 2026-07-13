@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import  { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, PenTool, Sparkles, Languages, Settings2 } from "lucide-react";
 
@@ -52,8 +52,7 @@ export default function UniversalContextMenu() {
           position: "fixed",
           left: position.x,
           top: position.y,
-          zIndex: 9999,
-        }}
+          zIndex: 9999 }}
         className="w-64 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border border-slate-200/50 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden p-1.5"
       >
         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 py-2 border-b border-slate-200 dark:border-white/10 mb-1 flex items-center justify-between">

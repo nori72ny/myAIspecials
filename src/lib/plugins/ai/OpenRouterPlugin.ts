@@ -21,10 +21,10 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
     ]
   };
 
-  private apiKey: string;
+  private _apiKey: string;
 
   constructor(apiKey: string) {
-    this.apiKey = apiKey;
+    this._apiKey = apiKey;
   }
 
   public async initialize(): Promise<void> {
@@ -37,7 +37,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
     console.log(`[OpenRouterPlugin] Shut down.`);
   }
 
-  public async generateText(modelId: string, prompt: string, options?: any): Promise<string> {
+  public async generateText(modelId: string, prompt: string, _options?: any): Promise<string> {
     console.log(`[OpenRouterPlugin] Generating text using model: ${modelId}`);
     // Actual implementation calling OpenRouter API
     return `[Mock] OpenRouter response for: ${prompt}`;

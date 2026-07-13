@@ -1,3 +1,5 @@
+-e STATUS: INVALIDATED - See RELEASE_CERTIFICATION.md
+
 # ACOS 2.0 Production Readiness & Validation Report
 
 An official governance and architectural assessment report compiled during the **ACOS 2.0 Validation and Quality Assurance Phase**.

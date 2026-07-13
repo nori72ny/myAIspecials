@@ -1,0 +1,5 @@
+{
+  "status": "NOT VERIFIED",
+  "reason": "SAST and vulnerability scanning tools are not configured.",
+  "findings": []
+}

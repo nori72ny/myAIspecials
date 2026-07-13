@@ -39,8 +39,7 @@ export const createLegacyRouter = () => {
     res.json({
       memories: memoryRepo.getAll(),
       knowledgeNodes: knowledgeGraph.getAllNodes(),
-      knowledgeRelations: knowledgeGraph.getAllRelations(),
-    });
+      knowledgeRelations: knowledgeGraph.getAllRelations() });
   });
 
 router.post("/api/generate-image", async (req, res) => {
@@ -55,11 +54,8 @@ router.post("/api/generate-image", async (req, res) => {
       contents: {
         parts: [
           {
-            text: prompt,
-          },
-        ],
-      },
-    });
+            text: prompt },
+        ] } });
 
     let imageUrl = "";
     if (response.candidates?.[0]?.content?.parts) {
@@ -408,7 +404,8 @@ function getFallbackSwarmResponse(prompt: string) {
 router.post("/api/analyze", async (req, res) => {
   try {
     if (process.env.TEST_PORT === "3005") {
-      try {
+      let lastError: any = null;
+    try {
         const fs = require("fs");
         const path = require("path");
         const mockData = JSON.parse(fs.readFileSync(path.join(process.cwd(), "mock_response.json"), "utf8"));
@@ -442,8 +439,7 @@ router.post("/api/analyze", async (req, res) => {
     const callGeminiIndividual = async () => {
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
-        contents: `ユーザーの質問に対して、知識ベースから日本語で正確かつ極めて簡潔（目安として300〜400文字程度）に回答してください。挨拶は一切不要です。「最新」「リアルタイム」等の断定表現は避け、客観的な事実に基づき回答してください。\n\n質問: ${prompt}`,
-      });
+        contents: `ユーザーの質問に対して、知識ベースから日本語で正確かつ極めて簡潔（目安として300〜400文字程度）に回答してください。挨拶は一切不要です。「最新」「リアルタイム」等の断定表現は避け、客観的な事実に基づき回答してください。\n\n質問: ${prompt}` });
       return response.text || "";
     };
 
@@ -846,9 +842,9 @@ ${gptAnswer}
       throw new Error("Empty response text from Gemini API during synthesis step");
     };
 
-    let lastError: any = null;
     let successData: any = null;
 
+    let lastError: any = null;
     try {
       successData = await callGeminiSynthesis();
     } catch (err: any) {
@@ -867,7 +863,8 @@ ${gptAnswer}
         console.warn("[Gemini API] 503 UNAVAILABLE detected on Synthesis Attempt 1. Waiting 3 seconds before automated retry...");
         await new Promise(resolve => setTimeout(resolve, 3000));
         
-        try {
+        let lastError: any = null;
+    try {
           successData = await callGeminiSynthesis();
         } catch (retryErr: any) {
           errCode = retryErr?.status || retryErr?.statusCode || retryErr?.code || 503;
@@ -1209,6 +1206,7 @@ function getFallbackStructuredResponse(prompt: string, missionId: string, orgSta
 
   // Token exchange proxy
   router.post("/api/auth/github/exchange", async (req, res) => {
+    let lastError: any = null;
     try {
       const { code, clientId, clientSecret } = req.body;
       const finalClientId = clientId || process.env.GITHUB_CLIENT_ID;
@@ -1253,6 +1251,7 @@ function getFallbackStructuredResponse(prompt: string, missionId: string, orgSta
 
   // Generate Changelog from Commits using Gemini
   router.post("/api/github/generate-changelog", async (req, res) => {
+    let lastError: any = null;
     try {
       const { commits, repoName } = req.body;
       if (!commits || !Array.isArray(commits)) {
@@ -1293,6 +1292,7 @@ ${commitsSummary}
 
   // Audit Open Issues using Gemini
   router.post("/api/github/audit-issues", async (req, res) => {
+    let lastError: any = null;
     try {
       const { issues, repoName } = req.body;
       if (!issues || !Array.isArray(issues)) {

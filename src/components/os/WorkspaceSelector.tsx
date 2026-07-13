@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import  { useState } from "react";
 import { ChevronDown, Briefcase, Code, Megaphone, Beaker, User } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 

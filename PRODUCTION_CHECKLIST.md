@@ -1,3 +1,5 @@
+-e STATUS: INVALIDATED - See RELEASE_CERTIFICATION.md
+
 # PRODUCTION_CHECKLIST.md - Production Release Checklist
 
 This checklist tracks the technical milestones required to authorize ACOS 2.0 RC2 for release.

@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import  { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, User, Sparkles, Activity, CheckCircle2, ChevronDown, Zap } from 'lucide-react';
+import { Send, User, Sparkles, Activity, CheckCircle2,  Zap } from 'lucide-react';
 import { cn } from '../../utils';
 import ReactMarkdown from 'react-markdown';
 

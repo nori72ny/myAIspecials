@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Command, ArrowRight, Zap, Folder, MessageSquare, Briefcase, FileText, Settings, X, Globe, User, History } from "lucide-react";
+import { Search, Command, ArrowRight, Zap, Folder, MessageSquare,   Settings,  Globe,  History } from "lucide-react";
 
 interface UniversalCommandPaletteProps {
   isOpen: boolean;

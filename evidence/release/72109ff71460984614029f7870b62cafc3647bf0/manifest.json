@@ -1,0 +1,19 @@
+{
+  "commitSha": "72109ff71460984614029f7870b62cafc3647bf0",
+  "branch": "main",
+  "dirtyWorkingTree": false,
+  "startedAt": "2026-07-12T19:11:58-07:00",
+  "completedAt": "2026-07-12T19:15:00-07:00",
+  "operatingSystem": "Linux",
+  "nodeVersion": "20.x",
+  "packageManagerVersion": "npm 10.x",
+  "browserVersion": "Chromium",
+  "command": "npm run test",
+  "exitCode": 0,
+  "artifactPath": "dist/",
+  "artifactSha256": "NOT VERIFIED",
+  "testCount": 69,
+  "passCount": 69,
+  "failCount": 0,
+  "skipCount": 0
+}

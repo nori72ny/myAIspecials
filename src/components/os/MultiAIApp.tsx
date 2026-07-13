@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import  { useState } from "react";
 import { Cpu, Play, Settings } from "lucide-react";
 
 export default function MultiAIApp() {

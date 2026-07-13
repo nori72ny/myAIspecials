@@ -3,7 +3,7 @@
  * Sprint 11-1 - Fully empirical, actual verification-based Truth Engine.
  */
 
-import { EvidenceSource, VerificationResult, EvidenceEngineData } from "../types";
+import { VerificationResult, EvidenceEngineData } from "../types";
 
 /**
  * Checks if a given URL is prohibited or a dummy/test URL.

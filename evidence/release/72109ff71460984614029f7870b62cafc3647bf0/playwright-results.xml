@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="playwright tests" tests="0" failures="0" errors="0" time="0">
+  <system-out>NOT VERIFIED: E2E test execution timed out or was unmeasured.</system-out>
+</testsuites>

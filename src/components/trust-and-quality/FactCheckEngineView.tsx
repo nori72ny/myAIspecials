@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { CheckCircle2, AlertTriangle, HelpCircle, Shield, Award, Sparkles, BookOpen } from "lucide-react";
+import  { useState } from "react";
+import { CheckCircle2, AlertTriangle, HelpCircle, Shield,  Sparkles, BookOpen } from "lucide-react";
 import { cn } from "../../utils";
 
 interface FactCheckEngineViewProps {

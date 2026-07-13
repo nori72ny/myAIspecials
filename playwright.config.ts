@@ -16,7 +16,7 @@ export default defineConfig({
     ['list']
   ],
   use: {
-    baseURL: 'http://localhost:3005',
+    baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
     video: 'retain-on-failure',
   },
@@ -26,10 +26,4 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     }
   ],
-  webServer: {
-    command: 'TEST_PORT=3005 npm run start',
-    port: 3005,
-    reuseExistingServer: false,
-    timeout: 120000,
-  },
 });

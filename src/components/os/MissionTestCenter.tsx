@@ -3,8 +3,7 @@ import {
   Briefcase, Megaphone, Landmark, Scale, Compass, GraduationCap, 
   HeartPulse, Image as ImageIcon, Video, Share2, Network, ClipboardList, 
   Code, BarChart3, Presentation, Play, RefreshCw, Search, CheckCircle2, 
-  AlertCircle, Sparkles, Clock, Database, FileText, Info, Zap, ThumbsUp, ShieldAlert
-} from "lucide-react";
+      FileText, Info, Zap } from "lucide-react";
 import { SafeStorage } from "../../utils";
 
 interface MissionItem {

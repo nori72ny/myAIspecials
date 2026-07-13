@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import  { useState, useEffect } from "react";
 import { 
-  Cpu, Activity, Zap, Shield, Sparkles, CheckCircle2, Clock, 
-  MessageSquare, AlertCircle, TrendingUp, RefreshCw, Layers 
+  Cpu,  Zap, Shield, Sparkles, CheckCircle2, Clock, 
+   AlertCircle, TrendingUp, RefreshCw, Layers 
 } from "lucide-react";
 
 export default function DashboardApp() {
