@@ -253,42 +253,47 @@ export default function DynamicBrain() {
     const thinkingModes = isEn ? thinkingModesEn : thinkingModesJp;
     const thinkingLogs = isEn ? thinkingLogsEn : thinkingLogsJp;
 
+    let step = 0;
     const interval = setInterval(() => {
-      // Toggle random thinking mode
-      const nextMode = thinkingModes[Math.floor(Math.random() * thinkingModes.length)];
+      step += 1;
+      // Toggle thinking mode deterministically
+      const nextMode = thinkingModes[step % thinkingModes.length];
       setThinkingMode(nextMode);
 
-      // Fluctuate metrics realistically
+      // Fluctuate metrics realistically and deterministically using Math.sin/Math.cos waves
       setMetrics(prev => {
-        const speedDelta = Math.floor((Math.random() - 0.5) * 60);
-        const accuracyDelta = parseFloat(((Math.random() - 0.5) * 0.1).toFixed(2));
-        const contextDelta = Math.random() > 0.8 ? (Math.random() > 0.5 ? 1 : -1) : 0;
-        const learningDelta = (Math.random() - 0.5) * 0.0002;
+        const sin1 = Math.sin(step);
+        const cos1 = Math.cos(step * 1.3);
+        const sin2 = Math.sin(step * 2.1);
+        
+        const speedDelta = Math.floor(sin1 * 40);
+        const accuracyDelta = parseFloat((cos1 * 0.04).toFixed(2));
+        const contextDelta = sin2 > 0.7 ? 1 : (sin2 < -0.7 ? -1 : 0);
+        const learningDelta = sin1 * 0.0001;
 
         return {
           thinkingSpeed: Math.min(1900, Math.max(950, prev.thinkingSpeed + speedDelta)),
-          knowledgeDensity: parseFloat(Math.min(5.2, Math.max(4.4, prev.knowledgeDensity + (Math.random() - 0.5) * 0.01)).toFixed(2)),
+          knowledgeDensity: parseFloat(Math.min(5.2, Math.max(4.4, prev.knowledgeDensity + cos1 * 0.008)).toFixed(2)),
           accuracy: parseFloat(Math.min(100, Math.max(97.8, prev.accuracy + accuracyDelta)).toFixed(2)),
-          reasoningDepth: Math.random() > 0.8 ? Math.min(10, Math.max(6, prev.reasoningDepth + (Math.random() > 0.5 ? 1 : -1))) : prev.reasoningDepth,
+          reasoningDepth: sin2 > 0.8 ? Math.min(10, Math.max(6, prev.reasoningDepth + 1)) : (sin2 < -0.8 ? Math.min(10, Math.max(6, prev.reasoningDepth - 1)) : prev.reasoningDepth),
           contextUsage: Math.min(100, Math.max(40, prev.contextUsage + contextDelta)),
           learningRate: parseFloat(Math.min(0.005, Math.max(0.001, prev.learningRate + learningDelta)).toFixed(4))
         };
       });
 
-      // Fluctuate active agents
-      setAgentPulses(prev => ({
-        ...prev,
-        gemini: Math.random() > 0.15,
-        claude: Math.random() > 0.2,
-        openai: Math.random() > 0.25,
-        perplexity: Math.random() > 0.3,
-        deepseek: Math.random() > 0.6,
-        qwen: Math.random() > 0.7
-      }));
+      // Fluctuate active agents deterministically
+      setAgentPulses({
+        gemini: (step % 2) === 0,
+        claude: (step % 3) !== 0,
+        openai: (step % 4) !== 1,
+        perplexity: (step % 5) < 3,
+        deepseek: (step % 7) > 2,
+        qwen: (step % 8) === 3
+      });
 
-      // Add thinking log stream
+      // Add thinking log stream deterministically
       setActiveThoughts(prev => {
-        const nextLog = thinkingLogs[Math.floor(Math.random() * thinkingLogs.length)];
+        const nextLog = thinkingLogs[step % thinkingLogs.length];
         const updated = [...prev, `[${nextMode.toUpperCase()}] ${nextLog}`];
         if (updated.length > 5) updated.shift();
         return updated;
@@ -426,7 +431,7 @@ export default function DynamicBrain() {
                         opacity: [0, 0.9, 0.9, 0]
                       }}
                       transition={{
-                        duration: isHovered ? 1.8 : (2.8 + Math.random() * 1.5),
+                        duration: isHovered ? 1.8 : (2.8 + ((nodes.indexOf(node) % 5) * 0.3)),
                         repeat: Infinity,
                         ease: "linear",
                         delay: nodes.indexOf(node) * 0.35
@@ -549,7 +554,7 @@ export default function DynamicBrain() {
                     transition={{
                       scale: isHovered 
                         ? { type: "spring", stiffness: 400, damping: 20 }
-                        : { duration: 2.2 + Math.random(), repeat: Infinity, ease: "easeInOut" }
+                        : { duration: 2.2 + ((positionedNodes.indexOf(node) % 4) * 0.25), repeat: Infinity, ease: "easeInOut" }
                     }}
                   >
                     {/* High-quality Glass node backing */}

@@ -250,14 +250,14 @@ describe("=== Version 1.2 AI Security Hardening Unit Tests ===", () => {
 
     it("should exclude expired facts from MissionMemory getter", async () => {
       const missionMemory = new MissionMemory();
-      // Add a fact with tiny TTL
-      missionMemory.addFact("Temporary connection state info", { ttlMs: 1 });
+      // Add a fact with safe TTL for testing
+      missionMemory.addFact("Temporary connection state info", { ttlMs: 200 });
       
       // Immediately retrieve
       expect(missionMemory.getFacts()).toHaveLength(1);
 
-      // Wait 5ms for expiration
-      await new Promise(resolve => setTimeout(resolve, 5));
+      // Wait 300ms for expiration
+      await new Promise(resolve => setTimeout(resolve, 300));
       expect(missionMemory.getFacts()).toHaveLength(0);
     });
   });

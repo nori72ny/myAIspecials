@@ -1,5 +1,4 @@
-import React from "react";
-import  { useState } from 'react';
+import React, { useState, useEffect } from "react";
 import { AnimatePresence, motion } from 'motion/react';
 import { 
   MessageSquare, LayoutDashboard, FolderKanban, Brain, 
@@ -11,6 +10,7 @@ import PersonalDashboard from './PersonalDashboard';
 import UnifiedChat from './UnifiedChat';
 import ProjectWorkspace from './ProjectWorkspace';
 import PersonalMemory from './PersonalMemory';
+import { useAppState } from '../../hooks/useAppState';
 
 type ViewState = 'dashboard' | 'chat' | 'workspace' | 'memory';
 
@@ -20,17 +20,69 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string | undefined>(undefined);
 
+  const { settings } = useAppState();
+  const isEn = settings.language === "en";
+
+  const [aiCoreState, setAiCoreState] = useState<"UNKNOWN" | "CONNECTING" | "HEALTHY" | "DEGRADED" | "OFFLINE" | "RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "NOT_CONFIGURED">("UNKNOWN");
+
+  useEffect(() => {
+    const handleAiCoreState = (e: any) => {
+      setAiCoreState(e.detail);
+    };
+    window.addEventListener("aiCoreStateChange", handleAiCoreState);
+    return () => window.removeEventListener("aiCoreStateChange", handleAiCoreState);
+  }, []);
+
   const navigateToChat = (initialPrompt?: string) => {
     setChatInitialPrompt(initialPrompt);
     setCurrentView('chat');
   };
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'chat', label: 'Unified Chat', icon: MessageSquare },
-    { id: 'workspace', label: 'Workspace', icon: FolderKanban },
-    { id: 'memory', label: 'Memory', icon: Brain },
+    { id: 'dashboard', label: isEn ? 'Dashboard' : 'ダッシュボード', icon: LayoutDashboard },
+    { id: 'chat', label: isEn ? 'Unified Chat' : '統合チャット', icon: MessageSquare },
+    { id: 'workspace', label: isEn ? 'Workspace' : 'ワークスペース', icon: FolderKanban },
+    { id: 'memory', label: isEn ? 'Memory' : 'メモリ', icon: Brain },
   ] as const;
+
+  const getAiCoreLabel = () => {
+    if (isEn) {
+      switch (aiCoreState) {
+        case "HEALTHY": return "AI Core: Healthy";
+        case "CONNECTING": return "AI Core: Connecting";
+        case "DEGRADED": return "AI Core: Degraded";
+        case "OFFLINE": return "AI Core: Offline";
+        case "RATE_LIMITED": return "AI Core: Rate Limited";
+        case "PROVIDER_UNAVAILABLE": return "AI Core: Unavailable";
+        case "NOT_CONFIGURED": return "AI Core: Setup Required";
+        default: return "AI Core: Unknown";
+      }
+    } else {
+      switch (aiCoreState) {
+        case "HEALTHY": return "AIコア：正常";
+        case "CONNECTING": return "AIコア：接続中";
+        case "DEGRADED": return "AIコア：一部制限";
+        case "OFFLINE": return "AIコア：オフライン";
+        case "RATE_LIMITED": return "AIコア：利用制限中";
+        case "PROVIDER_UNAVAILABLE": return "AIコア：AIを利用できません";
+        case "NOT_CONFIGURED": return "AIコア：設定が必要";
+        default: return "AIコア：状態不明";
+      }
+    }
+  };
+
+  const getAiCoreColor = () => {
+    switch (aiCoreState) {
+      case "HEALTHY": return "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-500/20";
+      case "CONNECTING": return "bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-500/20";
+      case "RATE_LIMITED":
+      case "DEGRADED": return "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-500/20";
+      case "OFFLINE":
+      case "PROVIDER_UNAVAILABLE":
+      case "NOT_CONFIGURED": return "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border-red-100 dark:border-red-500/20";
+      default: return "bg-slate-50 dark:bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-100 dark:border-slate-500/20";
+    }
+  };
 
   return (
     <div className="flex h-screen w-full bg-white dark:bg-black text-slate-900 dark:text-neutral-100 font-sans overflow-hidden">
@@ -84,7 +136,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
             className="w-full flex items-center gap-2 px-3 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
           >
             <Plus className="w-4 h-4" />
-            <span>New Chat</span>
+            <span>{isEn ? "New Chat" : "新しいチャット"}</span>
           </button>
         </div>
 
@@ -132,11 +184,14 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
           >
             Switch to Enterprise
           </button>
-          <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
+          <button 
+            onClick={() => window.dispatchEvent(new CustomEvent("openSettings"))}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+          >
             <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white flex items-center justify-center text-[10px] font-bold">
               US
             </div>
-            <span className="truncate">User Settings</span>
+            <span className="truncate">{isEn ? "User Settings" : "ユーザー設定"}</span>
           </button>
         </div>
       </motion.aside>
@@ -157,9 +212,9 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
               {currentView === 'workspace' && activeProjectId ? activeProjectId : currentView.replace('-', ' ')}
             </h1>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium border border-emerald-100 dark:border-emerald-500/20">
+              <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium border transition-colors duration-300", getAiCoreColor())}>
                 <Activity className="w-3 h-3" />
-                <span>AI Core: Optimal</span>
+                <span>{getAiCoreLabel()}</span>
               </div>
             </div>
           </div>

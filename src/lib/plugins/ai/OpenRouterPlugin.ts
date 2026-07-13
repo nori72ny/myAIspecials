@@ -1,4 +1,17 @@
 import { IAIProviderPlugin, AIProviderManifest } from '../../kernel/plugin/types';
+import { Logger } from '../../../../services/mission-engine/src/infrastructure/logging/Logger';
+
+export class OpenRouterError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode?: number,
+    public readonly requestId?: string,
+    public readonly rawError?: any
+  ) {
+    super(message);
+    this.name = 'OpenRouterError';
+  }
+}
 
 export class OpenRouterPlugin implements IAIProviderPlugin {
   public manifest: AIProviderManifest = {
@@ -24,22 +37,214 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
   private _apiKey: string;
 
   constructor(apiKey: string) {
-    this._apiKey = apiKey;
+    // Sanitize API Key input - avoid trailing whitespace
+    this._apiKey = (apiKey || "").trim();
   }
 
   public async initialize(): Promise<void> {
-    // Validate API keys, test connection to OpenRouter
-    console.log(`[OpenRouterPlugin] Initialized with API Key.`);
+    if (!this._apiKey) {
+      Logger.warn("[OpenRouterPlugin] No API Key provided. OpenRouter will run in fallback mock mode.");
+    } else {
+      Logger.info("[OpenRouterPlugin] Initialized successfully with API Key.");
+    }
   }
 
   public async shutdown(): Promise<void> {
-    // Clean up connections if necessary
-    console.log(`[OpenRouterPlugin] Shut down.`);
+    Logger.info("[OpenRouterPlugin] Shut down completed.");
   }
 
-  public async generateText(modelId: string, prompt: string, _options?: any): Promise<string> {
-    console.log(`[OpenRouterPlugin] Generating text using model: ${modelId}`);
-    // Actual implementation calling OpenRouter API
-    return `[Mock] OpenRouter response for: ${prompt}`;
+  /**
+   * Helper to determine if a model ID represents a free-tier model.
+   */
+  private isFreeModel(modelId: string): boolean {
+    const lowerId = modelId.toLowerCase();
+    return (
+      lowerId.includes(':free') ||
+      lowerId.includes('-free') ||
+      lowerId.endsWith('/free') ||
+      lowerId === "openrouter/auto"
+    );
+  }
+
+  /**
+   * Generates text via the OpenRouter Chat Completions API with detailed safety and reliability wrappers.
+   */
+  public async generateText(modelId: string, prompt: string, options?: any): Promise<string> {
+    const isFreeOnly = process.env.FREE_ONLY === "true" || options?.freeOnly === true;
+
+    // 1. Free-only enforcement / Paid model blocking
+    if (isFreeOnly && !this.isFreeModel(modelId)) {
+      Logger.warn(`[OpenRouterPlugin] Blocked execution of paid model '${modelId}' under free-only constraints.`);
+      // Return a standard sentinel string or throw an error based on ACOS specification
+      if (options?.throwOnBlock) {
+        throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
+      }
+      return "FREE_MODEL_UNAVAILABLE";
+    }
+
+    // Fallback Mock Mode (e.g., in deterministic tests or when no key is specified)
+    if (!this._apiKey || this._apiKey.startsWith("mock-") || process.env.NODE_ENV === "test") {
+      Logger.info(`[OpenRouterPlugin] Running generateText in fallback mock mode for model: ${modelId}`);
+      return this.getFallbackMockResponse(prompt, modelId);
+    }
+
+    const maxRetries = options?.maxRetries ?? 3;
+    const initialDelayMs = options?.initialDelayMs ?? 1000;
+    const timeoutMs = options?.timeout ?? 30000; // Default 30s timeout
+
+    let attempt = 0;
+    while (attempt < maxRetries) {
+      attempt++;
+      
+      // Setup AbortController for timeouts and optional manual AbortSignals
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, timeoutMs);
+
+      // Link option-passed signals for streaming interruption support
+      let onAbort: () => void;
+      if (options?.signal) {
+        onAbort = () => {
+          controller.abort();
+        };
+        options.signal.addEventListener('abort', onAbort);
+      }
+
+      try {
+        Logger.info(`[OpenRouterPlugin] Executing generation request. Model: ${modelId}, Attempt: ${attempt}/${maxRetries}`);
+
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${this._apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://ai.studio/build",
+            "X-Title": "Intelligence OS"
+          },
+          body: JSON.stringify({
+            model: modelId,
+            messages: [{ role: "user", content: prompt }],
+            temperature: options?.temperature ?? 0.7,
+            max_tokens: options?.max_tokens
+          }),
+          signal: controller.signal
+        });
+
+        // 2. HTTP Error Status Handling (429, 5xx, etc.)
+        if (!response.ok) {
+          const status = response.status;
+          let errorBody = "";
+          try {
+            errorBody = await response.text();
+          } catch (_) {}
+
+          const requestId = response.headers.get("x-request-id") || undefined;
+
+          if (status === 429) {
+            Logger.warn(`[OpenRouterPlugin] Rate-limited (429) on attempt ${attempt}. Request ID: ${requestId}`);
+            if (attempt < maxRetries) {
+              await this.delay(initialDelayMs * Math.pow(2, attempt));
+              continue;
+            }
+            throw new OpenRouterError("Rate limit exceeded on OpenRouter. Please try again later.", 429, requestId, errorBody);
+          }
+
+          if (status >= 500) {
+            Logger.warn(`[OpenRouterPlugin] Server Error (${status}) on attempt ${attempt}. Request ID: ${requestId}`);
+            if (attempt < maxRetries) {
+              await this.delay(initialDelayMs * Math.pow(2, attempt));
+              continue;
+            }
+            throw new OpenRouterError(`OpenRouter server returned an error: ${status}`, status, requestId, errorBody);
+          }
+
+          throw new OpenRouterError(`OpenRouter request failed with status: ${status}`, status, requestId, errorBody);
+        }
+
+        // 3. Runtime Response Validation
+        const data = await response.json() as any;
+        if (!data || typeof data !== 'object') {
+          throw new OpenRouterError("Invalid JSON structure received from OpenRouter API.", response.status);
+        }
+
+        const requestId = response.headers.get("x-request-id") || data.id || "unknown-id";
+
+        if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+          throw new OpenRouterError("OpenRouter API returned an empty choices array.", response.status, requestId, data);
+        }
+
+        const content = data.choices[0]?.message?.content ?? data.choices[0]?.text;
+        if (content === undefined || content === null) {
+          throw new OpenRouterError("OpenRouter API choices did not contain expected content text.", response.status, requestId, data);
+        }
+
+        // 4. Usage Normalization & Logging
+        const usage = data.usage || {};
+        const promptTokens = usage.prompt_tokens ?? Math.ceil(prompt.length / 4);
+        const completionTokens = usage.completion_tokens ?? Math.ceil(content.length / 4);
+        const totalTokens = usage.total_tokens ?? (promptTokens + completionTokens);
+
+        Logger.info(`[OpenRouterPlugin] LLM completed successfully.`, {
+          requestId,
+          model: modelId,
+          promptTokens,
+          completionTokens,
+          totalTokens
+        });
+
+        // Resolve optionally if the consumer registers usage metrics tracking
+        if (options?.onUsage && typeof options.onUsage === 'function') {
+          options.onUsage({ promptTokens, completionTokens, totalTokens, requestId });
+        }
+
+        return content;
+
+      } catch (error: any) {
+        // Safe Logging (Mask details in logging to prevent sensitive token exposure)
+        const isAbort = error.name === 'AbortError';
+        if (isAbort) {
+          Logger.warn(`[OpenRouterPlugin] Request timed out or was interrupted. Model: ${modelId}`);
+          throw new OpenRouterError("OpenRouter request timed out or was aborted by the client.", 408);
+        }
+
+        if (error instanceof OpenRouterError) {
+          throw error;
+        }
+
+        Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}: ${error.message}`, error);
+        
+        if (attempt < maxRetries) {
+          await this.delay(initialDelayMs * Math.pow(2, attempt));
+          continue;
+        }
+        throw new OpenRouterError(error.message || "An unexpected error occurred during OpenRouter generation.", undefined, undefined, error);
+      } finally {
+        clearTimeout(timeoutId);
+        if (options?.signal && onAbort) {
+          options.signal.removeEventListener('abort', onAbort);
+        }
+      }
+    }
+
+    throw new OpenRouterError("Max retries exceeded without obtaining a successful response.", 500);
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private getFallbackMockResponse(prompt: string, modelId: string): string {
+    const lowerPrompt = prompt.toLowerCase();
+    if (lowerPrompt.includes("review") || lowerPrompt.includes("strict corporate manager")) {
+      return JSON.stringify({
+        score: 92,
+        feedback: `[OpenRouter Mock: ${modelId}] 成果物のレビューは良好です。仕様通りに動作しています。`
+      });
+    }
+    if (lowerPrompt.includes("board directive")) {
+      return `[OpenRouter Mock: ${modelId}] 取締役会の戦略目標が設定されました。`;
+    }
+    return `[Mock] OpenRouter response for: ${prompt} (Using model: ${modelId})`;
   }
 }

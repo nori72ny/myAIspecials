@@ -48,12 +48,35 @@ export interface OutputValidationResult {
 
 export class OutputValidatorService {
   private static isMockTestContent(content: string): boolean {
-    const normalized = content.trim().toLowerCase();
-    return (
-      normalized === "task executed successfully" ||
-      normalized === "generic success response from mock llm" ||
-      normalized.includes("completed by standard oee pipeline")
-    );
+    const normalized = content.trim();
+    
+    // Strict regular expressions for mock detection, robust against spaces, prefixing, or case variations
+    const mockPatterns = [
+      /task\s+executed\s+successfully/i,
+      /generic\s+success\s+response/i,
+      /completed\s+by\s+standard\s+oee\s+pipeline/i,
+      /【決定論的テスト】/i,
+      /deterministic\s+test/i
+    ];
+
+    const hasPatternMatch = mockPatterns.some(pattern => pattern.test(normalized));
+
+    if (hasPatternMatch) {
+      // Defense in Depth: Only authorize mock verification paths in real test environments
+      const isAuthorizedTestEnv = 
+        process.env.NODE_ENV === "test" || 
+        process.env.TEST_MOCK_VALIDATOR === "true" ||
+        process.env.VITEST === "true" ||
+        typeof global.it === "function";
+
+      if (!isAuthorizedTestEnv) {
+        console.warn("[ACOS Security] Mock-like content pattern matched but unauthorized in non-test environment.");
+        return false;
+      }
+      return true;
+    }
+
+    return false;
   }
 
   /**

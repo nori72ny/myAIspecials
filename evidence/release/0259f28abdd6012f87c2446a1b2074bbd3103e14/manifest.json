@@ -1,0 +1,7 @@
+{
+  "project": "ACOS 2.0",
+  "sprint": "7.3",
+  "branch": "$(git rev-parse --abbrev-ref HEAD)",
+  "commit": "$COMMIT",
+  "timestamp": "$(date -Iseconds)"
+}

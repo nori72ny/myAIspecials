@@ -197,4 +197,61 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     // Gemini 1.5 Pro should be selected because it has rating 5 on Vision and Search
     expect(searchDecision.primaryProvider.id).toBe("openrouter/google/gemini-1.5-pro");
   });
+
+  it('should enforce free-only routing and block paid models under free-only constraints', async () => {
+    const registry = new CapabilityRegistry();
+    const adapter = new OpenRouterAdapter();
+    const providers = await adapter.getSelfDeclaredProviders();
+    providers.forEach(p => registry.registerProvider(p));
+
+    // Case 1: normal routing (should pick Claude 3.5 Sonnet for Coding)
+    const normalDecision = registry.searchAndRank({
+      capabilities: ["Coding"]
+    });
+    expect(normalDecision.primaryProvider.id).toBe("openrouter/anthropic/claude-3.5-sonnet");
+
+    // Case 2: free-only routing via query hint
+    const freeOnlyDecision = registry.searchAndRank({
+      capabilities: ["Coding"],
+      routingHints: ["free-only"]
+    });
+    // Should pick Gemini 2.5 Flash Free because Claude 3.5 Sonnet is a paid model and is blocked
+    expect(freeOnlyDecision.primaryProvider.id).toBe("openrouter/google/gemini-2.5-flash:free");
+
+    // Case 3: free-only routing via process.env.FREE_ONLY
+    const originalFreeOnly = process.env.FREE_ONLY;
+    process.env.FREE_ONLY = "true";
+    try {
+      const envFreeDecision = registry.searchAndRank({
+        capabilities: ["Coding"]
+      });
+      expect(envFreeDecision.primaryProvider.id).toBe("openrouter/google/gemini-2.5-flash:free");
+    } finally {
+      process.env.FREE_ONLY = originalFreeOnly;
+    }
+  });
+
+  it('should prevent automatic paid fallback and throw error if no free models match under free-only constraints', async () => {
+    const registry = new CapabilityRegistry();
+    
+    // Register ONLY paid models
+    const paidProvider = new Provider(
+      "paid-super-model",
+      "Paid Super Model",
+      "OpenRouter",
+      new Map([["Coding", 5]]),
+      "healthy",
+      { cost: 8, latency: 500, quality: 10, failureRate: 0.01 },
+      ["paid-model"]
+    );
+    registry.registerProvider(paidProvider);
+
+    // Act & Assert: When free-only is enforced, it must NOT fallback to paid-super-model and should throw error
+    expect(() => {
+      registry.searchAndRank({
+        capabilities: ["Coding"],
+        routingHints: ["free-only"]
+      });
+    }).toThrow("No providers met the criteria for capabilities: Coding");
+  });
 });
