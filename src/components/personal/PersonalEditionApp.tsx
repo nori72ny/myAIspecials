@@ -158,7 +158,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
           ))}
 
           <div className="pt-6 pb-2 px-3">
-            <p className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-wider">
+            <p className="text-[10px] font-bold text-slate-700 dark:text-neutral-300 uppercase tracking-wider">
               Recent Projects
             </p>
           </div>
