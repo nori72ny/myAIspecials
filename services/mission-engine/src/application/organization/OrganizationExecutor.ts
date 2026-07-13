@@ -805,8 +805,6 @@ export class OrganizationExecutor {
     // Call hook if provided (explicitly injected test-only auto-approval)
     if (options?.onApprovalRequired) {
       await options.onApprovalRequired(approvalReq, this);
-    } else if (process.env.NODE_ENV === "test" || process.env.TEST_MOCK_VALIDATOR === "true") {
-      this.resolveHumanApproval(state.orgId, approvalReq.id, true, "Auto-approved in test environment");
     }
 
     if (approvalReq.status === "AWAITING_HUMAN_APPROVAL" || approvalReq.status === "Pending") {

@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# ACOS 2.0 Generated Reports & Runtime Logs
+results/
+playwright-report/
+evidence/routing_log.json

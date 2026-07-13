@@ -96,23 +96,17 @@ describe('ACOS 2.0 API Full Lifecycle (Integration)', () => {
   });
 
   it('should not transition to COMPLETED before human approval and should transition to AWAITING_HUMAN_APPROVAL', async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
-    try {
-      const objective = 'Plan a 1-day quick trip to Tokyo.';
-      const missionId = `test-approval-withhold-${Date.now()}`;
-      const mockClient = new DeterministicLLMClient();
-      
-      // No options/callback provided, so it remains pending
-      const state = await organizationExecutorInstance.executeMission(missionId, objective, mockClient);
-      
-      expect(state.currentState).toBe('AWAITING_HUMAN_APPROVAL');
-      expect(state.humanApprovals).toBeDefined();
-      expect(state.humanApprovals?.length).toBe(1);
-      expect(state.humanApprovals?.[0].status).toBe('AWAITING_HUMAN_APPROVAL');
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
+    const objective = 'Plan a 1-day quick trip to Tokyo.';
+    const missionId = `test-approval-withhold-${Date.now()}`;
+    const mockClient = new DeterministicLLMClient();
+    
+    // No options/callback provided, so it remains pending
+    const state = await organizationExecutorInstance.executeMission(missionId, objective, mockClient);
+    
+    expect(state.currentState).toBe('AWAITING_HUMAN_APPROVAL');
+    expect(state.humanApprovals).toBeDefined();
+    expect(state.humanApprovals?.length).toBe(1);
+    expect(state.humanApprovals?.[0].status).toBe('AWAITING_HUMAN_APPROVAL');
   });
 
   it('should transition to REJECTED if human approval is rejected', async () => {
