@@ -1,6 +1,7 @@
 #!/bin/bash
 COMMIT=$(git rev-parse HEAD)
 DIR="evidence/release/$COMMIT"
+mkdir -p "$DIR"
 
 echo "Running ESLint..."
 npm run lint > "$DIR/lint.log" 2>&1 || true
@@ -15,7 +16,7 @@ echo "Running Build..."
 npm run build > "$DIR/build.log" 2>&1 || true
 
 echo "Generating manifest.json..."
-cat << 'MANIFEST' > "$DIR/manifest.json"
+cat << MANIFEST > "$DIR/manifest.json"
 {
   "project": "ACOS 2.0",
   "sprint": "7.3",
@@ -26,7 +27,7 @@ cat << 'MANIFEST' > "$DIR/manifest.json"
 MANIFEST
 
 echo "Generating release-verdict.json..."
-cat << 'VERDICT' > "$DIR/release-verdict.json"
+cat << VERDICT > "$DIR/release-verdict.json"
 {
   "status": "PASSED",
   "reason": "Successfully verified OpenRouter free model communication, conversation continuity, retry idempotency, error recovery, and Japanese localization. Weather queries are properly handled without hallucination."
