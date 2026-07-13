@@ -1325,7 +1325,6 @@ function getFallbackStructuredResponse(prompt: string, missionId: string, orgSta
 
   // Token exchange proxy
   router.post("/api/auth/github/exchange", async (req, res) => {
-    let lastError: any = null;
     try {
       const { code, clientId, clientSecret, redirectUri } = req.body;
       const finalClientId = clientId || process.env.GITHUB_CLIENT_ID;
@@ -1375,7 +1374,6 @@ function getFallbackStructuredResponse(prompt: string, missionId: string, orgSta
 
   // Generate Changelog from Commits using Gemini
   router.post("/api/github/generate-changelog", async (req, res) => {
-    let lastError: any = null;
     try {
       const { commits, repoName } = req.body;
       if (!commits || !Array.isArray(commits)) {
@@ -1416,7 +1414,6 @@ ${commitsSummary}
 
   // Audit Open Issues using Gemini
   router.post("/api/github/audit-issues", async (req, res) => {
-    let lastError: any = null;
     try {
       const { issues, repoName } = req.body;
       if (!issues || !Array.isArray(issues)) {
