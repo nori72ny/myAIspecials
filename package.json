@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:api": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
     "test:e2e": "npm run test:api && npx playwright test",
-    "eval:prepare": "tsx scripts/evaluate-codebase.ts"
+    "eval:prepare": "tsx scripts/evaluate-codebase.ts",
+    "deliver": "node scripts/auto-deliver.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
