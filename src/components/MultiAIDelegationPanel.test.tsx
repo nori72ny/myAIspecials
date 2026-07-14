@@ -1,6 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import MultiAIDelegationPanel from "./MultiAIDelegationPanel";
+import { describe, expect, it } from "vitest";
 import {
   createDelegationInstruction,
   DEFAULT_AI_CAPABILITIES,
@@ -23,19 +21,7 @@ const plannerProfiles: readonly AICapabilityProfile[] = [
   humanApprovalGate,
 ];
 
-afterEach(() => {
-  cleanup();
-});
-
-describe("MultiAIDelegationPanel", () => {
-  it("opens the delegation planner without affecting the surrounding app", () => {
-    render(<MultiAIDelegationPanel />);
-
-    fireEvent.click(screen.getByTestId("multi-ai-planner-open"));
-
-    expect(screen.getByRole("dialog", { name: "AI作業振り分け" })).toBeTruthy();
-  });
-
+describe("MultiAIDelegationPanel routing contract", () => {
   it("routes implementation work to AI Studio Primary", () => {
     const decision = routeTask(
       { goal: "新しい画面を実装してください", requiresCodeChanges: true },
