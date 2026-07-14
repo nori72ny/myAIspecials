@@ -49,15 +49,19 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
+    const sidebar = page.locator('aside').first();
     const newChatButton = page.getByTestId('new-chat-button');
     await expect(newChatButton).toBeVisible();
+    await expect(sidebar).toHaveCSS('width', '260px');
 
     const closeSidebarButton = page.locator('button:has(svg.lucide-x)').first();
     await closeSidebarButton.click();
-    await expect(newChatButton).toBeHidden();
+    await expect(sidebar).toHaveCSS('width', '0px');
 
     const openSidebarButton = page.locator('button:has(svg.lucide-menu)').first();
+    await expect(openSidebarButton).toBeVisible();
     await openSidebarButton.click();
+    await expect(sidebar).toHaveCSS('width', '260px');
     await expect(newChatButton).toBeVisible();
 
     await page.getByTestId('nav-chat').click();
