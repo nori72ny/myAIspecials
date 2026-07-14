@@ -41,7 +41,6 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
   it('should rank providers properly with different priorities (Quality vs Cost)', () => {
     const registry = new CapabilityRegistry();
 
-    // Provider A: Premium Quality but Expensive
     const premiumProvider = new Provider(
       "premium-gpt",
       "Premium GPT",
@@ -51,7 +50,6 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
       { cost: 9, latency: 600, quality: 10, failureRate: 0.001 }
     );
 
-    // Provider B: Cheap, decent but lower quality
     const cheapProvider = new Provider(
       "cheap-llama",
       "Cheap Llama",
@@ -64,7 +62,6 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     registry.registerProvider(premiumProvider);
     registry.registerProvider(cheapProvider);
 
-    // Case 1: Quality is prioritized
     const qualityDecision = registry.searchAndRank({
       capabilities: ["Reasoning", "Planning"],
       priority: "quality"
@@ -72,7 +69,6 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
 
     expect(qualityDecision.primaryProvider.id).toBe("premium-gpt");
 
-    // Case 2: Cost is prioritized
     const costDecision = registry.searchAndRank({
       capabilities: ["Reasoning", "Planning"],
       priority: "cost"
@@ -98,7 +94,7 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
       "Down Claude",
       "Anthropic",
       new Map([["Reasoning", 5]]),
-      "down", // Down!
+      "down",
       { cost: 5, latency: 500, quality: 9, failureRate: 0.01 }
     );
 
@@ -170,7 +166,6 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
 
     expect(mockEventHandler).toHaveBeenCalledTimes(2);
 
-    // Clean up
     globalEventBus.unsubscribe('ProviderRegistered' as any, mockEventHandler);
     globalEventBus.unsubscribe('CapabilityRouted' as any, mockEventHandler);
   });
@@ -184,18 +179,15 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
 
     providers.forEach(p => registry.registerProvider(p));
 
-    // Verify Claude 3.5 Sonnet is loaded
-    const claude = registry.getProvider("openrouter/anthropic/claude-3.5-sonnet");
+    const claude = registry.getProvider("anthropic/claude-3.5-sonnet");
     expect(claude).toBeDefined();
     expect(claude?.getCapabilityRating("Coding")).toBe(5);
 
-    // Search for Vision + Search capability
     const searchDecision = registry.searchAndRank({
       capabilities: ["Vision", "Search"]
     });
 
-    // Gemini 1.5 Pro should be selected because it has rating 5 on Vision and Search
-    expect(searchDecision.primaryProvider.id).toBe("openrouter/google/gemini-1.5-pro");
+    expect(searchDecision.primaryProvider.id).toBe("google/gemini-1.5-pro");
   });
 
   it('should enforce free-only routing and block paid models under free-only constraints', async () => {
@@ -204,28 +196,24 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     const providers = await adapter.getSelfDeclaredProviders();
     providers.forEach(p => registry.registerProvider(p));
 
-    // Case 1: normal routing (should pick Claude 3.5 Sonnet for Coding)
     const normalDecision = registry.searchAndRank({
       capabilities: ["Coding"]
     });
-    expect(normalDecision.primaryProvider.id).toBe("openrouter/anthropic/claude-3.5-sonnet");
+    expect(normalDecision.primaryProvider.id).toBe("anthropic/claude-3.5-sonnet");
 
-    // Case 2: free-only routing via query hint
     const freeOnlyDecision = registry.searchAndRank({
       capabilities: ["Coding"],
       routingHints: ["free-only"]
     });
-    // Should pick Gemini 2.5 Flash Free because Claude 3.5 Sonnet is a paid model and is blocked
-    expect(freeOnlyDecision.primaryProvider.id).toBe("openrouter/google/gemini-2.5-flash:free");
+    expect(freeOnlyDecision.primaryProvider.id).toBe("google/gemini-2.5-flash:free");
 
-    // Case 3: free-only routing via process.env.FREE_ONLY
     const originalFreeOnly = process.env.FREE_ONLY;
     process.env.FREE_ONLY = "true";
     try {
       const envFreeDecision = registry.searchAndRank({
         capabilities: ["Coding"]
       });
-      expect(envFreeDecision.primaryProvider.id).toBe("openrouter/google/gemini-2.5-flash:free");
+      expect(envFreeDecision.primaryProvider.id).toBe("google/gemini-2.5-flash:free");
     } finally {
       process.env.FREE_ONLY = originalFreeOnly;
     }
@@ -233,8 +221,7 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
 
   it('should prevent automatic paid fallback and throw error if no free models match under free-only constraints', async () => {
     const registry = new CapabilityRegistry();
-    
-    // Register ONLY paid models
+
     const paidProvider = new Provider(
       "paid-super-model",
       "Paid Super Model",
@@ -246,7 +233,6 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     );
     registry.registerProvider(paidProvider);
 
-    // Act & Assert: When free-only is enforced, it must NOT fallback to paid-super-model and should throw error
     expect(() => {
       registry.searchAndRank({
         capabilities: ["Coding"],
