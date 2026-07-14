@@ -140,6 +140,26 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      - name: Diagnose Dependency Review API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          response_file="$(mktemp)"
+          status="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${{ github.repository }}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}")"
+          echo "Dependency Review API HTTP status: $status"
+          if [ "$status" -ge 400 ]; then
+            jq -c '{message, documentation_url, status}' "$response_file" || cat "$response_file"
+          else
+            jq -c '{dependency_change_count: (.changes | length)}' "$response_file"
+          fi
       - name: Checkout Repo
         uses: actions/checkout@v4
       - name: Dependency Review
