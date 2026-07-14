@@ -54,15 +54,15 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
   }
 
   /**
-   * Helper to determine if a model ID represents a free-tier model.
+   * Helper to determine if a model ID represents an explicitly free-tier model.
+   * Automatic routing is intentionally excluded because it may select a paid model.
    */
   private isFreeModel(modelId: string): boolean {
     const lowerId = modelId.toLowerCase();
     return (
       lowerId.includes(':free') ||
       lowerId.includes('-free') ||
-      lowerId.endsWith('/free') ||
-      lowerId === "openrouter/auto"
+      lowerId.endsWith('/free')
     );
   }
 
@@ -74,8 +74,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
     // 1. Free-only enforcement / Paid model blocking
     if (isFreeOnly && !this.isFreeModel(modelId)) {
-      Logger.warn(`[OpenRouterPlugin] Blocked execution of paid model '${modelId}' under free-only constraints.`);
-      // Return a standard sentinel string or throw an error based on ACOS specification
+      Logger.warn(`[OpenRouterPlugin] Blocked execution of paid or automatic model '${modelId}' under free-only constraints.`);
       if (options?.throwOnBlock) {
         throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
       }
@@ -90,20 +89,18 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
     const maxRetries = options?.maxRetries ?? 3;
     const initialDelayMs = options?.initialDelayMs ?? 1000;
-    const timeoutMs = options?.timeout ?? 30000; // Default 30s timeout
+    const timeoutMs = options?.timeout ?? 30000;
 
     let attempt = 0;
     while (attempt < maxRetries) {
       attempt++;
-      
-      // Setup AbortController for timeouts and optional manual AbortSignals
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         controller.abort();
       }, timeoutMs);
 
-      // Link option-passed signals for streaming interruption support
-      let onAbort: () => void;
+      let onAbort: (() => void) | undefined;
       if (options?.signal) {
         onAbort = () => {
           controller.abort();
@@ -131,7 +128,6 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
           signal: controller.signal
         });
 
-        // 2. HTTP Error Status Handling (429, 5xx, etc.)
         if (!response.ok) {
           const status = response.status;
           let errorBody = "";
@@ -162,7 +158,6 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
           throw new OpenRouterError(`OpenRouter request failed with status: ${status}`, status, requestId, errorBody);
         }
 
-        // 3. Runtime Response Validation
         const data = await response.json() as any;
         if (!data || typeof data !== 'object') {
           throw new OpenRouterError("Invalid JSON structure received from OpenRouter API.", response.status);
@@ -179,7 +174,6 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
           throw new OpenRouterError("OpenRouter API choices did not contain expected content text.", response.status, requestId, data);
         }
 
-        // 4. Usage Normalization & Logging
         const usage = data.usage || {};
         const promptTokens = usage.prompt_tokens ?? Math.ceil(prompt.length / 4);
         const completionTokens = usage.completion_tokens ?? Math.ceil(content.length / 4);
@@ -193,15 +187,12 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
           totalTokens
         });
 
-        // Resolve optionally if the consumer registers usage metrics tracking
         if (options?.onUsage && typeof options.onUsage === 'function') {
           options.onUsage({ promptTokens, completionTokens, totalTokens, requestId });
         }
 
         return content;
-
       } catch (error: any) {
-        // Safe Logging (Mask details in logging to prevent sensitive token exposure)
         const isAbort = error.name === 'AbortError';
         if (isAbort) {
           Logger.warn(`[OpenRouterPlugin] Request timed out or was interrupted. Model: ${modelId}`);
@@ -213,7 +204,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
         }
 
         Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}: ${error.message}`, error);
-        
+
         if (attempt < maxRetries) {
           await this.delay(initialDelayMs * Math.pow(2, attempt));
           continue;
