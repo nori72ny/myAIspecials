@@ -11,9 +11,18 @@ import {
 
 class MemoryStorage implements AuditStorage {
   private values = new Map<string, string>();
-  getItem(key: string) { return this.values.get(key) ?? null; }
-  setItem(key: string, value: string) { this.values.set(key, value); }
-  removeItem(key: string) { this.values.delete(key); }
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value);
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
 }
 
 const profiles: AICapabilityProfile[] = [{
@@ -28,7 +37,12 @@ const profiles: AICapabilityProfile[] = [{
 
 describe("DelegationAuditStore", () => {
   it("redacts secret-bearing goals", () => {
-    const request = { goal: "APIキー secret-value を確認", containsSecrets: true, requiresCodeChanges: true };
+    const request = {
+      goal: "APIキー secret-value を確認",
+      taskType: "implementation" as const,
+      containsSecrets: true,
+      requiresCodeChanges: true,
+    };
     const decision = routeTask(request, profiles);
     const record = createDelegationAuditRecord(request, decision, "2026-07-14T00:00:00.000Z");
 
