@@ -1,9 +1,9 @@
 name: Resolve Node Image Digest
 
 on:
-  push:
+  pull_request:
     branches:
-      - sprint-7-6/deployment-readiness
+      - main
     paths:
       - .github/workflows/resolve-node-image-digest.yml
 
