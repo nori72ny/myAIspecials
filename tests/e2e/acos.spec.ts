@@ -5,8 +5,6 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
   test('opens the personal dashboard and navigates to Unified Chat', async ({ page }) => {
     await page.goto('/');
 
-    // The current product entry point is Personal Edition, not the legacy
-    // enterprise dashboard previously referenced by the Page Objects.
     await expect(
       page.getByRole('heading', { name: 'What can I help you with today?' })
     ).toBeVisible({ timeout: 15_000 });
@@ -20,11 +18,7 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     );
     expect(blockingViolations).toEqual([]);
 
-    const unifiedChatNavigation = page.getByRole('button', {
-      name: /統合チャット|Unified Chat/i,
-    });
-    await expect(unifiedChatNavigation).toBeVisible();
-    await unifiedChatNavigation.click();
+    await page.getByTestId('nav-chat').click();
 
     await expect(
       page.getByText(/こんにちは！ACOS統合AIです|Hello! I am ACOS Unified AI/i)
@@ -33,5 +27,21 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     const chatInput = page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i);
     await expect(chatInput).toBeVisible();
     await expect(chatInput).toBeEditable();
+  });
+
+  test('starts a clean Unified Chat session from New Chat', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('nav-chat').click();
+
+    const chatInput = page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i);
+    await chatInput.fill('This draft must be cleared');
+    await expect(chatInput).toHaveValue('This draft must be cleared');
+
+    await page.getByTestId('new-chat-button').click();
+
+    await expect(chatInput).toHaveValue('');
+    await expect(
+      page.getByText(/こんにちは！ACOS統合AIです|Hello! I am ACOS Unified AI/i)
+    ).toBeVisible();
   });
 });
