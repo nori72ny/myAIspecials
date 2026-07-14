@@ -17,15 +17,26 @@ class MemoryStorage implements AuditStorage {
   removeItem(key: string) { this.values.delete(key); }
 }
 
-const profiles: AICapabilityProfile[] = [{
-  id: "ai-studio-primary",
-  displayName: "AI Studio Primary",
-  capabilities: ["implementation", "review"],
-  available: true,
-  freeOnly: true,
-  preferredFor: ["implementation"],
-  limitations: [],
-}];
+const profiles: AICapabilityProfile[] = [
+  {
+    id: "ai-studio-primary",
+    displayName: "AI Studio Primary",
+    capabilities: ["implementation", "review"],
+    available: true,
+    freeOnly: true,
+    preferredFor: ["implementation"],
+    limitations: [],
+  },
+  {
+    id: "external-review",
+    displayName: "External Review",
+    capabilities: ["review"],
+    available: true,
+    freeOnly: true,
+    preferredFor: ["review"],
+    limitations: [],
+  },
+];
 
 function createRecord(goal = "APIを実装", containsSecrets = false) {
   const request = {
