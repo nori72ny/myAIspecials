@@ -1,0 +1,22 @@
+# pack-refs with: peeled fully-peeled sorted 
+bb5e72c8c1eda98351d9e6901a1bbea8e1eb50cd refs/remotes/origin/dependabot/github_actions/main/actions/cache-6
+6c726ae24f49d5bd9bb3ef07d92a1cd0157bb7ff refs/remotes/origin/dependabot/github_actions/main/actions/checkout-7
+cc792273bdd06d6059b3b19126fd67a559743984 refs/remotes/origin/dependabot/github_actions/main/actions/upload-artifact-7
+9575401faf717ce6e327a9e9551b87754ace8d3a refs/remotes/origin/dependabot/github_actions/main/softprops/action-gh-release-3
+0b233d603c3621798b86ccc490d666ef1fae0880 refs/remotes/origin/dependabot/npm_and_yarn/main/motion-12.42.2
+86b1314bbf92986934a552bc1ff5569aa5469f1c refs/remotes/origin/dependabot/npm_and_yarn/main/recharts-3.9.2
+01a60de1f4171269e03812f9e3c7949f288f33f3 refs/remotes/origin/dependabot/npm_and_yarn/main/tailwindcss-4.3.2
+f8b6e53fd0a3ca409c4414d23bb188db41d858cd refs/remotes/origin/dependabot/npm_and_yarn/main/tailwindcss/vite-4.3.2
+1a981e08d38e6f042bc5ab5068a14da63feb0dfe refs/remotes/origin/dependabot/npm_and_yarn/main/tsx-4.23.0
+682b5897a7bc89a54fa4ee7b2ed4e158f234979c refs/remotes/origin/dependabot/npm_and_yarn/main/types/dompurify-3.2.0
+039182345b3a190ea6a9279d18d045006827ed95 refs/remotes/origin/dependabot/npm_and_yarn/main/types/node-26.1.0
+79d02723d293a311dfaba981ad4d66dc9da75f8a refs/remotes/origin/dependabot/npm_and_yarn/main/typescript-6.0.3
+b400a5cc3dba2c3dc36b2531ff97445840005ea8 refs/remotes/origin/dependabot/npm_and_yarn/main/vitejs/plugin-react-6.0.3
+0df6271653ebf7e1e378597058539a25e9405a22 refs/remotes/origin/dependabot/npm_and_yarn/main/vitest-4.1.10
+9cec651f1b5deacc2dd51c6930b1d34b72bbea07 refs/remotes/origin/main
+f9e5ccc53c7c05ad0730d138d3acb5d2d1bebe73 refs/remotes/origin/sprint-7-3/personal-daily-use-gate
+4119a5b7d637431c386e432507bfe05164abbbaa refs/remotes/origin/sprint-7-4/p2-hardening
+dcba0dc7f81942e233da7157bddf93c3b00aadb9 refs/remotes/origin/sprint-7-5/security-cleanup
+70f7d082f301795008251fd1c989e7b54cd13892 refs/remotes/origin/sprint-7-6/deployment-readiness
+ce54249d0437caaedc069d3349a42275f72e35a1 refs/remotes/origin/sprint-7-7/free-staging-readiness
+ea4cfef31b82a4400c4711ab7ffe019385ea6057 refs/remotes/origin/sprint-7-8/multi-ai-orchestration
