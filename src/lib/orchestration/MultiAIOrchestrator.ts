@@ -6,9 +6,11 @@ export type AITaskType =
   | "research"
   | "test"
   | "documentation"
-  | "operations";
+  | "operations"
+  | "architecture"
+  | "current-information";
 
-export type AIProviderId = "ai-studio" | "openrouter-free" | "external-review";
+export type AIProviderId = string;
 
 export interface AITaskRequest {
   goal: string;
@@ -24,8 +26,15 @@ export interface AICapabilityProfile {
   capabilities: readonly AITaskType[];
   available: boolean;
   freeOnly: boolean;
+  paidOnly?: boolean;
   preferredFor: readonly AITaskType[];
   limitations: readonly string[];
+}
+
+export interface VerificationPlan {
+  autoVerification: boolean;
+  verificationProvider?: AIProviderId;
+  steps: string[];
 }
 
 export interface AIRoutingDecision {
@@ -35,9 +44,12 @@ export interface AIRoutingDecision {
   reason: string;
   requiresHumanApproval: boolean;
   verificationProvider?: AIProviderId;
+  verificationPlan: VerificationPlan;
 }
 
 const TASK_KEYWORDS: ReadonlyArray<[AITaskType, readonly string[]]> = [
+  ["current-information", ["current-information", "最新情報", "リアルタイム", "ニュース"]],
+  ["architecture", ["architecture", "設計", "アーキテクチャ", "構成"]],
   ["security", ["security", "脆弱", "認証", "権限", "secret", "cors", "xss"]],
   ["test", ["test", "テスト", "検証", "vitest", "jest", "playwright", "ci"]],
   ["review", ["review", "レビュー", "監査", "diff", "pr"]],
@@ -48,23 +60,81 @@ const TASK_KEYWORDS: ReadonlyArray<[AITaskType, readonly string[]]> = [
   ["implementation", ["implement", "implementation", "実装", "修正", "コード", "開発"]],
 ];
 
+const DANGEROUS_OPERATION_KEYWORDS = [
+  "deploy",
+  "deployment",
+  "デプロイ",
+  "merge",
+  "マージ",
+  "dns",
+  "secret",
+  "api key",
+  "apiキー",
+  "認証情報",
+  "billing",
+  "payment",
+  "課金",
+  "支払い",
+  "有料化",
+  "production",
+  "本番",
+  "account",
+  "アカウント",
+] as const;
+
 export const DEFAULT_AI_CAPABILITIES: readonly AICapabilityProfile[] = [
   {
-    id: "ai-studio",
-    displayName: "AI Studio",
-    capabilities: ["implementation", "test", "documentation", "ux", "review"],
+    id: "ai-studio-primary",
+    displayName: "AI Studio Primary",
+    capabilities: ["implementation", "test", "documentation"],
     available: true,
     freeOnly: true,
     preferredFor: ["implementation", "test", "documentation"],
     limitations: ["GitHub push may require separate authentication", "No deployment authority"],
   },
   {
-    id: "openrouter-free",
-    displayName: "OpenRouter Free Specialist",
-    capabilities: ["research", "review", "security", "ux", "documentation"],
+    id: "security-review-assistant",
+    displayName: "Security Review Assistant",
+    capabilities: ["security", "review"],
     available: true,
     freeOnly: true,
-    preferredFor: ["research", "ux"],
+    preferredFor: ["security"],
+    limitations: ["Read-only review role", "Must not receive secrets"],
+  },
+  {
+    id: "architecture-review-assistant",
+    displayName: "Architecture Review Assistant",
+    capabilities: ["architecture", "review"],
+    available: true,
+    freeOnly: true,
+    preferredFor: ["architecture"],
+    limitations: ["Read-only review role"],
+  },
+  {
+    id: "research-assistant",
+    displayName: "Research Assistant",
+    capabilities: ["research", "current-information"],
+    available: true,
+    freeOnly: true,
+    preferredFor: ["research", "current-information"],
+    limitations: ["Current claims require source verification"],
+  },
+  {
+    id: "ux-writing-assistant",
+    displayName: "UX Writing Assistant",
+    capabilities: ["ux", "documentation"],
+    available: true,
+    freeOnly: true,
+    preferredFor: ["ux"],
+    limitations: ["No deployment authority"],
+  },
+  {
+    id: "openrouter-free",
+    displayName: "OpenRouter Free Specialist",
+    capabilities: ["implementation", "research", "review", "security", "ux", "documentation", "test"],
+    available: true,
+    freeOnly: true,
+    preferredFor: [],
     limitations: ["Only explicit :free models", "May be rate limited"],
   },
   {
@@ -73,10 +143,40 @@ export const DEFAULT_AI_CAPABILITIES: readonly AICapabilityProfile[] = [
     capabilities: ["review", "security", "test"],
     available: true,
     freeOnly: true,
-    preferredFor: ["review", "security"],
+    preferredFor: ["review"],
     limitations: ["Read-only review role", "Must not receive secrets"],
   },
 ] as const;
+
+export class CapabilityRegistry {
+  private readonly profiles = new Map<AIProviderId, AICapabilityProfile>();
+
+  constructor(initialProfiles: readonly AICapabilityProfile[] = DEFAULT_AI_CAPABILITIES) {
+    for (const profile of initialProfiles) this.registerProfile(profile);
+  }
+
+  registerProfile(profile: AICapabilityProfile): void {
+    this.profiles.set(profile.id, profile);
+  }
+
+  getProfile(id: AIProviderId): AICapabilityProfile | undefined {
+    return this.profiles.get(id);
+  }
+
+  getAllProfiles(): AICapabilityProfile[] {
+    return [...this.profiles.values()];
+  }
+
+  clear(): void {
+    this.profiles.clear();
+  }
+}
+
+export class TaskClassifier {
+  static classify(request: AITaskRequest): AITaskType {
+    return classifyTask(request);
+  }
+}
 
 export function classifyTask(request: AITaskRequest): AITaskType {
   if (request.taskType) return request.taskType;
@@ -86,64 +186,136 @@ export function classifyTask(request: AITaskRequest): AITaskType {
     if (keywords.some((keyword) => normalized.includes(keyword))) return taskType;
   }
 
+  if (request.requiresFreshResearch) return "current-information";
   return request.requiresCodeChanges ? "implementation" : "review";
+}
+
+export function containsDangerousOperations(goal: string): boolean {
+  const normalized = goal.toLowerCase();
+  return DANGEROUS_OPERATION_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function isAutomaticProvider(profile: AICapabilityProfile): boolean {
+  const identity = `${profile.id} ${profile.displayName}`.toLowerCase();
+  return identity.includes("openrouter/auto") || identity.includes("automatic") || /(^|[\s/_-])auto([\s/_-]|$)/.test(identity);
+}
+
+function isEligibleProfile(profile: AICapabilityProfile, taskType: AITaskType, freeOnly: boolean): boolean {
+  if (!profile.available || !profile.capabilities.includes(taskType)) return false;
+  if (!freeOnly) return true;
+  return profile.freeOnly && profile.paidOnly !== true && !isAutomaticProvider(profile);
+}
+
+function selectProvider(taskType: AITaskType, eligible: readonly AICapabilityProfile[]): AICapabilityProfile {
+  if (taskType === "implementation") {
+    const aiStudioPrimary = eligible.find((profile) => profile.id === "ai-studio-primary");
+    const aiStudio = eligible.find((profile) => profile.id === "ai-studio" || profile.id.startsWith("ai-studio-"));
+    return aiStudioPrimary ?? aiStudio ?? eligible.find((profile) => profile.preferredFor.includes(taskType)) ?? eligible[0];
+  }
+
+  return eligible.find((profile) => profile.preferredFor.includes(taskType)) ?? eligible[0];
+}
+
+function createVerificationPlan(
+  taskType: AITaskType,
+  selected: AICapabilityProfile,
+  profiles: readonly AICapabilityProfile[],
+  freeOnly: boolean,
+): VerificationPlan {
+  const verifier = profiles.find(
+    (profile) =>
+      profile.id !== selected.id &&
+      profile.capabilities.includes("review") &&
+      isEligibleProfile(profile, "review", freeOnly),
+  );
+
+  const steps =
+    taskType === "implementation"
+      ? ["Run type checks and linting.", "Run the focused and full test suites.", "Review the final Git diff."]
+      : taskType === "security"
+        ? ["Audit permission boundaries, secret handling, and paid-provider exclusion.", "Add regression tests for each finding."]
+        : ["Review the result against the task requirements.", "Record unresolved risks and evidence."];
+
+  return {
+    autoVerification: Boolean(verifier),
+    verificationProvider: verifier?.id,
+    steps,
+  };
+}
+
+export class DeterministicRouter {
+  static route(
+    request: AITaskRequest,
+    profiles: readonly AICapabilityProfile[] | CapabilityRegistry = DEFAULT_AI_CAPABILITIES,
+    freeOnly = true,
+  ): AIRoutingDecision {
+    return routeTask(request, profiles, freeOnly);
+  }
 }
 
 export function routeTask(
   request: AITaskRequest,
-  profiles: readonly AICapabilityProfile[] = DEFAULT_AI_CAPABILITIES,
+  profilesInput: readonly AICapabilityProfile[] | CapabilityRegistry = DEFAULT_AI_CAPABILITIES,
   freeOnly = true,
 ): AIRoutingDecision {
+  const profiles = profilesInput instanceof CapabilityRegistry ? profilesInput.getAllProfiles() : profilesInput;
   const taskType = classifyTask(request);
-  const eligible = profiles.filter(
-    (profile) =>
-      profile.available &&
-      profile.capabilities.includes(taskType) &&
-      (!freeOnly || profile.freeOnly),
-  );
+  const eligible = profiles.filter((profile) => isEligibleProfile(profile, taskType, freeOnly));
 
   if (eligible.length === 0) {
     throw new Error(`No eligible free AI provider for task type: ${taskType}`);
   }
 
-  const preferred = eligible.find((profile) => profile.preferredFor.includes(taskType));
-  const aiStudio = eligible.find((profile) => profile.id === "ai-studio");
-  const selected = preferred ?? aiStudio ?? eligible[0];
-
-  const verificationProvider = eligible.find(
-    (profile) => profile.id !== selected.id && profile.capabilities.includes("review"),
-  )?.id;
-
-  const requiresHumanApproval =
-    taskType === "operations" || request.containsSecrets === true;
+  const selected = selectProvider(taskType, eligible);
+  const verificationPlan = createVerificationPlan(taskType, selected, profiles, freeOnly);
+  const preferred = selected.preferredFor.includes(taskType);
 
   return {
     taskType,
     selectedProvider: selected.id,
     selectedProviderName: selected.displayName,
-    reason: selected.preferredFor.includes(taskType)
-      ? `${selected.displayName} is preferred for ${taskType} tasks and is available in free-only mode.`
-      : `${selected.displayName} is the best available free provider for ${taskType}.`,
-    requiresHumanApproval,
-    verificationProvider,
+    reason:
+      taskType === "implementation" && selected.id.startsWith("ai-studio")
+        ? `${selected.displayName} was selected as the primary implementation provider in free-only mode.`
+        : preferred
+          ? `${selected.displayName} was selected because it is the preferred specialist for ${taskType} tasks.`
+          : `${selected.displayName} was selected as the best available free provider for ${taskType} tasks.`,
+    requiresHumanApproval:
+      taskType === "operations" || request.containsSecrets === true || containsDangerousOperations(request.goal),
+    verificationProvider: verificationPlan.verificationProvider,
+    verificationPlan,
   };
 }
 
-export function createDelegationInstruction(
-  request: AITaskRequest,
-  decision: AIRoutingDecision,
-): string {
+export class DelegationInstructionBuilder {
+  static build(request: AITaskRequest, decision: AIRoutingDecision): string {
+    return createDelegationInstruction(request, decision);
+  }
+}
+
+export function createDelegationInstruction(request: AITaskRequest, decision: AIRoutingDecision): string {
+  const safeGoal = request.containsSecrets
+    ? "機密情報を除去した要約を人間が入力してください"
+    : request.goal.trim();
   const approvalRule = decision.requiresHumanApproval
-    ? "Stop before deployment, secrets handling, paid-plan activation, DNS changes, or merging and request owner approval."
-    : "Do not deploy, merge, change DNS, enter secrets, or activate paid plans.";
+    ? "Stop before any privileged operation and request explicit owner approval."
+    : "Continue only within the listed non-privileged task scope.";
 
   return [
     `Role: ${decision.selectedProviderName}`,
     `Task type: ${decision.taskType}`,
-    `Goal: ${request.goal.trim()}`,
-    "Cost policy: Use free-only capabilities. Never select paid or automatic models.",
+    `Goal: ${safeGoal}`,
+    `Selection reason: ${decision.reason}`,
+    "Cost policy: Use free-only capabilities. Never select paid or automatic models, including openrouter/auto.",
     "Context policy: Use only the minimum context required and never expose credentials.",
     approvalRule,
+    "SAFETY MANDATES & PROHIBITIONS:",
+    "- Do not merge code.",
+    "- Do not deploy code or services.",
+    "- Do not change DNS.",
+    "- Do not enter, expose, or request secrets, credentials, or API keys.",
+    "- Do not activate or configure paid plans.",
+    "- Do not use paid or automatic models.",
     "Report changed files, tests, remaining risks, and the final commit SHA when applicable.",
   ].join("\n");
 }
