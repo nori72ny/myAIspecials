@@ -44,4 +44,25 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
       page.getByText(/こんにちは！ACOS統合AIです|Hello! I am ACOS Unified AI/i)
     ).toBeVisible();
   });
+
+  test('keeps the primary navigation usable on a mobile viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+
+    const newChatButton = page.getByTestId('new-chat-button');
+    await expect(newChatButton).toBeVisible();
+
+    const closeSidebarButton = page.locator('button:has(svg.lucide-x)').first();
+    await closeSidebarButton.click();
+    await expect(newChatButton).toBeHidden();
+
+    const openSidebarButton = page.locator('button:has(svg.lucide-menu)').first();
+    await openSidebarButton.click();
+    await expect(newChatButton).toBeVisible();
+
+    await page.getByTestId('nav-chat').click();
+    await expect(
+      page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i)
+    ).toBeVisible();
+  });
 });
