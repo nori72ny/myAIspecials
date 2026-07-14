@@ -123,7 +123,7 @@ describe("DelegationAuditStore", () => {
     storage.setItem("acos.multi-ai.delegation-audit.v1", "not-json");
     expect(readDelegationAudit(storage)).toEqual([]);
 
-    const legacy = createRecord() as Record<string, unknown>;
+    const legacy = JSON.parse(JSON.stringify(createRecord())) as Record<string, unknown>;
     delete legacy.resultStatus;
     delete legacy.verificationStatus;
     storage.setItem("acos.multi-ai.delegation-audit.v1", JSON.stringify([legacy]));
