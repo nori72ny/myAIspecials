@@ -12,9 +12,20 @@ import { createAnalyzeRouter } from "./src/legacy/analyzeRoute";
 // New architecture imports (Mission Engine)
 import { initMissionEngine } from "./services/mission-engine/src/index";
 
+function resolvePort(): number {
+  const rawPort = process.env.TEST_PORT || process.env.PORT || "3000";
+  const port = Number.parseInt(rawPort, 10);
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid server port: ${rawPort}`);
+  }
+
+  return port;
+}
+
 async function startServer() {
   const app = express();
-  const PORT = process.env.TEST_PORT ? parseInt(process.env.TEST_PORT, 10) : 3000;
+  const PORT = resolvePort();
 
   // Set Content Security Policy (CSP) for security hardening
   app.use((req, res, next) => {
@@ -31,6 +42,10 @@ async function startServer() {
   });
 
   app.use(express.json());
+
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ status: "ok", service: "acos-2" });
+  });
 
   // 0. Mount Mission Quality Validator endpoint
   app.post("/api/v1/validate-mission", async (req, res) => {
