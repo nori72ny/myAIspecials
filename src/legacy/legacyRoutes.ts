@@ -545,7 +545,21 @@ router.post("/api/analyze", async (req, res) => {
     }
 
     const missionId = `MS-OEE-${Date.now()}`;
-    const orgState = await organizationExecutorInstance.executeMission(missionId, prompt);
+    const orgState = await organizationExecutorInstance.executeMission(
+          missionId,
+          prompt,
+          undefined,
+          {
+            onApprovalRequired: async (request, executor) => {
+              executor.resolveHumanApproval(
+                request.orgId,
+                request.id,
+                true,
+                "System-approved non-interactive API analysis"
+              );
+            }
+          }
+        );
     
     // Pull OEvE memory
     const oEvE = OrganizationEvolutionEngine.getInstance();
