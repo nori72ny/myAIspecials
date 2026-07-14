@@ -10,3 +10,4 @@ APP_URL = "https://acos-staging.pages.dev"
 
 # OPENROUTER_API_KEY must be added with `wrangler secret put`.
 # Do not add paid-provider keys or enable a paid Workers plan.
+# Deployment is manual and requires explicit owner approval.
