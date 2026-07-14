@@ -21,9 +21,8 @@ export class ExecuteMissionUseCase {
       metrics.recordMissionStart(mission.id, mission.objective, taskIds.length);
     }
 
-    // This use case is a non-interactive server path. Resolve the demonstration
-    // approval hook immediately so the mission cannot return in a suspended state
-    // with no resume endpoint available to the caller.
+    // Non-interactive server execution has no external approval/resume endpoint,
+    // so resolve the demonstration approval before continuing the pipeline.
     const orgState = await organizationExecutorInstance.executeMission(
       missionIdStr,
       objective,
