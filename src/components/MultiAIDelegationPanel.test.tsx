@@ -12,8 +12,8 @@ describe("MultiAIDelegationPanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "担当AIと検証方法を判定" }));
 
-    expect(screen.getByText("AI Studio Primary")).toBeInTheDocument();
-    expect(screen.getByText("implementation")).toBeInTheDocument();
+    expect(screen.getByText("AI Studio Primary")).toBeTruthy();
+    expect(screen.getByText("implementation")).toBeTruthy();
   });
 
   it("shows a human approval warning for production deployment", () => {
@@ -25,12 +25,15 @@ describe("MultiAIDelegationPanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "担当AIと検証方法を判定" }));
 
-    expect(screen.getByText("人の明示承認が必要です")).toBeInTheDocument();
+    expect(screen.getByText("人の明示承認が必要です")).toBeTruthy();
   });
 
   it("copies a secret-safe delegation instruction", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
     render(<MultiAIDelegationPanel />);
 
     fireEvent.click(screen.getByTestId("multi-ai-planner-open"));
@@ -41,7 +44,7 @@ describe("MultiAIDelegationPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "指示をコピー" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    const copied = writeText.mock.calls[0][0] as string;
+    const copied = String(writeText.mock.calls[0]?.[0] ?? "");
     expect(copied).toContain("機密情報を除去した要約を人間が入力してください");
     expect(copied).not.toContain("secret-value");
   });
