@@ -53,6 +53,21 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     return () => window.removeEventListener("aiCoreStateChange", handleAiCoreState);
   }, []);
 
+  useEffect(() => {
+    if (!isSidebarOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && window.matchMedia("(max-width: 767px)").matches) {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSidebarOpen]);
+
   const closeSidebarOnMobile = () => {
     if (window.matchMedia("(max-width: 767px)").matches) {
       setIsSidebarOpen(false);
