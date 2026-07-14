@@ -19,14 +19,14 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
     name: "OpenRouter Provider Plugin",
     version: "1.0.0",
     author: "ACOS Core Team",
-    description: "Provides access to multiple models via OpenRouter API",
+    description: "Provides access to explicitly free models via OpenRouter API",
     provider: "OpenRouter",
     models: [
       {
-        id: "openrouter/auto",
-        name: "OpenRouter Auto",
+        id: "google/gemini-2.5-flash:free",
+        name: "Gemini 2.5 Flash (OpenRouter Free)",
         speed: 8,
-        cost: 5,
+        cost: 0,
         quality: 8,
         failureRate: 0.05,
         specialties: ["Reasoning", "Text Generation", "Code"]
@@ -70,7 +70,8 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
    * Generates text via the OpenRouter Chat Completions API with detailed safety and reliability wrappers.
    */
   public async generateText(modelId: string, prompt: string, options?: any): Promise<string> {
-    const isFreeOnly = process.env.FREE_ONLY === "true" || options?.freeOnly === true;
+    // This project is free-only by default. Paid routing requires an explicit local opt-out.
+    const isFreeOnly = process.env.FREE_ONLY !== "false" || options?.freeOnly === true;
 
     // 1. Free-only enforcement / Paid model blocking
     if (isFreeOnly && !this.isFreeModel(modelId)) {
