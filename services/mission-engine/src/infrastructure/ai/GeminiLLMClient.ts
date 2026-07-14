@@ -23,18 +23,27 @@ export class GeminiLLMClient implements ILLMClient {
     }
   }
 
-  async generateText(prompt: string, systemPrompt?: string, model: string = "gemini-3.5-flash"): Promise<string> {
+  async generateText(prompt: string, systemPrompt?: string, model: string = "gemini-2.5-flash"): Promise<string> {
     const startTime = Date.now();
+
+    // The organization router may return an OpenRouter provider slug. Gemini's
+    // native API only accepts Gemini model IDs, so normalize cross-provider
+    // selections when this client is the active fallback.
+    const isOpenRouterSlug = model.includes("/") || model.startsWith("openrouter/");
+    let targetModel = isOpenRouterSlug ? "gemini-2.5-flash" : model;
+
+    if (isOpenRouterSlug) {
+      Logger.warn(`[GeminiLLMClient] Normalizing routed model '${model}' to native Gemini model '${targetModel}'.`);
+    }
 
     // Free-only enforcement / Paid model blocking
     const isFreeOnly = process.env.FREE_ONLY === "true";
-    let targetModel = model;
     if (isFreeOnly) {
-      const lowerModel = model.toLowerCase();
+      const lowerModel = targetModel.toLowerCase();
       // Block or demote paid/pro models under free-only constraints
       if (lowerModel.includes("pro") || lowerModel.includes("ultra") || lowerModel.includes("1.5-pro")) {
-        Logger.warn(`[GeminiLLMClient] Demoting paid model '${model}' to 'gemini-3.5-flash' under FREE_ONLY constraints.`);
-        targetModel = "gemini-3.5-flash";
+        Logger.warn(`[GeminiLLMClient] Demoting paid model '${targetModel}' to 'gemini-2.5-flash' under FREE_ONLY constraints.`);
+        targetModel = "gemini-2.5-flash";
       }
     }
 
@@ -92,4 +101,3 @@ export class GeminiLLMClient implements ILLMClient {
     return "【決定論的テスト】タスクが正常に完了しました。要件を満たした成果物が生成されました。";
   }
 }
-
