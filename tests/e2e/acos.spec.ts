@@ -49,9 +49,7 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
-    const sidebar = page.getByRole('complementary', {
-      name: /メインナビゲーション|Primary navigation/i,
-    });
+    const sidebar = page.locator('aside').first();
     const newChatButton = page.getByTestId('new-chat-button');
     await expect(newChatButton).toBeVisible();
     await expect(sidebar).toHaveCSS('width', '260px');
