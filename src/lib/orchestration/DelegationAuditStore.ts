@@ -135,11 +135,12 @@ export function updateDelegationAuditRecord(
   const current = readDelegationAudit(storage);
   if (!Number.isInteger(update.elapsedSeconds) || update.elapsedSeconds < 0) return current;
   const index = current.findIndex((record) => record.id === id);
-  if (index < 0) return current;
+  const existing = current[index];
+  if (index < 0 || !existing) return current;
 
   const next = [...current];
   next[index] = {
-    ...next[index],
+    ...existing,
     resultStatus: update.resultStatus,
     verificationStatus: update.verificationStatus,
     elapsedSeconds: update.elapsedSeconds,
