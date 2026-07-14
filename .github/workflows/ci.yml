@@ -162,7 +162,7 @@ jobs:
             exit 1
           fi
 
-          jq -c '{dependency_change_count: (.changes | length)}' "$response_file"
+          jq -c '{dependency_change_count: length}' "$response_file"
 
       - name: Checkout Repo
         uses: actions/checkout@v4
