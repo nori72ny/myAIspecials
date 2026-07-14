@@ -49,18 +49,24 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
-    const sidebar = page.locator('aside').first();
+    const sidebar = page.getByRole('complementary', {
+      name: /メインナビゲーション|Primary navigation/i,
+    });
     const newChatButton = page.getByTestId('new-chat-button');
     await expect(newChatButton).toBeVisible();
     await expect(sidebar).toHaveCSS('width', '260px');
 
-    const closeSidebarButton = page.locator('button:has(svg.lucide-x)').first();
+    const closeSidebarButton = page.getByRole('button', {
+      name: /サイドバーを閉じる|Close sidebar/i,
+    });
     await closeSidebarButton.click();
     await expect
       .poll(async () => (await sidebar.boundingBox())?.width ?? 0)
       .toBeLessThanOrEqual(1);
 
-    const openSidebarButton = page.locator('button:has(svg.lucide-menu)').first();
+    const openSidebarButton = page.getByRole('button', {
+      name: /サイドバーを開く|Open sidebar/i,
+    });
     await expect(openSidebarButton).toBeVisible();
     await openSidebarButton.click();
     await expect(sidebar).toHaveCSS('width', '260px');
