@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:api": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
     "test:e2e": "npm run test:api && npx playwright test",
-    "eval:prepare": "tsx scripts/evaluate-codebase.ts"
+    "eval:prepare": "tsx scripts/evaluate-codebase.ts",
+    "deliver": "node scripts/auto-deliver.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -42,6 +43,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.20.0",
+    "@types/supertest": "^7.2.0",
     "autoprefixer": "^10.4.21",
     "c8": "^11.0.0",
     "esbuild": "^0.25.0",
@@ -50,6 +52,7 @@
     "jest-junit": "^17.0.0",
     "jsdom": "^29.1.1",
     "playwright": "^1.61.1",
+    "supertest": "^7.2.2",
     "tailwindcss": "^4.1.14",
     "ts-jest": "^29.4.11",
     "tsx": "^4.21.0",

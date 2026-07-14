@@ -1,0 +1,27 @@
+On branch sprint-7-3/personal-daily-use-gate
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	new file:   evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/api-results.xml
+	new file:   evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/changed-files.txt
+	new file:   evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/diff-stat.txt
+	new file:   evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/git-status.txt
+	new file:   evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/manifest.json
+	new file:   evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/release-verdict.json
+	new file:   evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/unit-results.xml
+	modified:   evidence/routing_log.json
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   evidence/routing_log.json
+	modified:   package.json
+	modified:   playwright-report/index.html
+	modified:   results/jest-report.html
+	modified:   results/jest-results.xml
+	modified:   results/playwright-results.xml
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.github/workflows/acos-quality-gate.yml
+	scripts/auto-deliver.mjs
+

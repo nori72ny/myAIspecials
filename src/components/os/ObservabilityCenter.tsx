@@ -141,26 +141,40 @@ export default function ObservabilityCenter() {
   }, []);
 
   useEffect(() => {
+    let tick = 0;
     const interval = setInterval(() => {
+      tick += 1;
       // Base stats simulation
-      setLatency(prev => Math.max(180, Math.min(450, prev + Math.floor(Math.random() * 31) - 15)));
-      setHeapMemory(prev => Math.max(40, Math.min(65, prev + (Math.random() * 0.4) - 0.2)));
-      setFps(prev => Math.max(57, Math.min(60, prev + Math.floor(Math.random() * 3) - 1)));
+      setLatency(prev => {
+        const sinVal = Math.sin(tick * 0.5);
+        return Math.max(180, Math.min(450, 280 + Math.floor(sinVal * 40)));
+      });
+      setHeapMemory(prev => {
+        const cosVal = Math.cos(tick * 0.3);
+        return Math.max(40, Math.min(65, 52 + parseFloat((cosVal * 2.5).toFixed(1))));
+      });
+      setFps(prev => {
+        const sinVal2 = Math.sin(tick * 0.8);
+        return Math.max(57, Math.min(60, 59 + (sinVal2 > 0.5 ? 1 : (sinVal2 < -0.5 ? -1 : 0))));
+      });
 
       // Sprint 11.5 Performance Observatory Live Updates
       setCpuUsage(prev => {
         const base = stressTesting ? 75 : 15;
-        const change = (Math.random() * 4) - 2;
+        const sinVal3 = Math.sin(tick * 0.4);
+        const change = sinVal3 * 2;
         return Math.max(2, Math.min(99, base + change));
       });
       setRamUsage(prev => {
         const base = stressTesting ? 840 : 512;
-        const change = (Math.random() * 16) - 8;
+        const cosVal2 = Math.cos(tick * 0.6);
+        const change = cosVal2 * 10;
         return Math.max(256, Math.min(1024, base + change));
       });
       setBandwidth(prev => {
         const base = stressTesting ? 8.5 : 2.4;
-        const change = (Math.random() * 0.6) - 0.3;
+        const sinVal4 = Math.sin(tick * 0.2);
+        const change = sinVal4 * 0.4;
         return Math.max(0.1, Math.min(15, base + change));
       });
     }, 2000);
@@ -177,7 +191,7 @@ export default function ObservabilityCenter() {
       // Update individual status to running
       setTestSuites(prev => prev.map((s, idx) => idx === i ? { ...s, status: "running" } : s));
       
-      const duration = Math.floor(Math.random() * 400) + 200;
+      const duration = 200 + ((i * 73) % 400);
       await delay(duration);
 
       setTestSuites(prev => prev.map((s, idx) => {

@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="jest tests" tests="1" failures="0" errors="0" time="108.023">
-  <testsuite name="ACOS 2.0 API Full Lifecycle (Integration)" errors="0" failures="0" skipped="0" timestamp="2026-07-13T02:16:05" time="107.659" tests="1">
-    <testcase classname="ACOS 2.0 API Full Lifecycle (Integration) should complete a full mission successfully" name="ACOS 2.0 API Full Lifecycle (Integration) should complete a full mission successfully" time="107.297">
-    </testcase>
-  </testsuite>
-</testsuites>

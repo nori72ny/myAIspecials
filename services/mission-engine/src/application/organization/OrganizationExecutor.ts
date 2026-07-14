@@ -1,5 +1,9 @@
 import { AgentRegistryService } from "../agent/governance/AgentRegistryService";
 import { GeminiLLMClient } from "../../infrastructure/ai/GeminiLLMClient";
+import { CapabilityRegistry } from "../../../../../src/lib/capability-registry/application/CapabilityRegistry";
+import { OpenRouterAdapter } from "../../../../../src/lib/capability-registry/interfaces/OpenRouterAdapter";
+import { Capability } from "../../../../../src/lib/capability-registry/domain/entities/Capability";
+import { OpenRouterPlugin } from "../../../../../src/lib/plugins/ai/OpenRouterPlugin";
 import { AgentLifecycleState, AgentCapability } from "../agent/governance/AgentGovernanceTypes";
 import { 
   OrganizationState, 
@@ -514,7 +518,7 @@ export class OrganizationExecutor {
       requestingAgentId,
       role,
       description,
-      status: "Pending",
+      status: "AWAITING_HUMAN_APPROVAL",
       createdAt: new Date()
     };
     if (!state.humanApprovals) {
@@ -537,7 +541,10 @@ export class OrganizationExecutor {
     }
     const req = state.humanApprovals.find(r => r.id === requestId);
     if (req) {
-      req.status = approved ? "Approved" : "Rejected";
+      if (req.status !== "AWAITING_HUMAN_APPROVAL" && req.status !== "Pending") {
+        throw new Error(`Approval request ${requestId} has already been resolved with status: ${req.status}`);
+      }
+      req.status = approved ? "APPROVED" : "REJECTED";
       req.resolvedAt = new Date();
       req.resolvedBy = "CEO-ADMIN";
       req.notes = notes;
@@ -550,11 +557,37 @@ export class OrganizationExecutor {
     return this.missionHistory;
   }
 
-  public async executeMission(missionId: string, objective: string, customClient?: any): Promise<OrganizationState> {
+  public async executeMission(
+    missionId: string, 
+    objective: string, 
+    customClient?: any,
+    options?: { onApprovalRequired?: (req: HumanApprovalRequest, executor: OrganizationExecutor) => Promise<void> }
+  ): Promise<OrganizationState> {
     // 1. Create Organization State
     const state = this.createOrganization(missionId, "IDL 2035 Autonomic Corp");
     state.teamFormation = this.determineTeams(objective);
     
+    // 1b. Initialize Capability Registry & Register OpenRouter Providers
+    const registry = new CapabilityRegistry();
+    // Register basic core capabilities
+    registry.registerCapability(new Capability("Planning", "Strategic foresight and planning", "reasoning"));
+    registry.registerCapability(new Capability("Coding", "Software engineering and implementation", "utility"));
+    registry.registerCapability(new Capability("Writing", "Content copy and documentation", "utility"));
+    registry.registerCapability(new Capability("Research", "Systematic information gathering", "reasoning"));
+    registry.registerCapability(new Capability("Analysis", "Critical thinking and evaluation", "reasoning"));
+
+    const adapter = new OpenRouterAdapter();
+    const providers = await adapter.getSelfDeclaredProviders();
+    providers.forEach(p => registry.registerProvider(p));
+
+    // Determine if FREE_ONLY is enforced globally or requested by hints
+    const isFreeOnly = process.env.FREE_ONLY === "true";
+
+    // Initialize OpenRouter Plugin for server-side real LLM connection if API key is present
+    const openrouterApiKey = process.env.OPENROUTER_API_KEY || "";
+    const openrouterPlugin = new OpenRouterPlugin(openrouterApiKey);
+    await openrouterPlugin.initialize();
+
     // 2. Setup AI capabilities and tool assignments
     if (state.aiWorkers) {
       state.aiWorkers = state.aiWorkers.map(ai => {
@@ -568,19 +601,75 @@ export class OrganizationExecutor {
     }
 
     const client = customClient || new GeminiLLMClient();
-    
+    const hasApiKey = !!(process.env.GEMINI_API_KEY || openrouterApiKey);
+
+    // Helper to run routed LLM call
+    const runRoutedLLMCall = async (
+      capabilities: string[],
+      prompt: string,
+      systemPrompt: string,
+      stageLabel: string
+    ): Promise<{ content: string; evidence: string; routing: any }> => {
+      // Execute Dynamic Routing search
+      const decision = registry.searchAndRank({
+        capabilities,
+        routingHints: isFreeOnly ? ["free-only"] : []
+      });
+
+      const selectedModelId = decision.primaryProvider.id;
+      const explanation = `[Routed Decision: ${stageLabel}] Selected '${decision.primaryProvider.name}' (id: ${selectedModelId}). Score: ${decision.score.toFixed(2)}. ${decision.reason}`;
+      
+      if (!state.selfOptimizationLog) state.selfOptimizationLog = [];
+      state.selfOptimizationLog.push(explanation);
+
+      let content = "";
+      // If mock/deterministic test double is passed, we let it generate (fully compatible with Phase 1)
+      if (customClient) {
+        content = await customClient.generateText(prompt, systemPrompt, selectedModelId);
+      } else if (openrouterApiKey && !openrouterApiKey.startsWith("mock-")) {
+        // Real OpenRouter Connection!
+        content = await openrouterPlugin.generateText(selectedModelId, `${systemPrompt}\n\n${prompt}`, {
+          freeOnly: isFreeOnly,
+          throwOnBlock: true
+        });
+      } else {
+        // Fallback to default Gemini client or mock
+        content = await client.generateText(prompt, systemPrompt, selectedModelId);
+      }
+
+      const evidence = `【ACOS 2.0 Routing Evidence】\n- Selected Model: ${selectedModelId}\n- SLA System Score: ${decision.score.toFixed(2)}\n- Reason: ${decision.reason}`;
+
+      return { 
+        content, // PURE raw content from the model, no evidence concatenated!
+        evidence,
+        routing: {
+          selectedModelId,
+          score: decision.score,
+          reason: decision.reason
+        }
+      };
+    };
+
     // Stage A: Board Directive Stage
     state.currentState = OrgExecutionState.BOARD_DISTRIBUTED;
     let boardContent = `Board members have established high-level strategic guidance for objective: "${objective}". We demand the C-suite break this down into operational pipelines immediately.`;
-    if (process.env.GEMINI_API_KEY) {
+    let boardMetadata: any = undefined;
+
+    if (hasApiKey || customClient) {
       try {
-        const res = await client.generateText(
+        const result = await runRoutedLLMCall(
+          ["Planning", "Analysis"],
           `Create a high-level corporate board directive (in Japanese, formal, 100-200 words) outlining the vision and key compliance requirements for this objective: "${objective}". Format as raw text.`,
-          "You are the Chairman of the Board of IDL 2035."
+          "You are the Chairman of the Board of IDL 2035.",
+          "Board Strategic Directive"
         );
-        if (res) boardContent = res;
+        boardContent = result.content;
+        boardMetadata = {
+          evidence: result.evidence,
+          routing: result.routing
+        };
       } catch (err) {
-        console.warn("Failed to generate board directive with Gemini, using fallback:", err);
+        console.warn("Failed to generate board directive:", err);
       }
     }
     const boardTask: Task = {
@@ -603,20 +692,31 @@ export class OrganizationExecutor {
       content: boardContent,
       authorAgentId: "BOARD-AGENT-1",
       version: 1,
-      createdAt: new Date()
+      createdAt: new Date(),
+      metadata: boardMetadata
     });
 
     // Stage B: C-Suite Strategy Plan
     state.currentState = OrgExecutionState.CHIEF_DISTRIBUTED;
     let chiefContent = `CTO & CMO Strategic Alignment Plan:\n- Target Architecture: Decoupled services with robust monitoring\n- Deployment Target: Secure edge runtime\n- Deliverables: Verified functional output and marketing/content packs.`;
-    if (process.env.GEMINI_API_KEY) {
+    let chiefMetadata: any = undefined;
+
+    if (hasApiKey || customClient) {
       try {
-        const res = await client.generateText(
+        const result = await runRoutedLLMCall(
+          ["Planning", "Research"],
           `Develop a Chief Strategist plan (in Japanese, formal, 100-200 words) breaking down the board directive: "${boardContent}" for the objective "${objective}".`,
-          "You are the CTO/CMO of IDL 2035."
+          "You are the CTO/CMO of IDL 2035.",
+          "C-Suite Strategic Plan"
         );
-        if (res) chiefContent = res;
-      } catch (err) {}
+        chiefContent = result.content;
+        chiefMetadata = {
+          evidence: result.evidence,
+          routing: result.routing
+        };
+      } catch (err) {
+        console.warn("Failed to generate strategic plan:", err);
+      }
     }
     const chiefTask: Task = {
       id: `tsk-chief-${Math.random().toString(36).substring(2, 5)}`,
@@ -638,7 +738,8 @@ export class OrganizationExecutor {
       content: chiefContent,
       authorAgentId: "CTO-AGENT",
       version: 1,
-      createdAt: new Date()
+      createdAt: new Date(),
+      metadata: chiefMetadata
     });
 
     // Stage C: Director Breakout & Delegation
@@ -700,26 +801,58 @@ export class OrganizationExecutor {
       OrgRole.MANAGER, 
       `Request approval to release execution credits for model allocation: ${finalImplTask.title}`
     );
-    // Auto-approve with CEO Override / admin approval
-    this.resolveHumanApproval(state.orgId, approvalReq.id, true, "CEO overridden. Proceed with model execution.");
+
+    // Call hook if provided (explicitly injected test-only auto-approval)
+    if (options?.onApprovalRequired) {
+      await options.onApprovalRequired(approvalReq, this);
+    }
+
+    if (approvalReq.status === "AWAITING_HUMAN_APPROVAL" || approvalReq.status === "Pending") {
+      state.currentState = OrgExecutionState.AWAITING_HUMAN_APPROVAL;
+      return state;
+    } else if (approvalReq.status === "APPROVED" || approvalReq.status === "Approved") {
+      state.currentState = OrgExecutionState.APPROVED;
+    } else if (approvalReq.status === "REJECTED" || approvalReq.status === "Rejected") {
+      state.currentState = OrgExecutionState.REJECTED;
+      return state;
+    } else if (approvalReq.status === "APPROVAL_TIMED_OUT") {
+      state.currentState = OrgExecutionState.APPROVAL_TIMED_OUT;
+      return state;
+    }
 
     let implDeliverable = `// Implementation Deliverable for ${objective}\nconsole.log('Task executed successfully');\n// References: https://github.com/acos-project/spec1\n// Verification status: verified.`;
     let docDeliverable = `# Documentation for ${objective}\n- Objective fully met based on standard verification protocols [1].\n- Evidence: Tested and verified against specification rules.`;
+    let implMetadata: any = undefined;
+    let docMetadata: any = undefined;
 
-    if (process.env.GEMINI_API_KEY) {
+    if (hasApiKey || customClient) {
       try {
-        const resImpl = await client.generateText(
+        const resultImpl = await runRoutedLLMCall(
+          [finalImplTask.requiredCapability, "Analysis"],
           `Write a highly professional and complete output/code/report (in Japanese, 200-400 words) for the task: "${finalImplTask.title}" as part of objective: "${objective}". Format nicely.`,
-          "You are Senior Corporate Worker WORKER-ENG-1 of IDL 2035."
+          "You are Senior Corporate Worker WORKER-ENG-1 of IDL 2035.",
+          "Technical Coding/Analysis Execution"
         );
-        if (resImpl) implDeliverable = resImpl;
+        implDeliverable = resultImpl.content;
+        implMetadata = {
+          evidence: resultImpl.evidence,
+          routing: resultImpl.routing
+        };
 
-        const resDoc = await client.generateText(
+        const resultDoc = await runRoutedLLMCall(
+          ["Writing", "Research"],
           `Write professional documentation / strategy brief (in Japanese, 200-400 words) for the task: "${docTask.title}" as part of objective: "${objective}". Format in Markdown.`,
-          "You are Senior Copywriter WORKER-CON-1 of IDL 2035."
+          "You are Senior Copywriter WORKER-CON-1 of IDL 2035.",
+          "Documentation Development"
         );
-        if (resDoc) docDeliverable = resDoc;
-      } catch (err) {}
+        docDeliverable = resultDoc.content;
+        docMetadata = {
+          evidence: resultDoc.evidence,
+          routing: resultDoc.routing
+        };
+      } catch (err) {
+        console.warn("Failed worker executions:", err);
+      }
     }
 
     const delImplObj: Deliverable = {
@@ -728,7 +861,8 @@ export class OrganizationExecutor {
       content: implDeliverable,
       authorAgentId: finalImplTask.assignedAgentId || "WORKER-ENG-1",
       version: 1,
-      createdAt: new Date()
+      createdAt: new Date(),
+      metadata: implMetadata
     };
 
     const delDocObj: Deliverable = {
@@ -737,7 +871,8 @@ export class OrganizationExecutor {
       content: docDeliverable,
       authorAgentId: docTask.assignedAgentId || "WORKER-CON-1",
       version: 1,
-      createdAt: new Date()
+      createdAt: new Date(),
+      metadata: docMetadata
     };
 
     state.deliverables.push(delImplObj, delDocObj);
@@ -749,21 +884,33 @@ export class OrganizationExecutor {
     state.currentState = OrgExecutionState.MANAGER_REVIEWING;
     const reviewers = ["MGR-ENG-AGENT", "MGR-RES-AGENT"];
     const reviewsList: Review[] = [];
+    
     for (const rId of reviewers) {
       let feedback = `Deliverable meets all requirements beautifully. Verified and approved.`;
       let score = 95;
-      if (process.env.GEMINI_API_KEY) {
+      
+      if (hasApiKey || customClient) {
         try {
-          const resRev = await client.generateText(
+          const resultRev = await runRoutedLLMCall(
+            ["Analysis", "Reasoning"],
             `Review the following deliverable content: "${implDeliverable}" for the task "${finalImplTask.title}". Provide detailed feedback (in Japanese, 50-100 words) and a numerical score from 1 to 100. Format the response as JSON: {"score": 95, "feedback": "..."}`,
-            "You are a strict Corporate Manager MGR-ENG-AGENT."
+            "You are a strict Corporate Manager MGR-ENG-AGENT.",
+            `Manager Review by ${rId}`
           );
-          if (resRev) {
-            const parsed = JSON.parse(resRev.replace(/```json/g, "").replace(/```/g, "").trim());
+          if (resultRev.content) {
+            let jsonText = resultRev.content;
+            const evidenceIdx = jsonText.indexOf("【ACOS 2.0 Routing Evidence】");
+            if (evidenceIdx !== -1) {
+              jsonText = jsonText.substring(0, evidenceIdx).trim();
+            }
+            
+            const parsed = JSON.parse(jsonText.replace(/```json/g, "").replace(/```/g, "").trim());
             if (parsed.score) score = parsed.score;
-            if (parsed.feedback) feedback = parsed.feedback;
+            if (parsed.feedback) feedback = `${parsed.feedback}\n\n${resultRev.evidence}`;
           }
-        } catch (err) {}
+        } catch (err) {
+          console.warn("Failed conducting review:", err);
+        }
       }
       const revObj: Review = {
         id: `rev-${Math.random().toString(36).substring(2, 5)}`,
@@ -864,7 +1011,10 @@ export class OrganizationExecutor {
         };
       });
     }
+    
+    // Merge explainable routing decisions into the self-optimization log
     state.selfOptimizationLog = [
+      ...(state.selfOptimizationLog || []),
       `[Self-Optimization] Updated Gemini 2.5 Pro successRate to ${state.aiWorkers?.find(a => a.id === "AI-GEMINI-PRO")?.successRate.toFixed(2)}`,
       `[Self-Optimization] Updated Filesystem capability rating after successful delivery.`,
       `[Self-Optimization] Optimized Content Department throughput metric by 4.2%.`

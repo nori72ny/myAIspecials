@@ -15,12 +15,24 @@ export class RoutingService {
       throw new Error("No providers available to rank.");
     }
 
+    const isFreeOnly = process.env.FREE_ONLY === "true" || (query as any).freeOnly === true || query.routingHints?.includes("free-only");
+
     const scoredProviders = providers
       .filter(p => {
         // Filter by health (exclude "down" unless requested otherwise)
         const requiredHealth = query.requiredHealth || "degraded"; // default allows healthy and degraded
         if (p.health === "down") return false;
         if (requiredHealth === "healthy" && p.health !== "healthy") return false;
+
+        // Free-only mode enforcement & paid model blocking
+        if (isFreeOnly) {
+          const isFree = p.id.toLowerCase().includes(':free') ||
+                         p.id.toLowerCase().includes('-free') ||
+                         p.metrics.cost === 0 ||
+                         p.routingHints.includes('free-model') ||
+                         p.id === 'openrouter/auto';
+          if (!isFree) return false; // Block paid models entirely
+        }
 
         // Filter by hard constraints if specified
         if (query.maxCost !== undefined && p.metrics.cost > query.maxCost) return false;

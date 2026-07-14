@@ -1,0 +1,43 @@
+name: ACOS 2.0 Quality Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  quality-gate:
+    name: Verify Quality & Code Guidelines
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Base Dependencies
+        run: npm ci
+
+      - name: Run TypeScript & Design Token Lock Linter
+        run: npm run lint
+
+      - name: Run Core Unit Tests
+        run: npm run test
+
+      - name: Run Integration API Tests
+        run: npm run test:api
+
+      - name: Validate Production Build
+        run: npm run build

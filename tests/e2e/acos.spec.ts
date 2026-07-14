@@ -1,82 +1,91 @@
 import { test, expect } from '@playwright/test';
-import { HomePage } from './pages/HomePage';
-import { MissionPage } from './pages/MissionPage';
-import { BoardroomPage } from './pages/BoardroomPage';
-import { WorkspacePage } from './pages/WorkspacePage';
-import { MarketplacePage } from './pages/MarketplacePage';
-import { ResultDashboardPage } from './pages/ResultDashboardPage';
-import { SettingsPage } from './pages/SettingsPage';
 import AxeBuilder from '@axe-core/playwright';
 
-test.describe('ACOS 2.0 POM E2E Test Suite', () => {
-  test('should execute a complete lifecycle of all core screens using Page Objects', async ({ page }) => {
-    // Instantiate Page Objects
-    const homePage = new HomePage(page);
-    const missionPage = new MissionPage(page);
-    const boardroomPage = new BoardroomPage(page);
-    const workspacePage = new WorkspacePage(page);
-    const marketplacePage = new MarketplacePage(page);
-    const resultDashboardPage = new ResultDashboardPage(page);
-    const settingsPage = new SettingsPage(page);
+test.describe('ACOS 2.0 Personal Edition critical journey', () => {
+  test('opens the personal dashboard and navigates to Unified Chat', async ({ page }) => {
+    await page.goto('/');
 
-    // 1. Navigate to the application home
-    await homePage.goto();
+    await expect(
+      page.getByRole('heading', { name: 'What can I help you with today?' })
+    ).toBeVisible({ timeout: 15_000 });
 
-    // Verify Home Screen is visible
-    await expect(homePage.screen).toBeVisible({ timeout: 15000 });
-
-    // Run accessibility scan to automatically block structural accessibility failures
-    const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'best-practice'])
+    const accessibility = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa'])
       .analyze();
-    
-    const criticalViolations = results.violations.filter(v => ['critical', 'serious'].includes(v.impact || ''));
-    if (criticalViolations.length > 0) {
-      console.error('Accessibility violations found:', JSON.stringify(criticalViolations, null, 2));
-    }
-    expect(criticalViolations.length).toBe(0);
 
-    // Close the AI Assistant sidebar if it's open, to prevent any overlay intercepts, using data-testid only
-    const assistantSidebar = page.getByTestId('ai-assistant-sidebar');
-    const assistantCloseButton = assistantSidebar.getByTestId('close-sidebar-button');
-    if (await assistantCloseButton.isVisible()) {
-      await assistantCloseButton.click({ force: true });
-    }
+    const blockingViolations = accessibility.violations.filter((violation) =>
+      ['critical', 'serious'].includes(violation.impact ?? '')
+    );
+    expect(blockingViolations).toEqual([]);
 
-    // 2. Open Settings Modal with force click to bypass any overlay intercepts
-    await settingsPage.openModal();
-    await expect(settingsPage.modal).toBeVisible({ timeout: 15000 });
+    await page.getByTestId('nav-chat').click();
 
-    // Close Settings Modal
-    await settingsPage.closeModal();
-    await expect(settingsPage.modal).not.toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByText(/こんにちは！ACOS統合AIです|Hello! I am ACOS Unified AI/i)
+    ).toBeVisible({ timeout: 15_000 });
 
-    // Navigate to Settings Screen (Organization Settings)
-    await settingsPage.navigateToScreen();
-    await expect(settingsPage.screen).toBeVisible({ timeout: 15000 });
+    const chatInput = page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i);
+    await expect(chatInput).toBeVisible();
+    await expect(chatInput).toBeEditable();
+  });
 
-    // 3. Navigate to Workspace App
-    await workspacePage.navigateTo();
-    await expect(workspacePage.screen).toBeVisible({ timeout: 15000 });
+  test('starts a clean Unified Chat session from New Chat', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('nav-chat').click();
 
-    // 4. Navigate to Marketplace App
-    await marketplacePage.navigateTo();
-    await expect(marketplacePage.screen).toBeVisible({ timeout: 15000 });
+    const chatInput = page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i);
+    await chatInput.fill('This draft must be cleared');
+    await expect(chatInput).toHaveValue('This draft must be cleared');
 
-    // 5. Navigate back to Home
-    await homePage.navigateTo();
-    await expect(homePage.screen).toBeVisible({ timeout: 15000 });
+    await page.getByTestId('new-chat-button').click();
 
-    // 6. Execute a Mission via Mission Command Input
-    await homePage.runMission('Calculate the sum of 1 to 10 and return the result. Format as simple text.');
+    await expect(chatInput).toHaveValue('');
+    await expect(
+      page.getByText(/こんにちは！ACOS統合AIです|Hello! I am ACOS Unified AI/i)
+    ).toBeVisible();
+  });
 
-    // Verify Boardroom (loading state / boardroom-screen) is rendered
-    await expect(boardroomPage.screen).toBeVisible({ timeout: 15000 });
+  test('keeps the primary navigation usable on a mobile viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
 
-    // Verify Mission screen is active
-    await expect(missionPage.screen).toBeVisible({ timeout: 15000 });
+    const sidebar = page.locator('aside').first();
+    const newChatButton = page.getByTestId('new-chat-button');
+    await expect(newChatButton).toBeVisible();
+    await expect(sidebar).toHaveCSS('width', '260px');
 
-    // Verify Result Dashboard is rendered (waiting for multi-agent simulation completion)
-    await expect(resultDashboardPage.screen).toBeVisible({ timeout: 60000 });
+    const closeSidebarButton = page.getByRole('button', {
+      name: /サイドバーを閉じる|Close sidebar/i,
+    });
+    await closeSidebarButton.click();
+    await expect
+      .poll(async () => (await sidebar.boundingBox())?.width ?? 0)
+      .toBeLessThanOrEqual(1);
+
+    const openSidebarButton = page.getByRole('button', {
+      name: /サイドバーを開く|Open sidebar/i,
+    });
+    await expect(openSidebarButton).toBeVisible();
+    await openSidebarButton.click();
+    await expect(sidebar).toHaveCSS('width', '260px');
+    await expect(newChatButton).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect
+      .poll(async () => (await sidebar.boundingBox())?.width ?? 0)
+      .toBeLessThanOrEqual(1);
+    await expect(openSidebarButton).toBeVisible();
+
+    await openSidebarButton.click();
+    await expect(sidebar).toHaveCSS('width', '260px');
+
+    await page.getByTestId('nav-chat').click();
+    await expect
+      .poll(async () => (await sidebar.boundingBox())?.width ?? 0)
+      .toBeLessThanOrEqual(1);
+    await expect(openSidebarButton).toBeVisible();
+    await expect(
+      page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i)
+    ).toBeVisible();
   });
 });

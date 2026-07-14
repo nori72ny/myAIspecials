@@ -29,7 +29,11 @@ export enum OrgExecutionState {
   CEO_SUBMITTING = "CEO_SUBMITTING",
   COMPLETED = "COMPLETED",
   ESCALATED = "ESCALATED",
-  FAILED = "FAILED"
+  FAILED = "FAILED",
+  AWAITING_HUMAN_APPROVAL = "AWAITING_HUMAN_APPROVAL",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
+  APPROVAL_TIMED_OUT = "APPROVAL_TIMED_OUT"
 }
 
 export interface Task {
@@ -54,6 +58,14 @@ export interface Deliverable {
   authorAgentId: string;
   version: number;
   createdAt: Date;
+  metadata?: {
+    evidence?: string;
+    routing?: {
+      selectedModelId: string;
+      score: number;
+      reason: string;
+    };
+  };
 }
 
 export enum ReviewStatus {
@@ -159,7 +171,7 @@ export interface HumanApprovalRequest {
   requestingAgentId: string;
   role: OrgRole;
   description: string;
-  status: "Pending" | "Approved" | "Overridden" | "Rejected";
+  status: "AWAITING_HUMAN_APPROVAL" | "APPROVED" | "REJECTED" | "APPROVAL_TIMED_OUT" | "Pending" | "Approved" | "Overridden" | "Rejected";
   createdAt: Date;
   resolvedAt?: Date;
   resolvedBy?: string;

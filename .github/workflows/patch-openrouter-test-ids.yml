@@ -1,0 +1,32 @@
+name: One-time OpenRouter Test Alignment
+
+on:
+  push:
+    branches:
+      - sprint-7-3/personal-daily-use-gate
+    paths:
+      - scripts/patch-openrouter-test-ids.mjs
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sprint-7-3/personal-daily-use-gate
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/patch-openrouter-test-ids.mjs
+      - run: |
+          rm scripts/patch-openrouter-test-ids.mjs
+          rm .github/workflows/patch-openrouter-test-ids.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/lib/capability-registry/__tests__/CapabilityRegistry.test.ts scripts/patch-openrouter-test-ids.mjs .github/workflows/patch-openrouter-test-ids.yml
+          git commit -m "test: align OpenRouter model ID expectations"
+          git push origin HEAD:sprint-7-3/personal-daily-use-gate

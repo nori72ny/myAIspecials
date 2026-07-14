@@ -97,43 +97,77 @@ export default function GitHubWorkspace({ onAddWorkspaceFile, language = "ja" }:
   }, []);
 
   // Fetch repositories when token is available
+  const fetchRepos = async () => {
+    if (!token) return;
+    setIsLoadingRepos(true);
+    setConnectError("");
+    try {
+      const response = await fetch("https://api.github.com/user/repos?sort=updated&per_page=100", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Accept": "application/vnd.github.v3+json"
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          handleDisconnect();
+          throw new Error(isEn ? "Session expired. Please reconnect." : "セッションの有効期限が切れました。再接続してください。");
+        }
+        throw new Error("Failed to fetch repositories.");
+      }
+
+      const data = await response.json();
+      setRepos(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      setConnectError(err.message || "Failed to load repos.");
+    } finally {
+      setIsLoadingRepos(false);
+    }
+  };
+
   useEffect(() => {
     if (!token) {
       setRepos([]);
       setSelectedRepo(null);
       return;
     }
-
-    const fetchRepos = async () => {
-      setIsLoadingRepos(true);
-      setConnectError("");
-      try {
-        const response = await fetch("https://api.github.com/user/repos?sort=updated&per_page=100", {
-          headers: {
-            "Authorization": `token ${token}`,
-            "Accept": "application/vnd.github.v3+json"
-          }
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            handleDisconnect();
-            throw new Error(isEn ? "Session expired. Please reconnect." : "セッションの有効期限が切れました。再接続してください。");
-          }
-          throw new Error("Failed to fetch repositories.");
-        }
-
-        const data = await response.json();
-        setRepos(Array.isArray(data) ? data : []);
-      } catch (err: any) {
-        setConnectError(err.message || "Failed to load repos.");
-      } finally {
-        setIsLoadingRepos(false);
-      }
-    };
-
     fetchRepos();
   }, [token]);
+
+  const fetchRepoDetails = async () => {
+    if (!selectedRepo || !token) return;
+    setIsLoadingDetails(true);
+    setAiOutput("");
+    setAiMode("");
+    setSyncLogs([]);
+    try {
+      const [commitsRes, issuesRes] = await Promise.all([
+        fetch(`https://api.github.com/repos/${selectedRepo.owner.login}/${selectedRepo.name}/commits?per_page=15`, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Accept": "application/vnd.github.v3+json"
+          }
+        }),
+        fetch(`https://api.github.com/repos/${selectedRepo.owner.login}/${selectedRepo.name}/issues?per_page=15`, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Accept": "application/vnd.github.v3+json"
+          }
+        })
+      ]);
+
+      const commitsData = commitsRes.ok ? await commitsRes.json() : [];
+      const issuesData = issuesRes.ok ? await issuesRes.json() : [];
+
+      setCommits(Array.isArray(commitsData) ? commitsData : []);
+      setIssues(Array.isArray(issuesData) ? issuesData : []);
+    } catch (err) {
+      console.error("Error fetching repository details:", err);
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  };
 
   // Fetch commits and issues when repository is selected
   useEffect(() => {
@@ -144,40 +178,6 @@ export default function GitHubWorkspace({ onAddWorkspaceFile, language = "ja" }:
       setAiMode("");
       return;
     }
-
-    const fetchRepoDetails = async () => {
-      setIsLoadingDetails(true);
-      setAiOutput("");
-      setAiMode("");
-      setSyncLogs([]);
-      try {
-        const [commitsRes, issuesRes] = await Promise.all([
-          fetch(`https://api.github.com/repos/${selectedRepo.owner.login}/${selectedRepo.name}/commits?per_page=15`, {
-            headers: {
-              "Authorization": `token ${token}`,
-              "Accept": "application/vnd.github.v3+json"
-            }
-          }),
-          fetch(`https://api.github.com/repos/${selectedRepo.owner.login}/${selectedRepo.name}/issues?per_page=15`, {
-            headers: {
-              "Authorization": `token ${token}`,
-              "Accept": "application/vnd.github.v3+json"
-            }
-          })
-        ]);
-
-        const commitsData = commitsRes.ok ? await commitsRes.json() : [];
-        const issuesData = issuesRes.ok ? await issuesRes.json() : [];
-
-        setCommits(Array.isArray(commitsData) ? commitsData : []);
-        setIssues(Array.isArray(issuesData) ? issuesData : []);
-      } catch (err) {
-        console.error("Error fetching repository details:", err);
-      } finally {
-        setIsLoadingDetails(false);
-      }
-    };
-
     fetchRepoDetails();
   }, [selectedRepo, token]);
 
@@ -192,7 +192,7 @@ export default function GitHubWorkspace({ onAddWorkspaceFile, language = "ja" }:
     try {
       const response = await fetch("https://api.github.com/user", {
         headers: {
-          "Authorization": `token ${patInput.trim()}`,
+          "Authorization": `Bearer ${patInput.trim()}`,
           "Accept": "application/vnd.github.v3+json"
         }
       });
@@ -430,10 +430,10 @@ export default function GitHubWorkspace({ onAddWorkspaceFile, language = "ja" }:
               </SovereignButton>
             </div>
             
-            <p className="text-[10px] text-slate-400 leading-normal font-medium">
+            <p className="text-[10px] text-slate-400 leading-normal font-medium mt-2">
               {isEn 
-                ? "Paste a token with 'repo' and 'read:user' permissions for a quick, secure connection. Alternatively, go to Organization Cockpit to set up custom OAuth."
-                : "接続には 'repo' および 'read:user' 権限を持つアクセストークンが必要です。独自にOAuthアプリを設定する場合は、組織設定ページで行えます。"}
+                ? "Click the link above to generate a token with 'repo' and 'read:user' scopes. If you are redirected to the GitHub dashboard after logging in, please click the link again. Copy the generated token and paste it here."
+                : "上の「トークン作成ページ」リンクからトークンを生成し、ここに入力して「連携する」を押してください。※ログイン後にGitHubのトップページ（リポジトリ一覧）に飛ばされた場合は、お手数ですが再度上のリンクをクリックしてください。"}
             </p>
           </div>
         </SovereignGlassCard>
@@ -482,7 +482,13 @@ export default function GitHubWorkspace({ onAddWorkspaceFile, language = "ja" }:
                   <Folder className="w-4 h-4 text-indigo-500" />
                   {isEn ? "Repositories" : "リポジトリ一覧"}
                 </h3>
-                {isLoadingRepos && <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-500" />}
+                <button 
+                  onClick={fetchRepos}
+                  className="p-1 hover:bg-slate-200 dark:hover:bg-neutral-800 rounded-md transition-colors"
+                  title={isEn ? "Refresh Repositories" : "リポジトリを更新"}
+                >
+                  <RefreshCw className={cn("w-3.5 h-3.5 text-indigo-500", isLoadingRepos && "animate-spin")} />
+                </button>
               </div>
 
               {/* Repo Search */}
@@ -586,6 +592,13 @@ export default function GitHubWorkspace({ onAddWorkspaceFile, language = "ja" }:
                         <a href={selectedRepo.html_url} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-indigo-500">
                           <ExternalLink className="w-3.5 h-3.5" />
                         </a>
+                        <button 
+                          onClick={fetchRepoDetails}
+                          className="ml-2 p-1 hover:bg-slate-200 dark:hover:bg-neutral-800 rounded-md transition-colors"
+                          title={isEn ? "Refresh Repo Details" : "詳細を更新"}
+                        >
+                          <RefreshCw className={cn("w-4 h-4 text-slate-400", isLoadingDetails && "animate-spin")} />
+                        </button>
                       </h3>
                       <p className="text-xs text-slate-400">
                         {selectedRepo.description || (isEn ? "No description provided." : "説明文がありません。")}

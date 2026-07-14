@@ -654,6 +654,14 @@ export default function App() {
           </div>
         </header>
 
+        {/* Quality Audit & Simulation Alert Banner */}
+        <div className="bg-amber-500/10 border-b border-amber-500/20 text-amber-600 dark:text-amber-400 px-6 py-2 flex items-center justify-between text-[11px] md:text-xs font-semibold backdrop-blur-sm select-none gap-4">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-amber-500 shrink-0 animate-pulse" />
+            <span>【デモ・シミュレーション】本プラットフォームの検証メトリクス、応答時間、および一部のログは、品質監査とUIリプレイを目的としたデモ/シミュレーションデータです。実LLM実行以外の履歴、メトリクスチャートはシミュレーション表示となります。</span>
+          </div>
+        </div>
+
         {/* Screen layout */}
         <div className={cn("flex-1 p-4 md:p-6 w-full mx-auto space-y-6 flex flex-col transition-all duration-300", isAssistantOpen ? "pr-80 max-w-7xl" : "max-w-6xl")}>
 

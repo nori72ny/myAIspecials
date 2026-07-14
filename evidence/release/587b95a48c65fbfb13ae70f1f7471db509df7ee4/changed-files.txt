@@ -1,0 +1,13 @@
+evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/api-results.xml
+evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/changed-files.txt
+evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/diff-stat.txt
+evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/git-status.txt
+evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/manifest.json
+evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/release-verdict.json
+evidence/release/587b95a48c65fbfb13ae70f1f7471db509df7ee4/unit-results.xml
+evidence/routing_log.json
+package.json
+playwright-report/index.html
+results/jest-report.html
+results/jest-results.xml
+results/playwright-results.xml

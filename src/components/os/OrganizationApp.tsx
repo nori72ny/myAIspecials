@@ -72,7 +72,7 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
     try {
       const response = await fetch("https://api.github.com/user", {
         headers: {
-          "Authorization": `token ${patInput.trim()}`,
+          "Authorization": `Bearer ${patInput.trim()}`,
           "Accept": "application/vnd.github.v3+json"
         }
       });
@@ -103,8 +103,9 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
 
     try {
       // Get Auth URL
-      const clientIdQuery = customClientId.trim() ? `?clientId=${customClientId.trim()}` : "";
-      const urlResponse = await fetch(`/api/auth/github/url${clientIdQuery}`);
+      const clientIdQuery = customClientId.trim() ? `clientId=${customClientId.trim()}&` : "";
+      const redirectUri = `${window.location.origin}/auth/callback`;
+      const urlResponse = await fetch(`/api/auth/github/url?${clientIdQuery}redirectUri=${encodeURIComponent(redirectUri)}`);
       if (!urlResponse.ok) {
         const errObj = await urlResponse.json();
         throw new Error(errObj.error || "Failed to generate authorization URL.");
@@ -150,7 +151,8 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
               body: JSON.stringify({
                 code,
                 clientId: customClientId.trim() || undefined,
-                clientSecret: customClientSecret.trim() || undefined
+                clientSecret: customClientSecret.trim() || undefined,
+                redirectUri
               })
             });
 
@@ -169,7 +171,7 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
             // Fetch user profile with token
             const profileResponse = await fetch("https://api.github.com/user", {
               headers: {
-                "Authorization": `token ${token}`,
+                "Authorization": `Bearer ${token}`,
                 "Accept": "application/vnd.github.v3+json"
               }
             });
@@ -624,10 +626,10 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
                             <span>{isEn ? "Connect" : "接続する"}</span>
                           </button>
                         </div>
-                        <p className="text-[10px] text-slate-400 dark:text-neutral-500 leading-normal font-medium">
+                        <p className="text-[10px] text-slate-400 dark:text-neutral-500 leading-normal font-medium mt-2">
                           {isEn 
-                            ? "Provide a token with 'repo' and 'read:user' scopes to allow direct, secure serverless connection to repositories."
-                            : "リポジトリ情報を安全に読み取るために、'repo' および 'read:user' スコープを持つトークンを入力してください。"}
+                            ? "Click the link above to generate a token with 'repo' and 'read:user' scopes. If you are redirected to the GitHub dashboard after logging in, please click the link again. Copy the generated token (ghp_...) and paste it here."
+                            : "上の「トークン作成ページ」リンクからトークンを生成し、ここに入力して「接続する」を押してください。※ログイン後にGitHubのトップページ（リポジトリ一覧）に飛ばされた場合は、お手数ですが再度上のリンクをクリックしてください。"}
                         </p>
                       </div>
                     ) : (

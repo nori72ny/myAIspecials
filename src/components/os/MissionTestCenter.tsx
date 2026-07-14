@@ -344,13 +344,15 @@ export default function MissionTestCenter() {
         if (details) {
           details.titles.forEach((title, idx) => {
             const uniqueId = `MSN-${cat.id.toUpperCase()}-${String(idx + 1).padStart(3, "0")}`;
-            const randomResponse = Math.floor(Math.random() * 800) + 320; // 320ms - 1120ms
-            const randomQuality = Math.floor(Math.random() * 8) + 91; // 91% - 99%
-            const randomTruth = Math.floor(Math.random() * 6) + 94; // 94% - 100%
-            const randomEvidence = Math.floor(Math.random() * 10) + 89; // 89% - 99%
-            const randomHuman = Math.floor(Math.random() * 12) + 87; // 87% - 99%
-            const randomCorrection = Math.random() > 0.85 ? 1 : 0;
-            const randomSuccess = Math.floor(Math.random() * 5) + 95; // 95% - 100%
+            // Completely deterministic metrics using index-based and character hash equations
+            const baseHash = (idx * 17 + cat.name.charCodeAt(0) * 3) % 100;
+            const randomResponse = 320 + (baseHash % 800); // 320ms - 1120ms
+            const randomQuality = 91 + (baseHash % 8); // 91% - 99%
+            const randomTruth = 94 + (baseHash % 6); // 94% - 100%
+            const randomEvidence = 89 + (baseHash % 10); // 89% - 99%
+            const randomHuman = 87 + (baseHash % 12); // 87% - 99%
+            const randomCorrection = (baseHash % 7 === 0) ? 1 : 0;
+            const randomSuccess = 95 + (baseHash % 5); // 95% - 100%
 
             generated.push({
               id: uniqueId,
@@ -429,12 +431,14 @@ export default function MissionTestCenter() {
     await new Promise(r => setTimeout(r, 600));
     
     // Randomize new excellent stats representing iterative fine-tuning
-    const newTime = Math.floor(Math.random() * 400) + 220; // faster re-run due to caching (220-620ms)
-    const newQuality = Math.floor(Math.random() * 5) + 95; // 95% - 100%
-    const newTruth = Math.floor(Math.random() * 4) + 96; // 96% - 100%
-    const newEvidence = Math.floor(Math.random() * 6) + 94; // 94% - 100%
-    const newHuman = Math.floor(Math.random() * 6) + 94; // 94% - 100%
-    const newCorrection = Math.random() > 0.95 ? 1 : 0;
+    // Hash of the ID to determine deterministic metrics
+    const idHash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const newTime = 220 + (idHash % 400); // faster re-run due to caching (220-620ms)
+    const newQuality = 95 + (idHash % 5); // 95% - 100%
+    const newTruth = 96 + (idHash % 4); // 96% - 100%
+    const newEvidence = 94 + (idHash % 6); // 94% - 100%
+    const newHuman = 94 + (idHash % 6); // 94% - 100%
+    const newCorrection = (idHash % 21 === 0) ? 1 : 0;
     const newSuccess = 100;
 
     const timeStr = new Date().toLocaleTimeString();
@@ -492,11 +496,12 @@ export default function MissionTestCenter() {
       
       await new Promise(r => setTimeout(r, 60)); // ultra fast cascade matching batch execution
 
-      const newTime = Math.floor(Math.random() * 300) + 180;
-      const newQuality = Math.floor(Math.random() * 4) + 96;
-      const newTruth = Math.floor(Math.random() * 3) + 97;
-      const newEvidence = Math.floor(Math.random() * 4) + 96;
-      const newHuman = Math.floor(Math.random() * 4) + 96;
+      const targetHash = target.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const newTime = 180 + (targetHash % 300);
+      const newQuality = 96 + (targetHash % 4);
+      const newTruth = 97 + (targetHash % 3);
+      const newEvidence = 96 + (targetHash % 4);
+      const newHuman = 96 + (targetHash % 4);
       const newSuccess = 100;
 
       setMissions(prev => {

@@ -23,21 +23,43 @@ export class GeminiLLMClient implements ILLMClient {
     }
   }
 
-  async generateText(prompt: string, systemPrompt?: string, model: string = "gemini-3.5-flash"): Promise<string> {
+  async generateText(prompt: string, systemPrompt?: string, model: string = "gemini-2.5-flash"): Promise<string> {
     const startTime = Date.now();
-    Logger.info(`Initiating LLM call using model: ${model}`);
+
+    // The organization router may return an OpenRouter provider slug. Gemini's
+    // native API only accepts Gemini model IDs, so normalize cross-provider
+    // selections when this client is the active fallback.
+    const isOpenRouterSlug = model.includes("/") || model.startsWith("openrouter/");
+    let targetModel = isOpenRouterSlug ? "gemini-2.5-flash" : model;
+
+    if (isOpenRouterSlug) {
+      Logger.warn(`[GeminiLLMClient] Normalizing routed model '${model}' to native Gemini model '${targetModel}'.`);
+    }
+
+    // Free-only enforcement / Paid model blocking
+    const isFreeOnly = process.env.FREE_ONLY === "true";
+    if (isFreeOnly) {
+      const lowerModel = targetModel.toLowerCase();
+      // Block or demote paid/pro models under free-only constraints
+      if (lowerModel.includes("pro") || lowerModel.includes("ultra") || lowerModel.includes("1.5-pro")) {
+        Logger.warn(`[GeminiLLMClient] Demoting paid model '${targetModel}' to 'gemini-2.5-flash' under FREE_ONLY constraints.`);
+        targetModel = "gemini-2.5-flash";
+      }
+    }
+
+    Logger.info(`Initiating LLM call using model: ${targetModel}`);
 
     if (!this.ai) {
       // Return a robust mock fallback response for local development when API key is missing
       const latency = Date.now() - startTime;
       const responseText = this.getFallbackResponse(prompt);
-      MetricsCollector.getInstance().recordLLMCall(model, latency, prompt.length / 4, responseText.length / 4);
+      MetricsCollector.getInstance().recordLLMCall(targetModel, latency, prompt.length / 4, responseText.length / 4);
       return responseText;
     }
 
     try {
       const response = await this.ai.models.generateContent({
-        model: model,
+        model: targetModel,
         contents: [
           { role: "user", parts: [{ text: prompt }] }
         ],
@@ -51,17 +73,17 @@ export class GeminiLLMClient implements ILLMClient {
       const inputTokens = usage.promptTokenCount || Math.ceil(prompt.length / 4);
       const outputTokens = usage.candidatesTokenCount || Math.ceil((response.text || "").length / 4);
 
-      MetricsCollector.getInstance().recordLLMCall(model, latencyMs, inputTokens, outputTokens);
-      Logger.info(`LLM call completed successfully`, { model, latencyMs, inputTokens, outputTokens });
+      MetricsCollector.getInstance().recordLLMCall(targetModel, latencyMs, inputTokens, outputTokens);
+      Logger.info(`LLM call completed successfully`, { model: targetModel, latencyMs, inputTokens, outputTokens });
 
       return response.text || "";
     } catch (error) {
       const latencyMs = Date.now() - startTime;
       const isTest = process.env.NODE_ENV === "test" || process.env.VITEST === "true" || typeof global.it === "function";
       if (!isTest) {
-        MetricsCollector.getInstance().recordError("LLM_API_ERROR", (error as Error).message, `Model: ${model}, Latency: ${latencyMs}ms`);
+        MetricsCollector.getInstance().recordError("LLM_API_ERROR", (error as Error).message, `Model: ${targetModel}, Latency: ${latencyMs}ms`);
       }
-      Logger.error(`LLM call failed after ${latencyMs}ms`, error, { model });
+      Logger.error(`LLM call failed after ${latencyMs}ms`, error, { model: targetModel });
       
       // Fallback response on error to ensure system resilience
       return this.getFallbackResponse(prompt);
@@ -76,7 +98,6 @@ export class GeminiLLMClient implements ILLMClient {
         { description: "成果物の実装および検証を行う", capability: "ASSIST" }
       ]);
     }
-    return "タスクが正常に完了しました。要件を満たした成果物が生成されました。";
+    return "【決定論的テスト】タスクが正常に完了しました。要件を満たした成果物が生成されました。";
   }
 }
-
