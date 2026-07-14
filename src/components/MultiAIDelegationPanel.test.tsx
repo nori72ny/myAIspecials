@@ -24,7 +24,7 @@ const plannerProfiles: readonly AICapabilityProfile[] = [
 describe("MultiAIDelegationPanel routing contract", () => {
   it("routes implementation work to AI Studio Primary", () => {
     const decision = routeTask(
-      { goal: "新しい画面を実装してください", requiresCodeChanges: true },
+      { goal: "新しいAPIを実装してください", requiresCodeChanges: true },
       plannerProfiles,
     );
 
