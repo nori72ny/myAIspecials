@@ -2,6 +2,7 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import SettingsEventBridge from './components/SettingsEventBridge';
+import MultiAIDelegationPanel from './components/MultiAIDelegationPanel';
 import './index.css';
 
 // XSS Mitigation: Initialize Trusted Types policy
@@ -22,5 +23,6 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
     <SettingsEventBridge />
+    <MultiAIDelegationPanel />
   </StrictMode>,
 );
