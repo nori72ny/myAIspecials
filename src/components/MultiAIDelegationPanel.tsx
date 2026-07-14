@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Bot, Check, Clipboard, History, Save, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
+import { Bot, Check, Clipboard, History, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
 import {
   createDelegationInstruction,
   DEFAULT_AI_CAPABILITIES,
@@ -12,10 +12,7 @@ import {
   clearDelegationAudit,
   createDelegationAuditRecord,
   readDelegationAudit,
-  updateDelegationAuditRecord,
   type DelegationAuditRecord,
-  type DelegationResultStatus,
-  type DelegationVerificationStatus,
 } from "../lib/orchestration/DelegationAuditStore";
 
 const SECRET_HINTS = ["api key", "apiキー", "secret", "token", "password", "認証情報"];
@@ -35,20 +32,6 @@ const PLANNER_PROFILES: readonly AICapabilityProfile[] = [
   HUMAN_APPROVAL_GATE,
 ];
 
-const RESULT_LABELS: Record<DelegationResultStatus, string> = {
-  pending: "未完了",
-  success: "成功",
-  "changes-required": "要修正",
-  failed: "失敗",
-};
-
-const VERIFICATION_LABELS: Record<DelegationVerificationStatus, string> = {
-  "not-required": "検証不要",
-  pending: "検証待ち",
-  passed: "検証合格",
-  failed: "検証失敗",
-};
-
 export default function MultiAIDelegationPanel() {
   const [open, setOpen] = useState(false);
   const [goal, setGoal] = useState("");
@@ -58,10 +41,6 @@ export default function MultiAIDelegationPanel() {
   const [copied, setCopied] = useState(false);
   const [history, setHistory] = useState<DelegationAuditRecord[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [resultStatus, setResultStatus] = useState<DelegationResultStatus>("success");
-  const [verificationStatus, setVerificationStatus] = useState<DelegationVerificationStatus>("passed");
-  const [elapsedSeconds, setElapsedSeconds] = useState("");
 
   const containsSecrets = useMemo(() => {
     const normalized = goal.toLowerCase();
@@ -94,10 +73,11 @@ export default function MultiAIDelegationPanel() {
       const nextDecision = routeTask(request, PLANNER_PROFILES);
       setDecision(nextDecision);
       setInstruction(createDelegationInstruction(request, nextDecision));
-      setHistory(appendDelegationAudit(
+      const nextHistory = appendDelegationAudit(
         window.localStorage,
         createDelegationAuditRecord(request, nextDecision),
-      ));
+      );
+      setHistory(nextHistory);
     } catch (planningError) {
       setDecision(null);
       setInstruction("");
@@ -114,29 +94,6 @@ export default function MultiAIDelegationPanel() {
   const clearHistory = () => {
     clearDelegationAudit(window.localStorage);
     setHistory([]);
-    setEditingId(null);
-  };
-
-  const beginResultEntry = (record: DelegationAuditRecord) => {
-    setEditingId(record.id);
-    setResultStatus(record.resultStatus === "pending" ? "success" : record.resultStatus);
-    setVerificationStatus(record.verificationStatus === "not-required" ? "not-required" : "passed");
-    setElapsedSeconds(record.elapsedSeconds?.toString() ?? "");
-    setError("");
-  };
-
-  const saveResult = () => {
-    if (!editingId || !/^\d+$/.test(elapsedSeconds)) {
-      setError("所要時間は0以上の整数秒で入力してください。");
-      return;
-    }
-    setHistory(updateDelegationAuditRecord(window.localStorage, editingId, {
-      resultStatus,
-      verificationStatus,
-      elapsedSeconds: Number(elapsedSeconds),
-    }));
-    setEditingId(null);
-    setError("");
   };
 
   return (
@@ -189,7 +146,7 @@ export default function MultiAIDelegationPanel() {
               担当AIと検証方法を判定
             </button>
 
-            {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+            {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
             {decision && (
               <div className="mt-5 space-y-3">
@@ -244,7 +201,7 @@ export default function MultiAIDelegationPanel() {
                   </button>
                 )}
               </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-neutral-400">この端末のブラウザー内だけに保存されます。秘密情報や外部AIの回答本文は保存しません。</p>
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-neutral-400">この端末のブラウザー内だけに保存されます。秘密情報を含む依頼は本文を保存しません。</p>
               {showHistory && (
                 <div className="mt-3 space-y-2">
                   {history.length === 0 ? (
@@ -257,39 +214,6 @@ export default function MultiAIDelegationPanel() {
                       </div>
                       <div className="mt-1 text-slate-500 dark:text-neutral-400">{record.taskType} · free-only{record.requiresHumanApproval ? " · 要承認" : ""}</div>
                       <div className="mt-1 truncate text-slate-600 dark:text-neutral-300">{record.goal}</div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                        <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-white/10">結果: {RESULT_LABELS[record.resultStatus]}</span>
-                        <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-white/10">{VERIFICATION_LABELS[record.verificationStatus]}</span>
-                        {record.elapsedSeconds !== undefined && <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-white/10">{record.elapsedSeconds}秒</span>}
-                      </div>
-
-                      {editingId === record.id ? (
-                        <div className="mt-3 grid gap-2 rounded-xl bg-slate-50 p-3 dark:bg-white/5 sm:grid-cols-3">
-                          <label className="text-[11px] text-slate-500">結果
-                            <select value={resultStatus} onChange={(event) => setResultStatus(event.target.value as DelegationResultStatus)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-900 dark:border-white/10 dark:bg-neutral-900 dark:text-white">
-                              <option value="success">成功</option>
-                              <option value="changes-required">要修正</option>
-                              <option value="failed">失敗</option>
-                            </select>
-                          </label>
-                          <label className="text-[11px] text-slate-500">検証
-                            <select value={verificationStatus} onChange={(event) => setVerificationStatus(event.target.value as DelegationVerificationStatus)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-900 dark:border-white/10 dark:bg-neutral-900 dark:text-white">
-                              <option value="not-required">検証不要</option>
-                              <option value="pending">検証待ち</option>
-                              <option value="passed">検証合格</option>
-                              <option value="failed">検証失敗</option>
-                            </select>
-                          </label>
-                          <label className="text-[11px] text-slate-500">所要時間（秒）
-                            <input inputMode="numeric" value={elapsedSeconds} onChange={(event) => setElapsedSeconds(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-900 dark:border-white/10 dark:bg-neutral-900 dark:text-white" />
-                          </label>
-                          <button type="button" onClick={saveResult} className="flex items-center justify-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 font-semibold text-white sm:col-span-3">
-                            <Save className="h-3.5 w-3.5" /> 結果を保存
-                          </button>
-                        </div>
-                      ) : (
-                        <button type="button" onClick={() => beginResultEntry(record)} className="mt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400">結果・検証を記録</button>
-                      )}
                     </div>
                   ))}
                 </div>
