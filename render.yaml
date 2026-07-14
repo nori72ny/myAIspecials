@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: acos-2-staging
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FREE_ONLY
+        value: "true"
+      - key: OPENROUTER_API_KEY
+        sync: false
