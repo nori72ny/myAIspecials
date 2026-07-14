@@ -21,8 +21,19 @@ export class ExecuteMissionUseCase {
       metrics.recordMissionStart(mission.id, mission.objective, taskIds.length);
     }
 
-    // Orchestrate with the Standard OEE Engine
-    const orgState = await organizationExecutorInstance.executeMission(missionIdStr, objective, this.llmClient);
+    // This use case is a non-interactive server path. Resolve the demonstration
+    // approval hook immediately so the mission cannot return in a suspended state
+    // with no resume endpoint available to the caller.
+    const orgState = await organizationExecutorInstance.executeMission(
+      missionIdStr,
+      objective,
+      this.llmClient,
+      {
+        onApprovalRequired: async (request, executor) => {
+          executor.resolveHumanApproval(request.orgId, request.id, true, "System-approved non-interactive mission execution");
+        }
+      }
+    );
     
     // Sync the mission status in repository
     if (mission) {
@@ -70,4 +81,3 @@ export class ExecuteMissionUseCase {
     }
   }
 }
-
