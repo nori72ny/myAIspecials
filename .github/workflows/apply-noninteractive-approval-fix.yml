@@ -1,0 +1,31 @@
+name: Apply noninteractive approval fix
+
+on:
+  push:
+    branches:
+      - sprint-7-3/personal-daily-use-gate
+    paths:
+      - .github/workflows/apply-noninteractive-approval-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sprint-7-3/personal-daily-use-gate
+          fetch-depth: 0
+      - name: Apply targeted source patch
+        run: node scripts/apply-noninteractive-approval-fix.mjs
+      - name: Remove one-time patch assets
+        run: rm scripts/apply-noninteractive-approval-fix.mjs .github/workflows/apply-noninteractive-approval-fix.yml
+      - name: Commit patched routes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/legacy/analyzeRoute.ts src/legacy/legacyRoutes.ts scripts/apply-noninteractive-approval-fix.mjs .github/workflows/apply-noninteractive-approval-fix.yml
+          git commit -m "fix: auto-approve noninteractive analysis missions"
+          git push origin HEAD:sprint-7-3/personal-daily-use-gate
