@@ -14,7 +14,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
       // === FREE MODELS ===
       // 1. Google Gemini 2.5 Flash Free - Exceptional speed and multimodal
       new Provider(
-        "openrouter/google/gemini-2.5-flash:free",
+        "google/gemini-2.5-flash:free",
         "Gemini 2.5 Flash Free (OpenRouter)",
         this.id,
         new Map([
@@ -34,7 +34,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
 
       // 2. Llama 3 8B Instruct Free - Efficient and fast text generation
       new Provider(
-        "openrouter/meta/llama-3-8b-instruct:free",
+        "meta/llama-3-8b-instruct:free",
         "Llama 3 8B Instruct Free (OpenRouter)",
         this.id,
         new Map([
@@ -53,7 +53,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
       // === PAID MODELS ===
       // 3. Anthropic Claude - Exceptional Reasoning, Coding, Writing (PAID)
       new Provider(
-        "openrouter/anthropic/claude-3.5-sonnet",
+        "anthropic/claude-3.5-sonnet",
         "Claude 3.5 Sonnet (OpenRouter)",
         this.id,
         new Map([
@@ -71,7 +71,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
 
       // 4. OpenAI GPT - Stellar Reasoning, Planning, Presentation (PAID)
       new Provider(
-        "openrouter/openai/gpt-4o",
+        "openai/gpt-4o",
         "GPT-4o (OpenRouter)",
         this.id,
         new Map([
@@ -90,7 +90,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
 
       // 5. Google Gemini - Exceptional Vision, Search, Multimodal (PAID)
       new Provider(
-        "openrouter/google/gemini-1.5-pro",
+        "google/gemini-1.5-pro",
         "Gemini 1.5 Pro (OpenRouter)",
         this.id,
         new Map([
@@ -109,7 +109,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
 
       // 6. DeepSeek Coder - High performance cost-effective coding & math (PAID)
       new Provider(
-        "openrouter/deepseek/deepseek-coder",
+        "deepseek/deepseek-coder",
         "DeepSeek Coder (OpenRouter)",
         this.id,
         new Map([
@@ -125,7 +125,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
 
       // 7. xAI Grok - High speed debate, forecasting (PAID)
       new Provider(
-        "openrouter/xai/grok-2",
+        "xai/grok-2",
         "Grok 2 (OpenRouter)",
         this.id,
         new Map([
