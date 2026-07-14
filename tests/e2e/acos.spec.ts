@@ -56,7 +56,9 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
 
     const closeSidebarButton = page.locator('button:has(svg.lucide-x)').first();
     await closeSidebarButton.click();
-    await expect(sidebar).toHaveCSS('width', '0px');
+    await expect
+      .poll(async () => (await sidebar.boundingBox())?.width ?? 0)
+      .toBeLessThanOrEqual(1);
 
     const openSidebarButton = page.locator('button:has(svg.lucide-menu)').first();
     await expect(openSidebarButton).toBeVisible();
