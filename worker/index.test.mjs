@@ -4,6 +4,7 @@ import worker from "./index.mjs";
 const freeEnv = {
   FREE_ONLY: "true",
   OPENROUTER_FREE_MODEL: "google/gemini-2.5-flash:free",
+  APP_URL: "https://acos-staging.pages.dev",
 };
 
 describe("ACOS Cloudflare Worker", () => {
