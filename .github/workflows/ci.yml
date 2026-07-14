@@ -143,7 +143,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
       - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
 
   release:
     name: Generate CHANGELOG & GitHub Release
