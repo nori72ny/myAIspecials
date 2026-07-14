@@ -19,6 +19,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string | undefined>(undefined);
+  const [chatSessionId, setChatSessionId] = useState(0);
 
   const { settings } = useAppState();
   const isEn = settings.language === "en";
@@ -35,6 +36,12 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
 
   const navigateToChat = (initialPrompt?: string) => {
     setChatInitialPrompt(initialPrompt);
+    setCurrentView('chat');
+  };
+
+  const startNewChat = () => {
+    setChatInitialPrompt(undefined);
+    setChatSessionId((sessionId) => sessionId + 1);
     setCurrentView('chat');
   };
 
@@ -129,10 +136,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
 
         <div className="px-3 pb-2">
           <button 
-            onClick={() => {
-              setChatInitialPrompt(undefined);
-              setCurrentView('chat');
-            }}
+            onClick={startNewChat}
+            data-testid="new-chat-button"
             className="w-full flex items-center gap-2 px-3 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
           >
             <Plus className="w-4 h-4" />
@@ -145,6 +150,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
             <button
               key={item.id}
               onClick={() => setCurrentView(item.id)}
+              data-testid={`nav-${item.id}`}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                 currentView === item.id 
@@ -223,7 +229,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ onSwitchToEn
         <div className="flex-1 overflow-y-auto">
           <AnimatePresence mode="wait">
             <motion.div
-              key={currentView + (activeProjectId || '')}
+              key={`${currentView}-${activeProjectId || ''}-${currentView === 'chat' ? chatSessionId : ''}`}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
