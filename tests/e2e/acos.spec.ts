@@ -71,6 +71,10 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     await expect(newChatButton).toBeVisible();
 
     await page.getByTestId('nav-chat').click();
+    await expect
+      .poll(async () => (await sidebar.boundingBox())?.width ?? 0)
+      .toBeLessThanOrEqual(1);
+    await expect(openSidebarButton).toBeVisible();
     await expect(
       page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i)
     ).toBeVisible();
