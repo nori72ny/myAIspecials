@@ -70,6 +70,15 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     await expect(sidebar).toHaveCSS('width', '260px');
     await expect(newChatButton).toBeVisible();
 
+    await page.keyboard.press('Escape');
+    await expect
+      .poll(async () => (await sidebar.boundingBox())?.width ?? 0)
+      .toBeLessThanOrEqual(1);
+    await expect(openSidebarButton).toBeVisible();
+
+    await openSidebarButton.click();
+    await expect(sidebar).toHaveCSS('width', '260px');
+
     await page.getByTestId('nav-chat').click();
     await expect
       .poll(async () => (await sidebar.boundingBox())?.width ?? 0)
