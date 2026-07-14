@@ -2,11 +2,31 @@ import { useMemo, useState } from "react";
 import { Bot, Check, Clipboard, ShieldAlert, Sparkles, X } from "lucide-react";
 import {
   createDelegationInstruction,
+  DEFAULT_AI_CAPABILITIES,
   routeTask,
+  type AICapabilityProfile,
   type AIRoutingDecision,
 } from "../lib/orchestration/MultiAIOrchestrator";
 
 const SECRET_HINTS = ["api key", "apiキー", "secret", "token", "password", "認証情報"];
+
+const HUMAN_APPROVAL_GATE: AICapabilityProfile = {
+  id: "human-approval-gate",
+  displayName: "Human Approval Gate",
+  capabilities: ["operations"],
+  available: true,
+  freeOnly: true,
+  preferredFor: ["operations"],
+  limitations: [
+    "Does not execute operations",
+    "Requires explicit owner approval",
+  ],
+};
+
+const PLANNER_PROFILES: readonly AICapabilityProfile[] = [
+  ...DEFAULT_AI_CAPABILITIES,
+  HUMAN_APPROVAL_GATE,
+];
 
 export default function MultiAIDelegationPanel() {
   const [open, setOpen] = useState(false);
@@ -39,7 +59,7 @@ export default function MultiAIDelegationPanel() {
         requiresFreshResearch: /最新|調査|料金|current|research/i.test(trimmed),
         containsSecrets,
       };
-      const nextDecision = routeTask(request);
+      const nextDecision = routeTask(request, PLANNER_PROFILES);
       setDecision(nextDecision);
       setInstruction(createDelegationInstruction(request, nextDecision));
     } catch (planningError) {
