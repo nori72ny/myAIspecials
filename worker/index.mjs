@@ -8,15 +8,17 @@ function json(data, status = 200, extraHeaders = {}) {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
       ...extraHeaders,
     },
   });
 }
 
-function corsHeaders(request) {
+function corsHeaders(request, env) {
   const origin = request.headers.get("origin");
+  const allowedOrigin = env.APP_URL || "https://acos-staging.pages.dev";
   return {
-    "access-control-allow-origin": origin || "*",
+    "access-control-allow-origin": origin === allowedOrigin ? origin : allowedOrigin,
     "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers": "content-type",
     vary: "Origin",
@@ -29,29 +31,31 @@ function isExplicitlyFreeModel(model) {
 }
 
 async function callOpenRouter(request, env) {
+  const headers = corsHeaders(request, env);
+
   if (env.FREE_ONLY !== "true") {
-    return json({ error: "FREE_ONLY_REQUIRED" }, 503, corsHeaders(request));
+    return json({ error: "FREE_ONLY_REQUIRED" }, 503, headers);
   }
 
   if (!env.OPENROUTER_API_KEY) {
-    return json({ error: "OPENROUTER_NOT_CONFIGURED" }, 503, corsHeaders(request));
+    return json({ error: "OPENROUTER_NOT_CONFIGURED" }, 503, headers);
   }
 
   let body;
   try {
     body = await request.json();
   } catch {
-    return json({ error: "INVALID_JSON" }, 400, corsHeaders(request));
+    return json({ error: "INVALID_JSON" }, 400, headers);
   }
 
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt || prompt.length > MAX_PROMPT_LENGTH) {
-    return json({ error: "INVALID_PROMPT", maxLength: MAX_PROMPT_LENGTH }, 400, corsHeaders(request));
+    return json({ error: "INVALID_PROMPT", maxLength: MAX_PROMPT_LENGTH }, 400, headers);
   }
 
   const model = env.OPENROUTER_FREE_MODEL || DEFAULT_FREE_MODEL;
   if (!isExplicitlyFreeModel(model)) {
-    return json({ error: "FREE_MODEL_REQUIRED" }, 503, corsHeaders(request));
+    return json({ error: "FREE_MODEL_REQUIRED" }, 503, headers);
   }
 
   const controller = new AbortController();
@@ -79,20 +83,20 @@ async function callOpenRouter(request, env) {
       return json(
         { error: "FREE_MODEL_UNAVAILABLE", upstreamStatus: response.status },
         response.status === 429 ? 429 : 503,
-        corsHeaders(request),
+        headers,
       );
     }
 
     const data = await response.json();
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== "string" || !content.trim()) {
-      return json({ error: "EMPTY_MODEL_RESPONSE" }, 503, corsHeaders(request));
+      return json({ error: "EMPTY_MODEL_RESPONSE" }, 503, headers);
     }
 
-    return json({ content, model, freeOnly: true }, 200, corsHeaders(request));
+    return json({ content, model, freeOnly: true }, 200, headers);
   } catch (error) {
     const timedOut = error instanceof Error && error.name === "AbortError";
-    return json({ error: timedOut ? "UPSTREAM_TIMEOUT" : "UPSTREAM_FAILURE" }, 503, corsHeaders(request));
+    return json({ error: timedOut ? "UPSTREAM_TIMEOUT" : "UPSTREAM_FAILURE" }, 503, headers);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -101,7 +105,7 @@ async function callOpenRouter(request, env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const headers = corsHeaders(request);
+    const headers = corsHeaders(request, env);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers });
