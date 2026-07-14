@@ -140,7 +140,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - name: Diagnose Dependency Review API
+      - name: Verify Dependency Graph API access
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -151,23 +151,25 @@ jobs:
             --output "$response_file" \
             --write-out '%{http_code}' \
             --header 'Accept: application/vnd.github+json' \
-            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
             --header 'X-GitHub-Api-Version: 2026-03-10' \
-            "https://api.github.com/repos/${{ github.repository }}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}")"
-          echo "Dependency Review API HTTP status: $status"
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}")"
+
           if [ "$status" -ge 400 ]; then
-            jq -c '{message, documentation_url, status}' "$response_file" || cat "$response_file"
-          else
-            jq -c '{dependency_change_count: (.changes | length)}' "$response_file"
+            message="$(jq -r '.message // "Unknown GitHub API error"' "$response_file")"
+            echo "::error title=Dependency Graph API unavailable::HTTP ${status}: ${message}. Enable Dependency graph for this repository under Settings > Security > Advanced Security, then rerun this job."
+            jq -c '{message, documentation_url, status}' "$response_file" || true
+            exit 1
           fi
+
+          jq -c '{dependency_change_count: (.changes | length)}' "$response_file"
+
       - name: Checkout Repo
         uses: actions/checkout@v4
       - name: Dependency Review
         uses: actions/dependency-review-action@v5
         with:
           comment-summary-in-pr: on-failure
-          retry-on-snapshot-warnings: true
-          retry-on-snapshot-warnings-timeout: 120
 
   release:
     name: Generate CHANGELOG & GitHub Release
