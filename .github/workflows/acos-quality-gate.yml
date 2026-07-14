@@ -17,12 +17,12 @@ jobs:
 
     steps:
       - name: Checkout Codebase
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Setup Node.js Environment
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@1e60f620b9541dca151540d0c6d2b1c551da5705 # v4.0.3
         with:
           node-version: 22
           cache: 'npm'
