@@ -1,6 +1,7 @@
 const DEFAULT_FREE_MODEL = "google/gemini-2.5-flash:free";
 const MAX_PROMPT_LENGTH = 4000;
 const OPENROUTER_TIMEOUT_MS = 8000;
+const BUSY_MESSAGE = "Currently free AI models are busy. Please wait a moment and try again.";
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -14,48 +15,80 @@ function json(data, status = 200, extraHeaders = {}) {
   });
 }
 
+function allowedOrigins(env) {
+  return new Set(
+    [env.APP_URL, env.LOCAL_DEV_ORIGIN]
+      .filter((value) => typeof value === "string" && value.length > 0),
+  );
+}
+
 function corsHeaders(request, env) {
   const origin = request.headers.get("origin");
-  const allowedOrigin = env.APP_URL || "https://acos-staging.pages.dev";
-  return {
-    "access-control-allow-origin": origin === allowedOrigin ? origin : allowedOrigin,
+  const allowed = allowedOrigins(env);
+  const headers = {
     "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
     vary: "Origin",
   };
+
+  if (origin && allowed.has(origin)) {
+    headers["access-control-allow-origin"] = origin;
+  }
+
+  return headers;
 }
 
 function isExplicitlyFreeModel(model) {
-  const normalized = String(model || "").toLowerCase();
-  return normalized.includes(":free") || normalized.includes("-free") || normalized.endsWith("/free");
+  const normalized = String(model || "").trim().toLowerCase();
+  return normalized.length > 0 && normalized !== "openrouter/auto" && normalized.endsWith(":free");
 }
 
 async function callOpenRouter(request, env) {
   const headers = corsHeaders(request, env);
 
   if (env.FREE_ONLY !== "true") {
-    return json({ error: "FREE_ONLY_REQUIRED" }, 503, headers);
+    return json(
+      { error: "FREE_ONLY_REQUIRED", message: "Only free models are permitted on this endpoint." },
+      503,
+      headers,
+    );
   }
 
   if (!env.OPENROUTER_API_KEY) {
-    return json({ error: "OPENROUTER_NOT_CONFIGURED" }, 503, headers);
+    return json(
+      { error: "OPENROUTER_NOT_CONFIGURED", message: "OpenRouter API key is missing." },
+      503,
+      headers,
+    );
   }
 
   let body;
   try {
     body = await request.json();
   } catch {
-    return json({ error: "INVALID_JSON" }, 400, headers);
+    return json({ error: "INVALID_JSON", message: "Invalid JSON format." }, 400, headers);
   }
 
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
-  if (!prompt || prompt.length > MAX_PROMPT_LENGTH) {
-    return json({ error: "INVALID_PROMPT", maxLength: MAX_PROMPT_LENGTH }, 400, headers);
+  if (!prompt) {
+    return json({ error: "INVALID_PROMPT", message: "Prompt cannot be empty." }, 400, headers);
+  }
+  if (prompt.length > MAX_PROMPT_LENGTH) {
+    return json(
+      { error: "INVALID_PROMPT", message: "Prompt is too long.", maxLength: MAX_PROMPT_LENGTH },
+      400,
+      headers,
+    );
   }
 
   const model = env.OPENROUTER_FREE_MODEL || DEFAULT_FREE_MODEL;
   if (!isExplicitlyFreeModel(model)) {
-    return json({ error: "FREE_MODEL_REQUIRED" }, 503, headers);
+    return json(
+      { error: "FREE_MODEL_REQUIRED", message: "Configured model is not an explicitly free OpenRouter model." },
+      503,
+      headers,
+    );
   }
 
   const controller = new AbortController();
@@ -81,22 +114,32 @@ async function callOpenRouter(request, env) {
 
     if (!response.ok) {
       return json(
-        { error: "FREE_MODEL_UNAVAILABLE", upstreamStatus: response.status },
+        { error: "FREE_MODEL_UNAVAILABLE", message: BUSY_MESSAGE },
         response.status === 429 ? 429 : 503,
         headers,
       );
     }
 
-    const data = await response.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      return json({ error: "EMPTY_MODEL_RESPONSE" }, 503, headers);
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      return json({ error: "INVALID_UPSTREAM_RESPONSE", message: BUSY_MESSAGE }, 503, headers);
     }
 
-    return json({ content, model, freeOnly: true }, 200, headers);
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content !== "string" || !content.trim()) {
+      return json({ error: "EMPTY_MODEL_RESPONSE", message: BUSY_MESSAGE }, 503, headers);
+    }
+
+    return json({ content: content.trim(), model, freeOnly: true }, 200, headers);
   } catch (error) {
     const timedOut = error instanceof Error && error.name === "AbortError";
-    return json({ error: timedOut ? "UPSTREAM_TIMEOUT" : "UPSTREAM_FAILURE" }, 503, headers);
+    return json(
+      { error: timedOut ? "UPSTREAM_TIMEOUT" : "UPSTREAM_FAILURE", message: BUSY_MESSAGE },
+      503,
+      headers,
+    );
   } finally {
     clearTimeout(timeoutId);
   }
@@ -128,7 +171,10 @@ export default {
       );
     }
 
-    if (request.method === "POST" && url.pathname === "/api/v1/ai/free-chat") {
+    if (url.pathname === "/api/v1/ai/free-chat") {
+      if (request.method !== "POST") {
+        return json({ error: "METHOD_NOT_ALLOWED" }, 405, headers);
+      }
       return callOpenRouter(request, env);
     }
 
