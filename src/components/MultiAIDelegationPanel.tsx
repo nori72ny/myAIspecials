@@ -89,7 +89,11 @@ function storageFailureMessage(reason: AuditStorageFailureReason | "unavailable"
   return "この環境では監査履歴を保存できません。ブラウザー設定、プライベートモード、またはiframe制限を確認してください。";
 }
 
-function getBrowserAuditStorage(): { ok: true; storage: AuditStorage } | { ok: false; reason: "unavailable" } {
+type BrowserAuditStorageResult =
+  | { ok: true; storage: AuditStorage; reason?: never }
+  | { ok: false; reason: "unavailable"; storage?: never };
+
+function getBrowserAuditStorage(): BrowserAuditStorageResult {
   try {
     return { ok: true, storage: window.localStorage };
   } catch {
@@ -130,14 +134,14 @@ export default function MultiAIDelegationPanel() {
     setOpen(true);
     setStorageWarning("");
     const storage = getBrowserAuditStorage();
-    if (!storage.ok) {
+    if (storage.ok === false) {
       setHistory([]);
       setStorageWarning(storageFailureMessage(storage.reason));
       return;
     }
     const result = readDelegationAudit(storage.storage);
     setHistory(result.value);
-    if (!result.ok) setStorageWarning(storageFailureMessage(result.reason));
+    if (result.ok === false) setStorageWarning(storageFailureMessage(result.reason));
   };
 
   const plan = () => {
@@ -166,7 +170,7 @@ export default function MultiAIDelegationPanel() {
       setInstruction(createDelegationInstruction(safeRequest, nextDecision));
 
       const storage = getBrowserAuditStorage();
-      if (!storage.ok) {
+      if (storage.ok === false) {
         setStorageWarning(storageFailureMessage(storage.reason));
         return;
       }
@@ -201,12 +205,12 @@ export default function MultiAIDelegationPanel() {
 
   const clearHistory = () => {
     const storage = getBrowserAuditStorage();
-    if (!storage.ok) {
+    if (storage.ok === false) {
       setStorageWarning(storageFailureMessage(storage.reason));
       return;
     }
     const result = clearDelegationAudit(storage.storage);
-    if (!result.ok) {
+    if (result.ok === false) {
       setStorageWarning(storageFailureMessage(result.reason));
       return;
     }
@@ -229,7 +233,7 @@ export default function MultiAIDelegationPanel() {
       return;
     }
     const storage = getBrowserAuditStorage();
-    if (!storage.ok) {
+    if (storage.ok === false) {
       setStorageWarning(storageFailureMessage(storage.reason));
       return;
     }
@@ -238,7 +242,7 @@ export default function MultiAIDelegationPanel() {
       verificationStatus,
       elapsedSeconds: Number(elapsedSeconds),
     });
-    if (!result.ok) {
+    if (result.ok === false) {
       setStorageWarning(storageFailureMessage(result.reason));
       return;
     }
