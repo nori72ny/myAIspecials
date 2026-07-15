@@ -11,6 +11,7 @@ export type AITaskType =
   | "current-information";
 
 export type AIProviderId = string;
+export type AIQuotaState = "available" | "limited" | "exhausted";
 
 export interface AITaskRequest {
   goal: string;
@@ -27,6 +28,9 @@ export interface AICapabilityProfile {
   available: boolean;
   freeOnly: boolean;
   paidOnly?: boolean;
+  quotaState?: AIQuotaState;
+  reliabilityScore?: number;
+  expectedLatencyMs?: number;
   preferredFor: readonly AITaskType[];
   limitations: readonly string[];
 }
@@ -89,6 +93,9 @@ export const DEFAULT_AI_CAPABILITIES: readonly AICapabilityProfile[] = [
     capabilities: ["implementation", "test", "documentation"],
     available: true,
     freeOnly: true,
+    quotaState: "available",
+    reliabilityScore: 0.95,
+    expectedLatencyMs: 1500,
     preferredFor: ["implementation", "test", "documentation"],
     limitations: ["GitHub push may require separate authentication", "No deployment authority"],
   },
@@ -98,6 +105,9 @@ export const DEFAULT_AI_CAPABILITIES: readonly AICapabilityProfile[] = [
     capabilities: ["security", "review"],
     available: true,
     freeOnly: true,
+    quotaState: "available",
+    reliabilityScore: 0.93,
+    expectedLatencyMs: 1800,
     preferredFor: ["security"],
     limitations: ["Read-only review role", "Must not receive secrets"],
   },
@@ -107,6 +117,9 @@ export const DEFAULT_AI_CAPABILITIES: readonly AICapabilityProfile[] = [
     capabilities: ["architecture", "review"],
     available: true,
     freeOnly: true,
+    quotaState: "available",
+    reliabilityScore: 0.92,
+    expectedLatencyMs: 1900,
     preferredFor: ["architecture"],
     limitations: ["Read-only review role"],
   },
@@ -116,6 +129,9 @@ export const DEFAULT_AI_CAPABILITIES: readonly AICapabilityProfile[] = [
     capabilities: ["research", "current-information"],
     available: true,
     freeOnly: true,
+    quotaState: "available",
+    reliabilityScore: 0.9,
+    expectedLatencyMs: 2200,
     preferredFor: ["research", "current-information"],
     limitations: ["Current claims require source verification"],
   },
@@ -125,6 +141,9 @@ export const DEFAULT_AI_CAPABILITIES: readonly AICapabilityProfile[] = [
     capabilities: ["ux", "documentation"],
     available: true,
     freeOnly: true,
+    quotaState: "available",
+    reliabilityScore: 0.89,
+    expectedLatencyMs: 1700,
     preferredFor: ["ux"],
     limitations: ["No deployment authority"],
   },
@@ -134,6 +153,9 @@ export const DEFAULT_AI_CAPABILITIES: readonly AICapabilityProfile[] = [
     capabilities: ["implementation", "research", "review", "security", "ux", "documentation", "test"],
     available: true,
     freeOnly: true,
+    quotaState: "limited",
+    reliabilityScore: 0.75,
+    expectedLatencyMs: 3000,
     preferredFor: [],
     limitations: ["Only explicit :free models", "May be rate limited"],
   },
@@ -143,6 +165,9 @@ export const DEFAULT_AI_CAPABILITIES: readonly AICapabilityProfile[] = [
     capabilities: ["review", "security", "test"],
     available: true,
     freeOnly: true,
+    quotaState: "available",
+    reliabilityScore: 0.88,
+    expectedLatencyMs: 2100,
     preferredFor: ["review"],
     limitations: ["Read-only review role", "Must not receive secrets"],
   },
@@ -201,19 +226,49 @@ function isAutomaticProvider(profile: AICapabilityProfile): boolean {
 }
 
 function isEligibleProfile(profile: AICapabilityProfile, taskType: AITaskType, freeOnly: boolean): boolean {
-  if (!profile.available || !profile.capabilities.includes(taskType)) return false;
+  if (!profile.available || profile.quotaState === "exhausted" || !profile.capabilities.includes(taskType)) return false;
   if (!freeOnly) return true;
   return profile.freeOnly && profile.paidOnly !== true && !isAutomaticProvider(profile);
+}
+
+function normalizedReliability(profile: AICapabilityProfile): number {
+  const value = profile.reliabilityScore ?? 0.5;
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.5;
+}
+
+function normalizedLatency(profile: AICapabilityProfile): number {
+  const value = profile.expectedLatencyMs ?? Number.POSITIVE_INFINITY;
+  return Number.isFinite(value) && value >= 0 ? value : Number.POSITIVE_INFINITY;
+}
+
+function rankProfiles(taskType: AITaskType, profiles: readonly AICapabilityProfile[]): AICapabilityProfile[] {
+  return [...profiles].sort((left, right) => {
+    const preferenceDifference = Number(right.preferredFor.includes(taskType)) - Number(left.preferredFor.includes(taskType));
+    if (preferenceDifference !== 0) return preferenceDifference;
+
+    const reliabilityDifference = normalizedReliability(right) - normalizedReliability(left);
+    if (reliabilityDifference !== 0) return reliabilityDifference;
+
+    const latencyDifference = normalizedLatency(left) - normalizedLatency(right);
+    if (latencyDifference !== 0) return latencyDifference;
+
+    return left.id.localeCompare(right.id);
+  });
 }
 
 function selectProvider(taskType: AITaskType, eligible: readonly AICapabilityProfile[]): AICapabilityProfile {
   if (taskType === "implementation") {
     const aiStudioPrimary = eligible.find((profile) => profile.id === "ai-studio-primary");
-    const aiStudio = eligible.find((profile) => profile.id === "ai-studio" || profile.id.startsWith("ai-studio-"));
-    return aiStudioPrimary ?? aiStudio ?? eligible.find((profile) => profile.preferredFor.includes(taskType)) ?? eligible[0];
+    if (aiStudioPrimary) return aiStudioPrimary;
+
+    const aiStudio = rankProfiles(
+      taskType,
+      eligible.filter((profile) => profile.id === "ai-studio" || profile.id.startsWith("ai-studio-")),
+    )[0];
+    if (aiStudio) return aiStudio;
   }
 
-  return eligible.find((profile) => profile.preferredFor.includes(taskType)) ?? eligible[0];
+  return rankProfiles(taskType, eligible)[0];
 }
 
 function createVerificationPlan(
@@ -222,12 +277,12 @@ function createVerificationPlan(
   profiles: readonly AICapabilityProfile[],
   freeOnly: boolean,
 ): VerificationPlan {
-  const verifier = profiles.find(
-    (profile) =>
-      profile.id !== selected.id &&
-      profile.capabilities.includes("review") &&
-      isEligibleProfile(profile, "review", freeOnly),
-  );
+  const verifier = rankProfiles(
+    "review",
+    profiles.filter(
+      (profile) => profile.id !== selected.id && isEligibleProfile(profile, "review", freeOnly),
+    ),
+  )[0];
 
   const steps =
     taskType === "implementation"
@@ -269,17 +324,20 @@ export function routeTask(
   const selected = selectProvider(taskType, eligible);
   const verificationPlan = createVerificationPlan(taskType, selected, profiles, freeOnly);
   const preferred = selected.preferredFor.includes(taskType);
+  const aiStudioPrimaryEligible = eligible.some((profile) => profile.id === "ai-studio-primary");
 
   return {
     taskType,
     selectedProvider: selected.id,
     selectedProviderName: selected.displayName,
     reason:
-      taskType === "implementation" && selected.id.startsWith("ai-studio")
+      taskType === "implementation" && selected.id === "ai-studio-primary"
         ? `${selected.displayName} was selected as the primary implementation provider in free-only mode.`
-        : preferred
-          ? `${selected.displayName} was selected because it is the preferred specialist for ${taskType} tasks.`
-          : `${selected.displayName} was selected as the best available free provider for ${taskType} tasks.`,
+        : taskType === "implementation" && !aiStudioPrimaryEligible
+          ? `${selected.displayName} was selected as the deterministic free fallback because AI Studio Primary was unavailable, quota-exhausted, or otherwise ineligible.`
+          : preferred
+            ? `${selected.displayName} was selected as the preferred ${taskType} specialist with the strongest deterministic reliability and latency ranking.`
+            : `${selected.displayName} was selected as the highest-ranked available free provider for ${taskType} tasks using reliability, latency, and stable provider-ID tie-breaking.`,
     requiresHumanApproval:
       taskType === "operations" || request.containsSecrets === true || containsDangerousOperations(request.goal),
     verificationProvider: verificationPlan.verificationProvider,
