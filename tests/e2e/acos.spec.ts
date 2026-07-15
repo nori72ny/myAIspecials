@@ -1,6 +1,15 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+const INTERNAL_PROVIDER_IDS = [
+  'ai-studio-primary',
+  'external-review',
+  'security-review-assistant',
+  'research-assistant',
+  'openrouter-free',
+  'human-approval-gate',
+];
+
 async function openDelegationPlanner(page: import('@playwright/test').Page) {
   await page.getByTestId('multi-ai-planner-open').click();
   const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
@@ -125,7 +134,9 @@ test.describe('Multi-AI delegation planner presentation', () => {
     await expect(dialog.getByText('実装', { exact: true })).toBeVisible();
     await expect(dialog.getByText('implementation', { exact: true })).toBeVisible();
     await expect(dialog.getByTestId('verification-provider')).toHaveText('External Review Assistant');
-    await expect(dialog).not.toContainText('external-review');
+    for (const providerId of INTERNAL_PROVIDER_IDS) {
+      await expect(dialog).not.toContainText(providerId);
+    }
 
     const instruction = dialog.locator('pre');
     await expect(instruction).toContainText('Role: AI Studio Primary');
@@ -156,6 +167,28 @@ test.describe('Multi-AI delegation planner presentation', () => {
       body: await dialog.screenshot(),
       contentType: 'image/png',
     });
+  });
+
+  test('shows a clear error when clipboard access is denied', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async () => {
+            throw new DOMException('Clipboard access denied', 'NotAllowedError');
+          },
+        },
+      });
+    });
+
+    await page.goto('/');
+    const dialog = await openDelegationPlanner(page);
+    await page.getByLabel('依頼内容').fill('新しいAPIを実装してください');
+    await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
+    await page.getByRole('button', { name: '指示をコピー' }).click();
+
+    await expect(dialog.getByRole('alert')).toHaveText('クリップボードへのコピーに失敗しました。指示を選択して手動でコピーしてください。');
+    await expect(page.getByRole('button', { name: '指示をコピー' })).toBeVisible();
   });
 
   test('fits a 390px mobile viewport without horizontal clipping', async ({ page }, testInfo) => {
