@@ -13,7 +13,7 @@ export type AuditStorageFailureReason =
   | "quota-exceeded";
 
 export type AuditStorageResult<T> =
-  | { ok: true; value: T }
+  | { ok: true; value: T; reason?: never }
   | { ok: false; value: T; reason: AuditStorageFailureReason };
 
 export interface DelegationAuditRecord {
