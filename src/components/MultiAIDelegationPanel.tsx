@@ -6,6 +6,7 @@ import {
   routeTask,
   type AICapabilityProfile,
   type AIRoutingDecision,
+  type AITaskType,
 } from "../lib/orchestration/MultiAIOrchestrator";
 import {
   appendDelegationAudit,
@@ -35,6 +36,19 @@ const PLANNER_PROFILES: readonly AICapabilityProfile[] = [
   HUMAN_APPROVAL_GATE,
 ];
 
+const TASK_LABELS: Record<AITaskType, string> = {
+  implementation: "実装",
+  review: "レビュー",
+  security: "セキュリティ",
+  ux: "UX・画面設計",
+  research: "調査",
+  test: "テスト",
+  documentation: "ドキュメント",
+  operations: "運用操作",
+  architecture: "アーキテクチャ",
+  "current-information": "最新情報の確認",
+};
+
 const RESULT_LABELS: Record<DelegationResultStatus, string> = {
   pending: "未完了",
   success: "成功",
@@ -48,6 +62,24 @@ const VERIFICATION_LABELS: Record<DelegationVerificationStatus, string> = {
   passed: "検証合格",
   failed: "検証失敗",
 };
+
+function providerDisplayName(providerId?: string): string {
+  if (!providerId) return "決定論的テストのみ";
+  return PLANNER_PROFILES.find((profile) => profile.id === providerId)?.displayName ?? "未登録の検証担当";
+}
+
+function humanReadableReason(decision: AIRoutingDecision): string {
+  if (decision.taskType === "implementation" && decision.selectedProvider === "ai-studio-primary") {
+    return "実装タスクの第一候補で、無料枠が利用可能なため選択しました。";
+  }
+  if (/fallback/i.test(decision.reason)) {
+    return "第一候補が利用できないため、無料枠内で信頼性と応答速度を比較し、この担当を選択しました。";
+  }
+  if (decision.selectedProvider === "human-approval-gate") {
+    return "権限を伴う操作のため、自動実行せず人の明示承認を受ける担当へ切り替えました。";
+  }
+  return "この依頼に適した専門性があり、無料枠・信頼性・応答速度の条件を満たすため選択しました。";
+}
 
 export default function MultiAIDelegationPanel() {
   const [open, setOpen] = useState(false);
@@ -107,8 +139,14 @@ export default function MultiAIDelegationPanel() {
 
   const copyInstruction = async () => {
     if (!instruction) return;
-    await navigator.clipboard.writeText(instruction);
-    setCopied(true);
+    setError("");
+    try {
+      await navigator.clipboard.writeText(instruction);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setError("クリップボードへのコピーに失敗しました。指示を選択して手動でコピーしてください。");
+    }
   };
 
   const clearHistory = () => {
@@ -166,22 +204,22 @@ export default function MultiAIDelegationPanel() {
                   <Bot className="h-5 w-5 text-indigo-500" />
                   AI作業振り分け
                 </div>
-                <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-neutral-400">
-                  外部AIを呼ばず、依頼に適した担当と検証方法をローカルで判定します。
+                <p className="mt-1 text-sm leading-relaxed text-slate-700 dark:text-neutral-300">
+                  外部AIを呼ばず、依頼に適した担当と検証方法をこの端末内で判定します。
                 </p>
               </div>
-              <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10">
+              <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-neutral-300 dark:hover:bg-white/10">
                 <X className="h-4 w-4" />
               </button>
             </header>
 
-            <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300">
+            <label className="block text-sm font-semibold text-slate-700 dark:text-neutral-300">
               依頼内容
               <textarea
                 value={goal}
                 onChange={(event) => setGoal(event.target.value)}
                 placeholder="例: 認証処理のセキュリティレビューをしてください"
-                className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900 outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-neutral-900 dark:text-white"
+                className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-900 outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-neutral-900 dark:text-white"
               />
             </label>
 
@@ -194,19 +232,20 @@ export default function MultiAIDelegationPanel() {
             {decision && (
               <div className="mt-5 space-y-3">
                 <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">担当AI</div>
+                  <div className="text-xs font-semibold tracking-wide text-slate-600 dark:text-neutral-400">担当AI</div>
                   <div className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{decision.selectedProviderName}</div>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-neutral-300">{decision.reason}</p>
+                  <p data-testid="selection-reason" className="mt-2 text-sm leading-6 text-slate-600 dark:text-neutral-300">{humanReadableReason(decision)}</p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/5">
-                    <div className="text-[11px] font-semibold text-slate-400">タスク分類</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-800 dark:text-white">{decision.taskType}</div>
+                    <div className="text-xs font-semibold text-slate-600 dark:text-neutral-400">タスク分類</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-800 dark:text-white">{TASK_LABELS[decision.taskType]}</div>
+                    <div className="mt-0.5 text-xs text-slate-600 dark:text-neutral-300">{decision.taskType}</div>
                   </div>
                   <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/5">
-                    <div className="text-[11px] font-semibold text-slate-400">検証担当</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-800 dark:text-white">{decision.verificationProvider ?? "決定論的テストのみ"}</div>
+                    <div className="text-xs font-semibold text-slate-600 dark:text-neutral-400">検証担当</div>
+                    <div data-testid="verification-provider" className="mt-1 text-sm font-semibold text-slate-800 dark:text-white">{providerDisplayName(decision.verificationProvider)}</div>
                   </div>
                 </div>
 
@@ -215,14 +254,14 @@ export default function MultiAIDelegationPanel() {
                     <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
                     <div>
                       <div className="text-sm font-bold">人の明示承認が必要です</div>
-                      <p className="mt-1 text-xs leading-relaxed">マージ、デプロイ、DNS、秘密情報、課金、本番、アカウント操作は自動実行しません。</p>
+                      <p className="mt-1 text-sm leading-relaxed">マージ、デプロイ、DNS、秘密情報、課金、本番、アカウント操作は自動実行しません。</p>
                     </div>
                   </div>
                 )}
 
                 <div>
-                  <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-neutral-300">コピー用の委譲指示</div>
-                  <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">{instruction}</pre>
+                  <div className="mb-2 text-sm font-semibold text-slate-600 dark:text-neutral-300">コピー用の委譲指示</div>
+                  <pre tabIndex={0} aria-label="委譲指示" className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-950 p-4 text-sm leading-6 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500">{instruction}</pre>
                   <button type="button" onClick={copyInstruction} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-white dark:hover:bg-white/5">
                     {copied ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
                     {copied ? "コピーしました" : "指示をコピー"}
@@ -238,57 +277,57 @@ export default function MultiAIDelegationPanel() {
                   ローカル監査履歴 ({history.length})
                 </button>
                 {history.length > 0 && (
-                  <button type="button" onClick={clearHistory} className="flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400">
-                    <Trash2 className="h-3.5 w-3.5" />
+                  <button type="button" onClick={clearHistory} className="flex items-center gap-1 text-sm font-semibold text-red-600 dark:text-red-400">
+                    <Trash2 className="h-4 w-4" />
                     履歴を消去
                   </button>
                 )}
               </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-neutral-400">この端末のブラウザー内だけに保存されます。秘密情報や外部AIの回答本文は保存しません。</p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-neutral-300">この端末のブラウザー内だけに保存されます。秘密情報や外部AIの回答本文は保存しません。</p>
               {showHistory && (
                 <div className="mt-3 space-y-2">
                   {history.length === 0 ? (
-                    <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-white/5">履歴はありません。</p>
+                    <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500 dark:bg-white/5">履歴はありません。</p>
                   ) : history.slice(0, 10).map((record) => (
-                    <div key={record.id} className="rounded-xl border border-slate-200 p-3 text-xs dark:border-white/10">
+                    <div key={record.id} className="rounded-xl border border-slate-200 p-3 text-sm dark:border-white/10">
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-bold text-slate-800 dark:text-white">{record.selectedProviderName}</span>
-                        <span className="text-slate-400">{new Date(record.createdAt).toLocaleString()}</span>
+                        <span className="text-xs text-slate-600 dark:text-neutral-400">{new Date(record.createdAt).toLocaleString()}</span>
                       </div>
-                      <div className="mt-1 text-slate-500 dark:text-neutral-400">{record.taskType} · free-only{record.requiresHumanApproval ? " · 要承認" : ""}</div>
+                      <div className="mt-1 text-slate-600 dark:text-neutral-300">{TASK_LABELS[record.taskType]} · 無料枠のみ{record.requiresHumanApproval ? " · 要承認" : ""}</div>
                       <div className="mt-1 truncate text-slate-600 dark:text-neutral-300">{record.goal}</div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                        <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-white/10">結果: {RESULT_LABELS[record.resultStatus]}</span>
-                        <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-white/10">{VERIFICATION_LABELS[record.verificationStatus]}</span>
-                        {record.elapsedSeconds !== undefined && <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-white/10">{record.elapsedSeconds}秒</span>}
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium">
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700 dark:bg-white/10 dark:text-neutral-300">結果: {RESULT_LABELS[record.resultStatus]}</span>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700 dark:bg-white/10 dark:text-neutral-300">{VERIFICATION_LABELS[record.verificationStatus]}</span>
+                        {record.elapsedSeconds !== undefined && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700 dark:bg-white/10 dark:text-neutral-300">{record.elapsedSeconds}秒</span>}
                       </div>
 
                       {editingId === record.id ? (
                         <div className="mt-3 grid gap-2 rounded-xl bg-slate-50 p-3 dark:bg-white/5 sm:grid-cols-3">
-                          <label className="text-[11px] text-slate-500">結果
-                            <select value={resultStatus} onChange={(event) => setResultStatus(event.target.value as DelegationResultStatus)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-900 dark:border-white/10 dark:bg-neutral-900 dark:text-white">
+                          <label className="text-sm text-slate-600 dark:text-neutral-300">結果
+                            <select value={resultStatus} onChange={(event) => setResultStatus(event.target.value as DelegationResultStatus)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900 dark:border-white/10 dark:bg-neutral-900 dark:text-white">
                               <option value="success">成功</option>
                               <option value="changes-required">要修正</option>
                               <option value="failed">失敗</option>
                             </select>
                           </label>
-                          <label className="text-[11px] text-slate-500">検証
-                            <select value={verificationStatus} onChange={(event) => setVerificationStatus(event.target.value as DelegationVerificationStatus)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-900 dark:border-white/10 dark:bg-neutral-900 dark:text-white">
+                          <label className="text-sm text-slate-600 dark:text-neutral-300">検証
+                            <select value={verificationStatus} onChange={(event) => setVerificationStatus(event.target.value as DelegationVerificationStatus)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900 dark:border-white/10 dark:bg-neutral-900 dark:text-white">
                               <option value="not-required">検証不要</option>
                               <option value="pending">検証待ち</option>
                               <option value="passed">検証合格</option>
                               <option value="failed">検証失敗</option>
                             </select>
                           </label>
-                          <label className="text-[11px] text-slate-500">所要時間（秒）
-                            <input inputMode="numeric" value={elapsedSeconds} onChange={(event) => setElapsedSeconds(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-900 dark:border-white/10 dark:bg-neutral-900 dark:text-white" />
+                          <label className="text-sm text-slate-600 dark:text-neutral-300">所要時間（秒）
+                            <input inputMode="numeric" value={elapsedSeconds} onChange={(event) => setElapsedSeconds(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900 dark:border-white/10 dark:bg-neutral-900 dark:text-white" />
                           </label>
-                          <button type="button" onClick={saveResult} className="flex items-center justify-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 font-semibold text-white sm:col-span-3">
-                            <Save className="h-3.5 w-3.5" /> 結果を保存
+                          <button type="button" onClick={saveResult} className="flex items-center justify-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white sm:col-span-3">
+                            <Save className="h-4 w-4" /> 結果を保存
                           </button>
                         </div>
                       ) : (
-                        <button type="button" onClick={() => beginResultEntry(record)} className="mt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400">結果・検証を記録</button>
+                        <button type="button" onClick={() => beginResultEntry(record)} className="mt-2 text-sm font-semibold text-indigo-600 dark:text-indigo-400">結果・検証を記録</button>
                       )}
                     </div>
                   ))}

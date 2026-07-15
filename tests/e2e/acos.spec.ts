@@ -1,6 +1,22 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+const INTERNAL_PROVIDER_IDS = [
+  'ai-studio-primary',
+  'external-review',
+  'security-review-assistant',
+  'research-assistant',
+  'openrouter-free',
+  'human-approval-gate',
+];
+
+async function openDelegationPlanner(page: import('@playwright/test').Page) {
+  await page.getByTestId('multi-ai-planner-open').click();
+  const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
 test.describe('ACOS 2.0 Personal Edition critical journey', () => {
   test('opens the personal dashboard and navigates to Unified Chat', async ({ page }) => {
     await page.goto('/');
@@ -102,5 +118,117 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     await expect(
       page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i)
     ).toBeVisible();
+  });
+});
+
+test.describe('Multi-AI delegation planner presentation', () => {
+  test('shows an understandable primary selection and preserves instruction line breaks', async ({ page }, testInfo) => {
+    await page.goto('/');
+    const dialog = await openDelegationPlanner(page);
+
+    await page.getByLabel('依頼内容').fill('新しいAPIを実装してください');
+    await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
+
+    await expect(dialog.getByText('AI Studio Primary', { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId('selection-reason')).toHaveText('実装タスクの第一候補で、無料枠が利用可能なため選択しました。');
+    await expect(dialog.getByText('実装', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('implementation', { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId('verification-provider')).toHaveText('External Review Assistant');
+    for (const providerId of INTERNAL_PROVIDER_IDS) {
+      await expect(dialog).not.toContainText(providerId);
+    }
+
+    const instruction = dialog.locator('pre');
+    await expect(instruction).toContainText('Role: AI Studio Primary');
+    await expect(instruction).toContainText('Selection reason:');
+    await expect(instruction).toContainText('SAFETY MANDATES & PROHIBITIONS:');
+    await expect(instruction).toHaveCSS('white-space', 'pre-wrap');
+
+    const instructionText = await instruction.innerText();
+    expect(instructionText.split('\n').length).toBeGreaterThanOrEqual(12);
+    expect(instructionText).toContain('\n- Do not merge code.\n');
+    expect(instructionText).toContain('\n- Do not deploy code or services.\n');
+
+    const providerName = dialog.getByText('AI Studio Primary', { exact: true });
+    const providerFontSize = Number.parseFloat(await providerName.evaluate((element) => getComputedStyle(element).fontSize));
+    const bodyFontSize = Number.parseFloat(await dialog.getByTestId('selection-reason').evaluate((element) => getComputedStyle(element).fontSize));
+    const instructionFontSize = Number.parseFloat(await instruction.evaluate((element) => getComputedStyle(element).fontSize));
+    expect(providerFontSize).toBeGreaterThanOrEqual(16);
+    expect(bodyFontSize).toBeGreaterThanOrEqual(14);
+    expect(instructionFontSize).toBeGreaterThanOrEqual(14);
+
+    const accessibility = await new AxeBuilder({ page })
+      .include('[role="dialog"]')
+      .withTags(['wcag2a', 'wcag2aa'])
+      .analyze();
+    expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
+
+    await testInfo.attach('delegation-planner-desktop.png', {
+      body: await dialog.screenshot(),
+      contentType: 'image/png',
+    });
+  });
+
+  test('shows a clear error when clipboard access is denied', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async () => {
+            throw new DOMException('Clipboard access denied', 'NotAllowedError');
+          },
+        },
+      });
+    });
+
+    await page.goto('/');
+    const dialog = await openDelegationPlanner(page);
+    await page.getByLabel('依頼内容').fill('新しいAPIを実装してください');
+    await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
+    await page.getByRole('button', { name: '指示をコピー' }).click();
+
+    await expect(dialog.getByRole('alert')).toHaveText('クリップボードへのコピーに失敗しました。指示を選択して手動でコピーしてください。');
+    await expect(page.getByRole('button', { name: '指示をコピー' })).toBeVisible();
+  });
+
+  test('fits a 390px mobile viewport without horizontal clipping', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    const dialog = await openDelegationPlanner(page);
+
+    await page.getByLabel('依頼内容').fill('認証処理のセキュリティレビューをしてください');
+    await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
+    await expect(dialog.getByText('Security Review Assistant', { exact: true })).toBeVisible();
+
+    const box = await dialog.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+
+    await testInfo.attach('delegation-planner-mobile.png', {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+  });
+
+  test('keeps text readable in dark mode', async ({ page }, testInfo) => {
+    await page.goto('/');
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    const dialog = await openDelegationPlanner(page);
+
+    await page.getByLabel('依頼内容').fill('最新情報を調査してください');
+    await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
+    await expect(dialog.getByText('Research Assistant', { exact: true })).toBeVisible();
+
+    const dialogBackground = await dialog.evaluate((element) => getComputedStyle(element).backgroundColor);
+    const headingColor = await dialog.getByText('AI作業振り分け', { exact: true }).evaluate((element) => getComputedStyle(element).color);
+    expect(dialogBackground).not.toBe('rgba(0, 0, 0, 0)');
+    expect(headingColor).not.toBe(dialogBackground);
+
+    await testInfo.attach('delegation-planner-dark.png', {
+      body: await dialog.screenshot(),
+      contentType: 'image/png',
+    });
   });
 });
