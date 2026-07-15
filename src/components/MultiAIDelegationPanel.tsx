@@ -65,11 +65,11 @@ const VERIFICATION_LABELS: Record<DelegationVerificationStatus, string> = {
 
 function providerDisplayName(providerId?: string): string {
   if (!providerId) return "決定論的テストのみ";
-  return PLANNER_PROFILES.find((profile) => profile.id === providerId)?.displayName ?? providerId;
+  return PLANNER_PROFILES.find((profile) => profile.id === providerId)?.displayName ?? "未登録の検証担当";
 }
 
 function humanReadableReason(decision: AIRoutingDecision): string {
-  if (decision.taskType === "implementation" && decision.selectedProvider.startsWith("ai-studio")) {
+  if (decision.taskType === "implementation" && decision.selectedProvider === "ai-studio-primary") {
     return "実装タスクの第一候補で、無料枠が利用可能なため選択しました。";
   }
   if (/fallback/i.test(decision.reason)) {
@@ -139,8 +139,14 @@ export default function MultiAIDelegationPanel() {
 
   const copyInstruction = async () => {
     if (!instruction) return;
-    await navigator.clipboard.writeText(instruction);
-    setCopied(true);
+    setError("");
+    try {
+      await navigator.clipboard.writeText(instruction);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setError("クリップボードへのコピーに失敗しました。指示を選択して手動でコピーしてください。");
+    }
   };
 
   const clearHistory = () => {
