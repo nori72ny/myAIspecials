@@ -352,9 +352,7 @@ export class DelegationInstructionBuilder {
 }
 
 export function createDelegationInstruction(request: AITaskRequest, decision: AIRoutingDecision): string {
-  const safeGoal = request.containsSecrets
-    ? "機密情報を除去した要約を人間が入力してください"
-    : request.goal.trim();
+  const safeGoal = request.containsSecrets ? "[REDACTED]" : request.goal.trim();
   const approvalRule = decision.requiresHumanApproval
     ? "Stop before any privileged operation and request explicit owner approval."
     : "Continue only within the listed non-privileged task scope.";
