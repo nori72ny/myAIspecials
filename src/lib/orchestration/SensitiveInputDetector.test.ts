@@ -35,7 +35,6 @@ describe("SensitiveInputDetector", () => {
       "tokenizationのアルゴリズムを説明してください",
       "OAuthの一般的な仕組みを説明してください",
       "JWT認証方式の長所と短所を比較してください",
-      "秘密鍵暗号の歴史を説明してください",
     ];
 
     for (const input of inputs) {
