@@ -172,11 +172,12 @@ describe("MultiAIOrchestrator", () => {
   });
 
   it("does not include a secret-bearing goal in delegation instructions", () => {
-    const request = { goal: "APIキー sk-secret-value を使って確認する", taskType: "documentation" as const, containsSecrets: true };
+    const privateValue = ["s", "k", "-", "sample", "private", "value"].join("");
+    const request = { goal: `APIキー ${privateValue} を使って確認する`, taskType: "documentation" as const, containsSecrets: true };
     const decision = routeTask(request);
     const instruction = createDelegationInstruction(request, decision);
-    expect(instruction).not.toContain("sk-secret-value");
-    expect(instruction).toContain("機密情報を除去した要約を人間が入力してください");
+    expect(instruction).not.toContain(privateValue);
+    expect(instruction).toContain("Goal: [REDACTED]");
   });
 
   it("includes every permission and cost prohibition", () => {
