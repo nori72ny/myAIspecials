@@ -9,12 +9,17 @@ export interface SensitiveInputDetection {
   kinds: readonly SensitiveInputKind[];
 }
 
-const STRUCTURED_PATTERNS: readonly [SensitiveInputKind, RegExp][] = [
-  ["authorization-header", /\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i],
-  ["pem-private-key", /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i],
-  ["provider-key", /\bsk-[a-z0-9_-]{12,}\b/i],
-  ["provider-key", /\b(?:api[_ -]?key|access[_ -]?key|client[_ -]?secret|private[_ -]?key)\s*[:=]\s*[^\s,;]{6,}/i],
-  ["provider-key", /\b(?:jwt|oauth|bearer)\s*[:=]\s*[^\s,;]{8,}/i],
+interface SensitivePattern {
+  kind: SensitiveInputKind;
+  pattern: RegExp;
+}
+
+const STRUCTURED_PATTERNS: readonly SensitivePattern[] = [
+  { kind: "authorization-header", pattern: /\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i },
+  { kind: "pem-private-key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i },
+  { kind: "provider-key", pattern: /\bsk-[a-z0-9_-]{12,}\b/i },
+  { kind: "provider-key", pattern: /\b(?:api[_ -]?key|access[_ -]?key|client[_ -]?secret|private[_ -]?key)\s*[:=]\s*[^\s,;]{6,}/i },
+  { kind: "provider-key", pattern: /\b(?:jwt|oauth|bearer)\s*[:=]\s*[^\s,;]{8,}/i },
 ];
 
 const ENGLISH_CREDENTIAL_TERMS = /\b(?:api key|access key|client secret|private key|ssh key|password|passphrase|credential(?:s)?|bearer token|auth token|refresh token)\b/i;
@@ -23,8 +28,8 @@ const JAPANESE_CREDENTIAL_TERMS = /(?:APIキー|アクセスキー|クライア�
 export function detectSensitiveInput(input: string): SensitiveInputDetection {
   const kinds = new Set<SensitiveInputKind>();
 
-  for (const [kind, pattern] of STRUCTURED_PATTERNS) {
-    if (pattern.test(input)) kinds.add(kind);
+  for (const entry of STRUCTURED_PATTERNS) {
+    if (entry.pattern.test(input)) kinds.add(entry.kind);
   }
 
   if (ENGLISH_CREDENTIAL_TERMS.test(input) || JAPANESE_CREDENTIAL_TERMS.test(input)) {
@@ -33,7 +38,7 @@ export function detectSensitiveInput(input: string): SensitiveInputDetection {
 
   return {
     containsSensitiveInput: kinds.size > 0,
-    kinds: [...kinds],
+    kinds: Array.from(kinds),
   };
 }
 
