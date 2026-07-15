@@ -121,9 +121,11 @@ test.describe('Multi-AI delegation planner presentation', () => {
     await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
 
     await expect(dialog.getByText('AI Studio Primary', { exact: true })).toBeVisible();
-    await expect(dialog.getByText(/primary implementation provider in free-only mode/i)).toBeVisible();
+    await expect(dialog.getByTestId('selection-reason')).toHaveText('実装タスクの第一候補で、無料枠が利用可能なため選択しました。');
+    await expect(dialog.getByText('実装', { exact: true })).toBeVisible();
     await expect(dialog.getByText('implementation', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('External Review Assistant', { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId('verification-provider')).toHaveText('External Review Assistant');
+    await expect(dialog).not.toContainText('external-review');
 
     const instruction = dialog.locator('pre');
     await expect(instruction).toContainText('Role: AI Studio Primary');
@@ -138,9 +140,11 @@ test.describe('Multi-AI delegation planner presentation', () => {
 
     const providerName = dialog.getByText('AI Studio Primary', { exact: true });
     const providerFontSize = Number.parseFloat(await providerName.evaluate((element) => getComputedStyle(element).fontSize));
-    const bodyFontSize = Number.parseFloat(await dialog.getByText(/primary implementation provider/i).evaluate((element) => getComputedStyle(element).fontSize));
+    const bodyFontSize = Number.parseFloat(await dialog.getByTestId('selection-reason').evaluate((element) => getComputedStyle(element).fontSize));
+    const instructionFontSize = Number.parseFloat(await instruction.evaluate((element) => getComputedStyle(element).fontSize));
     expect(providerFontSize).toBeGreaterThanOrEqual(16);
     expect(bodyFontSize).toBeGreaterThanOrEqual(14);
+    expect(instructionFontSize).toBeGreaterThanOrEqual(14);
 
     const accessibility = await new AxeBuilder({ page })
       .include('[role="dialog"]')
