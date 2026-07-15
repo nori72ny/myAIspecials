@@ -198,11 +198,11 @@ export default function MultiAIDelegationPanel() {
                   <Bot className="h-5 w-5 text-indigo-500" />
                   AI作業振り分け
                 </div>
-                <p className="mt-1 text-sm leading-relaxed text-slate-500 dark:text-neutral-400">
+                <p className="mt-1 text-sm leading-relaxed text-slate-700 dark:text-neutral-300">
                   外部AIを呼ばず、依頼に適した担当と検証方法をこの端末内で判定します。
                 </p>
               </div>
-              <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10">
+              <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-neutral-300 dark:hover:bg-white/10">
                 <X className="h-4 w-4" />
               </button>
             </header>
@@ -226,19 +226,19 @@ export default function MultiAIDelegationPanel() {
             {decision && (
               <div className="mt-5 space-y-3">
                 <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
-                  <div className="text-xs font-semibold tracking-wide text-slate-500 dark:text-neutral-400">担当AI</div>
+                  <div className="text-xs font-semibold tracking-wide text-slate-600 dark:text-neutral-400">担当AI</div>
                   <div className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{decision.selectedProviderName}</div>
                   <p data-testid="selection-reason" className="mt-2 text-sm leading-6 text-slate-600 dark:text-neutral-300">{humanReadableReason(decision)}</p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/5">
-                    <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">タスク分類</div>
+                    <div className="text-xs font-semibold text-slate-600 dark:text-neutral-400">タスク分類</div>
                     <div className="mt-1 text-sm font-semibold text-slate-800 dark:text-white">{TASK_LABELS[decision.taskType]}</div>
-                    <div className="mt-0.5 text-xs text-slate-400">{decision.taskType}</div>
+                    <div className="mt-0.5 text-xs text-slate-600 dark:text-neutral-300">{decision.taskType}</div>
                   </div>
                   <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/5">
-                    <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">検証担当</div>
+                    <div className="text-xs font-semibold text-slate-600 dark:text-neutral-400">検証担当</div>
                     <div data-testid="verification-provider" className="mt-1 text-sm font-semibold text-slate-800 dark:text-white">{providerDisplayName(decision.verificationProvider)}</div>
                   </div>
                 </div>
@@ -255,7 +255,7 @@ export default function MultiAIDelegationPanel() {
 
                 <div>
                   <div className="mb-2 text-sm font-semibold text-slate-600 dark:text-neutral-300">コピー用の委譲指示</div>
-                  <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-950 p-4 text-sm leading-6 text-slate-100">{instruction}</pre>
+                  <pre tabIndex={0} aria-label="委譲指示" className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-950 p-4 text-sm leading-6 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500">{instruction}</pre>
                   <button type="button" onClick={copyInstruction} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-white dark:hover:bg-white/5">
                     {copied ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
                     {copied ? "コピーしました" : "指示をコピー"}
@@ -277,7 +277,7 @@ export default function MultiAIDelegationPanel() {
                   </button>
                 )}
               </div>
-              <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-neutral-400">この端末のブラウザー内だけに保存されます。秘密情報や外部AIの回答本文は保存しません。</p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-neutral-300">この端末のブラウザー内だけに保存されます。秘密情報や外部AIの回答本文は保存しません。</p>
               {showHistory && (
                 <div className="mt-3 space-y-2">
                   {history.length === 0 ? (
@@ -286,14 +286,14 @@ export default function MultiAIDelegationPanel() {
                     <div key={record.id} className="rounded-xl border border-slate-200 p-3 text-sm dark:border-white/10">
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-bold text-slate-800 dark:text-white">{record.selectedProviderName}</span>
-                        <span className="text-xs text-slate-400">{new Date(record.createdAt).toLocaleString()}</span>
+                        <span className="text-xs text-slate-600 dark:text-neutral-400">{new Date(record.createdAt).toLocaleString()}</span>
                       </div>
-                      <div className="mt-1 text-slate-500 dark:text-neutral-400">{TASK_LABELS[record.taskType]} · 無料枠のみ{record.requiresHumanApproval ? " · 要承認" : ""}</div>
+                      <div className="mt-1 text-slate-600 dark:text-neutral-300">{TASK_LABELS[record.taskType]} · 無料枠のみ{record.requiresHumanApproval ? " · 要承認" : ""}</div>
                       <div className="mt-1 truncate text-slate-600 dark:text-neutral-300">{record.goal}</div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                        <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-white/10">結果: {RESULT_LABELS[record.resultStatus]}</span>
-                        <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-white/10">{VERIFICATION_LABELS[record.verificationStatus]}</span>
-                        {record.elapsedSeconds !== undefined && <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-white/10">{record.elapsedSeconds}秒</span>}
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium">
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700 dark:bg-white/10 dark:text-neutral-300">結果: {RESULT_LABELS[record.resultStatus]}</span>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700 dark:bg-white/10 dark:text-neutral-300">{VERIFICATION_LABELS[record.verificationStatus]}</span>
+                        {record.elapsedSeconds !== undefined && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700 dark:bg-white/10 dark:text-neutral-300">{record.elapsedSeconds}秒</span>}
                       </div>
 
                       {editingId === record.id ? (
