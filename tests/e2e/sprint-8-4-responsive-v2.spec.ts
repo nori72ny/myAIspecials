@@ -24,7 +24,7 @@ for (const viewport of VIEWPORTS) {
     await expect(dialog.getByText('セキュリティレビュー担当AI', { exact: true })).toBeVisible();
     await expect(dialog.getByText('セキュリティ確認', { exact: true })).toBeVisible();
     await expect(dialog.getByText('独立レビュー担当AI', { exact: true })).toBeVisible();
-    await expect(dialog.getByTestId('selection-reason-v2')).toContainText('認証・権限・秘密情報');
+    await expect(dialog.getByTestId('selection-reason')).toContainText('認証・権限・秘密情報');
     await expect(dialog).not.toContainText('security-review-assistant');
     await expect(dialog).not.toContainText('Security Review Assistant');
     await expect(dialog).not.toContainText('>security<');
