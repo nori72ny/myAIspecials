@@ -30,7 +30,7 @@ const ENGLISH_CREDENTIAL_CONTEXT = new RegExp(
 );
 
 const JAPANESE_CREDENTIAL_TERM = String.raw`(?:APIキー|アクセスキー|クライアントシークレット|秘密鍵|SSHキー|パスワード|認証情報|アクセストークン|更新トークン)`;
-const JAPANESE_VALUE_CONTEXT = String.raw`(?:貼り付け|含(?:む|み|まれ)|共有|送信|入力|記載|提供|渡(?:す|し)|使用|使(?:う|い|って)|確認|公開|表示|見せ)`;
+const JAPANESE_VALUE_CONTEXT = String.raw`(?:貼り付け|含(?:む|み|まれ)|共有|送信|入力|記載|提供|渡(?:す|し)|使用|使(?:う|い|って)|確認|表示|見せ)`;
 const JAPANESE_CREDENTIAL_CONTEXT = new RegExp(
   String.raw`(?:${JAPANESE_CREDENTIAL_TERM}.{0,24}${JAPANESE_VALUE_CONTEXT}|${JAPANESE_VALUE_CONTEXT}.{0,24}${JAPANESE_CREDENTIAL_TERM})`,
   "i",
