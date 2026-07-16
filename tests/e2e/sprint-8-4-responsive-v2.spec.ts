@@ -42,6 +42,43 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
+test('delegation v2 records result, verification, and elapsed time', async ({ page }) => {
+  await page.goto('/?delegationV2=1');
+  await page.getByTestId('multi-ai-planner-v2-open').click();
+  const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
+
+  await page.getByLabel('依頼内容').fill('認証処理のセキュリティレビューをしてください');
+  await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
+  await dialog.getByRole('button', { name: /ローカル監査履歴/ }).click();
+  await dialog.getByRole('button', { name: '結果・検証を記録' }).click();
+
+  await dialog.getByLabel('結果').selectOption('changes-required');
+  await dialog.getByLabel('検証').selectOption('failed');
+  await dialog.getByLabel('所要時間（秒）').fill('42');
+  await dialog.getByRole('button', { name: '結果を保存' }).click();
+
+  await expect(dialog.getByText('結果: 要修正', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('検証失敗', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('42秒', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('status')).toContainText('結果と検証状況を保存しました');
+});
+
+test('delegation v2 rejects invalid elapsed seconds without a persistence claim', async ({ page }) => {
+  await page.goto('/?delegationV2=1');
+  await page.getByTestId('multi-ai-planner-v2-open').click();
+  const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
+
+  await page.getByLabel('依頼内容').fill('画面の使い勝手を確認してください');
+  await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
+  await dialog.getByRole('button', { name: /ローカル監査履歴/ }).click();
+  await dialog.getByRole('button', { name: '結果・検証を記録' }).click();
+  await dialog.getByLabel('所要時間（秒）').fill('-1');
+  await dialog.getByRole('button', { name: '結果を保存' }).click();
+
+  await expect(dialog.getByRole('alert')).toHaveText('所要時間は0以上の整数秒で入力してください。');
+  await expect(dialog.getByRole('button', { name: '結果を保存' })).toBeVisible();
+});
+
 test('delegation v2 redacts synthetic secret-bearing input and restores focus', async ({ page }) => {
   await page.goto('/?delegationV2=1');
   const opener = page.getByTestId('multi-ai-planner-v2-open');
