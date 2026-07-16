@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Clipboard, History, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
+import { Check, Clipboard, History, Save, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
 import DelegationDecisionSummary from "./DelegationDecisionSummary";
 import {
   createDelegationInstruction,
@@ -13,9 +13,12 @@ import {
   clearDelegationAudit,
   createDelegationAuditRecord,
   readDelegationAudit,
+  updateDelegationAuditRecord,
   type AuditStorage,
   type AuditStorageFailureReason,
   type DelegationAuditRecord,
+  type DelegationResultStatus,
+  type DelegationVerificationStatus,
 } from "../lib/orchestration/DelegationAuditStore";
 import { containsSensitiveInput } from "../lib/orchestration/SensitiveInputDetector";
 import { providerDisplayName, taskDisplayName } from "../lib/orchestration/DelegationPresentation";
@@ -32,6 +35,20 @@ const HUMAN_APPROVAL_GATE: AICapabilityProfile = {
 
 const PROFILES: readonly AICapabilityProfile[] = [...DEFAULT_AI_CAPABILITIES, HUMAN_APPROVAL_GATE];
 const FOCUSABLE = "button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[href],[tabindex]:not([tabindex='-1'])";
+
+const RESULT_LABELS: Record<DelegationResultStatus, string> = {
+  pending: "未完了",
+  success: "成功",
+  "changes-required": "要修正",
+  failed: "失敗",
+};
+
+const VERIFICATION_LABELS: Record<DelegationVerificationStatus, string> = {
+  "not-required": "検証不要",
+  pending: "検証待ち",
+  passed: "検証合格",
+  failed: "検証失敗",
+};
 
 type StorageResult = { ok: true; storage: AuditStorage } | { ok: false; reason: "unavailable" };
 
@@ -58,6 +75,10 @@ export default function MultiAIDelegationPanelV2() {
   const [instruction, setInstruction] = useState("");
   const [history, setHistory] = useState<DelegationAuditRecord[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [resultStatus, setResultStatus] = useState<DelegationResultStatus>("success");
+  const [verificationStatus, setVerificationStatus] = useState<DelegationVerificationStatus>("passed");
+  const [elapsedSeconds, setElapsedSeconds] = useState("");
   const [error, setError] = useState("");
   const [storageWarning, setStorageWarning] = useState("");
   const [copied, setCopied] = useState(false);
@@ -177,7 +198,42 @@ export default function MultiAIDelegationPanelV2() {
       return;
     }
     setHistory([]);
+    setEditingId(null);
     setStorageWarning("");
+  };
+
+  const beginResultEntry = (record: DelegationAuditRecord) => {
+    setEditingId(record.id);
+    setResultStatus(record.resultStatus === "pending" ? "success" : record.resultStatus);
+    setVerificationStatus(record.verificationStatus === "not-required" ? "not-required" : "passed");
+    setElapsedSeconds(record.elapsedSeconds?.toString() ?? "");
+    setError("");
+  };
+
+  const saveResult = () => {
+    if (!editingId || !/^\d+$/.test(elapsedSeconds)) {
+      setError("所要時間は0以上の整数秒で入力してください。");
+      return;
+    }
+    const storage = browserStorage();
+    if (!storage.ok) {
+      setStorageWarning(storageMessage(storage.reason));
+      return;
+    }
+    const result = updateDelegationAuditRecord(storage.storage, editingId, {
+      resultStatus,
+      verificationStatus,
+      elapsedSeconds: Number(elapsedSeconds),
+    });
+    if (!result.ok) {
+      setStorageWarning(storageMessage(result.reason));
+      return;
+    }
+    setHistory(result.value);
+    setEditingId(null);
+    setError("");
+    setStorageWarning("");
+    setAnnouncement("結果と検証状況を保存しました。");
   };
 
   return (
@@ -226,7 +282,22 @@ export default function MultiAIDelegationPanelV2() {
                   {history.length > 0 && <button type="button" onClick={clearHistory} className="flex min-h-11 items-center gap-1 rounded-lg text-sm font-semibold text-red-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-red-400"><Trash2 className="h-4 w-4" />履歴を消去</button>}
                 </div>
                 <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-neutral-300">保存に成功した場合だけ、この端末内へ記録します。秘密情報や外部AIの回答本文は保存しません。</p>
-                {showHistory && <div className="mt-3 space-y-2">{history.length === 0 ? <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600 dark:bg-white/5 dark:text-neutral-300">履歴はありません。</p> : history.slice(0, 10).map((record) => <article key={record.id} className="rounded-xl border border-slate-200 p-3 dark:border-white/10"><div className="flex flex-wrap items-start justify-between gap-2"><strong className="text-slate-900 dark:text-white">{providerDisplayName(record.selectedProvider)}</strong><time className="text-xs text-slate-500 dark:text-neutral-400">{new Date(record.createdAt).toLocaleString()}</time></div><p className="mt-1 text-sm text-slate-600 dark:text-neutral-300">{taskDisplayName(record.taskType)} · 無料枠のみ{record.requiresHumanApproval ? " · 要承認" : ""}</p><p className="mt-1 line-clamp-2 break-words text-sm text-slate-600 dark:text-neutral-300">{record.goal}</p></article>)}</div>}
+                {showHistory && <div className="mt-3 space-y-3">{history.length === 0 ? <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600 dark:bg-white/5 dark:text-neutral-300">履歴はありません。</p> : history.slice(0, 10).map((record) => <article key={record.id} className="rounded-xl border border-slate-200 p-3 dark:border-white/10">
+                  <div className="flex flex-wrap items-start justify-between gap-2"><strong className="text-slate-900 dark:text-white">{providerDisplayName(record.selectedProvider)}</strong><time className="text-xs text-slate-500 dark:text-neutral-400">{new Date(record.createdAt).toLocaleString()}</time></div>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-neutral-300">{taskDisplayName(record.taskType)} · 無料枠のみ{record.requiresHumanApproval ? " · 要承認" : ""}</p>
+                  <p className="mt-1 line-clamp-2 break-words text-sm text-slate-600 dark:text-neutral-300">{record.goal}</p>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium">
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700 dark:bg-white/10 dark:text-neutral-300">結果: {RESULT_LABELS[record.resultStatus]}</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700 dark:bg-white/10 dark:text-neutral-300">{VERIFICATION_LABELS[record.verificationStatus]}</span>
+                    {record.elapsedSeconds !== undefined && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700 dark:bg-white/10 dark:text-neutral-300">{record.elapsedSeconds}秒</span>}
+                  </div>
+                  {editingId === record.id ? <div className="mt-3 grid gap-3 rounded-xl bg-slate-50 p-3 md:grid-cols-3 dark:bg-white/5">
+                    <label className="text-sm text-slate-700 dark:text-neutral-200">結果<select value={resultStatus} onChange={(event) => setResultStatus(event.target.value as DelegationResultStatus)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-950 dark:border-white/15 dark:bg-neutral-900 dark:text-white"><option value="success">成功</option><option value="changes-required">要修正</option><option value="failed">失敗</option></select></label>
+                    <label className="text-sm text-slate-700 dark:text-neutral-200">検証<select value={verificationStatus} onChange={(event) => setVerificationStatus(event.target.value as DelegationVerificationStatus)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-950 dark:border-white/15 dark:bg-neutral-900 dark:text-white"><option value="not-required">検証不要</option><option value="pending">検証待ち</option><option value="passed">検証合格</option><option value="failed">検証失敗</option></select></label>
+                    <label className="text-sm text-slate-700 dark:text-neutral-200">所要時間（秒）<input aria-label="所要時間（秒）" inputMode="numeric" value={elapsedSeconds} onChange={(event) => setElapsedSeconds(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-950 dark:border-white/15 dark:bg-neutral-900 dark:text-white" /></label>
+                    <button type="button" onClick={saveResult} className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 md:col-span-3"><Save className="h-4 w-4" />結果を保存</button>
+                  </div> : <button type="button" onClick={() => beginResultEntry(record)} className="mt-2 min-h-11 rounded-lg px-1 text-sm font-semibold text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-indigo-400">結果・検証を記録</button>}
+                </article>)}</div>}
               </section>
             </div>
           </section>
