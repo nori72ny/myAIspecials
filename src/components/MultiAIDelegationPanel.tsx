@@ -83,10 +83,19 @@ function humanReadableReason(decision: AIRoutingDecision): string {
 }
 
 function storageFailureMessage(reason: AuditStorageFailureReason | "unavailable"): string {
+  if (reason === "read-failed") {
+    return "監査履歴を読み込めませんでした。新しい判定は続けられますが、以前の履歴は表示できません。";
+  }
   if (reason === "quota-exceeded") {
     return "ブラウザーの保存容量が不足しているため、監査履歴を保存できませんでした。";
   }
-  return "この環境では監査履歴を保存できません。ブラウザー設定、プライベートモード、またはiframe制限を確認してください。";
+  if (reason === "remove-failed") {
+    return "監査履歴を削除できませんでした。ブラウザー設定を確認して、もう一度お試しください。";
+  }
+  if (reason === "write-failed") {
+    return "監査履歴を保存できませんでした。ブラウザー設定またはプライベートモードの制限を確認してください。";
+  }
+  return "この環境では監査履歴を利用できません。ブラウザー設定、プライベートモード、またはiframe制限を確認してください。";
 }
 
 type BrowserAuditStorageResult =
@@ -100,6 +109,15 @@ function getBrowserAuditStorage(): BrowserAuditStorageResult {
     return { ok: false, reason: "unavailable" };
   }
 }
+
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "textarea:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "[href]",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
 
 export default function MultiAIDelegationPanel() {
   const [open, setOpen] = useState(false);
@@ -117,14 +135,42 @@ export default function MultiAIDelegationPanel() {
   const [verificationStatus, setVerificationStatus] = useState<DelegationVerificationStatus>("passed");
   const [elapsedSeconds, setElapsedSeconds] = useState("");
   const goalRef = useRef<HTMLTextAreaElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(false);
 
   const containsSecrets = useMemo(() => containsSensitiveInput(goal), [goal]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      if (wasOpenRef.current) openerRef.current?.focus();
+      wasOpenRef.current = false;
+      return;
+    }
+
+    wasOpenRef.current = true;
     goalRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [])
+        .filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true");
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -198,7 +244,6 @@ export default function MultiAIDelegationPanel() {
       setCopyAnnouncement("委譲指示をコピーしました。");
     } catch {
       setCopied(false);
-      setCopyAnnouncement("クリップボードへのコピーに失敗しました。");
       setError("クリップボードへのコピーに失敗しました。指示を選択して手動でコピーしてください。");
     }
   };
@@ -255,6 +300,7 @@ export default function MultiAIDelegationPanel() {
   return (
     <>
       <button
+        ref={openerRef}
         type="button"
         data-testid="multi-ai-planner-open"
         onClick={openPanel}
@@ -268,6 +314,7 @@ export default function MultiAIDelegationPanel() {
       {open && (
         <div className="fixed inset-0 z-[90] flex items-end justify-end bg-black/40 p-4 sm:items-center sm:p-6">
           <section
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label="AI作業振り分け"
@@ -300,7 +347,7 @@ export default function MultiAIDelegationPanel() {
             </label>
 
             {containsSecrets && (
-              <div data-testid="secret-redaction-warning" className="mt-3 flex gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+              <div role="status" aria-live="polite" data-testid="secret-redaction-warning" className="mt-3 flex gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
                 <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
                 <p className="text-sm leading-relaxed">秘密情報を検出したため、依頼本文を委譲指示と監査履歴から除外します。</p>
               </div>
@@ -312,7 +359,7 @@ export default function MultiAIDelegationPanel() {
 
             {storageWarning && <p role="status" data-testid="audit-storage-warning" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm leading-relaxed text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">{storageWarning}</p>}
             {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
-            {copyAnnouncement && <p role={copied ? "status" : "alert"} aria-live={copied ? "polite" : "assertive"} className="sr-only">{copyAnnouncement}</p>}
+            {copyAnnouncement && <p role="status" aria-live="polite" className="sr-only">{copyAnnouncement}</p>}
 
             {decision && (
               <div className="mt-5 space-y-3">
