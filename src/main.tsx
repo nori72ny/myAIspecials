@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import SettingsEventBridge from './components/SettingsEventBridge';
 import MultiAIDelegationPanel from './components/MultiAIDelegationPanel';
+import MultiAIDelegationPanelV2 from './components/MultiAIDelegationPanelV2';
 import './index.css';
 
 // XSS Mitigation: Initialize Trusted Types policy
@@ -19,10 +20,13 @@ if (typeof window !== "undefined" && (window as any).trustedTypes && (window as 
   }
 }
 
+const useDelegationV2Preview = typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).get('delegationV2') === '1';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
     <SettingsEventBridge />
-    <MultiAIDelegationPanel />
+    {useDelegationV2Preview ? <MultiAIDelegationPanelV2 /> : <MultiAIDelegationPanel />}
   </StrictMode>,
 );
