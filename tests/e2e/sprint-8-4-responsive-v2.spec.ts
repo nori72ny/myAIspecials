@@ -95,3 +95,10 @@ test('delegation v2 redacts synthetic secret-bearing input and restores focus', 
   await expect(dialog).toBeHidden();
   await expect(opener).toBeFocused();
 });
+
+test('delegation v2 stays hidden on the normal URL until explicitly enabled', async ({ page }) => {
+  await page.goto('/');
+
+  await expect(page.getByTestId('multi-ai-planner-open')).toBeVisible();
+  await expect(page.getByTestId('multi-ai-planner-v2-open')).toHaveCount(0);
+});
