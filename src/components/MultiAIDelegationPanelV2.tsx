@@ -124,7 +124,7 @@ export default function MultiAIDelegationPanelV2() {
     setOpen(true);
     setStorageWarning("");
     const storage = browserStorage();
-    if (!storage.ok) {
+    if (storage.ok === false) {
       setHistory([]);
       setStorageWarning(storageMessage(storage.reason));
       return;
@@ -159,7 +159,7 @@ export default function MultiAIDelegationPanelV2() {
     setInstruction(createDelegationInstruction(safeRequest, nextDecision));
 
     const storage = browserStorage();
-    if (!storage.ok) {
+    if (storage.ok === false) {
       setStorageWarning(storageMessage(storage.reason));
       return;
     }
@@ -188,7 +188,7 @@ export default function MultiAIDelegationPanelV2() {
 
   const clearHistory = () => {
     const storage = browserStorage();
-    if (!storage.ok) {
+    if (storage.ok === false) {
       setStorageWarning(storageMessage(storage.reason));
       return;
     }
@@ -216,7 +216,7 @@ export default function MultiAIDelegationPanelV2() {
       return;
     }
     const storage = browserStorage();
-    if (!storage.ok) {
+    if (storage.ok === false) {
       setStorageWarning(storageMessage(storage.reason));
       return;
     }
