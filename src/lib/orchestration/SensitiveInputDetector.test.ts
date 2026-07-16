@@ -21,6 +21,8 @@ describe("SensitiveInputDetector", () => {
       "秘密鍵を貼り付けます",
       "パスワードを確認してください",
       "認証情報を含みます",
+      "Please paste the private key here",
+      "This message contains a password",
     ];
 
     for (const input of inputs) {
@@ -35,6 +37,10 @@ describe("SensitiveInputDetector", () => {
       "tokenizationのアルゴリズムを説明してください",
       "OAuthの一般的な仕組みを説明してください",
       "JWT認証方式の長所と短所を比較してください",
+      "秘密鍵暗号の歴史を説明してください",
+      "秘密鍵と公開鍵の違いを説明してください",
+      "Explain the history of private key cryptography.",
+      "Compare password policies for enterprise systems.",
     ];
 
     for (const input of inputs) {
