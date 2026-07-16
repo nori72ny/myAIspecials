@@ -162,7 +162,14 @@ test.describe('Multi-AI delegation planner presentation', () => {
     await testInfo.attach('sprint-8-3-storage-denied.png', { body: await dialog.screenshot(), contentType: 'image/png' });
   });
 
-  test('announces clipboard success and failure accessibly', async ({ page }) => {
+  test('announces clipboard success accessibly', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async () => undefined },
+      });
+    });
+
     await page.goto('/');
     const dialog = await openDelegationPlanner(page);
     await page.getByLabel('依頼内容').fill('新しいAPIを実装してください');
