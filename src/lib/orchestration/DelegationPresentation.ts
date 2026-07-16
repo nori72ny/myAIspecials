@@ -55,6 +55,10 @@ export function selectionReason(decision: AIRoutingDecision): string {
     return `${TASK_REASON[decision.taskType]} 第一候補が利用できないため、無料枠内で利用可能な補助担当を選びました。`;
   }
 
+  if (decision.taskType === "implementation" && decision.selectedProvider === "ai-studio-primary") {
+    return "実装タスクの第一候補で、無料枠が利用可能なため選択しました。";
+  }
+
   return `${TASK_REASON[decision.taskType]} この分野を優先担当とする無料枠の専門AIを選び、別の方法または担当で結果を確認します。`;
 }
 
