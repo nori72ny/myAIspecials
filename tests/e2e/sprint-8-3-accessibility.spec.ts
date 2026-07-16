@@ -6,6 +6,7 @@ async function openPlanner(page: import('@playwright/test').Page) {
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
   await expect(dialog).toBeVisible();
+  await expect(page.getByLabel('依頼内容')).toBeFocused();
   return { opener, dialog };
 }
 
@@ -43,11 +44,12 @@ test.describe('Sprint 8.3 external accessibility review regressions', () => {
     const { opener, dialog } = await openPlanner(page);
 
     const closeButton = dialog.getByRole('button', { name: '閉じる' });
+    const historyButton = page.getByRole('button', { name: 'ローカル監査履歴 (0)' });
+
     await closeButton.focus();
     await page.keyboard.press('Shift+Tab');
-    await expect(page.getByLabel('依頼内容')).toBeFocused();
+    await expect(historyButton).toBeFocused();
 
-    await page.getByRole('button', { name: 'ローカル監査履歴 (0)' }).focus();
     await page.keyboard.press('Tab');
     await expect(closeButton).toBeFocused();
 
