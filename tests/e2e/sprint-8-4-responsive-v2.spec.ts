@@ -62,6 +62,11 @@ test('delegation v2 records result, verification, and elapsed time', async ({ pa
   await expect(dialog.getByText('検証失敗', { exact: true })).toBeVisible();
   await expect(dialog.getByText('42秒', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('status')).toContainText('結果と検証状況を保存しました');
+
+  await dialog.getByRole('button', { name: '結果・検証を記録' }).click();
+  await expect(dialog.getByLabel('結果')).toHaveValue('changes-required');
+  await expect(dialog.getByLabel('検証')).toHaveValue('failed');
+  await expect(dialog.getByLabel('所要時間（秒）')).toHaveValue('42');
 });
 
 test('delegation v2 rejects invalid elapsed seconds without a persistence claim', async ({ page }) => {
