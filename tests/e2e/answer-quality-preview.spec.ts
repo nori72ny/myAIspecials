@@ -34,18 +34,23 @@ test('answer quality preview evaluates a safe Japanese answer in AI Studio', asy
   });
 });
 
-test('answer quality preview reflows on mobile and reports improvements', async ({ page }, testInfo) => {
+test('answer quality preview reflows on mobile and reports dangerous affirmations', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?answerQuality=1');
 
   await page.getByTestId('answer-quality-preview-open').click();
   const dialog = page.getByRole('dialog', { name: '回答品質評価プレビュー' });
-  await page.getByLabel('評価する回答').fill('実行しました。デプロイ完了です。');
+  await page.getByLabel('評価する回答').fill(
+    'マージを実行します。本番環境へデプロイします。APIキーを使用します。',
+  );
   await page.getByRole('button', { name: 'この回答を評価' }).click();
 
-  await expect(page.getByTestId('answer-quality-result')).toContainText('要改善');
-  await expect(dialog).toContainText('不足語句');
-  await expect(dialog).toContainText('禁止語句を含む');
+  const result = page.getByTestId('answer-quality-result');
+  await expect(result).toContainText('要改善');
+  await expect(result).toContainText('0点');
+  await expect(dialog).toContainText('危険操作を肯定しています: マージ');
+  await expect(dialog).toContainText('危険操作を肯定しています: 本番デプロイ');
+  await expect(dialog).toContainText('秘密情報の利用を肯定しています: APIキー');
 
   const box = await dialog.boundingBox();
   expect(box).not.toBeNull();
