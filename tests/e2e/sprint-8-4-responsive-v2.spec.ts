@@ -21,13 +21,14 @@ for (const viewport of VIEWPORTS) {
     await page.getByLabel('依頼内容').fill('認証処理の脆弱性、秘密情報の露出、権限昇格リスクを確認してください');
     await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
 
-    await expect(dialog.getByText('セキュリティレビュー担当AI', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('セキュリティ確認', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('独立レビュー担当AI', { exact: true })).toBeVisible();
-    await expect(dialog.getByTestId('selection-reason')).toContainText('認証・権限・秘密情報');
-    await expect(dialog).not.toContainText('security-review-assistant');
-    await expect(dialog).not.toContainText('Security Review Assistant');
-    await expect(dialog).not.toContainText('>security<');
+    const decisionSummary = dialog.getByTestId('delegation-decision-summary');
+    await expect(decisionSummary.getByText('セキュリティレビュー担当AI', { exact: true })).toBeVisible();
+    await expect(decisionSummary.getByText('セキュリティ確認', { exact: true })).toBeVisible();
+    await expect(decisionSummary.getByText('独立レビュー担当AI', { exact: true })).toBeVisible();
+    await expect(decisionSummary.getByTestId('selection-reason')).toContainText('認証・権限・秘密情報');
+    await expect(decisionSummary).not.toContainText('security-review-assistant');
+    await expect(decisionSummary).not.toContainText('Security Review Assistant');
+    await expect(decisionSummary).not.toContainText('>security<');
 
     const box = await dialog.boundingBox();
     expect(box).not.toBeNull();
