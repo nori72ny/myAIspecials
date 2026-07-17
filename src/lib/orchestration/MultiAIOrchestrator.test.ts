@@ -168,7 +168,7 @@ describe("MultiAIOrchestrator", () => {
         limitations: [],
       },
     ]);
-    expect(routeTask({ goal: "料金を調査する", registry }).selectedProvider).toBe("custom-research");
+    expect(routeTask({ goal: "料金を調査する" }, registry).selectedProvider).toBe("custom-research");
   });
 
   it("does not include a secret-bearing goal in delegation instructions", () => {
