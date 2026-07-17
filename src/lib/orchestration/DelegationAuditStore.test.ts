@@ -65,6 +65,23 @@ describe("DelegationAuditStore", () => {
     expect(record.elapsedSeconds).toBeUndefined();
   });
 
+  it("stores a user-facing Japanese reason", () => {
+    expect(createRecord().reason).toBe("実装タスクの第一候補で、無料枠が利用可能なため選択しました。");
+  });
+
+  it("migrates a legacy internal English reason while reading history", () => {
+    const storage = new MemoryStorage();
+    const legacy = {
+      ...createRecord(),
+      reason: "Selected AI Studio Primary because it is the preferred implementation provider.",
+    };
+    storage.setItem("acos.multi-ai.delegation-audit.v1", JSON.stringify([legacy]));
+
+    const records = expectSuccess(readDelegationAudit(storage));
+    expect(records[0].reason).toBe("実装タスクの第一候補で、無料枠が利用可能なため選択しました。");
+    expect(JSON.stringify(records[0])).not.toContain("Selected AI Studio Primary");
+  });
+
   it("updates result, verification, and elapsed time", () => {
     const storage = new MemoryStorage();
     const record = createRecord();
