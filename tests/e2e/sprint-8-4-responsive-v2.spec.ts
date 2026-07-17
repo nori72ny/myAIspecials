@@ -8,18 +8,35 @@ const VIEWPORTS = [
   { name: 'mobile', width: 390, height: 844 },
 ] as const;
 
+const EXTENDED_VIEWPORTS = [
+  { name: 'mobile-320', width: 320, height: 568 },
+  { name: 'mobile-375', width: 375, height: 667 },
+  { name: 'large-phone-landscape', width: 844, height: 390 },
+  { name: 'laptop-1280', width: 1280, height: 720 },
+  { name: 'full-hd', width: 1920, height: 1080 },
+  { name: 'zoom-200-equivalent', width: 640, height: 720 },
+] as const;
+
+async function openV2Planner(page: import('@playwright/test').Page) {
+  await page.goto('/?delegationV2=1');
+  await page.getByTestId('multi-ai-planner-v2-open').click();
+  const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+async function createSecurityDecision(page: import('@playwright/test').Page) {
+  await page.getByLabel('依頼内容').fill('認証処理の脆弱性、秘密情報の露出、権限昇格リスクを確認してください');
+  await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
+}
+
 for (const viewport of VIEWPORTS) {
   test(`delegation v2 presents a localized usable result on ${viewport.name}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    await page.goto('/?delegationV2=1');
-
-    await page.getByTestId('multi-ai-planner-v2-open').click();
-    const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
-    await expect(dialog).toBeVisible();
+    const dialog = await openV2Planner(page);
     await expect(page.getByLabel('依頼内容')).toBeFocused();
 
-    await page.getByLabel('依頼内容').fill('認証処理の脆弱性、秘密情報の露出、権限昇格リスクを確認してください');
-    await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
+    await createSecurityDecision(page);
 
     const decisionSummary = dialog.getByTestId('delegation-decision-summary');
     await expect(decisionSummary.getByText('セキュリティレビュー担当AI', { exact: true })).toBeVisible();
@@ -66,10 +83,54 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
+for (const viewport of EXTENDED_VIEWPORTS) {
+  test(`delegation v2 reflows without clipping on ${viewport.name}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    const dialog = await openV2Planner(page);
+    await createSecurityDecision(page);
+
+    await expect(dialog.getByLabel('委譲指示')).toContainText('担当 (role): セキュリティレビュー担当AI');
+    await expect(dialog.getByLabel('委譲指示')).not.toContainText('Security Review Assistant');
+
+    const box = await dialog.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+
+    const copyButton = dialog.getByRole('button', { name: '指示をコピー' });
+    await copyButton.scrollIntoViewIfNeeded();
+    await expect(copyButton).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /ローカル監査履歴/ })).toBeVisible();
+
+    await testInfo.attach(`delegation-v2-${viewport.name}`, {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+  });
+}
+
+test('delegation v2 remains usable with reduced motion requested', async ({ page }, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const dialog = await openV2Planner(page);
+  expect(await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
+
+  await createSecurityDecision(page);
+  await expect(dialog.getByTestId('delegation-decision-summary')).toBeVisible();
+  const copyButton = dialog.getByRole('button', { name: '指示をコピー' });
+  await copyButton.scrollIntoViewIfNeeded();
+  await expect(copyButton).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /ローカル監査履歴/ })).toBeVisible();
+
+  await testInfo.attach('delegation-v2-reduced-motion', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
+
 test('delegation v2 records result, verification, and elapsed time', async ({ page }) => {
-  await page.goto('/?delegationV2=1');
-  await page.getByTestId('multi-ai-planner-v2-open').click();
-  const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
+  const dialog = await openV2Planner(page);
 
   await page.getByLabel('依頼内容').fill('認証処理のセキュリティレビューをしてください');
   await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
@@ -93,9 +154,7 @@ test('delegation v2 records result, verification, and elapsed time', async ({ pa
 });
 
 test('delegation v2 rejects invalid elapsed seconds without a persistence claim', async ({ page }) => {
-  await page.goto('/?delegationV2=1');
-  await page.getByTestId('multi-ai-planner-v2-open').click();
-  const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
+  const dialog = await openV2Planner(page);
 
   await page.getByLabel('依頼内容').fill('画面の使い勝手を確認してください');
   await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
