@@ -66,4 +66,8 @@ describe('evaluateAnswerQuality', () => {
   it('accepts an empty result set so callers can compose suites safely', () => {
     expect(() => assertQualityThreshold([])).not.toThrow();
   });
+
+  it('rejects unknown fixture identifiers instead of silently choosing a fallback', () => {
+    expect(() => getAnswerQualityFixture('unknown-fixture-v1')).toThrowError(/Unknown answer quality fixture/);
+  });
 });
