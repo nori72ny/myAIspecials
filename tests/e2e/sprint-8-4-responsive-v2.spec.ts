@@ -17,6 +17,14 @@ const EXTENDED_VIEWPORTS = [
   { name: 'zoom-200-equivalent', width: 640, height: 720 },
 ] as const;
 
+const PROVIDER_CREDENTIAL_SAMPLES = [
+  { name: 'aws', value: ['AKIA', '1234567890ABCDEF'].join('') },
+  { name: 'github', value: ['ghp_', 'abcdefghijklmnopqrstuvwx'].join('') },
+  { name: 'google', value: ['AIza', 'abcdefghijklmnopqrstuvwxyz123456'].join('') },
+  { name: 'slack', value: ['xoxb-', '1234567890-abcdefghijkl'].join('') },
+  { name: 'stripe', value: ['sk_live_', 'abcdefghijklmnop1234'].join('') },
+] as const;
+
 async function openV2Planner(page: import('@playwright/test').Page) {
   await page.goto('/?delegationV2=1');
   await page.getByTestId('multi-ai-planner-v2-open').click();
@@ -28,6 +36,14 @@ async function openV2Planner(page: import('@playwright/test').Page) {
 async function createSecurityDecision(page: import('@playwright/test').Page) {
   await page.getByLabel('依頼内容').fill('認証処理の脆弱性、秘密情報の露出、権限昇格リスクを確認してください');
   await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
+}
+
+async function expectNoSeriousAccessibilityViolations(page: import('@playwright/test').Page) {
+  const accessibility = await new AxeBuilder({ page })
+    .include('[role="dialog"]')
+    .withTags(['wcag2a', 'wcag2aa'])
+    .analyze();
+  expect(accessibility.violations.filter((item) => ['critical', 'serious'].includes(item.impact ?? ''))).toEqual([]);
 }
 
 for (const viewport of VIEWPORTS) {
@@ -59,11 +75,7 @@ for (const viewport of VIEWPORTS) {
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
 
-    const accessibility = await new AxeBuilder({ page })
-      .include('[role="dialog"]')
-      .withTags(['wcag2a', 'wcag2aa'])
-      .analyze();
-    expect(accessibility.violations.filter((item) => ['critical', 'serious'].includes(item.impact ?? ''))).toEqual([]);
+    await expectNoSeriousAccessibilityViolations(page);
 
     await testInfo.attach(`delegation-v2-${viewport.name}`, {
       body: await page.screenshot({ fullPage: true }),
@@ -103,12 +115,28 @@ for (const viewport of EXTENDED_VIEWPORTS) {
     await expect(copyButton).toBeVisible();
     await expect(dialog.getByRole('button', { name: /ローカル監査履歴/ })).toBeVisible();
 
+    await expectNoSeriousAccessibilityViolations(page);
+
     await testInfo.attach(`delegation-v2-${viewport.name}`, {
       body: await page.screenshot({ fullPage: true }),
       contentType: 'image/png',
     });
   });
 }
+
+test('delegation v2 traps forward and reverse tab navigation inside the dialog', async ({ page }) => {
+  const dialog = await openV2Planner(page);
+  const closeButton = dialog.getByRole('button', { name: '閉じる' });
+  const historyButton = dialog.getByRole('button', { name: /ローカル監査履歴/ });
+
+  await closeButton.focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(historyButton).toBeFocused();
+
+  await page.keyboard.press('Tab');
+  await expect(closeButton).toBeFocused();
+  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+});
 
 test('delegation v2 remains usable with reduced motion requested', async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -183,6 +211,22 @@ test('delegation v2 redacts synthetic secret-bearing input and restores focus', 
   await expect(dialog).toBeHidden();
   await expect(opener).toBeFocused();
 });
+
+for (const sample of PROVIDER_CREDENTIAL_SAMPLES) {
+  test(`delegation v2 removes ${sample.name} credential values from instructions and audit storage`, async ({ page }) => {
+    const dialog = await openV2Planner(page);
+    await page.getByLabel('依頼内容').fill(sample.value);
+    await expect(dialog.getByTestId('secret-redaction-warning-v2')).toBeVisible();
+
+    await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
+    await expect(dialog.getByLabel('委譲指示')).toContainText('目的 (goal): [REDACTED]');
+    await expect(dialog).not.toContainText(sample.value);
+
+    const storedHistory = await page.evaluate(() => window.localStorage.getItem('acos.multi-ai.delegation-audit.v1') ?? '');
+    expect(storedHistory).toContain('[REDACTED]');
+    expect(storedHistory).not.toContain(sample.value);
+  });
+}
 
 test('delegation v2 stays hidden on the normal URL until explicitly enabled', async ({ page }) => {
   await page.goto('/');
