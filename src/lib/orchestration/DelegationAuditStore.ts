@@ -1,4 +1,5 @@
 import type { AIRoutingDecision, AITaskRequest } from "./MultiAIOrchestrator";
+import { selectionReasonForRouting } from "./DelegationPresentation";
 
 export const DELEGATION_AUDIT_STORAGE_KEY = "acos.multi-ai.delegation-audit.v1";
 export const MAX_DELEGATION_AUDIT_RECORDS = 50;
@@ -73,15 +74,20 @@ function normalizeAuditRecord(value: unknown): DelegationAuditRecord | null {
   const elapsedSeconds = Number.isInteger(record.elapsedSeconds) && (record.elapsedSeconds ?? -1) >= 0
     ? record.elapsedSeconds
     : undefined;
+  const taskType = record.taskType as AIRoutingDecision["taskType"];
 
   return {
     id: record.id,
     createdAt: record.createdAt,
     goal: record.goal,
-    taskType: record.taskType,
+    taskType,
     selectedProvider: record.selectedProvider,
     selectedProviderName: record.selectedProviderName,
-    reason: record.reason,
+    reason: selectionReasonForRouting({
+      taskType,
+      selectedProvider: record.selectedProvider,
+      reason: record.reason,
+    }),
     verificationProvider: typeof record.verificationProvider === "string" ? record.verificationProvider : undefined,
     requiresHumanApproval: record.requiresHumanApproval,
     costClassification: "free-only",
@@ -128,7 +134,7 @@ export function createDelegationAuditRecord(
     taskType: decision.taskType,
     selectedProvider: decision.selectedProvider,
     selectedProviderName: decision.selectedProviderName,
-    reason: decision.reason,
+    reason: selectionReasonForRouting(decision),
     verificationProvider: decision.verificationProvider,
     requiresHumanApproval: decision.requiresHumanApproval,
     costClassification: "free-only",
