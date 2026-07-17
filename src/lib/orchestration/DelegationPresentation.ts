@@ -37,6 +37,8 @@ const TASK_REASON: Record<AITaskType, string> = {
   "current-information": "最新性が重要で、現在の情報と出典確認が必要な依頼として判定しました。",
 };
 
+type SelectionReasonInput = Pick<AIRoutingDecision, "taskType" | "selectedProvider" | "reason">;
+
 export function taskDisplayName(taskType: AITaskType): string {
   return TASK_LABELS[taskType];
 }
@@ -46,7 +48,7 @@ export function providerDisplayName(providerId?: string): string {
   return PROVIDER_LABELS[providerId] ?? "登録済みの専門担当AI";
 }
 
-export function selectionReason(decision: AIRoutingDecision): string {
+export function selectionReasonForRouting(decision: SelectionReasonInput): string {
   if (decision.selectedProvider === "human-approval-gate") {
     return `${TASK_REASON[decision.taskType]} 自動実行は行わず、ノリさんの明示承認を待ちます。`;
   }
@@ -60,6 +62,10 @@ export function selectionReason(decision: AIRoutingDecision): string {
   }
 
   return `${TASK_REASON[decision.taskType]} この分野を優先担当とする無料枠の専門AIを選び、別の方法または担当で結果を確認します。`;
+}
+
+export function selectionReason(decision: AIRoutingDecision): string {
+  return selectionReasonForRouting(decision);
 }
 
 export function verificationDescription(providerId?: string): string {
