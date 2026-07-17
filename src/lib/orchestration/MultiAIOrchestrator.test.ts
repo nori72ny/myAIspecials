@@ -168,7 +168,7 @@ describe("MultiAIOrchestrator", () => {
         limitations: [],
       },
     ]);
-    expect(routeTask({ goal: "料金を調査する" }, registry).selectedProvider).toBe("custom-research");
+    expect(routeTask({ goal: "料金を調査する", registry }).selectedProvider).toBe("custom-research");
   });
 
   it("does not include a secret-bearing goal in delegation instructions", () => {
@@ -177,18 +177,28 @@ describe("MultiAIOrchestrator", () => {
     const decision = routeTask(request);
     const instruction = createDelegationInstruction(request, decision);
     expect(instruction).not.toContain(privateValue);
-    expect(instruction).toContain("Goal: [REDACTED]");
+    expect(instruction).toContain("目的 (goal): [REDACTED]");
+  });
+
+  it("creates localized structured instructions without raw provider labels", () => {
+    const request = { goal: "認証処理を確認する" };
+    const instruction = createDelegationInstruction(request, routeTask(request));
+    expect(instruction).toContain("担当 (role): セキュリティレビュー担当AI");
+    expect(instruction).toContain("タスク種別 (task_type): セキュリティ確認");
+    expect(instruction).toContain("選定理由 (selection_reason):");
+    expect(instruction).not.toContain("Security Review Assistant");
+    expect(instruction).not.toContain("Task type: security");
   });
 
   it("includes every permission and cost prohibition", () => {
     const request = { goal: "実装計画を作る", requiresCodeChanges: true };
     const instruction = DelegationInstructionBuilder.build(request, routeTask(request));
-    expect(instruction).toContain("Do not merge code");
-    expect(instruction).toContain("Do not deploy code or services");
-    expect(instruction).toContain("Do not change DNS");
-    expect(instruction).toContain("Do not enter, expose, or request secrets");
-    expect(instruction).toContain("Do not activate or configure paid plans");
-    expect(instruction).toContain("Do not use paid or automatic models");
+    expect(instruction).toContain("コードをマージしないでください");
+    expect(instruction).toContain("コードやサービスをデプロイしないでください");
+    expect(instruction).toContain("DNSを変更しないでください");
+    expect(instruction).toContain("秘密情報、認証情報、APIキーを入力・表示・要求しないでください");
+    expect(instruction).toContain("有料プランを有効化・設定しないでください");
+    expect(instruction).toContain("有料モデルまたは自動選択モデルを使用しないでください");
     expect(instruction).toContain("openrouter/auto");
   });
 
