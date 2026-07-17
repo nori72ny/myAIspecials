@@ -6,6 +6,16 @@ const longSampleValue = ["abc", "def", "ghi", "jkl"].join("");
 const providerKey = ["s", "k", "-", "abcdefghijkl", "mnopqrstuv"].join("");
 const bearerValue = ["abc", ".", "def", ".", "ghi"].join("");
 
+const structuredProviderKeys = [
+  ["A", "K", "I", "A", "1234567890ABCDEF"].join(""),
+  ["g", "h", "p", "_", "abcdefghijklmnopqrstuvwxyz123456"].join(""),
+  ["github", "_pat_", "11AA22BB33CC44DD55EE66FF77GG88HH"].join(""),
+  ["A", "I", "z", "a", "SyA1234567890abcdefghijklmnopqrstuvwxyz"].join(""),
+  ["x", "o", "x", "b", "-", "1234567890-abcdefghijklmnopqrstuvwxyz"].join(""),
+  ["s", "k", "_live_", "abcdefghijklmnopqrstuvwx"].join(""),
+  ["r", "k", "_test_", "abcdefghijklmnopqrstuvwx"].join(""),
+];
+
 describe("SensitiveInputDetector", () => {
   it("detects representative sensitive input", () => {
     const inputs = [
@@ -23,6 +33,7 @@ describe("SensitiveInputDetector", () => {
       "認証情報を含みます",
       "Please paste the private key here",
       "This message contains a password",
+      ...structuredProviderKeys,
     ];
 
     for (const input of inputs) {
@@ -41,6 +52,9 @@ describe("SensitiveInputDetector", () => {
       "秘密鍵と公開鍵の違いを説明してください",
       "Explain the history of private key cryptography.",
       "Compare password policies for enterprise systems.",
+      "AKIAはAWSアクセスキーの代表的な接頭辞です",
+      "GitHub token formats such as ghp_ should be rejected.",
+      "Stripe test keys use an sk_test_ prefix.",
     ];
 
     for (const input of inputs) {
@@ -59,5 +73,14 @@ describe("SensitiveInputDetector", () => {
     expect(detection.containsSensitiveInput).toBe(true);
     expect(detection.kinds).toContain("authorization-header");
     expect(JSON.stringify(detection)).not.toContain(privateValue);
+  });
+
+  it("reports provider-key without retaining structured credential values", () => {
+    for (const privateValue of structuredProviderKeys) {
+      const detection = detectSensitiveInput(privateValue);
+      expect(detection.containsSensitiveInput).toBe(true);
+      expect(detection.kinds).toContain("provider-key");
+      expect(JSON.stringify(detection)).not.toContain(privateValue);
+    }
   });
 });
