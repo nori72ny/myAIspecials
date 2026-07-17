@@ -86,7 +86,7 @@ export default function AnswerQualityEvaluationPanel() {
         type="button"
         data-testid="answer-quality-preview-open"
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 left-5 z-[80] flex min-h-11 items-center gap-2 rounded-full bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-xl transition hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+        className="fixed bottom-5 left-5 z-[80] flex min-h-11 items-center gap-2 rounded-full bg-emerald-800 px-4 py-3 text-sm font-semibold text-white shadow-xl transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
       >
         <BarChart3 className="h-4 w-4" /> 回答品質を評価
       </button>
@@ -167,7 +167,7 @@ export default function AnswerQualityEvaluationPanel() {
                 <button
                   type="button"
                   onClick={evaluate}
-                  className="min-h-12 w-full rounded-xl bg-emerald-700 px-4 py-3 text-base font-semibold text-white hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="min-h-12 w-full rounded-xl bg-emerald-800 px-4 py-3 text-base font-semibold text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
                   この回答を評価
                 </button>
