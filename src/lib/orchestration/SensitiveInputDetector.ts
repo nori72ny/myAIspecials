@@ -18,6 +18,12 @@ const STRUCTURED_PATTERNS: readonly SensitivePattern[] = [
   { kind: "authorization-header", pattern: /\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i },
   { kind: "pem-private-key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i },
   { kind: "provider-key", pattern: /\bsk-[a-z0-9_-]{12,}\b/i },
+  { kind: "provider-key", pattern: /\bAKIA[0-9A-Z]{16}\b/ },
+  { kind: "provider-key", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/ },
+  { kind: "provider-key", pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/ },
+  { kind: "provider-key", pattern: /\bAIza[0-9A-Za-z_-]{30,}\b/ },
+  { kind: "provider-key", pattern: /\bxox[baprs]-[0-9A-Za-z-]{10,}\b/ },
+  { kind: "provider-key", pattern: /\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b/ },
   { kind: "provider-key", pattern: /\b(?:api[_ -]?key|access[_ -]?key|client[_ -]?secret|private[_ -]?key)\s*[:=]\s*[^\s,;]{6,}/i },
   { kind: "provider-key", pattern: /\b(?:jwt|oauth|bearer)\s*[:=]\s*[^\s,;]{8,}/i },
 ];
