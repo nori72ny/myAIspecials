@@ -219,8 +219,9 @@ for (const sample of PROVIDER_CREDENTIAL_SAMPLES) {
     await expect(dialog.getByTestId('secret-redaction-warning-v2')).toBeVisible();
 
     await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
-    await expect(dialog.getByLabel('委譲指示')).toContainText('目的 (goal): [REDACTED]');
-    await expect(dialog).not.toContainText(sample.value);
+    const instruction = dialog.getByLabel('委譲指示');
+    await expect(instruction).toContainText('目的 (goal): [REDACTED]');
+    await expect(instruction).not.toContainText(sample.value);
 
     const storedHistory = await page.evaluate(() => window.localStorage.getItem('acos.multi-ai.delegation-audit.v1') ?? '');
     expect(storedHistory).toContain('[REDACTED]');
