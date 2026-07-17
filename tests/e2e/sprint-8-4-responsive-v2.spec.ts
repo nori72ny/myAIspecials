@@ -30,6 +30,13 @@ for (const viewport of VIEWPORTS) {
     await expect(decisionSummary).not.toContainText('Security Review Assistant');
     await expect(decisionSummary).not.toContainText('>security<');
 
+    const instruction = dialog.getByLabel('委譲指示');
+    await expect(instruction).toContainText('担当 (role): セキュリティレビュー担当AI');
+    await expect(instruction).toContainText('タスク種別 (task_type): セキュリティ確認');
+    await expect(instruction).toContainText('安全上の必須事項と禁止事項');
+    await expect(instruction).not.toContainText('Security Review Assistant');
+    await expect(instruction).not.toContainText('Task type: security');
+
     const box = await dialog.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -45,6 +52,17 @@ for (const viewport of VIEWPORTS) {
       body: await page.screenshot({ fullPage: true }),
       contentType: 'image/png',
     });
+
+    if (viewport.name === 'mobile') {
+      const copyButton = dialog.getByRole('button', { name: '指示をコピー' });
+      await copyButton.scrollIntoViewIfNeeded();
+      await expect(copyButton).toBeVisible();
+      await expect(dialog.getByRole('button', { name: /ローカル監査履歴/ })).toBeVisible();
+      await testInfo.attach('delegation-v2-mobile-actions', {
+        body: await page.screenshot({ fullPage: true }),
+        contentType: 'image/png',
+      });
+    }
   });
 }
 
@@ -99,7 +117,7 @@ test('delegation v2 redacts synthetic secret-bearing input and restores focus', 
   await page.getByLabel('依頼内容').fill('Authorization: Bearer sample-private-value');
   await expect(dialog.getByTestId('secret-redaction-warning-v2')).toBeVisible();
   await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
-  await expect(dialog.getByLabel('委譲指示')).toContainText('Goal: [REDACTED]');
+  await expect(dialog.getByLabel('委譲指示')).toContainText('目的 (goal): [REDACTED]');
   await expect(dialog.getByLabel('委譲指示')).not.toContainText('sample-private-value');
 
   await page.keyboard.press('Escape');
