@@ -100,15 +100,15 @@ test.describe('Multi-AI delegation planner presentation', () => {
     for (const providerId of INTERNAL_PROVIDER_IDS) await expect(dialog).not.toContainText(providerId);
 
     const instruction = dialog.locator('pre');
-    await expect(instruction).toContainText('Role: AI Studio Primary');
-    await expect(instruction).toContainText('Selection reason:');
-    await expect(instruction).toContainText('SAFETY MANDATES & PROHIBITIONS:');
+    await expect(instruction).toContainText('担当 (role): 実装・開発担当AI');
+    await expect(instruction).toContainText('選定理由 (selection_reason):');
+    await expect(instruction).toContainText('安全上の必須事項と禁止事項 (safety_mandates):');
     await expect(instruction).toHaveCSS('white-space', 'pre-wrap');
 
     const instructionText = await instruction.innerText();
     expect(instructionText.split('\n').length).toBeGreaterThanOrEqual(12);
-    expect(instructionText).toContain('\n- Do not merge code.\n');
-    expect(instructionText).toContain('\n- Do not deploy code or services.\n');
+    expect(instructionText).toContain('\n- コードをマージしないでください。\n');
+    expect(instructionText).toContain('\n- コードやサービスをデプロイしないでください。\n');
 
     const providerName = dialog.getByText('AI Studio Primary', { exact: true });
     expect(Number.parseFloat(await providerName.evaluate((element) => getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
@@ -131,7 +131,7 @@ test.describe('Multi-AI delegation planner presentation', () => {
     await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
 
     const instruction = dialog.locator('pre');
-    await expect(instruction).toContainText('Goal: [REDACTED]');
+    await expect(instruction).toContainText('目的 (goal): [REDACTED]');
     await expect(instruction).not.toContainText(privateValue);
 
     const stored = await page.evaluate(() => window.localStorage.getItem('acos.multi-ai.delegation-audit.v1'));
@@ -157,7 +157,7 @@ test.describe('Multi-AI delegation planner presentation', () => {
 
     await expect(dialog.getByText('AI Studio Primary', { exact: true })).toBeVisible();
     await expect(dialog.getByTestId('audit-storage-warning')).toContainText('監査履歴を保存できません');
-    await expect(dialog.locator('pre')).toContainText('Role: AI Studio Primary');
+    await expect(dialog.locator('pre')).toContainText('担当 (role): 実装・開発担当AI');
 
     await testInfo.attach('sprint-8-3-storage-denied.png', { body: await dialog.screenshot(), contentType: 'image/png' });
   });
