@@ -1,9 +1,11 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import AnswerQualityEvaluationPanel from './components/AnswerQualityEvaluationPanel';
 import SettingsEventBridge from './components/SettingsEventBridge';
 import MultiAIDelegationPanel from './components/MultiAIDelegationPanel';
 import MultiAIDelegationPanelV2 from './components/MultiAIDelegationPanelV2';
+import {shouldUseAnswerQualityPreview} from './lib/evaluation/AnswerQualityPreviewMode';
 import {shouldUseDelegationV2Preview} from './lib/orchestration/DelegationPreviewMode';
 import './index.css';
 
@@ -23,11 +25,14 @@ if (typeof window !== "undefined" && (window as any).trustedTypes && (window as 
 
 const useDelegationV2Preview = typeof window !== 'undefined'
   && shouldUseDelegationV2Preview(window.location.search);
+const useAnswerQualityPreview = typeof window !== 'undefined'
+  && shouldUseAnswerQualityPreview(window.location.search);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
     <SettingsEventBridge />
     {useDelegationV2Preview ? <MultiAIDelegationPanelV2 /> : <MultiAIDelegationPanel />}
+    {useAnswerQualityPreview && <AnswerQualityEvaluationPanel />}
   </StrictMode>,
 );
