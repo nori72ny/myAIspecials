@@ -205,7 +205,7 @@ export default function MultiAIDelegationPanelV2() {
   const beginResultEntry = (record: DelegationAuditRecord) => {
     setEditingId(record.id);
     setResultStatus(record.resultStatus === "pending" ? "success" : record.resultStatus);
-    setVerificationStatus(record.verificationStatus === "not-required" ? "not-required" : "passed");
+    setVerificationStatus(record.verificationStatus);
     setElapsedSeconds(record.elapsedSeconds?.toString() ?? "");
     setError("");
   };
