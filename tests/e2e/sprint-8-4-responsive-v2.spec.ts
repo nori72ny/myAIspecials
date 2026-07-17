@@ -9,7 +9,7 @@ const VIEWPORTS = [
 ] as const;
 
 for (const viewport of VIEWPORTS) {
-  test(`delegation v2 presents a localized usable result on ${viewport.name}`, async ({ page }) => {
+  test(`delegation v2 presents a localized usable result on ${viewport.name}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto('/?delegationV2=1');
 
@@ -40,6 +40,11 @@ for (const viewport of VIEWPORTS) {
       .withTags(['wcag2a', 'wcag2aa'])
       .analyze();
     expect(accessibility.violations.filter((item) => ['critical', 'serious'].includes(item.impact ?? ''))).toEqual([]);
+
+    await testInfo.attach(`delegation-v2-${viewport.name}`, {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
   });
 }
 
