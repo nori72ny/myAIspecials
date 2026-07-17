@@ -52,6 +52,11 @@ function createRecord(goal = "APIを実装", containsSecrets = false) {
   );
 }
 
+function expectSuccess<T>(result: { ok: boolean; value: T }): T {
+  expect(result.ok).toBe(true);
+  return result.value;
+}
+
 describe("DelegationAuditStore", () => {
   it("creates pending lifecycle defaults", () => {
     const record = createRecord();
@@ -60,17 +65,34 @@ describe("DelegationAuditStore", () => {
     expect(record.elapsedSeconds).toBeUndefined();
   });
 
+  it("stores a user-facing Japanese reason", () => {
+    expect(createRecord().reason).toBe("実装タスクの第一候補で、無料枠が利用可能なため選択しました。");
+  });
+
+  it("migrates a legacy internal English reason while reading history", () => {
+    const storage = new MemoryStorage();
+    const legacy = {
+      ...createRecord(),
+      reason: "Selected AI Studio Primary because it is the preferred implementation provider.",
+    };
+    storage.setItem("acos.multi-ai.delegation-audit.v1", JSON.stringify([legacy]));
+
+    const records = expectSuccess(readDelegationAudit(storage));
+    expect(records[0].reason).toBe("実装タスクの第一候補で、無料枠が利用可能なため選択しました。");
+    expect(JSON.stringify(records[0])).not.toContain("Selected AI Studio Primary");
+  });
+
   it("updates result, verification, and elapsed time", () => {
     const storage = new MemoryStorage();
     const record = createRecord();
     appendDelegationAudit(storage, record);
 
-    const records = updateDelegationAuditRecord(storage, record.id, {
+    const records = expectSuccess(updateDelegationAuditRecord(storage, record.id, {
       resultStatus: "success",
       verificationStatus: "passed",
       elapsedSeconds: 42,
       completedAt: "2026-07-14T00:01:00.000Z",
-    });
+    }));
 
     expect(records[0].resultStatus).toBe("success");
     expect(records[0].verificationStatus).toBe("passed");
@@ -83,25 +105,25 @@ describe("DelegationAuditStore", () => {
     const record = createRecord();
     appendDelegationAudit(storage, record);
 
-    const records = updateDelegationAuditRecord(storage, record.id, {
+    const records = expectSuccess(updateDelegationAuditRecord(storage, record.id, {
       resultStatus: "failed",
       verificationStatus: "failed",
       elapsedSeconds: -1,
-    });
+    }));
 
     expect(records[0].resultStatus).toBe("pending");
-    expect(readDelegationAudit(storage)[0].elapsedSeconds).toBeUndefined();
+    expect(expectSuccess(readDelegationAudit(storage))[0].elapsedSeconds).toBeUndefined();
   });
 
   it("leaves history unchanged when the record ID is missing", () => {
     const storage = new MemoryStorage();
     const record = createRecord();
     appendDelegationAudit(storage, record);
-    const records = updateDelegationAuditRecord(storage, "missing", {
+    const records = expectSuccess(updateDelegationAuditRecord(storage, "missing", {
       resultStatus: "success",
       verificationStatus: "passed",
       elapsedSeconds: 5,
-    });
+    }));
     expect(records).toEqual([record]);
   });
 
@@ -109,11 +131,11 @@ describe("DelegationAuditStore", () => {
     const storage = new MemoryStorage();
     const record = createRecord("APIキー secret-value を確認", true);
     appendDelegationAudit(storage, record);
-    const records = updateDelegationAuditRecord(storage, record.id, {
+    const records = expectSuccess(updateDelegationAuditRecord(storage, record.id, {
       resultStatus: "changes-required",
       verificationStatus: "failed",
       elapsedSeconds: 12,
-    });
+    }));
     expect(records[0].goal).toBe("[REDACTED]");
     expect(JSON.stringify(records[0])).not.toContain("secret-value");
   });
@@ -124,7 +146,7 @@ describe("DelegationAuditStore", () => {
       const record = { ...createRecord(), id: `record-${index}`, createdAt: `2026-07-14T00:00:${String(index).padStart(2, "0")}.000Z` };
       appendDelegationAudit(storage, record);
     }
-    const records = readDelegationAudit(storage);
+    const records = expectSuccess(readDelegationAudit(storage));
     expect(records).toHaveLength(MAX_DELEGATION_AUDIT_RECORDS);
     expect(records[0].id).toBe("record-54");
   });
@@ -132,19 +154,62 @@ describe("DelegationAuditStore", () => {
   it("ignores invalid stored data and migrates older valid records", () => {
     const storage = new MemoryStorage();
     storage.setItem("acos.multi-ai.delegation-audit.v1", "not-json");
-    expect(readDelegationAudit(storage)).toEqual([]);
+    const invalid = readDelegationAudit(storage);
+    expect(invalid.ok).toBe(false);
+    expect(invalid.value).toEqual([]);
 
     const legacy = JSON.parse(JSON.stringify(createRecord())) as Record<string, unknown>;
     delete legacy.resultStatus;
     delete legacy.verificationStatus;
     storage.setItem("acos.multi-ai.delegation-audit.v1", JSON.stringify([legacy]));
-    expect(readDelegationAudit(storage)[0].resultStatus).toBe("pending");
+    expect(expectSuccess(readDelegationAudit(storage))[0].resultStatus).toBe("pending");
+  });
+
+  it("returns read-failed instead of treating a denied read as empty history", () => {
+    const result = readDelegationAudit({
+      getItem() { throw new DOMException("denied", "SecurityError"); },
+      setItem() {},
+      removeItem() {},
+    });
+    expect(result).toEqual({ ok: false, value: [], reason: "read-failed" });
+  });
+
+  it("returns write-failed without claiming persistence", () => {
+    const storage: AuditStorage = {
+      getItem() { return null; },
+      setItem() { throw new DOMException("denied", "SecurityError"); },
+      removeItem() {},
+    };
+    const result = appendDelegationAudit(storage, createRecord());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("write-failed");
+    expect(result.value).toHaveLength(1);
+  });
+
+  it("returns quota-exceeded for browser quota failures", () => {
+    const storage: AuditStorage = {
+      getItem() { return null; },
+      setItem() { throw new DOMException("full", "QuotaExceededError"); },
+      removeItem() {},
+    };
+    const result = appendDelegationAudit(storage, createRecord());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("quota-exceeded");
+  });
+
+  it("returns remove-failed when history cannot be cleared", () => {
+    const result = clearDelegationAudit({
+      getItem() { return null; },
+      setItem() {},
+      removeItem() { throw new DOMException("denied", "SecurityError"); },
+    });
+    expect(result).toEqual({ ok: false, value: [], reason: "remove-failed" });
   });
 
   it("clears local history", () => {
     const storage = new MemoryStorage();
     appendDelegationAudit(storage, createRecord());
-    clearDelegationAudit(storage);
-    expect(readDelegationAudit(storage)).toEqual([]);
+    expect(clearDelegationAudit(storage).ok).toBe(true);
+    expect(expectSuccess(readDelegationAudit(storage))).toEqual([]);
   });
 });

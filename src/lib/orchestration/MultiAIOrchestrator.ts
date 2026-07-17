@@ -1,3 +1,5 @@
+import { providerDisplayName, selectionReason, taskDisplayName } from "./DelegationPresentation";
+
 export type AITaskType =
   | "implementation"
   | "review"
@@ -352,28 +354,26 @@ export class DelegationInstructionBuilder {
 }
 
 export function createDelegationInstruction(request: AITaskRequest, decision: AIRoutingDecision): string {
-  const safeGoal = request.containsSecrets
-    ? "機密情報を除去した要約を人間が入力してください"
-    : request.goal.trim();
+  const safeGoal = request.containsSecrets ? "[REDACTED]" : request.goal.trim();
   const approvalRule = decision.requiresHumanApproval
-    ? "Stop before any privileged operation and request explicit owner approval."
-    : "Continue only within the listed non-privileged task scope.";
+    ? "権限を伴う操作の前で停止し、所有者の明示承認を求めてください。"
+    : "記載された権限不要の作業範囲内だけで進めてください。";
 
   return [
-    `Role: ${decision.selectedProviderName}`,
-    `Task type: ${decision.taskType}`,
-    `Goal: ${safeGoal}`,
-    `Selection reason: ${decision.reason}`,
-    "Cost policy: Use free-only capabilities. Never select paid or automatic models, including openrouter/auto.",
-    "Context policy: Use only the minimum context required and never expose credentials.",
-    approvalRule,
-    "SAFETY MANDATES & PROHIBITIONS:",
-    "- Do not merge code.",
-    "- Do not deploy code or services.",
-    "- Do not change DNS.",
-    "- Do not enter, expose, or request secrets, credentials, or API keys.",
-    "- Do not activate or configure paid plans.",
-    "- Do not use paid or automatic models.",
-    "Report changed files, tests, remaining risks, and the final commit SHA when applicable.",
+    `担当 (role): ${providerDisplayName(decision.selectedProvider)}`,
+    `タスク種別 (task_type): ${taskDisplayName(decision.taskType)}`,
+    `目的 (goal): ${safeGoal}`,
+    `選定理由 (selection_reason): ${selectionReason(decision)}`,
+    "費用方針 (cost_policy): 無料枠の機能だけを使用してください。openrouter/autoを含む有料モデル・自動選択モデルは使用しないでください。",
+    "情報方針 (context_policy): 必要最小限の情報だけを使用し、認証情報を入力・表示・要求しないでください。",
+    `承認方針 (approval_policy): ${approvalRule}`,
+    "安全上の必須事項と禁止事項 (safety_mandates):",
+    "- コードをマージしないでください。",
+    "- コードやサービスをデプロイしないでください。",
+    "- DNSを変更しないでください。",
+    "- 秘密情報、認証情報、APIキーを入力・表示・要求しないでください。",
+    "- 有料プランを有効化・設定しないでください。",
+    "- 有料モデルまたは自動選択モデルを使用しないでください。",
+    "該当する場合は、変更ファイル、実行したテスト、残存リスク、最終コミットSHAを報告してください。",
   ].join("\n");
 }

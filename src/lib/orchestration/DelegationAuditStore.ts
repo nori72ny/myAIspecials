@@ -1,10 +1,21 @@
 import type { AIRoutingDecision, AITaskRequest } from "./MultiAIOrchestrator";
+import { selectionReasonForRouting } from "./DelegationPresentation";
 
 export const DELEGATION_AUDIT_STORAGE_KEY = "acos.multi-ai.delegation-audit.v1";
 export const MAX_DELEGATION_AUDIT_RECORDS = 50;
 
 export type DelegationResultStatus = "pending" | "success" | "changes-required" | "failed";
 export type DelegationVerificationStatus = "not-required" | "pending" | "passed" | "failed";
+export type AuditStorageFailureReason =
+  | "unavailable"
+  | "read-failed"
+  | "write-failed"
+  | "remove-failed"
+  | "quota-exceeded";
+
+export type AuditStorageResult<T> =
+  | { ok: true; value: T; reason?: never }
+  | { ok: false; value: T; reason: AuditStorageFailureReason };
 
 export interface DelegationAuditRecord {
   id: string;
@@ -63,15 +74,20 @@ function normalizeAuditRecord(value: unknown): DelegationAuditRecord | null {
   const elapsedSeconds = Number.isInteger(record.elapsedSeconds) && (record.elapsedSeconds ?? -1) >= 0
     ? record.elapsedSeconds
     : undefined;
+  const taskType = record.taskType as AIRoutingDecision["taskType"];
 
   return {
     id: record.id,
     createdAt: record.createdAt,
     goal: record.goal,
-    taskType: record.taskType,
+    taskType,
     selectedProvider: record.selectedProvider,
     selectedProviderName: record.selectedProviderName,
-    reason: record.reason,
+    reason: selectionReasonForRouting({
+      taskType,
+      selectedProvider: record.selectedProvider,
+      reason: record.reason,
+    }),
     verificationProvider: typeof record.verificationProvider === "string" ? record.verificationProvider : undefined,
     requiresHumanApproval: record.requiresHumanApproval,
     costClassification: "free-only",
@@ -82,18 +98,27 @@ function normalizeAuditRecord(value: unknown): DelegationAuditRecord | null {
   };
 }
 
-export function readDelegationAudit(storage: AuditStorage): DelegationAuditRecord[] {
+function writeFailureReason(error: unknown): AuditStorageFailureReason {
+  return error instanceof DOMException && error.name === "QuotaExceededError"
+    ? "quota-exceeded"
+    : "write-failed";
+}
+
+export function readDelegationAudit(storage: AuditStorage): AuditStorageResult<DelegationAuditRecord[]> {
   try {
     const raw = storage.getItem(DELEGATION_AUDIT_STORAGE_KEY);
-    if (!raw) return [];
+    if (!raw) return { ok: true, value: [] };
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(normalizeAuditRecord)
-      .filter((record): record is DelegationAuditRecord => record !== null)
-      .slice(0, MAX_DELEGATION_AUDIT_RECORDS);
+    if (!Array.isArray(parsed)) return { ok: true, value: [] };
+    return {
+      ok: true,
+      value: parsed
+        .map(normalizeAuditRecord)
+        .filter((record): record is DelegationAuditRecord => record !== null)
+        .slice(0, MAX_DELEGATION_AUDIT_RECORDS),
+    };
   } catch {
-    return [];
+    return { ok: false, value: [], reason: "read-failed" };
   }
 }
 
@@ -109,7 +134,7 @@ export function createDelegationAuditRecord(
     taskType: decision.taskType,
     selectedProvider: decision.selectedProvider,
     selectedProviderName: decision.selectedProviderName,
-    reason: decision.reason,
+    reason: selectionReasonForRouting(decision),
     verificationProvider: decision.verificationProvider,
     requiresHumanApproval: decision.requiresHumanApproval,
     costClassification: "free-only",
@@ -121,24 +146,31 @@ export function createDelegationAuditRecord(
 export function appendDelegationAudit(
   storage: AuditStorage,
   record: DelegationAuditRecord,
-): DelegationAuditRecord[] {
-  const next = [record, ...readDelegationAudit(storage)].slice(0, MAX_DELEGATION_AUDIT_RECORDS);
-  storage.setItem(DELEGATION_AUDIT_STORAGE_KEY, JSON.stringify(next));
-  return next;
+): AuditStorageResult<DelegationAuditRecord[]> {
+  const current = readDelegationAudit(storage);
+  if (!current.ok) return { ...current, value: [record] };
+  const next = [record, ...current.value].slice(0, MAX_DELEGATION_AUDIT_RECORDS);
+  try {
+    storage.setItem(DELEGATION_AUDIT_STORAGE_KEY, JSON.stringify(next));
+    return { ok: true, value: next };
+  } catch (error) {
+    return { ok: false, value: next, reason: writeFailureReason(error) };
+  }
 }
 
 export function updateDelegationAuditRecord(
   storage: AuditStorage,
   id: string,
   update: DelegationAuditUpdate,
-): DelegationAuditRecord[] {
+): AuditStorageResult<DelegationAuditRecord[]> {
   const current = readDelegationAudit(storage);
+  if (!current.ok) return current;
   if (!Number.isInteger(update.elapsedSeconds) || update.elapsedSeconds < 0) return current;
-  const index = current.findIndex((record) => record.id === id);
-  const existing = current[index];
+  const index = current.value.findIndex((record) => record.id === id);
+  const existing = current.value[index];
   if (index < 0 || !existing) return current;
 
-  const next = [...current];
+  const next = [...current.value];
   next[index] = {
     ...existing,
     resultStatus: update.resultStatus,
@@ -146,10 +178,19 @@ export function updateDelegationAuditRecord(
     elapsedSeconds: update.elapsedSeconds,
     completedAt: update.completedAt ?? new Date().toISOString(),
   };
-  storage.setItem(DELEGATION_AUDIT_STORAGE_KEY, JSON.stringify(next));
-  return next;
+  try {
+    storage.setItem(DELEGATION_AUDIT_STORAGE_KEY, JSON.stringify(next));
+    return { ok: true, value: next };
+  } catch (error) {
+    return { ok: false, value: next, reason: writeFailureReason(error) };
+  }
 }
 
-export function clearDelegationAudit(storage: AuditStorage): void {
-  storage.removeItem(DELEGATION_AUDIT_STORAGE_KEY);
+export function clearDelegationAudit(storage: AuditStorage): AuditStorageResult<DelegationAuditRecord[]> {
+  try {
+    storage.removeItem(DELEGATION_AUDIT_STORAGE_KEY);
+    return { ok: true, value: [] };
+  } catch {
+    return { ok: false, value: [], reason: "remove-failed" };
+  }
 }
