@@ -52,7 +52,7 @@ describe("MultiAIDelegationPanel routing contract", () => {
     const decision = routeTask(request, plannerProfiles);
     const instruction = createDelegationInstruction(request, decision);
 
-    expect(instruction).toContain("Goal: [REDACTED]");
+    expect(instruction).toContain("目的 (goal): [REDACTED]");
     expect(instruction).not.toContain("secret-value");
   });
 });
