@@ -18,7 +18,7 @@ for (const viewport of VIEWPORTS) {
     await expect(dialog).toBeVisible();
     await expect(page.getByLabel('依頼内容')).toBeFocused();
 
-    await page.getByLabel('依頼内容').fill('認証処理のセキュリティと権限設計を確認してください');
+    await page.getByLabel('依頼内容').fill('認証処理の脆弱性、秘密情報の露出、権限昇格リスクを確認してください');
     await page.getByRole('button', { name: '担当と確認方法を判定' }).click();
 
     await expect(dialog.getByText('セキュリティレビュー担当AI', { exact: true })).toBeVisible();
