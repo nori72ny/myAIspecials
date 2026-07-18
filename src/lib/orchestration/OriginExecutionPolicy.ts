@@ -77,12 +77,12 @@ function normalizePolicy(policy?: Partial<OriginExecutionPolicy>): OriginExecuti
   const maxEstimatedCostUsd = policy?.maxEstimatedCostUsd ?? DEFAULT_ORIGIN_EXECUTION_POLICY.maxEstimatedCostUsd;
   const timeoutMs = policy?.timeoutMs ?? DEFAULT_ORIGIN_EXECUTION_POLICY.timeoutMs;
 
-  if (!Number.isFinite(maxEstimatedCostUsd) || maxEstimatedCostUsd < 0) return null;
+  if (!Number.isFinite(maxEstimatedCostUsd) || maxEstimatedCostUsd !== 0) return null;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 120_000) return null;
 
   return {
     freeOnly: true,
-    maxEstimatedCostUsd,
+    maxEstimatedCostUsd: 0,
     timeoutMs,
   };
 }
