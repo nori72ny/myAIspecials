@@ -77,7 +77,7 @@ describe("executeOriginProvider", () => {
 
       expect(body.model).toBe("moonshotai/kimi-k2.6:free");
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
-      expect(body.usage).toEqual({ include: true });
+      expect(body.usage).toBeUndefined();
       expect(body.provider).toEqual({
         allow_fallbacks: false,
         data_collection: "deny",
@@ -89,7 +89,7 @@ describe("executeOriginProvider", () => {
           image: 0,
         },
       });
-      expect(headers["X-OpenRouter-Title"]).toBe("ORIGIN Personal");
+      expect(headers["X-Title"]).toBe("ORIGIN Personal");
       expect(headers["X-OpenRouter-Metadata"]).toBe("enabled");
       expect(headers["HTTP-Referer"]).toBeUndefined();
 
@@ -242,12 +242,66 @@ describe("executeOriginProvider", () => {
         strategy: "fallback",
         attempt: 2,
         endpoints: {
-          available: [{ provider: "Second Provider", selected: true }],
+          available: [{ provider: "Second Provider", model: ORIGIN_OPENROUTER_FREE_MODEL, selected: true }],
         },
         attempts: [
-          { provider: "First Provider", status: 503 },
-          { provider: "Second Provider", status: 200 },
+          { provider: "First Provider", model: ORIGIN_OPENROUTER_FREE_MODEL, status: 503 },
+          { provider: "Second Provider", model: ORIGIN_OPENROUTER_FREE_MODEL, status: 200 },
         ],
+      },
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_ROUTING_UNVERIFIED",
+      retryable: false,
+    });
+  });
+
+  it("rejects inconsistent served-model or selected-endpoint evidence", async () => {
+    const payload = successfulProviderPayload({
+      model: "unexpected/served-model:free",
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_ROUTING_UNVERIFIED",
+      retryable: false,
+    });
+  });
+
+  it("rejects inconsistent single-attempt evidence", async () => {
+    const payload = successfulProviderPayload({
+      openrouter_metadata: {
+        requested: ORIGIN_OPENROUTER_FREE_MODEL,
+        strategy: "free",
+        attempt: 1,
+        endpoints: {
+          available: [{
+            provider: "Synthetic ZDR Provider",
+            model: ORIGIN_OPENROUTER_FREE_MODEL,
+            selected: true,
+          }],
+        },
+        attempts: [{
+          provider: "Different Provider",
+          model: ORIGIN_OPENROUTER_FREE_MODEL,
+          status: 200,
+        }],
       },
     });
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
