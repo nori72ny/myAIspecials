@@ -22,6 +22,12 @@ export interface OriginExecutionPolicy {
   timeoutMs: number;
 }
 
+export interface OriginProviderDataPolicy {
+  allowProviderFallbacks: false;
+  dataCollection: "deny";
+  requireZeroDataRetention: true;
+}
+
 export interface OriginExecutionPlan {
   providerId: OriginExecutionProviderId;
   providerLabel: string;
@@ -32,6 +38,7 @@ export interface OriginExecutionPlan {
   timeoutMs: number;
   requiresOwnerApproval: false;
   reason: string;
+  providerDataPolicy: OriginProviderDataPolicy;
   modelEvidence: {
     verifiedAt: string;
     reviewAfter: string;
@@ -58,6 +65,12 @@ export const DEFAULT_ORIGIN_EXECUTION_POLICY: OriginExecutionPolicy = {
   freeOnly: true,
   maxEstimatedCostUsd: 0,
   timeoutMs: 30_000,
+};
+
+export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = {
+  allowProviderFallbacks: false,
+  dataCollection: "deny",
+  requireZeroDataRetention: true,
 };
 
 function normalizePolicy(policy?: Partial<OriginExecutionPolicy>): OriginExecutionPolicy | null {
@@ -118,6 +131,7 @@ export function buildOriginExecutionPlan(
       timeoutMs: policy.timeoutMs,
       requiresOwnerApproval: false,
       reason: `依頼を「${taskType}」として分類し、公式ページで無料状態を確認した明示的な無料モデルを選択しました。これは品質優位性の主張ではありません。`,
+      providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
       modelEvidence: {
         verifiedAt: model.verifiedAt,
         reviewAfter: model.reviewAfter,
