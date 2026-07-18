@@ -63,6 +63,32 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
+  it("does not block ordinary credential-safety advice in prior assistant history", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [
+        { role: "ai", content: "APIキーは共有せず、安全な保管方法を確認してください。" },
+        { role: "user", content: "では一般的な確認手順をまとめてください" },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still blocks structured secret patterns found in prior assistant history", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [
+        { role: "assistant", content: "Authorization: Bearer synthetic_assistant_secret_123456" },
+        { role: "user", content: "続けてください" },
+      ],
+    });
+
+    expect(response.status).toBe(422);
+    expect(response.body.sensitiveKinds).toContain("authorization-header");
+    expect(JSON.stringify(response.body)).not.toContain("synthetic_assistant_secret_123456");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
   it("executes only the selected explicit free plan and returns matching metadata", async () => {
     const response = await request(createApp(execute)).post("/api/chat").send({
       messages: [{ role: "user", content: "認証処理をレビューしてください" }],
