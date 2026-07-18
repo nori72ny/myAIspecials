@@ -3,6 +3,8 @@ import "dotenv/config";
 
 // Legacy imports
 import { createLegacyRouter } from "../src/legacy/legacyRoutes";
+import { originChatBoundaryGuard } from "../src/legacy/originChatBoundaryGuard";
+import { createOriginChatRouter } from "../src/legacy/originChatRouter";
 
 // New architecture imports (Mission Engine)
 import { initMissionEngine } from "../services/mission-engine/src/index";
@@ -10,10 +12,14 @@ import { initMissionEngine } from "../services/mission-engine/src/index";
 const app = express();
 app.use(express.json());
 
-// 1. Mount Legacy Endpoints (/api/generate-image, /api/analyze)
+// The serverless entrypoint must use the same authoritative chat path as server.ts.
+app.use(createOriginChatRouter());
+app.all("/api/chat", originChatBoundaryGuard);
+
+// Mount remaining legacy endpoints only after the protected chat boundary.
 app.use(createLegacyRouter());
 
-// 2. Mount New Mission Engine API (/api/v1/...)
+// Mount New Mission Engine API (/api/v1/...)
 app.use("/api/v1", initMissionEngine());
 
 // Export the Express app as a serverless function
