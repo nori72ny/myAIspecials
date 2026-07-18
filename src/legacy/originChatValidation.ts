@@ -1,4 +1,8 @@
 import type { OriginExecutionPolicy } from "../lib/orchestration/OriginExecutionPolicy";
+import {
+  detectSensitiveInput,
+  type SensitiveInputKind,
+} from "../lib/orchestration/SensitiveInputDetector";
 import type { OriginChatMessage } from "./originProviderClient";
 
 export interface OriginChatBody {
@@ -24,6 +28,15 @@ export function validateOriginChatMessages(value: unknown): OriginChatMessage[] 
   }
 
   return messages;
+}
+
+export function detectSensitiveConversation(messages: OriginChatMessage[]): SensitiveInputKind[] {
+  const kinds = new Set<SensitiveInputKind>();
+  for (const message of messages) {
+    const detection = detectSensitiveInput(message.content);
+    for (const kind of detection.kinds) kinds.add(kind);
+  }
+  return Array.from(kinds);
 }
 
 export function originClientPolicy(body: OriginChatBody): Partial<OriginExecutionPolicy> | undefined {
