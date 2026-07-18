@@ -38,12 +38,12 @@ describe("executeOriginProvider", () => {
         choices: [{ message: { content: "確認結果です。" } }],
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
       }), { status: 200, headers: { "Content-Type": "application/json" } });
-    }) as OriginFetch;
+    });
 
     const result = await executeOriginProvider(
       request,
       { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock,
+      fetchMock as unknown as OriginFetch,
     );
 
     expect(result).toEqual({
@@ -55,9 +55,13 @@ describe("executeOriginProvider", () => {
   });
 
   it("fails closed instead of attempting another provider when unconfigured", async () => {
-    const fetchMock = vi.fn() as unknown as OriginFetch;
+    const fetchMock = vi.fn();
 
-    await expect(executeOriginProvider(request, {}, fetchMock)).rejects.toMatchObject({
+    await expect(executeOriginProvider(
+      request,
+      {},
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
       code: "PROVIDER_NOT_CONFIGURED",
       status: 503,
       retryable: false,
@@ -66,25 +70,27 @@ describe("executeOriginProvider", () => {
   });
 
   it("rejects a non-free or unexpected execution plan before network access", async () => {
-    const fetchMock = vi.fn() as unknown as OriginFetch;
+    const fetchMock = vi.fn();
     const unsafePlan = {
       ...plan,
       modelId: "google/gemini-2.5-flash",
     } as unknown as OriginExecutionPlan;
 
-    await expect(executeOriginProvider({ ...request, plan: unsafePlan }, {
-      OPENROUTER_API_KEY: "synthetic-test-key",
-    }, fetchMock)).rejects.toBeInstanceOf(OriginProviderError);
+    await expect(executeOriginProvider(
+      { ...request, plan: unsafePlan },
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toBeInstanceOf(OriginProviderError);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("normalizes provider errors without including provider response content", async () => {
-    const fetchMock = vi.fn(async () => new Response("synthetic provider body", { status: 429 })) as OriginFetch;
+    const fetchMock = vi.fn(async () => new Response("synthetic provider body", { status: 429 }));
 
     await expect(executeOriginProvider(
       request,
       { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock,
+      fetchMock as unknown as OriginFetch,
     )).rejects.toMatchObject({
       code: "PROVIDER_RATE_LIMITED",
       status: 429,
