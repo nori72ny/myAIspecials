@@ -1,4 +1,7 @@
-import type { OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
+import type {
+  OriginExecutionPlan,
+  OriginProviderDataPolicy,
+} from "../lib/orchestration/OriginExecutionPolicy";
 
 export interface OriginChatMessage {
   role: "user" | "ai" | "assistant" | "model";
@@ -14,16 +17,19 @@ export interface OriginProviderExecutionRequest {
 export interface OriginProviderExecutionResult {
   text: string;
   actualCostUsd: 0;
-  usage?: {
+  providerDataPolicy: OriginProviderDataPolicy;
+  usage: {
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
+    costUsd: 0;
   };
 }
 
 export type OriginProviderErrorCode =
   | "PROVIDER_NOT_CONFIGURED"
   | "PROVIDER_POLICY_VIOLATION"
+  | "PROVIDER_COST_UNVERIFIED"
   | "PROVIDER_RATE_LIMITED"
   | "PROVIDER_UNAVAILABLE"
   | "PROVIDER_TIMEOUT"
@@ -89,6 +95,42 @@ function mapHttpFailure(status: number): OriginProviderError {
   );
 }
 
+function validateProviderPolicy(plan: OriginExecutionPlan): void {
+  const policy = plan.providerDataPolicy;
+  if (
+    policy.allowProviderFallbacks !== false
+    || policy.dataCollection !== "deny"
+    || policy.requireZeroDataRetention !== true
+  ) {
+    throw new OriginProviderError(
+      "PROVIDER_POLICY_VIOLATION",
+      "データ保護またはフォールバック禁止ポリシーに適合しない実行計画は使用できません。",
+      400,
+      false,
+    );
+  }
+}
+
+function verifiedZeroCost(value: unknown): 0 {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new OriginProviderError(
+      "PROVIDER_COST_UNVERIFIED",
+      "無料実行であることを利用明細から確認できなかったため、回答を返しません。",
+      502,
+      false,
+    );
+  }
+  if (value !== 0) {
+    throw new OriginProviderError(
+      "PROVIDER_POLICY_VIOLATION",
+      "無料モデルの実行で0ドルを超える利用額が報告されたため、回答を破棄しました。",
+      502,
+      false,
+    );
+  }
+  return 0;
+}
+
 export async function executeOriginProvider(
   request: OriginProviderExecutionRequest,
   env: NodeJS.ProcessEnv = process.env,
@@ -102,6 +144,7 @@ export async function executeOriginProvider(
       false,
     );
   }
+  validateProviderPolicy(request.plan);
 
   const apiKey = env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -122,13 +165,17 @@ export async function executeOriginProvider(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://origin.local",
-        "X-Title": "ORIGIN Personal",
+        "X-OpenRouter-Title": "ORIGIN Personal",
       },
       body: JSON.stringify({
         model: request.plan.modelId,
         messages: normalizeMessages(request.messages, request.systemInstruction),
         temperature: 0.1,
+        provider: {
+          allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
+          data_collection: request.plan.providerDataPolicy.dataCollection,
+          zdr: request.plan.providerDataPolicy.requireZeroDataRetention,
+        },
       }),
       signal: controller.signal,
     });
@@ -141,8 +188,10 @@ export async function executeOriginProvider(
         prompt_tokens?: number;
         completion_tokens?: number;
         total_tokens?: number;
+        cost?: number;
       };
     };
+    const costUsd = verifiedZeroCost(data.usage?.cost);
     const text = data.choices?.[0]?.message?.content?.trim() ?? "";
 
     if (!text) {
@@ -156,12 +205,14 @@ export async function executeOriginProvider(
 
     return {
       text,
-      actualCostUsd: 0,
-      usage: data.usage ? {
-        promptTokens: data.usage.prompt_tokens,
-        completionTokens: data.usage.completion_tokens,
-        totalTokens: data.usage.total_tokens,
-      } : undefined,
+      actualCostUsd: costUsd,
+      providerDataPolicy: request.plan.providerDataPolicy,
+      usage: {
+        promptTokens: data.usage?.prompt_tokens,
+        completionTokens: data.usage?.completion_tokens,
+        totalTokens: data.usage?.total_tokens,
+        costUsd,
+      },
     };
   } catch (error) {
     if (error instanceof OriginProviderError) throw error;
