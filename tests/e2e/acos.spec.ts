@@ -33,12 +33,15 @@ test.describe('ORIGIN Personal Edition critical journey', () => {
     await expect(chatInput).toBeEditable();
   });
 
-  test('opens and closes real settings from Personal Edition', async ({ page }) => {
+  test('opens the truthful ORIGIN execution-policy settings', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: /ユーザー設定|User Settings/i }).click();
-    const settingsDialog = page.getByRole('dialog', { name: /システム環境 & 各種AI設定管理|System Preferences & Hardware Config/i });
+    const settingsDialog = page.getByRole('dialog', { name: /ORIGIN Personal 設定|ORIGIN Personal Settings/i });
     await expect(settingsDialog).toBeVisible();
     await expect(page.getByTestId('settings-modal')).toBeVisible();
+    await expect(page.getByTestId('origin-execution-policy')).toContainText(/無料限定ルール内でORIGINが自動選択します|ORIGIN selects automatically within free-only rules/i);
+    await expect(settingsDialog).toContainText('$0.00');
+    await expect(settingsDialog).not.toContainText('GeminiとOpenAIが連動動作します。');
     await page.getByTestId('close-settings-button').click();
     await expect(settingsDialog).toBeHidden();
   });
