@@ -39,7 +39,26 @@ describe("createOriginChatRouter", () => {
     executeMock = vi.fn().mockResolvedValue({
       text: "安全な確認結果です。",
       actualCostUsd: 0,
-      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      providerDataPolicy: {
+        allowProviderFallbacks: false,
+        dataCollection: "deny",
+        requireZeroDataRetention: true,
+      },
+      routingEvidence: {
+        requestedModel: "moonshotai/kimi-k2.6:free",
+        servedModel: "moonshotai/kimi-k2.6:free",
+        strategy: "free",
+        provider: "Synthetic ZDR Provider",
+        region: "iad",
+        attempt: 1,
+        fallbackUsed: false,
+      },
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+        costUsd: 0,
+      },
     });
     execute = executeMock as OriginChatExecutor;
   });
@@ -102,7 +121,7 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
-  it("executes only the current evidence-backed free plan and returns matching metadata", async () => {
+  it("returns the current free plan plus actual provider routing and data-policy evidence", async () => {
     const response = await request(createApp(execute)).post("/api/chat").send({
       messages: [{ role: "user", content: "認証処理をレビューしてください" }],
     });
@@ -125,12 +144,32 @@ describe("createOriginChatRouter", () => {
         reviewAfter: "2026-08-18T23:59:59.999Z",
         sourceUrl: expect.stringContaining("openrouter.ai"),
       }),
+      providerDataPolicy: {
+        allowProviderFallbacks: false,
+        dataCollection: "deny",
+        requireZeroDataRetention: true,
+      },
+      providerRouting: {
+        requestedModel: "moonshotai/kimi-k2.6:free",
+        servedModel: "moonshotai/kimi-k2.6:free",
+        strategy: "free",
+        provider: "Synthetic ZDR Provider",
+        region: "iad",
+        attempt: 1,
+        fallbackUsed: false,
+      },
       context: {
         policyVersion: 1,
         includedMessageCount: 1,
         includedCharacterCount: "認証処理をレビューしてください".length,
         omittedMessageCount: 0,
         omittedCharacterCount: 0,
+      },
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+        costUsd: 0,
       },
     }));
     expect(executeMock).toHaveBeenCalledTimes(1);
@@ -139,6 +178,11 @@ describe("createOriginChatRouter", () => {
         providerId: "openrouter-free",
         modelId: "moonshotai/kimi-k2.6:free",
         freeOnly: true,
+        providerDataPolicy: {
+          allowProviderFallbacks: false,
+          dataCollection: "deny",
+          requireZeroDataRetention: true,
+        },
       }),
       messages: [{ role: "user", content: "認証処理をレビューしてください" }],
       systemInstruction: expect.stringContaining("Never request, reproduce, or expose credentials"),
