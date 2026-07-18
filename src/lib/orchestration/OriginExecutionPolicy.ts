@@ -1,7 +1,14 @@
 import { classifyTask, type AITaskRequest, type AITaskType } from "./MultiAIOrchestrator";
+import {
+  DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
+  ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
+  selectCurrentOriginFreeModel,
+  type OriginFreeModelEvidence,
+  type OriginFreeModelId,
+} from "./OriginFreeModelCatalog";
 
 export const ORIGIN_OPENROUTER_FREE_PROVIDER_ID = "openrouter-free" as const;
-export const ORIGIN_OPENROUTER_FREE_MODEL = "google/gemini-2.5-flash:free" as const;
+export const ORIGIN_OPENROUTER_FREE_MODEL = ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
 
 export type OriginExecutionProviderId = typeof ORIGIN_OPENROUTER_FREE_PROVIDER_ID;
 
@@ -18,17 +25,29 @@ export interface OriginExecutionPolicy {
 export interface OriginExecutionPlan {
   providerId: OriginExecutionProviderId;
   providerLabel: string;
-  modelId: typeof ORIGIN_OPENROUTER_FREE_MODEL;
+  modelId: OriginFreeModelId;
   taskType: AITaskType;
   freeOnly: true;
   estimatedCostUsd: 0;
   timeoutMs: number;
   requiresOwnerApproval: false;
   reason: string;
+  modelEvidence: {
+    verifiedAt: string;
+    reviewAfter: string;
+    sourceUrl: string;
+  };
+}
+
+export interface OriginExecutionPlanningOptions {
+  freeModelCatalog?: readonly OriginFreeModelEvidence[];
+  nowMs?: number;
 }
 
 export type OriginExecutionPlanFailureCode =
   | "FREE_PROVIDER_NOT_CONFIGURED"
+  | "FREE_MODEL_CATALOG_INVALID"
+  | "FREE_MODEL_EVIDENCE_STALE"
   | "INVALID_EXECUTION_POLICY";
 
 export type OriginExecutionPlanResult =
@@ -59,6 +78,7 @@ export function buildOriginExecutionPlan(
   request: AITaskRequest,
   availability: OriginExecutionAvailability,
   policyInput?: Partial<OriginExecutionPolicy>,
+  planningOptions: OriginExecutionPlanningOptions = {},
 ): OriginExecutionPlanResult {
   const policy = normalizePolicy(policyInput);
   if (!policy) {
@@ -77,20 +97,32 @@ export function buildOriginExecutionPlan(
     };
   }
 
+  const freeModelResult = selectCurrentOriginFreeModel(
+    planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
+    planningOptions.nowMs ?? Date.now(),
+  );
+  if (freeModelResult.ok === false) return freeModelResult;
+
   const taskType = classifyTask(request);
+  const model = freeModelResult.model;
 
   return {
     ok: true,
     plan: {
       providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
-      providerLabel: "ORIGIN 無料AI",
-      modelId: ORIGIN_OPENROUTER_FREE_MODEL,
+      providerLabel: model.providerLabel,
+      modelId: model.modelId,
       taskType,
       freeOnly: true,
       estimatedCostUsd: 0,
       timeoutMs: policy.timeoutMs,
       requiresOwnerApproval: false,
-      reason: `依頼を「${taskType}」として分類し、明示的な無料モデルだけを使用するポリシーに適合する実行先を選択しました。`,
+      reason: `依頼を「${taskType}」として分類し、公式ページで無料状態を確認した明示的な無料モデルを選択しました。これは品質優位性の主張ではありません。`,
+      modelEvidence: {
+        verifiedAt: model.verifiedAt,
+        reviewAfter: model.reviewAfter,
+        sourceUrl: model.sourceUrl,
+      },
     },
   };
 }
