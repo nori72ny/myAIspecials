@@ -26,14 +26,9 @@ Defines:
 - system context and architectural principles;
 - bounded contexts and service responsibilities;
 - complete request lifecycle;
-- logical components and execution graph;
-- provider adapter boundary;
-- evaluation and synthesis pipeline;
-- persistence and audit model;
-- event flow;
-- failure handling and fallback;
-- safety and approval boundaries;
-- observability and deployment boundaries;
+- execution graph and provider-adapter boundary;
+- evaluation, synthesis, persistence, audit, and event flow;
+- failure handling, fallback, safety, observability, and deployment boundaries;
 - initial low-cost implementation slice.
 
 Status: Active Draft
@@ -44,20 +39,15 @@ File: `docs/AI_ORCHESTRATION_SPEC.md`
 
 Defines:
 
-- task analysis and clarification policy;
-- capability derivation;
-- hard constraints and candidate eligibility;
-- exclusion records;
-- cost-aware, quality-aware candidate scoring;
+- task analysis, clarification, and capability derivation;
+- hard constraints, candidate eligibility, and exclusions;
+- cost-aware and quality-aware candidate scoring;
 - role generation and independence requirements;
 - single, reviewed, parallel, and deliberation modes;
 - execution graph construction and validation;
-- budget and approval integration;
-- retries, fallback, partial completion, and stopping rules;
+- budget, approval, retry, fallback, and stopping rules;
 - evaluation and synthesis handoff;
-- routing-decision metadata and versioning;
-- deterministic zero-or-low-cost mock implementation;
-- acceptance criteria and representative tests.
+- routing-decision metadata and deterministic mock behavior.
 
 Status: Active Draft
 
@@ -67,20 +57,14 @@ File: `docs/BENCHMARK_SPEC.md`
 
 Defines:
 
-- benchmark subjects covering models, services, agents, roles, workflows, and complete execution configurations;
+- models, services, agents, roles, workflows, and complete configurations as benchmark subjects;
 - domain taxonomy and task archetypes;
-- static, execution, long-running agent, and production outcome benchmarks;
-- deterministic, reference-based, model-based, human, and user-outcome evaluators;
-- dimension-level scoring and critical failure conditions;
-- repetition, variance, confidence intervals, and pairwise evaluation;
+- static, execution, long-running-agent, and production-outcome benchmarks;
+- deterministic, reference, model-based, human, and user-outcome evaluators;
+- critical failures, repetition, variance, confidence, pairwise comparison, and ablation;
 - complete cost and latency measurement;
-- quality-cost frontiers and Pareto-efficient configurations;
-- workflow ablation and role-specific evaluation;
-- constraint-specific performance profiles;
-- cold-start uncertainty policy;
-- sandbox, shadow, trial, promotion, restriction, and refresh policies;
-- benchmark governance, integrity, reproducibility, and routing integration;
-- initial zero-or-low-cost benchmark implementation.
+- quality-cost frontiers and constraint-specific performance profiles;
+- sandbox, shadow, trial, promotion, restriction, and evidence-refresh policies.
 
 Status: Active Draft
 
@@ -93,16 +77,11 @@ Defines:
 - free and low-cost preference without accepting insufficient quality;
 - request, mission, user, tenant, provider, and period budgets;
 - soft, approval, and hard limits;
-- complete cost estimation and versioned pricing snapshots;
-- budget reservation and runtime cost enforcement;
+- cost estimation, reservation, runtime enforcement, and reconciliation;
 - cheapest-sufficient-plan and marginal-value rules;
-- paid provider, tool, retry, fallback, and agent-loop controls;
 - cost, data, action, and scope approval categories;
-- consequential-action approval gates;
-- approval validity, expiration, revocation, and material-plan-change rules;
-- actual-cost reconciliation and estimate-accuracy monitoring;
-- economy, recommended, and premium alternatives;
-- audit, failure handling, mock implementation, and acceptance tests.
+- consequential-action gates, approval validity, revocation, and material-plan changes;
+- economy, recommended, and premium alternatives.
 
 Status: Active Draft
 
@@ -115,17 +94,12 @@ Defines:
 - request composer and task-understanding experience;
 - role-first execution-plan preview;
 - economy, recommended, and premium alternatives;
-- cost, data, action, and scope approval presentation;
+- cost, data, action, and scope approvals;
 - exact consequential-action previews;
-- user-centered progress and cancellation behavior;
-- conclusion-first result hierarchy;
-- research, coding, comparison, decision, writing, and autonomous-execution layouts;
-- claim-level evidence, freshness, conflict, uncertainty, and confidence presentation;
-- cost estimate and actual-cost reconciliation UX;
-- partial, blocked, cancelled, and failed states;
-- expert audit view without exposing secrets or hidden reasoning;
-- accessibility, responsive behavior, internationalization, and semantic design-system requirements;
-- initial zero-or-low-cost mock interface and acceptance tests.
+- progress, cancellation, and long-running-task behavior;
+- conclusion-first results and task-specific layouts;
+- claim-level evidence, freshness, conflict, uncertainty, and confidence;
+- cost reconciliation, partial and failed states, expert audit view, accessibility, responsiveness, and internationalization.
 
 Status: Active Draft
 
@@ -137,37 +111,34 @@ Defines:
 
 - provider-neutral adapter architecture and contracts;
 - provider, configuration, model, alias, and revision identity;
-- governed model discovery and catalog reconciliation;
-- declared, observed, benchmarked, approved, restricted, and unknown capability evidence;
-- authentication, secret references, least privilege, rotation, and redaction;
-- normalized text, multimodal, structured-output, streaming, citation, and artifact contracts;
-- tool-call proposals, hosted tools, side-effect controls, and approval boundaries;
-- asynchronous and hosted-agent execution normalization;
-- usage provenance, pricing snapshots, cost attribution, and reconciliation;
-- rate limits, quotas, bounded concurrency, backpressure, timeout, cancellation, and idempotency;
-- normalized failure categories and retry safety;
-- health, availability, data-policy, retention, region, and provider-policy metadata;
-- observability, audit, provider-specific extensions, schema versioning, and adapter versioning;
-- conformance tests, certification levels, deprecation, replacement, and deterministic mock adapters.
+- model discovery and catalog reconciliation;
+- capability evidence and approval states;
+- authentication, secret handling, least privilege, rotation, and redaction;
+- normalized text, multimodal, structured, streaming, citation, artifact, tool, and hosted-agent contracts;
+- usage, pricing, cost attribution, rate limits, timeout, cancellation, and idempotency;
+- error normalization, retry safety, health, policy metadata, audit, conformance, certification, and deprecation.
 
 Status: Active Draft
 
 ### 8. AI Evolution and Lifecycle Specification
 
-Planned file: `docs/AI_EVOLUTION_SPEC.md`
+File: `docs/AI_EVOLUTION_SPEC.md`
 
-Will define:
+Defines:
 
-- discovery of new services and models;
-- compatibility assessment;
-- sandbox and shadow evaluation;
-- limited trial;
-- approval, promotion, demotion, restriction, and removal;
-- release-change detection;
-- benchmark refresh policy;
-- catalog versioning.
+- lifecycle subjects covering providers, models, revisions, adapters, tools, agents, roles, and workflows;
+- Discovered, Intake Review, Compatible, Sandbox, Shadow, Limited Trial, Approved, Preferred, Restricted, Suspended, Deprecated, and Removed states;
+- discovery sources, identity, alias, revision, and duplicate handling;
+- release, capability, pricing, policy, region, adapter, and behavior change detection;
+- compatibility, intake risk, sandbox qualification, shadow evaluation, and bounded trials;
+- scoped promotion and preferred-status gates;
+- evidence strength, cold-start uncertainty, expiration, and refresh;
+- continuous monitoring and quality, safety, cost, latency, reliability, policy, format, and tool-use drift;
+- restriction, demotion, suspension, incident response, restoration, deprecation, replacement, and removal;
+- immutable catalog snapshots and lifecycle decision records;
+- evaluation budgets, human oversight, security, privacy, observability, and deterministic mock implementation.
 
-Status: Next
+Status: Active Draft
 
 ### 9. Security, Privacy, and Data Governance
 
@@ -177,13 +148,14 @@ Will define:
 
 - data classification and provider eligibility;
 - minimization, redaction, retention, and deletion;
-- user consent;
-- secrets management;
-- tenant isolation;
-- audit access;
-- incident handling.
+- user consent and lawful handling boundaries;
+- secrets management and credential isolation;
+- tenant isolation and access control;
+- audit access and tamper resistance;
+- security incident and data-incident handling;
+- regional, contractual, and provider-policy controls.
 
-Status: Planned
+Status: Next
 
 ### 10. Development and Quality Standard
 
@@ -203,7 +175,7 @@ Status: Planned
 
 ## Initial Implementation Packages
 
-The first implementation increment should establish provider-neutral, cost-aware domain models, deterministic provider adapters, and a complete mock UX without invoking paid AI services.
+The first implementation increment should establish provider-neutral, cost-aware domain models, deterministic provider adapters, governed lifecycle records, and a complete mock UX without invoking paid AI services.
 
 ```text
 packages/
@@ -219,23 +191,24 @@ packages/
       result.ts
       routing-decision.ts
       benchmark/
-        benchmark-subject.ts
-        benchmark-case.ts
-        rubric.ts
-        run-result.ts
-        performance-profile.ts
-        constraint-profile.ts
       cost/
-        money.ts
-        pricing-snapshot.ts
-        cost-estimate.ts
-        budget.ts
-        reconciliation.ts
       approval/
-        approval-request.ts
-        approval-decision.ts
-        proposed-action.ts
-        data-disclosure.ts
+      evolution/
+        lifecycle-subject.ts
+        lifecycle-state.ts
+        discovery-record.ts
+        change-event.ts
+        compatibility-assessment.ts
+        qualification-campaign.ts
+        shadow-evaluation.ts
+        trial-plan.ts
+        approval-scope.ts
+        lifecycle-decision.ts
+        evidence-record.ts
+        drift-signal.ts
+        incident-record.ts
+        deprecation-plan.ts
+        catalog-snapshot.ts
 
   provider-contracts/
     src/
@@ -289,10 +262,17 @@ services/
 
   provider-registry/
     src/
-      catalog/
       discovery/
+      intake/
+      compatibility/
       qualification/
-      lifecycle/
+      shadow/
+      trial/
+      promotion/
+      monitoring/
+      incident/
+      deprecation/
+      catalog-versioning/
 
   benchmark-engine/
     src/
@@ -319,40 +299,30 @@ Exact placement must be reconciled with the current repository structure. Existi
 The first usable, zero-or-low-cost deliverable can:
 
 1. accept a request without requiring provider selection;
-2. display interpreted objective, constraints, risk, and required capabilities;
-3. enforce hard constraints;
-4. register multiple deterministic mock provider configurations;
-5. discover and reconcile mock model profiles idempotently;
-6. distinguish declared, observed, benchmarked, approved, restricted, and unknown capabilities;
-7. reject unsupported provider requests before simulated execution;
-8. compare registered AI service profiles;
-9. explain candidate exclusions and score breakdowns;
-10. generate roles and an execution graph;
-11. calculate minimum, expected, and maximum cost;
-12. associate simulated usage with versioned pricing snapshots;
-13. apply budget thresholds and reserve mock funds;
-14. present economy, recommended, and premium plans;
-15. display predicted quality, confidence, latency, cost, and approval state;
-16. distinguish cost, data, action, and scope approval;
-17. preview simulated consequential actions exactly;
-18. normalize mock text, structured, streaming, tool-call, and partial results;
-19. block simulated external writes without valid approval;
-20. normalize mock provider errors, rate limits, timeouts, cancellation, and retry safety;
-21. display user-centered execution progress;
-22. render a conclusion-first structured mock result;
-23. show claim-level evidence, uncertainty, limitations, and conflicts;
-24. distinguish complete, partial, blocked, cancelled, and failed outcomes;
-25. reconcile mock estimated and actual usage;
-26. produce complete routing, provider, cost, approval, and execution audit detail;
-27. load synthetic benchmark results;
-28. generate constraint-specific performance profiles;
-29. identify a quality-cost frontier;
-30. apply uncertainty and evidence-expiration rules;
-31. pass provider conformance tests without live credentials;
-32. operate with keyboard-accessible responsive UI;
-33. perform no real provider charge or consequential external action.
+2. interpret objective, constraints, risk, freshness, and capabilities;
+3. register and reconcile deterministic mock providers, models, revisions, and aliases;
+4. enforce provider, capability, data, risk, and budget constraints;
+5. compare candidates and explain exclusions and score breakdowns;
+6. generate roles, an execution graph, and economy, recommended, and premium plans;
+7. estimate, reserve, enforce, and reconcile mock cost;
+8. distinguish cost, data, action, and scope approval;
+9. normalize mock text, structured, streaming, tool, partial, and failure results;
+10. block simulated consequential actions without valid approval;
+11. display progress and a conclusion-first result with evidence and uncertainty;
+12. load synthetic benchmark evidence and identify a quality-cost frontier;
+13. discover a mock model revision or alias change;
+14. advance a subject through Sandbox, Shadow, Limited Trial, and scoped Approval;
+15. apply cold-start uncertainty and evidence expiration;
+16. detect simulated quality, cost, latency, reliability, policy, and safety drift;
+17. restrict, demote, suspend, restore, deprecate, replace, and remove mock subjects;
+18. create immutable catalog snapshots;
+19. link routing and lifecycle decisions to the snapshot used;
+20. produce complete routing, provider, benchmark, cost, approval, lifecycle, and execution audit detail;
+21. pass provider and lifecycle tests without live credentials;
+22. operate with keyboard-accessible responsive UI;
+23. perform no real provider charge or consequential external action.
 
-No broad paid-provider rollout, live credential requirement, or real consequential external action is required for this deliverable.
+No broad paid-provider rollout, live credential requirement, unrestricted production trial, or real consequential external action is required for this deliverable.
 
 ## Decision Record
 
@@ -362,25 +332,29 @@ The following decisions are fixed unless explicitly changed by the product owner
 - The original cost conditions remain unchanged.
 - Current benchmark targets include ChatGPT, Claude, Gemini, Codex, Claude Code, Manus, Perplexity, Genspark, other current services, and future AI systems.
 - The platform supports many use cases and does not reduce all AI systems to one universal ranking.
-- New services enter through controlled evaluation rather than automatic trust.
 - Roles describe work and remain independent of provider names.
-- Multiple AI services are used only when they provide clear marginal value.
+- Multiple AI systems are used only when they provide clear marginal value.
 - The cheapest sufficient plan is preferred.
 - Benchmarking evaluates complete result-producing configurations, not only individual models.
 - Rankings are valid only for stated domains, roles, constraints, and evidence periods.
 - Critical failures cannot be hidden by a high aggregate score.
 - Cost, data disclosure, consequential action, and operational scope are approved independently.
-- A hard budget limit cannot be bypassed by routing, retries, tools, agents, provider SDKs, or provider adapters.
+- Hard budget limits cannot be bypassed by routing, retries, tools, agents, provider SDKs, adapters, trials, or benchmark campaigns.
 - Approval is explicit, informed, specific, bounded, versioned, and revocable.
-- Automatic is the default user mode.
-- Users are not required to select a provider.
+- Automatic is the default user mode, and users are not required to select a provider.
 - Roles and outcomes are presented before provider identities.
 - Results are conclusion-first, with evidence and audit detail progressively disclosed.
 - Material uncertainty, conflicting evidence, partial completion, and actual cost are not hidden.
 - Core orchestration code does not depend on provider SDK types.
-- Provider names do not substitute for verified capability evidence.
-- Missing capability, pricing, usage, retention, region, or policy metadata is represented as unknown, not favorable.
-- Provider-hosted tools and agents remain subject to ORIGIN approval, budget, safety, and audit controls.
-- Provider SDK retries cannot bypass ORIGIN accounting or retry policy.
-- Provider replacements require controlled qualification and benchmark evidence.
-- The final result, not provider popularity, is the primary unit of value.
+- Provider names and claims do not substitute for verified capability evidence.
+- Missing capability, pricing, usage, retention, region, policy, or lifecycle metadata is represented as unknown, not favorable.
+- Provider-hosted tools and agents remain subject to ORIGIN approval, budget, safety, privacy, and audit controls.
+- New AI systems enter through controlled discovery, qualification, shadow evaluation, and bounded trial rather than automatic trust.
+- Lifecycle approval is scoped by task, role, risk, data, region, tools, cost, user or tenant, and time.
+- Preferred status is temporary, evidence-dependent, and reversible.
+- Model aliases and revisions are tracked separately.
+- Material changes can expire evidence and trigger requalification.
+- Provider-designated replacements are independently qualified.
+- Critical safety, privacy, action, and budget failures can suspend a subject immediately.
+- Historical catalog snapshots, evidence, incidents, and lifecycle decisions are retained.
+- The final result-producing configuration, not provider popularity, is the primary unit of value.
