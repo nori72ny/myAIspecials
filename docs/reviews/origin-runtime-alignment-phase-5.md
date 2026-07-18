@@ -42,10 +42,10 @@ Before final external-AI audit:
 - remove its `callLLM` dependency if unused elsewhere in that module;
 - remove or migrate the legacy chat-specific tests;
 - keep the boundary guard as defense in depth until at least one stable release after deletion;
-- rerun all CI on the exact deletion SHA;
+- run all CI on the exact deletion SHA;
 - search the repository again for provider-specific chat paths and direct `callLLM` use.
 
-## CI state at audit time
+## CI state
 
 For head `3e45acd9d6413f2ce78a4f29d397a6f1efa1b559`:
 
@@ -54,6 +54,6 @@ For head `3e45acd9d6413f2ce78a4f29d397a6f1efa1b559`:
 - OpenSSF Scorecard: success;
 - Production Release CI/CD: cancelled, not counted as pass.
 
-No failed-job rerun was requested. The next commit will naturally receive its own workflow run.
+The Phase 5 documentation commit is `7876487356c8a99101dd9e3fe37933331a27146a`; its four workflows were queued when this report was written. No failed-job rerun was requested.
 
 No merge, deployment, DNS, billing, credential, account, or paid-service action is authorized by this audit.
