@@ -145,6 +145,12 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
         description = error.message || (isEn
           ? 'Remove credentials or secret values and enter only the minimum necessary summary.'
           : '認証情報や秘密の値を削除し、必要な内容だけを要約して再入力してください。');
+      } else if (error.code === 'LATEST_MESSAGE_TOO_LARGE') {
+        aiCoreState = 'DEGRADED';
+        title = isEn ? 'The latest request is too long' : '依頼内容が長すぎます';
+        description = error.message || (isEn
+          ? 'Divide the request into smaller parts or provide a shorter summary.'
+          : '依頼を分割するか、必要な内容だけに要約して再入力してください。');
       } else if (error.code === 'PROVIDER_RATE_LIMITED') {
         aiCoreState = 'RATE_LIMITED';
         title = isEn ? 'Free AI usage limit reached' : '無料AIの利用上限に達しました';
@@ -167,6 +173,18 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
         description = error.message || (isEn
           ? 'Execution remains stopped until the evidence catalog is reviewed and updated.'
           : '証拠カタログを確認して更新するまで、外部AIの実行を停止します。');
+      } else if (error.code === 'PROVIDER_COST_UNVERIFIED') {
+        aiCoreState = 'DEGRADED';
+        title = isEn ? 'Zero-cost execution could not be verified' : '無料実行を確認できませんでした';
+        description = error.message || (isEn
+          ? 'The answer was withheld because the usage record did not prove a zero-dollar cost.'
+          : '利用明細で0ドルを確認できなかったため、回答を表示しません。');
+      } else if (error.code === 'PROVIDER_ROUTING_UNVERIFIED') {
+        aiCoreState = 'DEGRADED';
+        title = isEn ? 'The actual execution route could not be verified' : '実際の実行先を確認できませんでした';
+        description = error.message || (isEn
+          ? 'The answer was withheld because the served model, provider, or fallback state could not be verified.'
+          : '使用されたモデル、プロバイダー、またはフォールバック状態を確認できなかったため、回答を表示しません。');
       } else if (
         error.code === 'PROVIDER_UNAVAILABLE'
         || error.code === 'MODEL_NOT_FOUND'
