@@ -5,40 +5,70 @@ import { cn } from '../../utils';
 import ReactMarkdown from 'react-markdown';
 import { useAppState } from '../../hooks/useAppState';
 
+type RoutingMetadata = {
+  model: string;
+  reason: string;
+  score?: number | null;
+  timeMs: number;
+  cost?: number | null;
+  providerId?: string;
+  modelId?: string;
+  taskType?: string;
+  actualCostUsd?: number;
+  estimatedCostUsd?: number;
+  freeOnly?: boolean;
+  traceId?: string;
+  verificationStatus?: 'not-run' | 'not-required' | 'passed' | 'failed' | 'pending';
+  verificationReason?: string;
+};
+
 type Message = {
   id: string;
   role: 'user' | 'ai';
   content: string;
-  routing?: {
-    model: string;
-    reason: string;
-    score: number;
-    timeMs: number;
-    cost: number;
-  };
+  routing?: RoutingMetadata;
   error?: {
     code: string;
     messageKey: string;
     retryable: boolean;
     requestId: string;
     description: string;
+    showSettings: boolean;
   };
 };
 
+type ChatApiError = {
+  code?: string;
+  messageKey?: string;
+  message?: string;
+  retryable?: boolean;
+  requestId?: string;
+};
+
+type AiCoreState = 'UNKNOWN' | 'CONNECTING' | 'HEALTHY' | 'DEGRADED' | 'OFFLINE' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NOT_CONFIGURED';
+
+function verificationLabel(status: RoutingMetadata['verificationStatus'], isEn: boolean): string {
+  if (status === 'not-required') return isEn ? 'Verification not required' : '検証不要';
+  if (status === 'passed') return isEn ? 'Verified' : '検証済み';
+  if (status === 'failed') return isEn ? 'Verification failed' : '検証失敗';
+  if (status === 'pending') return isEn ? 'Verification pending' : '検証待ち';
+  return isEn ? 'Not independently verified' : '独立検証なし';
+}
+
 export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string }) {
   const { settings } = useAppState();
-  const isEn = settings.language === "en";
+  const isEn = settings.language === 'en';
 
-  const defaultGreeting = isEn 
-    ? 'Hello! I am ACOS Unified AI. How can I assist you today?'
-    : 'こんにちは！ACOS統合AIです。何かお手伝いしましょうか？';
+  const defaultGreeting = isEn
+    ? 'Hello! I am ORIGIN Personal. What outcome would you like to achieve?'
+    : 'こんにちは。ORIGIN Personalです。達成したいことを教えてください。';
 
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       role: 'ai',
-      content: defaultGreeting
-    }
+      content: defaultGreeting,
+    },
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -56,24 +86,31 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
     }
   }, [messages, isTyping]);
 
-  const dispatchAiCoreState = (state: "UNKNOWN" | "CONNECTING" | "HEALTHY" | "DEGRADED" | "OFFLINE" | "RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "NOT_CONFIGURED") => {
-    window.dispatchEvent(new CustomEvent("aiCoreStateChange", { detail: state }));
+  const dispatchAiCoreState = (state: AiCoreState) => {
+    window.dispatchEvent(new CustomEvent('aiCoreStateChange', { detail: state }));
   };
 
   const processSend = async (messageList: Message[]) => {
     setIsTyping(true);
-    dispatchAiCoreState("CONNECTING");
+    dispatchAiCoreState('CONNECTING');
 
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
+      const response = await fetch('/api/chat', {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json"
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          messages: messageList.filter(m => !m.error).map(m => ({ role: m.role, content: m.content })),
-          userLocation: (settings as any).location // fallback type if it's not strictly defined
-        })
+        body: JSON.stringify({
+          messages: messageList.filter((message) => !message.error).map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
+          userLocation: (settings as { location?: string }).location,
+          executionPolicy: {
+            maxEstimatedCostUsd: 0,
+            timeoutMs: Math.max(10, Math.min(120, settings.timeoutSeconds ?? 30)) * 1000,
+          },
+        }),
       });
 
       const data = await response.json();
@@ -86,37 +123,57 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
         id: (Date.now() + 1).toString(),
         role: 'ai',
         content: data.content,
-        routing: data.routing
+        routing: data.routing,
       };
-      setMessages(prev => [...prev, aiMsg]);
-      dispatchAiCoreState("HEALTHY");
-    } catch (error: any) {
-      console.error(error);
-      
-      let aiCoreState: any = "OFFLINE";
-      let title = isEn ? "Could not connect to ACOS" : "ACOSに接続できませんでした";
-      let desc = isEn 
-        ? "Failed to communicate with AI processing system.\nPlease try again later."
-        : "AI処理システムとの通信に失敗しました。\nしばらくしてから再試行してください。";
-        
-      if (error?.code === "PROVIDER_RATE_LIMITED") {
-        aiCoreState = "RATE_LIMITED";
-        title = isEn ? "Rate Limit Exceeded" : "レートリミット超過";
-        desc = isEn ? "Please wait a moment before trying again." : "しばらく待ってから再度お試しください。";
-      } else if (error?.code === "PROVIDER_NOT_CONFIGURED" || error?.code === "API_KEY_INVALID") {
-        aiCoreState = "NOT_CONFIGURED";
-        title = isEn ? "Configuration Required" : "設定が必要です";
-        desc = isEn ? "Please configure your API keys in User Settings." : "ユーザー設定からAPIキーを設定してください。";
-      } else if (error?.code === "PROVIDER_UNAVAILABLE" || error?.code === "MODEL_NOT_FOUND") {
-        aiCoreState = "PROVIDER_UNAVAILABLE";
-        title = isEn ? "Service Unavailable" : "サービス利用不可";
-        desc = isEn ? "The AI provider is currently unavailable or the model is not found." : "現在AIプロバイダーが利用できないか、モデルが見つかりません。無料モデルが存在しない可能性もあります。";
-      } else if (error?.code === "PROVIDER_TIMEOUT") {
-        aiCoreState = "OFFLINE";
-        title = isEn ? "Request Timeout" : "タイムアウト";
-        desc = isEn ? "The request took too long to complete." : "リクエストの処理に時間がかかりすぎました。";
-      } else if (error?.code === "INVALID_ARGUMENT" || error?.code === "INVALID_CHAT_MESSAGES") {
-        aiCoreState = "DEGRADED";
+      setMessages((previous) => [...previous, aiMsg]);
+      dispatchAiCoreState('HEALTHY');
+    } catch (caughtError: unknown) {
+      const error = (caughtError && typeof caughtError === 'object'
+        ? caughtError
+        : {}) as ChatApiError;
+
+      let aiCoreState: AiCoreState = 'OFFLINE';
+      let title = isEn ? 'Could not connect to ORIGIN' : 'ORIGINに接続できませんでした';
+      let description = error.message || (isEn
+        ? 'The AI processing request failed. Please try again later.'
+        : 'AI処理に失敗しました。しばらくしてから再試行してください。');
+      let showSettings = false;
+
+      if (error.code === 'SENSITIVE_INPUT_BLOCKED') {
+        aiCoreState = 'DEGRADED';
+        title = isEn ? 'Sensitive information was not sent' : '秘密情報の送信を停止しました';
+        description = error.message || (isEn
+          ? 'Remove credentials or secret values and enter only the minimum necessary summary.'
+          : '認証情報や秘密の値を削除し、必要な内容だけを要約して再入力してください。');
+      } else if (error.code === 'PROVIDER_RATE_LIMITED') {
+        aiCoreState = 'RATE_LIMITED';
+        title = isEn ? 'Free AI usage limit reached' : '無料AIの利用上限に達しました';
+      } else if (
+        error.code === 'FREE_PROVIDER_NOT_CONFIGURED'
+        || error.code === 'PROVIDER_NOT_CONFIGURED'
+        || error.code === 'API_KEY_INVALID'
+      ) {
+        aiCoreState = 'NOT_CONFIGURED';
+        title = isEn ? 'Free AI connection is not configured' : '無料AIの接続設定が必要です';
+        showSettings = true;
+      } else if (
+        error.code === 'PROVIDER_UNAVAILABLE'
+        || error.code === 'MODEL_NOT_FOUND'
+        || error.code === 'PROVIDER_INVALID_RESPONSE'
+      ) {
+        aiCoreState = 'PROVIDER_UNAVAILABLE';
+        title = isEn ? 'Free AI is currently unavailable' : '無料AIを現在利用できません';
+      } else if (error.code === 'PROVIDER_TIMEOUT') {
+        aiCoreState = 'OFFLINE';
+        title = isEn ? 'Request timed out' : '応答がタイムアウトしました';
+      } else if (
+        error.code === 'INVALID_EXECUTION_POLICY'
+        || error.code === 'PROVIDER_POLICY_VIOLATION'
+        || error.code === 'INVALID_ARGUMENT'
+        || error.code === 'INVALID_CHAT_MESSAGES'
+      ) {
+        aiCoreState = 'DEGRADED';
+        title = isEn ? 'The request could not be executed safely' : '安全な条件で実行できませんでした';
       }
 
       dispatchAiCoreState(aiCoreState);
@@ -126,14 +183,15 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
         role: 'ai',
         content: title,
         error: {
-          code: error?.code || "BRAIN_UNREACHABLE",
-          messageKey: error?.messageKey || "errors.network",
-          retryable: error?.retryable !== false,
-          requestId: error?.requestId || "UNKNOWN",
-          description: desc
-        }
+          code: error.code || 'ORIGIN_UNREACHABLE',
+          messageKey: error.messageKey || 'errors.network',
+          retryable: error.retryable !== false,
+          requestId: error.requestId || 'UNKNOWN',
+          description,
+          showSettings,
+        },
       };
-      setMessages(prev => [...prev, errMsg]);
+      setMessages((previous) => [...previous, errMsg]);
     } finally {
       setIsTyping(false);
     }
@@ -148,13 +206,12 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     setInput('');
-    
+
     await processSend(updatedMessages);
   };
 
   const handleRetry = async () => {
     if (isTyping) return;
-    // Remove the last error message(s)
     const validMessages = [...messages];
     while (validMessages.length > 0 && validMessages[validMessages.length - 1].error) {
       validMessages.pop();
@@ -165,7 +222,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
 
   return (
     <div className="flex flex-col h-full bg-slate-50/50 dark:bg-black">
-      <div 
+      <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-4 space-y-6 max-w-4xl mx-auto w-full pb-32"
       >
@@ -176,15 +233,15 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className={cn(
-                "flex gap-4 w-full",
-                msg.role === 'user' ? "flex-row-reverse" : "flex-row"
+                'flex gap-4 w-full',
+                msg.role === 'user' ? 'flex-row-reverse' : 'flex-row',
               )}
             >
               <div className={cn(
-                "w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1",
-                msg.role === 'user' 
-                  ? "bg-slate-200 dark:bg-neutral-800" 
-                  : msg.error ? "bg-red-100 dark:bg-red-500/20" : "bg-black dark:bg-white"
+                'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1',
+                msg.role === 'user'
+                  ? 'bg-slate-200 dark:bg-neutral-800'
+                  : msg.error ? 'bg-red-100 dark:bg-red-500/20' : 'bg-black dark:bg-white',
               )}>
                 {msg.role === 'user' ? (
                   <User className="w-4 h-4 text-slate-600 dark:text-neutral-300" />
@@ -197,10 +254,10 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
 
               <div className="flex flex-col gap-2 max-w-[80%]">
                 {msg.error ? (
-                  <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-4 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-3">
+                  <div role="alert" className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-4 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-3">
                     <h4 className="text-sm font-bold text-red-800 dark:text-red-300">{msg.content}</h4>
                     <p className="text-sm text-red-700 dark:text-red-400 whitespace-pre-wrap">{msg.error.description}</p>
-                    
+
                     <div className="flex flex-wrap items-center gap-2 mt-2">
                       {msg.error.retryable && (
                         <button
@@ -209,57 +266,60 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-red-100 dark:bg-red-500/20 hover:bg-red-200 dark:hover:bg-red-500/30 text-red-700 dark:text-red-300 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
                         >
                           <RefreshCw className="w-3.5 h-3.5" />
-                          {isEn ? "Retry" : "再試行"}
+                          {isEn ? 'Retry' : '再試行'}
                         </button>
                       )}
-                      <button
-                        onClick={() => window.dispatchEvent(new CustomEvent("openSettings"))}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-neutral-800 hover:bg-slate-50 dark:hover:bg-neutral-700 text-slate-700 dark:text-neutral-300 border border-slate-200 dark:border-neutral-700 text-xs font-medium rounded-lg transition-colors"
-                      >
-                        <Settings className="w-3.5 h-3.5" />
-                        {isEn ? "Check Settings" : "接続設定を確認"}
-                      </button>
+                      {msg.error.showSettings && (
+                        <button
+                          onClick={() => window.dispatchEvent(new CustomEvent('openSettings'))}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-neutral-800 hover:bg-slate-50 dark:hover:bg-neutral-700 text-slate-700 dark:text-neutral-300 border border-slate-200 dark:border-neutral-700 text-xs font-medium rounded-lg transition-colors"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                          {isEn ? 'Check connection settings' : '接続設定を確認'}
+                        </button>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-4 text-[10px] text-red-500/70 font-mono mt-1 border-t border-red-200/50 dark:border-red-500/20 pt-2">
                       <span>Error Code: {msg.error.code}</span>
-                      <span>Req: {msg.error.requestId}</span>
+                      <span>Trace: {msg.error.requestId}</span>
                     </div>
                   </div>
                 ) : (
                   <div className={cn(
-                    "p-4 rounded-2xl text-sm leading-relaxed",
-                    msg.role === 'user' 
-                      ? "bg-indigo-600 text-white rounded-tr-none" 
-                      : "bg-white dark:bg-neutral-900 border border-slate-200 dark:border-white/10 rounded-tl-none shadow-sm"
+                    'p-4 rounded-2xl text-sm leading-relaxed',
+                    msg.role === 'user'
+                      ? 'bg-indigo-600 text-white rounded-tr-none'
+                      : 'bg-white dark:bg-neutral-900 border border-slate-200 dark:border-white/10 rounded-tl-none shadow-sm',
                   )}>
                     <div className={cn(
-                      "markdown-body", 
-                      msg.role === 'user' && "text-white prose-p:text-white prose-strong:text-white"
+                      'markdown-body',
+                      msg.role === 'user' && 'text-white prose-p:text-white prose-strong:text-white',
                     )}>
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
                   </div>
                 )}
 
-                {/* AI Routing Data */}
                 {msg.routing && (
-                  <div className="flex items-center gap-3 px-1 text-[10px] font-mono text-slate-400 dark:text-neutral-500">
+                  <div className="flex flex-wrap items-center gap-2 px-1 text-[10px] font-mono text-slate-500 dark:text-neutral-400">
                     <div className="flex items-center gap-1">
                       <Zap className="w-3 h-3 text-amber-500" />
                       <span>{msg.routing.model}</span>
                     </div>
-                    <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-neutral-700" />
-                    <div className="flex items-center gap-1" title="Quality Score">
+                    <span aria-hidden="true">·</span>
+                    <div className="flex items-center gap-1" title={msg.routing.verificationReason}>
                       <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                      <span>{msg.routing.score != null ? `${msg.routing.score}% QS` : (isEn ? 'NOT MEASURED' : '未測定')}</span>
+                      <span>{verificationLabel(msg.routing.verificationStatus, isEn)}</span>
                     </div>
-                    <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-neutral-700" />
+                    <span aria-hidden="true">·</span>
                     <span>{msg.routing.timeMs}ms</span>
-                    <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-neutral-700" />
-                    <span>{msg.routing.cost != null ? `$${msg.routing.cost.toFixed(4)}` : (isEn ? 'NOT MEASURED' : '未測定')}</span>
-                    <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-neutral-700" />
-                    <span className="truncate max-w-[150px]" title={msg.routing.reason}>
+                    <span aria-hidden="true">·</span>
+                    <span>{msg.routing.freeOnly && (msg.routing.actualCostUsd ?? msg.routing.cost ?? 0) === 0
+                      ? (isEn ? 'Free' : '無料')
+                      : `$${(msg.routing.actualCostUsd ?? msg.routing.cost ?? 0).toFixed(4)}`}</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="truncate max-w-[220px]" title={msg.routing.reason}>
                       {msg.routing.reason}
                     </span>
                   </div>
@@ -292,17 +352,20 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
           <div className="relative flex items-end gap-2 bg-white dark:bg-neutral-900 border border-slate-200 dark:border-white/10 p-2 rounded-2xl shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/50">
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={isEn ? "Message ACOS..." : "ACOSにメッセージを入力..."}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={isEn ? 'Message ORIGIN...' : 'ORIGINにメッセージを入力...'}
+              aria-label={isEn ? 'Message ORIGIN' : 'ORIGINへのメッセージ'}
               className="flex-1 max-h-32 min-h-[44px] bg-transparent border-none resize-none p-3 focus:outline-none text-sm leading-relaxed"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
                   handleSend();
                 }
               }}
             />
-            <button 
+            <button
+              type="button"
+              aria-label={isEn ? 'Send message' : 'メッセージを送信'}
               onClick={() => handleSend()}
               disabled={!input.trim() || isTyping}
               className="p-3 mb-0.5 mr-0.5 bg-black dark:bg-white text-white dark:text-black rounded-xl hover:scale-105 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 transition-all shrink-0"
