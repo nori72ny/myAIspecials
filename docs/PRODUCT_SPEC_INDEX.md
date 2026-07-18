@@ -5,7 +5,7 @@ Governing document: [PRODUCT_CONSTITUTION.md](./PRODUCT_CONSTITUTION.md)
 
 ## Purpose
 
-This index defines the official product specification set for ORIGIN. All implementation work should reference these documents so that product direction, architecture, benchmarking, cost control, interface quality, and future AI integration remain consistent.
+This index defines the official product specification set for ORIGIN. Implementation work should reference these documents so product direction, architecture, orchestration, benchmarking, cost control, interface quality, governance, and future AI integration remain consistent.
 
 ## Specification Set
 
@@ -13,7 +13,7 @@ This index defines the official product specification set for ORIGIN. All implem
 
 File: `docs/PRODUCT_CONSTITUTION.md`
 
-Defines the immutable vision, mission, fixed cost conditions, provider-neutral principles, benchmarking philosophy, safety gates, result-design requirements, and change-control rules.
+Defines the immutable vision, mission, original cost conditions, provider-neutral principles, outcome-first evaluation, safety boundaries, result-design requirements, AI evolution principles, and change control.
 
 Status: Created
 
@@ -23,41 +23,43 @@ File: `docs/SYSTEM_ARCHITECTURE.md`
 
 Defines:
 
-- system context;
-- architectural principles and bounded contexts;
-- request lifecycle;
-- logical component and execution-graph models;
+- system context and architectural principles;
+- bounded contexts and service responsibilities;
+- complete request lifecycle;
+- logical components and execution graph;
 - provider adapter boundary;
-- orchestration runtime;
 - evaluation and synthesis pipeline;
 - persistence and audit model;
 - event flow;
 - failure handling and fallback;
 - safety and approval boundaries;
-- observability;
-- deployment boundaries;
+- observability and deployment boundaries;
 - initial low-cost implementation slice.
 
 Status: Active Draft
 
 ### 3. AI Orchestration Specification
 
-Planned file: `docs/AI_ORCHESTRATION_SPEC.md`
+File: `docs/AI_ORCHESTRATION_SPEC.md`
 
-Will define:
+Defines:
 
-- task analysis schema;
-- capability requirements;
-- candidate filtering;
-- cost-aware ranking;
-- role assignment;
+- task analysis and clarification policy;
+- capability derivation;
+- hard constraints and candidate eligibility;
+- exclusion records;
+- cost-aware, quality-aware candidate scoring;
+- role generation and independence requirements;
 - single, reviewed, parallel, and deliberation modes;
-- execution planning;
-- approval policy integration;
-- fallback and retry rules;
-- routing-decision metadata.
+- execution graph construction and validation;
+- budget and approval integration;
+- retries, fallback, partial completion, and stopping rules;
+- evaluation and synthesis handoff;
+- routing-decision metadata and versioning;
+- deterministic zero-or-low-cost mock implementation;
+- acceptance criteria and representative tests.
 
-Status: Next
+Status: Active Draft
 
 ### 4. Benchmark Specification
 
@@ -65,18 +67,19 @@ Planned file: `docs/BENCHMARK_SPEC.md`
 
 Will define:
 
-- AI service catalog;
-- domain taxonomy;
+- AI service and workflow catalog;
+- domain and capability taxonomy;
 - benchmark task format;
 - static, execution, agentic, and production benchmarks;
 - objective and model-based evaluators;
+- evidence, citation, and factuality evaluation;
 - human review;
-- confidence intervals and sample-size rules;
+- confidence intervals, uncertainty, and sample-size rules;
 - cost and latency normalization;
-- model and workflow ranking;
+- model, role, and workflow ranking;
 - shadow evaluation and promotion policy.
 
-Status: Planned
+Status: Next
 
 ### 5. Cost and Approval Policy
 
@@ -88,8 +91,7 @@ Will define:
 - per-request and aggregate budgets;
 - warning, approval, and hard-stop thresholds;
 - paid-tool and subscription restrictions;
-- cost estimation;
-- actual-cost reconciliation;
+- cost estimation and actual-cost reconciliation;
 - quality-gain versus incremental-cost rules;
 - consequential-action approval gates.
 
@@ -101,16 +103,14 @@ Planned file: `docs/RESULT_UX_SPEC.md`
 
 Will define:
 
-- initial request experience;
-- execution-plan preview;
+- request experience and execution-plan preview;
 - progress presentation;
 - progressive disclosure;
-- conclusion-first result format;
+- conclusion-first results;
 - claim-level evidence and uncertainty;
 - task-specific answer layouts;
 - expert audit view;
-- accessibility;
-- responsive behavior;
+- accessibility and responsive behavior;
 - design tokens and component standards.
 
 Status: Planned
@@ -121,15 +121,12 @@ Planned file: `docs/PROVIDER_INTEGRATION_STANDARD.md`
 
 Will define:
 
-- adapter interface;
-- model discovery;
-- capability declaration;
+- adapter interface and model discovery;
+- capability declarations;
 - authentication and secret handling;
-- streaming and structured output;
-- tool invocation;
+- streaming, structured output, and tool invocation;
 - usage and cost reporting;
-- health checks;
-- rate-limit and failure normalization;
+- health checks and failure normalization;
 - provider-policy metadata;
 - deprecation and replacement.
 
@@ -143,13 +140,12 @@ Will define:
 
 - discovery of new services and models;
 - compatibility assessment;
-- sandbox evaluation;
-- shadow execution;
+- sandbox and shadow evaluation;
 - limited trial;
 - approval, promotion, demotion, restriction, and removal;
 - release-change detection;
 - benchmark refresh policy;
-- model-catalog versioning.
+- catalog versioning.
 
 Status: Planned
 
@@ -159,16 +155,13 @@ Planned file: `docs/SECURITY_PRIVACY_GOVERNANCE.md`
 
 Will define:
 
-- data classification;
-- provider eligibility by data class;
-- prompt and output retention;
-- redaction and minimization;
+- data classification and provider eligibility;
+- minimization, redaction, retention, and deletion;
 - user consent;
-- audit access;
 - secrets management;
 - tenant isolation;
-- incident handling;
-- deletion and retention policy.
+- audit access;
+- incident handling.
 
 Status: Planned
 
@@ -178,16 +171,13 @@ Planned file: `docs/DEVELOPMENT_STANDARD.md`
 
 Will define:
 
-- architecture rules;
-- coding conventions;
+- architecture and coding rules;
 - test requirements;
-- schema versioning;
-- migration policy;
-- observability requirements;
+- schema versioning and migrations;
+- observability;
 - feature flags;
 - pull-request quality gates;
-- release readiness;
-- rollback requirements.
+- release readiness and rollback.
 
 Status: Planned
 
@@ -199,9 +189,12 @@ The first implementation increment should establish provider-neutral, cost-aware
 packages/
   ai-core/
     src/
+      task-analysis.ts
       service-profile.ts
       model-profile.ts
       capabilities.ts
+      candidate.ts
+      role.ts
       benchmark.ts
       execution-plan.ts
       result.ts
@@ -211,36 +204,48 @@ services/
   orchestrator/
     src/
       task-analyzer/
+      capability-resolver/
       model-registry/
       capability-registry/
+      candidate-filter/
+      candidate-ranker/
       cost-estimator/
+      role-planner/
       execution-planner/
       approval-policy/
+      retry-planner/
+      routing-recorder/
 ```
 
-The exact placement must be reconciled with the current repository structure before implementation. Existing types and services should be reused rather than duplicated.
+Exact placement must be reconciled with the current repository structure. Existing types and services should be reused rather than duplicated.
 
 ## First Deliverable
 
-The first usable, zero-or-low-cost deliverable is a mock orchestration experience that can:
+The first usable, zero-or-low-cost deliverable can:
 
 1. accept a request;
-2. classify task, complexity, risk, and required capabilities;
-3. compare registered AI service profiles;
-4. generate an execution plan;
-5. display selected roles, estimated quality, estimated cost, and approval status;
-6. display lower-cost and higher-quality alternatives;
-7. render a structured mock result with conclusion, actions, evidence, uncertainty, and audit detail.
+2. classify task, complexity, risk, freshness, and required capabilities;
+3. enforce hard constraints;
+4. compare registered AI service profiles;
+5. explain candidate exclusions and score breakdowns;
+6. generate roles and an execution graph;
+7. display predicted quality, confidence, latency, cost, and approval state;
+8. display lower-cost and higher-quality alternatives;
+9. render a structured mock result;
+10. produce a complete routing decision record.
 
 No broad paid-provider rollout is required for this deliverable.
 
 ## Decision Record
 
-The following project decisions are now fixed unless explicitly changed by the product owner:
+The following decisions are fixed unless explicitly changed by the product owner:
 
 - The slogan and primary product objective remain unchanged.
 - The original cost conditions remain unchanged.
 - Current benchmark targets include ChatGPT, Claude, Gemini, Codex, Claude Code, Manus, Perplexity, Genspark, other current services, and future AI systems.
-- The platform must support many use cases and must not reduce all AI systems to one universal ranking.
-- New services are incorporated through controlled evaluation rather than automatic trust.
+- The platform supports many use cases and does not reduce all AI systems to one universal ranking.
+- New services enter through controlled evaluation rather than automatic trust.
+- Roles describe work and remain independent of provider names.
+- Multiple AI services are used only when they provide clear marginal value.
+- The cheapest sufficient plan is preferred.
 - The final result, not provider popularity, is the primary unit of value.
