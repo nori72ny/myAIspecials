@@ -14,10 +14,21 @@ export interface OriginProviderExecutionRequest {
   systemInstruction: string;
 }
 
+export interface OriginProviderRoutingEvidence {
+  requestedModel: string;
+  servedModel: string;
+  strategy: string;
+  provider: string;
+  region?: string;
+  attempt: 1;
+  fallbackUsed: false;
+}
+
 export interface OriginProviderExecutionResult {
   text: string;
   actualCostUsd: 0;
   providerDataPolicy: OriginProviderDataPolicy;
+  routingEvidence: OriginProviderRoutingEvidence;
   usage: {
     promptTokens?: number;
     completionTokens?: number;
@@ -30,6 +41,7 @@ export type OriginProviderErrorCode =
   | "PROVIDER_NOT_CONFIGURED"
   | "PROVIDER_POLICY_VIOLATION"
   | "PROVIDER_COST_UNVERIFIED"
+  | "PROVIDER_ROUTING_UNVERIFIED"
   | "PROVIDER_RATE_LIMITED"
   | "PROVIDER_UNAVAILABLE"
   | "PROVIDER_TIMEOUT"
@@ -49,6 +61,25 @@ export class OriginProviderError extends Error {
 }
 
 export type OriginFetch = typeof fetch;
+
+interface OpenRouterMetadata {
+  requested?: string;
+  strategy?: string;
+  region?: string | null;
+  attempt?: number;
+  endpoints?: {
+    available?: Array<{
+      provider?: string;
+      model?: string;
+      selected?: boolean;
+    }>;
+  };
+  attempts?: Array<{
+    provider?: string;
+    model?: string;
+    status?: number;
+  }>;
+}
 
 function normalizeMessages(messages: OriginChatMessage[], systemInstruction: string) {
   return [
@@ -131,6 +162,48 @@ function verifiedZeroCost(value: unknown): 0 {
   return 0;
 }
 
+function verifiedRoutingEvidence(
+  metadata: OpenRouterMetadata | undefined,
+  requestedModel: string,
+  responseModel: unknown,
+): OriginProviderRoutingEvidence {
+  const selected = metadata?.endpoints?.available?.find((endpoint) => endpoint.selected === true);
+  const attempts = metadata?.attempts ?? [];
+  const fallbackUsed = metadata?.attempt !== 1
+    || metadata?.strategy === "fallback"
+    || attempts.length > 1;
+
+  if (
+    !metadata
+    || metadata.requested !== requestedModel
+    || typeof responseModel !== "string"
+    || responseModel.length === 0
+    || typeof metadata.strategy !== "string"
+    || metadata.strategy.length === 0
+    || fallbackUsed
+    || !selected
+    || typeof selected.provider !== "string"
+    || selected.provider.length === 0
+  ) {
+    throw new OriginProviderError(
+      "PROVIDER_ROUTING_UNVERIFIED",
+      "実際に使用されたモデルとプロバイダーを確認できなかったため、回答を返しません。",
+      502,
+      false,
+    );
+  }
+
+  return {
+    requestedModel,
+    servedModel: responseModel,
+    strategy: metadata.strategy,
+    provider: selected.provider,
+    region: typeof metadata.region === "string" ? metadata.region : undefined,
+    attempt: 1,
+    fallbackUsed: false,
+  };
+}
+
 export async function executeOriginProvider(
   request: OriginProviderExecutionRequest,
   env: NodeJS.ProcessEnv = process.env,
@@ -166,15 +239,23 @@ export async function executeOriginProvider(
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
         "X-OpenRouter-Title": "ORIGIN Personal",
+        "X-OpenRouter-Metadata": "enabled",
       },
       body: JSON.stringify({
         model: request.plan.modelId,
         messages: normalizeMessages(request.messages, request.systemInstruction),
         temperature: 0.1,
+        usage: { include: true },
         provider: {
           allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
           data_collection: request.plan.providerDataPolicy.dataCollection,
           zdr: request.plan.providerDataPolicy.requireZeroDataRetention,
+          max_price: {
+            prompt: 0,
+            completion: 0,
+            request: 0,
+            image: 0,
+          },
         },
       }),
       signal: controller.signal,
@@ -183,6 +264,7 @@ export async function executeOriginProvider(
     if (!response.ok) throw mapHttpFailure(response.status);
 
     const data = await response.json() as {
+      model?: string;
       choices?: Array<{ message?: { content?: string } }>;
       usage?: {
         prompt_tokens?: number;
@@ -190,8 +272,14 @@ export async function executeOriginProvider(
         total_tokens?: number;
         cost?: number;
       };
+      openrouter_metadata?: OpenRouterMetadata;
     };
     const costUsd = verifiedZeroCost(data.usage?.cost);
+    const routingEvidence = verifiedRoutingEvidence(
+      data.openrouter_metadata,
+      request.plan.modelId,
+      data.model,
+    );
     const text = data.choices?.[0]?.message?.content?.trim() ?? "";
 
     if (!text) {
@@ -207,6 +295,7 @@ export async function executeOriginProvider(
       text,
       actualCostUsd: costUsd,
       providerDataPolicy: request.plan.providerDataPolicy,
+      routingEvidence,
       usage: {
         promptTokens: data.usage?.prompt_tokens,
         completionTokens: data.usage?.completion_tokens,
