@@ -190,6 +190,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           verificationStatus: "not-run",
           verificationReason: "Phase 1では独立検証と統合をまだ実行していません。",
           modelEvidence: planningResult.plan.modelEvidence,
+          providerDataPolicy: result.providerDataPolicy,
+          providerRouting: result.routingEvidence,
           context: {
             policyVersion: contextResult.window.policyVersion,
             includedMessageCount: contextResult.window.includedMessageCount,
