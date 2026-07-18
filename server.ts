@@ -8,6 +8,7 @@ import { validateMissionQuality, ACOSValidationManager, CAPABILITIES_MAP } from 
 // Legacy imports
 import { createLegacyRouter } from "./src/legacy/legacyRoutes";
 import { createAnalyzeRouter } from "./src/legacy/analyzeRoute";
+import { createOriginChatRouter } from "./src/legacy/originChatRouter";
 
 // New architecture imports (Mission Engine)
 import { initMissionEngine } from "./services/mission-engine/src/index";
@@ -141,7 +142,10 @@ Respond ONLY with a valid JSON object matching this schema:
   // Intercept analyze with streaming router first
   app.use(createAnalyzeRouter());
 
-  // 1. Mount Legacy Endpoints (/api/generate-image, /api/analyze)
+  // Route normal chat through the explicit ORIGIN safety and free-only policy first.
+  app.use(createOriginChatRouter());
+
+  // 1. Mount remaining Legacy Endpoints (/api/generate-image, /api/analyze, etc.)
   app.use(createLegacyRouter());
 
   // 2. Mount New Mission Engine API (/api/v1/...)
