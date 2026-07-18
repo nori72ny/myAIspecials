@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { detectSensitiveInput } from "../lib/orchestration/SensitiveInputDetector";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 import {
   executeOriginProvider,
@@ -8,6 +7,7 @@ import {
   type OriginProviderExecutionResult,
 } from "./originProviderClient";
 import {
+  detectSensitiveConversation,
   hasOriginWeatherLocation,
   isOriginWeatherRequest,
   originClientPolicy,
@@ -108,17 +108,15 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       });
     }
 
-    const detection = detectSensitiveInput(
-      messages.map((message) => message.content).join("\n"),
-    );
-    if (detection.containsSensitiveInput) {
+    const sensitiveKinds = detectSensitiveConversation(messages);
+    if (sensitiveKinds.length > 0) {
       return res.status(422).json({
         code: "SENSITIVE_INPUT_BLOCKED",
         messageKey: "errors.sensitiveInputBlocked",
         message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。",
         retryable: false,
         requestId,
-        sensitiveKinds: detection.kinds,
+        sensitiveKinds,
       });
     }
 
