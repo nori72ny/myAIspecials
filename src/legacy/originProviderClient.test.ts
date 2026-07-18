@@ -19,6 +19,11 @@ const plan: OriginExecutionPlan = {
   timeoutMs: 30_000,
   requiresOwnerApproval: false,
   reason: "test",
+  modelEvidence: {
+    verifiedAt: "2026-07-19T00:00:00.000Z",
+    reviewAfter: "2026-08-18T23:59:59.999Z",
+    sourceUrl: "https://openrouter.ai/moonshotai/kimi-k2.6:free/pricing",
+  },
 };
 
 const request = {
@@ -28,10 +33,11 @@ const request = {
 };
 
 describe("executeOriginProvider", () => {
-  it("executes the exact explicit :free model and reports zero cost", async () => {
+  it("executes the exact evidence-backed :free model and reports zero cost", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       expect(body.model).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
+      expect(body.model).toBe("moonshotai/kimi-k2.6:free");
       expect(body.model.endsWith(":free")).toBe(true);
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
       return new Response(JSON.stringify({
