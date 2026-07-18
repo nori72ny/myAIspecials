@@ -24,14 +24,16 @@ function createApp(execute: OriginChatExecutor, env: NodeJS.ProcessEnv = {
 }
 
 describe("createOriginChatRouter", () => {
-  let execute: ReturnType<typeof vi.fn<OriginChatExecutor>>;
+  let execute: OriginChatExecutor;
+  let executeMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    execute = vi.fn<OriginChatExecutor>().mockResolvedValue({
+    executeMock = vi.fn().mockResolvedValue({
       text: "安全な確認結果です。",
       actualCostUsd: 0,
       usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
     });
+    execute = executeMock as OriginChatExecutor;
   });
 
   it("rejects invalid messages before planning or provider execution", async () => {
@@ -39,7 +41,7 @@ describe("createOriginChatRouter", () => {
 
     expect(response.status).toBe(400);
     expect(response.body.code).toBe("INVALID_CHAT_MESSAGES");
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeMock).not.toHaveBeenCalled();
   });
 
   it("blocks synthetic secret-bearing input before provider execution", async () => {
@@ -58,7 +60,7 @@ describe("createOriginChatRouter", () => {
       sensitiveKinds: expect.arrayContaining(["authorization-header"]),
     }));
     expect(JSON.stringify(response.body)).not.toContain("synthetic_token_value_123456");
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeMock).not.toHaveBeenCalled();
   });
 
   it("executes only the selected explicit free plan and returns matching metadata", async () => {
@@ -80,8 +82,8 @@ describe("createOriginChatRouter", () => {
       traceId: "origin-test-trace",
       verificationStatus: "not-run",
     }));
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    expect(executeMock).toHaveBeenCalledWith(expect.objectContaining({
       plan: expect.objectContaining({
         providerId: "openrouter-free",
         modelId: "google/gemini-2.5-flash:free",
@@ -101,7 +103,7 @@ describe("createOriginChatRouter", () => {
 
     expect(response.status).toBe(503);
     expect(response.body.code).toBe("FREE_PROVIDER_NOT_CONFIGURED");
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeMock).not.toHaveBeenCalled();
   });
 
   it("handles weather location clarification without calling a provider", async () => {
@@ -116,7 +118,7 @@ describe("createOriginChatRouter", () => {
       cost: 0,
       verificationStatus: "not-required",
     }));
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeMock).not.toHaveBeenCalled();
   });
 
   it("rejects invalid client policy values without provider execution", async () => {
@@ -127,6 +129,6 @@ describe("createOriginChatRouter", () => {
 
     expect(response.status).toBe(400);
     expect(response.body.code).toBe("INVALID_EXECUTION_POLICY");
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeMock).not.toHaveBeenCalled();
   });
 });
