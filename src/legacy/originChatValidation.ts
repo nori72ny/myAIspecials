@@ -1,0 +1,1 @@
+export const ORIGIN_CHAT_VALIDATION_VERSION = 1;
