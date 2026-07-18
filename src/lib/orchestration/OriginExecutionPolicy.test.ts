@@ -72,18 +72,20 @@ describe("buildOriginExecutionPlan", () => {
     });
   });
 
-  it("rejects invalid cost and timeout policy values", () => {
-    expect(buildOriginExecutionPlan(
-      request,
-      { openRouterConfigured: true },
-      { maxEstimatedCostUsd: -1 },
-      { nowMs: verifiedNow },
-    )).toEqual(expect.objectContaining({ ok: false, code: "INVALID_EXECUTION_POLICY" }));
+  it("rejects any nonzero cost ceiling and invalid timeout values", () => {
+    for (const maxEstimatedCostUsd of [-1, 0.01, 1]) {
+      expect(buildOriginExecutionPlan(
+        request,
+        { openRouterConfigured: true },
+        { maxEstimatedCostUsd },
+        { nowMs: verifiedNow },
+      )).toEqual(expect.objectContaining({ ok: false, code: "INVALID_EXECUTION_POLICY" }));
+    }
 
     expect(buildOriginExecutionPlan(
       request,
       { openRouterConfigured: true },
-      { timeoutMs: 0 },
+      { maxEstimatedCostUsd: 0, timeoutMs: 0 },
       { nowMs: verifiedNow },
     )).toEqual(expect.objectContaining({ ok: false, code: "INVALID_EXECUTION_POLICY" }));
   });
