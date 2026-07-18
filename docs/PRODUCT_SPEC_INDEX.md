@@ -19,23 +19,26 @@ Status: Created
 
 ### 2. System Architecture
 
-Planned file: `docs/SYSTEM_ARCHITECTURE.md`
+File: `docs/SYSTEM_ARCHITECTURE.md`
 
-Will define:
+Defines:
 
 - system context;
-- bounded contexts and service responsibilities;
+- architectural principles and bounded contexts;
 - request lifecycle;
-- event flow;
+- logical component and execution-graph models;
 - provider adapter boundary;
 - orchestration runtime;
 - evaluation and synthesis pipeline;
 - persistence and audit model;
+- event flow;
 - failure handling and fallback;
+- safety and approval boundaries;
 - observability;
-- deployment boundaries.
+- deployment boundaries;
+- initial low-cost implementation slice.
 
-Status: Next
+Status: Active Draft
 
 ### 3. AI Orchestration Specification
 
@@ -54,7 +57,7 @@ Will define:
 - fallback and retry rules;
 - routing-decision metadata.
 
-Status: Planned
+Status: Next
 
 ### 4. Benchmark Specification
 
