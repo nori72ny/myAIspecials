@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
+import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog";
 import {
   executeOriginProvider,
   OriginProviderError,
@@ -23,6 +24,8 @@ export interface OriginChatRouterOptions {
   env?: NodeJS.ProcessEnv;
   execute?: OriginChatExecutor;
   now?: () => number;
+  catalogNow?: () => number;
+  freeModelCatalog?: readonly OriginFreeModelEvidence[];
   createRequestId?: () => string;
 }
 
@@ -55,6 +58,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
   const router = Router();
   const env = options.env ?? process.env;
   const now = options.now ?? Date.now;
+  const catalogNow = options.catalogNow ?? Date.now;
   const createRequestId = options.createRequestId
     ?? (() => `origin-${now()}-${Math.random().toString(36).slice(2, 8)}`);
   const execute = options.execute
@@ -129,6 +133,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       },
       { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) },
       originClientPolicy(body),
+      {
+        freeModelCatalog: options.freeModelCatalog,
+        nowMs: catalogNow(),
+      },
     );
 
     if (planningResult.ok === false) {
@@ -164,6 +172,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           traceId: requestId,
           verificationStatus: "not-run",
           verificationReason: "Phase 1では独立検証と統合をまだ実行していません。",
+          modelEvidence: planningResult.plan.modelEvidence,
           usage: result.usage,
         },
       });
