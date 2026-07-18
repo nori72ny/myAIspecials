@@ -157,6 +157,17 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
         title = isEn ? 'Free AI connection is not configured' : '無料AIの接続設定が必要です';
         showSettings = true;
       } else if (
+        error.code === 'FREE_MODEL_EVIDENCE_STALE'
+        || error.code === 'FREE_MODEL_CATALOG_INVALID'
+      ) {
+        aiCoreState = 'PROVIDER_UNAVAILABLE';
+        title = isEn
+          ? 'Free-model availability must be re-verified'
+          : '無料モデルの利用可能性を再確認する必要があります';
+        description = error.message || (isEn
+          ? 'Execution remains stopped until the evidence catalog is reviewed and updated.'
+          : '証拠カタログを確認して更新するまで、外部AIの実行を停止します。');
+      } else if (
         error.code === 'PROVIDER_UNAVAILABLE'
         || error.code === 'MODEL_NOT_FOUND'
         || error.code === 'PROVIDER_INVALID_RESPONSE'
