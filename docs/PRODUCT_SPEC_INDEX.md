@@ -108,22 +108,26 @@ Status: Active Draft
 
 ### 6. Result and UX Specification
 
-Planned file: `docs/RESULT_UX_SPEC.md`
+File: `docs/RESULT_UX_SPEC.md`
 
-Will define:
+Defines:
 
-- request experience and execution-plan preview;
-- cost, data, and action approval presentation;
-- progress presentation;
-- progressive disclosure;
-- conclusion-first results;
-- claim-level evidence and uncertainty;
-- task-specific answer layouts;
-- expert audit view;
-- accessibility and responsive behavior;
-- design tokens and component standards.
+- request composer and task-understanding experience;
+- role-first execution-plan preview;
+- economy, recommended, and premium alternatives;
+- cost, data, action, and scope approval presentation;
+- exact consequential-action previews;
+- user-centered progress and cancellation behavior;
+- conclusion-first result hierarchy;
+- research, coding, comparison, decision, writing, and autonomous-execution layouts;
+- claim-level evidence, freshness, conflict, uncertainty, and confidence presentation;
+- cost estimate and actual-cost reconciliation UX;
+- partial, blocked, cancelled, and failed states;
+- expert audit view without exposing secrets or hidden reasoning;
+- accessibility, responsive behavior, internationalization, and semantic design-system requirements;
+- initial zero-or-low-cost mock interface and acceptance tests.
 
-Status: Next
+Status: Active Draft
 
 ### 7. Provider Integration Standard
 
@@ -140,7 +144,7 @@ Will define:
 - provider-policy metadata;
 - deprecation and replacement.
 
-Status: Planned
+Status: Next
 
 ### 8. AI Evolution and Lifecycle Specification
 
@@ -193,7 +197,7 @@ Status: Planned
 
 ## Initial Implementation Packages
 
-The first implementation increment should establish provider-neutral, cost-aware domain models without invoking paid AI services.
+The first implementation increment should establish provider-neutral, cost-aware domain models and a complete mock UX without invoking paid AI services.
 
 ```text
 packages/
@@ -227,6 +231,22 @@ packages/
         proposed-action.ts
         data-disclosure.ts
 
+packages/
+  ui/
+    src/
+      request-composer/
+      task-understanding-card/
+      plan-summary-card/
+      plan-alternative-card/
+      approval-card/
+      proposed-action-preview/
+      progress-timeline/
+      result-workspace/
+      evidence-view/
+      uncertainty-view/
+      cost-reconciliation/
+      audit-view/
+
 services/
   orchestrator/
     src/
@@ -257,31 +277,37 @@ services/
       promotion-policy/
 ```
 
-Exact placement must be reconciled with the current repository structure. Existing types and services should be reused rather than duplicated, and the mock stage should avoid unnecessary service proliferation.
+Exact placement must be reconciled with the current repository structure. Existing types, services, and UI components should be reused rather than duplicated, and the mock stage should avoid unnecessary service proliferation.
 
 ## First Deliverable
 
 The first usable, zero-or-low-cost deliverable can:
 
-1. accept a request;
-2. classify task, complexity, risk, freshness, and required capabilities;
+1. accept a request without requiring provider selection;
+2. display interpreted objective, constraints, risk, and required capabilities;
 3. enforce hard constraints;
 4. compare registered AI service profiles;
 5. explain candidate exclusions and score breakdowns;
 6. generate roles and an execution graph;
 7. calculate minimum, expected, and maximum cost;
 8. apply budget thresholds and reserve mock funds;
-9. display predicted quality, confidence, latency, cost, and approval state;
-10. distinguish cost, data, action, and scope approval;
-11. display economy, recommended, and premium alternatives;
-12. block simulated external writes without valid approval;
-13. render a structured mock result;
-14. produce a complete routing and cost audit record;
-15. load synthetic benchmark results;
-16. generate constraint-specific performance profiles;
-17. identify a quality-cost frontier;
-18. apply uncertainty and evidence-expiration rules;
-19. reconcile mock estimated and actual usage.
+9. present economy, recommended, and premium plans;
+10. display predicted quality, confidence, latency, cost, and approval state;
+11. distinguish cost, data, action, and scope approval;
+12. preview simulated consequential actions exactly;
+13. block simulated external writes without valid approval;
+14. display user-centered execution progress;
+15. render a conclusion-first structured mock result;
+16. show claim-level evidence, uncertainty, limitations, and conflicts;
+17. distinguish complete, partial, blocked, cancelled, and failed outcomes;
+18. reconcile mock estimated and actual usage;
+19. produce complete routing, cost, approval, and execution audit detail;
+20. load synthetic benchmark results;
+21. generate constraint-specific performance profiles;
+22. identify a quality-cost frontier;
+23. apply uncertainty and evidence-expiration rules;
+24. operate with keyboard-accessible responsive UI;
+25. perform no real provider charge or consequential external action.
 
 No broad paid-provider rollout or real consequential external action is required for this deliverable.
 
@@ -303,4 +329,9 @@ The following decisions are fixed unless explicitly changed by the product owner
 - Cost, data disclosure, consequential action, and operational scope are approved independently.
 - A hard budget limit cannot be bypassed by routing, retries, tools, agents, or provider adapters.
 - Approval is explicit, informed, specific, bounded, versioned, and revocable.
+- Automatic is the default user mode.
+- Users are not required to select a provider.
+- Roles and outcomes are presented before provider identities.
+- Results are conclusion-first, with evidence and audit detail progressively disclosed.
+- Material uncertainty, conflicting evidence, partial completion, and actual cost are not hidden.
 - The final result, not provider popularity, is the primary unit of value.
