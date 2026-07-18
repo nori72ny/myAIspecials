@@ -22,6 +22,16 @@ function sendJapaneseMessage(value: string) {
   fireEvent.click(screen.getByRole('button', { name: 'メッセージを送信' }));
 }
 
+async function expectNonRetryableError(title: string, code: string, description: string) {
+  await waitFor(() => {
+    expect(screen.getByText(title)).toBeTruthy();
+    expect(screen.getByText(description)).toBeTruthy();
+    expect(screen.getByText(`Error Code: ${code}`)).toBeTruthy();
+  });
+  expect(screen.queryByText('再試行')).toBeNull();
+  expect(screen.queryByText('接続設定を確認')).toBeNull();
+}
+
 describe('UnifiedChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -83,12 +93,13 @@ describe('UnifiedChat', () => {
   });
 
   it('shows a truthful sensitive-input block without retry or settings actions', async () => {
+    const description = '秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。';
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
       json: async () => ({
         code: 'SENSITIVE_INPUT_BLOCKED',
         messageKey: 'errors.sensitiveInputBlocked',
-        message: '秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。',
+        message: description,
         retryable: false,
         requestId: 'origin-sensitive-test',
       }),
@@ -97,13 +108,7 @@ describe('UnifiedChat', () => {
     render(<UnifiedChat />);
     sendJapaneseMessage('秘密情報を含む依頼');
 
-    await waitFor(() => {
-      expect(screen.getByText('秘密情報の送信を停止しました')).toBeTruthy();
-      expect(screen.getByText('秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。')).toBeTruthy();
-      expect(screen.getByText('Error Code: SENSITIVE_INPUT_BLOCKED')).toBeTruthy();
-    });
-    expect(screen.queryByText('再試行')).toBeNull();
-    expect(screen.queryByText('接続設定を確認')).toBeNull();
+    await expectNonRetryableError('秘密情報の送信を停止しました', 'SENSITIVE_INPUT_BLOCKED', description);
   });
 
   it('shows connection settings only when a free provider is not configured', async () => {
@@ -128,11 +133,12 @@ describe('UnifiedChat', () => {
   });
 
   it('explains stale free-model evidence without pretending it is a user setting', async () => {
+    const description = '無料モデルの利用可能性を示す証拠が期限切れです。カタログを再確認するまで実行を停止します。';
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
       json: async () => ({
         code: 'FREE_MODEL_EVIDENCE_STALE',
-        message: '無料モデルの利用可能性を示す証拠が期限切れです。カタログを再確認するまで実行を停止します。',
+        message: description,
         retryable: false,
         requestId: 'origin-catalog-test',
       }),
@@ -141,13 +147,65 @@ describe('UnifiedChat', () => {
     render(<UnifiedChat />);
     sendJapaneseMessage('文章を確認してください');
 
-    await waitFor(() => {
-      expect(screen.getByText('無料モデルの利用可能性を再確認する必要があります')).toBeTruthy();
-      expect(screen.getByText('無料モデルの利用可能性を示す証拠が期限切れです。カタログを再確認するまで実行を停止します。')).toBeTruthy();
-      expect(screen.getByText('Error Code: FREE_MODEL_EVIDENCE_STALE')).toBeTruthy();
+    await expectNonRetryableError(
+      '無料モデルの利用可能性を再確認する必要があります',
+      'FREE_MODEL_EVIDENCE_STALE',
+      description,
+    );
+  });
+
+  it('explains oversized latest input without retrying the same request', async () => {
+    const description = '最新の依頼が外部送信の上限（12000文字）を超えています。内容を分割または要約してください。';
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'LATEST_MESSAGE_TOO_LARGE',
+        message: description,
+        retryable: false,
+        requestId: 'origin-size-test',
+      }),
     });
-    expect(screen.queryByText('再試行')).toBeNull();
-    expect(screen.queryByText('接続設定を確認')).toBeNull();
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('長い依頼');
+
+    await expectNonRetryableError('依頼内容が長すぎます', 'LATEST_MESSAGE_TOO_LARGE', description);
+  });
+
+  it('withholds an answer when zero cost cannot be verified', async () => {
+    const description = '無料実行であることを利用明細から確認できなかったため、回答を返しません。';
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'PROVIDER_COST_UNVERIFIED',
+        message: description,
+        retryable: false,
+        requestId: 'origin-cost-test',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('文章を確認してください');
+
+    await expectNonRetryableError('無料実行を確認できませんでした', 'PROVIDER_COST_UNVERIFIED', description);
+  });
+
+  it('withholds an answer when the actual provider route cannot be verified', async () => {
+    const description = '実際に使用されたモデルとプロバイダーを確認できなかったため、回答を返しません。';
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'PROVIDER_ROUTING_UNVERIFIED',
+        message: description,
+        retryable: false,
+        requestId: 'origin-routing-test',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('文章を確認してください');
+
+    await expectNonRetryableError('実際の実行先を確認できませんでした', 'PROVIDER_ROUTING_UNVERIFIED', description);
   });
 
   it('handles provider rate limits and keeps retry available', async () => {
