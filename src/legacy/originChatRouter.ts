@@ -131,7 +131,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       originClientPolicy(body),
     );
 
-    if (!planningResult.ok) {
+    if (planningResult.ok === false) {
       return res.status(planningResult.code === "INVALID_EXECUTION_POLICY" ? 400 : 503).json({
         code: planningResult.code,
         message: planningResult.message,
