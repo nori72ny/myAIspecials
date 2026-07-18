@@ -127,6 +127,29 @@ describe('UnifiedChat', () => {
     expect(screen.queryByText('再試行')).toBeNull();
   });
 
+  it('explains stale free-model evidence without pretending it is a user setting', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'FREE_MODEL_EVIDENCE_STALE',
+        message: '無料モデルの利用可能性を示す証拠が期限切れです。カタログを再確認するまで実行を停止します。',
+        retryable: false,
+        requestId: 'origin-catalog-test',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('文章を確認してください');
+
+    await waitFor(() => {
+      expect(screen.getByText('無料モデルの利用可能性を再確認する必要があります')).toBeTruthy();
+      expect(screen.getByText('無料モデルの利用可能性を示す証拠が期限切れです。カタログを再確認するまで実行を停止します。')).toBeTruthy();
+      expect(screen.getByText('Error Code: FREE_MODEL_EVIDENCE_STALE')).toBeTruthy();
+    });
+    expect(screen.queryByText('再試行')).toBeNull();
+    expect(screen.queryByText('接続設定を確認')).toBeNull();
+  });
+
   it('handles provider rate limits and keeps retry available', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
