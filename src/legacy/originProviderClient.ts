@@ -172,6 +172,12 @@ function verifiedRoutingEvidence(
   const fallbackUsed = metadata?.attempt !== 1
     || metadata?.strategy === "fallback"
     || attempts.length > 1;
+  const singleAttemptIsConsistent = attempts.length === 0 || (
+    attempts.length === 1
+    && attempts[0].status === 200
+    && attempts[0].provider === selected?.provider
+    && attempts[0].model === selected?.model
+  );
 
   if (
     !metadata
@@ -184,6 +190,9 @@ function verifiedRoutingEvidence(
     || !selected
     || typeof selected.provider !== "string"
     || selected.provider.length === 0
+    || typeof selected.model !== "string"
+    || selected.model !== responseModel
+    || !singleAttemptIsConsistent
   ) {
     throw new OriginProviderError(
       "PROVIDER_ROUTING_UNVERIFIED",
@@ -238,14 +247,13 @@ export async function executeOriginProvider(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
-        "X-OpenRouter-Title": "ORIGIN Personal",
+        "X-Title": "ORIGIN Personal",
         "X-OpenRouter-Metadata": "enabled",
       },
       body: JSON.stringify({
         model: request.plan.modelId,
         messages: normalizeMessages(request.messages, request.systemInstruction),
         temperature: 0.1,
-        usage: { include: true },
         provider: {
           allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
           data_collection: request.plan.providerDataPolicy.dataCollection,
