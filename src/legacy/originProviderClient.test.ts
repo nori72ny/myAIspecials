@@ -37,33 +37,66 @@ const request = {
   systemInstruction: "安全に回答してください。",
 };
 
+function successfulProviderPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    model: ORIGIN_OPENROUTER_FREE_MODEL,
+    choices: [{ message: { content: "確認結果です。" } }],
+    usage: {
+      prompt_tokens: 10,
+      completion_tokens: 5,
+      total_tokens: 15,
+      cost: 0,
+    },
+    openrouter_metadata: {
+      requested: ORIGIN_OPENROUTER_FREE_MODEL,
+      strategy: "free",
+      region: "iad",
+      attempt: 1,
+      endpoints: {
+        available: [{
+          provider: "Synthetic ZDR Provider",
+          model: ORIGIN_OPENROUTER_FREE_MODEL,
+          selected: true,
+        }],
+      },
+      attempts: [{
+        provider: "Synthetic ZDR Provider",
+        model: ORIGIN_OPENROUTER_FREE_MODEL,
+        status: 200,
+      }],
+    },
+    ...overrides,
+  };
+}
+
 describe("executeOriginProvider", () => {
-  it("enforces no fallback, no data collection, ZDR, and reconciled zero cost", async () => {
+  it("enforces zero max price, no fallback, data deny, ZDR, and routing evidence", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       const headers = init?.headers as Record<string, string>;
 
-      expect(body.model).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
       expect(body.model).toBe("moonshotai/kimi-k2.6:free");
-      expect(body.model.endsWith(":free")).toBe(true);
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
+      expect(body.usage).toEqual({ include: true });
       expect(body.provider).toEqual({
         allow_fallbacks: false,
         data_collection: "deny",
         zdr: true,
+        max_price: {
+          prompt: 0,
+          completion: 0,
+          request: 0,
+          image: 0,
+        },
       });
       expect(headers["X-OpenRouter-Title"]).toBe("ORIGIN Personal");
+      expect(headers["X-OpenRouter-Metadata"]).toBe("enabled");
       expect(headers["HTTP-Referer"]).toBeUndefined();
 
-      return new Response(JSON.stringify({
-        choices: [{ message: { content: "確認結果です。" } }],
-        usage: {
-          prompt_tokens: 10,
-          completion_tokens: 5,
-          total_tokens: 15,
-          cost: 0,
-        },
-      }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(successfulProviderPayload()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     });
 
     const result = await executeOriginProvider(
@@ -76,6 +109,15 @@ describe("executeOriginProvider", () => {
       text: "確認結果です。",
       actualCostUsd: 0,
       providerDataPolicy: plan.providerDataPolicy,
+      routingEvidence: {
+        requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+        servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+        strategy: "free",
+        provider: "Synthetic ZDR Provider",
+        region: "iad",
+        attempt: 1,
+        fallbackUsed: false,
+      },
       usage: {
         promptTokens: 10,
         completionTokens: 5,
@@ -139,10 +181,13 @@ describe("executeOriginProvider", () => {
   });
 
   it("rejects a response when zero cost cannot be verified", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      choices: [{ message: { content: "確認結果です。" } }],
+    const payload = successfulProviderPayload({
       usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
 
     await expect(executeOriginProvider(
       request,
@@ -156,10 +201,11 @@ describe("executeOriginProvider", () => {
   });
 
   it("discards the response when a nonzero cost is reported", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      choices: [{ message: { content: "返してはいけない回答" } }],
-      usage: { cost: 0.000001 },
-    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const payload = successfulProviderPayload({ usage: { cost: 0.000001 } });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
 
     await expect(executeOriginProvider(
       request,
@@ -169,6 +215,53 @@ describe("executeOriginProvider", () => {
       code: "PROVIDER_POLICY_VIOLATION",
       retryable: false,
       message: "無料モデルの実行で0ドルを超える利用額が報告されたため、回答を破棄しました。",
+    });
+  });
+
+  it("rejects a response when router metadata is missing", async () => {
+    const payload = successfulProviderPayload({ openrouter_metadata: undefined });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_ROUTING_UNVERIFIED",
+      retryable: false,
+    });
+  });
+
+  it("rejects evidence of a fallback attempt", async () => {
+    const payload = successfulProviderPayload({
+      openrouter_metadata: {
+        requested: ORIGIN_OPENROUTER_FREE_MODEL,
+        strategy: "fallback",
+        attempt: 2,
+        endpoints: {
+          available: [{ provider: "Second Provider", selected: true }],
+        },
+        attempts: [
+          { provider: "First Provider", status: 503 },
+          { provider: "Second Provider", status: 200 },
+        ],
+      },
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_ROUTING_UNVERIFIED",
+      retryable: false,
     });
   });
 
