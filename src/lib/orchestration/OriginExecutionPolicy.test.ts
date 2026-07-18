@@ -11,7 +11,7 @@ const request = {
 const verifiedNow = Date.parse("2026-07-19T12:00:00.000Z");
 
 describe("buildOriginExecutionPlan", () => {
-  it("selects only the current evidence-backed OpenRouter free model when configured", () => {
+  it("selects only the current evidence-backed OpenRouter free model with strict data policy", () => {
     const result = buildOriginExecutionPlan(
       request,
       { openRouterConfigured: true },
@@ -30,6 +30,11 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.requiresOwnerApproval).toBe(false);
     expect(result.plan.taskType).toBe("security");
     expect(result.plan.reason).toContain("品質優位性の主張ではありません");
+    expect(result.plan.providerDataPolicy).toEqual({
+      allowProviderFallbacks: false,
+      dataCollection: "deny",
+      requireZeroDataRetention: true,
+    });
     expect(result.plan.modelEvidence).toEqual(expect.objectContaining({
       verifiedAt: "2026-07-19T00:00:00.000Z",
       reviewAfter: "2026-08-18T23:59:59.999Z",
