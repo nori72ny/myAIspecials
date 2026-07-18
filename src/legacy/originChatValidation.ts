@@ -32,10 +32,16 @@ export function validateOriginChatMessages(value: unknown): OriginChatMessage[] 
 
 export function detectSensitiveConversation(messages: OriginChatMessage[]): SensitiveInputKind[] {
   const kinds = new Set<SensitiveInputKind>();
+
   for (const message of messages) {
     const detection = detectSensitiveInput(message.content);
-    for (const kind of detection.kinds) kinds.add(kind);
+    for (const kind of detection.kinds) {
+      const isUserMessage = message.role === "user";
+      const isStructuredSecret = kind !== "credential-term";
+      if (isUserMessage || isStructuredSecret) kinds.add(kind);
+    }
   }
+
   return Array.from(kinds);
 }
 
