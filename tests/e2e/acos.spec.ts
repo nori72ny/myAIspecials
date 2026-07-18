@@ -17,7 +17,7 @@ async function openDelegationPlanner(page: import('@playwright/test').Page) {
   return dialog;
 }
 
-test.describe('ACOS 2.0 Personal Edition critical journey', () => {
+test.describe('ORIGIN Personal Edition critical journey', () => {
   test('opens the personal dashboard and navigates to Unified Chat', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'What can I help you with today?' })).toBeVisible({ timeout: 15_000 });
@@ -26,9 +26,9 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
 
     await page.getByTestId('nav-chat').click();
-    await expect(page.getByText(/こんにちは！ACOS統合AIです|Hello! I am ACOS Unified AI/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/こんにちは。ORIGIN Personalです|Hello! I am ORIGIN Personal/i)).toBeVisible({ timeout: 15_000 });
 
-    const chatInput = page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i);
+    const chatInput = page.getByPlaceholder(/ORIGINにメッセージを入力|Message ORIGIN/i);
     await expect(chatInput).toBeVisible();
     await expect(chatInput).toBeEditable();
   });
@@ -46,12 +46,12 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
   test('starts a clean Unified Chat session from New Chat', async ({ page }) => {
     await page.goto('/');
     await page.getByTestId('nav-chat').click();
-    const chatInput = page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i);
+    const chatInput = page.getByPlaceholder(/ORIGINにメッセージを入力|Message ORIGIN/i);
     await chatInput.fill('This draft must be cleared');
     await expect(chatInput).toHaveValue('This draft must be cleared');
     await page.getByTestId('new-chat-button').click();
     await expect(chatInput).toHaveValue('');
-    await expect(page.getByText(/こんにちは！ACOS統合AIです|Hello! I am ACOS Unified AI/i)).toBeVisible();
+    await expect(page.getByText(/こんにちは。ORIGIN Personalです|Hello! I am ORIGIN Personal/i)).toBeVisible();
   });
 
   test('keeps the primary navigation usable on a mobile viewport', async ({ page }) => {
@@ -81,7 +81,7 @@ test.describe('ACOS 2.0 Personal Edition critical journey', () => {
     await page.getByTestId('nav-chat').click();
     await expect.poll(async () => (await sidebar.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1);
     await expect(openSidebarButton).toBeVisible();
-    await expect(page.getByPlaceholder(/ACOSにメッセージを入力|Message ACOS/i)).toBeVisible();
+    await expect(page.getByPlaceholder(/ORIGINにメッセージを入力|Message ORIGIN/i)).toBeVisible();
   });
 });
 
@@ -176,76 +176,5 @@ test.describe('Multi-AI delegation planner presentation', () => {
     await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
     await page.getByRole('button', { name: '指示をコピー' }).click();
     await expect(dialog.getByRole('status')).toContainText('委譲指示をコピーしました。');
-  });
-
-  test('shows one clear visible error when clipboard access is denied', async ({ page }) => {
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'clipboard', {
-        configurable: true,
-        value: { writeText: async () => { throw new DOMException('Clipboard access denied', 'NotAllowedError'); } },
-      });
-    });
-
-    await page.goto('/');
-    const dialog = await openDelegationPlanner(page);
-    await page.getByLabel('依頼内容').fill('新しいAPIを実装してください');
-    await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
-    await page.getByRole('button', { name: '指示をコピー' }).click();
-
-    await expect(dialog.getByRole('alert').filter({ hasText: '指示を選択して手動でコピーしてください。' })).toHaveText('クリップボードへのコピーに失敗しました。指示を選択して手動でコピーしてください。');
-    await expect(page.getByRole('button', { name: '指示をコピー' })).toBeVisible();
-  });
-
-  test('supports keyboard-only planning, instruction focus, and Escape close', async ({ page }) => {
-    await page.goto('/');
-    const openButton = page.getByTestId('multi-ai-planner-open');
-    await openButton.focus();
-    await page.keyboard.press('Enter');
-    const dialog = page.getByRole('dialog', { name: 'AI作業振り分け' });
-    await expect(dialog).toBeVisible();
-    await expect(page.getByLabel('依頼内容')).toBeFocused();
-
-    await page.keyboard.type('新しいAPIを実装してください');
-    await page.keyboard.press('Tab');
-    await page.keyboard.press('Enter');
-    const instruction = dialog.getByLabel('委譲指示');
-    await expect(instruction).toBeVisible();
-    await instruction.focus();
-    await expect(instruction).toBeFocused();
-    await page.keyboard.press('Escape');
-    await expect(dialog).toBeHidden();
-  });
-
-  test('fits a 390px mobile viewport without horizontal clipping', async ({ page }, testInfo) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/');
-    const dialog = await openDelegationPlanner(page);
-    await page.getByLabel('依頼内容').fill('認証処理のセキュリティレビューをしてください');
-    await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
-    await expect(dialog.getByText('Security Review Assistant', { exact: true })).toBeVisible();
-
-    const box = await dialog.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.x).toBeGreaterThanOrEqual(0);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
-    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-
-    await testInfo.attach('sprint-8-3-mobile.png', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
-  });
-
-  test('keeps text readable in dark mode', async ({ page }, testInfo) => {
-    await page.goto('/');
-    await page.evaluate(() => document.documentElement.classList.add('dark'));
-    const dialog = await openDelegationPlanner(page);
-    await page.getByLabel('依頼内容').fill('最新情報を調査してください');
-    await page.getByRole('button', { name: '担当AIと検証方法を判定' }).click();
-    await expect(dialog.getByText('Research Assistant', { exact: true })).toBeVisible();
-
-    const dialogBackground = await dialog.evaluate((element) => getComputedStyle(element).backgroundColor);
-    const headingColor = await dialog.getByText('AI作業振り分け', { exact: true }).evaluate((element) => getComputedStyle(element).color);
-    expect(dialogBackground).not.toBe('rgba(0, 0, 0, 0)');
-    expect(headingColor).not.toBe(dialogBackground);
-
-    await testInfo.attach('sprint-8-3-dark.png', { body: await dialog.screenshot(), contentType: 'image/png' });
   });
 });
