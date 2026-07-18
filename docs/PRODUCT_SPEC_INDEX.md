@@ -63,23 +63,26 @@ Status: Active Draft
 
 ### 4. Benchmark Specification
 
-Planned file: `docs/BENCHMARK_SPEC.md`
+File: `docs/BENCHMARK_SPEC.md`
 
-Will define:
+Defines:
 
-- AI service and workflow catalog;
-- domain and capability taxonomy;
-- benchmark task format;
-- static, execution, agentic, and production benchmarks;
-- objective and model-based evaluators;
-- evidence, citation, and factuality evaluation;
-- human review;
-- confidence intervals, uncertainty, and sample-size rules;
-- cost and latency normalization;
-- model, role, and workflow ranking;
-- shadow evaluation and promotion policy.
+- benchmark subjects covering models, services, agents, roles, workflows, and complete execution configurations;
+- domain taxonomy and task archetypes;
+- static, execution, long-running agent, and production outcome benchmarks;
+- deterministic, reference-based, model-based, human, and user-outcome evaluators;
+- dimension-level scoring and critical failure conditions;
+- repetition, variance, confidence intervals, and pairwise evaluation;
+- complete cost and latency measurement;
+- quality-cost frontiers and Pareto-efficient configurations;
+- workflow ablation and role-specific evaluation;
+- constraint-specific performance profiles;
+- cold-start uncertainty policy;
+- sandbox, shadow, trial, promotion, restriction, and refresh policies;
+- benchmark governance, integrity, reproducibility, and routing integration;
+- initial zero-or-low-cost benchmark implementation.
 
-Status: Next
+Status: Active Draft
 
 ### 5. Cost and Approval Policy
 
@@ -95,7 +98,7 @@ Will define:
 - quality-gain versus incremental-cost rules;
 - consequential-action approval gates.
 
-Status: Planned
+Status: Next
 
 ### 6. Result and UX Specification
 
@@ -195,10 +198,16 @@ packages/
       capabilities.ts
       candidate.ts
       role.ts
-      benchmark.ts
       execution-plan.ts
       result.ts
       routing-decision.ts
+      benchmark/
+        benchmark-subject.ts
+        benchmark-case.ts
+        rubric.ts
+        run-result.ts
+        performance-profile.ts
+        constraint-profile.ts
 
 services/
   orchestrator/
@@ -215,9 +224,18 @@ services/
       approval-policy/
       retry-planner/
       routing-recorder/
+
+  benchmark-engine/
+    src/
+      case-registry/
+      runner/
+      evaluators/
+      aggregation/
+      ranking/
+      promotion-policy/
 ```
 
-Exact placement must be reconciled with the current repository structure. Existing types and services should be reused rather than duplicated.
+Exact placement must be reconciled with the current repository structure. Existing types and services should be reused rather than duplicated, and the mock stage should avoid unnecessary service proliferation.
 
 ## First Deliverable
 
@@ -232,7 +250,11 @@ The first usable, zero-or-low-cost deliverable can:
 7. display predicted quality, confidence, latency, cost, and approval state;
 8. display lower-cost and higher-quality alternatives;
 9. render a structured mock result;
-10. produce a complete routing decision record.
+10. produce a complete routing decision record;
+11. load synthetic benchmark results;
+12. generate constraint-specific performance profiles;
+13. identify a quality-cost frontier;
+14. apply uncertainty and evidence-expiration rules.
 
 No broad paid-provider rollout is required for this deliverable.
 
@@ -248,4 +270,7 @@ The following decisions are fixed unless explicitly changed by the product owner
 - Roles describe work and remain independent of provider names.
 - Multiple AI services are used only when they provide clear marginal value.
 - The cheapest sufficient plan is preferred.
+- Benchmarking evaluates complete result-producing configurations, not only individual models.
+- Rankings are valid only for stated domains, roles, constraints, and evidence periods.
+- Critical failures cannot be hidden by a high aggregate score.
 - The final result, not provider popularity, is the primary unit of value.
