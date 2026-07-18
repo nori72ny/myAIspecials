@@ -8,6 +8,7 @@ import { validateMissionQuality, ACOSValidationManager, CAPABILITIES_MAP } from 
 // Legacy imports
 import { createLegacyRouter } from "./src/legacy/legacyRoutes";
 import { createAnalyzeRouter } from "./src/legacy/analyzeRoute";
+import { originChatBoundaryGuard } from "./src/legacy/originChatBoundaryGuard";
 import { createOriginChatRouter } from "./src/legacy/originChatRouter";
 
 // New architecture imports (Mission Engine)
@@ -145,16 +146,8 @@ Respond ONLY with a valid JSON object matching this schema:
   // Route normal chat through the explicit ORIGIN safety and free-only policy first.
   app.use(createOriginChatRouter());
 
-  // The legacy router still contains historical chat code. Never allow a chat request
-  // to fall through to it if the authoritative ORIGIN route changes unexpectedly.
-  app.all("/api/chat", (_req, res) => {
-    return res.status(500).json({
-      code: "ORIGIN_CHAT_BOUNDARY_NOT_HANDLED",
-      message: "ORIGINの安全なチャット境界でリクエストを処理できなかったため、旧経路への移行を停止しました。",
-      retryable: false,
-      requestId: "UNKNOWN"
-    });
-  });
+  // Never allow the authoritative chat path to fall through to historical legacy code.
+  app.all("/api/chat", originChatBoundaryGuard);
 
   // 1. Mount remaining Legacy Endpoints (/api/generate-image, /api/analyze, etc.)
   app.use(createLegacyRouter());
