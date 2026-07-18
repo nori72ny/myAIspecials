@@ -86,19 +86,25 @@ Status: Active Draft
 
 ### 5. Cost and Approval Policy
 
-Planned file: `docs/COST_AND_APPROVAL_POLICY.md`
+File: `docs/COST_AND_APPROVAL_POLICY.md`
 
-Will define:
+Defines:
 
-- free and low-cost preference;
-- per-request and aggregate budgets;
-- warning, approval, and hard-stop thresholds;
-- paid-tool and subscription restrictions;
-- cost estimation and actual-cost reconciliation;
-- quality-gain versus incremental-cost rules;
-- consequential-action approval gates.
+- free and low-cost preference without accepting insufficient quality;
+- request, mission, user, tenant, provider, and period budgets;
+- soft, approval, and hard limits;
+- complete cost estimation and versioned pricing snapshots;
+- budget reservation and runtime cost enforcement;
+- cheapest-sufficient-plan and marginal-value rules;
+- paid provider, tool, retry, fallback, and agent-loop controls;
+- cost, data, action, and scope approval categories;
+- consequential-action approval gates;
+- approval validity, expiration, revocation, and material-plan-change rules;
+- actual-cost reconciliation and estimate-accuracy monitoring;
+- economy, recommended, and premium alternatives;
+- audit, failure handling, mock implementation, and acceptance tests.
 
-Status: Next
+Status: Active Draft
 
 ### 6. Result and UX Specification
 
@@ -107,6 +113,7 @@ Planned file: `docs/RESULT_UX_SPEC.md`
 Will define:
 
 - request experience and execution-plan preview;
+- cost, data, and action approval presentation;
 - progress presentation;
 - progressive disclosure;
 - conclusion-first results;
@@ -116,7 +123,7 @@ Will define:
 - accessibility and responsive behavior;
 - design tokens and component standards.
 
-Status: Planned
+Status: Next
 
 ### 7. Provider Integration Standard
 
@@ -208,6 +215,17 @@ packages/
         run-result.ts
         performance-profile.ts
         constraint-profile.ts
+      cost/
+        money.ts
+        pricing-snapshot.ts
+        cost-estimate.ts
+        budget.ts
+        reconciliation.ts
+      approval/
+        approval-request.ts
+        approval-decision.ts
+        proposed-action.ts
+        data-disclosure.ts
 
 services/
   orchestrator/
@@ -219,10 +237,14 @@ services/
       candidate-filter/
       candidate-ranker/
       cost-estimator/
+      budget-policy/
+      reservation-ledger/
       role-planner/
       execution-planner/
       approval-policy/
+      runtime-cost-guard/
       retry-planner/
+      reconciliation/
       routing-recorder/
 
   benchmark-engine/
@@ -247,16 +269,21 @@ The first usable, zero-or-low-cost deliverable can:
 4. compare registered AI service profiles;
 5. explain candidate exclusions and score breakdowns;
 6. generate roles and an execution graph;
-7. display predicted quality, confidence, latency, cost, and approval state;
-8. display lower-cost and higher-quality alternatives;
-9. render a structured mock result;
-10. produce a complete routing decision record;
-11. load synthetic benchmark results;
-12. generate constraint-specific performance profiles;
-13. identify a quality-cost frontier;
-14. apply uncertainty and evidence-expiration rules.
+7. calculate minimum, expected, and maximum cost;
+8. apply budget thresholds and reserve mock funds;
+9. display predicted quality, confidence, latency, cost, and approval state;
+10. distinguish cost, data, action, and scope approval;
+11. display economy, recommended, and premium alternatives;
+12. block simulated external writes without valid approval;
+13. render a structured mock result;
+14. produce a complete routing and cost audit record;
+15. load synthetic benchmark results;
+16. generate constraint-specific performance profiles;
+17. identify a quality-cost frontier;
+18. apply uncertainty and evidence-expiration rules;
+19. reconcile mock estimated and actual usage.
 
-No broad paid-provider rollout is required for this deliverable.
+No broad paid-provider rollout or real consequential external action is required for this deliverable.
 
 ## Decision Record
 
@@ -273,4 +300,7 @@ The following decisions are fixed unless explicitly changed by the product owner
 - Benchmarking evaluates complete result-producing configurations, not only individual models.
 - Rankings are valid only for stated domains, roles, constraints, and evidence periods.
 - Critical failures cannot be hidden by a high aggregate score.
+- Cost, data disclosure, consequential action, and operational scope are approved independently.
+- A hard budget limit cannot be bypassed by routing, retries, tools, agents, or provider adapters.
+- Approval is explicit, informed, specific, bounded, versioned, and revocable.
 - The final result, not provider popularity, is the primary unit of value.
