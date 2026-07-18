@@ -1,4 +1,9 @@
 import { Router } from "express";
+import {
+  DEFAULT_ORIGIN_CONTEXT_POLICY,
+  minimizeOriginContext,
+  type OriginContextPolicy,
+} from "../lib/orchestration/OriginContextPolicy";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog";
 import {
@@ -26,6 +31,7 @@ export interface OriginChatRouterOptions {
   now?: () => number;
   catalogNow?: () => number;
   freeModelCatalog?: readonly OriginFreeModelEvidence[];
+  contextPolicy?: OriginContextPolicy;
   createRequestId?: () => string;
 }
 
@@ -59,6 +65,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
   const env = options.env ?? process.env;
   const now = options.now ?? Date.now;
   const catalogNow = options.catalogNow ?? Date.now;
+  const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY;
   const createRequestId = options.createRequestId
     ?? (() => `origin-${now()}-${Math.random().toString(36).slice(2, 8)}`);
   const execute = options.execute
@@ -124,6 +131,16 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       });
     }
 
+    const contextResult = minimizeOriginContext(messages, contextPolicy);
+    if (contextResult.ok === false) {
+      return res.status(contextResult.code === "LATEST_MESSAGE_TOO_LARGE" ? 413 : 500).json({
+        code: contextResult.code,
+        message: contextResult.message,
+        retryable: false,
+        requestId,
+      });
+    }
+
     const planningResult = buildOriginExecutionPlan(
       {
         goal: lastUserMessage.trim(),
@@ -152,7 +169,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     try {
       const result = await execute({
         plan: planningResult.plan,
-        messages,
+        messages: contextResult.window.messages,
         systemInstruction: systemInstruction(),
       });
       return res.json({
@@ -173,6 +190,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           verificationStatus: "not-run",
           verificationReason: "Phase 1では独立検証と統合をまだ実行していません。",
           modelEvidence: planningResult.plan.modelEvidence,
+          context: {
+            policyVersion: contextResult.window.policyVersion,
+            includedMessageCount: contextResult.window.includedMessageCount,
+            includedCharacterCount: contextResult.window.includedCharacterCount,
+            omittedMessageCount: contextResult.window.omittedMessageCount,
+            omittedCharacterCount: contextResult.window.omittedCharacterCount,
+          },
           usage: result.usage,
         },
       });
