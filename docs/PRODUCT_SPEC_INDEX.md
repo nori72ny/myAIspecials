@@ -5,7 +5,7 @@ Governing document: [PRODUCT_CONSTITUTION.md](./PRODUCT_CONSTITUTION.md)
 
 ## Purpose
 
-This index defines the official product specification set for ORIGIN. Implementation work should reference these documents so product direction, architecture, orchestration, benchmarking, cost control, interface quality, governance, and future AI integration remain consistent.
+This index defines the official product specification set for ORIGIN. Implementation work should reference these documents so product direction, architecture, orchestration, benchmarking, cost control, interface quality, provider integration, governance, and future AI evolution remain consistent.
 
 ## Specification Set
 
@@ -131,20 +131,26 @@ Status: Active Draft
 
 ### 7. Provider Integration Standard
 
-Planned file: `docs/PROVIDER_INTEGRATION_STANDARD.md`
+File: `docs/PROVIDER_INTEGRATION_STANDARD.md`
 
-Will define:
+Defines:
 
-- adapter interface and model discovery;
-- capability declarations;
-- authentication and secret handling;
-- streaming, structured output, and tool invocation;
-- usage and cost reporting;
-- health checks and failure normalization;
-- provider-policy metadata;
-- deprecation and replacement.
+- provider-neutral adapter architecture and contracts;
+- provider, configuration, model, alias, and revision identity;
+- governed model discovery and catalog reconciliation;
+- declared, observed, benchmarked, approved, restricted, and unknown capability evidence;
+- authentication, secret references, least privilege, rotation, and redaction;
+- normalized text, multimodal, structured-output, streaming, citation, and artifact contracts;
+- tool-call proposals, hosted tools, side-effect controls, and approval boundaries;
+- asynchronous and hosted-agent execution normalization;
+- usage provenance, pricing snapshots, cost attribution, and reconciliation;
+- rate limits, quotas, bounded concurrency, backpressure, timeout, cancellation, and idempotency;
+- normalized failure categories and retry safety;
+- health, availability, data-policy, retention, region, and provider-policy metadata;
+- observability, audit, provider-specific extensions, schema versioning, and adapter versioning;
+- conformance tests, certification levels, deprecation, replacement, and deterministic mock adapters.
 
-Status: Next
+Status: Active Draft
 
 ### 8. AI Evolution and Lifecycle Specification
 
@@ -161,7 +167,7 @@ Will define:
 - benchmark refresh policy;
 - catalog versioning.
 
-Status: Planned
+Status: Next
 
 ### 9. Security, Privacy, and Data Governance
 
@@ -197,7 +203,7 @@ Status: Planned
 
 ## Initial Implementation Packages
 
-The first implementation increment should establish provider-neutral, cost-aware domain models and a complete mock UX without invoking paid AI services.
+The first implementation increment should establish provider-neutral, cost-aware domain models, deterministic provider adapters, and a complete mock UX without invoking paid AI services.
 
 ```text
 packages/
@@ -231,7 +237,21 @@ packages/
         proposed-action.ts
         data-disclosure.ts
 
-packages/
+  provider-contracts/
+    src/
+      provider-adapter.ts
+      provider-profile.ts
+      provider-configuration.ts
+      model-ref.ts
+      capability-profile.ts
+      execution-request.ts
+      execution-result.ts
+      stream-event.ts
+      usage-record.ts
+      provider-error.ts
+      provider-health.ts
+      tool-definition.ts
+
   ui/
     src/
       request-composer/
@@ -267,6 +287,13 @@ services/
       reconciliation/
       routing-recorder/
 
+  provider-registry/
+    src/
+      catalog/
+      discovery/
+      qualification/
+      lifecycle/
+
   benchmark-engine/
     src/
       case-registry/
@@ -275,9 +302,17 @@ services/
       aggregation/
       ranking/
       promotion-policy/
+
+adapters/
+  mock-provider/
+    src/
+      adapter.ts
+      fixtures/
+      failure-scenarios/
+      conformance/
 ```
 
-Exact placement must be reconciled with the current repository structure. Existing types, services, and UI components should be reused rather than duplicated, and the mock stage should avoid unnecessary service proliferation.
+Exact placement must be reconciled with the current repository structure. Existing types, services, adapters, and UI components should be reused rather than duplicated, and the mock stage should avoid unnecessary service proliferation.
 
 ## First Deliverable
 
@@ -286,30 +321,38 @@ The first usable, zero-or-low-cost deliverable can:
 1. accept a request without requiring provider selection;
 2. display interpreted objective, constraints, risk, and required capabilities;
 3. enforce hard constraints;
-4. compare registered AI service profiles;
-5. explain candidate exclusions and score breakdowns;
-6. generate roles and an execution graph;
-7. calculate minimum, expected, and maximum cost;
-8. apply budget thresholds and reserve mock funds;
-9. present economy, recommended, and premium plans;
-10. display predicted quality, confidence, latency, cost, and approval state;
-11. distinguish cost, data, action, and scope approval;
-12. preview simulated consequential actions exactly;
-13. block simulated external writes without valid approval;
-14. display user-centered execution progress;
-15. render a conclusion-first structured mock result;
-16. show claim-level evidence, uncertainty, limitations, and conflicts;
-17. distinguish complete, partial, blocked, cancelled, and failed outcomes;
-18. reconcile mock estimated and actual usage;
-19. produce complete routing, cost, approval, and execution audit detail;
-20. load synthetic benchmark results;
-21. generate constraint-specific performance profiles;
-22. identify a quality-cost frontier;
-23. apply uncertainty and evidence-expiration rules;
-24. operate with keyboard-accessible responsive UI;
-25. perform no real provider charge or consequential external action.
+4. register multiple deterministic mock provider configurations;
+5. discover and reconcile mock model profiles idempotently;
+6. distinguish declared, observed, benchmarked, approved, restricted, and unknown capabilities;
+7. reject unsupported provider requests before simulated execution;
+8. compare registered AI service profiles;
+9. explain candidate exclusions and score breakdowns;
+10. generate roles and an execution graph;
+11. calculate minimum, expected, and maximum cost;
+12. associate simulated usage with versioned pricing snapshots;
+13. apply budget thresholds and reserve mock funds;
+14. present economy, recommended, and premium plans;
+15. display predicted quality, confidence, latency, cost, and approval state;
+16. distinguish cost, data, action, and scope approval;
+17. preview simulated consequential actions exactly;
+18. normalize mock text, structured, streaming, tool-call, and partial results;
+19. block simulated external writes without valid approval;
+20. normalize mock provider errors, rate limits, timeouts, cancellation, and retry safety;
+21. display user-centered execution progress;
+22. render a conclusion-first structured mock result;
+23. show claim-level evidence, uncertainty, limitations, and conflicts;
+24. distinguish complete, partial, blocked, cancelled, and failed outcomes;
+25. reconcile mock estimated and actual usage;
+26. produce complete routing, provider, cost, approval, and execution audit detail;
+27. load synthetic benchmark results;
+28. generate constraint-specific performance profiles;
+29. identify a quality-cost frontier;
+30. apply uncertainty and evidence-expiration rules;
+31. pass provider conformance tests without live credentials;
+32. operate with keyboard-accessible responsive UI;
+33. perform no real provider charge or consequential external action.
 
-No broad paid-provider rollout or real consequential external action is required for this deliverable.
+No broad paid-provider rollout, live credential requirement, or real consequential external action is required for this deliverable.
 
 ## Decision Record
 
@@ -327,11 +370,17 @@ The following decisions are fixed unless explicitly changed by the product owner
 - Rankings are valid only for stated domains, roles, constraints, and evidence periods.
 - Critical failures cannot be hidden by a high aggregate score.
 - Cost, data disclosure, consequential action, and operational scope are approved independently.
-- A hard budget limit cannot be bypassed by routing, retries, tools, agents, or provider adapters.
+- A hard budget limit cannot be bypassed by routing, retries, tools, agents, provider SDKs, or provider adapters.
 - Approval is explicit, informed, specific, bounded, versioned, and revocable.
 - Automatic is the default user mode.
 - Users are not required to select a provider.
 - Roles and outcomes are presented before provider identities.
 - Results are conclusion-first, with evidence and audit detail progressively disclosed.
 - Material uncertainty, conflicting evidence, partial completion, and actual cost are not hidden.
+- Core orchestration code does not depend on provider SDK types.
+- Provider names do not substitute for verified capability evidence.
+- Missing capability, pricing, usage, retention, region, or policy metadata is represented as unknown, not favorable.
+- Provider-hosted tools and agents remain subject to ORIGIN approval, budget, safety, and audit controls.
+- Provider SDK retries cannot bypass ORIGIN accounting or retry policy.
+- Provider replacements require controlled qualification and benchmark evidence.
 - The final result, not provider popularity, is the primary unit of value.
