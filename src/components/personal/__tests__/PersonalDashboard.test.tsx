@@ -32,9 +32,8 @@ describe('PersonalDashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: '候補を調べて、分かりやすく比較したい' }));
 
     expect(onNavigateToChat).not.toHaveBeenCalled();
-    expect(screen.getByLabelText('ORIGINに実現してほしいことを入力')).toHaveValue(
-      '候補を調べて、分かりやすく比較したい',
-    );
+    const input = screen.getByLabelText('ORIGINに実現してほしいことを入力') as HTMLTextAreaElement;
+    expect(input.value).toBe('候補を調べて、分かりやすく比較したい');
   });
 
   it('sends the typed request from both the send button and Enter key', () => {
@@ -62,8 +61,8 @@ describe('PersonalDashboard', () => {
     const onNavigateToChat = vi.fn();
     render(<PersonalDashboard onNavigateToChat={onNavigateToChat} />);
 
-    const sendButton = screen.getByRole('button', { name: 'ORIGINに依頼を送信' });
-    expect(sendButton).toBeDisabled();
+    const sendButton = screen.getByRole('button', { name: 'ORIGINに依頼を送信' }) as HTMLButtonElement;
+    expect(sendButton.disabled).toBe(true);
     expect(screen.getByText('パスワードやAPIキーなどの秘密情報は入力しないでください。')).toBeTruthy();
   });
 
