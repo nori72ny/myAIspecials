@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 
 export interface OriginDisabledProviderRoute {
   method: "all" | "post";
@@ -33,7 +33,7 @@ const DISABLED_RESPONSE = {
 
 export function createOriginLegacyProviderBoundaryRouter() {
   const router = Router();
-  const reject = (_req: unknown, res: any) => {
+  const reject = (_req: Request, res: Response) => {
     res.status(503).json(DISABLED_RESPONSE);
   };
 
