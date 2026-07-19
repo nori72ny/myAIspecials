@@ -3,7 +3,10 @@ import {
   organizationExecutorInstance,
   type OrganizationExecutor,
 } from "../organization/OrganizationExecutor";
-import type { HumanApprovalRequest } from "../organization/OrganizationTypes";
+import {
+  OrgExecutionState,
+  type HumanApprovalRequest,
+} from "../organization/OrganizationTypes";
 
 export type MissionApprovalHandler = (
   request: HumanApprovalRequest,
@@ -44,9 +47,9 @@ export class ExecuteMissionUseCase {
     // Non-interactive production execution must stop until an explicit,
     // attributable approval handler resolves the request.
     if (
-      orgState.currentState === "AWAITING_HUMAN_APPROVAL"
-      || orgState.currentState === "APPROVAL_TIMED_OUT"
-      || orgState.currentState === "REJECTED"
+      orgState.currentState === OrgExecutionState.AWAITING_HUMAN_APPROVAL
+      || orgState.currentState === OrgExecutionState.APPROVAL_TIMED_OUT
+      || orgState.currentState === OrgExecutionState.REJECTED
     ) {
       return;
     }
