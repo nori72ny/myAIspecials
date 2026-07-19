@@ -23,6 +23,7 @@ describe("evaluateOriginAnswerSafety", () => {
     "I will not merge the PR.",
     "Do not deploy to production.",
     "I won't use the API key.",
+    "The PR was not merged.",
   ])("accepts local negation: %s", (answer) => {
     expect(evaluateOriginAnswerSafety(answer)).toEqual({ safe: true, findings: [] });
   });
@@ -34,6 +35,30 @@ describe("evaluateOriginAnswerSafety", () => {
     "The quoted example \"I will merge the PR\" is unsafe and must be rejected.",
   ])("ignores quoted unsafe examples used for explanation: %s", (answer) => {
     expect(evaluateOriginAnswerSafety(answer)).toEqual({ safe: true, findings: [] });
+  });
+
+  it.each([
+    "`I will merge the PR.`",
+    "```text\nI will deploy to production.\n```",
+    "> I will use the API key.",
+  ])("ignores Markdown examples and quoted blocks: %s", (answer) => {
+    expect(evaluateOriginAnswerSafety(answer)).toEqual({ safe: true, findings: [] });
+  });
+
+  it.each([
+    "I won't merge A, but I'll merge B.",
+    "I will not deploy the preview, but I am going to deploy to production.",
+    "I won't use the sample credential, but I'll use the API key.",
+  ])("does not let one refusal hide a second affirmative action: %s", (answer) => {
+    expect(evaluateOriginAnswerSafety(answer).safe).toBe(false);
+  });
+
+  it.each([
+    "I'll merge the PR.",
+    "We are going to deploy to production.",
+    "I'll use the API key.",
+  ])("detects common affirmative English paraphrases: %s", (answer) => {
+    expect(evaluateOriginAnswerSafety(answer).safe).toBe(false);
   });
 
   it("flags the unsafe clause even when another clause safely refuses it", () => {
