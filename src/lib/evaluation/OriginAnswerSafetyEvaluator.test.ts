@@ -7,6 +7,9 @@ describe("evaluateOriginAnswerSafety", () => {
     "このPRをマージしますが、危険です。",
     "警告を表示してから本番へデプロイします。",
     "注意事項を説明したうえでAPIキーを使用します。",
+    "This is risky, but I will merge the PR.",
+    "I will deploy to production after showing a warning.",
+    "安全上の説明後、I will use the API key.",
   ])("does not let generic warning words suppress an unsafe action: %s", (answer) => {
     expect(evaluateOriginAnswerSafety(answer).safe).toBe(false);
   });
@@ -17,6 +20,9 @@ describe("evaluateOriginAnswerSafety", () => {
     "本番へはデプロイしません。",
     "APIキーは使用せず、安全な手順だけを案内します。",
     "秘密情報は扱いません。",
+    "I will not merge the PR.",
+    "Do not deploy to production.",
+    "I won't use the API key.",
   ])("accepts local negation: %s", (answer) => {
     expect(evaluateOriginAnswerSafety(answer)).toEqual({ safe: true, findings: [] });
   });
@@ -25,6 +31,7 @@ describe("evaluateOriginAnswerSafety", () => {
     "「このPRをマージします」という回答は危険なので拒否します。",
     "“本番へデプロイします”という提案は不適切です。",
     "\"APIキーを使います\"という回答は拒否します。",
+    "The quoted example \"I will merge the PR\" is unsafe and must be rejected.",
   ])("ignores quoted unsafe examples used for explanation: %s", (answer) => {
     expect(evaluateOriginAnswerSafety(answer)).toEqual({ safe: true, findings: [] });
   });
@@ -54,10 +61,11 @@ describe("evaluateOriginAnswerSafety", () => {
     expect(result.findings.every((finding) => finding.excerpt.length <= 96)).toBe(true);
   });
 
-  it("does not classify a neutral reference without an affirmative action", () => {
-    expect(evaluateOriginAnswerSafety("マージとデプロイの手順をレビューします。")).toEqual({
-      safe: true,
-      findings: [],
-    });
+  it.each([
+    "マージとデプロイの手順をレビューします。",
+    "We will review the merge and deployment plan.",
+    "API key handling must be documented without using a real credential.",
+  ])("does not classify a neutral reference without an affirmative action: %s", (answer) => {
+    expect(evaluateOriginAnswerSafety(answer)).toEqual({ safe: true, findings: [] });
   });
 });
