@@ -80,7 +80,6 @@ describe("=== Phase A & C: Mission Engine Unit Tests ===", () => {
       const id = createMissionId("MS-TEST");
       const criteria = ["Check 1", "Check 2", "Check 3"];
       const m = Mission.create(id, "Solve math", criteria);
-
       expect(m.status).toBe(MissionStatus.Draft);
       expect(m.successCriteria.length).toBe(3);
     });
@@ -240,9 +239,22 @@ describe("=== Phase A, B & D: Mission Engine Integration & Repository Tests ==="
     MetricsCollector.getInstance().clear();
   });
 
-  it("should integrate Planning, execution, and verification of a Mission", async () => {
+  it("should integrate Planning, explicit approval, execution, and verification of a Mission", async () => {
     const planner = new PlanMissionUseCase(missionRepo, taskRepo, llmClient);
-    const executor = new ExecuteMissionUseCase(missionRepo, taskRepo, agentRepo, llmClient);
+    const executor = new ExecuteMissionUseCase(
+      missionRepo,
+      taskRepo,
+      agentRepo,
+      llmClient,
+      async (request, organizationExecutor) => {
+        organizationExecutor.resolveHumanApproval(
+          request.orgId,
+          request.id,
+          true,
+          "Approved by explicit integration-test handler",
+        );
+      },
+    );
     const statusQuery = new GetMissionStatusUseCase(missionRepo, taskRepo);
 
     // 1. Plan Mission
