@@ -1,12 +1,22 @@
 import { IMissionRepository, ITaskRepository, IAgentRepository } from "@origin/domain";
-import { organizationExecutorInstance } from "../organization/OrganizationExecutor";
+import {
+  organizationExecutorInstance,
+  type OrganizationExecutor,
+} from "../organization/OrganizationExecutor";
+import type { HumanApprovalRequest } from "../organization/OrganizationTypes";
+
+export type MissionApprovalHandler = (
+  request: HumanApprovalRequest,
+  executor: OrganizationExecutor,
+) => Promise<void>;
 
 export class ExecuteMissionUseCase {
   constructor(
     private missionRepo: IMissionRepository,
     private taskRepo: ITaskRepository,
     private agentRepo: IAgentRepository,
-    private llmClient: any
+    private llmClient: any,
+    private approvalHandler?: MissionApprovalHandler,
   ) {}
 
   async execute(missionIdStr: string): Promise<void> {
@@ -21,18 +31,25 @@ export class ExecuteMissionUseCase {
       metrics.recordMissionStart(mission.id, mission.objective, taskIds.length);
     }
 
-    // Non-interactive server execution has no external approval/resume endpoint,
-    // so resolve the demonstration approval before continuing the pipeline.
+    const approvalOptions = this.approvalHandler
+      ? { onApprovalRequired: this.approvalHandler }
+      : undefined;
     const orgState = await organizationExecutorInstance.executeMission(
       missionIdStr,
       objective,
       this.llmClient,
-      {
-        onApprovalRequired: async (request, executor) => {
-          executor.resolveHumanApproval(request.orgId, request.id, true, "System-approved non-interactive mission execution");
-        }
-      }
+      approvalOptions,
     );
+
+    // Non-interactive production execution must stop until an explicit,
+    // attributable approval handler resolves the request.
+    if (
+      orgState.currentState === "AWAITING_HUMAN_APPROVAL"
+      || orgState.currentState === "APPROVAL_TIMED_OUT"
+      || orgState.currentState === "REJECTED"
+    ) {
+      return;
+    }
     
     // Sync the mission status in repository
     if (mission) {
