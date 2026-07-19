@@ -133,7 +133,7 @@ export async function executeReviewedOriginRequest(
   }
 
   const synthesis = synthesizeOriginReview(primaryResult, reviewResult);
-  if (!synthesis.ok) {
+  if (synthesis.ok === false) {
     return {
       ok: false,
       code: "SYNTHESIS_FAILED",
