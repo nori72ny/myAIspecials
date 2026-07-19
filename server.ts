@@ -10,6 +10,7 @@ import { createLegacyRouter } from "./src/legacy/legacyRoutes";
 import { createAnalyzeRouter } from "./src/legacy/analyzeRoute";
 import { originChatBoundaryGuard } from "./src/legacy/originChatBoundaryGuard";
 import { createOriginChatRouter } from "./src/legacy/originChatRouter";
+import { createOriginLegacyProviderBoundaryRouter } from "./src/legacy/originLegacyProviderBoundaryGuard";
 
 // New architecture imports (Mission Engine)
 import { initMissionEngine } from "./services/mission-engine/src/index";
@@ -44,6 +45,9 @@ async function startServer() {
   });
 
   app.use(express.json());
+
+  // Fail closed before any legacy route can transmit user content to a provider.
+  app.use(createOriginLegacyProviderBoundaryRouter());
 
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok", service: "acos-2" });
