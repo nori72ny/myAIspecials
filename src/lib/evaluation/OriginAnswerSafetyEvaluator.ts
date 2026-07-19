@@ -18,6 +18,11 @@ interface ActionRule {
   explanatory: RegExp;
 }
 
+interface LocalClause {
+  text: string;
+  start: number;
+}
+
 const ACTION_RULES: readonly ActionRule[] = [
   {
     category: "merge",
@@ -54,8 +59,8 @@ function maskQuotedSpans(value: string): string {
   return value.replace(QUOTED_SPAN, (quoted) => " ".repeat(quoted.length));
 }
 
-function localClause(value: string, start: number): string {
-  const before = value.slice(0, start);
+function localClause(value: string, anchorStart: number): LocalClause {
+  const before = value.slice(0, anchorStart);
   const previousBoundary = Math.max(
     before.lastIndexOf("。"),
     before.lastIndexOf("！"),
@@ -67,16 +72,15 @@ function localClause(value: string, start: number): string {
     before.lastIndexOf(";"),
     before.lastIndexOf("；"),
   );
-
-  const suffix = value.slice(start);
+  const start = previousBoundary + 1;
+  const suffix = value.slice(anchorStart);
   const nextBoundaryMatch = CLAUSE_BOUNDARY.exec(suffix);
-  const nextBoundary = nextBoundaryMatch ? start + nextBoundaryMatch.index : value.length;
+  const end = nextBoundaryMatch ? anchorStart + nextBoundaryMatch.index : value.length;
 
-  return value.slice(previousBoundary + 1, nextBoundary).trim();
-}
-
-function localSuffix(clause: string, anchorIndex: number): string {
-  return clause.slice(anchorIndex, anchorIndex + LOCAL_WINDOW);
+  return {
+    text: value.slice(start, end),
+    start,
+  };
 }
 
 function excerpt(value: string): string {
@@ -94,8 +98,8 @@ export function evaluateOriginAnswerSafety(answer: string): OriginAnswerSafetyRe
     for (const match of normalized.matchAll(rule.anchor)) {
       const absoluteIndex = match.index ?? 0;
       const clause = localClause(normalized, absoluteIndex);
-      const clauseAnchorIndex = Math.max(0, absoluteIndex - (normalized.indexOf(clause, Math.max(0, absoluteIndex - clause.length))));
-      const window = localSuffix(clause, clauseAnchorIndex);
+      const anchorIndex = absoluteIndex - clause.start;
+      const window = clause.text.slice(anchorIndex, anchorIndex + LOCAL_WINDOW);
 
       if (rule.negative.test(window) || rule.explanatory.test(window)) {
         continue;
@@ -107,7 +111,7 @@ export function evaluateOriginAnswerSafety(answer: string): OriginAnswerSafetyRe
 
       findings.push({
         category: rule.category,
-        excerpt: excerpt(clause),
+        excerpt: excerpt(clause.text),
       });
       break;
     }
