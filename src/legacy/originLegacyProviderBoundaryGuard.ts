@@ -1,26 +1,48 @@
 import { Router } from "express";
 
-export const ORIGIN_DISABLED_LEGACY_PROVIDER_PATHS = [
-  "/api/v1/validate-mission",
-  "/api/analyze",
-  "/api/generate-image",
-  "/api/swarm/run",
+export interface OriginDisabledProviderRoute {
+  method: "all" | "post";
+  routePath: string;
+  testPath: string;
+}
+
+export const ORIGIN_DISABLED_PROVIDER_ROUTES: readonly OriginDisabledProviderRoute[] = [
+  { method: "all", routePath: "/api/v1/validate-mission", testPath: "/api/v1/validate-mission" },
+  { method: "all", routePath: "/api/analyze", testPath: "/api/analyze" },
+  { method: "all", routePath: "/api/generate-image", testPath: "/api/generate-image" },
+  { method: "all", routePath: "/api/swarm/run", testPath: "/api/swarm/run" },
+  { method: "post", routePath: "/api/v1/missions", testPath: "/api/v1/missions" },
+  {
+    method: "post",
+    routePath: "/api/v1/missions/:missionId/execute",
+    testPath: "/api/v1/missions/test-mission/execute",
+  },
+  { method: "post", routePath: "/api/v1/executive/run", testPath: "/api/v1/executive/run" },
 ] as const;
 
+export const ORIGIN_DISABLED_LEGACY_PROVIDER_PATHS = ORIGIN_DISABLED_PROVIDER_ROUTES
+  .filter((route) => route.method === "all")
+  .map((route) => route.routePath);
+
 const DISABLED_RESPONSE = {
-  code: "ORIGIN_LEGACY_PROVIDER_PATH_DISABLED",
-  message: "この旧AI実行経路はORIGINの安全・無料実行ポリシーへ未移行のため停止しています。",
+  code: "ORIGIN_PROVIDER_PATH_DISABLED",
+  message: "このAI実行経路はORIGINの安全・無料実行ポリシーへ未移行のため停止しています。",
   retryable: false,
   requestId: "UNKNOWN",
 } as const;
 
 export function createOriginLegacyProviderBoundaryRouter() {
   const router = Router();
+  const reject = (_req: unknown, res: any) => {
+    res.status(503).json(DISABLED_RESPONSE);
+  };
 
-  for (const path of ORIGIN_DISABLED_LEGACY_PROVIDER_PATHS) {
-    router.all(path, (_req, res) => {
-      res.status(503).json(DISABLED_RESPONSE);
-    });
+  for (const route of ORIGIN_DISABLED_PROVIDER_ROUTES) {
+    if (route.method === "all") {
+      router.all(route.routePath, reject);
+    } else {
+      router.post(route.routePath, reject);
+    }
   }
 
   return router;
