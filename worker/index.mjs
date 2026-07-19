@@ -1,7 +1,8 @@
-const DEFAULT_FREE_MODEL = "google/gemini-2.5-flash:free";
-const MAX_PROMPT_LENGTH = 4000;
-const OPENROUTER_TIMEOUT_MS = 8000;
-const BUSY_MESSAGE = "Currently free AI models are busy. Please wait a moment and try again.";
+const DISABLED_AI_RESPONSE = {
+  error: "ORIGIN_LEGACY_PROVIDER_PATH_DISABLED",
+  message: "This legacy provider endpoint is disabled until it is migrated to the ORIGIN safety and free-only execution policy.",
+  retryable: false,
+};
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -39,112 +40,6 @@ function corsHeaders(request, env) {
   return headers;
 }
 
-function isExplicitlyFreeModel(model) {
-  const normalized = String(model || "").trim().toLowerCase();
-  return normalized.length > 0 && normalized !== "openrouter/auto" && normalized.endsWith(":free");
-}
-
-async function callOpenRouter(request, env) {
-  const headers = corsHeaders(request, env);
-
-  if (env.FREE_ONLY !== "true") {
-    return json(
-      { error: "FREE_ONLY_REQUIRED", message: "Only free models are permitted on this endpoint." },
-      503,
-      headers,
-    );
-  }
-
-  if (!env.OPENROUTER_API_KEY) {
-    return json(
-      { error: "OPENROUTER_NOT_CONFIGURED", message: "OpenRouter API key is missing." },
-      503,
-      headers,
-    );
-  }
-
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "INVALID_JSON", message: "Invalid JSON format." }, 400, headers);
-  }
-
-  const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
-  if (!prompt) {
-    return json({ error: "INVALID_PROMPT", message: "Prompt cannot be empty." }, 400, headers);
-  }
-  if (prompt.length > MAX_PROMPT_LENGTH) {
-    return json(
-      { error: "INVALID_PROMPT", message: "Prompt is too long.", maxLength: MAX_PROMPT_LENGTH },
-      400,
-      headers,
-    );
-  }
-
-  const model = env.OPENROUTER_FREE_MODEL || DEFAULT_FREE_MODEL;
-  if (!isExplicitlyFreeModel(model)) {
-    return json(
-      { error: "FREE_MODEL_REQUIRED", message: "Configured model is not an explicitly free OpenRouter model." },
-      503,
-      headers,
-    );
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), OPENROUTER_TIMEOUT_MS);
-
-  try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-        "content-type": "application/json",
-        "http-referer": env.APP_URL || "https://acos-staging.pages.dev",
-        "x-title": "ACOS 2.0 Staging",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.4,
-        max_tokens: 700,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      return json(
-        { error: "FREE_MODEL_UNAVAILABLE", message: BUSY_MESSAGE },
-        response.status === 429 ? 429 : 503,
-        headers,
-      );
-    }
-
-    let data;
-    try {
-      data = await response.json();
-    } catch {
-      return json({ error: "INVALID_UPSTREAM_RESPONSE", message: BUSY_MESSAGE }, 503, headers);
-    }
-
-    const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      return json({ error: "EMPTY_MODEL_RESPONSE", message: BUSY_MESSAGE }, 503, headers);
-    }
-
-    return json({ content: content.trim(), model, freeOnly: true }, 200, headers);
-  } catch (error) {
-    const timedOut = error instanceof Error && error.name === "AbortError";
-    return json(
-      { error: timedOut ? "UPSTREAM_TIMEOUT" : "UPSTREAM_FAILURE", message: BUSY_MESSAGE },
-      503,
-      headers,
-    );
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -165,6 +60,7 @@ export default {
           runtime: "cloudflare-worker",
           freeOnly: env.FREE_ONLY === "true",
           aiConfigured: Boolean(env.OPENROUTER_API_KEY),
+          providerExecutionEnabled: false,
         },
         200,
         headers,
@@ -175,7 +71,8 @@ export default {
       if (request.method !== "POST") {
         return json({ error: "METHOD_NOT_ALLOWED" }, 405, headers);
       }
-      return callOpenRouter(request, env);
+
+      return json(DISABLED_AI_RESPONSE, 503, headers);
     }
 
     return json({ error: "NOT_FOUND" }, 404, headers);
