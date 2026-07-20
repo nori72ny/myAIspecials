@@ -26,8 +26,17 @@ async function expectNonRetryableError(title: string, code: string, description:
   await waitFor(() => {
     expect(screen.getByText(title)).toBeTruthy();
     expect(screen.getByText(description)).toBeTruthy();
-    expect(screen.getByText(`Error Code: ${code}`)).toBeTruthy();
+    expect(screen.getByText('問題の詳細を見る')).toBeTruthy();
   });
+
+  const details = screen.getByTestId('error-details') as HTMLDetailsElement;
+  expect(details.open).toBe(false);
+
+  fireEvent.click(screen.getByText('問題の詳細を見る'));
+  expect(details.open).toBe(true);
+  expect(screen.getByText('エラーコード')).toBeTruthy();
+  expect(screen.getByText(code)).toBeTruthy();
+
   expect(screen.queryByText('再試行')).toBeNull();
   expect(screen.queryByText('接続設定を確認')).toBeNull();
 }
@@ -236,8 +245,16 @@ describe('UnifiedChat', () => {
     await waitFor(() => {
       expect(screen.getByText('無料AIの利用上限に達しました')).toBeTruthy();
       expect(screen.getByText('再試行')).toBeTruthy();
-      expect(screen.getByText('Error Code: PROVIDER_RATE_LIMITED')).toBeTruthy();
+      expect(screen.getByText('問題の詳細を見る')).toBeTruthy();
     });
+
+    const details = screen.getByTestId('error-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+
+    fireEvent.click(screen.getByText('問題の詳細を見る'));
+    expect(details.open).toBe(true);
+    expect(screen.getByText('エラーコード')).toBeTruthy();
+    expect(screen.getByText('PROVIDER_RATE_LIMITED')).toBeTruthy();
   });
 
   it('handles the initial prompt override', async () => {
