@@ -52,7 +52,7 @@ describe('UnifiedChat', () => {
     expect(screen.getByText('Hello! I am ORIGIN Personal. What outcome would you like to achieve?')).toBeTruthy();
   });
 
-  it('sends a strict zero-cost policy and displays matching execution metadata', async () => {
+  it('sends a strict zero-cost policy and progressively discloses matching execution metadata', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -74,10 +74,21 @@ describe('UnifiedChat', () => {
 
     await waitFor(() => {
       expect(screen.getByText('確認結果です。')).toBeTruthy();
-      expect(screen.getByText('ORIGIN 無料AI')).toBeTruthy();
-      expect(screen.getByText('独立検証なし')).toBeTruthy();
-      expect(screen.getByText('無料')).toBeTruthy();
+      expect(screen.getByText('無料で実行')).toBeTruthy();
+      expect(screen.getByText('実行情報を見る')).toBeTruthy();
     });
+
+    const details = screen.getByTestId('execution-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+
+    fireEvent.click(screen.getByText('実行情報を見る'));
+    expect(details.open).toBe(true);
+    expect(screen.getByText('使用したAI')).toBeTruthy();
+    expect(screen.getByText('ORIGIN 無料AI')).toBeTruthy();
+    expect(screen.getByText('独立検証なし')).toBeTruthy();
+    expect(screen.getByText('無料')).toBeTruthy();
+    expect(screen.getByText('25ms')).toBeTruthy();
+    expect(screen.getByText('無料限定ポリシーに適合する実行先を選択しました。')).toBeTruthy();
 
     const fetchCall = (global.fetch as any).mock.calls[0];
     const body = JSON.parse(fetchCall[1].body);
