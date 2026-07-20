@@ -61,6 +61,35 @@ describe('UnifiedChat', () => {
     expect(screen.getByText('Hello! I am ORIGIN Personal. What outcome would you like to achieve?')).toBeTruthy();
   });
 
+  it('shows composer guidance, preserves Shift+Enter, and trims the sent request', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ content: '確認しました。' }),
+    });
+
+    render(<UnifiedChat />);
+
+    expect(screen.getByText('Enterで送信・Shift+Enterで改行')).toBeTruthy();
+    expect(screen.getByText('パスワードやAPIキーなどの秘密情報は入力しないでください。')).toBeTruthy();
+
+    const input = screen.getByPlaceholderText('ORIGINにメッセージを入力...') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: '  詳細を確認してください  ' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(input.value).toBe('  詳細を確認してください  ');
+
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const fetchCall = (global.fetch as any).mock.calls[0];
+    const body = JSON.parse(fetchCall[1].body);
+    expect(body.messages.at(-1)).toEqual({
+      role: 'user',
+      content: '詳細を確認してください',
+    });
+  });
+
   it('sends a strict zero-cost policy and progressively discloses matching execution metadata', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
