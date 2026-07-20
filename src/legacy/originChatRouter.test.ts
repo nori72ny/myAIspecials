@@ -121,6 +121,21 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
+  it("blocks a structured provider key split across chat messages", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [
+        { role: "user", content: "確認対象の接頭辞は sk-" },
+        { role: "assistant", content: "続きの値を入力してください" },
+        { role: "user", content: "abcdefghijklmnopqrstuv" },
+      ],
+    });
+
+    expect(response.status).toBe(422);
+    expect(response.body.sensitiveKinds).toContain("provider-key");
+    expect(JSON.stringify(response.body)).not.toContain("abcdefghijklmnopqrstuv");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
   it("returns the current free plan plus actual provider routing and data-policy evidence", async () => {
     const response = await request(createApp(execute)).post("/api/chat").send({
       messages: [{ role: "user", content: "認証処理をレビューしてください" }],
