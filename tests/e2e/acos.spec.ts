@@ -20,7 +20,7 @@ async function openDelegationPlanner(page: import('@playwright/test').Page) {
 test.describe('ORIGIN Personal Edition critical journey', () => {
   test('opens the personal dashboard and navigates to Unified Chat', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'What can I help you with today?' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: /何を実現したいですか？|What would you like to achieve\?/i })).toBeVisible({ timeout: 15_000 });
 
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
