@@ -42,12 +42,21 @@ export function detectSensitiveConversation(messages: OriginChatMessage[]): Sens
     }
   }
 
-  // Structured credentials can be split across adjacent chat messages. Scan the
-  // canonicalized conversation as one stream, but keep conversational credential
-  // terms scoped to user messages to avoid blocking ordinary assistant safety advice.
-  const combinedDetection = detectSensitiveInput(messages.map((message) => message.content).join(""));
-  for (const kind of combinedDetection.kinds) {
-    if (kind !== "credential-term") kinds.add(kind);
+  // Structured credentials can be split across adjacent messages or across
+  // repeated turns of the same role. Scan canonicalized streams without adding
+  // separators, while keeping conversational credential terms scoped to the
+  // per-message user checks above to avoid blocking ordinary assistant advice.
+  const structuredStreams = [
+    messages.map((message) => message.content).join(""),
+    messages.filter((message) => message.role === "user").map((message) => message.content).join(""),
+    messages.filter((message) => message.role !== "user").map((message) => message.content).join(""),
+  ];
+
+  for (const stream of structuredStreams) {
+    const detection = detectSensitiveInput(stream);
+    for (const kind of detection.kinds) {
+      if (kind !== "credential-term") kinds.add(kind);
+    }
   }
 
   return Array.from(kinds);
