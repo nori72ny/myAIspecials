@@ -2,12 +2,9 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import "dotenv/config";
-import { GoogleGenAI } from "@google/genai";
-import { validateMissionQuality, ACOSValidationManager, CAPABILITIES_MAP } from "./src/utils/MissionValidator";
 
 // Legacy imports
 import { createLegacyRouter } from "./src/legacy/legacyRoutes";
-import { createAnalyzeRouter } from "./src/legacy/analyzeRoute";
 import { originChatBoundaryGuard } from "./src/legacy/originChatBoundaryGuard";
 import { createOriginChatRouter } from "./src/legacy/originChatRouter";
 import { createOriginLegacyProviderBoundaryRouter } from "./src/legacy/originLegacyProviderBoundaryGuard";
@@ -47,105 +44,13 @@ async function startServer() {
   app.use(express.json());
 
   // Fail closed before any legacy route can transmit user content to a provider.
+  // Dormant direct Gemini validation and analyze handlers are intentionally not
+  // mounted in this entrypoint; disabled routes remain explicit 503 responses.
   app.use(createOriginLegacyProviderBoundaryRouter());
 
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok", service: "acos-2" });
   });
-
-  // 0. Mount Mission Quality Validator endpoint
-  app.post("/api/v1/validate-mission", async (req, res) => {
-    const { request, output } = req.body;
-    if (!request || !output) {
-      return res.status(400).json({ error: "Missing 'request' or 'output' fields." });
-    }
-
-    const localResult = validateMissionQuality(request, output);
-
-    // Route the validator itself to the optimal AI model via ACOS Routing Engine
-    const manager = ACOSValidationManager.getInstance();
-    const routingDecision = manager.routingEngine.route({
-      input: `Analyze alignment quality and capabilities match. User request: "${request}". AI generated output: "${output}".`,
-      priority: "quality"
-    });
-
-    const routedAI = routingDecision.primaryAI; // e.g. { id: "gpt-4o", name: "GPT-4o", provider: "OpenAI" }
-    
-    // Choose executing model based on routed AI's capabilities
-    // This strictly avoids Gemini lock-in by dynamically adapting execution characteristics!
-    const executingModel = (routedAI.quality >= 9) ? "gemini-1.5-pro" : "gemini-1.5-flash";
-
-    if (!process.env.GEMINI_API_KEY) {
-      return res.json({
-        ...localResult,
-        engine: `Code-Engine Routing -> ${routedAI.name} (${routedAI.provider})`,
-        details: localResult.details + ` (ACOS Routing Engine: ${routedAI.name} 推奨 - ローカルフォールバック動作)`
-      });
-    }
-
-    try {
-      const ai = new GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY,
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build" }
-        }
-      });
-
-      const capabilityList = Object.keys(CAPABILITIES_MAP).map(cap => `- "${cap}"`).join("\n");
-
-      const prompt = `
-You are the Mission Quality Validator V2. Your purpose is to verify if the AI-generated artifact (Mission Output) matches the User's original request (Mission Goal).
-
-Classify both the original request and the actual output into exactly ONE of the following 30 AI Capability labels:
-${capabilityList}
-
-If the capabilities align perfectly, validation succeeds (success: true, matchScore: 100).
-If they represent completely different domains (e.g. Travel Planning vs Legal Reasoning), validation fails (success: false, matchScore: 30).
-If they represent adjacent domains of same category (e.g., Code Generation vs Database Management, or Marketing vs Presentation), validation succeeds with partial score (success: true, matchScore: 75).
-
-User Request: "${request.replace(/"/g, '\\"')}"
-Generated Output: "${output.replace(/"/g, '\\"')}"
-
-Respond ONLY with a valid JSON object matching this schema:
-{
-  "success": boolean,
-  "requestCategory": "one of the 30 capability labels",
-  "outputCategory": "one of the 30 capability labels",
-  "matchScore": number,
-  "details": "string explaining the validation verdict, domain category match, and recommended next steps in Japanese"
-}
-`;
-
-      const response = await ai.models.generateContent({
-        model: executingModel,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json" }
-      });
-
-      const responseText = response.text || "";
-      const resultObj = JSON.parse(responseText.trim());
-      
-      return res.json({
-        ...localResult,
-        ...resultObj,
-        recommendedProvider: localResult.recommendedProvider,
-        top3Providers: localResult.top3Providers,
-        engine: `ACOS Router: ${routedAI.name} (${routedAI.provider}) [Executed via ${executingModel}]`
-      });
-    } catch (err) {
-      console.error("Gemini validation error, falling back to local rules:", err);
-      return res.json({
-        ...localResult,
-        engine: `ACOS Router Fallback: ${routedAI.name} (Local)`,
-        details: localResult.details + ` (ACOS Routing Engine: ${routedAI.name} 判定、エラーによりローカルフォールバック動作)`
-      });
-    }
-  });
-
-  // Intercept analyze with streaming router first
-  app.use(createAnalyzeRouter());
 
   // Route normal chat through the explicit ORIGIN safety and free-only policy first.
   app.use(createOriginChatRouter());
@@ -153,13 +58,14 @@ Respond ONLY with a valid JSON object matching this schema:
   // Never allow the authoritative chat path to fall through to historical legacy code.
   app.all("/api/chat", originChatBoundaryGuard);
 
-  // 1. Mount remaining Legacy Endpoints (/api/generate-image, /api/analyze, etc.)
+  // Mount remaining non-provider legacy endpoints after the protected boundaries.
   app.use(createLegacyRouter());
 
-  // 2. Mount New Mission Engine API (/api/v1/...)
+  // Mount Mission Engine API. Provider-capable mutation routes are blocked by
+  // createOriginLegacyProviderBoundaryRouter until they are migrated.
   app.use("/api/v1", initMissionEngine());
 
-  // 3. Vite middleware for development
+  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
