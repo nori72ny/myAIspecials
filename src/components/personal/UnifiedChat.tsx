@@ -330,10 +330,21 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
                       )}
                     </div>
 
-                    <div className="mt-1 flex items-center gap-4 border-t border-red-200/50 pt-2 font-mono text-[10px] text-red-500/70 dark:border-red-500/20">
-                      <span>Error Code: {message.error.code}</span>
-                      <span>Trace: {message.error.requestId}</span>
-                    </div>
+                    <details
+                      data-testid="error-details"
+                      className="group mt-1 border-t border-red-200/50 pt-2 text-xs text-red-700 dark:border-red-500/20 dark:text-red-300"
+                    >
+                      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md py-1 font-medium outline-none focus-visible:ring-2 focus-visible:ring-red-400">
+                        <span>{isEn ? 'View technical details' : '問題の詳細を見る'}</span>
+                        <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+                      </summary>
+                      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-white/60 p-2 font-mono text-[10px] dark:bg-black/10">
+                        <dt>{isEn ? 'Error code' : 'エラーコード'}</dt>
+                        <dd className="break-all">{message.error.code}</dd>
+                        <dt>{isEn ? 'Reference ID' : '問い合わせID'}</dt>
+                        <dd className="break-all">{message.error.requestId}</dd>
+                      </dl>
+                    </details>
                   </div>
                 ) : (
                   <div className={cn(
