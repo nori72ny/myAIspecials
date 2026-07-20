@@ -57,23 +57,20 @@ test.describe('ORIGIN Personal Edition critical journey', () => {
     await expect(page.getByText(/こんにちは。ORIGIN Personalです|Hello! I am ORIGIN Personal/i)).toBeVisible();
   });
 
-  test('keeps the primary navigation usable on a mobile viewport', async ({ page }) => {
+  test('shows the home screen first and keeps navigation usable on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
+
     const sidebar = page.locator('aside').first();
-    const newChatButton = page.getByTestId('new-chat-button');
-    await expect(newChatButton).toBeVisible();
-    await expect(sidebar).toHaveCSS('width', '260px');
-
-    const closeSidebarButton = page.getByRole('button', { name: /サイドバーを閉じる|Close sidebar/i });
-    await closeSidebarButton.click();
-    await expect.poll(async () => (await sidebar.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1);
-
     const openSidebarButton = page.getByRole('button', { name: /サイドバーを開く|Open sidebar/i });
+
+    await expect(page.getByRole('heading', { name: /何を実現したいですか？|What would you like to achieve\?/i })).toBeVisible();
+    await expect.poll(async () => (await sidebar.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1);
     await expect(openSidebarButton).toBeVisible();
+
     await openSidebarButton.click();
     await expect(sidebar).toHaveCSS('width', '260px');
-    await expect(newChatButton).toBeVisible();
+    await expect(page.getByTestId('new-chat-button')).toBeVisible();
 
     await page.keyboard.press('Escape');
     await expect.poll(async () => (await sidebar.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1);
