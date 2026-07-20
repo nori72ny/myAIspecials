@@ -36,7 +36,10 @@ type PersonalEditionAppProps = {
 
 const PersonalEditionApp = React.memo(function PersonalEditionApp(_props: PersonalEditionAppProps) {
   const [currentView, setCurrentView] = useState<ViewState>("dashboard");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
+    return !window.matchMedia("(max-width: 767px)").matches;
+  });
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string>();
   const [chatSessionId, setChatSessionId] = useState(0);
