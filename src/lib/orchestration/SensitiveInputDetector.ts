@@ -42,14 +42,24 @@ const JAPANESE_CREDENTIAL_CONTEXT = new RegExp(
   "i",
 );
 
+const INVISIBLE_FORMAT_CHARACTERS = /[\u200B-\u200D\u2060\uFEFF]/g;
+
+export function canonicalizeSensitiveInput(input: string): string {
+  return input.normalize("NFKC").replace(INVISIBLE_FORMAT_CHARACTERS, "");
+}
+
 export function detectSensitiveInput(input: string): SensitiveInputDetection {
   const kinds = new Set<SensitiveInputKind>();
+  const canonicalInput = canonicalizeSensitiveInput(input);
 
   for (const entry of STRUCTURED_PATTERNS) {
-    if (entry.pattern.test(input)) kinds.add(entry.kind);
+    if (entry.pattern.test(canonicalInput)) kinds.add(entry.kind);
   }
 
-  if (ENGLISH_CREDENTIAL_CONTEXT.test(input) || JAPANESE_CREDENTIAL_CONTEXT.test(input)) {
+  if (
+    ENGLISH_CREDENTIAL_CONTEXT.test(canonicalInput)
+    || JAPANESE_CREDENTIAL_CONTEXT.test(canonicalInput)
+  ) {
     kinds.add("credential-term");
   }
 
