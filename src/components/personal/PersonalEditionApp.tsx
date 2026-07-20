@@ -8,6 +8,7 @@ import {
   Menu,
   MessageSquare,
   Plus,
+  Settings,
   Sparkles,
   X,
 } from "lucide-react";
@@ -29,11 +30,11 @@ type AiCoreState =
   | "PROVIDER_UNAVAILABLE"
   | "NOT_CONFIGURED";
 
-const PersonalEditionApp = React.memo(function PersonalEditionApp({
-  onSwitchToEnterprise,
-}: {
+type PersonalEditionAppProps = {
   onSwitchToEnterprise: () => void;
-}) {
+};
+
+const PersonalEditionApp = React.memo(function PersonalEditionApp(_props: PersonalEditionAppProps) {
   const [currentView, setCurrentView] = useState<ViewState>("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -54,9 +55,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   }, []);
 
   useEffect(() => {
-    if (!isSidebarOpen) {
-      return;
-    }
+    if (!isSidebarOpen) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && window.matchMedia("(max-width: 767px)").matches) {
@@ -69,9 +68,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   }, [isSidebarOpen]);
 
   const closeSidebarOnMobile = () => {
-    if (window.matchMedia("(max-width: 767px)").matches) {
-      setIsSidebarOpen(false);
-    }
+    if (window.matchMedia("(max-width: 767px)").matches) setIsSidebarOpen(false);
   };
 
   const selectView = (view: ViewState) => {
@@ -93,30 +90,39 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   };
 
   const navItems = [
-    { id: "dashboard", label: isEn ? "Dashboard" : "ダッシュボード", icon: LayoutDashboard },
-    { id: "chat", label: isEn ? "Unified Chat" : "統合チャット", icon: MessageSquare },
-    { id: "workspace", label: isEn ? "Workspace" : "ワークスペース", icon: FolderKanban },
-    { id: "memory", label: isEn ? "Memory" : "メモリ", icon: Brain },
+    { id: "dashboard", label: isEn ? "Home" : "ホーム", icon: LayoutDashboard },
+    { id: "chat", label: isEn ? "Chat" : "チャット", icon: MessageSquare },
+    { id: "workspace", label: isEn ? "Projects" : "プロジェクト", icon: FolderKanban },
+    { id: "memory", label: isEn ? "Memory" : "記憶", icon: Brain },
   ] as const;
+
+  const viewLabels: Record<ViewState, [string, string]> = {
+    dashboard: ["Home", "ホーム"],
+    chat: ["Chat", "チャット"],
+    workspace: ["Projects", "プロジェクト"],
+    memory: ["Memory", "記憶"],
+  };
+
+  const currentViewLabel = currentView === "workspace" && activeProjectId
+    ? activeProjectId
+    : viewLabels[currentView][isEn ? 0 : 1];
 
   const getAiCoreLabel = () => {
     const labels: Record<AiCoreState, [string, string]> = {
-      HEALTHY: ["AI Core: Healthy", "AIコア：正常"],
-      CONNECTING: ["AI Core: Connecting", "AIコア：接続中"],
-      DEGRADED: ["AI Core: Degraded", "AIコア：一部制限"],
-      OFFLINE: ["AI Core: Offline", "AIコア：オフライン"],
-      RATE_LIMITED: ["AI Core: Rate Limited", "AIコア：利用制限中"],
-      PROVIDER_UNAVAILABLE: ["AI Core: Unavailable", "AIコア：AIを利用できません"],
-      NOT_CONFIGURED: ["AI Core: Setup Required", "AIコア：設定が必要"],
-      UNKNOWN: ["AI Core: Unknown", "AIコア：状態不明"],
+      HEALTHY: ["Available", "利用可能"],
+      CONNECTING: ["Working", "処理中"],
+      DEGRADED: ["Some features are limited", "一部機能を利用できません"],
+      OFFLINE: ["Could not connect to ORIGIN", "ORIGINに接続できません"],
+      RATE_LIMITED: ["Free AI limit reached", "無料AIの利用上限に達しました"],
+      PROVIDER_UNAVAILABLE: ["AI is currently unavailable", "AIを現在利用できません"],
+      NOT_CONFIGURED: ["Connection setup required", "接続設定が必要です"],
+      UNKNOWN: ["Status unavailable", "状態を確認できません"],
     };
     return labels[aiCoreState][isEn ? 0 : 1];
   };
 
   const getAiCoreColor = () => {
     switch (aiCoreState) {
-      case "HEALTHY":
-        return "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-500/20";
       case "CONNECTING":
         return "bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-500/20";
       case "RATE_LIMITED":
@@ -130,6 +136,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
         return "bg-slate-50 dark:bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-100 dark:border-slate-500/20";
     }
   };
+
+  const shouldShowAiStatus = aiCoreState !== "HEALTHY" && aiCoreState !== "UNKNOWN";
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white font-sans text-slate-900 dark:bg-black dark:text-neutral-100">
@@ -161,7 +169,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-black dark:bg-white">
               <Sparkles className="h-3.5 w-3.5 text-white dark:text-black" aria-hidden="true" />
             </div>
-            <span>ACOS Personal</span>
+            <span>ORIGIN</span>
           </div>
           <button
             type="button"
@@ -181,7 +189,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             className="flex w-full items-center gap-2 rounded-lg bg-black px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-black"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
-            <span>{isEn ? "New Chat" : "新しいチャット"}</span>
+            <span>{isEn ? "New request" : "新しい依頼"}</span>
           </button>
         </div>
 
@@ -207,43 +215,25 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
 
           <div className="px-3 pb-2 pt-6">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-neutral-300">
-              Recent Projects
+              {isEn ? "Recent projects" : "最近のプロジェクト"}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-neutral-500">
+              {isEn ? "No projects yet." : "まだプロジェクトはありません。"}
             </p>
           </div>
-          {["ACOS Development", "Sales Deck", "Marketing"].map((project) => (
-            <button
-              type="button"
-              key={project}
-              onClick={() => {
-                setActiveProjectId(project);
-                setCurrentView("workspace");
-                closeSidebarOnMobile();
-              }}
-              className="group flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-slate-600 transition-colors hover:text-slate-900 dark:text-neutral-400 dark:hover:text-white"
-            >
-              <div className="h-1.5 w-1.5 rounded-full bg-slate-300 transition-colors group-hover:bg-indigo-500 dark:bg-neutral-700" />
-              <span className="truncate text-left">{project}</span>
-            </button>
-          ))}
         </nav>
 
-        <div className="shrink-0 space-y-2 border-t border-slate-200 p-4 dark:border-white/10">
-          <button
-            type="button"
-            onClick={onSwitchToEnterprise}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 transition-colors hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5"
-          >
-            Switch to Enterprise
-          </button>
+        <div className="shrink-0 border-t border-slate-200 p-4 dark:border-white/10">
           <button
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent("openSettings"))}
+            aria-label={isEn ? "User Settings" : "ユーザー設定"}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-white/5"
           >
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-[10px] font-bold text-white">
-              US
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-slate-600 dark:bg-white/10 dark:text-neutral-300">
+              <Settings className="h-4 w-4" aria-hidden="true" />
             </div>
-            <span className="truncate">{isEn ? "User Settings" : "ユーザー設定"}</span>
+            <span className="truncate">{isEn ? "Settings" : "設定"}</span>
           </button>
         </div>
       </motion.aside>
@@ -260,14 +250,12 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
               <Menu className="h-5 w-5" aria-hidden="true" />
             </button>
           )}
-          <div className="flex flex-1 items-center justify-between">
-            <h1 className="text-sm font-semibold capitalize">
-              {currentView === "workspace" && activeProjectId
-                ? activeProjectId
-                : currentView.replace("-", " ")}
-            </h1>
-            <div className="flex items-center gap-3">
+          <div className="flex flex-1 items-center justify-between gap-3">
+            <h1 className="truncate text-sm font-semibold">{currentViewLabel}</h1>
+            {shouldShowAiStatus && (
               <div
+                role="status"
+                aria-live="polite"
                 className={cn(
                   "flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition-colors duration-300",
                   getAiCoreColor(),
@@ -276,7 +264,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
                 <Activity className="h-3 w-3" aria-hidden="true" />
                 <span>{getAiCoreLabel()}</span>
               </div>
-            </div>
+            )}
           </div>
         </header>
 
