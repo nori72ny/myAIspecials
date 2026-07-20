@@ -248,8 +248,8 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
 
   const handleSend = async (overrideInput?: string) => {
     if (isTyping) return;
-    const textToSend = overrideInput || input;
-    if (!textToSend.trim()) return;
+    const textToSend = (overrideInput ?? input).trim();
+    if (!textToSend) return;
 
     const userMessage: Message = { id: Date.now().toString(), role: 'user', content: textToSend };
     const updatedMessages = [...messages, userMessage];
@@ -269,10 +269,10 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
   };
 
   return (
-    <div className="flex h-full flex-col bg-slate-50/50 dark:bg-black">
+    <div className="flex h-full min-h-0 flex-col bg-slate-50/50 dark:bg-black">
       <div
         ref={scrollRef}
-        className="mx-auto w-full max-w-4xl flex-1 space-y-6 overflow-y-auto p-4 pb-32"
+        className="mx-auto w-full max-w-4xl flex-1 space-y-6 overflow-y-auto p-3 pb-4 sm:p-4 sm:pb-6"
       >
         <AnimatePresence initial={false}>
           {messages.map((message) => (
@@ -281,7 +281,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className={cn(
-                'flex w-full gap-4',
+                'flex w-full gap-3 sm:gap-4',
                 message.role === 'user' ? 'flex-row-reverse' : 'flex-row',
               )}
             >
@@ -300,7 +300,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
                 )}
               </div>
 
-              <div className="flex max-w-[85%] flex-col gap-2 md:max-w-[80%]">
+              <div className="flex max-w-[88%] flex-col gap-2 sm:max-w-[85%] md:max-w-[80%]">
                 {message.error ? (
                   <div role="alert" className="flex flex-col gap-3 rounded-2xl rounded-tl-none border border-red-200 bg-red-50 p-4 shadow-sm dark:border-red-500/20 dark:bg-red-500/10">
                     <h4 className="text-sm font-bold text-red-800 dark:text-red-300">{message.content}</h4>
@@ -413,7 +413,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
           ))}
 
           {isTyping && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3 sm:gap-4">
               <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black dark:bg-white">
                 <Activity className="h-4 w-4 animate-pulse text-white dark:text-black" aria-hidden="true" />
               </div>
@@ -431,16 +431,18 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
         </AnimatePresence>
       </div>
 
-      <div className="absolute bottom-0 w-full bg-gradient-to-t from-slate-50 via-slate-50 to-transparent p-4 pb-6 pt-10 dark:from-black dark:via-black">
-        <div className="group relative mx-auto max-w-3xl">
-          <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-500 opacity-20 blur transition duration-500 group-hover:opacity-40" />
-          <div className="relative flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/50 dark:border-white/10 dark:bg-neutral-900">
+      <div className="shrink-0 border-t border-slate-200 bg-white/95 px-3 pb-4 pt-3 backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4 sm:pb-5">
+        <div className="mx-auto max-w-3xl">
+          <div className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-slate-500 focus-within:ring-2 focus-within:ring-slate-200 dark:border-white/15 dark:bg-neutral-900 dark:focus-within:border-white/30 dark:focus-within:ring-white/10">
             <textarea
+              id="origin-chat-input"
+              rows={1}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder={isEn ? 'Message ORIGIN...' : 'ORIGINにメッセージを入力...'}
               aria-label={isEn ? 'Message ORIGIN' : 'ORIGINへのメッセージ'}
-              className="max-h-32 min-h-[44px] flex-1 resize-none border-none bg-transparent p-3 text-sm leading-relaxed focus:outline-none"
+              aria-describedby="origin-chat-guidance"
+              className="max-h-40 min-h-12 flex-1 resize-none border-none bg-transparent px-3 py-3 text-base leading-relaxed focus:outline-none sm:text-sm"
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
@@ -453,10 +455,17 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
               aria-label={isEn ? 'Send message' : 'メッセージを送信'}
               onClick={() => handleSend()}
               disabled={!input.trim() || isTyping}
-              className="mb-0.5 mr-0.5 shrink-0 rounded-xl bg-black p-3 text-white transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 dark:bg-white dark:text-black"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-black text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35 dark:bg-white dark:text-black"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
             </button>
+          </div>
+          <div
+            id="origin-chat-guidance"
+            className="mt-2 flex flex-col gap-1 px-1 text-[11px] leading-4 text-slate-500 dark:text-neutral-500 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span>{isEn ? 'Enter to send · Shift+Enter for a new line' : 'Enterで送信・Shift+Enterで改行'}</span>
+            <span>{isEn ? 'Do not enter passwords or API keys.' : 'パスワードやAPIキーなどの秘密情報は入力しないでください。'}</span>
           </div>
         </div>
       </div>
