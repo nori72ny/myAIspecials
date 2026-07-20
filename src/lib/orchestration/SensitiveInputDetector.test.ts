@@ -41,6 +41,22 @@ describe("SensitiveInputDetector", () => {
     }
   });
 
+  it("detects structured credentials after Unicode normalization and invisible-character removal", () => {
+    const zeroWidthObfuscated = [
+      "s",
+      "\u200B",
+      "k",
+      "-",
+      "abcdefghijkl",
+      "\u2060",
+      "mnopqrstuv",
+    ].join("");
+    const fullWidthContext = `ＡＰＩ ｋｅｙ：${sampleValue}`;
+
+    expect(containsSensitiveInput(zeroWidthObfuscated)).toBe(true);
+    expect(containsSensitiveInput(fullWidthContext)).toBe(true);
+  });
+
   it("does not over-detect ordinary discussion", () => {
     const inputs = [
       "passwordless authenticationを設計してください",
