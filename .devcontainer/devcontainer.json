@@ -1,9 +1,6 @@
 {
   "name": "ORIGIN OS Development Container",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:20",
-  "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
-  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -17,6 +14,6 @@
     }
   },
   "forwardPorts": [3000, 6006],
-  "postCreateCommand": "corepack enable && pnpm install",
+  "postCreateCommand": "npm ci",
   "remoteUser": "node"
 }
