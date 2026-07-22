@@ -7,6 +7,9 @@ export interface OriginDisabledProviderRoute {
 }
 
 export const ORIGIN_DISABLED_PROVIDER_ROUTES: readonly OriginDisabledProviderRoute[] = [
+  { method: "all", routePath: "/api/ai-studio", testPath: "/api/ai-studio" },
+  { method: "all", routePath: "/api/interactions", testPath: "/api/interactions" },
+  { method: "all", routePath: "/api/gemini", testPath: "/api/gemini" },
   { method: "all", routePath: "/api/v1/validate-mission", testPath: "/api/v1/validate-mission" },
   { method: "all", routePath: "/api/analyze", testPath: "/api/analyze" },
   { method: "all", routePath: "/api/generate-image", testPath: "/api/generate-image" },

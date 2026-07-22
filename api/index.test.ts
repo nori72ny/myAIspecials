@@ -1,16 +1,30 @@
 import request from "supertest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import app from "./index";
 
 const originalOpenRouterKey = process.env.OPENROUTER_API_KEY;
 const originalGeminiKey = process.env.GEMINI_API_KEY;
+const originalAiStudioEnabled = process.env.ORIGIN_AI_STUDIO_RUNTIME_ENABLED;
+const originalAiStudioKey = process.env.ORIGIN_AI_STUDIO_API_KEY;
+const originalAiStudioApproval = process.env.ORIGIN_AI_STUDIO_OWNER_APPROVED;
 
 afterEach(() => {
+  vi.unstubAllGlobals();
+
   if (originalOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
   else process.env.OPENROUTER_API_KEY = originalOpenRouterKey;
 
   if (originalGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
   else process.env.GEMINI_API_KEY = originalGeminiKey;
+
+  if (originalAiStudioEnabled === undefined) delete process.env.ORIGIN_AI_STUDIO_RUNTIME_ENABLED;
+  else process.env.ORIGIN_AI_STUDIO_RUNTIME_ENABLED = originalAiStudioEnabled;
+
+  if (originalAiStudioKey === undefined) delete process.env.ORIGIN_AI_STUDIO_API_KEY;
+  else process.env.ORIGIN_AI_STUDIO_API_KEY = originalAiStudioKey;
+
+  if (originalAiStudioApproval === undefined) delete process.env.ORIGIN_AI_STUDIO_OWNER_APPROVED;
+  else process.env.ORIGIN_AI_STUDIO_OWNER_APPROVED = originalAiStudioApproval;
 });
 
 describe("serverless ORIGIN chat boundary", () => {
@@ -40,6 +54,24 @@ describe("serverless ORIGIN chat boundary", () => {
     expect(response.status).toBe(503);
     expect(response.body.code).toBe("FREE_PROVIDER_NOT_CONFIGURED");
     expect(response.body.requestId).toMatch(/^origin-/);
+  });
+
+  it("does not activate AI Studio from environment flags or approval-like values", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.ORIGIN_AI_STUDIO_RUNTIME_ENABLED = "true";
+    process.env.ORIGIN_AI_STUDIO_API_KEY = ["synthetic", "origin", "configuration"].join("-");
+    process.env.ORIGIN_AI_STUDIO_OWNER_APPROVED = "true";
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const response = await request(app).post("/api/chat").send({
+      messages: [{ role: "user", content: "文章を確認してください" }],
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("FREE_PROVIDER_NOT_CONFIGURED");
+    expect(JSON.stringify(response.body)).not.toContain(process.env.ORIGIN_AI_STUDIO_API_KEY);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("blocks unsupported chat methods before legacy routing", async () => {

@@ -6,6 +6,9 @@ import { createOriginApp } from "./createOriginApp";
 
 const originalOpenRouterKey = process.env.OPENROUTER_API_KEY;
 const originalGeminiKey = process.env.GEMINI_API_KEY;
+const originalAiStudioEnabled = process.env.ORIGIN_AI_STUDIO_RUNTIME_ENABLED;
+const originalAiStudioKey = process.env.ORIGIN_AI_STUDIO_API_KEY;
+const originalAiStudioApproval = process.env.ORIGIN_AI_STUDIO_OWNER_APPROVED;
 
 describe("createOriginApp provider isolation", () => {
   let fetchSpy = vi.fn();
@@ -13,6 +16,9 @@ describe("createOriginApp provider isolation", () => {
   beforeEach(() => {
     delete process.env.OPENROUTER_API_KEY;
     process.env.GEMINI_API_KEY = "synthetic-gemini-key-that-must-remain-unused";
+    process.env.ORIGIN_AI_STUDIO_RUNTIME_ENABLED = "true";
+    process.env.ORIGIN_AI_STUDIO_API_KEY = "synthetic-origin-value-that-must-remain-unused";
+    process.env.ORIGIN_AI_STUDIO_OWNER_APPROVED = "true";
     fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
   });
@@ -25,6 +31,15 @@ describe("createOriginApp provider isolation", () => {
 
     if (originalGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = originalGeminiKey;
+
+    if (originalAiStudioEnabled === undefined) delete process.env.ORIGIN_AI_STUDIO_RUNTIME_ENABLED;
+    else process.env.ORIGIN_AI_STUDIO_RUNTIME_ENABLED = originalAiStudioEnabled;
+
+    if (originalAiStudioKey === undefined) delete process.env.ORIGIN_AI_STUDIO_API_KEY;
+    else process.env.ORIGIN_AI_STUDIO_API_KEY = originalAiStudioKey;
+
+    if (originalAiStudioApproval === undefined) delete process.env.ORIGIN_AI_STUDIO_OWNER_APPROVED;
+    else process.env.ORIGIN_AI_STUDIO_OWNER_APPROVED = originalAiStudioApproval;
   });
 
   it.each(ORIGIN_DISABLED_PROVIDER_ROUTES)(
@@ -57,6 +72,7 @@ describe("createOriginApp provider isolation", () => {
     expect(response.status).toBe(503);
     expect(response.body.code).toBe("FREE_PROVIDER_NOT_CONFIGURED");
     expect(JSON.stringify(response.body)).not.toContain(process.env.GEMINI_API_KEY);
+    expect(JSON.stringify(response.body)).not.toContain(process.env.ORIGIN_AI_STUDIO_API_KEY);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

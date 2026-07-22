@@ -6,6 +6,9 @@ const freeEnv = {
   APP_URL: "https://acos-staging.pages.dev",
   LOCAL_DEV_ORIGIN: "http://localhost:5173",
   OPENROUTER_API_KEY: "test-key",
+  ORIGIN_AI_STUDIO_RUNTIME_ENABLED: "true",
+  ORIGIN_AI_STUDIO_API_KEY: "synthetic-origin-worker-value",
+  ORIGIN_AI_STUDIO_OWNER_APPROVED: "true",
 };
 
 function aiRequest(body, method = "POST", origin = freeEnv.APP_URL) {
