@@ -59,4 +59,16 @@ describe("OriginProductExperienceContract", () => {
     expect(contract.invariants.unexecutedReviewPresentedAsVerified).toBe(false);
     expect(contract.invariants.unsupportedQualityClaimsAllowed).toBe(false);
   });
+
+  it("allows future AI providers without rewriting the product core or UI", () => {
+    expect(ORIGIN_PRODUCT_EXPERIENCE_CONTRACT.evolution).toEqual({
+      integrationBoundary: "provider-adapter",
+      routingEvidence: ["capability", "safety", "cost", "availability", "quality-evidence"],
+      coreRewriteRequiredForNewAi: false,
+      uiRewriteRequiredForNewAi: false,
+      automaticActivation: false,
+      explicitStableModelIdsOnly: true,
+      lifecycleEvidenceRequired: true,
+    });
+  });
 });

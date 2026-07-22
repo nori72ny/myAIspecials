@@ -102,3 +102,28 @@ ACOS 2.0はORIGINを支えるオーケストレーションエンジンであり
 - score、win rate、世界最高、enterprise readyなどを再現可能な証拠なしに表示すること。
 - mock、fixture、preview、sampleを利用者の実データまたは実行結果として表示すること。
 - 回答本文、会話、秘密情報、provider生エラーを監査証跡として保存すること。
+
+## 9. 新しいAIへ継続対応する構造
+
+新しいAI、モデル、検索、画像、音声、動画、制作サービスが登場しても、ORIGINのdomain、正式API、一般UIをproviderごとに作り直さない。
+
+新規AIはprovider adapterとして追加し、Capability Registryへ能力を登録する。Routing Engineは名前や人気ではなく、依頼適合能力、安全条件、無料証拠、利用可能性、品質証拠から候補を判断する。一般画面は共通のORIGIN回答形式を表示し、provider/modelの技術情報は分離した実行証跡として扱う。
+
+新規AIの有効化には次を必要とする。
+
+1. stableな明示モデルIDと公式lifecycle情報
+2. 実行前後の費用`$0.00`を証明できる根拠
+3. 保存、学習利用、地域、rate limit、認証方式の確認
+4. timeout、rate limit、不正応答、証拠期限切れのfail-closed test
+5. 自動retry、自動model切替、自動provider fallbackがないこと
+6. 回答内容と表示メタデータが実行記録と一致すること
+7. exact candidate SHAのCIと監査
+8. 必要なオーナー承認
+
+新しいAIが高性能でも自動的には有効化しない。既存AIが終了・有料化・品質低下した場合も、別AIへ黙って切り替えず、利用可能な証拠付き候補がなければ停止する。
+
+## 10. 共通回答形式
+
+すべてのproviderは、一般UIへ直接固有形式を返さず、`origin.answer.v1`へ変換する。共通回答は、結論、本文、根拠、独立確認状態、制約、次の行動、実在する成果物参照だけを持つ。
+
+provider ID、model ID、trace ID、実費用などは回答本文と分離した技術証跡に保持する。別AIによる確認を実行していない回答を`passed`にせず、実在するartifact参照がないグラフ、画像、文書を生成済みとして表示しない。

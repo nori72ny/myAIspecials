@@ -54,6 +54,15 @@ export const ORIGIN_PRODUCT_EXPERIENCE_CONTRACT = {
     inspirationQuality: ["Apple", "Linear", "Notion", "Figma"],
     imitateThirdPartyBranding: false,
   },
+  evolution: {
+    integrationBoundary: "provider-adapter",
+    routingEvidence: ["capability", "safety", "cost", "availability", "quality-evidence"],
+    coreRewriteRequiredForNewAi: false,
+    uiRewriteRequiredForNewAi: false,
+    automaticActivation: false,
+    explicitStableModelIdsOnly: true,
+    lifecycleEvidenceRequired: true,
+  },
   invariants: {
     providerNeutralCore: true,
     freeOnly: true,
