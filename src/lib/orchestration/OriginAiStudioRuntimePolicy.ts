@@ -6,11 +6,11 @@ export interface OriginAiStudioFreeModelEvidence {
   providerId: typeof ORIGIN_AI_STUDIO_PROVIDER_ID;
   providerLabel: string;
   modelId: string;
-  billingTier: "free";
-  inputCostUsd: 0;
-  outputCostUsd: 0;
-  apiFamily: "interactions";
-  store: false;
+  billingTier: string;
+  inputCostUsd: number;
+  outputCostUsd: number;
+  apiFamily: string;
+  store: boolean;
   verifiedAt: string;
   reviewAfter: string;
   pricingSourceUrl: string;
@@ -195,7 +195,7 @@ export function buildOriginAiStudioRuntimePlan(
         allowAutomaticModelSelection: false,
       },
       evidence: {
-        billingTier: selected.billingTier,
+        billingTier: "free",
         verifiedAt: selected.verifiedAt,
         reviewAfter: selected.reviewAfter,
         pricingSourceUrl: selected.pricingSourceUrl,
