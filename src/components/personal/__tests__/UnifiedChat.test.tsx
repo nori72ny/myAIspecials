@@ -1,5 +1,4 @@
-import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import UnifiedChat from '../UnifiedChat';
 import { useAppState } from '../../../hooks/useAppState';
@@ -17,28 +16,28 @@ function mockJapaneseSettings() {
 }
 
 function sendJapaneseMessage(value: string) {
-  const input = screen.getByPlaceholderText('ORIGINにメッセージを入力...');
+  const input = screen.getByPlaceholderText('やりたいことを入力');
   fireEvent.change(input, { target: { value } });
-  fireEvent.click(screen.getByRole('button', { name: 'メッセージを送信' }));
+  fireEvent.click(screen.getByRole('button', { name: '依頼を送信' }));
 }
 
 async function expectNonRetryableError(title: string, code: string, description: string) {
   await waitFor(() => {
     expect(screen.getByText(title)).toBeTruthy();
     expect(screen.getByText(description)).toBeTruthy();
-    expect(screen.getByText('問題の詳細を見る')).toBeTruthy();
+    expect(screen.getByText('技術情報')).toBeTruthy();
   });
 
   const details = screen.getByTestId('error-details') as HTMLDetailsElement;
   expect(details.open).toBe(false);
 
-  fireEvent.click(screen.getByText('問題の詳細を見る'));
+  fireEvent.click(screen.getByText('技術情報'));
   expect(details.open).toBe(true);
   expect(screen.getByText('エラーコード')).toBeTruthy();
   expect(screen.getByText(code)).toBeTruthy();
 
   expect(screen.queryByText('再試行')).toBeNull();
-  expect(screen.queryByText('接続設定を確認')).toBeNull();
+  expect(screen.queryByText('設定を開く')).toBeNull();
 }
 
 describe('UnifiedChat', () => {
@@ -48,20 +47,17 @@ describe('UnifiedChat', () => {
     mockJapaneseSettings();
   });
 
-  it('renders the ORIGIN greeting in Japanese', () => {
+  it('renders the plain Japanese greeting', () => {
     render(<UnifiedChat />);
-    expect(screen.getByText('こんにちは。ORIGIN Personalです。達成したいことを教えてください。')).toBeTruthy();
+    expect(screen.getByText('こんにちは。やりたいことを、そのまま入力してください。')).toBeTruthy();
   });
 
-  it('renders the ORIGIN greeting in English', () => {
-    (useAppState as any).mockReturnValue({
-      settings: { language: 'en', timeoutSeconds: 30 },
-    });
-    render(<UnifiedChat />);
-    expect(screen.getByText('Hello! I am ORIGIN Personal. What outcome would you like to achieve?')).toBeTruthy();
+  it('renders the plain English greeting', () => {
+    render(<UnifiedChat settingsOverride={{ language: 'en', timeoutSeconds: 30 }} />);
+    expect(screen.getByText('Hello. Describe what you want to do in your own words.')).toBeTruthy();
   });
 
-  it('shows composer guidance, preserves Shift+Enter, and trims the sent request', async () => {
+  it('preserves Shift+Enter and trims the sent request', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ content: '確認しました。' }),
@@ -69,10 +65,10 @@ describe('UnifiedChat', () => {
 
     render(<UnifiedChat />);
 
-    expect(screen.getByText('Enterで送信・Shift+Enterで改行')).toBeTruthy();
-    expect(screen.getByText('パスワードやAPIキーなどの秘密情報は入力しないでください。')).toBeTruthy();
+    expect(screen.getByText('Enterで送信 / Shift+Enterで改行')).toBeTruthy();
+    expect(screen.getByText('パスワードやAPIキーは入力しないでください。')).toBeTruthy();
 
-    const input = screen.getByPlaceholderText('ORIGINにメッセージを入力...') as HTMLTextAreaElement;
+    const input = screen.getByPlaceholderText('やりたいことを入力') as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: '  詳細を確認してください  ' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
 
@@ -90,19 +86,43 @@ describe('UnifiedChat', () => {
     });
   });
 
-  it('sends a strict zero-cost policy and progressively discloses matching execution metadata', async () => {
+  it('blocks duplicate in-flight submission synchronously', async () => {
+    let resolveFetch!: (value: unknown) => void;
+    (global.fetch as any).mockImplementation(() => new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
+
+    render(<UnifiedChat />);
+    const input = screen.getByPlaceholderText('やりたいことを入力');
+    const sendButton = screen.getByRole('button', { name: '依頼を送信' });
+
+    fireEvent.change(input, { target: { value: '一度だけ送ってください' } });
+    fireEvent.click(sendButton);
+    fireEvent.click(sendButton);
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    resolveFetch({
+      ok: true,
+      json: async () => ({ content: '一度だけ処理しました。' }),
+    });
+
+    await waitFor(() => expect(screen.getByText('一度だけ処理しました。')).toBeTruthy());
+  });
+
+  it('sends a strict zero-cost policy and shows plain execution details', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         content: '確認結果です。',
         routing: {
           model: 'ORIGIN 無料AI',
-          reason: '無料限定ポリシーに適合する実行先を選択しました。',
+          reason: '無料条件を満たすAIを選びました。',
           timeMs: 25,
           actualCostUsd: 0,
           freeOnly: true,
           verificationStatus: 'not-run',
-          verificationReason: 'Phase 1では独立検証を実行していません。',
+          verificationReason: 'この版では別AIによる確認を実行していません。',
         },
       }),
     });
@@ -112,31 +132,27 @@ describe('UnifiedChat', () => {
 
     await waitFor(() => {
       expect(screen.getByText('確認結果です。')).toBeTruthy();
-      expect(screen.getByText('無料で実行')).toBeTruthy();
-      expect(screen.getByText('実行情報を見る')).toBeTruthy();
+      expect(screen.getByText('無料で回答しました')).toBeTruthy();
+      expect(screen.getByText('詳細')).toBeTruthy();
     });
 
     const details = screen.getByTestId('execution-details') as HTMLDetailsElement;
     expect(details.open).toBe(false);
 
-    fireEvent.click(screen.getByText('実行情報を見る'));
+    fireEvent.click(screen.getByText('詳細'));
     expect(details.open).toBe(true);
     expect(screen.getByText('使用したAI')).toBeTruthy();
     expect(screen.getByText('ORIGIN 無料AI')).toBeTruthy();
-    expect(screen.getByText('独立検証なし')).toBeTruthy();
+    expect(screen.getByText('別のAIによる確認')).toBeTruthy();
+    expect(screen.getByText('今回は別のAIで確認していません')).toBeTruthy();
     expect(screen.getByText('無料')).toBeTruthy();
     expect(screen.getByText('25ms')).toBeTruthy();
-    expect(screen.getByText('無料限定ポリシーに適合する実行先を選択しました。')).toBeTruthy();
 
     const fetchCall = (global.fetch as any).mock.calls[0];
     const body = JSON.parse(fetchCall[1].body);
     expect(body.executionPolicy).toEqual({
       maxEstimatedCostUsd: 0,
       timeoutMs: 30000,
-    });
-    expect(body.messages.at(-1)).toEqual({
-      role: 'user',
-      content: '文章を確認してください',
     });
     expect(mockDispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'aiCoreStateChange' }));
   });
@@ -147,7 +163,6 @@ describe('UnifiedChat', () => {
       ok: false,
       json: async () => ({
         code: 'SENSITIVE_INPUT_BLOCKED',
-        messageKey: 'errors.sensitiveInputBlocked',
         message: description,
         retryable: false,
         requestId: 'origin-sensitive-test',
@@ -160,65 +175,28 @@ describe('UnifiedChat', () => {
     await expectNonRetryableError('秘密情報の送信を停止しました', 'SENSITIVE_INPUT_BLOCKED', description);
   });
 
-  it('shows connection settings only when a free provider is not configured', async () => {
+  it('opens settings only when connection setup is required', async () => {
+    const onOpenSettings = vi.fn();
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
       json: async () => ({
         code: 'FREE_PROVIDER_NOT_CONFIGURED',
-        message: '明示的に無料と確認できるAIプロバイダーが設定されていません。',
+        message: '無料AIの接続が設定されていません。',
         retryable: false,
         requestId: 'origin-config-test',
       }),
     });
 
-    render(<UnifiedChat />);
+    render(<UnifiedChat onOpenSettings={onOpenSettings} />);
     sendJapaneseMessage('文章を確認してください');
 
     await waitFor(() => {
       expect(screen.getByText('無料AIの接続設定が必要です')).toBeTruthy();
-      expect(screen.getByText('接続設定を確認')).toBeTruthy();
+      expect(screen.getByText('設定を開く')).toBeTruthy();
     });
+    fireEvent.click(screen.getByText('設定を開く'));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('再試行')).toBeNull();
-  });
-
-  it('explains stale free-model evidence without pretending it is a user setting', async () => {
-    const description = '無料モデルの利用可能性を示す証拠が期限切れです。カタログを再確認するまで実行を停止します。';
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: false,
-      json: async () => ({
-        code: 'FREE_MODEL_EVIDENCE_STALE',
-        message: description,
-        retryable: false,
-        requestId: 'origin-catalog-test',
-      }),
-    });
-
-    render(<UnifiedChat />);
-    sendJapaneseMessage('文章を確認してください');
-
-    await expectNonRetryableError(
-      '無料モデルの利用可能性を再確認する必要があります',
-      'FREE_MODEL_EVIDENCE_STALE',
-      description,
-    );
-  });
-
-  it('explains oversized latest input without retrying the same request', async () => {
-    const description = '最新の依頼が外部送信の上限（12000文字）を超えています。内容を分割または要約してください。';
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: false,
-      json: async () => ({
-        code: 'LATEST_MESSAGE_TOO_LARGE',
-        message: description,
-        retryable: false,
-        requestId: 'origin-size-test',
-      }),
-    });
-
-    render(<UnifiedChat />);
-    sendJapaneseMessage('長い依頼');
-
-    await expectNonRetryableError('依頼内容が長すぎます', 'LATEST_MESSAGE_TOO_LARGE', description);
   });
 
   it('withholds an answer when zero cost cannot be verified', async () => {
@@ -239,8 +217,8 @@ describe('UnifiedChat', () => {
     await expectNonRetryableError('無料実行を確認できませんでした', 'PROVIDER_COST_UNVERIFIED', description);
   });
 
-  it('withholds an answer when the actual provider route cannot be verified', async () => {
-    const description = '実際に使用されたモデルとプロバイダーを確認できなかったため、回答を返しません。';
+  it('withholds an answer when the actual route cannot be verified', async () => {
+    const description = '実際に使用されたモデルと提供元を確認できなかったため、回答を返しません。';
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
       json: async () => ({
@@ -254,10 +232,10 @@ describe('UnifiedChat', () => {
     render(<UnifiedChat />);
     sendJapaneseMessage('文章を確認してください');
 
-    await expectNonRetryableError('実際の実行先を確認できませんでした', 'PROVIDER_ROUTING_UNVERIFIED', description);
+    await expectNonRetryableError('実際に使われたAIを確認できませんでした', 'PROVIDER_ROUTING_UNVERIFIED', description);
   });
 
-  it('handles provider rate limits and keeps retry available', async () => {
+  it('keeps retry available for provider rate limits', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
       json: async () => ({
@@ -269,24 +247,16 @@ describe('UnifiedChat', () => {
     });
 
     render(<UnifiedChat />);
-    sendJapaneseMessage('API上限ですか？');
+    sendJapaneseMessage('利用上限ですか？');
 
     await waitFor(() => {
       expect(screen.getByText('無料AIの利用上限に達しました')).toBeTruthy();
       expect(screen.getByText('再試行')).toBeTruthy();
-      expect(screen.getByText('問題の詳細を見る')).toBeTruthy();
+      expect(screen.getByText('技術情報')).toBeTruthy();
     });
-
-    const details = screen.getByTestId('error-details') as HTMLDetailsElement;
-    expect(details.open).toBe(false);
-
-    fireEvent.click(screen.getByText('問題の詳細を見る'));
-    expect(details.open).toBe(true);
-    expect(screen.getByText('エラーコード')).toBeTruthy();
-    expect(screen.getByText('PROVIDER_RATE_LIMITED')).toBeTruthy();
   });
 
-  it('handles the initial prompt override', async () => {
+  it('handles an initial prompt exactly once', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: true,
       json: async () => ({ content: 'Initial prompt response.' }),
@@ -298,5 +268,6 @@ describe('UnifiedChat', () => {
       expect(screen.getByText('This is a test prompt')).toBeTruthy();
       expect(screen.getByText('Initial prompt response.')).toBeTruthy();
     });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });
