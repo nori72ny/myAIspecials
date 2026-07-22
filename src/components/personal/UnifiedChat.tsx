@@ -88,8 +88,17 @@ function verificationLabel(status: RoutingMetadata['verificationStatus'], isEn: 
 function executionCostLabel(routing: RoutingMetadata, isEn: boolean): string {
   const actualCost = routing.actualCostUsd ?? routing.cost;
   if (routing.freeOnly && actualCost === 0) return isEn ? 'Free' : '無料';
-  if (typeof actualCost === 'number' && Number.isFinite(actualCost)) return `$${actualCost.toFixed(4)}`;
+  if (typeof actualCost === 'number' && Number.isFinite(actualCost)) return `${actualCost.toFixed(4)}`;
   return isEn ? 'Not confirmed' : '未確認';
+}
+
+function executionTimeLabel(timeMs: number, isEn: boolean): string {
+  if (!Number.isFinite(timeMs) || timeMs < 0) return isEn ? 'Not confirmed' : '未確認';
+  if (timeMs < 1_000) return isEn ? 'Less than 1 second' : '1秒未満';
+
+  const seconds = timeMs / 1_000;
+  const formatted = Number.isInteger(seconds) ? seconds.toFixed(0) : seconds.toFixed(1);
+  return isEn ? `${formatted} seconds` : `${formatted}秒`;
 }
 
 export default function UnifiedChat({
@@ -427,7 +436,7 @@ export default function UnifiedChat({
                       </dd>
 
                       <dt className="text-slate-500 dark:text-neutral-500">{isEn ? 'Time' : '処理時間'}</dt>
-                      <dd className="text-slate-800 dark:text-neutral-200">{message.routing.timeMs}ms</dd>
+                      <dd className="text-slate-800 dark:text-neutral-200">{executionTimeLabel(message.routing.timeMs, isEn)}</dd>
 
                       <dt className="text-slate-500 dark:text-neutral-500">
                         {isEn ? 'Why this AI was selected' : 'このAIを選んだ理由'}
