@@ -7,7 +7,9 @@ test.describe('ORIGIN Personal release navigation', () => {
       timeout: 15_000,
     });
 
-    await expect(page.getByText('ORIGIN', { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('complementary', { name: /メインナビゲーション|Primary navigation/ }).getByText('ORIGIN', { exact: true }),
+    ).toBeVisible();
     await expect(page.getByTestId('new-chat-button')).toHaveText(/新しい依頼|New request/);
     await expect(page.getByTestId('nav-dashboard')).toHaveText(/ホーム|Home/);
     await expect(page.getByTestId('nav-chat')).toHaveText(/チャット|Chat/);
