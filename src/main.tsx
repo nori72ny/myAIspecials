@@ -1,33 +1,39 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
-import App from './App.tsx';
-import SettingsEventBridge from './components/SettingsEventBridge';
-import MultiAIDelegationPanel from './components/MultiAIDelegationPanel';
-import MultiAIDelegationPanelV2 from './components/MultiAIDelegationPanelV2';
-import {shouldUseDelegationV2Preview} from './lib/orchestration/DelegationPreviewMode';
+import { StrictMode, useEffect, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import SettingsModal from './components/SettingsModal';
+import PersonalEditionApp from './components/personal/PersonalEditionApp';
+import { useAppState } from './hooks/useAppState';
 import './index.css';
 
-// XSS Mitigation: Initialize Trusted Types policy
-if (typeof window !== "undefined" && (window as any).trustedTypes && (window as any).trustedTypes.createPolicy) {
-  try {
-    (window as any).trustedTypes.createPolicy("default", {
-      createHTML: (html: string) => html,
-      createScriptURL: (url: string) => url,
-      createScript: (script: string) => script,
-    });
-    console.log("🔒 Trusted Types security policy active.");
-  } catch (e) {
-    console.warn("Trusted Types policy initialization bypassed:", e);
-  }
-}
+function PersonalReleaseRoot() {
+  const { settings, updateSettings } = useAppState();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-const useDelegationV2Preview = typeof window !== 'undefined'
-  && shouldUseDelegationV2Preview(window.location.search);
+  useEffect(() => {
+    const root = document.documentElement;
+    const useLightTheme = settings.selectedTheme === 'light';
+    root.classList.toggle('light', useLightTheme);
+    root.classList.toggle('dark', !useLightTheme);
+  }, [settings.selectedTheme]);
+
+  return (
+    <>
+      <PersonalEditionApp
+        settings={settings}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+      />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        updateSettings={updateSettings}
+      />
+    </>
+  );
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
-    <SettingsEventBridge />
-    {useDelegationV2Preview ? <MultiAIDelegationPanelV2 /> : <MultiAIDelegationPanel />}
+    <PersonalReleaseRoot />
   </StrictMode>,
 );
