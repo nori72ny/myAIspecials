@@ -471,7 +471,7 @@ export default function UnifiedChat({
         </AnimatePresence>
       </div>
 
-      <div className="shrink-0 border-t border-slate-200 bg-white/95 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4 sm:pb-5">
+      <div className="shrink-0 border-t border-slate-200 bg-white/95 px-3 pb-4 pt-3 backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4 sm:pb-5">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-slate-500 focus-within:ring-2 focus-within:ring-slate-200 dark:border-white/15 dark:bg-neutral-900 dark:focus-within:border-white/30 dark:focus-within:ring-white/10">
             <textarea
