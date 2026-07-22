@@ -17,7 +17,7 @@ test.describe('ORIGIN Personal release accessibility', () => {
     const { opener, dialog } = await openSettings(page);
 
     const iconClose = page.getByTestId('close-settings-button');
-    const footerClose = dialog.getByRole('button', { name: /閉じる|Close/, exact: true });
+    const footerClose = dialog.getByRole('button', { name: /^(閉じる|Close)$/ });
 
     await iconClose.focus();
     await page.keyboard.press('Shift+Tab');
