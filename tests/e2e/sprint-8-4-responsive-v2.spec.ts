@@ -43,6 +43,7 @@ for (const viewport of VIEWPORTS) {
     await page.getByRole('button', { name: /設定を開く|Open settings/i }).click();
     const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId('settings-modal')).toHaveCSS('opacity', '1');
 
     const box = await dialog.boundingBox();
     expect(box).not.toBeNull();
