@@ -25,8 +25,8 @@ const strictPlan: OriginAiStudioRuntimePlan = {
   },
   evidence: {
     billingTier: "free",
-    verifiedAt: "2030-01-01T00:00:00.000Z",
-    reviewAfter: "2030-01-31T23:59:59.999Z",
+    verifiedAt: "2020-01-01T00:00:00.000Z",
+    reviewAfter: "2099-12-31T23:59:59.999Z",
     pricingSourceUrl: "https://ai.google.dev/gemini-api/docs/pricing",
     modelSourceUrl: "https://ai.google.dev/gemini-api/docs/models",
   },
@@ -156,10 +156,16 @@ describe("OriginAiStudioOfflineExecutor", () => {
     expect(serializedLog).not.toMatch(/authorization|fake-secret-token|upstream body/i);
   });
 
-  it("blocks execution when retry, fallback, storage, selection, or cost policy is weakened", async () => {
+  it("revalidates identity, evidence, expiry, and zero-cost policy immediately before execution", async () => {
     const weakenedPlans = [
       { ...strictPlan, maxEstimatedCostUsd: 1 },
       { ...strictPlan, freeOnly: false },
+      { ...strictPlan, providerId: "untrusted-provider" },
+      { ...strictPlan, endpoint: "https://example.test/interactions" },
+      { ...strictPlan, modelId: "gemini-flash-latest" },
+      { ...strictPlan, evidence: { ...strictPlan.evidence, billingTier: "paid" } },
+      { ...strictPlan, evidence: { ...strictPlan.evidence, reviewAfter: "2020-01-02T00:00:00.000Z" } },
+      { ...strictPlan, evidence: { ...strictPlan.evidence, pricingSourceUrl: "https://example.test/pricing" } },
       { ...strictPlan, requestPolicy: { ...strictPlan.requestPolicy, store: true } },
       { ...strictPlan, requestPolicy: { ...strictPlan.requestPolicy, allowAutomaticRetries: true } },
       { ...strictPlan, requestPolicy: { ...strictPlan.requestPolicy, allowProviderFallbacks: true } },

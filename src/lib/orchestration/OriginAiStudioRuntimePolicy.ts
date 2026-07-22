@@ -74,7 +74,7 @@ function parseTimestamp(value: string): number | null {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-function isExplicitStableGeminiModelId(modelId: string): boolean {
+export function isExplicitStableGeminiModelId(modelId: string): boolean {
   const normalized = modelId.toLowerCase();
   if (
     normalized.includes("preview")
@@ -88,6 +88,10 @@ function isExplicitStableGeminiModelId(modelId: string): boolean {
   return /^gemini-\d+(?:\.\d+)*-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized);
 }
 
+function isOfficialAiStudioEvidenceUrl(value: string): boolean {
+  return value.startsWith("https://ai.google.dev/");
+}
+
 function isValidEvidence(entry: OriginAiStudioFreeModelEvidence): boolean {
   const verifiedAt = parseTimestamp(entry.verifiedAt);
   const reviewAfter = parseTimestamp(entry.reviewAfter);
@@ -99,11 +103,40 @@ function isValidEvidence(entry: OriginAiStudioFreeModelEvidence): boolean {
     && entry.outputCostUsd === 0
     && entry.apiFamily === "interactions"
     && entry.store === false
-    && entry.pricingSourceUrl.startsWith("https://ai.google.dev/")
-    && entry.modelSourceUrl.startsWith("https://ai.google.dev/")
+    && isOfficialAiStudioEvidenceUrl(entry.pricingSourceUrl)
+    && isOfficialAiStudioEvidenceUrl(entry.modelSourceUrl)
     && verifiedAt !== null
     && reviewAfter !== null
     && reviewAfter > verifiedAt;
+}
+
+export function isOriginAiStudioRuntimePlanExecutionSafe(
+  plan: OriginAiStudioRuntimePlan,
+  nowMs: number = Date.now(),
+): boolean {
+  const verifiedAt = parseTimestamp(plan.evidence.verifiedAt);
+  const reviewAfter = parseTimestamp(plan.evidence.reviewAfter);
+
+  return Number.isFinite(nowMs)
+    && plan.providerId === ORIGIN_AI_STUDIO_PROVIDER_ID
+    && plan.endpoint === ORIGIN_AI_STUDIO_INTERACTIONS_ENDPOINT
+    && plan.providerLabel.trim().length > 0
+    && isExplicitStableGeminiModelId(plan.modelId)
+    && plan.freeOnly === true
+    && plan.maxEstimatedCostUsd === 0
+    && plan.requiresOwnerApproval === false
+    && plan.requestPolicy.store === false
+    && plan.requestPolicy.allowAutomaticRetries === false
+    && plan.requestPolicy.allowProviderFallbacks === false
+    && plan.requestPolicy.allowAutomaticModelSelection === false
+    && plan.evidence.billingTier === "free"
+    && isOfficialAiStudioEvidenceUrl(plan.evidence.pricingSourceUrl)
+    && isOfficialAiStudioEvidenceUrl(plan.evidence.modelSourceUrl)
+    && verifiedAt !== null
+    && reviewAfter !== null
+    && reviewAfter > verifiedAt
+    && nowMs >= verifiedAt
+    && nowMs <= reviewAfter;
 }
 
 function selectCurrentEvidence(

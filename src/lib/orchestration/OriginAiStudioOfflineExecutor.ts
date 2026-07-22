@@ -1,4 +1,7 @@
-import type { OriginAiStudioRuntimePlan } from "./OriginAiStudioRuntimePolicy";
+import {
+  isOriginAiStudioRuntimePlanExecutionSafe,
+  type OriginAiStudioRuntimePlan,
+} from "./OriginAiStudioRuntimePolicy";
 
 export interface OriginAiStudioOfflineRequest {
   modelId: string;
@@ -47,6 +50,7 @@ export interface OriginAiStudioSafeLogEvent {
 
 export interface OriginAiStudioOfflineExecutionOptions {
   timeoutMs?: number;
+  nowMs?: number;
   log?: (event: OriginAiStudioSafeLogEvent) => void;
 }
 
@@ -78,15 +82,6 @@ function fail(
     message: FAILURE_MESSAGES[code],
     retryable: false,
   };
-}
-
-function hasStrictZeroCostPolicy(plan: OriginAiStudioRuntimePlan): boolean {
-  return plan.freeOnly === true
-    && plan.maxEstimatedCostUsd === 0
-    && plan.requestPolicy.store === false
-    && plan.requestPolicy.allowAutomaticRetries === false
-    && plan.requestPolicy.allowProviderFallbacks === false
-    && plan.requestPolicy.allowAutomaticModelSelection === false;
 }
 
 function mapTransportResult(
@@ -121,7 +116,7 @@ export async function executeOriginAiStudioOfflineContract(
   transport: OriginAiStudioOfflineTransport,
   options: OriginAiStudioOfflineExecutionOptions = {},
 ): Promise<OriginAiStudioOfflineExecutionResult> {
-  if (!hasStrictZeroCostPolicy(plan)) {
+  if (!isOriginAiStudioRuntimePlanExecutionSafe(plan, options.nowMs ?? Date.now())) {
     return fail("AI_STUDIO_EXECUTION_POLICY_INVALID", options.log);
   }
 
