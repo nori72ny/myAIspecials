@@ -1,18 +1,16 @@
-import { useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { Settings } from "../types";
+import { useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
-  X,
-  Cpu,
   Check,
-  AlertTriangle,
-  Code,
-  Globe,
-  Palette,
-  DollarSign,
   Clock,
-} from "lucide-react";
-import { cn } from "../utils";
+  Globe,
+  Moon,
+  ShieldCheck,
+  Sun,
+  X,
+} from 'lucide-react';
+import type { Settings } from '../types';
+import { cn } from '../utils';
 
 interface Props {
   isOpen: boolean;
@@ -22,262 +20,225 @@ interface Props {
 }
 
 export default function SettingsModal({ isOpen, onClose, settings, updateSettings }: Props) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const isEn = settings.language === 'en';
+  const selectedTheme = settings.selectedTheme === 'light' ? 'light' : 'dark';
+
   useEffect(() => {
+    if (!isOpen) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+      const dialog = closeButtonRef.current?.closest('[role="dialog"]');
+      const focusable = dialog?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-    if (isOpen) window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
   }, [isOpen, onClose]);
 
-  const isEn = settings.language === "en";
-
-  const handleKeyDownHelper = (event: React.KeyboardEvent, action: () => void) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      action();
-    }
+  const update = (patch: Partial<Settings>) => {
+    updateSettings({ ...settings, ...patch });
   };
 
   return (
     <AnimatePresence>
       {isOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="settings-title"
+          aria-describedby="settings-description"
         >
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
+            aria-hidden="true"
           />
 
           <motion.div
             data-testid="settings-modal"
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            initial={{ opacity: 0, scale: 0.97, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            className="relative w-full max-w-xl overflow-hidden bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-neutral-800 text-gray-900 dark:text-neutral-100 flex flex-col my-8"
+            exit={{ opacity: 0, scale: 0.97, y: 8 }}
+            className="relative my-8 flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
           >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-neutral-800 bg-gray-50 dark:bg-neutral-900/50">
-              <h2
-                id="settings-title"
-                className="text-sm font-black text-gray-800 dark:text-neutral-200 flex items-center gap-2 tracking-wide"
-              >
-                <Cpu className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                {isEn ? "ORIGIN Personal Settings" : "ORIGIN Personal 設定"}
-              </h2>
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-white/10">
+              <div>
+                <h2 id="settings-title" className="text-base font-bold">
+                  {isEn ? 'Settings' : '設定'}
+                </h2>
+                <p id="settings-description" className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
+                  {isEn ? 'Changes are saved automatically.' : '変更は自動で保存されます。'}
+                </p>
+              </div>
               <button
+                ref={closeButtonRef}
                 type="button"
                 onClick={onClose}
                 data-testid="close-settings-button"
-                aria-label={isEn ? "Close settings" : "設定を閉じる"}
-                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-neutral-300 transition-colors rounded-full hover:bg-gray-100 dark:hover:bg-neutral-850"
+                aria-label={isEn ? 'Close settings' : '設定を閉じる'}
+                className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-white/10 dark:hover:text-white"
               >
-                <X className="w-4.5 h-4.5" />
+                <X className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
 
-            <div className="p-6 space-y-6 max-h-[500px] overflow-y-auto">
-              <section className="space-y-3" data-testid="origin-execution-policy">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Cpu className="w-3.5 h-3.5 text-indigo-500" />
-                  {isEn ? "AI Execution Policy" : "AI実行ポリシー"}
+            <div className="max-h-[70vh] space-y-6 overflow-y-auto p-5">
+              <section aria-labelledby="language-heading" className="space-y-3">
+                <h3 id="language-heading" className="flex items-center gap-2 text-sm font-bold">
+                  <Globe className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
+                  {isEn ? 'Language' : '表示言語'}
                 </h3>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-500/20 dark:bg-emerald-500/10">
-                  <div className="flex items-start gap-3">
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                      <Check className="h-4 w-4" />
-                    </span>
-                    <div>
-                      <p className="text-sm font-bold text-emerald-900 dark:text-emerald-100">
-                        {isEn ? "ORIGIN selects automatically within free-only rules" : "無料限定ルール内でORIGINが自動選択します"}
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-emerald-800 dark:text-emerald-200">
-                        {isEn
-                          ? "The current personal preview permits only an explicitly free model. Paid models, automatic model routers, and cross-provider fallback are disabled."
-                          : "現在の個人版プレビューは、明示的に無料と確認できるモデルだけを使用します。有料モデル、自動モデルルーター、別プロバイダーへの自動フォールバックは無効です。"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-[11px] leading-relaxed text-gray-500 dark:text-neutral-400">
-                  {isEn
-                    ? "Provider selection is not a user setting in this phase. The server-side execution policy makes the final decision and fails closed when no eligible free provider is configured."
-                    : "この段階では、利用者がプロバイダーを選択する設定はありません。サーバー側の実行ポリシーが最終判断し、条件を満たす無料プロバイダーがなければ実行を停止します。"}
-                </p>
-              </section>
-
-              <section className="space-y-3 pt-2 border-t border-gray-100 dark:border-neutral-800">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Palette className="w-3.5 h-3.5 text-indigo-500" />
-                  {isEn ? "Visual Theme" : "表示テーマ"}
-                </h3>
-
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { id: "dark", label: isEn ? "Cosmic Slate" : "Cosmic（ダーク）", desc: isEn ? "Deep slate dark theme" : "深い濃紺のダークテーマ" },
-                    { id: "light", label: isEn ? "Classic Slate" : "Slate（ライト）", desc: isEn ? "Readable light theme" : "可読性を重視したライトテーマ" },
-                    { id: "oled", label: isEn ? "Pitch Black" : "OLED（漆黒）", desc: isEn ? "High-contrast black theme" : "高コントラストの黒テーマ" },
-                    { id: "retro", label: isEn ? "Phosphor Retro" : "Retro（緑色端末）", desc: isEn ? "Monochrome terminal theme" : "クラシックな端末風テーマ" },
-                  ].map((theme) => {
-                    const isSelected = (settings.selectedTheme || "dark") === theme.id;
-                    return (
-                      <div
-                        key={theme.id}
-                        role="radio"
-                        aria-checked={isSelected}
-                        tabIndex={0}
-                        onClick={() => updateSettings({ ...settings, selectedTheme: theme.id as Settings["selectedTheme"] })}
-                        onKeyDown={(event) => handleKeyDownHelper(event, () => updateSettings({ ...settings, selectedTheme: theme.id as Settings["selectedTheme"] }))}
-                        className={cn(
-                          "p-2.5 rounded-xl border text-left cursor-pointer transition-all select-none focus:outline-none focus:ring-2 focus:ring-indigo-500",
-                          isSelected
-                            ? "ring-2 ring-indigo-500 scale-[1.02] shadow-sm"
-                            : "opacity-80 hover:opacity-100 border-gray-200 dark:border-neutral-800",
-                        )}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold">{theme.label}</span>
-                          {isSelected && <span className="w-2 h-2 rounded-full bg-indigo-500" />}
-                        </div>
-                        <p className="text-[9px] text-gray-500 dark:text-neutral-400 mt-0.5">{theme.desc}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <section className="space-y-3 pt-2 border-t border-gray-100 dark:border-neutral-800">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5 text-indigo-500" />
-                  {isEn ? "Language" : "表示言語"}
-                </h3>
-
-                <div className="flex gap-2">
-                  {[
-                    { id: "ja", name: "日本語 (JA)" },
-                    { id: "en", name: "English (EN)" },
+                    { id: 'ja', label: '日本語' },
+                    { id: 'en', label: 'English' },
                   ].map((language) => {
-                    const isSelected = settings.language === language.id;
+                    const selected = settings.language === language.id;
                     return (
                       <button
                         type="button"
                         key={language.id}
-                        onClick={() => updateSettings({ ...settings, language: language.id as Settings["language"] })}
-                        aria-pressed={isSelected}
+                        onClick={() => update({ language: language.id as Settings['language'] })}
+                        aria-pressed={selected}
                         className={cn(
-                          "flex-1 py-2 px-3 text-xs font-bold rounded-xl border transition-all cursor-pointer",
-                          isSelected
-                            ? "bg-indigo-600 border-indigo-700 text-white shadow-sm"
-                            : "bg-white dark:bg-neutral-800 border-gray-200 dark:border-neutral-700 text-gray-700 dark:text-neutral-300 hover:bg-gray-50 dark:hover:bg-neutral-750",
+                          'flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition',
+                          selected
+                            ? 'border-indigo-700 bg-indigo-600 text-white'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-white/5',
                         )}
                       >
-                        {language.name}
+                        {selected && <Check className="h-4 w-4" aria-hidden="true" />}
+                        {language.label}
                       </button>
                     );
                   })}
                 </div>
               </section>
 
-              <section className="space-y-3 pt-2 border-t border-gray-100 dark:border-neutral-800">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <DollarSign className="w-3.5 h-3.5 text-indigo-500" />
-                  {isEn ? "Cost Policy" : "コストポリシー"}
+              <section aria-labelledby="appearance-heading" className="space-y-3 border-t border-slate-200 pt-5 dark:border-white/10">
+                <h3 id="appearance-heading" className="text-sm font-bold">
+                  {isEn ? 'Appearance' : '画面の明るさ'}
                 </h3>
-                <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-neutral-700 dark:bg-neutral-800/60">
-                  <div>
-                    <p className="text-xs font-bold text-gray-800 dark:text-neutral-100">
-                      {isEn ? "Hard execution ceiling" : "実行時の上限"}
-                    </p>
-                    <p className="mt-1 text-[10px] leading-4 text-gray-500 dark:text-neutral-400">
-                      {isEn
-                        ? "Any plan with an estimated cost above zero is rejected before execution. Paid approval is not implemented yet."
-                        : "見積額が0円を超える計画は実行前に拒否します。有料実行の承認機能はまだ実装していません。"}
-                    </p>
-                  </div>
-                  <span className="ml-4 shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                    $0.00
-                  </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'light', label: isEn ? 'Light' : '明るい', icon: Sun },
+                    { id: 'dark', label: isEn ? 'Dark' : '暗い', icon: Moon },
+                  ].map((theme) => {
+                    const selected = selectedTheme === theme.id;
+                    return (
+                      <button
+                        type="button"
+                        key={theme.id}
+                        onClick={() => update({ selectedTheme: theme.id as Settings['selectedTheme'] })}
+                        aria-pressed={selected}
+                        className={cn(
+                          'flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition',
+                          selected
+                            ? 'border-indigo-700 bg-indigo-600 text-white'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-white/5',
+                        )}
+                      >
+                        <theme.icon className="h-4 w-4" aria-hidden="true" />
+                        {theme.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </section>
 
-              <section className="space-y-3 pt-2 border-t border-gray-100 dark:border-neutral-800">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                  {isEn ? "Request Timeout" : "応答タイムアウト"}
+              <section aria-labelledby="timeout-heading" className="space-y-3 border-t border-slate-200 pt-5 dark:border-white/10">
+                <h3 id="timeout-heading" className="flex items-center gap-2 text-sm font-bold">
+                  <Clock className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
+                  {isEn ? 'Maximum wait time' : '応答を待つ時間'}
                 </h3>
-                <label className="block text-[11px] font-bold text-gray-600 dark:text-neutral-300">
-                  {isEn ? "Maximum waiting time" : "最大待機時間"}
+                <label className="block text-xs text-slate-600 dark:text-neutral-300">
+                  <span>{isEn ? 'Stop waiting after' : 'この時間を超えたら停止'}</span>
                   <select
-                    value={settings.timeoutSeconds || 30}
-                    onChange={(event) => updateSettings({ ...settings, timeoutSeconds: Number.parseInt(event.target.value, 10) })}
-                    className="mt-1 w-full text-xs font-medium p-2 rounded-xl bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 text-gray-800 dark:text-neutral-200 focus:outline-none focus:border-indigo-500"
+                    value={settings.timeoutSeconds ?? 30}
+                    onChange={(event) => update({ timeoutSeconds: Number.parseInt(event.target.value, 10) })}
+                    className="mt-2 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:ring-indigo-500/20"
                   >
                     {[10, 20, 30, 45, 60].map((seconds) => (
-                      <option key={seconds} value={seconds}>{seconds} {isEn ? "seconds" : "秒"}</option>
+                      <option key={seconds} value={seconds}>
+                        {seconds} {isEn ? 'seconds' : '秒'}
+                      </option>
                     ))}
                   </select>
                 </label>
-                <p className="text-[10px] leading-4 text-gray-500 dark:text-neutral-400">
+                <p className="text-xs leading-5 text-slate-500 dark:text-neutral-400">
                   {isEn
-                    ? "This value is sent to the authoritative server execution policy. ORIGIN does not automatically retry or switch providers in this phase."
-                    : "この値はサーバー側の正式な実行ポリシーへ送られます。この段階では自動再試行や別プロバイダーへの切替は行いません。"}
+                    ? 'ORIGIN does not retry automatically or switch to another provider.'
+                    : 'ORIGINは自動で再試行せず、別の提供元へ自動で切り替えません。'}
                 </p>
               </section>
 
-              <section className="space-y-3 pt-2 border-t border-gray-100 dark:border-neutral-800">
-                <div
-                  role="checkbox"
-                  aria-checked={Boolean(settings.developerMode)}
-                  tabIndex={0}
-                  onClick={() => updateSettings({ ...settings, developerMode: !settings.developerMode })}
-                  onKeyDown={(event) => handleKeyDownHelper(event, () => updateSettings({ ...settings, developerMode: !settings.developerMode }))}
-                  className={cn(
-                    "flex items-start justify-between p-3.5 rounded-xl border transition-all select-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500",
-                    settings.developerMode
-                      ? "bg-indigo-50/40 dark:bg-indigo-950/10 border-indigo-200 dark:border-indigo-900/50 hover:bg-indigo-50/60"
-                      : "bg-white dark:bg-neutral-850 border-gray-200 dark:border-neutral-800 hover:bg-gray-50",
-                  )}
-                >
-                  <div className="flex gap-3">
-                    <span className="text-xl bg-gray-100 dark:bg-neutral-800 w-10 h-10 rounded-lg flex items-center justify-center border border-gray-200/50 dark:border-neutral-700/30">
-                      <Code className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                    </span>
-                    <div className="space-y-0.5">
-                      <span className="text-xs font-bold text-gray-900 dark:text-neutral-100">
-                        {isEn ? "Technical Details" : "技術詳細表示"}
-                      </span>
-                      <p className="text-[10px] text-gray-500 dark:text-neutral-400 max-w-[320px]">
-                        {isEn
-                          ? "Shows additional local diagnostics and execution metadata. This switch does not enable paid execution or external telemetry."
-                          : "ローカル診断情報と実行メタデータの表示を増やします。この切替だけで有料実行や外部テレメトリーが有効になることはありません。"}
-                      </p>
-                    </div>
-                  </div>
-                  <span className={cn(
-                    "self-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold",
-                    settings.developerMode
-                      ? "bg-indigo-500 text-white border-indigo-600"
-                      : "bg-gray-100 dark:bg-neutral-800 text-gray-400 dark:text-neutral-500 border-gray-200 dark:border-neutral-700",
-                  )}>
-                    {settings.developerMode ? "ON" : "OFF"}
-                  </span>
+              <section
+                data-testid="origin-execution-policy"
+                aria-labelledby="safety-heading"
+                className="space-y-3 border-t border-slate-200 pt-5 dark:border-white/10"
+              >
+                <h3 id="safety-heading" className="flex items-center gap-2 text-sm font-bold">
+                  <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                  {isEn ? 'Safety and cost' : '安全と費用'}
+                </h3>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-100">
+                  <p className="font-bold">
+                    {isEn ? 'This release uses free AI only.' : 'この版は無料AIだけを使います。'}
+                  </p>
+                  <p className="mt-1 text-xs leading-5">
+                    {isEn
+                      ? 'The maximum cost is $0.00. ORIGIN does not show an answer when zero cost or the actual execution route cannot be verified.'
+                      : '費用上限は$0.00です。無料であることや実際の実行先を確認できない場合、回答は表示しません。'}
+                  </p>
                 </div>
+                <p className="text-xs leading-5 text-slate-500 dark:text-neutral-400">
+                  {isEn
+                    ? 'Provider credentials are managed on the server. Do not enter passwords, API keys, tokens, or private keys here or in chat.'
+                    : '接続用の認証情報はサーバーで管理します。パスワード、APIキー、トークン、秘密鍵を設定画面やチャットへ入力しないでください。'}
+                </p>
               </section>
             </div>
 
-            <div className="p-4 bg-gray-50 dark:bg-neutral-900/80 border-t border-gray-100 dark:border-neutral-800 flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 w-4 h-4 text-amber-500 shrink-0" />
-              <p className="text-[10px] leading-4 text-gray-500 dark:text-neutral-400">
-                {isEn
-                  ? "The OpenRouter credential is managed only in the server environment. Never enter API keys, tokens, passwords, or private keys in chat or this settings screen."
-                  : "OpenRouterの認証情報はサーバー環境だけで管理します。APIキー、トークン、パスワード、秘密鍵をチャットやこの設定画面へ入力しないでください。"}
-              </p>
+            <div className="border-t border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-neutral-900/70">
+              <button
+                type="button"
+                onClick={onClose}
+                className="min-h-11 w-full rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
+              >
+                {isEn ? 'Close' : '閉じる'}
+              </button>
             </div>
           </motion.div>
         </div>
