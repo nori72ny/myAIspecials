@@ -7,6 +7,7 @@ async function openSettings(page: import('@playwright/test').Page) {
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('settings-modal')).toHaveCSS('opacity', '1');
   await expect(page.getByTestId('close-settings-button')).toBeFocused();
   return { opener, dialog };
 }
