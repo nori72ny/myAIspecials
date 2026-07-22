@@ -8,16 +8,17 @@ const originalOpenRouterKey = process.env.OPENROUTER_API_KEY;
 const originalGeminiKey = process.env.GEMINI_API_KEY;
 
 describe("createOriginApp provider isolation", () => {
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let fetchSpy = vi.fn();
 
   beforeEach(() => {
     delete process.env.OPENROUTER_API_KEY;
     process.env.GEMINI_API_KEY = "synthetic-gemini-key-that-must-remain-unused";
-    fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
   });
 
   afterEach(() => {
-    fetchSpy.mockRestore();
+    vi.unstubAllGlobals();
 
     if (originalOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
     else process.env.OPENROUTER_API_KEY = originalOpenRouterKey;
