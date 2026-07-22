@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Check,
-  Clock,
   Globe,
   Moon,
   ShieldCheck,
@@ -176,32 +175,6 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                     );
                   })}
                 </div>
-              </section>
-
-              <section aria-labelledby="timeout-heading" className="space-y-3 border-t border-slate-200 pt-5 dark:border-white/10">
-                <h3 id="timeout-heading" className="flex items-center gap-2 text-sm font-bold">
-                  <Clock className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
-                  {isEn ? 'Maximum wait time' : '応答を待つ時間'}
-                </h3>
-                <label className="block text-xs text-slate-600 dark:text-neutral-300">
-                  <span>{isEn ? 'Stop waiting after' : 'この時間を超えたら停止'}</span>
-                  <select
-                    value={settings.timeoutSeconds ?? 30}
-                    onChange={(event) => update({ timeoutSeconds: Number.parseInt(event.target.value, 10) })}
-                    className="mt-2 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:ring-indigo-500/20"
-                  >
-                    {[10, 20, 30, 45, 60].map((seconds) => (
-                      <option key={seconds} value={seconds}>
-                        {seconds} {isEn ? 'seconds' : '秒'}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <p className="text-xs leading-5 text-slate-500 dark:text-neutral-400">
-                  {isEn
-                    ? 'ORIGIN does not retry automatically or switch to another provider.'
-                    : 'ORIGINは自動で再試行せず、別の提供元へ自動で切り替えません。'}
-                </p>
               </section>
 
               <section
