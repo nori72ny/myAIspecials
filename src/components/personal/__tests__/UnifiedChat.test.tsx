@@ -146,7 +146,7 @@ describe('UnifiedChat', () => {
     expect(screen.getByText('別のAIによる確認')).toBeTruthy();
     expect(screen.getByText('今回は別のAIで確認していません')).toBeTruthy();
     expect(screen.getByText('無料')).toBeTruthy();
-    expect(screen.getByText('25ms')).toBeTruthy();
+    expect(screen.getByText('1秒未満')).toBeTruthy();
 
     const fetchCall = (global.fetch as any).mock.calls[0];
     const body = JSON.parse(fetchCall[1].body);
