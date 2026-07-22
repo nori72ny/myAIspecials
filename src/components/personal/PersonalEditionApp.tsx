@@ -284,7 +284,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
                   initialPrompt={chatInitialPrompt}
                   settingsOverride={{
                     language: settings.language,
-                    timeoutSeconds: settings.timeoutSeconds,
+                    timeoutSeconds: 30,
                   }}
                   onOpenSettings={openSettings}
                 />
