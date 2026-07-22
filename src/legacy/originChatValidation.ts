@@ -73,8 +73,24 @@ export function originClientPolicy(body: OriginChatBody): Partial<OriginExecutio
 }
 
 export function isOriginWeatherRequest(message: string): boolean {
-  return /(天気(は|って|どう|教えて|知りたい|予報|.*の天気)|傘(は必要|いる)|雨(降る|？)|weather)/i.test(message)
-    && !/(アプリ|API|設計|作る|方法|how to|build|create|気分)/i.test(message);
+  const normalized = message.toLowerCase();
+  const hasWeatherSignal = message.includes("天気")
+    || message.includes("傘は必要")
+    || message.includes("傘いる")
+    || message.includes("雨降る")
+    || message.includes("雨？")
+    || normalized.includes("weather");
+  const hasExcludedIntent = message.includes("アプリ")
+    || normalized.includes("api")
+    || message.includes("設計")
+    || message.includes("作る")
+    || message.includes("方法")
+    || normalized.includes("how to")
+    || normalized.includes("build")
+    || normalized.includes("create")
+    || message.includes("気分");
+
+  return hasWeatherSignal && !hasExcludedIntent;
 }
 
 export function hasOriginWeatherLocation(message: string, userLocation: unknown): boolean {
