@@ -7,7 +7,7 @@ import { ORIGIN_AI_STUDIO_INTERACTIONS_ENDPOINT } from "../lib/orchestration/Ori
 export const ORIGIN_AI_STUDIO_API_KEY_ENV = "ORIGIN_AI_STUDIO_API_KEY" as const;
 const MAX_INTERACTIONS_RESPONSE_BYTES = 1_000_000;
 
-type OriginFetch = (
+export type OriginFetch = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;

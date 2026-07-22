@@ -189,14 +189,6 @@ export function buildOriginAiStudioRuntimePlan(
     };
   }
 
-  if (!availability.ownerApprovedLiveExecution) {
-    return {
-      ok: false,
-      code: "AI_STUDIO_OWNER_APPROVAL_REQUIRED",
-      message: "AI Studioの実リクエストにはオーナーの明示承認が必要です。",
-    };
-  }
-
   if (!availability.apiKeyConfigured) {
     return {
       ok: false,
@@ -210,6 +202,14 @@ export function buildOriginAiStudioRuntimePlan(
     options.nowMs ?? Date.now(),
   );
   if ("ok" in selected) return selected;
+
+  if (!availability.ownerApprovedLiveExecution) {
+    return {
+      ok: false,
+      code: "AI_STUDIO_OWNER_APPROVAL_REQUIRED",
+      message: "AI Studioの実リクエストにはオーナーの明示承認が必要です。",
+    };
+  }
 
   return {
     ok: true,
