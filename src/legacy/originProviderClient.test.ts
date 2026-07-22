@@ -319,18 +319,36 @@ describe("executeOriginProvider", () => {
     });
   });
 
-  it("normalizes provider errors without including provider response content", async () => {
-    const fetchMock = vi.fn(async () => new Response("synthetic provider body", { status: 429 }));
+  it("normalizes provider errors without returning or logging provider content or credentials", async () => {
+    const providerBody = "synthetic provider body Authorization: Bearer upstream-secret-value";
+    const apiKey = "synthetic-test-key";
+    const fetchMock = vi.fn(async () => new Response(providerBody, { status: 429 }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({
-      code: "PROVIDER_RATE_LIMITED",
-      status: 429,
-      retryable: true,
-      message: "無料AIの利用上限に達しました。時間をおいて再試行してください。",
-    });
+    try {
+      const thrown = await executeOriginProvider(
+        request,
+        { OPENROUTER_API_KEY: apiKey },
+        fetchMock as unknown as OriginFetch,
+      ).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(thrown).toBeInstanceOf(OriginProviderError);
+      expect(thrown).toMatchObject({
+        code: "PROVIDER_RATE_LIMITED",
+        status: 429,
+        retryable: true,
+        message: "無料AIの利用上限に達しました。時間をおいて再試行してください。",
+      });
+      expect(String(thrown)).not.toContain(providerBody);
+      expect(String(thrown)).not.toContain(apiKey);
+      expect(Object.prototype.hasOwnProperty.call(thrown, "body")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(thrown, "response")).toBe(false);
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
