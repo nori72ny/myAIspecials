@@ -1,100 +1,273 @@
-import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import UnifiedChat from '../UnifiedChat';
 import { useAppState } from '../../../hooks/useAppState';
 
-// Mock useAppState
 vi.mock('../../../hooks/useAppState', () => ({
-  useAppState: vi.fn()
+  useAppState: vi.fn(),
 }));
 
 const mockDispatchEvent = vi.spyOn(window, 'dispatchEvent');
+
+function mockJapaneseSettings() {
+  (useAppState as any).mockReturnValue({
+    settings: { language: 'ja', timeoutSeconds: 30 },
+  });
+}
+
+function sendJapaneseMessage(value: string) {
+  const input = screen.getByPlaceholderText('やりたいことを入力');
+  fireEvent.change(input, { target: { value } });
+  fireEvent.click(screen.getByRole('button', { name: '依頼を送信' }));
+}
+
+async function expectNonRetryableError(title: string, code: string, description: string) {
+  await waitFor(() => {
+    expect(screen.getByText(title)).toBeTruthy();
+    expect(screen.getByText(description)).toBeTruthy();
+    expect(screen.getByText('技術情報')).toBeTruthy();
+  });
+
+  const details = screen.getByTestId('error-details') as HTMLDetailsElement;
+  expect(details.open).toBe(false);
+
+  fireEvent.click(screen.getByText('技術情報'));
+  expect(details.open).toBe(true);
+  expect(screen.getByText('エラーコード')).toBeTruthy();
+  expect(screen.getByText(code)).toBeTruthy();
+
+  expect(screen.queryByText('再試行')).toBeNull();
+  expect(screen.queryByText('設定を開く')).toBeNull();
+}
 
 describe('UnifiedChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.fetch = vi.fn();
-    (useAppState as any).mockReturnValue({
-      settings: { language: 'ja' }
-    });
+    mockJapaneseSettings();
   });
 
-  it('renders default greeting in Japanese when language is ja', () => {
+  it('renders the plain Japanese greeting', () => {
     render(<UnifiedChat />);
-    expect(screen.getByText('こんにちは！ACOS統合AIです。何かお手伝いしましょうか？')).toBeTruthy();
+    expect(screen.getByText('こんにちは。やりたいことを、そのまま入力してください。')).toBeTruthy();
   });
 
-  it('renders default greeting in English when language is en', () => {
-    (useAppState as any).mockReturnValue({
-      settings: { language: 'en' }
-    });
-    render(<UnifiedChat />);
-    expect(screen.getByText('Hello! I am ACOS Unified AI. How can I assist you today?')).toBeTruthy();
+  it('renders the plain English greeting', () => {
+    render(<UnifiedChat settingsOverride={{ language: 'en', timeoutSeconds: 30 }} />);
+    expect(screen.getByText('Hello. Describe what you want to do in your own words.')).toBeTruthy();
   });
 
-  it('handles user input and API success', async () => {
+  it('preserves Shift+Enter and trims the sent request', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ content: '今日の天気は晴れです。' })
+      json: async () => ({ content: '確認しました。' }),
     });
 
     render(<UnifiedChat />);
-    
-    const input = screen.getByPlaceholderText('ACOSにメッセージを入力...');
-    fireEvent.change(input, { target: { value: '今日の天気は？' } });
-    
-    const sendButton = screen.getByRole('button');
-    fireEvent.click(sendButton);
 
-    expect(screen.getByText('今日の天気は？')).toBeTruthy();
-    
-    // Verify aiCoreState dispatching
-    expect(mockDispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'aiCoreStateChange' }));
+    expect(screen.getByText('Enterで送信 / Shift+Enterで改行')).toBeTruthy();
+    expect(screen.getByText('パスワードやAPIキーは入力しないでください。')).toBeTruthy();
 
-    await waitFor(() => {
-      expect(screen.getByText('今日の天気は晴れです。')).toBeTruthy();
+    const input = screen.getByPlaceholderText('やりたいことを入力') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: '  詳細を確認してください  ' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(input.value).toBe('  詳細を確認してください  ');
+
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const fetchCall = (global.fetch as any).mock.calls[0];
+    const body = JSON.parse(fetchCall[1].body);
+    expect(body.messages.at(-1)).toEqual({
+      role: 'user',
+      content: '詳細を確認してください',
     });
   });
 
-  it('handles provider error (rate limit) and displays correct UI', async () => {
+  it('blocks duplicate in-flight submission synchronously', async () => {
+    let resolveFetch!: (value: unknown) => void;
+    (global.fetch as any).mockImplementation(() => new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
+
+    render(<UnifiedChat />);
+    const input = screen.getByPlaceholderText('やりたいことを入力');
+    const sendButton = screen.getByRole('button', { name: '依頼を送信' });
+
+    fireEvent.change(input, { target: { value: '一度だけ送ってください' } });
+    fireEvent.click(sendButton);
+    fireEvent.click(sendButton);
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    resolveFetch({
+      ok: true,
+      json: async () => ({ content: '一度だけ処理しました。' }),
+    });
+
+    await waitFor(() => expect(screen.getByText('一度だけ処理しました。')).toBeTruthy());
+  });
+
+  it('sends a strict zero-cost policy and shows plain execution details', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '確認結果です。',
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: '無料条件を満たすAIを選びました。',
+          timeMs: 25,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-run',
+          verificationReason: 'この版では別AIによる確認を実行していません。',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('文章を確認してください');
+
+    await waitFor(() => {
+      expect(screen.getByText('確認結果です。')).toBeTruthy();
+      expect(screen.getByText('無料で回答しました')).toBeTruthy();
+      expect(screen.getByText('詳細')).toBeTruthy();
+    });
+
+    const details = screen.getByTestId('execution-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+
+    fireEvent.click(screen.getByText('詳細'));
+    expect(details.open).toBe(true);
+    expect(screen.getByText('使用したAI')).toBeTruthy();
+    expect(screen.getByText('ORIGIN 無料AI')).toBeTruthy();
+    expect(screen.getByText('別のAIによる確認')).toBeTruthy();
+    expect(screen.getByText('今回は別のAIで確認していません')).toBeTruthy();
+    expect(screen.getByText('無料')).toBeTruthy();
+    expect(screen.getByText('1秒未満')).toBeTruthy();
+
+    const fetchCall = (global.fetch as any).mock.calls[0];
+    const body = JSON.parse(fetchCall[1].body);
+    expect(body.executionPolicy).toEqual({
+      maxEstimatedCostUsd: 0,
+      timeoutMs: 30000,
+    });
+    expect(mockDispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'aiCoreStateChange' }));
+  });
+
+  it('shows a truthful sensitive-input block without retry or settings actions', async () => {
+    const description = '秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。';
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'SENSITIVE_INPUT_BLOCKED',
+        message: description,
+        retryable: false,
+        requestId: 'origin-sensitive-test',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('秘密情報を含む依頼');
+
+    await expectNonRetryableError('秘密情報の送信を停止しました', 'SENSITIVE_INPUT_BLOCKED', description);
+  });
+
+  it('opens settings only when connection setup is required', async () => {
+    const onOpenSettings = vi.fn();
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'FREE_PROVIDER_NOT_CONFIGURED',
+        message: '無料AIの接続が設定されていません。',
+        retryable: false,
+        requestId: 'origin-config-test',
+      }),
+    });
+
+    render(<UnifiedChat onOpenSettings={onOpenSettings} />);
+    sendJapaneseMessage('文章を確認してください');
+
+    await waitFor(() => {
+      expect(screen.getByText('無料AIの接続設定が必要です')).toBeTruthy();
+      expect(screen.getByText('設定を開く')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByText('設定を開く'));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('再試行')).toBeNull();
+  });
+
+  it('withholds an answer when zero cost cannot be verified', async () => {
+    const description = '無料実行であることを利用明細から確認できなかったため、回答を返しません。';
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'PROVIDER_COST_UNVERIFIED',
+        message: description,
+        retryable: false,
+        requestId: 'origin-cost-test',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('文章を確認してください');
+
+    await expectNonRetryableError('無料実行を確認できませんでした', 'PROVIDER_COST_UNVERIFIED', description);
+  });
+
+  it('withholds an answer when the actual route cannot be verified', async () => {
+    const description = '実際に使用されたモデルと提供元を確認できなかったため、回答を返しません。';
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'PROVIDER_ROUTING_UNVERIFIED',
+        message: description,
+        retryable: false,
+        requestId: 'origin-routing-test',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('文章を確認してください');
+
+    await expectNonRetryableError('実際に使われたAIを確認できませんでした', 'PROVIDER_ROUTING_UNVERIFIED', description);
+  });
+
+  it('keeps retry available for provider rate limits', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
       json: async () => ({
         code: 'PROVIDER_RATE_LIMITED',
-        messageKey: 'errors.rate_limited',
+        message: '無料AIの利用上限に達しました。時間をおいて再試行してください。',
         retryable: true,
-        requestId: 'req-123'
-      })
+        requestId: 'req-123',
+      }),
     });
 
     render(<UnifiedChat />);
-    
-    const input = screen.getByPlaceholderText('ACOSにメッセージを入力...');
-    fireEvent.change(input, { target: { value: 'API上限ですか？' } });
-    
-    const sendButton = screen.getByRole('button');
-    fireEvent.click(sendButton);
+    sendJapaneseMessage('利用上限ですか？');
 
     await waitFor(() => {
-      expect(screen.getByText('レートリミット超過')).toBeTruthy();
+      expect(screen.getByText('無料AIの利用上限に達しました')).toBeTruthy();
       expect(screen.getByText('再試行')).toBeTruthy();
-      expect(screen.getByText('Error Code: PROVIDER_RATE_LIMITED')).toBeTruthy();
+      expect(screen.getByText('技術情報')).toBeTruthy();
     });
   });
 
-  it('handles initialPrompt override', async () => {
+  it('handles an initial prompt exactly once', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: true,
-      json: async () => ({ content: 'Initial prompt response.' })
+      json: async () => ({ content: 'Initial prompt response.' }),
     });
 
     render(<UnifiedChat initialPrompt="This is a test prompt" />);
-    
+
     await waitFor(() => {
       expect(screen.getByText('This is a test prompt')).toBeTruthy();
       expect(screen.getByText('Initial prompt response.')).toBeTruthy();
     });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });
-
