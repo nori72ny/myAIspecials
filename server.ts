@@ -1,3 +1,4 @@
+import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import "dotenv/config";
@@ -27,7 +28,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(await import("express").then(({ default: express }) => express.static(distPath)));
+    app.use(express.static(distPath));
     app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
