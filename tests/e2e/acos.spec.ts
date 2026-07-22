@@ -25,7 +25,7 @@ test.describe('ORIGIN Personal Edition critical journey', () => {
     await expect(settingsDialog).toBeVisible();
     await expect(page.getByTestId('origin-execution-policy')).toContainText(/この版は無料AIだけを使います|This release uses free AI only/i);
     await expect(settingsDialog).toContainText('$0.00');
-    await expect(settingsDialog).not.toContainText(/Developer|Retro|OLED|プロバイダーを選択|自動モデルルーター/i);
+    await expect(settingsDialog).not.toContainText(/Developer|Retro|OLED|プロバイダーを選択|自動モデルルーター|応答を待つ時間|Maximum wait time/i);
 
     await page.getByTestId('close-settings-button').click();
     await expect(settingsDialog).toBeHidden();
