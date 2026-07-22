@@ -65,28 +65,45 @@ type AiCoreState =
   | 'PROVIDER_UNAVAILABLE'
   | 'NOT_CONFIGURED';
 
+type ChatSettings = {
+  language: 'ja' | 'en';
+  timeoutSeconds?: number;
+  location?: string;
+};
+
+type UnifiedChatProps = {
+  initialPrompt?: string;
+  settingsOverride?: ChatSettings;
+  onOpenSettings?: () => void;
+};
+
 function verificationLabel(status: RoutingMetadata['verificationStatus'], isEn: boolean): string {
-  if (status === 'not-required') return isEn ? 'Verification not required' : '検証不要';
-  if (status === 'passed') return isEn ? 'Verified' : '検証済み';
-  if (status === 'failed') return isEn ? 'Verification failed' : '検証失敗';
-  if (status === 'pending') return isEn ? 'Verification pending' : '検証待ち';
-  return isEn ? 'Not independently verified' : '独立検証なし';
+  if (status === 'not-required') return isEn ? 'No additional check needed' : '追加確認は不要';
+  if (status === 'passed') return isEn ? 'Checked by another AI' : '別のAIで確認済み';
+  if (status === 'failed') return isEn ? 'A problem was found during checking' : '確認で問題を検出';
+  if (status === 'pending') return isEn ? 'Checking in progress' : '確認中';
+  return isEn ? 'Not checked by another AI this time' : '今回は別のAIで確認していません';
 }
 
 function executionCostLabel(routing: RoutingMetadata, isEn: boolean): string {
   const actualCost = routing.actualCostUsd ?? routing.cost;
   if (routing.freeOnly && actualCost === 0) return isEn ? 'Free' : '無料';
-  if (typeof actualCost === 'number') return `$${actualCost.toFixed(4)}`;
+  if (typeof actualCost === 'number' && Number.isFinite(actualCost)) return `$${actualCost.toFixed(4)}`;
   return isEn ? 'Not confirmed' : '未確認';
 }
 
-export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string }) {
-  const { settings } = useAppState();
+export default function UnifiedChat({
+  initialPrompt,
+  settingsOverride,
+  onOpenSettings,
+}: UnifiedChatProps) {
+  const fallbackState = useAppState();
+  const settings = settingsOverride ?? (fallbackState.settings as ChatSettings);
   const isEn = settings.language === 'en';
 
   const defaultGreeting = isEn
-    ? 'Hello! I am ORIGIN Personal. What outcome would you like to achieve?'
-    : 'こんにちは。ORIGIN Personalです。達成したいことを教えてください。';
+    ? 'Hello. Describe what you want to do in your own words.'
+    : 'こんにちは。やりたいことを、そのまま入力してください。';
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -98,21 +115,19 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (initialPrompt) {
-      handleSend(initialPrompt);
-    }
-  }, [initialPrompt]);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isTyping]);
+  const inFlightRef = useRef(false);
+  const handledInitialPromptRef = useRef<string | null>(null);
 
   const dispatchAiCoreState = (state: AiCoreState) => {
     window.dispatchEvent(new CustomEvent('aiCoreStateChange', { detail: state }));
+  };
+
+  const openSettings = () => {
+    if (onOpenSettings) {
+      onOpenSettings();
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('openSettings'));
   };
 
   const processSend = async (messageList: Message[]) => {
@@ -130,7 +145,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
             role: message.role,
             content: message.content,
           })),
-          userLocation: (settings as { location?: string }).location,
+          userLocation: settings.location,
           executionPolicy: {
             maxEstimatedCostUsd: 0,
             timeoutMs: Math.max(10, Math.min(120, settings.timeoutSeconds ?? 30)) * 1000,
@@ -155,8 +170,8 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
       let aiCoreState: AiCoreState = 'OFFLINE';
       let title = isEn ? 'Could not connect to ORIGIN' : 'ORIGINに接続できませんでした';
       let description = error.message || (isEn
-        ? 'The AI processing request failed. Please try again later.'
-        : 'AI処理に失敗しました。しばらくしてから再試行してください。');
+        ? 'The request failed. Please try again later.'
+        : '処理に失敗しました。しばらくしてから再試行してください。');
       let showSettings = false;
 
       if (error.code === 'SENSITIVE_INPUT_BLOCKED') {
@@ -167,10 +182,10 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
           : '認証情報や秘密の値を削除し、必要な内容だけを要約して再入力してください。');
       } else if (error.code === 'LATEST_MESSAGE_TOO_LARGE') {
         aiCoreState = 'DEGRADED';
-        title = isEn ? 'The latest request is too long' : '依頼内容が長すぎます';
+        title = isEn ? 'The request is too long' : '依頼内容が長すぎます';
         description = error.message || (isEn
           ? 'Divide the request into smaller parts or provide a shorter summary.'
-          : '依頼を分割するか、必要な内容だけに要約して再入力してください。');
+          : '依頼を分けるか、必要な内容だけに要約して再入力してください。');
       } else if (error.code === 'PROVIDER_RATE_LIMITED') {
         aiCoreState = 'RATE_LIMITED';
         title = isEn ? 'Free AI usage limit reached' : '無料AIの利用上限に達しました';
@@ -188,23 +203,23 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
       ) {
         aiCoreState = 'PROVIDER_UNAVAILABLE';
         title = isEn
-          ? 'Free-model availability must be re-verified'
-          : '無料モデルの利用可能性を再確認する必要があります';
+          ? 'Free AI availability must be checked again'
+          : '無料AIの利用可否を再確認する必要があります';
         description = error.message || (isEn
-          ? 'Execution remains stopped until the evidence catalog is reviewed and updated.'
-          : '証拠カタログを確認して更新するまで、外部AIの実行を停止します。');
+          ? 'External AI execution remains stopped until the free-model information is reviewed.'
+          : '無料モデルの情報を確認して更新するまで、外部AIの実行を停止します。');
       } else if (error.code === 'PROVIDER_COST_UNVERIFIED') {
         aiCoreState = 'DEGRADED';
-        title = isEn ? 'Zero-cost execution could not be verified' : '無料実行を確認できませんでした';
+        title = isEn ? 'Free execution could not be confirmed' : '無料実行を確認できませんでした';
         description = error.message || (isEn
-          ? 'The answer was withheld because the usage record did not prove a zero-dollar cost.'
+          ? 'The answer is hidden because the usage record did not prove a zero-dollar cost.'
           : '利用明細で0ドルを確認できなかったため、回答を表示しません。');
       } else if (error.code === 'PROVIDER_ROUTING_UNVERIFIED') {
         aiCoreState = 'DEGRADED';
-        title = isEn ? 'The actual execution route could not be verified' : '実際の実行先を確認できませんでした';
+        title = isEn ? 'The actual AI used could not be confirmed' : '実際に使われたAIを確認できませんでした';
         description = error.message || (isEn
-          ? 'The answer was withheld because the served model, provider, or fallback state could not be verified.'
-          : '使用されたモデル、プロバイダー、またはフォールバック状態を確認できなかったため、回答を表示しません。');
+          ? 'The answer is hidden because the model, provider, or fallback state could not be confirmed.'
+          : '使用されたモデル、提供元、または自動切替の有無を確認できなかったため、回答を表示しません。');
       } else if (
         error.code === 'PROVIDER_UNAVAILABLE'
         || error.code === 'MODEL_NOT_FOUND'
@@ -214,7 +229,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
         title = isEn ? 'Free AI is currently unavailable' : '無料AIを現在利用できません';
       } else if (error.code === 'PROVIDER_TIMEOUT') {
         aiCoreState = 'OFFLINE';
-        title = isEn ? 'Request timed out' : '応答がタイムアウトしました';
+        title = isEn ? 'The response took too long' : '応答に時間がかかりすぎました';
       } else if (
         error.code === 'INVALID_EXECUTION_POLICY'
         || error.code === 'PROVIDER_POLICY_VIOLATION'
@@ -222,7 +237,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
         || error.code === 'INVALID_CHAT_MESSAGES'
       ) {
         aiCoreState = 'DEGRADED';
-        title = isEn ? 'The request could not be executed safely' : '安全な条件で実行できませんでした';
+        title = isEn ? 'The request did not meet the safety conditions' : '安全条件を満たさないため実行しませんでした';
       }
 
       dispatchAiCoreState(aiCoreState);
@@ -242,15 +257,17 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
       };
       setMessages((previous) => [...previous, errorMessage]);
     } finally {
+      inFlightRef.current = false;
       setIsTyping(false);
     }
   };
 
   const handleSend = async (overrideInput?: string) => {
-    if (isTyping) return;
+    if (inFlightRef.current) return;
     const textToSend = (overrideInput ?? input).trim();
     if (!textToSend) return;
 
+    inFlightRef.current = true;
     const userMessage: Message = { id: Date.now().toString(), role: 'user', content: textToSend };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
@@ -259,14 +276,30 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
   };
 
   const handleRetry = async () => {
-    if (isTyping) return;
+    if (inFlightRef.current) return;
+
     const validMessages = [...messages];
     while (validMessages.length > 0 && validMessages[validMessages.length - 1].error) {
       validMessages.pop();
     }
+
+    inFlightRef.current = true;
     setMessages(validMessages);
     await processSend(validMessages);
   };
+
+  useEffect(() => {
+    const prompt = initialPrompt?.trim();
+    if (!prompt || handledInitialPromptRef.current === prompt) return;
+    handledInitialPromptRef.current = prompt;
+    void handleSend(prompt);
+  }, [initialPrompt]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isTyping]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-50/50 dark:bg-black">
@@ -278,7 +311,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
           {messages.map((message) => (
             <motion.div
               key={message.id}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               className={cn(
                 'flex w-full gap-3 sm:gap-4',
@@ -312,7 +345,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
                           type="button"
                           onClick={handleRetry}
                           disabled={isTyping}
-                          className="flex items-center gap-1.5 rounded-lg bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-500/20 dark:text-red-300 dark:hover:bg-red-500/30"
+                          className="flex min-h-10 items-center gap-1.5 rounded-lg bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-500/20 dark:text-red-300 dark:hover:bg-red-500/30"
                         >
                           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                           {isEn ? 'Retry' : '再試行'}
@@ -321,11 +354,11 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
                       {message.error.showSettings && (
                         <button
                           type="button"
-                          onClick={() => window.dispatchEvent(new CustomEvent('openSettings'))}
-                          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                          onClick={openSettings}
+                          className="flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
                         >
                           <Settings className="h-3.5 w-3.5" aria-hidden="true" />
-                          {isEn ? 'Check connection settings' : '接続設定を確認'}
+                          {isEn ? 'Open settings' : '設定を開く'}
                         </button>
                       )}
                     </div>
@@ -335,7 +368,7 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
                       className="group mt-1 border-t border-red-200/50 pt-2 text-xs text-red-700 dark:border-red-500/20 dark:text-red-300"
                     >
                       <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md py-1 font-medium outline-none focus-visible:ring-2 focus-visible:ring-red-400">
-                        <span>{isEn ? 'View technical details' : '問題の詳細を見る'}</span>
+                        <span>{isEn ? 'Technical information' : '技術情報'}</span>
                         <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
                       </summary>
                       <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-white/60 p-2 font-mono text-[10px] dark:bg-black/10">
@@ -371,11 +404,11 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
                       <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
                       <span className="text-slate-800 dark:text-neutral-200">
                         {message.routing.freeOnly && executionCostLabel(message.routing, isEn) === (isEn ? 'Free' : '無料')
-                          ? (isEn ? 'Executed for free' : '無料で実行')
-                          : (isEn ? 'Execution completed' : '実行完了')}
+                          ? (isEn ? 'Answered for free' : '無料で回答しました')
+                          : (isEn ? 'Answer completed' : '回答しました')}
                       </span>
                       <span className="ml-auto text-slate-500 dark:text-neutral-500">
-                        {isEn ? 'View execution details' : '実行情報を見る'}
+                        {isEn ? 'Details' : '詳細'}
                       </span>
                       <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>
@@ -386,20 +419,26 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
                       <dt className="text-slate-500 dark:text-neutral-500">{isEn ? 'Cost' : '費用'}</dt>
                       <dd className="text-slate-800 dark:text-neutral-200">{executionCostLabel(message.routing, isEn)}</dd>
 
-                      <dt className="text-slate-500 dark:text-neutral-500">{isEn ? 'Independent verification' : '独立検証'}</dt>
+                      <dt className="text-slate-500 dark:text-neutral-500">
+                        {isEn ? 'Check by another AI' : '別のAIによる確認'}
+                      </dt>
                       <dd className="text-slate-800 dark:text-neutral-200">
                         {verificationLabel(message.routing.verificationStatus, isEn)}
                       </dd>
 
-                      <dt className="text-slate-500 dark:text-neutral-500">{isEn ? 'Processing time' : '処理時間'}</dt>
+                      <dt className="text-slate-500 dark:text-neutral-500">{isEn ? 'Time' : '処理時間'}</dt>
                       <dd className="text-slate-800 dark:text-neutral-200">{message.routing.timeMs}ms</dd>
 
-                      <dt className="text-slate-500 dark:text-neutral-500">{isEn ? 'Selection reason' : '選択理由'}</dt>
+                      <dt className="text-slate-500 dark:text-neutral-500">
+                        {isEn ? 'Why this AI was selected' : 'このAIを選んだ理由'}
+                      </dt>
                       <dd className="min-w-0 break-words text-slate-800 dark:text-neutral-200">{message.routing.reason}</dd>
 
                       {message.routing.verificationReason && (
                         <>
-                          <dt className="text-slate-500 dark:text-neutral-500">{isEn ? 'Verification note' : '検証の説明'}</dt>
+                          <dt className="text-slate-500 dark:text-neutral-500">
+                            {isEn ? 'Check status note' : '確認状況の説明'}
+                          </dt>
                           <dd className="min-w-0 break-words text-slate-800 dark:text-neutral-200">
                             {message.routing.verificationReason}
                           </dd>
@@ -419,19 +458,20 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
               </div>
               <div
                 role="status"
+                aria-live="polite"
                 aria-label={isEn ? 'ORIGIN is working' : 'ORIGINが処理中'}
                 className="flex items-center gap-2 rounded-2xl rounded-tl-none border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-neutral-900"
               >
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-indigo-500" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-purple-500 delay-75" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-pink-500 delay-150" />
+                <span aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-indigo-500" />
+                <span aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-purple-500 delay-75" />
+                <span aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-pink-500 delay-150" />
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      <div className="shrink-0 border-t border-slate-200 bg-white/95 px-3 pb-4 pt-3 backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4 sm:pb-5">
+      <div className="shrink-0 border-t border-slate-200 bg-white/95 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4 sm:pb-5">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-slate-500 focus-within:ring-2 focus-within:ring-slate-200 dark:border-white/15 dark:bg-neutral-900 dark:focus-within:border-white/30 dark:focus-within:ring-white/10">
             <textarea
@@ -439,21 +479,21 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
               rows={1}
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder={isEn ? 'Message ORIGIN...' : 'ORIGINにメッセージを入力...'}
-              aria-label={isEn ? 'Message ORIGIN' : 'ORIGINへのメッセージ'}
+              placeholder={isEn ? 'Describe what you want to do' : 'やりたいことを入力'}
+              aria-label={isEn ? 'Request to ORIGIN' : 'ORIGINへの依頼'}
               aria-describedby="origin-chat-guidance"
               className="max-h-40 min-h-12 flex-1 resize-none border-none bg-transparent px-3 py-3 text-base leading-relaxed focus:outline-none sm:text-sm"
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
-                  handleSend();
+                  void handleSend();
                 }
               }}
             />
             <button
               type="button"
-              aria-label={isEn ? 'Send message' : 'メッセージを送信'}
-              onClick={() => handleSend()}
+              aria-label={isEn ? 'Send request' : '依頼を送信'}
+              onClick={() => void handleSend()}
               disabled={!input.trim() || isTyping}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-black text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35 dark:bg-white dark:text-black"
             >
@@ -464,8 +504,8 @@ export default function UnifiedChat({ initialPrompt }: { initialPrompt?: string 
             id="origin-chat-guidance"
             className="mt-2 flex flex-col gap-1 px-1 text-[11px] leading-4 text-slate-500 dark:text-neutral-500 sm:flex-row sm:items-center sm:justify-between"
           >
-            <span>{isEn ? 'Enter to send · Shift+Enter for a new line' : 'Enterで送信・Shift+Enterで改行'}</span>
-            <span>{isEn ? 'Do not enter passwords or API keys.' : 'パスワードやAPIキーなどの秘密情報は入力しないでください。'}</span>
+            <span>{isEn ? 'Enter to send / Shift+Enter for a new line' : 'Enterで送信 / Shift+Enterで改行'}</span>
+            <span>{isEn ? 'Do not enter passwords or API keys.' : 'パスワードやAPIキーは入力しないでください。'}</span>
           </div>
         </div>
       </div>
