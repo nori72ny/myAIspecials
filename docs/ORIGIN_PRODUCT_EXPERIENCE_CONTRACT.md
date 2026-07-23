@@ -79,6 +79,7 @@ ACOS 2.0はORIGINを支えるオーケストレーションエンジンであり
 | グラフ・図解・成果物の適応表示 | Personal正式経路との接続証拠なし | NOT IMPLEMENTED |
 | 個人記憶と継続学習 | 一次リリースUIから非表示 | NOT IMPLEMENTED |
 | AI Studio direct runtime | fail-closed境界のみ、正式route未接続 | BLOCKED |
+| 旧Dashboardのサンプル・fallback表示 | production entrypointから未import、release boundary test追加 | TEST-COVERED / LEGACY-DEBT |
 
 `TEST-COVERED`は本番環境での動作確認を意味しない。存在するengineや画面だけを根拠に、Personal Editionで利用可能と表示しない。
 
@@ -127,3 +128,5 @@ ACOS 2.0はORIGINを支えるオーケストレーションエンジンであり
 すべてのproviderは、一般UIへ直接固有形式を返さず、`origin.answer.v1`へ変換する。共通回答は、結論、本文、根拠、独立確認状態、制約、次の行動、実在する成果物参照だけを持つ。
 
 provider ID、model ID、trace ID、実費用などは回答本文と分離した技術証跡に保持する。別AIによる確認を実行していない回答を`passed`にせず、実在するartifact参照がないグラフ、画像、文書を生成済みとして表示しない。
+
+正式`/api/chat`は後方互換の`content`と並行して`origin.answer.v1`を返す。Personal UIは検証済みのenvelopeがある場合だけ、結論、回答、根拠、確認状況、制約、次の行動を表示する。不正または不完全なenvelopeは構造化表示に使わず、既存の安全な`content`へ戻す。

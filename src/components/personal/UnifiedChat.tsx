@@ -13,6 +13,12 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAppState } from '../../hooks/useAppState';
+import {
+  createOriginAnswerEnvelope,
+  type OriginAnswerEnvelope,
+  type OriginAnswerEvidenceItem,
+  type OriginAnswerRichOutput,
+} from '../../lib/orchestration/OriginAnswerEnvelope';
 import { cn } from '../../utils';
 
 type RoutingMetadata = {
@@ -36,6 +42,7 @@ type Message = {
   id: string;
   role: 'user' | 'ai';
   content: string;
+  answer?: OriginAnswerEnvelope;
   routing?: RoutingMetadata;
   error?: {
     code: string;
@@ -46,6 +53,68 @@ type Message = {
     showSettings: boolean;
   };
 };
+
+function parseOriginAnswerEnvelope(value: unknown): OriginAnswerEnvelope | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const candidate = value as Partial<OriginAnswerEnvelope>;
+  if (
+    candidate.schemaVersion !== 'origin.answer.v1'
+    || (candidate.language !== 'ja' && candidate.language !== 'en')
+    || typeof candidate.conclusion !== 'string'
+    || typeof candidate.answer !== 'string'
+    || !Array.isArray(candidate.evidence)
+    || !Array.isArray(candidate.limitations)
+    || !Array.isArray(candidate.nextActions)
+    || !Array.isArray(candidate.richOutputs)
+    || !candidate.verification
+    || typeof candidate.verification !== 'object'
+  ) return undefined;
+
+  const evidenceIsValid = candidate.evidence.every((item): item is OriginAnswerEvidenceItem =>
+    Boolean(item)
+    && typeof item === 'object'
+    && typeof (item as OriginAnswerEvidenceItem).label === 'string'
+    && ((item as OriginAnswerEvidenceItem).sourceUrl === undefined
+      || typeof (item as OriginAnswerEvidenceItem).sourceUrl === 'string')
+    && ((item as OriginAnswerEvidenceItem).evidenceLevel === 'provided'
+      || (item as OriginAnswerEvidenceItem).evidenceLevel === 'source-checked'));
+  const richOutputsAreValid = candidate.richOutputs.every((output): output is OriginAnswerRichOutput =>
+    Boolean(output)
+    && typeof output === 'object'
+    && ['comparison', 'chart', 'illustration', 'document', 'presentation', 'spreadsheet']
+      .includes((output as OriginAnswerRichOutput).kind)
+    && typeof (output as OriginAnswerRichOutput).label === 'string'
+    && typeof (output as OriginAnswerRichOutput).artifactId === 'string');
+  const verification = candidate.verification;
+  const verificationIsValid = ['not-run', 'not-required', 'passed'].includes(verification.status)
+    && typeof verification.independentReviewPerformed === 'boolean'
+    && typeof verification.summary === 'string';
+  if (
+    !evidenceIsValid
+    || !richOutputsAreValid
+    || !candidate.limitations.every((item) => typeof item === 'string')
+    || !candidate.nextActions.every((item) => typeof item === 'string')
+    || !verificationIsValid
+  ) return undefined;
+
+  const parsed = createOriginAnswerEnvelope({
+    language: candidate.language,
+    conclusion: candidate.conclusion,
+    answer: candidate.answer,
+    evidence: candidate.evidence,
+    verification,
+    limitations: candidate.limitations,
+    nextActions: candidate.nextActions,
+    richOutputs: candidate.richOutputs,
+  });
+  return parsed.ok ? parsed.value : undefined;
+}
+
+function shouldShowSeparateConclusion(answer: OriginAnswerEnvelope): boolean {
+  const conclusion = answer.conclusion.trim();
+  const body = answer.answer.trim();
+  return conclusion !== body && !body.startsWith(conclusion);
+}
 
 type ChatApiError = {
   code?: string;
@@ -169,6 +238,7 @@ export default function UnifiedChat({
         id: (Date.now() + 1).toString(),
         role: 'ai',
         content: data.content,
+        answer: parseOriginAnswerEnvelope(data.answer),
         routing: data.routing,
       };
       setMessages((previous) => [...previous, aiMessage]);
@@ -399,8 +469,70 @@ export default function UnifiedChat({
                       'markdown-body',
                       message.role === 'user' && 'text-white prose-p:text-white prose-strong:text-white',
                     )}>
-                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                      {message.answer && shouldShowSeparateConclusion(message.answer) && (
+                        <section data-testid="answer-conclusion" className="mb-4 border-b border-slate-200 pb-3 dark:border-white/10">
+                          <h3 className="mb-1 text-xs font-semibold text-slate-500 dark:text-neutral-400">
+                            {isEn ? 'Conclusion' : '結論'}
+                          </h3>
+                          <ReactMarkdown>{message.answer.conclusion}</ReactMarkdown>
+                        </section>
+                      )}
+                      <ReactMarkdown>{message.answer?.answer ?? message.content}</ReactMarkdown>
                     </div>
+
+                    {message.answer && (
+                      <div data-testid="structured-answer" className="mt-4 space-y-4 border-t border-slate-200 pt-4 dark:border-white/10">
+                        {message.answer.evidence.length > 0 && (
+                          <section>
+                            <h3 className="mb-2 text-xs font-semibold text-slate-500 dark:text-neutral-400">
+                              {isEn ? 'Evidence and sources' : '根拠と出典'}
+                            </h3>
+                            <ul className="space-y-1 text-sm">
+                              {message.answer.evidence.map((item, index) => (
+                                <li key={`${item.label}-${index}`}>
+                                  {item.sourceUrl ? (
+                                    <a className="underline underline-offset-2" href={item.sourceUrl} target="_blank" rel="noreferrer">
+                                      {item.label}
+                                    </a>
+                                  ) : item.label}
+                                </li>
+                              ))}
+                            </ul>
+                          </section>
+                        )}
+
+                        <section data-testid="answer-verification">
+                          <h3 className="mb-1 text-xs font-semibold text-slate-500 dark:text-neutral-400">
+                            {isEn ? 'Verification' : '確認状況'}
+                          </h3>
+                          <p className="text-sm text-slate-700 dark:text-neutral-300">
+                            {message.answer.verification.summary}
+                          </p>
+                        </section>
+
+                        {message.answer.limitations.length > 0 && (
+                          <section>
+                            <h3 className="mb-2 text-xs font-semibold text-slate-500 dark:text-neutral-400">
+                              {isEn ? 'Limitations' : '制約・未確認事項'}
+                            </h3>
+                            <ul className="list-disc space-y-1 pl-5 text-sm">
+                              {message.answer.limitations.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+                            </ul>
+                          </section>
+                        )}
+
+                        {message.answer.nextActions.length > 0 && (
+                          <section>
+                            <h3 className="mb-2 text-xs font-semibold text-slate-500 dark:text-neutral-400">
+                              {isEn ? 'Next actions' : '次にできること'}
+                            </h3>
+                            <ul className="list-disc space-y-1 pl-5 text-sm">
+                              {message.answer.nextActions.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+                            </ul>
+                          </section>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

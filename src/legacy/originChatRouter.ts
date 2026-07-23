@@ -1,5 +1,10 @@
 import { Router } from "express";
 import {
+  createOriginAnswerEnvelope,
+  type OriginAnswerEnvelope,
+  type OriginAnswerVerificationStatus,
+} from "../lib/orchestration/OriginAnswerEnvelope";
+import {
   DEFAULT_ORIGIN_CONTEXT_POLICY,
   minimizeOriginContext,
   type OriginContextPolicy,
@@ -60,6 +65,48 @@ function applicationRouting(requestId: string, reason: string) {
   };
 }
 
+function firstAnswerBlock(content: string): string {
+  const firstBlock = content
+    .split(/\n\s*\n|\n/)
+    .map((part) => part.trim())
+    .find(Boolean) ?? content.trim();
+  const withoutHeading = firstBlock.replace(/^#{1,6}\s+/, "").trim();
+  if (withoutHeading.length <= 500) return withoutHeading;
+
+  const candidate = withoutHeading.slice(0, 500);
+  const sentenceEnd = Math.max(
+    candidate.lastIndexOf("。") + 1,
+    candidate.lastIndexOf("！") + 1,
+    candidate.lastIndexOf("？") + 1,
+    candidate.lastIndexOf(". ") + 1,
+  );
+  return sentenceEnd >= 40 ? candidate.slice(0, sentenceEnd).trim() : `${candidate.slice(0, 499).trimEnd()}…`;
+}
+
+function answerEnvelope(
+  content: string,
+  language: "ja" | "en",
+  verificationStatus: OriginAnswerVerificationStatus,
+  verificationSummary: string,
+): OriginAnswerEnvelope {
+  const result = createOriginAnswerEnvelope({
+    language,
+    conclusion: firstAnswerBlock(content),
+    answer: content,
+    evidence: [],
+    verification: {
+      status: verificationStatus,
+      independentReviewPerformed: verificationStatus === "passed",
+      summary: verificationSummary,
+    },
+    limitations: [],
+    nextActions: [],
+  });
+
+  if (result.ok === false) throw new Error(result.code);
+  return result.value;
+}
+
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
   const router = Router();
   const env = options.env ?? process.env;
@@ -98,24 +145,24 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     if (isOriginWeatherRequest(lastUserMessage)) {
       const isEnglish = /[a-zA-Z]/.test(lastUserMessage);
       if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) {
+        const content = isEnglish
+          ? "Which location would you like to know the weather for?"
+          : "どの地域の天気をお調べしますか？";
+        const reason = "地域確認のため外部AIを呼びませんでした。";
         return res.json({
-          content: isEnglish
-            ? "Which location would you like to know the weather for?"
-            : "どの地域の天気をお調べしますか？",
-          routing: applicationRouting(
-            requestId,
-            "地域確認のため外部AIを呼びませんでした。",
-          ),
+          content,
+          answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason),
+          routing: applicationRouting(requestId, reason),
         });
       }
+      const content = isEnglish
+        ? "Currently, no service is connected to retrieve the latest weather information."
+        : "現在、最新の天気情報を取得するサービスが接続されていません。";
+      const reason = "最新データ取得サービスが未接続のため推測を実行しませんでした。";
       return res.json({
-        content: isEnglish
-          ? "Currently, no service is connected to retrieve the latest weather information."
-          : "現在、最新の天気情報を取得するサービスが接続されていません。",
-        routing: applicationRouting(
-          requestId,
-          "最新データ取得サービスが未接続のため推測を実行しませんでした。",
-        ),
+        content,
+        answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason),
+        routing: applicationRouting(requestId, reason),
       });
     }
 
@@ -172,8 +219,15 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         messages: contextResult.window.messages,
         systemInstruction: systemInstruction(),
       });
+      const verificationReason = "Phase 1では独立検証と統合をまだ実行していません。";
       return res.json({
         content: result.text,
+        answer: answerEnvelope(
+          result.text,
+          /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
+          "not-run",
+          verificationReason,
+        ),
         routing: {
           model: planningResult.plan.providerLabel,
           reason: planningResult.plan.reason,
@@ -188,7 +242,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           freeOnly: true,
           traceId: requestId,
           verificationStatus: "not-run",
-          verificationReason: "Phase 1では独立検証と統合をまだ実行していません。",
+          verificationReason,
           modelEvidence: planningResult.plan.modelEvidence,
           providerDataPolicy: result.providerDataPolicy,
           providerRouting: result.routingEvidence,

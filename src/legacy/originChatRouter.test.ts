@@ -143,6 +143,21 @@ describe("createOriginChatRouter", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.content).toBe("安全な確認結果です。");
+    expect(response.body.answer).toEqual({
+      schemaVersion: "origin.answer.v1",
+      language: "ja",
+      conclusion: "安全な確認結果です。",
+      answer: "安全な確認結果です。",
+      evidence: [],
+      verification: {
+        status: "not-run",
+        independentReviewPerformed: false,
+        summary: "Phase 1では独立検証と統合をまだ実行していません。",
+      },
+      limitations: [],
+      nextActions: [],
+      richOutputs: [],
+    });
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN 無料AI",
       providerId: "openrouter-free",
@@ -286,6 +301,16 @@ describe("createOriginChatRouter", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.content).toBe("どの地域の天気をお調べしますか？");
+    expect(response.body.answer).toEqual(expect.objectContaining({
+      schemaVersion: "origin.answer.v1",
+      language: "ja",
+      conclusion: "どの地域の天気をお調べしますか？",
+      answer: "どの地域の天気をお調べしますか？",
+      verification: expect.objectContaining({
+        status: "not-required",
+        independentReviewPerformed: false,
+      }),
+    }));
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN アプリ内処理",
       cost: 0,
