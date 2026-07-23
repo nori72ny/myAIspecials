@@ -79,7 +79,7 @@ ACOS 2.0はORIGINを支えるオーケストレーションエンジンであり
 | グラフ・図解・成果物の適応表示 | Personal正式経路との接続証拠なし | NOT IMPLEMENTED |
 | 個人記憶と継続学習 | 一次リリースUIから非表示 | NOT IMPLEMENTED |
 | AI Studio direct runtime | fail-closed境界のみ、正式route未接続 | BLOCKED |
-| 旧Dashboardのサンプル・fallback表示 | production entrypointから未import、release boundary test追加 | TEST-COVERED / LEGACY-DEBT |
+| 旧Dashboardのサンプル・fallback表示 | production UI/serverから未import、legacy APIとMission Engineも未mount、release boundary test追加 | TEST-COVERED / SOURCE-REMAINS |
 
 `TEST-COVERED`は本番環境での動作確認を意味しない。存在するengineや画面だけを根拠に、Personal Editionで利用可能と表示しない。
 

@@ -43,7 +43,7 @@ describe("createOriginApp provider isolation", () => {
   });
 
   it.each(ORIGIN_DISABLED_PROVIDER_ROUTES)(
-    "blocks $testPath before the composed legacy or mission router can execute",
+    "blocks $testPath at the Personal release boundary",
     async ({ testPath }) => {
       const privateValue = "private value that must not be parsed, echoed, or transmitted";
       const response = await request(createOriginApp()).post(testPath).send({
@@ -81,6 +81,17 @@ describe("createOriginApp provider isolation", () => {
 
     expect(response.status).toBe(500);
     expect(response.body.code).toBe("ORIGIN_CHAT_BOUNDARY_NOT_HANDLED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/api/strategic",
+    "/api/evolution",
+    "/api/v1/missions/test-mission",
+  ])("does not expose retired legacy or Mission Engine route %s", async (path) => {
+    const response = await request(createOriginApp()).get(path);
+
+    expect(response.status).toBe(404);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

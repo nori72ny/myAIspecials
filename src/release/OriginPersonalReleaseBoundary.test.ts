@@ -13,4 +13,17 @@ describe("ORIGIN Personal production entrypoint", () => {
     expect(entrypoint).not.toContain("FactCheckEngineView");
     expect(entrypoint).not.toContain("RoutingTester");
   });
+
+  it("does not mount the legacy dashboard API or Mission Engine", () => {
+    const serverComposition = readFileSync(
+      resolve(process.cwd(), "src/server/createOriginApp.ts"),
+      "utf8",
+    );
+
+    expect(serverComposition).toContain("createOriginChatRouter");
+    expect(serverComposition).toContain("createOriginLegacyProviderBoundaryRouter");
+    expect(serverComposition).not.toContain("createLegacyRouter");
+    expect(serverComposition).not.toContain("initMissionEngine");
+    expect(serverComposition).not.toMatch(/app\.use\(\s*["']\/api\/v1["']/);
+  });
 });

@@ -1,7 +1,5 @@
 import express, { type Express } from "express";
 
-import { initMissionEngine } from "../../services/mission-engine/src/index";
-import { createLegacyRouter } from "../legacy/legacyRoutes";
 import { originChatBoundaryGuard } from "../legacy/originChatBoundaryGuard";
 import { createOriginChatRouter } from "../legacy/originChatRouter";
 import { createOriginLegacyProviderBoundaryRouter } from "../legacy/originLegacyProviderBoundaryGuard";
@@ -36,11 +34,9 @@ export function createOriginApp(): Express {
   app.use(createOriginChatRouter());
   app.all("/api/chat", originChatBoundaryGuard);
 
-  // Legacy read-only routes remain available after the provider boundary.
-  app.use(createLegacyRouter());
-
-  // Provider-capable mission mutations are blocked by the first guard.
-  app.use("/api/v1", initMissionEngine());
+  // The Personal release intentionally does not import or mount the legacy
+  // dashboard API or Mission Engine. Known provider-capable paths still reach
+  // the fail-closed guard above; every other retired route remains unavailable.
 
   return app;
 }
