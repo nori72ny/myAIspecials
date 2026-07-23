@@ -11,10 +11,10 @@ export function createOriginApp(): Express {
     res.setHeader(
       "Content-Security-Policy",
       "default-src 'self'; " +
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com; " +
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-      "img-src 'self' data: https: blob:; " +
-      "font-src 'self' https://fonts.gstatic.com; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+      "style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data: blob:; " +
+      "font-src 'self' data:; " +
       "connect-src 'self' ws: wss: https:;",
     );
     next();
