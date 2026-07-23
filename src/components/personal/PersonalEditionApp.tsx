@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import type { Settings } from '../../types';
 import { cn } from '../../utils';
-import { useAppState } from '../../hooks/useAppState';
+import { DEFAULT_PERSONAL_SETTINGS } from '../../hooks/usePersonalSettings';
 import PersonalDashboard from './PersonalDashboard';
 import UnifiedChat from './UnifiedChat';
 
@@ -37,8 +37,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   settings: providedSettings,
   onOpenSettings,
 }: PersonalEditionAppProps) {
-  const fallbackState = useAppState();
-  const settings = providedSettings ?? fallbackState.settings;
+  const settings = providedSettings ?? DEFAULT_PERSONAL_SETTINGS;
   const isEn = settings.language === 'en';
 
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
@@ -144,7 +143,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   const shouldShowAiStatus = aiCoreState !== 'HEALTHY' && aiCoreState !== 'UNKNOWN';
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-white font-sans text-slate-900 dark:bg-black dark:text-neutral-100">
+    <div className="flex h-screen h-dvh w-full overflow-hidden bg-white font-sans text-slate-900 dark:bg-black dark:text-neutral-100">
       <AnimatePresence>
         {isSidebarOpen && (
           <motion.div
