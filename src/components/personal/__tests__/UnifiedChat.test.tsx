@@ -1,19 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { vi } from 'vitest';
 import UnifiedChat from '../UnifiedChat';
-import { useAppState } from '../../../hooks/useAppState';
-
-vi.mock('../../../hooks/useAppState', () => ({
-  useAppState: vi.fn(),
-}));
 
 const mockDispatchEvent = vi.spyOn(window, 'dispatchEvent');
-
-function mockJapaneseSettings() {
-  (useAppState as any).mockReturnValue({
-    settings: { language: 'ja', timeoutSeconds: 30 },
-  });
-}
 
 function sendJapaneseMessage(value: string) {
   const input = screen.getByPlaceholderText('やりたいことを入力');
@@ -44,7 +33,6 @@ describe('UnifiedChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.fetch = vi.fn();
-    mockJapaneseSettings();
   });
 
   it('renders the plain Japanese greeting', () => {
@@ -674,5 +662,22 @@ describe('UnifiedChat', () => {
     expect(JSON.parse(fetchCall[1].body).messages).toEqual([
       { role: 'user', content: 'This is a test prompt' },
     ]);
+  });
+
+  it('does not automatically load external images from AI markdown', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '画像です。\n\n![確認用画像](https://tracker.example/pixel.png)',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('画像を確認してください');
+
+    await waitFor(() => {
+      expect(screen.getByText('外部画像は自動表示しません：確認用画像')).toBeTruthy();
+    });
+    expect(screen.queryByRole('img', { name: '確認用画像' })).toBeNull();
   });
 });
