@@ -54,6 +54,25 @@ test.describe('ORIGIN Personal release accessibility', () => {
     await expect(page.locator('#origin-chat-guidance')).toContainText(/パスワードやAPIキー|passwords or API keys/i);
   });
 
+  test('conversation log announces completion without reading the full answer automatically', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('nav-chat').click();
+
+    const log = page.getByRole('log', { name: /会話履歴|Conversation history/i });
+    await expect(log).toHaveAttribute('aria-live', 'off');
+    await expect(log).toHaveAttribute('aria-busy', 'false');
+
+    const input = page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/i });
+    await input.fill('天気');
+    await page.getByRole('button', { name: /依頼を送信|Send request/i }).click();
+
+    await expect(page.getByTestId('response-announcement')).toContainText(
+      /ORIGINの回答が届きました|ORIGIN’s answer is ready/i,
+    );
+    await expect(log).toHaveAttribute('aria-busy', 'false');
+    await expect(page.getByRole('article', { name: /あなたの依頼|Your request/i })).toBeVisible();
+  });
+
   test('language controls have pressed state and update the interface', async ({ page }) => {
     await page.goto('/');
     const { dialog } = await openSettings(page);

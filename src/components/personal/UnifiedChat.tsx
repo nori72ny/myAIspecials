@@ -246,6 +246,21 @@ function verificationMatchesRouting(
     || routing.verificationStatus === answer.verification.status;
 }
 
+function answerCompletionAnnouncement(
+  answer: OriginAnswerEnvelope | undefined,
+  isEn: boolean,
+): string {
+  if (!answer) {
+    return isEn ? 'ORIGIN’s answer is ready.' : 'ORIGINの回答が届きました。';
+  }
+
+  const sources = sourceCoverageLabel(answer, isEn);
+  const review = independentReviewCoverageLabel(answer, isEn);
+  return isEn
+    ? `ORIGIN’s answer is ready. ${sources}. Independent AI review: ${review}.`
+    : `ORIGINの回答が届きました。${sources}。別AIによる確認：${review}。`;
+}
+
 export default function UnifiedChat({
   initialPrompt,
   settingsOverride,
@@ -268,6 +283,7 @@ export default function UnifiedChat({
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [completionAnnouncement, setCompletionAnnouncement] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef(false);
   const handledInitialPromptRef = useRef<string | null>(null);
@@ -286,6 +302,7 @@ export default function UnifiedChat({
 
   const processSend = async (messageList: Message[]) => {
     setIsTyping(true);
+    setCompletionAnnouncement('');
     dispatchAiCoreState('CONNECTING');
 
     try {
@@ -332,8 +349,10 @@ export default function UnifiedChat({
         routing: data.routing,
       };
       setMessages((previous) => [...previous, aiMessage]);
+      setCompletionAnnouncement(answerCompletionAnnouncement(aiMessage.answer, isEn));
       dispatchAiCoreState('HEALTHY');
     } catch (caughtError: unknown) {
+      setCompletionAnnouncement('');
       const error = (caughtError && typeof caughtError === 'object' ? caughtError : {}) as ChatApiError;
 
       let aiCoreState: AiCoreState = 'OFFLINE';
@@ -474,6 +493,10 @@ export default function UnifiedChat({
     <div className="flex h-full min-h-0 flex-col bg-slate-50/50 dark:bg-black">
       <div
         ref={scrollRef}
+        role="log"
+        aria-live="off"
+        aria-busy={isTyping}
+        aria-label={isEn ? 'Conversation history' : '会話履歴'}
         className="mx-auto w-full max-w-4xl flex-1 space-y-6 overflow-y-auto p-3 pb-4 sm:p-4 sm:pb-6"
       >
         <AnimatePresence initial={false}>
@@ -482,6 +505,12 @@ export default function UnifiedChat({
               key={message.id}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
+              role="article"
+              aria-label={message.role === 'user'
+                ? (isEn ? 'Your request' : 'あなたの依頼')
+                : message.error
+                  ? (isEn ? 'ORIGIN error' : 'ORIGINのエラー')
+                  : (isEn ? 'ORIGIN answer' : 'ORIGINの回答')}
               className={cn(
                 'flex w-full gap-3 sm:gap-4',
                 message.role === 'user' ? 'flex-row-reverse' : 'flex-row',
@@ -751,6 +780,16 @@ export default function UnifiedChat({
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+
+      <div
+        data-testid="response-announcement"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {completionAnnouncement}
       </div>
 
       <div className="shrink-0 border-t border-slate-200 bg-white/95 px-3 pb-4 pt-3 backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4 sm:pb-5">

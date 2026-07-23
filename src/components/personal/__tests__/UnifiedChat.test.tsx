@@ -50,6 +50,10 @@ describe('UnifiedChat', () => {
   it('renders the plain Japanese greeting', () => {
     render(<UnifiedChat />);
     expect(screen.getByText('こんにちは。やりたいことを、そのまま入力してください。')).toBeTruthy();
+    const log = screen.getByRole('log', { name: '会話履歴' });
+    expect(log.getAttribute('aria-live')).toBe('off');
+    expect(log.getAttribute('aria-busy')).toBe('false');
+    expect(screen.getByRole('article', { name: 'ORIGINの回答' })).toBeTruthy();
   });
 
   it('renders the plain English greeting', () => {
@@ -101,13 +105,19 @@ describe('UnifiedChat', () => {
     fireEvent.click(sendButton);
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('log', { name: '会話履歴' }).getAttribute('aria-busy')).toBe('true');
+    expect(screen.getByRole('article', { name: 'あなたの依頼' })).toBeTruthy();
 
     resolveFetch({
       ok: true,
       json: async () => ({ content: '一度だけ処理しました。' }),
     });
 
-    await waitFor(() => expect(screen.getByText('一度だけ処理しました。')).toBeTruthy());
+    await waitFor(() => {
+      expect(screen.getByText('一度だけ処理しました。')).toBeTruthy();
+      expect(screen.getByTestId('response-announcement').textContent).toBe('ORIGINの回答が届きました。');
+      expect(screen.getByRole('log', { name: '会話履歴' }).getAttribute('aria-busy')).toBe('false');
+    });
   });
 
   it('sends a strict zero-cost policy and shows plain execution details', async () => {
@@ -285,6 +295,9 @@ describe('UnifiedChat', () => {
       expect(screen.getByText('確認済み：HTTPSリンクの基本形式のみ。接続先・本文・更新時点・回答との一致は未確認です。')).toBeTruthy();
       expect(screen.getByText('AIがこの資料を主張に対応付けました。')).toBeTruthy();
       expect(screen.getByText('AIが対応付けた主張：')).toBeTruthy();
+      expect(screen.getByTestId('response-announcement').textContent).toBe(
+        'ORIGINの回答が届きました。出典内容は未確認。別AIによる確認：未実施。',
+      );
     });
     expect(screen.queryByText('出典確認済み')).toBeNull();
   });
@@ -559,6 +572,8 @@ describe('UnifiedChat', () => {
     sendJapaneseMessage('秘密情報を含む依頼');
 
     await expectNonRetryableError('秘密情報の送信を停止しました', 'SENSITIVE_INPUT_BLOCKED', description);
+    expect(screen.getByRole('article', { name: 'ORIGINのエラー' })).toBeTruthy();
+    expect(screen.getByTestId('response-announcement').textContent).toBe('');
   });
 
   it('opens settings only when connection setup is required', async () => {
