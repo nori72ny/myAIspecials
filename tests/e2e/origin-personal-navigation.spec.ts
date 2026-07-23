@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test';
 test.describe('ORIGIN Personal release navigation', () => {
   test('shows only usable first-release features and no sample data', async ({ page }) => {
     await page.goto('/');
+    await expect(page).toHaveTitle('ORIGIN Personal');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
     await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/ })).toBeVisible({
       timeout: 15_000,
     });
@@ -25,10 +27,16 @@ test.describe('ORIGIN Personal release navigation', () => {
   });
 
   test('opens a fresh chat from the primary action', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
     await page.getByTestId('new-chat-button').click();
 
     await expect(page.locator('main h1')).toHaveText(/チャット|Chat/);
     await expect(page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/ })).toBeVisible();
+    await expect(page.getByTestId('nav-workspace')).toHaveCount(0);
+    await expect(page.getByTestId('nav-memory')).toHaveCount(0);
+    expect(await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    )).toBe(true);
   });
 });
