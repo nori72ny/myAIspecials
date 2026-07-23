@@ -5,6 +5,30 @@ import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPoli
 import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
 
 const verifiedCatalogTime = Date.parse("2026-07-19T12:00:00.000Z");
+const defaultExecutionResult = {
+  text: "安全な確認結果です。",
+  actualCostUsd: 0,
+  providerDataPolicy: {
+    allowProviderFallbacks: false as const,
+    dataCollection: "deny" as const,
+    requireZeroDataRetention: true as const,
+  },
+  routingEvidence: {
+    requestedModel: "moonshotai/kimi-k2.6:free",
+    servedModel: "moonshotai/kimi-k2.6:free",
+    strategy: "free" as const,
+    provider: "Synthetic ZDR Provider",
+    region: "iad",
+    attempt: 1,
+    fallbackUsed: false,
+  },
+  usage: {
+    promptTokens: 10,
+    completionTokens: 5,
+    totalTokens: 15,
+    costUsd: 0,
+  },
+};
 
 function createApp(
   execute: OriginChatExecutor,
@@ -36,30 +60,7 @@ describe("createOriginChatRouter", () => {
   let executeMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    executeMock = vi.fn().mockResolvedValue({
-      text: "安全な確認結果です。",
-      actualCostUsd: 0,
-      providerDataPolicy: {
-        allowProviderFallbacks: false,
-        dataCollection: "deny",
-        requireZeroDataRetention: true,
-      },
-      routingEvidence: {
-        requestedModel: "moonshotai/kimi-k2.6:free",
-        servedModel: "moonshotai/kimi-k2.6:free",
-        strategy: "free",
-        provider: "Synthetic ZDR Provider",
-        region: "iad",
-        attempt: 1,
-        fallbackUsed: false,
-      },
-      usage: {
-        promptTokens: 10,
-        completionTokens: 5,
-        totalTokens: 15,
-        costUsd: 0,
-      },
-    });
+    executeMock = vi.fn().mockResolvedValue(defaultExecutionResult);
     execute = executeMock as OriginChatExecutor;
   });
 
@@ -247,6 +248,43 @@ describe("createOriginChatRouter", () => {
       reviewRequired: false,
       reviewReasons: [],
     }));
+  });
+
+  it("exposes provider-supplied HTTPS sources without claiming they were checked", async () => {
+    executeMock.mockResolvedValueOnce({
+      ...defaultExecutionResult,
+      text: "詳細は[公式資料](https://example.com/current)を参照してください。",
+    });
+
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "最新料金を調査してください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.answer.evidence).toEqual([{
+      label: "公式資料",
+      sourceUrl: "https://example.com/current",
+      evidenceLevel: "provided",
+    }]);
+    expect(response.body.answer.limitations).toContain(
+      "表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。",
+    );
+    expect(response.body.answer.verification.status).toBe("not-run");
+  });
+
+  it("states when a research answer contains no usable HTTPS source", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "料金を調査してください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.answer.evidence).toEqual([]);
+    expect(response.body.answer.limitations).toContain(
+      "調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。",
+    );
+    expect(response.body.answer.nextActions).toContain(
+      "一次情報の出典を確認してから判断してください。",
+    );
   });
 
   it("sends only the latest coherent context window to the provider", async () => {

@@ -2,8 +2,10 @@ import { Router } from "express";
 import {
   createOriginAnswerEnvelope,
   type OriginAnswerEnvelope,
+  type OriginAnswerEvidenceItem,
   type OriginAnswerVerificationStatus,
 } from "../lib/orchestration/OriginAnswerEnvelope";
+import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence";
 import {
   DEFAULT_ORIGIN_CONTEXT_POLICY,
   minimizeOriginContext,
@@ -89,6 +91,7 @@ function answerEnvelope(
   language: "ja" | "en",
   verificationStatus: OriginAnswerVerificationStatus,
   verificationSummary: string,
+  evidence: readonly OriginAnswerEvidenceItem[] = [],
   limitations: readonly string[] = [],
   nextActions: readonly string[] = [],
 ): OriginAnswerEnvelope {
@@ -96,7 +99,7 @@ function answerEnvelope(
     language,
     conclusion: firstAnswerBlock(content),
     answer: content,
-    evidence: [],
+    evidence,
     verification: {
       status: verificationStatus,
       independentReviewPerformed: verificationStatus === "passed",
@@ -238,6 +241,16 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const nextActions = reviewDecision.required
         ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"]
         : [];
+      const evidence = extractProvidedOriginEvidence(result.text);
+      const sourceEvidenceExpected = planningResult.plan.taskType === "research"
+        || planningResult.plan.taskType === "current-information";
+      if (evidence.length > 0) {
+        limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。");
+        nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。");
+      } else if (sourceEvidenceExpected) {
+        limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。");
+        nextActions.push("一次情報の出典を確認してから判断してください。");
+      }
       return res.json({
         content: result.text,
         answer: answerEnvelope(
@@ -245,6 +258,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
           verificationStatus,
           verificationReason,
+          evidence,
           limitations,
           nextActions,
         ),

@@ -490,11 +490,18 @@ export default function UnifiedChat({
                             <ul className="space-y-1 text-sm">
                               {message.answer.evidence.map((item, index) => (
                                 <li key={`${item.label}-${index}`}>
-                                  {item.sourceUrl ? (
-                                    <a className="underline underline-offset-2" href={item.sourceUrl} target="_blank" rel="noreferrer">
-                                      {item.label}
-                                    </a>
-                                  ) : item.label}
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {item.sourceUrl ? (
+                                      <a className="underline underline-offset-2" href={item.sourceUrl} target="_blank" rel="noreferrer">
+                                        {item.label}
+                                      </a>
+                                    ) : item.label}
+                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600 dark:bg-white/10 dark:text-neutral-300">
+                                      {item.evidenceLevel === 'source-checked'
+                                        ? (isEn ? 'Source checked' : '出典確認済み')
+                                        : (isEn ? 'AI-provided · not checked' : 'AIが提示・未確認')}
+                                    </span>
+                                  </div>
                                 </li>
                               ))}
                             </ul>

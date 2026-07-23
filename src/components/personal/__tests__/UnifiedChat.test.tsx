@@ -193,12 +193,50 @@ describe('UnifiedChat', () => {
       expect(screen.getByText('具体的な回答内容です。')).toBeTruthy();
       expect(screen.getByText('根拠と出典')).toBeTruthy();
       expect(screen.getByRole('link', { name: '公式資料' })).toBeTruthy();
+      expect(screen.getByText('出典確認済み')).toBeTruthy();
       expect(screen.getByText('確認状況')).toBeTruthy();
       expect(screen.getByText('今回は別のAIによる確認を実施していません。')).toBeTruthy();
       expect(screen.getByText('制約・未確認事項')).toBeTruthy();
       expect(screen.getByText('次にできること')).toBeTruthy();
     });
     expect(screen.queryByText('従来互換の回答です。')).toBeNull();
+  });
+
+  it('labels provider-supplied evidence as not checked', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '従来互換の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '提示された資料があります。',
+          answer: '資料を確認してください。',
+          evidence: [{
+            label: '提示資料',
+            sourceUrl: 'https://example.com/provided',
+            evidenceLevel: 'provided',
+          }],
+          verification: {
+            status: 'not-run',
+            independentReviewPerformed: false,
+            summary: '出典内容は未確認です。',
+          },
+          limitations: ['出典内容は未確認です。'],
+          nextActions: ['リンク先を確認してください。'],
+          richOutputs: [],
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('資料を確認してください');
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: '提示資料' })).toBeTruthy();
+      expect(screen.getByText('AIが提示・未確認')).toBeTruthy();
+    });
+    expect(screen.queryByText('出典確認済み')).toBeNull();
   });
 
   it('falls back to the legacy content when an answer envelope is malformed', async () => {

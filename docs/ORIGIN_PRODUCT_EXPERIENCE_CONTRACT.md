@@ -74,7 +74,7 @@ ACOS 2.0はORIGINを支えるオーケストレーションエンジンであり
 | task classificationとcapability routing | Routing Engine / Capability Registryのunit test | TEST-COVERED / PRODUCT-UNVERIFIED |
 | 独立AIレビュー判断 | `OriginReviewPolicy`を正式`/api/chat`へ接続、必要性・理由・未実施時の制約を表示 | TEST-COVERED |
 | 独立providerレビューと統合 | `OriginReviewSynthesis`、`OriginReviewedExecution`のunit test | TEST-COVERED / ROUTE-UNCONNECTED |
-| 根拠・引用・事実検証 | 関連engineと監査UIは存在 | PRODUCT-UNVERIFIED |
+| 根拠・引用・事実検証 | AI提示の安全なHTTPS出典を`provided`として表示し、`source-checked`と区別。内容確認は未接続 | TEST-COVERED / SOURCE-CHECK-UNCONNECTED |
 | 回答、費用、使用AI、検証状態の表示 | Personal Unified Chat test | TEST-COVERED |
 | グラフ・図解・成果物の適応表示 | Personal正式経路との接続証拠なし | NOT IMPLEMENTED |
 | 個人記憶と継続学習 | 一次リリースUIから非表示 | NOT IMPLEMENTED |
