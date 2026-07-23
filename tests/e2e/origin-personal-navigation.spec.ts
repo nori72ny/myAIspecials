@@ -29,6 +29,10 @@ test.describe('ORIGIN Personal release navigation', () => {
   test('opens a fresh chat from the primary action', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
+    await page.getByRole('button', { name: /メニューを開く|Open menu/ }).click();
+    await expect(
+      page.getByRole('complementary', { name: /メインナビゲーション|Primary navigation/ }),
+    ).toBeVisible();
     await page.getByTestId('new-chat-button').click();
 
     await expect(page.locator('main h1')).toHaveText(/チャット|Chat/);
