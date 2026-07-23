@@ -11,6 +11,7 @@ import {
 } from "../lib/orchestration/OriginContextPolicy";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog";
+import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy";
 import {
   executeOriginProvider,
   OriginProviderError,
@@ -88,6 +89,8 @@ function answerEnvelope(
   language: "ja" | "en",
   verificationStatus: OriginAnswerVerificationStatus,
   verificationSummary: string,
+  limitations: readonly string[] = [],
+  nextActions: readonly string[] = [],
 ): OriginAnswerEnvelope {
   const result = createOriginAnswerEnvelope({
     language,
@@ -99,8 +102,8 @@ function answerEnvelope(
       independentReviewPerformed: verificationStatus === "passed",
       summary: verificationSummary,
     },
-    limitations: [],
-    nextActions: [],
+    limitations,
+    nextActions,
   });
 
   if (result.ok === false) throw new Error(result.code);
@@ -219,14 +222,31 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         messages: contextResult.window.messages,
         systemInstruction: systemInstruction(),
       });
-      const verificationReason = "Phase 1では独立検証と統合をまだ実行していません。";
+      const reviewDecision = decideOriginReviewForMessage(
+        planningResult.plan.taskType,
+        lastUserMessage,
+      );
+      const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required
+        ? "not-run"
+        : "not-required";
+      const verificationReason = reviewDecision.required
+        ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。"
+        : "この依頼では、追加の独立確認を必須と判定していません。";
+      const limitations = reviewDecision.required
+        ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"]
+        : [];
+      const nextActions = reviewDecision.required
+        ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"]
+        : [];
       return res.json({
         content: result.text,
         answer: answerEnvelope(
           result.text,
           /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
-          "not-run",
+          verificationStatus,
           verificationReason,
+          limitations,
+          nextActions,
         ),
         routing: {
           model: planningResult.plan.providerLabel,
@@ -241,8 +261,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           estimatedCostUsd: planningResult.plan.estimatedCostUsd,
           freeOnly: true,
           traceId: requestId,
-          verificationStatus: "not-run",
+          verificationStatus,
           verificationReason,
+          reviewRequired: reviewDecision.required,
+          reviewReasons: reviewDecision.reasons,
           modelEvidence: planningResult.plan.modelEvidence,
           providerDataPolicy: result.providerDataPolicy,
           providerRouting: result.routingEvidence,

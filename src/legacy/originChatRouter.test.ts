@@ -152,10 +152,14 @@ describe("createOriginChatRouter", () => {
       verification: {
         status: "not-run",
         independentReviewPerformed: false,
-        summary: "Phase 1では独立検証と統合をまだ実行していません。",
+        summary: "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。",
       },
-      limitations: [],
-      nextActions: [],
+      limitations: [
+        "独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。",
+      ],
+      nextActions: [
+        "条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。",
+      ],
       richOutputs: [],
     });
     expect(response.body.routing).toEqual(expect.objectContaining({
@@ -169,6 +173,12 @@ describe("createOriginChatRouter", () => {
       freeOnly: true,
       traceId: "origin-test-trace",
       verificationStatus: "not-run",
+      reviewRequired: true,
+      reviewReasons: expect.arrayContaining([
+        "ユーザーが独立レビューを指定しました。",
+        "結果が重要な判断または操作に影響します。",
+        "依頼種別「セキュリティ」は独立確認の対象です。",
+      ]),
       modelEvidence: expect.objectContaining({
         verifiedAt: "2026-07-19T00:00:00.000Z",
         reviewAfter: "2026-08-18T23:59:59.999Z",
@@ -216,6 +226,26 @@ describe("createOriginChatRouter", () => {
       }),
       messages: [{ role: "user", content: "認証処理をレビューしてください" }],
       systemInstruction: expect.stringContaining("Never request, reproduce, or expose credentials"),
+    }));
+  });
+
+  it("marks low-risk writing as not requiring an independent review", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "短い案内文を読みやすく整えてください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.answer.verification).toEqual({
+      status: "not-required",
+      independentReviewPerformed: false,
+      summary: "この依頼では、追加の独立確認を必須と判定していません。",
+    });
+    expect(response.body.answer.limitations).toEqual([]);
+    expect(response.body.answer.nextActions).toEqual([]);
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      verificationStatus: "not-required",
+      reviewRequired: false,
+      reviewReasons: [],
     }));
   });
 
