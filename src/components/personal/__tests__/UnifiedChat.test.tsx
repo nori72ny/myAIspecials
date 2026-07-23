@@ -41,7 +41,8 @@ describe('UnifiedChat', () => {
     const log = screen.getByRole('log', { name: '会話履歴' });
     expect(log.getAttribute('aria-live')).toBe('off');
     expect(log.getAttribute('aria-busy')).toBe('false');
-    expect(screen.getByRole('article', { name: 'ORIGINの回答' })).toBeTruthy();
+    expect(screen.getByRole('article', { name: 'ORIGINの案内' })).toBeTruthy();
+    expect(screen.queryByRole('article', { name: 'ORIGINの回答' })).toBeNull();
   });
 
   it('renders the plain English greeting', () => {
@@ -72,10 +73,36 @@ describe('UnifiedChat', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
     const fetchCall = (global.fetch as any).mock.calls[0];
     const body = JSON.parse(fetchCall[1].body);
-    expect(body.messages.at(-1)).toEqual({
+    expect(body.messages).toEqual([{
       role: 'user',
       content: '詳細を確認してください',
-    });
+    }]);
+  });
+
+  it('keeps real conversation context but never transmits the display-only guidance', async () => {
+    (global.fetch as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: '最初の回答です。' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: '続きの回答です。' }),
+      });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('最初の依頼です');
+    await waitFor(() => expect(screen.getByText('最初の回答です。')).toBeTruthy());
+
+    sendJapaneseMessage('続きを教えてください');
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+
+    const secondCall = (global.fetch as any).mock.calls[1];
+    expect(JSON.parse(secondCall[1].body).messages).toEqual([
+      { role: 'user', content: '最初の依頼です' },
+      { role: 'ai', content: '最初の回答です。' },
+      { role: 'user', content: '続きを教えてください' },
+    ]);
   });
 
   it('blocks duplicate in-flight submission synchronously', async () => {
