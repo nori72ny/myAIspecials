@@ -1,20 +1,8 @@
 import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope";
+import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl";
 
 const MAX_EVIDENCE_ITEMS = 10;
 const MAX_LABEL_LENGTH = 200;
-const MAX_URL_LENGTH = 2_048;
-
-function safeHttpsUrl(value: string): string | null {
-  if (value.length === 0 || value.length > MAX_URL_LENGTH) return null;
-
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:" || url.username !== "" || url.password !== "") return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
 
 export function extractProvidedOriginEvidence(
   content: string,
@@ -34,7 +22,7 @@ export function extractProvidedOriginEvidence(
     if (urlEnd < 0) break;
 
     const label = content.slice(labelStart + 1, separator).trim();
-    const sourceUrl = safeHttpsUrl(content.slice(separator + 2, urlEnd).trim());
+    const sourceUrl = normalizeOriginPublicHttpsUrl(content.slice(separator + 2, urlEnd).trim());
     cursor = urlEnd + 1;
 
     if (

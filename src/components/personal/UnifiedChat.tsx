@@ -191,8 +191,8 @@ function executionTimeLabel(timeMs: number, isEn: boolean): string {
 function evidenceCheckLabel(item: OriginAnswerEvidenceItem, isEn: boolean): string {
   if (item.evidenceLevel === 'provided') {
     return isEn
-      ? 'Checked: safe link format only. Content, date, and answer support are not checked.'
-      : '確認済み：安全なリンク形式のみ。本文・更新時点・回答との一致は未確認です。';
+      ? 'Checked: basic HTTPS link format only. Destination, content, date, and answer support are not checked.'
+      : '確認済み：HTTPSリンクの基本形式のみ。接続先・本文・更新時点・回答との一致は未確認です。';
   }
 
   if (item.checks.freshness === 'passed') {

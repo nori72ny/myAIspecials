@@ -248,7 +248,7 @@ describe('UnifiedChat', () => {
     await waitFor(() => {
       expect(screen.getByRole('link', { name: '提示資料' })).toBeTruthy();
       expect(screen.getByText('AIが提示・未確認')).toBeTruthy();
-      expect(screen.getByText('確認済み：安全なリンク形式のみ。本文・更新時点・回答との一致は未確認です。')).toBeTruthy();
+      expect(screen.getByText('確認済み：HTTPSリンクの基本形式のみ。接続先・本文・更新時点・回答との一致は未確認です。')).toBeTruthy();
     });
     expect(screen.queryByText('出典確認済み')).toBeNull();
   });

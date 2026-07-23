@@ -26,6 +26,15 @@ describe("extractProvidedOriginEvidence", () => {
     ].join(" "))).toEqual([]);
   });
 
+  it("rejects local/private targets and secret-bearing query parameters", () => {
+    expect(extractProvidedOriginEvidence([
+      "[localhost](https://localhost/source)",
+      "[private IP](https://10.0.0.1/source)",
+      "[metadata](https://169.254.169.254/latest/meta-data)",
+      "[secret query](https://example.com/source?api_key=synthetic)",
+    ].join(" "))).toEqual([]);
+  });
+
   it("rejects empty, multiline, and oversized labels", () => {
     expect(extractProvidedOriginEvidence([
       "[](https://example.com/empty)",

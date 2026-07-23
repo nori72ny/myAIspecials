@@ -99,9 +99,18 @@ describe("OriginAnswerEnvelope", () => {
       ...baseInput,
       evidence: [{ label: "参照未設定", evidenceLevel: "source-checked" }],
     });
+    const privateTarget = createOriginAnswerEnvelope({
+      ...baseInput,
+      evidence: [{
+        label: "ローカル参照",
+        sourceUrl: "https://127.0.0.1/evidence",
+        evidenceLevel: "provided",
+      }],
+    });
 
     expect(credentialUrl.ok).toBe(false);
     expect(missingSource.ok).toBe(false);
+    expect(privateTarget.ok).toBe(false);
   });
 
   it("rejects checked-source claims unless content and claim support were actually checked", () => {

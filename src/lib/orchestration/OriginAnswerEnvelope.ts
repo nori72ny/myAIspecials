@@ -1,3 +1,5 @@
+import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl";
+
 export type OriginAnswerVerificationStatus = "not-run" | "not-required" | "passed";
 
 export type OriginEvidenceCheckStatus = "not-run" | "passed" | "not-applicable";
@@ -82,15 +84,6 @@ function cleanList(values: readonly string[]): string[] | null {
   return cleaned;
 }
 
-function isSafeSourceUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.username === "" && url.password === "";
-  } catch {
-    return false;
-  }
-}
-
 const PROVIDED_EVIDENCE_CHECKS: OriginAnswerEvidenceChecks = {
   safeUrl: "passed",
   content: "not-run",
@@ -159,7 +152,7 @@ export function createOriginAnswerEnvelope(
   const invalidEvidence = evidence.some((item) =>
     item.label.length === 0
     || item.label.length > MAX_ITEM_LENGTH
-    || (item.sourceUrl !== undefined && !isSafeSourceUrl(item.sourceUrl))
+    || (item.sourceUrl !== undefined && !normalizeOriginPublicHttpsUrl(item.sourceUrl))
     || (item.evidenceLevel === "source-checked" && item.sourceUrl === undefined)
     || item.checks === null
   );
