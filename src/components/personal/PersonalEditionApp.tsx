@@ -286,7 +286,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
                     language: settings.language,
                     timeoutSeconds: 30,
                   }}
-                  onOpenSettings={openSettings}
                 />
               )}
             </motion.div>
