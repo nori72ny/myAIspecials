@@ -162,6 +162,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
         animate={{ width: isSidebarOpen ? 260 : 0, opacity: isSidebarOpen ? 1 : 0 }}
         aria-label={isEn ? 'Primary navigation' : 'メインナビゲーション'}
         aria-hidden={!isSidebarOpen}
+        inert={!isSidebarOpen}
         className={cn(
           'fixed z-50 flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-neutral-950 md:relative',
           !isSidebarOpen && 'md:w-0 md:border-none',
