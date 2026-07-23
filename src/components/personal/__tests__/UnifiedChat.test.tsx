@@ -107,6 +107,7 @@ describe('UnifiedChat', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('log', { name: '会話履歴' }).getAttribute('aria-busy')).toBe('true');
     expect(screen.getByRole('article', { name: 'あなたの依頼' })).toBeTruthy();
+    expect(screen.getByText('依頼を整理して、回答を作成しています…')).toBeTruthy();
 
     resolveFetch({
       ok: true,
@@ -576,8 +577,7 @@ describe('UnifiedChat', () => {
     expect(screen.getByTestId('response-announcement').textContent).toBe('');
   });
 
-  it('opens settings only when connection setup is required', async () => {
-    const onOpenSettings = vi.fn();
+  it('explains server-side connection readiness without offering a non-functional setting', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
       json: async () => ({
@@ -588,15 +588,14 @@ describe('UnifiedChat', () => {
       }),
     });
 
-    render(<UnifiedChat onOpenSettings={onOpenSettings} />);
+    render(<UnifiedChat />);
     sendJapaneseMessage('文章を確認してください');
 
     await waitFor(() => {
-      expect(screen.getByText('無料AIの接続設定が必要です')).toBeTruthy();
-      expect(screen.getByText('設定を開く')).toBeTruthy();
+      expect(screen.getByText('無料AIの接続準備が完了していません')).toBeTruthy();
+      expect(screen.getByText('ORIGIN側の接続準備が完了するまで回答できません。入力した依頼に問題はありません。')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('設定を開く'));
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('設定を開く')).toBeNull();
     expect(screen.queryByText('再試行')).toBeNull();
   });
 
@@ -670,5 +669,10 @@ describe('UnifiedChat', () => {
       expect(screen.getByText('Initial prompt response.')).toBeTruthy();
     });
     expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('こんにちは。やりたいことを、そのまま入力してください。')).toBeNull();
+    const fetchCall = (global.fetch as any).mock.calls[0];
+    expect(JSON.parse(fetchCall[1].body).messages).toEqual([
+      { role: 'user', content: 'This is a test prompt' },
+    ]);
   });
 });
