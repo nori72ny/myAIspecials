@@ -75,6 +75,7 @@ ACOS 2.0はORIGINを支えるオーケストレーションエンジンであり
 | 独立AIレビュー判断 | `OriginReviewPolicy`を正式`/api/chat`へ接続、必要性・理由・未実施時の制約を表示 | TEST-COVERED |
 | 独立providerレビューと統合 | `OriginReviewSynthesis`、`OriginReviewedExecution`のunit test | TEST-COVERED / ROUTE-UNCONNECTED |
 | 根拠・引用・事実検証 | AI提示の公開HTTPS形式の出典を`provided`として表示。URL基本形式、本文、更新時点、回答との一致を別々に記録し、未確認を`source-checked`へ昇格させない。内容確認は未接続 | TEST-COVERED / SOURCE-CHECK-UNCONNECTED |
+| 最新情報の回答 | 検索機能が未接続の間は外部AIを呼ばず、古い可能性がある知識だけで回答しない。利用者が貼り付けた公式情報の整理・比較へ案内する | TEST-COVERED / LIVE-SEARCH-UNCONNECTED |
 | 主張と出典の対応 | 同一行の明示記法`主張 〔出典: [資料名](https://...)〕`だけを`explicit-inline-citation`として抽出。近接文や一般リンクから意味を推測しない | TEST-COVERED / CONTENT-UNVERIFIED |
 | 出典確認の実行境界 | `OriginSourceVerification`が1回実行、公開HTTPS、リダイレクトなし、記録鮮度、本文digest、主張一致、実費`$0.00`を検証。実executorは未接続 | TEST-COVERED / ROUTE-UNCONNECTED |
 | 回答、費用、使用AI、検証状態の表示 | Personal Unified Chat test | TEST-COVERED |
@@ -142,6 +143,8 @@ ACOS 2.0はORIGINを支えるオーケストレーションエンジンであり
 provider ID、model ID、trace ID、実費用などは回答本文と分離した技術証跡に保持する。別AIによる確認を実行していない回答を`passed`にせず、実在するartifact参照がないグラフ、画像、文書を生成済みとして表示しない。
 
 正式`/api/chat`は後方互換の`content`と並行して`origin.answer.v1`を返す。Personal UIは検証済みのenvelopeがある場合だけ、結論、回答、根拠、確認状況、制約、次の行動を表示する。不正または不完全なenvelopeは構造化表示に使わず、既存の安全な`content`へ戻す。
+
+検索・取得executorが正式経路へ接続されるまでは、最新情報、今日のニュース、現在料金など時点に依存する依頼をモデルの記憶だけで回答しない。アプリ内で未接続を説明し、公式情報の本文または必要部分を利用者が提示した場合だけ、その提示内容の整理・比較を行う。
 
 構造化回答の冒頭には、数値化した根拠のない信頼度を表示せず、「出典内容をどこまで確認したか」と「独立した別AIの確認を実施したか」を分離した確認範囲を表示する。出典なし、未確認、確認済みと未確認の混在、すべて確認済みを区別し、出典確認と別AI確認を同一の意味として扱わない。
 
