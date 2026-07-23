@@ -28,11 +28,11 @@ describe('PersonalDashboard', () => {
     const onNavigateToChat = vi.fn();
     render(<PersonalDashboard onNavigateToChat={onNavigateToChat} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '候補を調べて、違いを比較したい' }));
+    fireEvent.click(screen.getByRole('button', { name: '候補の情報を貼り付けて、違いを比較したい' }));
 
     expect(onNavigateToChat).not.toHaveBeenCalled();
     const input = screen.getByLabelText('やりたいことを入力') as HTMLTextAreaElement;
-    expect(input.value).toBe('候補を調べて、違いを比較したい');
+    expect(input.value).toBe('候補の情報を貼り付けて、違いを比較したい');
   });
 
   it('sends a trimmed request from the button and Enter key', () => {
