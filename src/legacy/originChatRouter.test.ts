@@ -228,6 +228,16 @@ describe("createOriginChatRouter", () => {
       messages: [{ role: "user", content: "認証処理をレビューしてください" }],
       systemInstruction: expect.stringContaining("Never request, reproduce, or expose credentials"),
     }));
+    const providerRequest = executeMock.mock.calls[0][0];
+    expect(providerRequest.systemInstruction).toContain(
+      "Separate confirmed facts from assumptions, inferences, and recommendations.",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "ask one concise clarifying question instead of guessing",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "Do not repeat the conclusion",
+    );
   });
 
   it("marks low-risk writing as not requiring an independent review", async () => {
@@ -257,7 +267,7 @@ describe("createOriginChatRouter", () => {
     });
 
     const response = await request(createApp(execute)).post("/api/chat").send({
-      messages: [{ role: "user", content: "最新料金を調査してください" }],
+      messages: [{ role: "user", content: "候補の資料を調査してください" }],
     });
 
     expect(response.status).toBe(200);
@@ -278,7 +288,7 @@ describe("createOriginChatRouter", () => {
     expect(response.body.answer.limitations).toContain(
       "一部の出典は、回答内のどの主張に対応するか明示されていません。",
     );
-    expect(response.body.answer.verification.status).toBe("not-run");
+    expect(response.body.answer.verification.status).toBe("not-required");
   });
 
   it("preserves an explicit claim-to-source mapping without claiming verification", async () => {
@@ -288,7 +298,7 @@ describe("createOriginChatRouter", () => {
     });
 
     const response = await request(createApp(execute)).post("/api/chat").send({
-      messages: [{ role: "user", content: "最新料金を調査してください" }],
+      messages: [{ role: "user", content: "候補の資料を調査してください" }],
     });
 
     expect(response.status).toBe(200);
@@ -308,12 +318,12 @@ describe("createOriginChatRouter", () => {
     expect(response.body.answer.limitations).not.toContain(
       "一部の出典は、回答内のどの主張に対応するか明示されていません。",
     );
-    expect(response.body.answer.verification.status).toBe("not-run");
+    expect(response.body.answer.verification.status).toBe("not-required");
   });
 
   it("states when a research answer contains no usable HTTPS source", async () => {
     const response = await request(createApp(execute)).post("/api/chat").send({
-      messages: [{ role: "user", content: "料金を調査してください" }],
+      messages: [{ role: "user", content: "候補を比較調査してください" }],
     });
 
     expect(response.status).toBe(200);
@@ -424,6 +434,47 @@ describe("createOriginChatRouter", () => {
       verificationStatus: "not-required",
     }));
     expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not answer time-sensitive requests without connected live search", async () => {
+    const response = await request(createApp(execute, {})).post("/api/chat").send({
+      messages: [{ role: "user", content: "今日のニュースを教えてください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe(
+      "この版では最新情報を確認する検索機能が接続されていないため、古い可能性がある知識だけでは回答しません。",
+    );
+    expect(response.body.answer).toEqual(expect.objectContaining({
+      schemaVersion: "origin.answer.v1",
+      language: "ja",
+      verification: expect.objectContaining({
+        status: "not-required",
+        independentReviewPerformed: false,
+      }),
+      limitations: [
+        "現在の事実、料金、ニュースなど、時点に依存する情報は取得・確認していません。",
+      ],
+      nextActions: [
+        "公式情報の本文または必要部分を貼り付けると、その内容を整理・比較できます。",
+      ],
+    }));
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      model: "ORIGIN アプリ内処理",
+      cost: 0,
+      verificationStatus: "not-required",
+    }));
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not confuse personal planning for today with a live-information request", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "今日の予定を整理してください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe("安全な確認結果です。");
+    expect(executeMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects invalid client policy values without provider execution", async () => {
