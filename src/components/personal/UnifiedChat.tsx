@@ -208,6 +208,44 @@ function evidenceCheckLabel(item: OriginAnswerEvidenceItem, isEn: boolean): stri
     : '確認済み：本文・回答との一致。更新時点の確認は対象外です。';
 }
 
+function sourceCoverageLabel(answer: OriginAnswerEnvelope, isEn: boolean): string {
+  if (answer.evidence.length === 0) {
+    return isEn ? 'No sources included' : '回答内の出典なし';
+  }
+
+  const checkedCount = answer.evidence.filter(
+    (item) => item.evidenceLevel === 'source-checked',
+  ).length;
+  if (checkedCount === answer.evidence.length) {
+    return isEn ? 'All source content checked' : 'すべての出典内容を確認済み';
+  }
+  if (checkedCount > 0) {
+    return isEn ? 'Checked and unchecked sources are mixed' : '確認済み・未確認の出典が混在';
+  }
+  return isEn ? 'Source content not checked' : '出典内容は未確認';
+}
+
+function independentReviewCoverageLabel(
+  answer: OriginAnswerEnvelope,
+  isEn: boolean,
+): string {
+  if (answer.verification.status === 'passed') {
+    return isEn ? 'Completed' : '実施済み';
+  }
+  if (answer.verification.status === 'not-required') {
+    return isEn ? 'Not required for this answer' : 'この回答では不要';
+  }
+  return isEn ? 'Not completed' : '未実施';
+}
+
+function verificationMatchesRouting(
+  answer: OriginAnswerEnvelope,
+  routing: RoutingMetadata | undefined,
+): boolean {
+  return routing?.verificationStatus === undefined
+    || routing.verificationStatus === answer.verification.status;
+}
+
 export default function UnifiedChat({
   initialPrompt,
   settingsOverride,
@@ -272,11 +310,25 @@ export default function UnifiedChat({
       const data = await response.json();
       if (!response.ok) throw data;
 
+      if (typeof data.content !== 'string' || data.content.trim().length === 0) {
+        throw {
+          code: 'PROVIDER_INVALID_RESPONSE',
+          message: isEn
+            ? 'The free AI returned an invalid response.'
+            : '無料AIから正しい形式の回答を受け取れませんでした。',
+          retryable: false,
+          requestId: '',
+        };
+      }
+
+      const parsedAnswer = parseOriginAnswerEnvelope(data.answer);
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'ai',
         content: data.content,
-        answer: parseOriginAnswerEnvelope(data.answer),
+        answer: parsedAnswer && verificationMatchesRouting(parsedAnswer, data.routing)
+          ? parsedAnswer
+          : undefined,
         routing: data.routing,
       };
       setMessages((previous) => [...previous, aiMessage]);
@@ -520,6 +572,37 @@ export default function UnifiedChat({
 
                     {message.answer && (
                       <div data-testid="structured-answer" className="mt-4 space-y-4 border-t border-slate-200 pt-4 dark:border-white/10">
+                        <section
+                          data-testid="answer-trust-overview"
+                          aria-labelledby={`answer-trust-overview-${message.id}`}
+                          className="rounded-xl bg-slate-50 p-3 dark:bg-white/5"
+                        >
+                          <h3
+                            id={`answer-trust-overview-${message.id}`}
+                            className="mb-2 text-xs font-semibold text-slate-600 dark:text-neutral-300"
+                          >
+                            {isEn ? 'What was checked' : 'この回答の確認範囲'}
+                          </h3>
+                          <dl className="grid gap-2 text-xs sm:grid-cols-2">
+                            <div>
+                              <dt className="text-slate-500 dark:text-neutral-500">
+                                {isEn ? 'Sources' : '出典内容'}
+                              </dt>
+                              <dd className="mt-0.5 font-medium text-slate-800 dark:text-neutral-200">
+                                {sourceCoverageLabel(message.answer, isEn)}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-slate-500 dark:text-neutral-500">
+                                {isEn ? 'Independent AI review' : '別AIによる確認'}
+                              </dt>
+                              <dd className="mt-0.5 font-medium text-slate-800 dark:text-neutral-200">
+                                {independentReviewCoverageLabel(message.answer, isEn)}
+                              </dd>
+                            </div>
+                          </dl>
+                        </section>
+
                         {message.answer.evidence.length > 0 && (
                           <section>
                             <h3 className="mb-2 text-xs font-semibold text-slate-500 dark:text-neutral-400">
