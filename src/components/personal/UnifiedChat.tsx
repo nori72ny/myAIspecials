@@ -7,7 +7,6 @@ import {
   ChevronDown,
   RefreshCw,
   Send,
-  Settings,
   Sparkles,
   User,
 } from 'lucide-react';
@@ -50,7 +49,6 @@ type Message = {
     retryable: boolean;
     requestId: string;
     description: string;
-    showSettings: boolean;
   };
 };
 
@@ -163,7 +161,6 @@ type ChatSettings = {
 type UnifiedChatProps = {
   initialPrompt?: string;
   settingsOverride?: ChatSettings;
-  onOpenSettings?: () => void;
 };
 
 function verificationLabel(status: RoutingMetadata['verificationStatus'], isEn: boolean): string {
@@ -264,7 +261,6 @@ function answerCompletionAnnouncement(
 export default function UnifiedChat({
   initialPrompt,
   settingsOverride,
-  onOpenSettings,
 }: UnifiedChatProps) {
   const fallbackState = useAppState();
   const settings = settingsOverride ?? (fallbackState.settings as ChatSettings);
@@ -274,13 +270,15 @@ export default function UnifiedChat({
     ? 'Hello. Describe what you want to do in your own words.'
     : 'こんにちは。やりたいことを、そのまま入力してください。';
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'ai',
-      content: defaultGreeting,
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>(() => (
+    initialPrompt?.trim()
+      ? []
+      : [{
+          id: '1',
+          role: 'ai',
+          content: defaultGreeting,
+        }]
+  ));
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [completionAnnouncement, setCompletionAnnouncement] = useState('');
@@ -290,14 +288,6 @@ export default function UnifiedChat({
 
   const dispatchAiCoreState = (state: AiCoreState) => {
     window.dispatchEvent(new CustomEvent('aiCoreStateChange', { detail: state }));
-  };
-
-  const openSettings = () => {
-    if (onOpenSettings) {
-      onOpenSettings();
-      return;
-    }
-    window.dispatchEvent(new CustomEvent('openSettings'));
   };
 
   const processSend = async (messageList: Message[]) => {
@@ -360,8 +350,6 @@ export default function UnifiedChat({
       let description = error.message || (isEn
         ? 'The request failed. Please try again later.'
         : '処理に失敗しました。しばらくしてから再試行してください。');
-      let showSettings = false;
-
       if (error.code === 'SENSITIVE_INPUT_BLOCKED') {
         aiCoreState = 'DEGRADED';
         title = isEn ? 'Sensitive information was not sent' : '秘密情報の送信を停止しました';
@@ -383,8 +371,12 @@ export default function UnifiedChat({
         || error.code === 'API_KEY_INVALID'
       ) {
         aiCoreState = 'NOT_CONFIGURED';
-        title = isEn ? 'Free AI connection is not configured' : '無料AIの接続設定が必要です';
-        showSettings = true;
+        title = isEn
+          ? 'The free AI connection is not ready'
+          : '無料AIの接続準備が完了していません';
+        description = isEn
+          ? 'ORIGIN cannot answer until its server-side connection is ready. There is no problem with your request.'
+          : 'ORIGIN側の接続準備が完了するまで回答できません。入力した依頼に問題はありません。';
       } else if (
         error.code === 'FREE_MODEL_EVIDENCE_STALE'
         || error.code === 'FREE_MODEL_CATALOG_INVALID'
@@ -440,7 +432,6 @@ export default function UnifiedChat({
           retryable: error.retryable !== false,
           requestId: error.requestId || 'UNKNOWN',
           description,
-          showSettings,
         },
       };
       setMessages((previous) => [...previous, errorMessage]);
@@ -547,16 +538,6 @@ export default function UnifiedChat({
                         >
                           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                           {isEn ? 'Retry' : '再試行'}
-                        </button>
-                      )}
-                      {message.error.showSettings && (
-                        <button
-                          type="button"
-                          onClick={openSettings}
-                          className="flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-                        >
-                          <Settings className="h-3.5 w-3.5" aria-hidden="true" />
-                          {isEn ? 'Open settings' : '設定を開く'}
                         </button>
                       )}
                     </div>
@@ -776,6 +757,9 @@ export default function UnifiedChat({
                 <span aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-indigo-500" />
                 <span aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-purple-500 delay-75" />
                 <span aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-pink-500 delay-150" />
+                <span className="ml-1 text-sm text-slate-600 dark:text-neutral-300">
+                  {isEn ? 'Organizing your request and preparing an answer…' : '依頼を整理して、回答を作成しています…'}
+                </span>
               </div>
             </motion.div>
           )}
