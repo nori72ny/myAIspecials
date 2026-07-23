@@ -40,6 +40,7 @@ type Message = {
   id: string;
   role: 'user' | 'ai';
   content: string;
+  kind?: 'conversation' | 'intro';
   answer?: OriginAnswerEnvelope;
   routing?: RoutingMetadata;
   error?: {
@@ -305,6 +306,7 @@ export default function UnifiedChat({
           id: '1',
           role: 'ai',
           content: defaultGreeting,
+          kind: 'intro',
         }]
   ));
   const [input, setInput] = useState('');
@@ -330,10 +332,12 @@ export default function UnifiedChat({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messages: messageList.filter((message) => !message.error).map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
+          messages: messageList
+            .filter((message) => !message.error && message.kind !== 'intro')
+            .map((message) => ({
+              role: message.role,
+              content: message.content,
+            })),
           userLocation: settings.location,
           executionPolicy: {
             maxEstimatedCostUsd: 0,
@@ -527,6 +531,8 @@ export default function UnifiedChat({
               role="article"
               aria-label={message.role === 'user'
                 ? (isEn ? 'Your request' : 'あなたの依頼')
+                : message.kind === 'intro'
+                  ? (isEn ? 'ORIGIN guidance' : 'ORIGINの案内')
                 : message.error
                   ? (isEn ? 'ORIGIN error' : 'ORIGINのエラー')
                   : (isEn ? 'ORIGIN answer' : 'ORIGINの回答')}
