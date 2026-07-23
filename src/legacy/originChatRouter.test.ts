@@ -265,6 +265,12 @@ describe("createOriginChatRouter", () => {
       label: "公式資料",
       sourceUrl: "https://example.com/current",
       evidenceLevel: "provided",
+      checks: {
+        safeUrl: "passed",
+        content: "not-run",
+        freshness: "not-run",
+        claimSupport: "not-run",
+      },
     }]);
     expect(response.body.answer.limitations).toContain(
       "表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。",

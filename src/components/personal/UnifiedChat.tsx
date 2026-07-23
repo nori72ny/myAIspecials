@@ -70,14 +70,32 @@ function parseOriginAnswerEnvelope(value: unknown): OriginAnswerEnvelope | undef
     || typeof candidate.verification !== 'object'
   ) return undefined;
 
-  const evidenceIsValid = candidate.evidence.every((item): item is OriginAnswerEvidenceItem =>
-    Boolean(item)
-    && typeof item === 'object'
-    && typeof (item as OriginAnswerEvidenceItem).label === 'string'
-    && ((item as OriginAnswerEvidenceItem).sourceUrl === undefined
-      || typeof (item as OriginAnswerEvidenceItem).sourceUrl === 'string')
-    && ((item as OriginAnswerEvidenceItem).evidenceLevel === 'provided'
-      || (item as OriginAnswerEvidenceItem).evidenceLevel === 'source-checked'));
+  const evidenceIsValid = candidate.evidence.every((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const evidence = item as Partial<OriginAnswerEvidenceItem>;
+    const checks = evidence.checks;
+    const baseIsValid = typeof evidence.label === 'string'
+      && (evidence.sourceUrl === undefined || typeof evidence.sourceUrl === 'string')
+      && (evidence.evidenceLevel === 'provided' || evidence.evidenceLevel === 'source-checked');
+    if (!baseIsValid) return false;
+
+    if (evidence.evidenceLevel === 'provided' && checks === undefined) return true;
+    if (
+      !checks
+      || checks.safeUrl !== 'passed'
+      || (checks.freshness !== 'not-run'
+        && checks.freshness !== 'passed'
+        && checks.freshness !== 'not-applicable')
+    ) return false;
+
+    return evidence.evidenceLevel === 'provided'
+      ? checks.content === 'not-run'
+        && checks.freshness === 'not-run'
+        && checks.claimSupport === 'not-run'
+      : checks.content === 'passed'
+        && checks.freshness !== 'not-run'
+        && checks.claimSupport === 'passed';
+  });
   const richOutputsAreValid = candidate.richOutputs.every((output): output is OriginAnswerRichOutput =>
     Boolean(output)
     && typeof output === 'object'
@@ -168,6 +186,24 @@ function executionTimeLabel(timeMs: number, isEn: boolean): string {
   const seconds = timeMs / 1_000;
   const formatted = Number.isInteger(seconds) ? seconds.toFixed(0) : seconds.toFixed(1);
   return isEn ? `${formatted} seconds` : `${formatted}秒`;
+}
+
+function evidenceCheckLabel(item: OriginAnswerEvidenceItem, isEn: boolean): string {
+  if (item.evidenceLevel === 'provided') {
+    return isEn
+      ? 'Checked: safe link format only. Content, date, and answer support are not checked.'
+      : '確認済み：安全なリンク形式のみ。本文・更新時点・回答との一致は未確認です。';
+  }
+
+  if (item.checks.freshness === 'passed') {
+    return isEn
+      ? 'Checked: content, date, and answer support.'
+      : '確認済み：本文・更新時点・回答との一致。';
+  }
+
+  return isEn
+    ? 'Checked: content and answer support. Date check was not applicable.'
+    : '確認済み：本文・回答との一致。更新時点の確認は対象外です。';
 }
 
 export default function UnifiedChat({
@@ -502,6 +538,9 @@ export default function UnifiedChat({
                                         : (isEn ? 'AI-provided · not checked' : 'AIが提示・未確認')}
                                     </span>
                                   </div>
+                                  <p className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
+                                    {evidenceCheckLabel(item, isEn)}
+                                  </p>
                                 </li>
                               ))}
                             </ul>

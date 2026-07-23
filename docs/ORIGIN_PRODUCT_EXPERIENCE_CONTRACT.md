@@ -74,7 +74,7 @@ ACOS 2.0はORIGINを支えるオーケストレーションエンジンであり
 | task classificationとcapability routing | Routing Engine / Capability Registryのunit test | TEST-COVERED / PRODUCT-UNVERIFIED |
 | 独立AIレビュー判断 | `OriginReviewPolicy`を正式`/api/chat`へ接続、必要性・理由・未実施時の制約を表示 | TEST-COVERED |
 | 独立providerレビューと統合 | `OriginReviewSynthesis`、`OriginReviewedExecution`のunit test | TEST-COVERED / ROUTE-UNCONNECTED |
-| 根拠・引用・事実検証 | AI提示の安全なHTTPS出典を`provided`として表示し、`source-checked`と区別。内容確認は未接続 | TEST-COVERED / SOURCE-CHECK-UNCONNECTED |
+| 根拠・引用・事実検証 | AI提示の安全なHTTPS出典を`provided`として表示。URL安全性、本文、更新時点、回答との一致を別々に記録し、未確認を`source-checked`へ昇格させない。内容確認は未接続 | TEST-COVERED / SOURCE-CHECK-UNCONNECTED |
 | 回答、費用、使用AI、検証状態の表示 | Personal Unified Chat test | TEST-COVERED |
 | グラフ・図解・成果物の適応表示 | Personal正式経路との接続証拠なし | NOT IMPLEMENTED |
 | 個人記憶と継続学習 | 一次リリースUIから非表示 | NOT IMPLEMENTED |
@@ -126,6 +126,8 @@ ACOS 2.0はORIGINを支えるオーケストレーションエンジンであり
 ## 10. 共通回答形式
 
 すべてのproviderは、一般UIへ直接固有形式を返さず、`origin.answer.v1`へ変換する。共通回答は、結論、本文、根拠、独立確認状態、制約、次の行動、実在する成果物参照だけを持つ。
+
+各出典は、URL安全性、本文確認、更新時点、回答内の主張との一致を独立した検査状態として保持する。AIがリンクを提示しただけの場合はURL形式のみを確認済みとし、本文、更新時点、回答との一致は`not-run`のままにする。`source-checked`は、出典本文と回答との一致を記録上確認でき、更新時点を確認済みまたは確認対象外と判断した場合だけ使用する。
 
 provider ID、model ID、trace ID、実費用などは回答本文と分離した技術証跡に保持する。別AIによる確認を実行していない回答を`passed`にせず、実在するartifact参照がないグラフ、画像、文書を生成済みとして表示しない。
 

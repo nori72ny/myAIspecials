@@ -1,9 +1,23 @@
 export type OriginAnswerVerificationStatus = "not-run" | "not-required" | "passed";
 
-export interface OriginAnswerEvidenceItem {
+export type OriginEvidenceCheckStatus = "not-run" | "passed" | "not-applicable";
+
+export interface OriginAnswerEvidenceChecks {
+  safeUrl: "passed";
+  content: "not-run" | "passed";
+  freshness: OriginEvidenceCheckStatus;
+  claimSupport: "not-run" | "passed";
+}
+
+export interface OriginAnswerEvidenceInput {
   label: string;
   sourceUrl?: string;
   evidenceLevel: "provided" | "source-checked";
+  checks?: OriginAnswerEvidenceChecks;
+}
+
+export interface OriginAnswerEvidenceItem extends OriginAnswerEvidenceInput {
+  checks: OriginAnswerEvidenceChecks;
 }
 
 export interface OriginAnswerRichOutput {
@@ -16,7 +30,7 @@ export interface OriginAnswerEnvelopeInput {
   language: "ja" | "en";
   conclusion: string;
   answer: string;
-  evidence: readonly OriginAnswerEvidenceItem[];
+  evidence: readonly OriginAnswerEvidenceInput[];
   verification: {
     status: OriginAnswerVerificationStatus;
     independentReviewPerformed: boolean;
@@ -27,8 +41,9 @@ export interface OriginAnswerEnvelopeInput {
   richOutputs?: readonly OriginAnswerRichOutput[];
 }
 
-export interface OriginAnswerEnvelope extends OriginAnswerEnvelopeInput {
+export interface OriginAnswerEnvelope extends Omit<OriginAnswerEnvelopeInput, "evidence"> {
   schemaVersion: "origin.answer.v1";
+  evidence: readonly OriginAnswerEvidenceItem[];
 }
 
 export interface OriginAnswerTechnicalTrace {
@@ -76,6 +91,38 @@ function isSafeSourceUrl(value: string): boolean {
   }
 }
 
+const PROVIDED_EVIDENCE_CHECKS: OriginAnswerEvidenceChecks = {
+  safeUrl: "passed",
+  content: "not-run",
+  freshness: "not-run",
+  claimSupport: "not-run",
+};
+
+function normalizeEvidenceChecks(
+  item: OriginAnswerEvidenceInput,
+): OriginAnswerEvidenceChecks | null {
+  const checks = item.checks ?? (
+    item.evidenceLevel === "provided"
+      ? PROVIDED_EVIDENCE_CHECKS
+      : null
+  );
+  if (!checks || checks.safeUrl !== "passed") return null;
+
+  if (item.evidenceLevel === "provided") {
+    return checks.content === "not-run"
+      && checks.freshness === "not-run"
+      && checks.claimSupport === "not-run"
+      ? checks
+      : null;
+  }
+
+  return checks.content === "passed"
+    && (checks.freshness === "passed" || checks.freshness === "not-applicable")
+    && checks.claimSupport === "passed"
+    ? checks
+    : null;
+}
+
 export function createOriginAnswerEnvelope(
   input: OriginAnswerEnvelopeInput,
 ): OriginAnswerEnvelopeResult {
@@ -100,16 +147,21 @@ export function createOriginAnswerEnvelope(
     };
   }
 
-  const evidence = input.evidence.map((item) => ({
-    ...item,
-    label: item.label.trim(),
-    sourceUrl: item.sourceUrl?.trim(),
-  }));
+  const evidence = input.evidence.map((item) => {
+    const checks = normalizeEvidenceChecks(item);
+    return {
+      ...item,
+      label: item.label.trim(),
+      sourceUrl: item.sourceUrl?.trim(),
+      checks,
+    };
+  });
   const invalidEvidence = evidence.some((item) =>
     item.label.length === 0
     || item.label.length > MAX_ITEM_LENGTH
     || (item.sourceUrl !== undefined && !isSafeSourceUrl(item.sourceUrl))
     || (item.evidenceLevel === "source-checked" && item.sourceUrl === undefined)
+    || item.checks === null
   );
   if (invalidEvidence) {
     return {
@@ -160,7 +212,7 @@ export function createOriginAnswerEnvelope(
       language: input.language,
       conclusion,
       answer,
-      evidence,
+      evidence: evidence as OriginAnswerEvidenceItem[],
       verification: {
         ...input.verification,
         summary: verificationSummary,

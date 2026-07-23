@@ -9,6 +9,12 @@ describe("extractProvidedOriginEvidence", () => {
       label: "公式資料",
       sourceUrl: "https://example.com/docs",
       evidenceLevel: "provided",
+      checks: {
+        safeUrl: "passed",
+        content: "not-run",
+        freshness: "not-run",
+        claimSupport: "not-run",
+      },
     }]);
   });
 

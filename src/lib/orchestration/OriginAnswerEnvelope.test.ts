@@ -15,6 +15,12 @@ const baseInput: OriginAnswerEnvelopeInput = {
     label: "公式資料",
     sourceUrl: "https://example.com/evidence",
     evidenceLevel: "source-checked",
+    checks: {
+      safeUrl: "passed",
+      content: "passed",
+      freshness: "passed",
+      claimSupport: "passed",
+    },
   }],
   verification: {
     status: "not-run",
@@ -81,6 +87,12 @@ describe("OriginAnswerEnvelope", () => {
         label: "不正な参照",
         sourceUrl: "https://user:secret@example.com/evidence",
         evidenceLevel: "source-checked",
+        checks: {
+          safeUrl: "passed",
+          content: "passed",
+          freshness: "passed",
+          claimSupport: "passed",
+        },
       }],
     });
     const missingSource = createOriginAnswerEnvelope({
@@ -90,6 +102,34 @@ describe("OriginAnswerEnvelope", () => {
 
     expect(credentialUrl.ok).toBe(false);
     expect(missingSource.ok).toBe(false);
+  });
+
+  it("rejects checked-source claims unless content and claim support were actually checked", () => {
+    const missingChecks = createOriginAnswerEnvelope({
+      ...baseInput,
+      evidence: [{
+        label: "確認根拠なし",
+        sourceUrl: "https://example.com/unchecked",
+        evidenceLevel: "source-checked",
+      }],
+    });
+    const contradictoryProvided = createOriginAnswerEnvelope({
+      ...baseInput,
+      evidence: [{
+        label: "表示と検査状態が矛盾",
+        sourceUrl: "https://example.com/contradictory",
+        evidenceLevel: "provided",
+        checks: {
+          safeUrl: "passed",
+          content: "passed",
+          freshness: "passed",
+          claimSupport: "passed",
+        },
+      }],
+    });
+
+    expect(missingChecks.ok).toBe(false);
+    expect(contradictoryProvided.ok).toBe(false);
   });
 
   it("does not present a chart or artifact unless a real artifact reference exists", () => {

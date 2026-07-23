@@ -50,6 +50,12 @@ export function extractProvidedOriginEvidence(
       label,
       sourceUrl,
       evidenceLevel: "provided",
+      checks: {
+        safeUrl: "passed",
+        content: "not-run",
+        freshness: "not-run",
+        claimSupport: "not-run",
+      },
     });
   }
 
