@@ -1,16 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { vi } from 'vitest';
 import PersonalDashboard from '../PersonalDashboard';
-import { useAppState } from '../../../hooks/useAppState';
-
-vi.mock('../../../hooks/useAppState', () => ({
-  useAppState: vi.fn(),
-}));
 
 describe('PersonalDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAppState as any).mockReturnValue({ settings: { language: 'ja' } });
   });
 
   it('presents one clear Japanese request entry point', () => {
