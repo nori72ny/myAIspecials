@@ -239,8 +239,7 @@ function verificationMatchesRouting(
   answer: OriginAnswerEnvelope,
   routing: RoutingMetadata | undefined,
 ): boolean {
-  return routing?.verificationStatus === undefined
-    || routing.verificationStatus === answer.verification.status;
+  return routing?.verificationStatus === answer.verification.status;
 }
 
 function answerCompletionAnnouncement(
@@ -360,14 +359,28 @@ export default function UnifiedChat({
         };
       }
 
-      const parsedAnswer = parseOriginAnswerEnvelope(data.answer);
+      const answerWasProvided = Object.prototype.hasOwnProperty.call(data, 'answer');
+      const parsedAnswer = answerWasProvided
+        ? parseOriginAnswerEnvelope(data.answer)
+        : undefined;
+      if (
+        answerWasProvided
+        && (!parsedAnswer || !verificationMatchesRouting(parsedAnswer, data.routing))
+      ) {
+        throw {
+          code: 'ANSWER_INTEGRITY_UNVERIFIED',
+          message: isEn
+            ? 'The answer was hidden because its structure or verification record could not be confirmed.'
+            : '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+          retryable: false,
+          requestId: '',
+        };
+      }
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'ai',
         content: data.content,
-        answer: parsedAnswer && verificationMatchesRouting(parsedAnswer, data.routing)
-          ? parsedAnswer
-          : undefined,
+        answer: parsedAnswer,
         routing: data.routing,
       };
       setMessages((previous) => [...previous, aiMessage]);
@@ -432,6 +445,11 @@ export default function UnifiedChat({
         description = error.message || (isEn
           ? 'The answer is hidden because the model, provider, or fallback state could not be confirmed.'
           : '使用されたモデル、提供元、または自動切替の有無を確認できなかったため、回答を表示しません。');
+      } else if (error.code === 'ANSWER_INTEGRITY_UNVERIFIED') {
+        aiCoreState = 'DEGRADED';
+        title = isEn
+          ? 'The answer verification record could not be confirmed'
+          : '回答の確認記録を検証できませんでした';
       } else if (
         error.code === 'PROVIDER_UNAVAILABLE'
         || error.code === 'MODEL_NOT_FOUND'
