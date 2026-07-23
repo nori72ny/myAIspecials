@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { ArrowUp, ShieldCheck, Sparkles } from 'lucide-react';
-import { useAppState } from '../../hooks/useAppState';
 
 type PersonalDashboardProps = {
   onNavigateToChat: (prompt?: string) => void;
@@ -8,8 +7,7 @@ type PersonalDashboardProps = {
 };
 
 export default function PersonalDashboard({ onNavigateToChat, language }: PersonalDashboardProps) {
-  const { settings } = useAppState();
-  const isEn = (language ?? settings.language) === 'en';
+  const isEn = language === 'en';
   const [input, setInput] = useState('');
 
   const examples = isEn
