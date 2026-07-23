@@ -11,7 +11,6 @@ import {
   User,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { useAppState } from '../../hooks/useAppState';
 import {
   createOriginAnswerEnvelope,
   type OriginAnswerEnvelope,
@@ -258,12 +257,41 @@ function answerCompletionAnnouncement(
     : `ORIGINの回答が届きました。${sources}。別AIによる確認：${review}。`;
 }
 
+function SafeMarkdown({
+  children,
+  isEn,
+}: {
+  children: string;
+  isEn: boolean;
+}) {
+  return (
+    <ReactMarkdown
+      components={{
+        img: ({ alt }) => (
+          <span
+            role="note"
+            className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-neutral-300"
+          >
+            {isEn
+              ? `External image not loaded automatically${alt ? `: ${alt}` : ''}`
+              : `外部画像は自動表示しません${alt ? `：${alt}` : ''}`}
+          </span>
+        ),
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  );
+}
+
 export default function UnifiedChat({
   initialPrompt,
   settingsOverride,
 }: UnifiedChatProps) {
-  const fallbackState = useAppState();
-  const settings = settingsOverride ?? (fallbackState.settings as ChatSettings);
+  const settings: ChatSettings = settingsOverride ?? {
+    language: 'ja',
+    timeoutSeconds: 30,
+  };
   const isEn = settings.language === 'en';
 
   const defaultGreeting = isEn
@@ -522,7 +550,10 @@ export default function UnifiedChat({
                 )}
               </div>
 
-              <div className="flex max-w-[88%] flex-col gap-2 sm:max-w-[85%] md:max-w-[80%]">
+              <div className={cn(
+                'flex min-w-0 flex-col gap-2',
+                message.role === 'user' ? 'max-w-[88%] sm:max-w-[85%]' : 'flex-1',
+              )}>
                 {message.error ? (
                   <div role="alert" className="flex flex-col gap-3 rounded-2xl rounded-tl-none border border-red-200 bg-red-50 p-4 shadow-sm dark:border-red-500/20 dark:bg-red-500/10">
                     <h4 className="text-sm font-bold text-red-800 dark:text-red-300">{message.content}</h4>
@@ -574,10 +605,10 @@ export default function UnifiedChat({
                           <h3 className="mb-1 text-xs font-semibold text-slate-500 dark:text-neutral-400">
                             {isEn ? 'Conclusion' : '結論'}
                           </h3>
-                          <ReactMarkdown>{message.answer.conclusion}</ReactMarkdown>
+                          <SafeMarkdown isEn={isEn}>{message.answer.conclusion}</SafeMarkdown>
                         </section>
                       )}
-                      <ReactMarkdown>{message.answer?.answer ?? message.content}</ReactMarkdown>
+                      <SafeMarkdown isEn={isEn}>{message.answer?.answer ?? message.content}</SafeMarkdown>
                     </div>
 
                     {message.answer && (
@@ -776,7 +807,7 @@ export default function UnifiedChat({
         {completionAnnouncement}
       </div>
 
-      <div className="shrink-0 border-t border-slate-200 bg-white/95 px-3 pb-4 pt-3 backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4 sm:pb-5">
+      <div className="safe-area-bottom shrink-0 border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-slate-500 focus-within:ring-2 focus-within:ring-slate-200 dark:border-white/15 dark:bg-neutral-900 dark:focus-within:border-white/30 dark:focus-within:ring-white/10">
             <textarea
