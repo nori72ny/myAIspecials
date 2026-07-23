@@ -294,6 +294,14 @@ describe('UnifiedChat', () => {
           nextActions: ['リンク先を確認してください。'],
           richOutputs: [],
         },
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: '無料条件を満たすAIを選びました。',
+          timeMs: 100,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-run',
+        },
       }),
     });
 
@@ -428,11 +436,11 @@ describe('UnifiedChat', () => {
     });
   });
 
-  it('falls back to plain content when answer and routing verification states conflict', async () => {
+  it('withholds all content when answer and routing verification states conflict', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        content: '確認状態が矛盾するため、通常表示へ戻します。',
+        content: '表示してはいけない通常形式の回答です。',
         answer: {
           schemaVersion: 'origin.answer.v1',
           language: 'ja',
@@ -462,11 +470,49 @@ describe('UnifiedChat', () => {
     render(<UnifiedChat />);
     sendJapaneseMessage('回答してください');
 
-    await waitFor(() => {
-      expect(screen.getByText('確認状態が矛盾するため、通常表示へ戻します。')).toBeTruthy();
-    });
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない通常形式の回答です。')).toBeNull();
     expect(screen.queryByText('表示してはいけない確認済み回答です。')).toBeNull();
     expect(screen.queryByTestId('structured-answer')).toBeNull();
+  });
+
+  it('withholds a structured answer when routing verification evidence is missing', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '表示してはいけない通常形式の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '表示してはいけない結論です。',
+          answer: '表示してはいけない構造化回答です。',
+          evidence: [],
+          verification: {
+            status: 'not-required',
+            independentReviewPerformed: false,
+            summary: '追加確認は不要です。',
+          },
+          limitations: [],
+          nextActions: [],
+          richOutputs: [],
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('回答してください');
+
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない通常形式の回答です。')).toBeNull();
+    expect(screen.queryByText('表示してはいけない構造化回答です。')).toBeNull();
   });
 
   it('rejects an empty successful response without offering an unsafe retry', async () => {
@@ -485,11 +531,11 @@ describe('UnifiedChat', () => {
     );
   });
 
-  it('falls back to the legacy content when an answer envelope is malformed', async () => {
+  it('withholds legacy content when a supplied answer envelope is malformed', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        content: '安全な従来形式です。',
+        content: '表示してはいけない従来形式です。',
         answer: {
           schemaVersion: 'origin.answer.v1',
           conclusion: '',
@@ -500,7 +546,12 @@ describe('UnifiedChat', () => {
     render(<UnifiedChat />);
     sendJapaneseMessage('回答してください');
 
-    await waitFor(() => expect(screen.getByText('安全な従来形式です。')).toBeTruthy());
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない従来形式です。')).toBeNull();
     expect(screen.queryByTestId('structured-answer')).toBeNull();
   });
 
@@ -508,7 +559,7 @@ describe('UnifiedChat', () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        content: '確認状態を検証できないため従来形式へ戻します。',
+        content: '表示してはいけない通常形式の回答です。',
         answer: {
           schemaVersion: 'origin.answer.v1',
           language: 'ja',
@@ -534,9 +585,12 @@ describe('UnifiedChat', () => {
     render(<UnifiedChat />);
     sendJapaneseMessage('回答してください');
 
-    await waitFor(() => {
-      expect(screen.getByText('確認状態を検証できないため従来形式へ戻します。')).toBeTruthy();
-    });
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない通常形式の回答です。')).toBeNull();
     expect(screen.queryByText('表示してはいけない確認済み回答です。')).toBeNull();
     expect(screen.queryByText('出典確認済み')).toBeNull();
   });
@@ -545,7 +599,7 @@ describe('UnifiedChat', () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        content: '検証済みの従来形式です。',
+        content: '表示してはいけない通常形式の回答です。',
         answer: {
           schemaVersion: 'origin.answer.v1',
           language: 'ja',
@@ -567,7 +621,12 @@ describe('UnifiedChat', () => {
     render(<UnifiedChat />);
     sendJapaneseMessage('回答してください');
 
-    await waitFor(() => expect(screen.getByText('検証済みの従来形式です。')).toBeTruthy());
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない通常形式の回答です。')).toBeNull();
     expect(screen.queryByText('表示してはいけない本文です。')).toBeNull();
     expect(screen.queryByTestId('structured-answer')).toBeNull();
   });
