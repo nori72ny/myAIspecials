@@ -47,12 +47,16 @@ function systemInstruction(): string {
   return `You are ORIGIN Personal AI.
 - Reply in the language used by the user.
 - Do not invent current facts or claim access to tools, files, accounts, websites, or services that were not supplied.
+- Separate confirmed facts from assumptions, inferences, and recommendations.
+- If missing information would materially change the answer, ask one concise clarifying question instead of guessing.
 - State uncertainty and missing evidence clearly.
 - Do not claim that code was merged, deployed, purchased, configured, or changed without execution evidence.
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
 - When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line.
 - Do not use that citation format when the source does not directly support the statement.
-- Give the conclusion first, followed by the minimum useful explanation and next action.`;
+- Give the conclusion first, followed by the minimum useful explanation and next action.
+- Do not repeat the conclusion or add headings that do not improve understanding.
+- For consequential decisions, state what the user must independently confirm before acting.`;
 }
 
 function applicationRouting(requestId: string, reason: string) {
@@ -68,6 +72,12 @@ function applicationRouting(requestId: string, reason: string) {
     traceId: requestId,
     verificationStatus: "not-required",
   };
+}
+
+function requiresCurrentInformation(message: string): boolean {
+  return /最新(?:の)?(?:情報|ニュース|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果)|今日の(?:ニュース|天気|料金|価格|株価|相場|結果)|現在の(?:ニュース|天気|料金|価格|株価|相場|仕様|バージョン|状況)|料金|価格|リアルタイム/.test(message)
+    || /\b(?:news|pricing|prices?|weather|real[- ]time)\b/i.test(message)
+    || /\b(?:latest|current|today'?s?)\s+(?:information|news|weather|pricing|prices?|rates?|status|results?|version|model)\b/i.test(message);
 }
 
 function firstAnswerBlock(content: string): string {
@@ -150,6 +160,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     }
 
     const lastUserMessage = messages[messages.length - 1].content;
+    const currentInformationRequired = requiresCurrentInformation(lastUserMessage);
     if (isOriginWeatherRequest(lastUserMessage)) {
       const isEnglish = /[a-zA-Z]/.test(lastUserMessage);
       if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) {
@@ -196,11 +207,40 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       });
     }
 
+    if (currentInformationRequired) {
+      const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage);
+      const content = isEnglish
+        ? "ORIGIN cannot verify current information in this release because live search is not connected. It will not answer from potentially outdated knowledge."
+        : "この版では最新情報を確認する検索機能が接続されていないため、古い可能性がある知識だけでは回答しません。";
+      const reason = isEnglish
+        ? "Live search is not connected, so external AI execution was skipped."
+        : "最新情報の検索機能が未接続のため、外部AIを実行しませんでした。";
+      const limitations = [isEnglish
+        ? "Current facts, prices, news, and other time-sensitive information were not retrieved or checked."
+        : "現在の事実、料金、ニュースなど、時点に依存する情報は取得・確認していません。"];
+      const nextActions = [isEnglish
+        ? "Paste the relevant text from an official source and ORIGIN can organize or compare that supplied content."
+        : "公式情報の本文または必要部分を貼り付けると、その内容を整理・比較できます。"];
+      return res.json({
+        content,
+        answer: answerEnvelope(
+          content,
+          isEnglish ? "en" : "ja",
+          "not-required",
+          reason,
+          [],
+          limitations,
+          nextActions,
+        ),
+        routing: applicationRouting(requestId, reason),
+      });
+    }
+
     const planningResult = buildOriginExecutionPlan(
       {
         goal: lastUserMessage.trim(),
         requiresCodeChanges: /実装|修正|コード|implement|fix/i.test(lastUserMessage),
-        requiresFreshResearch: /最新|調査|料金|current|research/i.test(lastUserMessage),
+        requiresFreshResearch: false,
         containsSecrets: false,
       },
       { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) },
@@ -244,8 +284,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"]
         : [];
       const evidence = extractProvidedOriginEvidence(result.text);
-      const sourceEvidenceExpected = planningResult.plan.taskType === "research"
-        || planningResult.plan.taskType === "current-information";
+      const sourceEvidenceExpected = planningResult.plan.taskType === "research";
       if (evidence.length > 0) {
         limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。");
         if (evidence.some((item) => item.claim === undefined)) {
