@@ -10,10 +10,16 @@ import {
 const baseInput: OriginAnswerEnvelopeInput = {
   language: "ja",
   conclusion: "最初に結論を示します。",
-  answer: "依頼に対する具体的な回答です。",
+  answer: [
+    "依頼に対する具体的な回答です。",
+    "",
+    "公式資料がこの回答を裏付けています。〔出典: [公式資料](https://example.com/evidence)〕",
+  ].join("\n"),
   evidence: [{
     label: "公式資料",
     sourceUrl: "https://example.com/evidence",
+    claim: "公式資料がこの回答を裏付けています。",
+    claimBinding: "explicit-inline-citation",
     evidenceLevel: "source-checked",
     checks: {
       safeUrl: "passed",
@@ -86,6 +92,8 @@ describe("OriginAnswerEnvelope", () => {
       evidence: [{
         label: "不正な参照",
         sourceUrl: "https://user:secret@example.com/evidence",
+        claim: "不正な参照を使う主張です。",
+        claimBinding: "explicit-inline-citation",
         evidenceLevel: "source-checked",
         checks: {
           safeUrl: "passed",
@@ -117,16 +125,20 @@ describe("OriginAnswerEnvelope", () => {
     const missingChecks = createOriginAnswerEnvelope({
       ...baseInput,
       evidence: [{
-        label: "確認根拠なし",
-        sourceUrl: "https://example.com/unchecked",
+        label: "公式資料",
+        sourceUrl: "https://example.com/evidence",
+        claim: "公式資料がこの回答を裏付けています。",
+        claimBinding: "explicit-inline-citation",
         evidenceLevel: "source-checked",
       }],
     });
     const contradictoryProvided = createOriginAnswerEnvelope({
       ...baseInput,
       evidence: [{
-        label: "表示と検査状態が矛盾",
-        sourceUrl: "https://example.com/contradictory",
+        label: "公式資料",
+        sourceUrl: "https://example.com/evidence",
+        claim: "公式資料がこの回答を裏付けています。",
+        claimBinding: "explicit-inline-citation",
         evidenceLevel: "provided",
         checks: {
           safeUrl: "passed",
@@ -139,6 +151,66 @@ describe("OriginAnswerEnvelope", () => {
 
     expect(missingChecks.ok).toBe(false);
     expect(contradictoryProvided.ok).toBe(false);
+  });
+
+  it("rejects a checked source without an explicit claim or with a secret-bearing claim", () => {
+    const noClaim = createOriginAnswerEnvelope({
+      ...baseInput,
+      evidence: [{
+        label: "主張なし",
+        sourceUrl: "https://example.com/no-claim",
+        evidenceLevel: "source-checked",
+        checks: {
+          safeUrl: "passed",
+          content: "passed",
+          freshness: "passed",
+          claimSupport: "passed",
+        },
+      }],
+    });
+    const secretClaim = createOriginAnswerEnvelope({
+      ...baseInput,
+      evidence: [{
+        label: "秘密情報を含む主張",
+        sourceUrl: "https://example.com/secret-claim",
+        claim: "Authorization: Bearer synthetic_claim_secret_123456",
+        claimBinding: "explicit-inline-citation",
+        evidenceLevel: "provided",
+      }],
+    });
+
+    expect(noClaim.ok).toBe(false);
+    expect(secretClaim.ok).toBe(false);
+  });
+
+  it("rejects a claim that was not created from an explicit citation binding", () => {
+    const result = createOriginAnswerEnvelope({
+      ...baseInput,
+      answer: "出典との対応を推測してはいけない主張です。〔出典: [結び付け方式なし](https://example.com/unbound)〕",
+      evidence: [{
+        label: "結び付け方式なし",
+        sourceUrl: "https://example.com/unbound",
+        claim: "出典との対応を推測してはいけない主張です。",
+        evidenceLevel: "provided",
+      }],
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects an explicit binding that is not present in the answer body", () => {
+    const result = createOriginAnswerEnvelope({
+      ...baseInput,
+      evidence: [{
+        label: "本文にない対応",
+        sourceUrl: "https://example.com/not-in-answer",
+        claim: "本文には存在しない主張です。",
+        claimBinding: "explicit-inline-citation",
+        evidenceLevel: "provided",
+      }],
+    });
+
+    expect(result.ok).toBe(false);
   });
 
   it("does not present a chart or artifact unless a real artifact reference exists", () => {

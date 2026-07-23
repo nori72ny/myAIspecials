@@ -275,6 +275,39 @@ describe("createOriginChatRouter", () => {
     expect(response.body.answer.limitations).toContain(
       "表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。",
     );
+    expect(response.body.answer.limitations).toContain(
+      "一部の出典は、回答内のどの主張に対応するか明示されていません。",
+    );
+    expect(response.body.answer.verification.status).toBe("not-run");
+  });
+
+  it("preserves an explicit claim-to-source mapping without claiming verification", async () => {
+    executeMock.mockResolvedValueOnce({
+      ...defaultExecutionResult,
+      text: "無料枠があります。〔出典: [公式料金](https://docs.example.com/pricing)〕",
+    });
+
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "最新料金を調査してください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.answer.evidence).toEqual([{
+      label: "公式料金",
+      sourceUrl: "https://docs.example.com/pricing",
+      claim: "無料枠があります。",
+      claimBinding: "explicit-inline-citation",
+      evidenceLevel: "provided",
+      checks: {
+        safeUrl: "passed",
+        content: "not-run",
+        freshness: "not-run",
+        claimSupport: "not-run",
+      },
+    }]);
+    expect(response.body.answer.limitations).not.toContain(
+      "一部の出典は、回答内のどの主張に対応するか明示されていません。",
+    );
     expect(response.body.answer.verification.status).toBe("not-run");
   });
 

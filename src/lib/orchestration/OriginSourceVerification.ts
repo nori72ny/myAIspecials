@@ -11,7 +11,6 @@ const SAFE_VERIFICATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 
 export interface OriginSourceVerificationRequest {
   verificationId: string;
-  claim: string;
   evidence: OriginAnswerEvidenceItem;
 }
 
@@ -74,7 +73,9 @@ function validateRequest(
   request: OriginSourceVerificationRequest,
 ): OriginSourceVerificationExecutionRequest | null {
   const verificationId = cleanBounded(request.verificationId, MAX_ID_LENGTH);
-  const claim = cleanBounded(request.claim, MAX_CLAIM_LENGTH);
+  const claim = request.evidence.claim
+    ? cleanBounded(request.evidence.claim, MAX_CLAIM_LENGTH)
+    : null;
   const sourceUrl = request.evidence.sourceUrl
     ? normalizeOriginPublicHttpsUrl(request.evidence.sourceUrl)
     : null;
@@ -87,6 +88,7 @@ function validateRequest(
     || containsSensitiveInput(claim)
     || !sourceUrl
     || request.evidence.evidenceLevel !== "provided"
+    || request.evidence.claimBinding !== "explicit-inline-citation"
     || checks.safeUrl !== "passed"
     || checks.content !== "not-run"
     || checks.freshness !== "not-run"

@@ -50,6 +50,8 @@ function systemInstruction(): string {
 - State uncertainty and missing evidence clearly.
 - Do not claim that code was merged, deployed, purchased, configured, or changed without execution evidence.
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
+- When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line.
+- Do not use that citation format when the source does not directly support the statement.
 - Give the conclusion first, followed by the minimum useful explanation and next action.`;
 }
 
@@ -246,6 +248,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         || planningResult.plan.taskType === "current-information";
       if (evidence.length > 0) {
         limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。");
+        if (evidence.some((item) => item.claim === undefined)) {
+          limitations.push("一部の出典は、回答内のどの主張に対応するか明示されていません。");
+        }
         nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。");
       } else if (sourceEvidenceExpected) {
         limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。");

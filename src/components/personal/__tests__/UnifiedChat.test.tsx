@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { vi } from 'vitest';
 import UnifiedChat from '../UnifiedChat';
 import { useAppState } from '../../../hooks/useAppState';
@@ -166,10 +166,16 @@ describe('UnifiedChat', () => {
           schemaVersion: 'origin.answer.v1',
           language: 'ja',
           conclusion: '安全条件を満たす候補です。',
-          answer: '具体的な回答内容です。',
+          answer: [
+            '具体的な回答内容です。',
+            '',
+            '公式資料がこの結論を裏付けています。〔出典: [公式資料](https://example.com/evidence)〕',
+          ].join('\n'),
           evidence: [{
             label: '公式資料',
             sourceUrl: 'https://example.com/evidence',
+            claim: '公式資料がこの結論を裏付けています。',
+            claimBinding: 'explicit-inline-citation',
             evidenceLevel: 'source-checked',
             checks: {
               safeUrl: 'passed',
@@ -198,9 +204,15 @@ describe('UnifiedChat', () => {
       expect(screen.getByText('安全条件を満たす候補です。')).toBeTruthy();
       expect(screen.getByText('具体的な回答内容です。')).toBeTruthy();
       expect(screen.getByText('根拠と出典')).toBeTruthy();
-      expect(screen.getByRole('link', { name: '公式資料' })).toBeTruthy();
+    expect(
+      within(screen.getByTestId('structured-answer')).getByRole('link', {
+        name: '公式資料',
+      }),
+    ).toBeTruthy();
       expect(screen.getByText('出典確認済み')).toBeTruthy();
       expect(screen.getByText('確認済み：本文・更新時点・回答との一致。')).toBeTruthy();
+      expect(screen.getByText('確認した主張：')).toBeTruthy();
+      expect(screen.getByText('公式資料がこの結論を裏付けています。')).toBeTruthy();
       expect(screen.getByText('確認状況')).toBeTruthy();
       expect(screen.getByText('今回は別のAIによる確認を実施していません。')).toBeTruthy();
       expect(screen.getByText('制約・未確認事項')).toBeTruthy();
@@ -218,10 +230,16 @@ describe('UnifiedChat', () => {
           schemaVersion: 'origin.answer.v1',
           language: 'ja',
           conclusion: '提示された資料があります。',
-          answer: '資料を確認してください。',
+          answer: [
+            '資料を確認してください。',
+            '',
+            'AIがこの資料を主張に対応付けました。〔出典: [提示資料](https://example.com/provided)〕',
+          ].join('\n'),
           evidence: [{
             label: '提示資料',
             sourceUrl: 'https://example.com/provided',
+            claim: 'AIがこの資料を主張に対応付けました。',
+            claimBinding: 'explicit-inline-citation',
             evidenceLevel: 'provided',
             checks: {
               safeUrl: 'passed',
@@ -246,9 +264,15 @@ describe('UnifiedChat', () => {
     sendJapaneseMessage('資料を確認してください');
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: '提示資料' })).toBeTruthy();
+    expect(
+      within(screen.getByTestId('structured-answer')).getByRole('link', {
+        name: '提示資料',
+      }),
+    ).toBeTruthy();
       expect(screen.getByText('AIが提示・未確認')).toBeTruthy();
       expect(screen.getByText('確認済み：HTTPSリンクの基本形式のみ。接続先・本文・更新時点・回答との一致は未確認です。')).toBeTruthy();
+      expect(screen.getByText('AIがこの資料を主張に対応付けました。')).toBeTruthy();
+      expect(screen.getByText('AIが対応付けた主張：')).toBeTruthy();
     });
     expect(screen.queryByText('出典確認済み')).toBeNull();
   });

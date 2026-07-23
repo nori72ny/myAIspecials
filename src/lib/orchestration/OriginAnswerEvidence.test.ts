@@ -18,6 +18,17 @@ describe("extractProvidedOriginEvidence", () => {
     }]);
   });
 
+  it("preserves explicit claim-to-source mappings without merging different claims", () => {
+    const result = extractProvidedOriginEvidence([
+      "主張Aです。〔出典: [同じ資料](https://docs.example.com/source)〕",
+      "主張Bです。〔出典: [同じ資料](https://docs.example.com/source)〕",
+      "一般リンクは[同じ資料](https://docs.example.com/source)です。",
+    ].join("\n"));
+
+    expect(result).toHaveLength(2);
+    expect(result.map((item) => item.claim)).toEqual(["主張Aです。", "主張Bです。"]);
+  });
+
   it("rejects non-HTTPS, credential-bearing, and malformed links", () => {
     expect(extractProvidedOriginEvidence([
       "[HTTP](http://example.com)",

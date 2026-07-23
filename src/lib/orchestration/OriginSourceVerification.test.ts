@@ -10,6 +10,8 @@ const nowMs = Date.parse("2026-07-23T04:30:00.000Z");
 const evidence: OriginAnswerEvidenceItem = {
   label: "公式資料",
   sourceUrl: "https://docs.example.com/current",
+  claim: "公式資料では無料枠が提供されています。",
+  claimBinding: "explicit-inline-citation",
   evidenceLevel: "provided",
   checks: {
     safeUrl: "passed",
@@ -20,14 +22,13 @@ const evidence: OriginAnswerEvidenceItem = {
 };
 const request = {
   verificationId: "source-check-001",
-  claim: "公式資料では無料枠が提供されています。",
   evidence,
 };
 const validRecord: OriginSourceVerificationRecord = {
   verificationId: request.verificationId,
   sourceUrl: "https://docs.example.com/current",
   finalUrl: "https://docs.example.com/current",
-  claim: request.claim,
+  claim: "公式資料では無料枠が提供されています。",
   fetchedAt: "2026-07-23T04:29:00.000Z",
   httpStatus: 200,
   contentDigest: `sha256:${"a".repeat(64)}`,
@@ -61,7 +62,7 @@ describe("executeOriginSourceVerification", () => {
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledWith({
       verificationId: request.verificationId,
-      claim: request.claim,
+      claim: evidence.claim,
       sourceUrl: evidence.sourceUrl,
       executionPolicy: {
         maxCostUsd: 0,
@@ -117,7 +118,10 @@ describe("executeOriginSourceVerification", () => {
     const execute = vi.fn();
     const secretClaim = {
       ...request,
-      claim: "Authorization: Bearer synthetic_source_secret_123456",
+      evidence: {
+        ...evidence,
+        claim: "Authorization: Bearer synthetic_source_secret_123456",
+      },
     };
     const unsafeId = {
       ...request,

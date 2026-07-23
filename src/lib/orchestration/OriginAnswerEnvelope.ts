@@ -1,4 +1,6 @@
+import { extractExplicitOriginClaimCitations } from "./OriginClaimCitation";
 import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl";
+import { containsSensitiveInput } from "./SensitiveInputDetector";
 
 export type OriginAnswerVerificationStatus = "not-run" | "not-required" | "passed";
 
@@ -14,6 +16,8 @@ export interface OriginAnswerEvidenceChecks {
 export interface OriginAnswerEvidenceInput {
   label: string;
   sourceUrl?: string;
+  claim?: string;
+  claimBinding?: "explicit-inline-citation";
   evidenceLevel: "provided" | "source-checked";
   checks?: OriginAnswerEvidenceChecks;
 }
@@ -142,18 +146,40 @@ export function createOriginAnswerEnvelope(
 
   const evidence = input.evidence.map((item) => {
     const checks = normalizeEvidenceChecks(item);
-    return {
+    const normalized = {
       ...item,
       label: item.label.trim(),
       sourceUrl: item.sourceUrl?.trim(),
       checks,
     };
+    return item.claim === undefined
+      ? normalized
+      : { ...normalized, claim: item.claim.trim() };
   });
+  const explicitCitationKeys = new Set(
+    extractExplicitOriginClaimCitations(answer).map(
+      (item) => `${item.claim}\u0000${item.sourceUrl}`,
+    ),
+  );
   const invalidEvidence = evidence.some((item) =>
     item.label.length === 0
     || item.label.length > MAX_ITEM_LENGTH
     || (item.sourceUrl !== undefined && !normalizeOriginPublicHttpsUrl(item.sourceUrl))
-    || (item.evidenceLevel === "source-checked" && item.sourceUrl === undefined)
+    || (item.claim !== undefined && (
+      item.claim.length === 0
+      || item.claim.length > MAX_ITEM_LENGTH
+      || containsSensitiveInput(item.claim)
+    ))
+    || (item.claim !== undefined && item.claimBinding !== "explicit-inline-citation")
+    || (item.claim === undefined && item.claimBinding !== undefined)
+    || (item.claimBinding === "explicit-inline-citation" && !explicitCitationKeys.has(
+      `${item.claim}\u0000${item.sourceUrl}`,
+    ))
+    || (item.evidenceLevel === "source-checked" && (
+      item.sourceUrl === undefined
+      || item.claim === undefined
+      || item.claimBinding !== "explicit-inline-citation"
+    ))
     || item.checks === null
   );
   if (invalidEvidence) {

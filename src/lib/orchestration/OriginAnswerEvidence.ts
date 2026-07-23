@@ -1,4 +1,5 @@
 import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope";
+import { extractExplicitOriginClaimCitations } from "./OriginClaimCitation";
 import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl";
 
 const MAX_EVIDENCE_ITEMS = 10;
@@ -7,7 +8,8 @@ const MAX_LABEL_LENGTH = 200;
 export function extractProvidedOriginEvidence(
   content: string,
 ): OriginAnswerEvidenceItem[] {
-  const evidence: OriginAnswerEvidenceItem[] = [];
+  const evidence = extractExplicitOriginClaimCitations(content);
+  const explicitlyLinkedUrls = new Set(evidence.map((item) => item.sourceUrl));
   const seenUrls = new Set<string>();
   let cursor = 0;
 
@@ -30,6 +32,7 @@ export function extractProvidedOriginEvidence(
       || label.length > MAX_LABEL_LENGTH
       || label.includes("\n")
       || !sourceUrl
+      || explicitlyLinkedUrls.has(sourceUrl)
       || seenUrls.has(sourceUrl)
     ) continue;
 

@@ -76,6 +76,8 @@ function parseOriginAnswerEnvelope(value: unknown): OriginAnswerEnvelope | undef
     const checks = evidence.checks;
     const baseIsValid = typeof evidence.label === 'string'
       && (evidence.sourceUrl === undefined || typeof evidence.sourceUrl === 'string')
+      && (evidence.claim === undefined || typeof evidence.claim === 'string')
+      && (evidence.claimBinding === undefined || evidence.claimBinding === 'explicit-inline-citation')
       && (evidence.evidenceLevel === 'provided' || evidence.evidenceLevel === 'source-checked');
     if (!baseIsValid) return false;
 
@@ -541,6 +543,16 @@ export default function UnifiedChat({
                                   <p className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
                                     {evidenceCheckLabel(item, isEn)}
                                   </p>
+                                  {item.claim && (
+                                    <p className="mt-1 text-xs text-slate-600 dark:text-neutral-300">
+                                      <span className="font-medium">
+                                        {item.evidenceLevel === 'source-checked'
+                                          ? (isEn ? 'Checked statement: ' : '確認した主張：')
+                                          : (isEn ? 'AI-linked statement: ' : 'AIが対応付けた主張：')}
+                                      </span>
+                                      {item.claim}
+                                    </p>
+                                  )}
                                 </li>
                               ))}
                             </ul>
