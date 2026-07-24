@@ -22,6 +22,7 @@ describe("OriginProductExperienceContract", () => {
   it("preserves the full orchestration path instead of reducing ORIGIN to chat", () => {
     expect(ORIGIN_PRODUCT_EXPERIENCE_CONTRACT.orchestrationStages).toEqual([
       "understand-goal",
+      "identify-needed-context-data-and-deliverables",
       "classify-task",
       "select-safe-free-ai",
       "execute",
@@ -30,6 +31,33 @@ describe("OriginProductExperienceContract", () => {
       "synthesize",
       "present-truthfully",
     ]);
+  });
+
+  it("treats useful work beyond the literal request as part of the product", () => {
+    expect(ORIGIN_PRODUCT_EXPERIENCE_CONTRACT.finalGoal).toBe(
+      "world-class-ai-agent-service",
+    );
+    expect(ORIGIN_PRODUCT_EXPERIENCE_CONTRACT.purpose).toEqual(
+      expect.arrayContaining([
+        "identify-unspoken-information-needed-to-achieve-the-goal",
+        "deliver-useful-information-data-risks-and-next-actions-beyond-the-literal-request",
+        "use-specialist-ai-when-it-materially-improves-the-result",
+      ]),
+    );
+  });
+
+  it("requires equivalent product quality across all target devices", () => {
+    expect(ORIGIN_PRODUCT_EXPERIENCE_CONTRACT.design.targetDevices).toEqual([
+      "smartphone",
+      "tablet",
+      "desktop",
+    ]);
+    expect(ORIGIN_PRODUCT_EXPERIENCE_CONTRACT.design.principles).toEqual(
+      expect.arrayContaining([
+        "cross-device-equivalence",
+        "device-appropriate-information-density",
+      ]),
+    );
   });
 
   it("requires a Japanese-first, evidence-aware answer hierarchy", () => {
@@ -60,9 +88,28 @@ describe("OriginProductExperienceContract", () => {
     expect(contract.invariants.unsupportedQualityClaimsAllowed).toBe(false);
   });
 
+  it("defines world-leading quality as a measured goal rather than a claim", () => {
+    const quality = ORIGIN_PRODUCT_EXPERIENCE_CONTRACT.qualityGoal;
+
+    expect(quality.target).toBe("highest-verified-deliverable-quality");
+    expect(quality.unsupportedWorldBestClaimAllowed).toBe(false);
+    expect(quality.comparisonRequired).toBe(true);
+    expect(quality.humanAcceptanceRequired).toBe(true);
+    expect(quality.evaluationDimensions).toEqual(expect.arrayContaining([
+      "factual-accuracy",
+      "goal-and-instruction-fit",
+      "practical-usability",
+      "design-quality",
+      "cross-device-quality",
+    ]));
+  });
+
   it("allows future AI providers without rewriting the product core or UI", () => {
     expect(ORIGIN_PRODUCT_EXPERIENCE_CONTRACT.evolution).toEqual({
       integrationBoundary: "provider-adapter",
+      capabilityCatalogExtensible: true,
+      outputCatalogExtensible: true,
+      interactionModes: ["conversation", "deliverable", "agent-workflow"],
       routingEvidence: ["capability", "safety", "cost", "availability", "quality-evidence"],
       coreRewriteRequiredForNewAi: false,
       uiRewriteRequiredForNewAi: false,
