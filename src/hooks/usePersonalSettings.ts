@@ -10,7 +10,7 @@ export const DEFAULT_PERSONAL_SETTINGS: Settings = Object.freeze({
   language: 'ja',
   developerMode: false,
   uiMode: 'normal',
-  selectedTheme: 'dark',
+  selectedTheme: 'light',
   maxCostCap: 0,
   retryCount: 0,
   timeoutSeconds: 30,
