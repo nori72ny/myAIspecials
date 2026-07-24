@@ -400,7 +400,7 @@ describe('UnifiedChat', () => {
     });
   });
 
-  it('states when a structured answer contains no sources', async () => {
+  it('keeps simple answers focused when sources and extra verification are not required', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -435,9 +435,11 @@ describe('UnifiedChat', () => {
     sendJapaneseMessage('確認してください');
 
     await waitFor(() => {
-      expect(screen.getByText('回答内の出典なし')).toBeTruthy();
-      expect(screen.getByText('この回答では不要')).toBeTruthy();
+      expect(screen.getByRole('article', { name: 'ORIGINの回答' })).toBeTruthy();
     });
+    expect(screen.queryByTestId('answer-trust-overview')).toBeNull();
+    expect(screen.queryByTestId('answer-verification')).toBeNull();
+    expect(screen.queryByTestId('structured-answer')).toBeNull();
   });
 
   it('withholds all content when answer and routing verification states conflict', async () => {
