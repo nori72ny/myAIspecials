@@ -233,7 +233,7 @@ describe("createOriginChatRouter", () => {
       "Separate confirmed facts from assumptions, inferences, and recommendations.",
     );
     expect(providerRequest.systemInstruction).toContain(
-      "ask one concise clarifying question instead of guessing",
+      "Otherwise make the minimum explicit assumptions and provide a useful first version now",
     );
     expect(providerRequest.systemInstruction).toContain(
       "Do not repeat the conclusion",
@@ -243,6 +243,12 @@ describe("createOriginChatRouter", () => {
     );
     expect(providerRequest.systemInstruction).toContain(
       "never claim that a specialist AI reviewed",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "produce the requested usable content in this response",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "check goal fit, completeness, internal consistency, practical usability",
     );
     expect(providerRequest.systemInstruction).toContain(
       "Application request analysis (guidance only; not execution evidence)",
@@ -458,6 +464,36 @@ describe("createOriginChatRouter", () => {
         independentReviewPerformed: false,
       }),
     }));
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      model: "ORIGIN アプリ内処理",
+      cost: 0,
+      verificationStatus: "not-required",
+    }));
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("answers capability questions with ORIGIN's truthful product guide without calling a provider", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "あなたは何ができるのですか？具体例を5つ教えてください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("成果物まで作るAIエージェント");
+    expect(response.body.content).toContain("資料・提案書");
+    expect(response.body.content).toContain("画像・Web・アプリ");
+    expect(response.body.content).toContain("まだ接続されていません");
+    expect(response.body.answer).toEqual(expect.objectContaining({
+      schemaVersion: "origin.answer.v1",
+      language: "ja",
+      verification: expect.objectContaining({
+        status: "not-required",
+        independentReviewPerformed: false,
+      }),
+      limitations: [
+        "リアルタイム検索と、画像・文書・スライド・アプリ・Webサイトの実ファイル生成または公開は、現在の公開版では未接続です。",
+      ],
+    }));
+    expect(response.body.answer.nextActions[0]).toContain("一文で入力");
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN アプリ内処理",
       cost: 0,
