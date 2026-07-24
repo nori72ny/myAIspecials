@@ -155,7 +155,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   const shouldShowAiStatus = aiCoreState !== 'HEALTHY' && aiCoreState !== 'UNKNOWN';
 
   return (
-    <div className="flex h-screen h-dvh w-full overflow-hidden bg-white font-sans text-slate-900 dark:bg-black dark:text-neutral-100">
+    <div className="flex h-screen h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900 dark:bg-black dark:text-neutral-100">
       <AnimatePresence>
         {isSidebarOpen && (
           <motion.div
@@ -176,13 +176,13 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
         aria-hidden={!isSidebarOpen}
         inert={!isSidebarOpen}
         className={cn(
-          'fixed z-50 flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-neutral-950 lg:relative',
+          'fixed z-50 flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white dark:border-white/10 dark:bg-neutral-950 lg:relative',
           !isSidebarOpen && 'lg:w-0 lg:border-none',
         )}
       >
         <div className="flex shrink-0 items-center justify-between p-4">
           <div className="flex items-center gap-2 px-2 text-sm font-bold tracking-tight">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-black dark:bg-white">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 shadow-sm shadow-indigo-200 dark:bg-white">
               <Sparkles className="h-3.5 w-3.5 text-white dark:text-black" aria-hidden="true" />
             </div>
             <span>ORIGIN</span>
@@ -202,7 +202,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             type="button"
             onClick={startNewChat}
             data-testid="new-chat-button"
-            className="flex w-full items-center gap-2 rounded-lg bg-black px-3 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-black"
+            className="flex w-full items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             <span>{isEn ? 'New request' : '新しい依頼'}</span>
@@ -220,7 +220,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
               className={cn(
                 'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                 currentView === item.id
-                  ? 'bg-slate-200/60 text-slate-900 dark:bg-white/10 dark:text-white'
+                  ? 'bg-indigo-50 text-indigo-700 dark:bg-white/10 dark:text-white'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white',
               )}
             >
@@ -246,7 +246,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       </motion.aside>
 
       <main className="relative flex h-full min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center border-b border-slate-200 px-4 dark:border-white/10">
+        <header className="flex h-14 shrink-0 items-center border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-white/10 dark:bg-black/90">
           {!isSidebarOpen && (
             <button
               type="button"
@@ -259,19 +259,29 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
           )}
           <div className="flex flex-1 items-center justify-between gap-3">
             <h1 className="truncate text-sm font-semibold">{currentViewLabel}</h1>
-            {shouldShowAiStatus && (
-              <div
-                role="status"
-                aria-live="polite"
-                className={cn(
-                  'flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition-colors duration-300',
-                  getAiCoreColor(),
-                )}
+            <div className="flex items-center gap-2">
+              {shouldShowAiStatus && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition-colors duration-300',
+                    getAiCoreColor(),
+                  )}
+                >
+                  <Activity className="h-3 w-3" aria-hidden="true" />
+                  <span>{getAiCoreLabel()}</span>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={openSettings}
+                aria-label={isEn ? 'Open settings' : '設定を開く'}
+                className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white"
               >
-                <Activity className="h-3 w-3" aria-hidden="true" />
-                <span>{getAiCoreLabel()}</span>
-              </div>
-            )}
+                <SettingsIcon className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
           </div>
         </header>
 
