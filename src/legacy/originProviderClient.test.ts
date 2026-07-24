@@ -25,9 +25,9 @@ const plan: OriginExecutionPlan = {
     requireZeroDataRetention: true,
   },
   modelEvidence: {
-    verifiedAt: "2026-07-19T00:00:00.000Z",
-    reviewAfter: "2026-08-18T23:59:59.999Z",
-    sourceUrl: "https://openrouter.ai/moonshotai/kimi-k2.6:free/pricing",
+    verifiedAt: "2026-07-24T00:00:00.000Z",
+    reviewAfter: "2026-07-31T23:59:59.999Z",
+    sourceUrl: "https://openrouter.ai/openai/gpt-oss-20b:free/pricing",
   },
 };
 
@@ -70,28 +70,22 @@ function successfulProviderPayload(overrides: Record<string, unknown> = {}) {
 }
 
 describe("executeOriginProvider", () => {
-  it("enforces zero max price, no fallback, data deny, ZDR, and routing evidence", async () => {
+  it("enforces an explicit free model, no fallback, data deny, ZDR, and routing evidence", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       const headers = init?.headers as Record<string, string>;
 
-      expect(body.model).toBe("moonshotai/kimi-k2.6:free");
+      expect(body.model).toBe("openai/gpt-oss-20b:free");
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
       expect(body.usage).toBeUndefined();
       expect(body.provider).toEqual({
         allow_fallbacks: false,
         data_collection: "deny",
         zdr: true,
-        max_price: {
-          prompt: 0,
-          completion: 0,
-          request: 0,
-          image: 0,
-        },
       });
-      expect(headers["X-Title"]).toBe("ORIGIN Personal");
+      expect(headers["X-OpenRouter-Title"]).toBe("ORIGIN Personal");
       expect(headers["X-OpenRouter-Metadata"]).toBe("enabled");
-      expect(headers["HTTP-Referer"]).toBeUndefined();
+      expect(headers["HTTP-Referer"]).toBe("https://myaispecials.ai.studio/");
 
       return new Response(JSON.stringify(successfulProviderPayload()), {
         status: 200,
@@ -350,5 +344,23 @@ describe("executeOriginProvider", () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it.each([
+    [401, "PROVIDER_NOT_CONFIGURED", false],
+    [402, "PROVIDER_UNAVAILABLE", false],
+    [403, "PROVIDER_UNAVAILABLE", false],
+    [404, "PROVIDER_UNAVAILABLE", true],
+  ] as const)("maps provider HTTP %s to a truthful public error", async (status, code, retryable) => {
+    const fetchMock = vi.fn(async () => new Response("provider detail must stay private", { status }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code,
+      retryable,
+    });
   });
 });
