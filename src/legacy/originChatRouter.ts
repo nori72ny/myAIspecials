@@ -15,6 +15,21 @@ import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPo
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog";
 import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy";
 import {
+  classifyOriginRequestIntent,
+  originRequestIntentInstruction,
+  type OriginRequestIntent,
+} from "../lib/orchestration/OriginRequestIntent";
+import {
+  buildOriginAgentWorkPlan,
+  originAgentWorkPlanInstruction,
+  type OriginAgentWorkPlan,
+} from "../lib/orchestration/OriginAgentWorkPlan";
+import {
+  originServiceAssignmentInstruction,
+  resolveOriginAgentWorkPlan,
+  type OriginResolvedWorkPlan,
+} from "../lib/orchestration/OriginServiceRegistry";
+import {
   executeOriginProvider,
   OriginProviderError,
   type OriginProviderExecutionRequest,
@@ -43,7 +58,16 @@ export interface OriginChatRouterOptions {
   createRequestId?: () => string;
 }
 
-function systemInstruction(): string {
+function systemInstruction(
+  intent?: OriginRequestIntent,
+  workPlan?: OriginAgentWorkPlan,
+  resolvedPlan?: OriginResolvedWorkPlan,
+): string {
+  const requestGuidance = intent ? `\n\n${originRequestIntentInstruction(intent)}` : "";
+  const workPlanGuidance = workPlan ? `\n\n${originAgentWorkPlanInstruction(workPlan)}` : "";
+  const assignmentGuidance = resolvedPlan
+    ? `\n\n${originServiceAssignmentInstruction(resolvedPlan)}`
+    : "";
   return `You are ORIGIN Personal AI.
 - Reply in the language used by the user.
 - Do not invent current facts or claim access to tools, files, accounts, websites, or services that were not supplied.
@@ -54,9 +78,14 @@ function systemInstruction(): string {
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
 - When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line.
 - Do not use that citation format when the source does not directly support the statement.
-- Give the conclusion first, followed by the minimum useful explanation and next action.
+- Identify the user's real objective, not only the literal wording of the request.
+- When it materially improves the objective, add missing decision criteria, required data, important assumptions, risks, and practical next actions even if the user did not explicitly request them.
+- Do not add generic background, repeated advice, or extra sections merely to make the answer longer.
+- Clearly distinguish user-supplied facts, verified facts, calculations, assumptions, inferences, and recommendations.
+- Identify when specialist expertise would materially improve the result, but never claim that a specialist AI reviewed or produced the answer without execution evidence.
+- Give the conclusion first, followed by the useful result, relevant additional value, and next action.
 - Do not repeat the conclusion or add headings that do not improve understanding.
-- For consequential decisions, state what the user must independently confirm before acting.`;
+- For consequential decisions, state what the user must independently confirm before acting.${requestGuidance}${workPlanGuidance}${assignmentGuidance}`;
 }
 
 function applicationRouting(requestId: string, reason: string) {
@@ -262,10 +291,16 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
 
     const startedAt = now();
     try {
+      const requestIntent = classifyOriginRequestIntent(
+        lastUserMessage,
+        planningResult.plan.taskType,
+      );
+      const workPlan = buildOriginAgentWorkPlan(requestIntent);
+      const resolvedPlan = resolveOriginAgentWorkPlan(workPlan);
       const result = await execute({
         plan: planningResult.plan,
         messages: contextResult.window.messages,
-        systemInstruction: systemInstruction(),
+        systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan),
       });
       const reviewDecision = decideOriginReviewForMessage(
         planningResult.plan.taskType,
