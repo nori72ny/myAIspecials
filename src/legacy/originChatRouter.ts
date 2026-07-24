@@ -1,11 +1,34 @@
 import { Router } from "express";
 import {
+  createOriginAnswerEnvelope,
+  type OriginAnswerEnvelope,
+  type OriginAnswerEvidenceItem,
+  type OriginAnswerVerificationStatus,
+} from "../lib/orchestration/OriginAnswerEnvelope";
+import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence";
+import {
   DEFAULT_ORIGIN_CONTEXT_POLICY,
   minimizeOriginContext,
   type OriginContextPolicy,
 } from "../lib/orchestration/OriginContextPolicy";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog";
+import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy";
+import {
+  classifyOriginRequestIntent,
+  originRequestIntentInstruction,
+  type OriginRequestIntent,
+} from "../lib/orchestration/OriginRequestIntent";
+import {
+  buildOriginAgentWorkPlan,
+  originAgentWorkPlanInstruction,
+  type OriginAgentWorkPlan,
+} from "../lib/orchestration/OriginAgentWorkPlan";
+import {
+  originServiceAssignmentInstruction,
+  resolveOriginAgentWorkPlan,
+  type OriginResolvedWorkPlan,
+} from "../lib/orchestration/OriginServiceRegistry";
 import {
   executeOriginProvider,
   OriginProviderError,
@@ -35,14 +58,34 @@ export interface OriginChatRouterOptions {
   createRequestId?: () => string;
 }
 
-function systemInstruction(): string {
+function systemInstruction(
+  intent?: OriginRequestIntent,
+  workPlan?: OriginAgentWorkPlan,
+  resolvedPlan?: OriginResolvedWorkPlan,
+): string {
+  const requestGuidance = intent ? `\n\n${originRequestIntentInstruction(intent)}` : "";
+  const workPlanGuidance = workPlan ? `\n\n${originAgentWorkPlanInstruction(workPlan)}` : "";
+  const assignmentGuidance = resolvedPlan
+    ? `\n\n${originServiceAssignmentInstruction(resolvedPlan)}`
+    : "";
   return `You are ORIGIN Personal AI.
 - Reply in the language used by the user.
 - Do not invent current facts or claim access to tools, files, accounts, websites, or services that were not supplied.
+- Separate confirmed facts from assumptions, inferences, and recommendations.
+- If missing information would materially change the answer, ask one concise clarifying question instead of guessing.
 - State uncertainty and missing evidence clearly.
 - Do not claim that code was merged, deployed, purchased, configured, or changed without execution evidence.
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
-- Give the conclusion first, followed by the minimum useful explanation and next action.`;
+- When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line.
+- Do not use that citation format when the source does not directly support the statement.
+- Identify the user's real objective, not only the literal wording of the request.
+- When it materially improves the objective, add missing decision criteria, required data, important assumptions, risks, and practical next actions even if the user did not explicitly request them.
+- Do not add generic background, repeated advice, or extra sections merely to make the answer longer.
+- Clearly distinguish user-supplied facts, verified facts, calculations, assumptions, inferences, and recommendations.
+- Identify when specialist expertise would materially improve the result, but never claim that a specialist AI reviewed or produced the answer without execution evidence.
+- Give the conclusion first, followed by the useful result, relevant additional value, and next action.
+- Do not repeat the conclusion or add headings that do not improve understanding.
+- For consequential decisions, state what the user must independently confirm before acting.${requestGuidance}${workPlanGuidance}${assignmentGuidance}`;
 }
 
 function applicationRouting(requestId: string, reason: string) {
@@ -58,6 +101,57 @@ function applicationRouting(requestId: string, reason: string) {
     traceId: requestId,
     verificationStatus: "not-required",
   };
+}
+
+function requiresCurrentInformation(message: string): boolean {
+  return /最新(?:の)?(?:情報|ニュース|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果)|今日の(?:ニュース|天気|料金|価格|株価|相場|結果)|現在の(?:ニュース|天気|料金|価格|株価|相場|仕様|バージョン|状況)|料金|価格|リアルタイム/.test(message)
+    || /\b(?:news|pricing|prices?|weather|real[- ]time)\b/i.test(message)
+    || /\b(?:latest|current|today'?s?)\s+(?:information|news|weather|pricing|prices?|rates?|status|results?|version|model)\b/i.test(message);
+}
+
+function firstAnswerBlock(content: string): string {
+  const firstBlock = content
+    .split(/\n\s*\n|\n/)
+    .map((part) => part.trim())
+    .find(Boolean) ?? content.trim();
+  const withoutHeading = firstBlock.replace(/^#{1,6}\s+/, "").trim();
+  if (withoutHeading.length <= 500) return withoutHeading;
+
+  const candidate = withoutHeading.slice(0, 500);
+  const sentenceEnd = Math.max(
+    candidate.lastIndexOf("。") + 1,
+    candidate.lastIndexOf("！") + 1,
+    candidate.lastIndexOf("？") + 1,
+    candidate.lastIndexOf(". ") + 1,
+  );
+  return sentenceEnd >= 40 ? candidate.slice(0, sentenceEnd).trim() : `${candidate.slice(0, 499).trimEnd()}…`;
+}
+
+function answerEnvelope(
+  content: string,
+  language: "ja" | "en",
+  verificationStatus: OriginAnswerVerificationStatus,
+  verificationSummary: string,
+  evidence: readonly OriginAnswerEvidenceItem[] = [],
+  limitations: readonly string[] = [],
+  nextActions: readonly string[] = [],
+): OriginAnswerEnvelope {
+  const result = createOriginAnswerEnvelope({
+    language,
+    conclusion: firstAnswerBlock(content),
+    answer: content,
+    evidence,
+    verification: {
+      status: verificationStatus,
+      independentReviewPerformed: verificationStatus === "passed",
+      summary: verificationSummary,
+    },
+    limitations,
+    nextActions,
+  });
+
+  if (result.ok === false) throw new Error(result.code);
+  return result.value;
 }
 
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
@@ -95,27 +189,28 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     }
 
     const lastUserMessage = messages[messages.length - 1].content;
+    const currentInformationRequired = requiresCurrentInformation(lastUserMessage);
     if (isOriginWeatherRequest(lastUserMessage)) {
       const isEnglish = /[a-zA-Z]/.test(lastUserMessage);
       if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) {
+        const content = isEnglish
+          ? "Which location would you like to know the weather for?"
+          : "どの地域の天気をお調べしますか？";
+        const reason = "地域確認のため外部AIを呼びませんでした。";
         return res.json({
-          content: isEnglish
-            ? "Which location would you like to know the weather for?"
-            : "どの地域の天気をお調べしますか？",
-          routing: applicationRouting(
-            requestId,
-            "地域確認のため外部AIを呼びませんでした。",
-          ),
+          content,
+          answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason),
+          routing: applicationRouting(requestId, reason),
         });
       }
+      const content = isEnglish
+        ? "Currently, no service is connected to retrieve the latest weather information."
+        : "現在、最新の天気情報を取得するサービスが接続されていません。";
+      const reason = "最新データ取得サービスが未接続のため推測を実行しませんでした。";
       return res.json({
-        content: isEnglish
-          ? "Currently, no service is connected to retrieve the latest weather information."
-          : "現在、最新の天気情報を取得するサービスが接続されていません。",
-        routing: applicationRouting(
-          requestId,
-          "最新データ取得サービスが未接続のため推測を実行しませんでした。",
-        ),
+        content,
+        answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason),
+        routing: applicationRouting(requestId, reason),
       });
     }
 
@@ -141,11 +236,40 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       });
     }
 
+    if (currentInformationRequired) {
+      const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage);
+      const content = isEnglish
+        ? "ORIGIN cannot verify current information in this release because live search is not connected. It will not answer from potentially outdated knowledge."
+        : "この版では最新情報を確認する検索機能が接続されていないため、古い可能性がある知識だけでは回答しません。";
+      const reason = isEnglish
+        ? "Live search is not connected, so external AI execution was skipped."
+        : "最新情報の検索機能が未接続のため、外部AIを実行しませんでした。";
+      const limitations = [isEnglish
+        ? "Current facts, prices, news, and other time-sensitive information were not retrieved or checked."
+        : "現在の事実、料金、ニュースなど、時点に依存する情報は取得・確認していません。"];
+      const nextActions = [isEnglish
+        ? "Paste the relevant text from an official source and ORIGIN can organize or compare that supplied content."
+        : "公式情報の本文または必要部分を貼り付けると、その内容を整理・比較できます。"];
+      return res.json({
+        content,
+        answer: answerEnvelope(
+          content,
+          isEnglish ? "en" : "ja",
+          "not-required",
+          reason,
+          [],
+          limitations,
+          nextActions,
+        ),
+        routing: applicationRouting(requestId, reason),
+      });
+    }
+
     const planningResult = buildOriginExecutionPlan(
       {
         goal: lastUserMessage.trim(),
         requiresCodeChanges: /実装|修正|コード|implement|fix/i.test(lastUserMessage),
-        requiresFreshResearch: /最新|調査|料金|current|research/i.test(lastUserMessage),
+        requiresFreshResearch: false,
         containsSecrets: false,
       },
       { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) },
@@ -167,13 +291,56 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
 
     const startedAt = now();
     try {
+      const requestIntent = classifyOriginRequestIntent(
+        lastUserMessage,
+        planningResult.plan.taskType,
+      );
+      const workPlan = buildOriginAgentWorkPlan(requestIntent);
+      const resolvedPlan = resolveOriginAgentWorkPlan(workPlan);
       const result = await execute({
         plan: planningResult.plan,
         messages: contextResult.window.messages,
-        systemInstruction: systemInstruction(),
+        systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan),
       });
+      const reviewDecision = decideOriginReviewForMessage(
+        planningResult.plan.taskType,
+        lastUserMessage,
+      );
+      const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required
+        ? "not-run"
+        : "not-required";
+      const verificationReason = reviewDecision.required
+        ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。"
+        : "この依頼では、追加の独立確認を必須と判定していません。";
+      const limitations = reviewDecision.required
+        ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"]
+        : [];
+      const nextActions = reviewDecision.required
+        ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"]
+        : [];
+      const evidence = extractProvidedOriginEvidence(result.text);
+      const sourceEvidenceExpected = planningResult.plan.taskType === "research";
+      if (evidence.length > 0) {
+        limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。");
+        if (evidence.some((item) => item.claim === undefined)) {
+          limitations.push("一部の出典は、回答内のどの主張に対応するか明示されていません。");
+        }
+        nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。");
+      } else if (sourceEvidenceExpected) {
+        limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。");
+        nextActions.push("一次情報の出典を確認してから判断してください。");
+      }
       return res.json({
         content: result.text,
+        answer: answerEnvelope(
+          result.text,
+          /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
+          verificationStatus,
+          verificationReason,
+          evidence,
+          limitations,
+          nextActions,
+        ),
         routing: {
           model: planningResult.plan.providerLabel,
           reason: planningResult.plan.reason,
@@ -187,8 +354,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           estimatedCostUsd: planningResult.plan.estimatedCostUsd,
           freeOnly: true,
           traceId: requestId,
-          verificationStatus: "not-run",
-          verificationReason: "Phase 1では独立検証と統合をまだ実行していません。",
+          verificationStatus,
+          verificationReason,
+          reviewRequired: reviewDecision.required,
+          reviewReasons: reviewDecision.reasons,
           modelEvidence: planningResult.plan.modelEvidence,
           providerDataPolicy: result.providerDataPolicy,
           providerRouting: result.routingEvidence,

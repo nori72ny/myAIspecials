@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { ArrowUp, ShieldCheck, Sparkles } from 'lucide-react';
-import { useAppState } from '../../hooks/useAppState';
 
 type PersonalDashboardProps = {
   onNavigateToChat: (prompt?: string) => void;
@@ -8,19 +7,18 @@ type PersonalDashboardProps = {
 };
 
 export default function PersonalDashboard({ onNavigateToChat, language }: PersonalDashboardProps) {
-  const { settings } = useAppState();
-  const isEn = (language ?? settings.language) === 'en';
+  const isEn = language === 'en';
   const [input, setInput] = useState('');
 
   const examples = isEn
     ? [
         'Help me organize my thoughts and decide the next step',
-        'Research the options and compare the differences',
+        'Paste the option details and compare the differences',
         'Turn these notes into a clear document',
       ]
     : [
         '考えを整理して、次にやることを決めたい',
-        '候補を調べて、違いを比較したい',
+        '候補の情報を貼り付けて、違いを比較したい',
         'メモから、読みやすい文書を作りたい',
       ];
 

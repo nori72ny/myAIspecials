@@ -1,8 +1,10 @@
 # ORIGIN OS - Version 1 Architecture Specification
 
-> **Status:** READY FOR IMPLEMENTATION
+> **Status:** SUPERSEDED — DO NOT IMPLEMENT
 > **Version:** 1.0 (Q5 Quality Standard)
 > **Objective:** V1実装に向けた、過剰設計を排除し即座に実装・稼働可能なClean Architecture / DDDベースの設計定義。Event Sourcing, Temporal, Kafka, Actor Model等の複雑な分散アーキテクチャはV3へ延期し、V1は「堅牢なモジュラーモノリス（または軽量なマイクロサービス）」として構築します。
+
+> **Supersession notice (2026-07-23):** この文書は過去の設計案を保存する履歴資料であり、現在の実装指示ではない。固定Geminiモデル、無条件のretry、Gemini中心のprovider構成、未検証の品質表現は、現在の無料限定・provider中立・fail-closed方針と衝突する。製品方向は`docs/ORIGIN_PRODUCT_EXPERIENCE_CONTRACT.md`、AI Studio境界は`docs/AI_STUDIO_DEVELOPMENT_CONTRACT.md`を正とする。
 
 ---
 

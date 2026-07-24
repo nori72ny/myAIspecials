@@ -1,18 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import UnifiedChat from '../UnifiedChat';
-import { useAppState } from '../../../hooks/useAppState';
-
-vi.mock('../../../hooks/useAppState', () => ({
-  useAppState: vi.fn(),
-}));
 
 describe('UnifiedChat error details', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAppState as any).mockReturnValue({
-      settings: { language: 'ja', timeoutSeconds: 30 },
-    });
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       json: async () => ({

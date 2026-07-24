@@ -1,19 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { vi } from 'vitest';
 import UnifiedChat from '../UnifiedChat';
-import { useAppState } from '../../../hooks/useAppState';
-
-vi.mock('../../../hooks/useAppState', () => ({
-  useAppState: vi.fn(),
-}));
 
 const mockDispatchEvent = vi.spyOn(window, 'dispatchEvent');
-
-function mockJapaneseSettings() {
-  (useAppState as any).mockReturnValue({
-    settings: { language: 'ja', timeoutSeconds: 30 },
-  });
-}
 
 function sendJapaneseMessage(value: string) {
   const input = screen.getByPlaceholderText('やりたいことを入力');
@@ -44,12 +33,16 @@ describe('UnifiedChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.fetch = vi.fn();
-    mockJapaneseSettings();
   });
 
   it('renders the plain Japanese greeting', () => {
     render(<UnifiedChat />);
     expect(screen.getByText('こんにちは。やりたいことを、そのまま入力してください。')).toBeTruthy();
+    const log = screen.getByRole('log', { name: '会話履歴' });
+    expect(log.getAttribute('aria-live')).toBe('off');
+    expect(log.getAttribute('aria-busy')).toBe('false');
+    expect(screen.getByRole('article', { name: 'ORIGINの案内' })).toBeTruthy();
+    expect(screen.queryByRole('article', { name: 'ORIGINの回答' })).toBeNull();
   });
 
   it('renders the plain English greeting', () => {
@@ -80,10 +73,36 @@ describe('UnifiedChat', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
     const fetchCall = (global.fetch as any).mock.calls[0];
     const body = JSON.parse(fetchCall[1].body);
-    expect(body.messages.at(-1)).toEqual({
+    expect(body.messages).toEqual([{
       role: 'user',
       content: '詳細を確認してください',
-    });
+    }]);
+  });
+
+  it('keeps real conversation context but never transmits the display-only guidance', async () => {
+    (global.fetch as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: '最初の回答です。' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: '続きの回答です。' }),
+      });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('最初の依頼です');
+    await waitFor(() => expect(screen.getByText('最初の回答です。')).toBeTruthy());
+
+    sendJapaneseMessage('続きを教えてください');
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+
+    const secondCall = (global.fetch as any).mock.calls[1];
+    expect(JSON.parse(secondCall[1].body).messages).toEqual([
+      { role: 'user', content: '最初の依頼です' },
+      { role: 'ai', content: '最初の回答です。' },
+      { role: 'user', content: '続きを教えてください' },
+    ]);
   });
 
   it('blocks duplicate in-flight submission synchronously', async () => {
@@ -101,13 +120,20 @@ describe('UnifiedChat', () => {
     fireEvent.click(sendButton);
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('log', { name: '会話履歴' }).getAttribute('aria-busy')).toBe('true');
+    expect(screen.getByRole('article', { name: 'あなたの依頼' })).toBeTruthy();
+    expect(screen.getByText('依頼を整理して、回答を作成しています…')).toBeTruthy();
 
     resolveFetch({
       ok: true,
       json: async () => ({ content: '一度だけ処理しました。' }),
     });
 
-    await waitFor(() => expect(screen.getByText('一度だけ処理しました。')).toBeTruthy());
+    await waitFor(() => {
+      expect(screen.getByText('一度だけ処理しました。')).toBeTruthy();
+      expect(screen.getByTestId('response-announcement').textContent).toBe('ORIGINの回答が届きました。');
+      expect(screen.getByRole('log', { name: '会話履歴' }).getAttribute('aria-busy')).toBe('false');
+    });
   });
 
   it('sends a strict zero-cost policy and shows plain execution details', async () => {
@@ -157,6 +183,458 @@ describe('UnifiedChat', () => {
     expect(mockDispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'aiCoreStateChange' }));
   });
 
+  it('renders the provider-neutral answer structure with progressive disclosure', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '従来互換の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '安全条件を満たす候補です。',
+          answer: [
+            '具体的な回答内容です。',
+            '',
+            '公式資料がこの結論を裏付けています。〔出典: [公式資料](https://example.com/evidence)〕',
+          ].join('\n'),
+          evidence: [{
+            label: '公式資料',
+            sourceUrl: 'https://example.com/evidence',
+            claim: '公式資料がこの結論を裏付けています。',
+            claimBinding: 'explicit-inline-citation',
+            evidenceLevel: 'source-checked',
+            checks: {
+              safeUrl: 'passed',
+              content: 'passed',
+              freshness: 'passed',
+              claimSupport: 'passed',
+            },
+          }],
+          verification: {
+            status: 'not-run',
+            independentReviewPerformed: false,
+            summary: '今回は別のAIによる確認を実施していません。',
+          },
+          limitations: ['実環境では未確認です。'],
+          nextActions: ['実環境の確認後に判断します。'],
+          richOutputs: [],
+        },
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: '無料条件を満たすAIを選びました。',
+          timeMs: 100,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-run',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('候補を確認してください');
+
+    await waitFor(() => {
+      expect(screen.getByText('結論')).toBeTruthy();
+      expect(screen.getByText('安全条件を満たす候補です。')).toBeTruthy();
+      expect(screen.getByText('具体的な回答内容です。')).toBeTruthy();
+      expect(screen.getByText('この回答の確認範囲')).toBeTruthy();
+      expect(screen.getByText('すべての出典内容を確認済み')).toBeTruthy();
+      expect(screen.getByText('未実施')).toBeTruthy();
+      expect(screen.getByText('根拠と出典')).toBeTruthy();
+      const evidenceDetails = screen.getByTestId('answer-evidence-details') as HTMLDetailsElement;
+      expect(evidenceDetails.open).toBe(false);
+      fireEvent.click(within(evidenceDetails).getByText('根拠と出典'));
+      expect(evidenceDetails.open).toBe(true);
+      expect(
+        within(evidenceDetails).getByRole('link', {
+          name: '公式資料',
+        }),
+      ).toBeTruthy();
+      expect(screen.getByText('出典確認済み')).toBeTruthy();
+      expect(screen.getByText('確認済み：本文・更新時点・回答との一致。')).toBeTruthy();
+      expect(screen.getByText('確認した主張：')).toBeTruthy();
+      expect(screen.getByText('公式資料がこの結論を裏付けています。')).toBeTruthy();
+      expect(screen.getByText('確認状況')).toBeTruthy();
+      expect(screen.getByText('今回は別のAIによる確認を実施していません。')).toBeTruthy();
+      expect(screen.getByText('制約・未確認事項')).toBeTruthy();
+      expect(screen.getByText('次にできること')).toBeTruthy();
+    });
+    expect(screen.queryByText('従来互換の回答です。')).toBeNull();
+  });
+
+  it('labels provider-supplied evidence as not checked', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '従来互換の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '提示された資料があります。',
+          answer: [
+            '資料を確認してください。',
+            '',
+            'AIがこの資料を主張に対応付けました。〔出典: [提示資料](https://example.com/provided)〕',
+          ].join('\n'),
+          evidence: [{
+            label: '提示資料',
+            sourceUrl: 'https://example.com/provided',
+            claim: 'AIがこの資料を主張に対応付けました。',
+            claimBinding: 'explicit-inline-citation',
+            evidenceLevel: 'provided',
+            checks: {
+              safeUrl: 'passed',
+              content: 'not-run',
+              freshness: 'not-run',
+              claimSupport: 'not-run',
+            },
+          }],
+          verification: {
+            status: 'not-run',
+            independentReviewPerformed: false,
+            summary: '出典内容は未確認です。',
+          },
+          limitations: ['出典内容は未確認です。'],
+          nextActions: ['リンク先を確認してください。'],
+          richOutputs: [],
+        },
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: '無料条件を満たすAIを選びました。',
+          timeMs: 100,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-run',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('資料を確認してください');
+
+    await waitFor(() => {
+    expect(
+      within(screen.getByTestId('structured-answer')).getByRole('link', {
+        name: '提示資料',
+      }),
+    ).toBeTruthy();
+      expect(screen.getByText('AIが提示・未確認')).toBeTruthy();
+      expect(screen.getByText('出典内容は未確認')).toBeTruthy();
+      expect(screen.getByText('確認済み：HTTPSリンクの基本形式のみ。接続先・本文・更新時点・回答との一致は未確認です。')).toBeTruthy();
+      expect(screen.getByText('AIがこの資料を主張に対応付けました。')).toBeTruthy();
+      expect(screen.getByText('AIが対応付けた主張：')).toBeTruthy();
+      expect(screen.getByTestId('response-announcement').textContent).toBe(
+        'ORIGINの回答が届きました。出典内容は未確認。別AIによる確認：未実施。',
+      );
+    });
+    expect(screen.queryByText('出典確認済み')).toBeNull();
+  });
+
+  it('distinguishes mixed source checks from an independent review decision', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '従来互換の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '確認範囲を分けて表示します。',
+          answer: [
+            '確認済みの主張です。〔出典: [確認済み資料](https://example.com/checked)〕',
+            '未確認の主張です。〔出典: [未確認資料](https://example.com/unchecked)〕',
+          ].join('\n'),
+          evidence: [
+            {
+              label: '確認済み資料',
+              sourceUrl: 'https://example.com/checked',
+              claim: '確認済みの主張です。',
+              claimBinding: 'explicit-inline-citation',
+              evidenceLevel: 'source-checked',
+              checks: {
+                safeUrl: 'passed',
+                content: 'passed',
+                freshness: 'passed',
+                claimSupport: 'passed',
+              },
+            },
+            {
+              label: '未確認資料',
+              sourceUrl: 'https://example.com/unchecked',
+              claim: '未確認の主張です。',
+              claimBinding: 'explicit-inline-citation',
+              evidenceLevel: 'provided',
+              checks: {
+                safeUrl: 'passed',
+                content: 'not-run',
+                freshness: 'not-run',
+                claimSupport: 'not-run',
+              },
+            },
+          ],
+          verification: {
+            status: 'not-required',
+            independentReviewPerformed: false,
+            summary: 'この回答では追加の独立確認を必須としていません。',
+          },
+          limitations: ['未確認の出典を含みます。'],
+          nextActions: ['重要な判断の前に未確認の出典を確認してください。'],
+          richOutputs: [],
+        },
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: '無料条件を満たすAIを選びました。',
+          timeMs: 100,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-required',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('確認範囲を表示してください');
+
+    await waitFor(() => {
+      expect(screen.getByText('確認済み・未確認の出典が混在')).toBeTruthy();
+      expect(screen.getByText('この回答では不要')).toBeTruthy();
+    });
+  });
+
+  it('states when a structured answer contains no sources', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '従来互換の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: 'アプリ内で回答できます。',
+          answer: 'アプリ内で回答できます。',
+          evidence: [],
+          verification: {
+            status: 'not-required',
+            independentReviewPerformed: false,
+            summary: 'この回答では追加の独立確認を必須としていません。',
+          },
+          limitations: [],
+          nextActions: [],
+          richOutputs: [],
+        },
+        routing: {
+          model: 'ORIGIN アプリ内処理',
+          reason: '外部AIを利用しない処理です。',
+          timeMs: 0,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-required',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('確認してください');
+
+    await waitFor(() => {
+      expect(screen.getByText('回答内の出典なし')).toBeTruthy();
+      expect(screen.getByText('この回答では不要')).toBeTruthy();
+    });
+  });
+
+  it('withholds all content when answer and routing verification states conflict', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '表示してはいけない通常形式の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '表示してはいけない確認済み結論です。',
+          answer: '表示してはいけない確認済み回答です。',
+          evidence: [],
+          verification: {
+            status: 'passed',
+            independentReviewPerformed: true,
+            summary: '別AIで確認済みです。',
+          },
+          limitations: [],
+          nextActions: [],
+          richOutputs: [],
+        },
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: '無料条件を満たすAIを選びました。',
+          timeMs: 50,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-run',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('回答してください');
+
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない通常形式の回答です。')).toBeNull();
+    expect(screen.queryByText('表示してはいけない確認済み回答です。')).toBeNull();
+    expect(screen.queryByTestId('structured-answer')).toBeNull();
+  });
+
+  it('withholds a structured answer when routing verification evidence is missing', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '表示してはいけない通常形式の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '表示してはいけない結論です。',
+          answer: '表示してはいけない構造化回答です。',
+          evidence: [],
+          verification: {
+            status: 'not-required',
+            independentReviewPerformed: false,
+            summary: '追加確認は不要です。',
+          },
+          limitations: [],
+          nextActions: [],
+          richOutputs: [],
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('回答してください');
+
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない通常形式の回答です。')).toBeNull();
+    expect(screen.queryByText('表示してはいけない構造化回答です。')).toBeNull();
+  });
+
+  it('rejects an empty successful response without offering an unsafe retry', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ content: '   ' }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('回答してください');
+
+    await expectNonRetryableError(
+      '無料AIを現在利用できません',
+      'PROVIDER_INVALID_RESPONSE',
+      '無料AIから正しい形式の回答を受け取れませんでした。',
+    );
+  });
+
+  it('withholds legacy content when a supplied answer envelope is malformed', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '表示してはいけない従来形式です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          conclusion: '',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('回答してください');
+
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない従来形式です。')).toBeNull();
+    expect(screen.queryByTestId('structured-answer')).toBeNull();
+  });
+
+  it('rejects a source-checked label without recorded content and claim checks', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '表示してはいけない通常形式の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '表示してはいけない確認済み結論です。',
+          answer: '表示してはいけない確認済み回答です。',
+          evidence: [{
+            label: '確認記録のない資料',
+            sourceUrl: 'https://example.com/missing-checks',
+            evidenceLevel: 'source-checked',
+          }],
+          verification: {
+            status: 'not-run',
+            independentReviewPerformed: false,
+            summary: '別AI確認は未実施です。',
+          },
+          limitations: [],
+          nextActions: [],
+          richOutputs: [],
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('回答してください');
+
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない通常形式の回答です。')).toBeNull();
+    expect(screen.queryByText('表示してはいけない確認済み回答です。')).toBeNull();
+    expect(screen.queryByText('出典確認済み')).toBeNull();
+  });
+
+  it('rejects malformed nested evidence instead of rendering an untrusted envelope', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '表示してはいけない通常形式の回答です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '表示してはいけない結論です。',
+          answer: '表示してはいけない本文です。',
+          evidence: [null],
+          verification: {
+            status: 'passed',
+            independentReviewPerformed: false,
+            summary: '矛盾した確認状態です。',
+          },
+          limitations: [],
+          nextActions: [],
+          richOutputs: [],
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('回答してください');
+
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByText('表示してはいけない通常形式の回答です。')).toBeNull();
+    expect(screen.queryByText('表示してはいけない本文です。')).toBeNull();
+    expect(screen.queryByTestId('structured-answer')).toBeNull();
+  });
+
   it('shows a truthful sensitive-input block without retry or settings actions', async () => {
     const description = '秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。';
     (global.fetch as any).mockResolvedValueOnce({
@@ -173,10 +651,11 @@ describe('UnifiedChat', () => {
     sendJapaneseMessage('秘密情報を含む依頼');
 
     await expectNonRetryableError('秘密情報の送信を停止しました', 'SENSITIVE_INPUT_BLOCKED', description);
+    expect(screen.getByRole('article', { name: 'ORIGINのエラー' })).toBeTruthy();
+    expect(screen.getByTestId('response-announcement').textContent).toBe('');
   });
 
-  it('opens settings only when connection setup is required', async () => {
-    const onOpenSettings = vi.fn();
+  it('explains server-side connection readiness without offering a non-functional setting', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
       json: async () => ({
@@ -187,15 +666,14 @@ describe('UnifiedChat', () => {
       }),
     });
 
-    render(<UnifiedChat onOpenSettings={onOpenSettings} />);
+    render(<UnifiedChat />);
     sendJapaneseMessage('文章を確認してください');
 
     await waitFor(() => {
-      expect(screen.getByText('無料AIの接続設定が必要です')).toBeTruthy();
-      expect(screen.getByText('設定を開く')).toBeTruthy();
+      expect(screen.getByText('無料AIの接続準備が完了していません')).toBeTruthy();
+      expect(screen.getByText('ORIGIN側の接続準備が完了するまで回答できません。入力した依頼に問題はありません。')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('設定を開く'));
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('設定を開く')).toBeNull();
     expect(screen.queryByText('再試行')).toBeNull();
   });
 
@@ -269,5 +747,27 @@ describe('UnifiedChat', () => {
       expect(screen.getByText('Initial prompt response.')).toBeTruthy();
     });
     expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('こんにちは。やりたいことを、そのまま入力してください。')).toBeNull();
+    const fetchCall = (global.fetch as any).mock.calls[0];
+    expect(JSON.parse(fetchCall[1].body).messages).toEqual([
+      { role: 'user', content: 'This is a test prompt' },
+    ]);
+  });
+
+  it('does not automatically load external images from AI markdown', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '画像です。\n\n![確認用画像](https://tracker.example/pixel.png)',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('画像を確認してください');
+
+    await waitFor(() => {
+      expect(screen.getByText('外部画像は自動表示しません：確認用画像')).toBeTruthy();
+    });
+    expect(screen.queryByRole('img', { name: '確認用画像' })).toBeNull();
   });
 });
