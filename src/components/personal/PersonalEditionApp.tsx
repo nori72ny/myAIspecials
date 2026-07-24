@@ -33,6 +33,8 @@ type PersonalEditionAppProps = {
   onOpenSettings?: () => void;
 };
 
+const COMPACT_NAVIGATION_QUERY = '(max-width: 1023px)';
+
 const PersonalEditionApp = React.memo(function PersonalEditionApp({
   settings: providedSettings,
   onOpenSettings,
@@ -43,7 +45,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
-    return !window.matchMedia('(max-width: 767px)').matches;
+    return !window.matchMedia(COMPACT_NAVIGATION_QUERY).matches;
   });
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string>();
   const [chatSessionId, setChatSessionId] = useState(0);
@@ -62,7 +64,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     if (!isSidebarOpen) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && window.matchMedia('(max-width: 767px)').matches) {
+      if (event.key === 'Escape' && window.matchMedia(COMPACT_NAVIGATION_QUERY).matches) {
         setIsSidebarOpen(false);
       }
     };
@@ -71,26 +73,36 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isSidebarOpen]);
 
-  const closeSidebarOnMobile = () => {
-    if (window.matchMedia('(max-width: 767px)').matches) setIsSidebarOpen(false);
+  useEffect(() => {
+    const media = window.matchMedia(COMPACT_NAVIGATION_QUERY);
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      setIsSidebarOpen(!event.matches);
+    };
+
+    media.addEventListener('change', handleViewportChange);
+    return () => media.removeEventListener('change', handleViewportChange);
+  }, []);
+
+  const closeSidebarOnCompactViewport = () => {
+    if (window.matchMedia(COMPACT_NAVIGATION_QUERY).matches) setIsSidebarOpen(false);
   };
 
   const selectView = (view: ViewState) => {
     setCurrentView(view);
-    closeSidebarOnMobile();
+    closeSidebarOnCompactViewport();
   };
 
   const navigateToChat = (initialPrompt?: string) => {
     setChatInitialPrompt(initialPrompt);
     setCurrentView('chat');
-    closeSidebarOnMobile();
+    closeSidebarOnCompactViewport();
   };
 
   const startNewChat = () => {
     setChatInitialPrompt(undefined);
     setChatSessionId((sessionId) => sessionId + 1);
     setCurrentView('chat');
-    closeSidebarOnMobile();
+    closeSidebarOnCompactViewport();
   };
 
   const openSettings = () => {
@@ -151,7 +163,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsSidebarOpen(false)}
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm md:hidden"
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm lg:hidden"
             aria-hidden="true"
           />
         )}
@@ -164,8 +176,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
         aria-hidden={!isSidebarOpen}
         inert={!isSidebarOpen}
         className={cn(
-          'fixed z-50 flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-neutral-950 md:relative',
-          !isSidebarOpen && 'md:w-0 md:border-none',
+          'fixed z-50 flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-neutral-950 lg:relative',
+          !isSidebarOpen && 'lg:w-0 lg:border-none',
         )}
       >
         <div className="flex shrink-0 items-center justify-between p-4">
@@ -179,7 +191,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             type="button"
             onClick={() => setIsSidebarOpen(false)}
             aria-label={isEn ? 'Close menu' : 'メニューを閉じる'}
-            className="rounded-md p-2 text-slate-500 hover:bg-slate-200 dark:hover:bg-white/10 md:hidden"
+            className="rounded-md p-2 text-slate-500 hover:bg-slate-200 dark:hover:bg-white/10 lg:hidden"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
