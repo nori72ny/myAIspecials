@@ -23,7 +23,7 @@ for (const viewport of VIEWPORTS) {
     await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/i })).toBeVisible({ timeout: 15_000 });
     await expectNoHorizontalOverflow(page);
 
-    if (viewport.width < 768) {
+    if (viewport.width < 1024) {
       const openMenu = page.getByRole('button', { name: /メニューを開く|Open menu/i });
       await openMenu.click();
       await expect(page.getByTestId('new-chat-button')).toBeVisible();
@@ -37,7 +37,7 @@ for (const viewport of VIEWPORTS) {
     await expect(page.getByRole('button', { name: /依頼を送信|Send request/i })).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
-    if (viewport.width < 768) {
+    if (viewport.width < 1024) {
       await page.getByRole('button', { name: /メニューを開く|Open menu/i }).click();
     }
     await page.getByRole('button', { name: /設定を開く|Open settings/i }).click();
