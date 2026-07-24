@@ -5,7 +5,7 @@ import {
   type OriginFreeModelEvidence,
 } from "./OriginFreeModelCatalog";
 
-const currentTime = Date.parse("2026-07-19T12:00:00.000Z");
+const currentTime = Date.parse("2026-07-24T12:00:00.000Z");
 
 describe("selectCurrentOriginFreeModel", () => {
   it("returns the official-page-verified explicit free model", () => {
@@ -14,9 +14,9 @@ describe("selectCurrentOriginFreeModel", () => {
     expect(result).toEqual({
       ok: true,
       model: expect.objectContaining({
-        modelId: "moonshotai/kimi-k2.6:free",
+        modelId: "openai/gpt-oss-20b:free",
         providerId: "openrouter-free",
-        sourceUrl: "https://openrouter.ai/moonshotai/kimi-k2.6:free/pricing",
+        sourceUrl: "https://openrouter.ai/openai/gpt-oss-20b:free/pricing",
       }),
     });
   });
@@ -55,7 +55,7 @@ describe("selectCurrentOriginFreeModel", () => {
   it("fails closed when evidence is not current", () => {
     expect(selectCurrentOriginFreeModel(
       DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
-      Date.parse("2026-08-19T00:00:00.000Z"),
+      Date.parse("2026-08-01T00:00:00.000Z"),
     )).toEqual({
       ok: false,
       code: "FREE_MODEL_EVIDENCE_STALE",
