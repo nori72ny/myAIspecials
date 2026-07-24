@@ -25,6 +25,10 @@ import {
   type OriginAgentWorkPlan,
 } from "../lib/orchestration/OriginAgentWorkPlan";
 import {
+  createOriginCapabilityGuide,
+  isOriginCapabilityQuestion,
+} from "../lib/orchestration/OriginCapabilityGuide";
+import {
   originServiceAssignmentInstruction,
   resolveOriginAgentWorkPlan,
   type OriginResolvedWorkPlan,
@@ -72,7 +76,7 @@ function systemInstruction(
 - Reply in the language used by the user.
 - Do not invent current facts or claim access to tools, files, accounts, websites, or services that were not supplied.
 - Separate confirmed facts from assumptions, inferences, and recommendations.
-- If missing information would materially change the answer, ask one concise clarifying question instead of guessing.
+- If missing information prevents useful work or would materially change the result, ask one concise clarifying question. Otherwise make the minimum explicit assumptions and provide a useful first version now.
 - State uncertainty and missing evidence clearly.
 - Do not claim that code was merged, deployed, purchased, configured, or changed without execution evidence.
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
@@ -80,6 +84,9 @@ function systemInstruction(
 - Do not use that citation format when the source does not directly support the statement.
 - Identify the user's real objective, not only the literal wording of the request.
 - When it materially improves the objective, add missing decision criteria, required data, important assumptions, risks, and practical next actions even if the user did not explicitly request them.
+- For creation requests, produce the requested usable content in this response instead of only explaining how to create it.
+- Match the result to its audience and use context. Prefer a polished deliverable, comparison, recommendation, or action plan over generic advice.
+- Before finishing, check goal fit, completeness, internal consistency, practical usability, and whether one concise proactive addition would materially improve the outcome.
 - Do not add generic background, repeated advice, or extra sections merely to make the answer longer.
 - Clearly distinguish user-supplied facts, verified facts, calculations, assumptions, inferences, and recommendations.
 - Identify when specialist expertise would materially improve the result, but never claim that a specialist AI reviewed or produced the answer without execution evidence.
@@ -260,6 +267,26 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           [],
           limitations,
           nextActions,
+        ),
+        routing: applicationRouting(requestId, reason),
+      });
+    }
+
+    if (isOriginCapabilityQuestion(lastUserMessage)) {
+      const guide = createOriginCapabilityGuide(lastUserMessage);
+      const reason = guide.language === "ja"
+        ? "現在の公開版で利用できる機能と未接続機能を、ORIGINの製品仕様に基づいて案内しました。"
+        : "Explained the current and unconnected capabilities from ORIGIN's product specification.";
+      return res.json({
+        content: guide.content,
+        answer: answerEnvelope(
+          guide.content,
+          guide.language,
+          "not-required",
+          reason,
+          [],
+          guide.limitations,
+          guide.nextActions,
         ),
         routing: applicationRouting(requestId, reason),
       });
