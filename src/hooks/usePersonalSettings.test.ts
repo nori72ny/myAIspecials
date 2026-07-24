@@ -18,6 +18,7 @@ describe('usePersonalSettings', () => {
     expect(result.current.settings).toMatchObject({
       autoRoute: false,
       selectedAgents: [],
+      selectedTheme: 'light',
       maxCostCap: 0,
       retryCount: 0,
       timeoutSeconds: 30,
