@@ -29,12 +29,12 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
   };
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-4 py-8 md:px-8 md:py-14">
+    <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 py-8 md:px-8 md:py-14">
       <section className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center">
         <div className="mb-7 text-center">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-300">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-300">
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>ORIGIN</span>
+            <span>{isEn ? 'ORIGIN · From request to result' : 'ORIGIN · 相談から成果物まで'}</span>
           </div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white md:text-5xl">
             {isEn ? 'What can I help you with?' : '何を手伝えばよいですか？'}
@@ -46,7 +46,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
           </p>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-3 shadow-xl shadow-slate-200/40 transition focus-within:border-slate-400 focus-within:ring-4 focus-within:ring-slate-100 dark:border-white/10 dark:bg-neutral-950 dark:shadow-black/30 dark:focus-within:border-white/30 dark:focus-within:ring-white/5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-lg shadow-slate-200/50 transition focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-50 dark:border-white/10 dark:bg-neutral-950 dark:shadow-black/30 dark:focus-within:border-white/30 dark:focus-within:ring-white/5">
           <label htmlFor="origin-home-request" className="sr-only">
             {isEn ? 'Describe what you want help with' : 'やりたいことを入力'}
           </label>
@@ -77,7 +77,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
               onClick={submit}
               disabled={!input.trim()}
               aria-label={isEn ? 'Send request' : '依頼を送信'}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-white dark:text-black"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-white dark:text-black"
             >
               <ArrowUp className="h-5 w-5" aria-hidden="true" />
             </button>
@@ -94,7 +94,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
                 type="button"
                 key={example}
                 onClick={() => setInput(example)}
-                className="rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-300 dark:hover:border-white/30 dark:hover:bg-white/5"
+                className="rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-300 dark:hover:border-white/30 dark:hover:bg-white/5"
               >
                 {example}
               </button>
