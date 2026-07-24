@@ -110,7 +110,7 @@ export class OriginServiceRegistry {
   constructor(initial: readonly OriginServiceRegistration[] = [ORIGIN_TEXT_RUNTIME_SERVICE]) {
     for (const registration of initial) {
       const result = this.register(registration);
-      if (!result.ok) throw new Error(result.code);
+      if (result.ok === false) throw new Error(result.code);
     }
   }
 
