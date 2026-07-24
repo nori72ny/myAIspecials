@@ -43,8 +43,8 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).toContain(
       "allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks",
     );
-    expect(providerClient).toMatch(
-      /max_price:\s*\{\s*prompt:\s*0,\s*completion:\s*0,\s*request:\s*0,\s*image:\s*0,/s,
+    expect(providerClient).toContain(
+      '!request.plan.modelId.endsWith(":free")',
     );
     expect(providerClient).toContain(
       "const costUsd = verifiedZeroCost(data.usage?.cost)",
