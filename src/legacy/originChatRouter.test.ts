@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy";
 import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
 
-const verifiedCatalogTime = Date.parse("2026-07-19T12:00:00.000Z");
+const verifiedCatalogTime = Date.parse("2026-07-24T12:00:00.000Z");
 const defaultExecutionResult = {
   text: "安全な確認結果です。",
   actualCostUsd: 0,
@@ -14,8 +14,8 @@ const defaultExecutionResult = {
     requireZeroDataRetention: true as const,
   },
   routingEvidence: {
-    requestedModel: "moonshotai/kimi-k2.6:free",
-    servedModel: "moonshotai/kimi-k2.6:free",
+    requestedModel: "openai/gpt-oss-20b:free",
+    servedModel: "openai/gpt-oss-20b:free",
     strategy: "free" as const,
     provider: "Synthetic ZDR Provider",
     region: "iad",
@@ -166,7 +166,7 @@ describe("createOriginChatRouter", () => {
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN 無料AI",
       providerId: "openrouter-free",
-      modelId: "moonshotai/kimi-k2.6:free",
+      modelId: "openai/gpt-oss-20b:free",
       taskType: "security",
       cost: 0,
       actualCostUsd: 0,
@@ -181,8 +181,8 @@ describe("createOriginChatRouter", () => {
         "依頼種別「セキュリティ」は独立確認の対象です。",
       ]),
       modelEvidence: expect.objectContaining({
-        verifiedAt: "2026-07-19T00:00:00.000Z",
-        reviewAfter: "2026-08-18T23:59:59.999Z",
+        verifiedAt: "2026-07-24T00:00:00.000Z",
+        reviewAfter: "2026-07-31T23:59:59.999Z",
         sourceUrl: expect.stringContaining("openrouter.ai"),
       }),
       providerDataPolicy: {
@@ -191,8 +191,8 @@ describe("createOriginChatRouter", () => {
         requireZeroDataRetention: true,
       },
       providerRouting: {
-        requestedModel: "moonshotai/kimi-k2.6:free",
-        servedModel: "moonshotai/kimi-k2.6:free",
+        requestedModel: "openai/gpt-oss-20b:free",
+        servedModel: "openai/gpt-oss-20b:free",
         strategy: "free",
         provider: "Synthetic ZDR Provider",
         region: "iad",
@@ -217,7 +217,7 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).toHaveBeenCalledWith(expect.objectContaining({
       plan: expect.objectContaining({
         providerId: "openrouter-free",
-        modelId: "moonshotai/kimi-k2.6:free",
+        modelId: "openai/gpt-oss-20b:free",
         freeOnly: true,
         providerDataPolicy: {
           allowProviderFallbacks: false,
