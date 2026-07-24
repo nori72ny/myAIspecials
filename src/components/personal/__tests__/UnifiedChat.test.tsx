@@ -241,11 +241,15 @@ describe('UnifiedChat', () => {
       expect(screen.getByText('すべての出典内容を確認済み')).toBeTruthy();
       expect(screen.getByText('未実施')).toBeTruthy();
       expect(screen.getByText('根拠と出典')).toBeTruthy();
-    expect(
-      within(screen.getByTestId('structured-answer')).getByRole('link', {
-        name: '公式資料',
-      }),
-    ).toBeTruthy();
+      const evidenceDetails = screen.getByTestId('answer-evidence-details') as HTMLDetailsElement;
+      expect(evidenceDetails.open).toBe(false);
+      fireEvent.click(within(evidenceDetails).getByText('根拠と出典'));
+      expect(evidenceDetails.open).toBe(true);
+      expect(
+        within(evidenceDetails).getByRole('link', {
+          name: '公式資料',
+        }),
+      ).toBeTruthy();
       expect(screen.getByText('出典確認済み')).toBeTruthy();
       expect(screen.getByText('確認済み：本文・更新時点・回答との一致。')).toBeTruthy();
       expect(screen.getByText('確認した主張：')).toBeTruthy();
