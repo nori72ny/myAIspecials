@@ -5,26 +5,26 @@ import {
   type OriginFreeModelEvidence,
 } from "./OriginFreeModelCatalog";
 
-const currentTime = Date.parse("2026-07-24T12:00:00.000Z");
+const currentTime = Date.parse("2026-07-25T12:00:00.000Z");
 
 describe("selectCurrentOriginFreeModel", () => {
-  it("returns the official-page-verified explicit free model", () => {
+  it("returns the official zero-cost free-model router", () => {
     const result = selectCurrentOriginFreeModel(DEFAULT_ORIGIN_FREE_MODEL_CATALOG, currentTime);
 
     expect(result).toEqual({
       ok: true,
       model: expect.objectContaining({
-        modelId: "openai/gpt-oss-20b:free",
+        modelId: "openrouter/free",
         providerId: "openrouter-free",
-        sourceUrl: "https://openrouter.ai/openai/gpt-oss-20b:free/pricing",
+        sourceUrl: "https://openrouter.ai/docs/guides/routing/routers/free-router",
       }),
     });
   });
 
-  it("rejects paid or automatic model identifiers", () => {
+  it("rejects paid or unverified automatic model identifiers", () => {
     const invalidCatalog = [{
       ...DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0],
-      modelId: "openrouter/free",
+      modelId: "openrouter/auto",
     }] as unknown as readonly OriginFreeModelEvidence[];
 
     expect(selectCurrentOriginFreeModel(invalidCatalog, currentTime)).toEqual({
@@ -55,7 +55,7 @@ describe("selectCurrentOriginFreeModel", () => {
   it("fails closed when evidence is not current", () => {
     expect(selectCurrentOriginFreeModel(
       DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
-      Date.parse("2026-08-01T00:00:00.000Z"),
+      Date.parse("2026-08-02T00:00:00.000Z"),
     )).toEqual({
       ok: false,
       code: "FREE_MODEL_EVIDENCE_STALE",

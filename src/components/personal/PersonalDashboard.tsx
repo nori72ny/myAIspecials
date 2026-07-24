@@ -68,7 +68,9 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
           <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-2 pt-3 dark:border-white/5">
             <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-neutral-500">
               <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-              {isEn ? 'Do not enter passwords, API keys, or private keys.' : 'パスワード、APIキー、秘密鍵は入力しないでください。'}
+              {isEn
+                ? 'Do not enter personal information, confidential data, passwords, API keys, or private keys.'
+                : '個人情報、社外秘、パスワード、APIキー、秘密鍵は入力しないでください。'}
             </p>
             <button
               type="button"

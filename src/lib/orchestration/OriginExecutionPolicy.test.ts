@@ -8,10 +8,10 @@ const request = {
   goal: "認証処理の安全性を確認してください",
 };
 
-const verifiedNow = Date.parse("2026-07-24T12:00:00.000Z");
+const verifiedNow = Date.parse("2026-07-25T12:00:00.000Z");
 
 describe("buildOriginExecutionPlan", () => {
-  it("selects only the current evidence-backed OpenRouter free model with strict data policy", () => {
+  it("selects the current evidence-backed OpenRouter free router with data collection denied", () => {
     const result = buildOriginExecutionPlan(
       request,
       { openRouterConfigured: true },
@@ -23,8 +23,7 @@ describe("buildOriginExecutionPlan", () => {
     if (!result.ok) return;
 
     expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
-    expect(result.plan.modelId).toBe("openai/gpt-oss-20b:free");
-    expect(result.plan.modelId.endsWith(":free")).toBe(true);
+    expect(result.plan.modelId).toBe("openrouter/free");
     expect(result.plan.freeOnly).toBe(true);
     expect(result.plan.estimatedCostUsd).toBe(0);
     expect(result.plan.requiresOwnerApproval).toBe(false);
@@ -33,11 +32,11 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.providerDataPolicy).toEqual({
       allowProviderFallbacks: false,
       dataCollection: "deny",
-      requireZeroDataRetention: true,
+      requireZeroDataRetention: false,
     });
     expect(result.plan.modelEvidence).toEqual(expect.objectContaining({
-      verifiedAt: "2026-07-24T00:00:00.000Z",
-      reviewAfter: "2026-07-31T23:59:59.999Z",
+      verifiedAt: "2026-07-25T00:00:00.000Z",
+      reviewAfter: "2026-08-01T23:59:59.999Z",
       sourceUrl: expect.stringContaining("openrouter.ai"),
     }));
   });

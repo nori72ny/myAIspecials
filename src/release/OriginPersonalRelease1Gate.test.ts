@@ -37,14 +37,14 @@ describe("ORIGIN Personal release 1 gate", () => {
       'request.plan.providerId !== "openrouter-free"',
     );
     expect(providerClient).toContain(
-      '!request.plan.modelId.endsWith(":free")',
+      'request.plan.modelId === "openrouter/free"',
     );
     expect(providerClient).toContain("const apiKey = env.OPENROUTER_API_KEY");
     expect(providerClient).toContain(
       "allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks",
     );
     expect(providerClient).toContain(
-      '!request.plan.modelId.endsWith(":free")',
+      "data_collection: request.plan.providerDataPolicy.dataCollection",
     );
     expect(providerClient).toContain(
       "const costUsd = verifiedZeroCost(data.usage?.cost)",

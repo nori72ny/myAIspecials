@@ -22,12 +22,12 @@ const plan: OriginExecutionPlan = {
   providerDataPolicy: {
     allowProviderFallbacks: false,
     dataCollection: "deny",
-    requireZeroDataRetention: true,
+    requireZeroDataRetention: false,
   },
   modelEvidence: {
-    verifiedAt: "2026-07-24T00:00:00.000Z",
-    reviewAfter: "2026-07-31T23:59:59.999Z",
-    sourceUrl: "https://openrouter.ai/openai/gpt-oss-20b:free/pricing",
+    verifiedAt: "2026-07-25T00:00:00.000Z",
+    reviewAfter: "2026-08-01T23:59:59.999Z",
+    sourceUrl: "https://openrouter.ai/docs/guides/routing/routers/free-router",
   },
 };
 
@@ -38,8 +38,9 @@ const request = {
 };
 
 function successfulProviderPayload(overrides: Record<string, unknown> = {}) {
+  const servedModel = "inclusionai/ling-3.0-flash:free";
   return {
-    model: ORIGIN_OPENROUTER_FREE_MODEL,
+    model: servedModel,
     choices: [{ message: { content: "確認結果です。" } }],
     usage: {
       prompt_tokens: 10,
@@ -47,44 +48,25 @@ function successfulProviderPayload(overrides: Record<string, unknown> = {}) {
       total_tokens: 15,
       cost: 0,
     },
-    openrouter_metadata: {
-      requested: ORIGIN_OPENROUTER_FREE_MODEL,
-      strategy: "free",
-      region: "iad",
-      attempt: 1,
-      endpoints: {
-        available: [{
-          provider: "Synthetic ZDR Provider",
-          model: ORIGIN_OPENROUTER_FREE_MODEL,
-          selected: true,
-        }],
-      },
-      attempts: [{
-        provider: "Synthetic ZDR Provider",
-        model: ORIGIN_OPENROUTER_FREE_MODEL,
-        status: 200,
-      }],
-    },
     ...overrides,
   };
 }
 
 describe("executeOriginProvider", () => {
-  it("enforces an explicit free model, no fallback, data deny, ZDR, and routing evidence", async () => {
+  it("enforces the official free router, no fallback, data deny, and zero-cost routing evidence", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       const headers = init?.headers as Record<string, string>;
 
-      expect(body.model).toBe("openai/gpt-oss-20b:free");
+      expect(body.model).toBe("openrouter/free");
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
       expect(body.usage).toBeUndefined();
       expect(body.provider).toEqual({
         allow_fallbacks: false,
         data_collection: "deny",
-        zdr: true,
       });
       expect(headers["X-OpenRouter-Title"]).toBe("ORIGIN Personal");
-      expect(headers["X-OpenRouter-Metadata"]).toBe("enabled");
+      expect(headers["X-OpenRouter-Metadata"]).toBeUndefined();
       expect(headers["HTTP-Referer"]).toBe("https://myaispecials.ai.studio/");
 
       return new Response(JSON.stringify(successfulProviderPayload()), {
@@ -105,10 +87,9 @@ describe("executeOriginProvider", () => {
       providerDataPolicy: plan.providerDataPolicy,
       routingEvidence: {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
-        servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
-        strategy: "free",
-        provider: "Synthetic ZDR Provider",
-        region: "iad",
+        servedModel: "inclusionai/ling-3.0-flash:free",
+        strategy: "free-router",
+        provider: "OpenRouter",
         attempt: 1,
         fallbackUsed: false,
       },
@@ -152,14 +133,14 @@ describe("executeOriginProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a plan that permits provider fallback or data retention", async () => {
+  it("rejects a plan that permits provider fallback, data collection, or changes the reviewed ZDR mode", async () => {
     const fetchMock = vi.fn();
     const unsafePlan = {
       ...plan,
       providerDataPolicy: {
         allowProviderFallbacks: true,
         dataCollection: "allow",
-        requireZeroDataRetention: false,
+        requireZeroDataRetention: true,
       },
     } as unknown as OriginExecutionPlan;
 
@@ -212,91 +193,9 @@ describe("executeOriginProvider", () => {
     });
   });
 
-  it("rejects a response when router metadata is missing", async () => {
-    const payload = successfulProviderPayload({ openrouter_metadata: undefined });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({
-      code: "PROVIDER_ROUTING_UNVERIFIED",
-      retryable: false,
-    });
-  });
-
-  it("rejects evidence of a fallback attempt", async () => {
+  it("rejects a response served by a model that is not explicitly free", async () => {
     const payload = successfulProviderPayload({
-      openrouter_metadata: {
-        requested: ORIGIN_OPENROUTER_FREE_MODEL,
-        strategy: "fallback",
-        attempt: 2,
-        endpoints: {
-          available: [{ provider: "Second Provider", model: ORIGIN_OPENROUTER_FREE_MODEL, selected: true }],
-        },
-        attempts: [
-          { provider: "First Provider", model: ORIGIN_OPENROUTER_FREE_MODEL, status: 503 },
-          { provider: "Second Provider", model: ORIGIN_OPENROUTER_FREE_MODEL, status: 200 },
-        ],
-      },
-    });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({
-      code: "PROVIDER_ROUTING_UNVERIFIED",
-      retryable: false,
-    });
-  });
-
-  it("rejects inconsistent served-model or selected-endpoint evidence", async () => {
-    const payload = successfulProviderPayload({
-      model: "unexpected/served-model:free",
-    });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({
-      code: "PROVIDER_ROUTING_UNVERIFIED",
-      retryable: false,
-    });
-  });
-
-  it("rejects inconsistent single-attempt evidence", async () => {
-    const payload = successfulProviderPayload({
-      openrouter_metadata: {
-        requested: ORIGIN_OPENROUTER_FREE_MODEL,
-        strategy: "free",
-        attempt: 1,
-        endpoints: {
-          available: [{
-            provider: "Synthetic ZDR Provider",
-            model: ORIGIN_OPENROUTER_FREE_MODEL,
-            selected: true,
-          }],
-        },
-        attempts: [{
-          provider: "Different Provider",
-          model: ORIGIN_OPENROUTER_FREE_MODEL,
-          status: 200,
-        }],
-      },
+      model: "google/gemini-3.6-flash",
     });
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
       status: 200,

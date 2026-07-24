@@ -25,7 +25,7 @@ export interface OriginExecutionPolicy {
 export interface OriginProviderDataPolicy {
   allowProviderFallbacks: false;
   dataCollection: "deny";
-  requireZeroDataRetention: true;
+  requireZeroDataRetention: false;
 }
 
 export interface OriginExecutionPlan {
@@ -70,7 +70,7 @@ export const DEFAULT_ORIGIN_EXECUTION_POLICY: OriginExecutionPolicy = {
 export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = {
   allowProviderFallbacks: false,
   dataCollection: "deny",
-  requireZeroDataRetention: true,
+  requireZeroDataRetention: false,
 };
 
 function normalizePolicy(policy?: Partial<OriginExecutionPolicy>): OriginExecutionPolicy | null {
@@ -130,7 +130,7 @@ export function buildOriginExecutionPlan(
       estimatedCostUsd: 0,
       timeoutMs: policy.timeoutMs,
       requiresOwnerApproval: false,
-      reason: `依頼を「${taskType}」として分類し、公式ページで無料状態を確認した明示的な無料モデルを選択しました。これは品質優位性の主張ではありません。`,
+      reason: `依頼を「${taskType}」として分類し、公式の無料モデル専用ルーターを選択しました。実行後も利用額0ドルを確認します。これは品質優位性の主張ではありません。`,
       providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
       modelEvidence: {
         verifiedAt: model.verifiedAt,

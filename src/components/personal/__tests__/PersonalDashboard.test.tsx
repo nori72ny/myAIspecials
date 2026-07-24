@@ -56,7 +56,7 @@ describe('PersonalDashboard', () => {
 
     const sendButton = screen.getByRole('button', { name: '依頼を送信' }) as HTMLButtonElement;
     expect(sendButton.disabled).toBe(true);
-    expect(screen.getByText('パスワード、APIキー、秘密鍵は入力しないでください。')).toBeTruthy();
+    expect(screen.getByText('個人情報、社外秘、パスワード、APIキー、秘密鍵は入力しないでください。')).toBeTruthy();
   });
 
   it('renders the English variant when English is selected', () => {

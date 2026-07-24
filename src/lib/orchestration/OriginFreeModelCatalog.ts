@@ -1,4 +1,4 @@
-export type OriginFreeModelId = `${string}/${string}:free`;
+export type OriginFreeModelId = `${string}/${string}:free` | "openrouter/free";
 
 export interface OriginFreeModelEvidence {
   providerId: "openrouter-free";
@@ -10,17 +10,17 @@ export interface OriginFreeModelEvidence {
   sourceDescription: string;
 }
 
-export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL = "openai/gpt-oss-20b:free" as const;
+export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL = "openrouter/free" as const;
 
 export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence[] = [
   {
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-07-24T00:00:00.000Z",
-    reviewAfter: "2026-07-31T23:59:59.999Z",
-    sourceUrl: "https://openrouter.ai/openai/gpt-oss-20b:free/pricing",
-    sourceDescription: "OpenRouter's official models API listed the explicit :free model at zero prompt and completion cost, and its official ZDR endpoint API listed eligible endpoints for the base model.",
+    verifiedAt: "2026-07-25T00:00:00.000Z",
+    reviewAfter: "2026-08-01T23:59:59.999Z",
+    sourceUrl: "https://openrouter.ai/docs/guides/routing/routers/free-router",
+    sourceDescription: "OpenRouter's official Free Models Router documentation states that openrouter/free selects only currently available free models and that both the router and routed requests are free.",
   },
 ] as const;
 
@@ -42,7 +42,7 @@ function isValidEvidence(entry: OriginFreeModelEvidence): boolean {
   const reviewAfter = parseTimestamp(entry.reviewAfter);
 
   return entry.providerId === "openrouter-free"
-    && entry.modelId.endsWith(":free")
+    && (entry.modelId === "openrouter/free" || entry.modelId.endsWith(":free"))
     && entry.sourceUrl.startsWith("https://openrouter.ai/")
     && verifiedAt !== null
     && reviewAfter !== null

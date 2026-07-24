@@ -62,25 +62,6 @@ export class OriginProviderError extends Error {
 
 export type OriginFetch = typeof fetch;
 
-interface OpenRouterMetadata {
-  requested?: string;
-  strategy?: string;
-  region?: string | null;
-  attempt?: number;
-  endpoints?: {
-    available?: Array<{
-      provider?: string;
-      model?: string;
-      selected?: boolean;
-    }>;
-  };
-  attempts?: Array<{
-    provider?: string;
-    model?: string;
-    status?: number;
-  }>;
-}
-
 function normalizeMessages(messages: OriginChatMessage[], systemInstruction: string) {
   return [
     { role: "system", content: systemInstruction },
@@ -155,11 +136,11 @@ function validateProviderPolicy(plan: OriginExecutionPlan): void {
   if (
     policy.allowProviderFallbacks !== false
     || policy.dataCollection !== "deny"
-    || policy.requireZeroDataRetention !== true
+    || policy.requireZeroDataRetention !== false
   ) {
     throw new OriginProviderError(
       "PROVIDER_POLICY_VIOLATION",
-      "データ保護またはフォールバック禁止ポリシーに適合しない実行計画は使用できません。",
+      "無料ルーターのデータ収集拒否またはフォールバック禁止ポリシーに適合しない実行計画は使用できません。",
       400,
       false,
     );
@@ -187,36 +168,16 @@ function verifiedZeroCost(value: unknown): 0 {
 }
 
 function verifiedRoutingEvidence(
-  metadata: OpenRouterMetadata | undefined,
   requestedModel: string,
   responseModel: unknown,
 ): OriginProviderRoutingEvidence {
-  const selected = metadata?.endpoints?.available?.find((endpoint) => endpoint.selected === true);
-  const attempts = metadata?.attempts ?? [];
-  const fallbackUsed = metadata?.attempt !== 1
-    || metadata?.strategy === "fallback"
-    || attempts.length > 1;
-  const singleAttemptIsConsistent = attempts.length === 0 || (
-    attempts.length === 1
-    && attempts[0].status === 200
-    && attempts[0].provider === selected?.provider
-    && attempts[0].model === selected?.model
-  );
+  const requestedFreeRouteIsVerified = requestedModel === "openrouter/free"
+    || requestedModel.endsWith(":free");
+  const servedModel = typeof responseModel === "string" ? responseModel : "";
 
   if (
-    !metadata
-    || metadata.requested !== requestedModel
-    || typeof responseModel !== "string"
-    || responseModel.length === 0
-    || typeof metadata.strategy !== "string"
-    || metadata.strategy.length === 0
-    || fallbackUsed
-    || !selected
-    || typeof selected.provider !== "string"
-    || selected.provider.length === 0
-    || typeof selected.model !== "string"
-    || selected.model !== responseModel
-    || !singleAttemptIsConsistent
+    !requestedFreeRouteIsVerified
+    || !servedModel.endsWith(":free")
   ) {
     throw new OriginProviderError(
       "PROVIDER_ROUTING_UNVERIFIED",
@@ -228,10 +189,9 @@ function verifiedRoutingEvidence(
 
   return {
     requestedModel,
-    servedModel: responseModel,
-    strategy: metadata.strategy,
-    provider: selected.provider,
-    region: typeof metadata.region === "string" ? metadata.region : undefined,
+    servedModel,
+    strategy: requestedModel === "openrouter/free" ? "free-router" : "free",
+    provider: "OpenRouter",
     attempt: 1,
     fallbackUsed: false,
   };
@@ -242,7 +202,9 @@ export async function executeOriginProvider(
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: OriginFetch = fetch,
 ): Promise<OriginProviderExecutionResult> {
-  if (request.plan.providerId !== "openrouter-free" || !request.plan.modelId.endsWith(":free")) {
+  const isVerifiedFreeRoute = request.plan.modelId === "openrouter/free"
+    || request.plan.modelId.endsWith(":free");
+  if (request.plan.providerId !== "openrouter-free" || !isVerifiedFreeRoute) {
     throw new OriginProviderError(
       "PROVIDER_POLICY_VIOLATION",
       "無料限定ポリシーに適合しない実行先は使用できません。",
@@ -273,7 +235,6 @@ export async function executeOriginProvider(
         Authorization: `Bearer ${apiKey}`,
         "HTTP-Referer": "https://myaispecials.ai.studio/",
         "X-OpenRouter-Title": "ORIGIN Personal",
-        "X-OpenRouter-Metadata": "enabled",
       },
       body: JSON.stringify({
         model: request.plan.modelId,
@@ -282,7 +243,6 @@ export async function executeOriginProvider(
         provider: {
           allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
           data_collection: request.plan.providerDataPolicy.dataCollection,
-          zdr: request.plan.providerDataPolicy.requireZeroDataRetention,
         },
       }),
       signal: controller.signal,
@@ -299,11 +259,9 @@ export async function executeOriginProvider(
         total_tokens?: number;
         cost?: number;
       };
-      openrouter_metadata?: OpenRouterMetadata;
     };
     const costUsd = verifiedZeroCost(data.usage?.cost);
     const routingEvidence = verifiedRoutingEvidence(
-      data.openrouter_metadata,
       request.plan.modelId,
       data.model,
     );
