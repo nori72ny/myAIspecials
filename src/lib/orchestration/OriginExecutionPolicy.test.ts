@@ -8,7 +8,7 @@ const request = {
   goal: "認証処理の安全性を確認してください",
 };
 
-const verifiedNow = Date.parse("2026-07-25T12:00:00.000Z");
+const verifiedNow = Date.parse("2026-07-24T20:48:17.419Z");
 
 describe("buildOriginExecutionPlan", () => {
   it("selects the current evidence-backed OpenRouter free router with data collection denied", () => {
@@ -35,7 +35,7 @@ describe("buildOriginExecutionPlan", () => {
       requireZeroDataRetention: false,
     });
     expect(result.plan.modelEvidence).toEqual(expect.objectContaining({
-      verifiedAt: "2026-07-25T00:00:00.000Z",
+      verifiedAt: "2026-07-24T00:00:00.000Z",
       reviewAfter: "2026-08-01T23:59:59.999Z",
       sourceUrl: expect.stringContaining("openrouter.ai"),
     }));
@@ -56,7 +56,7 @@ describe("buildOriginExecutionPlan", () => {
     });
   });
 
-  it("fails closed after the free-model evidence review date", () => {
+  it("keeps the official free router available after the scheduled review date", () => {
     const result = buildOriginExecutionPlan(
       request,
       { openRouterConfigured: true },
@@ -64,11 +64,13 @@ describe("buildOriginExecutionPlan", () => {
       { nowMs: Date.parse("2026-08-19T00:00:00.000Z") },
     );
 
-    expect(result).toEqual({
-      ok: false,
-      code: "FREE_MODEL_EVIDENCE_STALE",
-      message: "無料モデルの利用可能性を示す証拠が期限切れです。カタログを再確認するまで実行を停止します。",
-    });
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      plan: expect.objectContaining({
+        modelId: "openrouter/free",
+        estimatedCostUsd: 0,
+      }),
+    }));
   });
 
   it("rejects any nonzero cost ceiling and invalid timeout values", () => {

@@ -5,7 +5,7 @@ import {
   type OriginFreeModelEvidence,
 } from "./OriginFreeModelCatalog";
 
-const currentTime = Date.parse("2026-07-25T12:00:00.000Z");
+const currentTime = Date.parse("2026-07-24T20:48:17.419Z");
 
 describe("selectCurrentOriginFreeModel", () => {
   it("returns the official zero-cost free-model router", () => {
@@ -52,9 +52,27 @@ describe("selectCurrentOriginFreeModel", () => {
     );
   });
 
-  it("fails closed when evidence is not current", () => {
+  it("keeps the official free router available after its scheduled review date", () => {
     expect(selectCurrentOriginFreeModel(
       DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
+      Date.parse("2026-08-02T00:00:00.000Z"),
+    )).toEqual({
+      ok: true,
+      model: expect.objectContaining({
+        modelId: "openrouter/free",
+      }),
+    });
+  });
+
+  it("fails closed for a stale pinned free model", () => {
+    const pinnedCatalog = [{
+      ...DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0],
+      modelId: "example/model:free",
+      sourceUrl: "https://openrouter.ai/example/model:free",
+    }] as const;
+
+    expect(selectCurrentOriginFreeModel(
+      pinnedCatalog,
       Date.parse("2026-08-02T00:00:00.000Z"),
     )).toEqual({
       ok: false,
