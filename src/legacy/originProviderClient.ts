@@ -94,6 +94,30 @@ function normalizeMessages(messages: OriginChatMessage[], systemInstruction: str
 }
 
 function mapHttpFailure(status: number): OriginProviderError {
+  if (status === 401) {
+    return new OriginProviderError(
+      "PROVIDER_NOT_CONFIGURED",
+      "無料AIの認証情報を確認できませんでした。",
+      503,
+      false,
+    );
+  }
+  if (status === 402 || status === 403) {
+    return new OriginProviderError(
+      "PROVIDER_UNAVAILABLE",
+      "無料AIを現在利用できません。",
+      503,
+      false,
+    );
+  }
+  if (status === 404) {
+    return new OriginProviderError(
+      "PROVIDER_UNAVAILABLE",
+      "安全条件を満たす無料AIの実行先を現在利用できません。",
+      503,
+      true,
+    );
+  }
   if (status === 429) {
     return new OriginProviderError(
       "PROVIDER_RATE_LIMITED",
@@ -247,7 +271,8 @@ export async function executeOriginProvider(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
-        "X-Title": "ORIGIN Personal",
+        "HTTP-Referer": "https://myaispecials.ai.studio/",
+        "X-OpenRouter-Title": "ORIGIN Personal",
         "X-OpenRouter-Metadata": "enabled",
       },
       body: JSON.stringify({
@@ -258,12 +283,6 @@ export async function executeOriginProvider(
           allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
           data_collection: request.plan.providerDataPolicy.dataCollection,
           zdr: request.plan.providerDataPolicy.requireZeroDataRetention,
-          max_price: {
-            prompt: 0,
-            completion: 0,
-            request: 0,
-            image: 0,
-          },
         },
       }),
       signal: controller.signal,
