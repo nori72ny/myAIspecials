@@ -10,17 +10,17 @@ export interface OriginFreeModelEvidence {
   sourceDescription: string;
 }
 
-export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL = "moonshotai/kimi-k2.6:free" as const;
+export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL = "openai/gpt-oss-20b:free" as const;
 
 export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence[] = [
   {
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-07-19T00:00:00.000Z",
-    reviewAfter: "2026-08-18T23:59:59.999Z",
-    sourceUrl: "https://openrouter.ai/moonshotai/kimi-k2.6:free/pricing",
-    sourceDescription: "OpenRouter official model page showed the explicit :free model with Price Free.",
+    verifiedAt: "2026-07-24T00:00:00.000Z",
+    reviewAfter: "2026-07-31T23:59:59.999Z",
+    sourceUrl: "https://openrouter.ai/openai/gpt-oss-20b:free/pricing",
+    sourceDescription: "OpenRouter's official models API listed the explicit :free model at zero prompt and completion cost, and its official ZDR endpoint API listed eligible endpoints for the base model.",
   },
 ] as const;
 
