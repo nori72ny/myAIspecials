@@ -238,6 +238,30 @@ describe("createOriginChatRouter", () => {
     expect(providerRequest.systemInstruction).toContain(
       "Do not repeat the conclusion",
     );
+    expect(providerRequest.systemInstruction).toContain(
+      "Identify the user's real objective",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "never claim that a specialist AI reviewed",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "Application request analysis (guidance only; not execution evidence)",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "Required capabilities detected: security",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "Application work plan (planning guidance; not proof that any step ran)",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "Never present an uncreated file",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "Application service assignments (routing evidence; not proof of completed execution)",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "Do not substitute another service automatically",
+    );
   });
 
   it("marks low-risk writing as not requiring an independent review", async () => {
