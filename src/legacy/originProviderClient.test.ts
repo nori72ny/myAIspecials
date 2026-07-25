@@ -62,6 +62,10 @@ describe("executeOriginProvider", () => {
       expect(body.model).toBe("openrouter/free");
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
       expect(body.max_tokens).toBe(1800);
+      expect(body.reasoning).toEqual({
+        effort: "low",
+        exclude: true,
+      });
       expect(body.temperature).toBe(0.2);
       expect(body.top_p).toBe(0.9);
       expect(body.usage).toBeUndefined();
@@ -112,6 +116,82 @@ describe("executeOriginProvider", () => {
     expect(originCompletionTokenBudget("review")).toBe(1800);
     expect(originCompletionTokenBudget("documentation")).toBe(2400);
     expect(originCompletionTokenBudget("implementation")).toBe(2400);
+  });
+
+  it("accepts normalized text-part content returned by compatible providers", async () => {
+    const payload = successfulProviderPayload({
+      choices: [{
+        message: {
+          content: [
+            { type: "text", text: "結論です。" },
+            { type: "text", text: "具体案です。" },
+          ],
+        },
+      }],
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    const result = await executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    );
+
+    expect(result.text).toBe("結論です。\n\n具体案です。");
+  });
+
+  it("retries one empty free-model response within the same timeout budget", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({
+        choices: [{ message: { content: "" }, finish_reason: "length" }],
+      })), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+
+    const result = await executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.routingEvidence.attempt).toBe(2);
+    expect(result.text).toBe("確認結果です。");
+  });
+
+  it("maps a provider error embedded in a successful HTTP response", async () => {
+    const payload = successfulProviderPayload({
+      choices: [{
+        message: { content: "" },
+        finish_reason: "error",
+        error: {
+          metadata: { error_type: "provider_unavailable" },
+        },
+      }],
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      retryable: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed instead of attempting another provider when unconfigured", async () => {
