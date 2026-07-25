@@ -302,7 +302,7 @@ export default function UnifiedChat({
 }: UnifiedChatProps) {
   const settings: ChatSettings = settingsOverride ?? {
     language: 'ja',
-    timeoutSeconds: 30,
+    timeoutSeconds: 45,
   };
   const isEn = settings.language === 'en';
 
@@ -352,7 +352,7 @@ export default function UnifiedChat({
           userLocation: settings.location,
           executionPolicy: {
             maxEstimatedCostUsd: 0,
-            timeoutMs: Math.max(10, Math.min(120, settings.timeoutSeconds ?? 30)) * 1000,
+            timeoutMs: Math.max(10, Math.min(120, settings.timeoutSeconds ?? 45)) * 1000,
           },
         }),
       });
