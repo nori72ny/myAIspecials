@@ -74,6 +74,24 @@ function normalizeMessages(messages: OriginChatMessage[], systemInstruction: str
   ];
 }
 
+export function originCompletionTokenBudget(
+  taskType: OriginExecutionPlan["taskType"],
+): number {
+  switch (taskType) {
+    case "implementation":
+    case "documentation":
+      return 2_400;
+    case "research":
+    case "review":
+    case "architecture":
+    case "security":
+    case "current-information":
+      return 1_800;
+    default:
+      return 1_200;
+  }
+}
+
 function mapHttpFailure(status: number): OriginProviderError {
   if (status === 401) {
     return new OriginProviderError(
@@ -239,7 +257,11 @@ export async function executeOriginProvider(
       body: JSON.stringify({
         model: request.plan.modelId,
         messages: normalizeMessages(request.messages, request.systemInstruction),
-        temperature: 0.1,
+        // Bound output generation to avoid runaway latency while preserving a
+        // larger budget for real deliverables and complex analysis.
+        max_tokens: originCompletionTokenBudget(request.plan.taskType),
+        temperature: 0.2,
+        top_p: 0.9,
         provider: {
           allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
           data_collection: request.plan.providerDataPolicy.dataCollection,
