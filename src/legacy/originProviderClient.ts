@@ -54,6 +54,7 @@ export class OriginProviderError extends Error {
     message: string,
     public readonly status: number,
     public readonly retryable: boolean,
+    public readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "OriginProviderError";
@@ -92,7 +93,17 @@ export function originCompletionTokenBudget(
   }
 }
 
-function mapHttpFailure(status: number): OriginProviderError {
+function parseRetryAfterSeconds(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds > 0) return Math.ceil(seconds);
+
+  const retryAt = Date.parse(value);
+  if (!Number.isFinite(retryAt)) return undefined;
+  return Math.max(1, Math.ceil((retryAt - Date.now()) / 1_000));
+}
+
+function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProviderError {
   if (status === 401) {
     return new OriginProviderError(
       "PROVIDER_NOT_CONFIGURED",
@@ -120,9 +131,12 @@ function mapHttpFailure(status: number): OriginProviderError {
   if (status === 429) {
     return new OriginProviderError(
       "PROVIDER_RATE_LIMITED",
-      "無料AIの利用上限に達しました。時間をおいて再試行してください。",
+      retryAfterSeconds
+        ? `無料AIの利用上限に達しました。約${retryAfterSeconds}秒後に再試行できます。`
+        : "無料AIの利用上限に達しました。時間をおいて再試行してください。",
       429,
       true,
+      retryAfterSeconds,
     );
   }
   if (status === 408 || status === 504) {
@@ -326,7 +340,12 @@ export async function executeOriginProvider(
         signal: controller.signal,
       });
 
-      if (!response.ok) throw mapHttpFailure(response.status);
+      if (!response.ok) {
+        throw mapHttpFailure(
+          response.status,
+          parseRetryAfterSeconds(response.headers.get("Retry-After")),
+        );
+      }
 
       const data = await response.json() as {
         model?: string;
