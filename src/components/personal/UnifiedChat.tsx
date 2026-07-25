@@ -49,6 +49,7 @@ type Message = {
     retryable: boolean;
     requestId: string;
     description: string;
+    retryAfterSeconds?: number;
   };
 };
 
@@ -152,6 +153,7 @@ type ChatApiError = {
   message?: string;
   retryable?: boolean;
   requestId?: string;
+  retryAfterSeconds?: number;
 };
 
 type AiCoreState =
@@ -323,6 +325,7 @@ export default function UnifiedChat({
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [completionAnnouncement, setCompletionAnnouncement] = useState('');
+  const [retrySecondsRemaining, setRetrySecondsRemaining] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef(false);
   const handledInitialPromptRef = useRef<string | null>(null);
@@ -422,6 +425,17 @@ export default function UnifiedChat({
       } else if (error.code === 'PROVIDER_RATE_LIMITED') {
         aiCoreState = 'RATE_LIMITED';
         title = isEn ? 'Free AI usage limit reached' : '無料AIの利用上限に達しました';
+        const retryAfterSeconds = Number(error.retryAfterSeconds);
+        if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+          setRetrySecondsRemaining(Math.ceil(retryAfterSeconds));
+          description = isEn
+            ? `The free AI is temporarily rate-limited. Retry will be available in about ${Math.ceil(retryAfterSeconds)} seconds.`
+            : `無料AIが一時的に混み合っています。約${Math.ceil(retryAfterSeconds)}秒後に再試行できます。`;
+        } else {
+          description = isEn
+            ? 'The free daily or provider limit may have been reached. Please try again later.'
+            : '無料AIの日次上限または提供元の混雑上限に達した可能性があります。時間をおいて再試行してください。';
+        }
       } else if (
         error.code === 'FREE_PROVIDER_NOT_CONFIGURED'
         || error.code === 'PROVIDER_NOT_CONFIGURED'
@@ -494,6 +508,7 @@ export default function UnifiedChat({
           retryable: error.retryable !== false,
           requestId: error.requestId || 'UNKNOWN',
           description,
+          retryAfterSeconds: error.retryAfterSeconds,
         },
       };
       setMessages((previous) => [...previous, errorMessage]);
@@ -517,7 +532,7 @@ export default function UnifiedChat({
   };
 
   const handleRetry = async () => {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current || retrySecondsRemaining > 0) return;
 
     const validMessages = [...messages];
     while (validMessages.length > 0 && validMessages[validMessages.length - 1].error) {
@@ -528,6 +543,14 @@ export default function UnifiedChat({
     setMessages(validMessages);
     await processSend(validMessages);
   };
+
+  useEffect(() => {
+    if (retrySecondsRemaining <= 0) return;
+    const timer = window.setInterval(() => {
+      setRetrySecondsRemaining((seconds) => Math.max(0, seconds - 1));
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [retrySecondsRemaining > 0]);
 
   useEffect(() => {
     const prompt = initialPrompt?.trim();
@@ -600,11 +623,15 @@ export default function UnifiedChat({
                         <button
                           type="button"
                           onClick={handleRetry}
-                          disabled={isTyping}
+                          disabled={isTyping || retrySecondsRemaining > 0}
                           className="flex min-h-10 items-center gap-1.5 rounded-lg bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-500/20 dark:text-red-300 dark:hover:bg-red-500/30"
                         >
                           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                          {isEn ? 'Retry' : '再試行'}
+                          {retrySecondsRemaining > 0
+                            ? (isEn
+                                ? `Retry in ${retrySecondsRemaining}s`
+                                : `${retrySecondsRemaining}秒後に再試行`)
+                            : (isEn ? 'Retry' : '再試行')}
                         </button>
                       )}
                     </div>
