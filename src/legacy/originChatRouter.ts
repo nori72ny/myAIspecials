@@ -107,7 +107,12 @@ function applicationRouting(requestId: string, reason: string) {
 function requiresCurrentInformation(message: string): boolean {
   return /最新(?:の)?(?:情報|ニュース|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果)|今日の(?:ニュース|天気|料金|価格|株価|相場|結果)|現在の(?:ニュース|天気|料金|価格|株価|相場|仕様|バージョン|状況)|料金|価格|リアルタイム/.test(message)
     || /\b(?:news|pricing|prices?|weather|real[- ]time)\b/i.test(message)
-    || /\b(?:latest|current|today'?s?)\s+(?:information|news|weather|pricing|prices?|rates?|status|results?|version|model)\b/i.test(message);
+    || /\b(?:latest|current|today'?s?)\s+(?:information|news|weather|pricing|prices?|rates?|status|results?|version|model)\b/i.test(message)
+    // Short alphabetic acronyms/terms (e.g. AIO, SEO, GEO, DX) followed by "対策" or a definition-seeking
+    // suffix are frequently marketing/business terms whose meaning shifts over time. Answering these from
+    // static training knowledge risks confidently stating an outdated or fabricated definition, so treat
+    // them the same as other time-sensitive requests rather than letting the model guess.
+    || /[A-Za-zＡ-Ｚａ-ｚ]{2,10}(?:対策|とは|の意味|って何|とは何)/.test(message);
 }
 
 function firstAnswerBlock(content: string): string {

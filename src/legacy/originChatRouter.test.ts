@@ -533,6 +533,23 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
+  it("does not answer acronym/definition requests like \"AIO対策\" without connected live search", async () => {
+    // Regression test: ORIGIN previously guessed conflicting, incorrect definitions for
+    // "AIO対策" (a marketing term meaning AI-search/GEO optimization) because the freshness
+    // detector only matched explicit words like 最新/現在/ニュース. Short acronym-style terms
+    // followed by 対策/とは/の意味 should be treated as requiring live search too, since their
+    // meaning is often business/marketing terminology that shifts over time.
+    const response = await request(createApp(execute, {})).post("/api/chat").send({
+      messages: [{ role: "user", content: "AIO対策について教えて" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe(
+      "この版では最新情報を確認する検索機能が接続されていないため、古い可能性がある知識だけでは回答しません。",
+    );
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
   it("does not confuse personal planning for today with a live-information request", async () => {
     const response = await request(createApp(execute)).post("/api/chat").send({
       messages: [{ role: "user", content: "今日の予定を整理してください" }],
