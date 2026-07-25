@@ -178,7 +178,7 @@ describe('UnifiedChat', () => {
     const body = JSON.parse(fetchCall[1].body);
     expect(body.executionPolicy).toEqual({
       maxEstimatedCostUsd: 0,
-      timeoutMs: 30000,
+      timeoutMs: 45000,
     });
     expect(mockDispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'aiCoreStateChange' }));
   });
