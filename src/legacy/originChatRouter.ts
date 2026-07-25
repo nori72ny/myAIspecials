@@ -398,6 +398,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           code: error.code,
           message: error.message,
           retryable: error.retryable,
+          retryAfterSeconds: error.retryAfterSeconds,
           requestId,
         });
       }
