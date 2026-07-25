@@ -64,7 +64,9 @@ export type OriginExecutionPlanResult =
 export const DEFAULT_ORIGIN_EXECUTION_POLICY: OriginExecutionPolicy = {
   freeOnly: true,
   maxEstimatedCostUsd: 0,
-  timeoutMs: 30_000,
+  // Free providers can take longer on a cold start. Keep a bounded server
+  // window so a valid first response is not discarded at the old 30s edge.
+  timeoutMs: 45_000,
 };
 
 export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = {
