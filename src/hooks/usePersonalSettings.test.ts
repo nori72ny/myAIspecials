@@ -21,7 +21,7 @@ describe('usePersonalSettings', () => {
       selectedTheme: 'light',
       maxCostCap: 0,
       retryCount: 0,
-      timeoutSeconds: 30,
+      timeoutSeconds: 45,
     });
   });
 
