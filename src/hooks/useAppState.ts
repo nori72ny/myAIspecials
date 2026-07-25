@@ -158,7 +158,7 @@ export function useAppState() {
       selectedTheme: "dark",
       maxCostCap: 1.00,
       retryCount: 3,
-      timeoutSeconds: 30
+      timeoutSeconds: 45
     };
     const stored = SafeStorage.get<Settings>("acos_settings", (data) => typeof data === "object" && data !== null);
     if (stored) {
@@ -168,7 +168,7 @@ export function useAppState() {
       if (!stored.selectedTheme) stored.selectedTheme = "dark";
       if (stored.maxCostCap === undefined) stored.maxCostCap = 1.00;
       if (stored.retryCount === undefined) stored.retryCount = 3;
-      if (stored.timeoutSeconds === undefined) stored.timeoutSeconds = 30;
+      if (stored.timeoutSeconds === undefined) stored.timeoutSeconds = 45;
       return stored;
     }
     return defaultSettings;
@@ -586,4 +586,3 @@ export function updateACOSAdaptiveLearning(resultData: any, categoryId: string) 
     console.error("Failed to run adaptive learning feedback loop", err);
   }
 }
-
