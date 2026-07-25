@@ -233,22 +233,22 @@ describe("createOriginChatRouter", () => {
       "Separate confirmed facts from assumptions, inferences, and recommendations.",
     );
     expect(providerRequest.systemInstruction).toContain(
-      "Otherwise make the minimum explicit assumptions and provide a useful first version now",
+      "otherwise state minimal assumptions",
     );
     expect(providerRequest.systemInstruction).toContain(
-      "Do not repeat the conclusion",
+      "unnecessary repetition",
     );
     expect(providerRequest.systemInstruction).toContain(
-      "Identify the user's real objective",
+      "Identify the real objective",
     );
     expect(providerRequest.systemInstruction).toContain(
-      "never claim that a specialist AI reviewed",
+      "specialist review, or other execution without evidence",
     );
     expect(providerRequest.systemInstruction).toContain(
-      "produce the requested usable content in this response",
+      "Produce requested content now",
     );
     expect(providerRequest.systemInstruction).toContain(
-      "check goal fit, completeness, internal consistency, practical usability",
+      "check goal fit, completeness, internal consistency, usability",
     );
     expect(providerRequest.systemInstruction).toContain(
       "Application request analysis (guidance only; not execution evidence)",
