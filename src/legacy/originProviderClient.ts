@@ -20,7 +20,7 @@ export interface OriginProviderRoutingEvidence {
   strategy: string;
   provider: string;
   region?: string;
-  attempt: 1;
+  attempt: 1 | 2;
   fallbackUsed: false;
 }
 
@@ -188,6 +188,7 @@ function verifiedZeroCost(value: unknown): 0 {
 function verifiedRoutingEvidence(
   requestedModel: string,
   responseModel: unknown,
+  attempt: 1 | 2,
 ): OriginProviderRoutingEvidence {
   const requestedFreeRouteIsVerified = requestedModel === "openrouter/free"
     || requestedModel.endsWith(":free");
@@ -210,9 +211,59 @@ function verifiedRoutingEvidence(
     servedModel,
     strategy: requestedModel === "openrouter/free" ? "free-router" : "free",
     provider: "OpenRouter",
-    attempt: 1,
+    attempt,
     fallbackUsed: false,
   };
+}
+
+type OriginProviderContent =
+  | string
+  | Array<{ type?: string; text?: string }>
+  | null;
+
+function extractProviderText(content: OriginProviderContent | undefined): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part) => part?.type === "text" && typeof part.text === "string")
+    .map((part) => part.text?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | null {
+  if (typeof errorType !== "string" || !errorType) return null;
+  if (errorType === "rate_limit_exceeded") {
+    return new OriginProviderError(
+      "PROVIDER_RATE_LIMITED",
+      "無料AIの利用上限に達しました。時間をおいて再試行してください。",
+      429,
+      true,
+    );
+  }
+  if (errorType === "timeout") {
+    return new OriginProviderError(
+      "PROVIDER_TIMEOUT",
+      "無料AIの応答が時間内に完了しませんでした。",
+      504,
+      true,
+    );
+  }
+  if (errorType === "provider_overloaded" || errorType === "provider_unavailable") {
+    return new OriginProviderError(
+      "PROVIDER_UNAVAILABLE",
+      "無料AIを現在利用できません。",
+      503,
+      true,
+    );
+  }
+  return new OriginProviderError(
+    "PROVIDER_INTERNAL_ERROR",
+    "無料AIの処理に失敗しました。",
+    502,
+    false,
+  );
 }
 
 export async function executeOriginProvider(
@@ -246,70 +297,96 @@ export async function executeOriginProvider(
   const timeout = setTimeout(() => controller.abort(), request.plan.timeoutMs);
 
   try {
-    const response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://myaispecials.ai.studio/",
-        "X-OpenRouter-Title": "ORIGIN Personal",
-      },
-      body: JSON.stringify({
-        model: request.plan.modelId,
-        messages: normalizeMessages(request.messages, request.systemInstruction),
-        // Bound output generation to avoid runaway latency while preserving a
-        // larger budget for real deliverables and complex analysis.
-        max_tokens: originCompletionTokenBudget(request.plan.taskType),
-        temperature: 0.2,
-        top_p: 0.9,
-        provider: {
-          allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
-          data_collection: request.plan.providerDataPolicy.dataCollection,
+    for (const attempt of [1, 2] as const) {
+      const response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "HTTP-Referer": "https://myaispecials.ai.studio/",
+          "X-OpenRouter-Title": "ORIGIN Personal",
         },
-      }),
-      signal: controller.signal,
-    });
+        body: JSON.stringify({
+          model: request.plan.modelId,
+          messages: normalizeMessages(request.messages, request.systemInstruction),
+          // Bound output generation and keep reasoning models from spending the
+          // entire completion budget before producing user-visible text.
+          max_tokens: originCompletionTokenBudget(request.plan.taskType),
+          reasoning: {
+            effort: "low",
+            exclude: true,
+          },
+          temperature: 0.2,
+          top_p: 0.9,
+          provider: {
+            allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
+            data_collection: request.plan.providerDataPolicy.dataCollection,
+          },
+        }),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) throw mapHttpFailure(response.status);
+      if (!response.ok) throw mapHttpFailure(response.status);
 
-    const data = await response.json() as {
-      model?: string;
-      choices?: Array<{ message?: { content?: string } }>;
-      usage?: {
-        prompt_tokens?: number;
-        completion_tokens?: number;
-        total_tokens?: number;
-        cost?: number;
+      const data = await response.json() as {
+        model?: string;
+        error?: { metadata?: { error_type?: string } };
+        choices?: Array<{
+          finish_reason?: string;
+          message?: { content?: OriginProviderContent };
+          error?: { metadata?: { error_type?: string } };
+        }>;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+          cost?: number;
+        };
       };
-    };
-    const costUsd = verifiedZeroCost(data.usage?.cost);
-    const routingEvidence = verifiedRoutingEvidence(
-      request.plan.modelId,
-      data.model,
-    );
-    const text = data.choices?.[0]?.message?.content?.trim() ?? "";
-
-    if (!text) {
-      throw new OriginProviderError(
-        "PROVIDER_INVALID_RESPONSE",
-        "無料AIから有効な回答を受け取れませんでした。",
-        502,
-        true,
+      const choice = data.choices?.[0];
+      const payloadFailure = mapProviderPayloadFailure(
+        choice?.error?.metadata?.error_type ?? data.error?.metadata?.error_type,
       );
+      if (payloadFailure) throw payloadFailure;
+
+      const costUsd = verifiedZeroCost(data.usage?.cost);
+      const routingEvidence = verifiedRoutingEvidence(
+        request.plan.modelId,
+        data.model,
+        attempt,
+      );
+      const text = extractProviderText(choice?.message?.content);
+
+      if (!text && attempt === 1) continue;
+      if (!text) {
+        throw new OriginProviderError(
+          "PROVIDER_INVALID_RESPONSE",
+          "無料AIから有効な回答を受け取れませんでした。",
+          502,
+          true,
+        );
+      }
+
+      return {
+        text,
+        actualCostUsd: costUsd,
+        providerDataPolicy: request.plan.providerDataPolicy,
+        routingEvidence,
+        usage: {
+          promptTokens: data.usage?.prompt_tokens,
+          completionTokens: data.usage?.completion_tokens,
+          totalTokens: data.usage?.total_tokens,
+          costUsd,
+        },
+      };
     }
 
-    return {
-      text,
-      actualCostUsd: costUsd,
-      providerDataPolicy: request.plan.providerDataPolicy,
-      routingEvidence,
-      usage: {
-        promptTokens: data.usage?.prompt_tokens,
-        completionTokens: data.usage?.completion_tokens,
-        totalTokens: data.usage?.total_tokens,
-        costUsd,
-      },
-    };
+    throw new OriginProviderError(
+      "PROVIDER_INVALID_RESPONSE",
+      "無料AIから有効な回答を受け取れませんでした。",
+      502,
+      true,
+    );
   } catch (error) {
     if (error instanceof OriginProviderError) throw error;
     if (error instanceof Error && error.name === "AbortError") {
