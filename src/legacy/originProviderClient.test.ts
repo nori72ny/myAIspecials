@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   executeOriginProvider,
+  originCompletionTokenBudget,
   OriginProviderError,
   type OriginFetch,
 } from "./originProviderClient";
@@ -60,6 +61,9 @@ describe("executeOriginProvider", () => {
 
       expect(body.model).toBe("openrouter/free");
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
+      expect(body.max_tokens).toBe(1800);
+      expect(body.temperature).toBe(0.2);
+      expect(body.top_p).toBe(0.9);
       expect(body.usage).toBeUndefined();
       expect(body.provider).toEqual({
         allow_fallbacks: false,
@@ -101,6 +105,13 @@ describe("executeOriginProvider", () => {
       },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a bounded, task-aware output budget to reduce avoidable latency", () => {
+    expect(originCompletionTokenBudget("ux")).toBe(1200);
+    expect(originCompletionTokenBudget("review")).toBe(1800);
+    expect(originCompletionTokenBudget("documentation")).toBe(2400);
+    expect(originCompletionTokenBudget("implementation")).toBe(2400);
   });
 
   it("fails closed instead of attempting another provider when unconfigured", async () => {
