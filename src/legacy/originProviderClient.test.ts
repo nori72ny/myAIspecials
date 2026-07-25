@@ -336,6 +336,25 @@ describe("executeOriginProvider", () => {
     }
   });
 
+  it("preserves Retry-After guidance for rate limits", async () => {
+    const fetchMock = vi.fn(async () => new Response("rate limited", {
+      status: 429,
+      headers: { "Retry-After": "60" },
+    }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+      retryable: true,
+      retryAfterSeconds: 60,
+      message: "無料AIの利用上限に達しました。約60秒後に再試行できます。",
+    });
+  });
+
   it.each([
     [401, "PROVIDER_NOT_CONFIGURED", false],
     [402, "PROVIDER_UNAVAILABLE", false],
