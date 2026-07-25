@@ -736,6 +736,28 @@ describe('UnifiedChat', () => {
     });
   });
 
+  it('disables retry until the provider Retry-After delay expires', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'PROVIDER_RATE_LIMITED',
+        message: 'rate limited',
+        retryable: true,
+        retryAfterSeconds: 60,
+        requestId: 'req-wait',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('再試行待機を確認');
+
+    await waitFor(() => {
+      const retryButton = screen.getByRole('button', { name: '60秒後に再試行' });
+      expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByText('無料AIが一時的に混み合っています。約60秒後に再試行できます。')).toBeTruthy();
+    });
+  });
+
   it('handles an initial prompt exactly once', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: true,
