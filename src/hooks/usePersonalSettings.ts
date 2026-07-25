@@ -13,7 +13,7 @@ export const DEFAULT_PERSONAL_SETTINGS: Settings = Object.freeze({
   selectedTheme: 'light',
   maxCostCap: 0,
   retryCount: 0,
-  timeoutSeconds: 30,
+  timeoutSeconds: 45,
 });
 
 type StoredPersonalSettings = Pick<Settings, 'language' | 'selectedTheme'>;
