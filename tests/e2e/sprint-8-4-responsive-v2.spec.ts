@@ -40,7 +40,7 @@ for (const viewport of VIEWPORTS) {
     if (viewport.width < 1024) {
       await page.getByRole('button', { name: /メニューを開く|Open menu/i }).click();
     }
-    await page.getByRole('button', { name: /設定を開く|Open settings/i }).click();
+    await page.getByRole('main').getByRole('button', { name: /設定を開く|Open settings/i }).click();
     const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByTestId('settings-modal')).toHaveCSS('opacity', '1');
