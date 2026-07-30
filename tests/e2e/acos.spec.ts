@@ -19,7 +19,7 @@ test.describe('ORIGIN Personal Edition critical journey', () => {
 
   test('opens truthful, minimal release settings', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: /設定を開く|Open settings/i }).click();
+    await page.getByRole('main').getByRole('button', { name: /設定を開く|Open settings/i }).click();
 
     const settingsDialog = page.getByRole('dialog', { name: /設定|Settings/i });
     await expect(settingsDialog).toBeVisible();
