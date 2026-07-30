@@ -23,7 +23,7 @@ test.describe('ORIGIN Personal release navigation', () => {
     await expect(page.getByText(/ACOS Development|Sales Deck|Marketing|Memory Fragments/)).toHaveCount(0);
     await expect(page.getByText(/Switch to Enterprise/i)).toHaveCount(0);
     await expect(page.getByText(/AIコア：|AI Core:/i)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /設定を開く|Open settings/ })).toBeVisible();
+    await expect(page.getByRole('main').getByRole('button', { name: /設定を開く|Open settings/ })).toBeVisible();
   });
 
   test('opens a fresh chat from the primary action', async ({ page }) => {
