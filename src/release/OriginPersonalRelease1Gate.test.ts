@@ -28,17 +28,25 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(worker).toContain("return json(DISABLED_AI_RESPONSE, 503, headers)");
   });
 
-  it("locks provider execution to configured OpenRouter free models", () => {
+  it("locks provider execution to one fixed OpenRouter free model", () => {
     const providerClient = readRepositoryFile(
       "src/legacy/originProviderClient.ts",
+    );
+    const modelCatalog = readRepositoryFile(
+      "src/lib/orchestration/OriginFreeModelCatalog.ts",
     );
 
     expect(providerClient).toContain(
       'request.plan.providerId !== "openrouter-free"',
     );
     expect(providerClient).toContain(
-      'request.plan.modelId === "openrouter/free"',
+      "request.plan.modelId === ORIGIN_OPENROUTER_FREE_MODEL",
     );
+    expect(providerClient).toContain("servedModel !== requestedModel");
+    expect(providerClient).not.toContain('"openrouter/free"');
+    expect(providerClient).not.toContain("for (const attempt");
+    expect(modelCatalog).toContain('"inclusionai/ling-3.0-flash:free"');
+    expect(modelCatalog).not.toContain('"openrouter/free"');
     expect(providerClient).toContain("const apiKey = env.OPENROUTER_API_KEY");
     expect(providerClient).toContain(
       "allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks",
@@ -52,6 +60,20 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).toContain(
       "const routingEvidence = verifiedRoutingEvidence(",
     );
+  });
+
+  it("removes the Gemini capability declaration and exposes the release SHA", () => {
+    const metadata = JSON.parse(readRepositoryFile("metadata.json")) as {
+      majorCapabilities?: string[];
+    };
+    const app = readRepositoryFile("src/server/createOriginApp.ts");
+
+    expect(metadata.majorCapabilities).toBeUndefined();
+    expect(app).toContain("releaseSha: resolveOriginReleaseSha(env)");
+    expect(app).toContain("env.VERCEL_GIT_COMMIT_SHA");
+    expect(app).toContain('["/health", "/api/health"]');
+    expect(app).not.toContain("legacyRoutes");
+    expect(app).not.toContain("MissionEngine");
   });
 
   it("states that AI Studio direct runtime is outside the first release", () => {

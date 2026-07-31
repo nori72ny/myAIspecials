@@ -132,7 +132,7 @@ export function buildOriginExecutionPlan(
       estimatedCostUsd: 0,
       timeoutMs: policy.timeoutMs,
       requiresOwnerApproval: false,
-      reason: `依頼を「${taskType}」として分類し、公式の無料モデル専用ルーターを選択しました。実行後も利用額0ドルを確認します。これは品質優位性の主張ではありません。`,
+      reason: `依頼を「${taskType}」として分類し、公式情報で無料と確認した固定モデル「${model.modelId}」を選択しました。別モデルへの自動切替は行わず、実行後も要求モデルとの一致と利用額0ドルを確認します。これは品質優位性の主張ではありません。`,
       providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
       modelEvidence: {
         verifiedAt: model.verifiedAt,

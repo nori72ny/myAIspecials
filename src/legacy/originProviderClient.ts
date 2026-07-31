@@ -1,6 +1,7 @@
-import type {
-  OriginExecutionPlan,
-  OriginProviderDataPolicy,
+import {
+  ORIGIN_OPENROUTER_FREE_MODEL,
+  type OriginExecutionPlan,
+  type OriginProviderDataPolicy,
 } from "../lib/orchestration/OriginExecutionPolicy";
 
 export interface OriginChatMessage {
@@ -20,7 +21,7 @@ export interface OriginProviderRoutingEvidence {
   strategy: string;
   provider: string;
   region?: string;
-  attempt: 1 | 2;
+  attempt: 1;
   fallbackUsed: false;
 }
 
@@ -202,15 +203,14 @@ function verifiedZeroCost(value: unknown): 0 {
 function verifiedRoutingEvidence(
   requestedModel: string,
   responseModel: unknown,
-  attempt: 1 | 2,
 ): OriginProviderRoutingEvidence {
-  const requestedFreeRouteIsVerified = requestedModel === "openrouter/free"
-    || requestedModel.endsWith(":free");
+  const requestedFreeRouteIsVerified =
+    requestedModel === ORIGIN_OPENROUTER_FREE_MODEL;
   const servedModel = typeof responseModel === "string" ? responseModel : "";
 
   if (
     !requestedFreeRouteIsVerified
-    || !servedModel.endsWith(":free")
+    || servedModel !== requestedModel
   ) {
     throw new OriginProviderError(
       "PROVIDER_ROUTING_UNVERIFIED",
@@ -223,9 +223,9 @@ function verifiedRoutingEvidence(
   return {
     requestedModel,
     servedModel,
-    strategy: requestedModel === "openrouter/free" ? "free-router" : "free",
+    strategy: "fixed-free-model",
     provider: "OpenRouter",
-    attempt,
+    attempt: 1,
     fallbackUsed: false,
   };
 }
@@ -285,8 +285,8 @@ export async function executeOriginProvider(
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: OriginFetch = fetch,
 ): Promise<OriginProviderExecutionResult> {
-  const isVerifiedFreeRoute = request.plan.modelId === "openrouter/free"
-    || request.plan.modelId.endsWith(":free");
+  const isVerifiedFreeRoute =
+    request.plan.modelId === ORIGIN_OPENROUTER_FREE_MODEL;
   if (request.plan.providerId !== "openrouter-free" || !isVerifiedFreeRoute) {
     throw new OriginProviderError(
       "PROVIDER_POLICY_VIOLATION",
@@ -311,101 +311,90 @@ export async function executeOriginProvider(
   const timeout = setTimeout(() => controller.abort(), request.plan.timeoutMs);
 
   try {
-    for (const attempt of [1, 2] as const) {
-      const response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          "HTTP-Referer": "https://myaispecials.ai.studio/",
-          "X-OpenRouter-Title": "ORIGIN Personal",
+    const response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "HTTP-Referer": "https://myaispecials.ai.studio/",
+        "X-OpenRouter-Title": "ORIGIN Personal",
+      },
+      body: JSON.stringify({
+        model: request.plan.modelId,
+        messages: normalizeMessages(request.messages, request.systemInstruction),
+        // Bound output generation and keep reasoning models from spending the
+        // entire completion budget before producing user-visible text.
+        max_tokens: originCompletionTokenBudget(request.plan.taskType),
+        reasoning: {
+          effort: "low",
+          exclude: true,
         },
-        body: JSON.stringify({
-          model: request.plan.modelId,
-          messages: normalizeMessages(request.messages, request.systemInstruction),
-          // Bound output generation and keep reasoning models from spending the
-          // entire completion budget before producing user-visible text.
-          max_tokens: originCompletionTokenBudget(request.plan.taskType),
-          reasoning: {
-            effort: "low",
-            exclude: true,
-          },
-          temperature: 0.2,
-          top_p: 0.9,
-          provider: {
-            allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
-            data_collection: request.plan.providerDataPolicy.dataCollection,
-          },
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw mapHttpFailure(
-          response.status,
-          parseRetryAfterSeconds(response.headers.get("Retry-After")),
-        );
-      }
-
-      const data = await response.json() as {
-        model?: string;
-        error?: { metadata?: { error_type?: string } };
-        choices?: Array<{
-          finish_reason?: string;
-          message?: { content?: OriginProviderContent };
-          error?: { metadata?: { error_type?: string } };
-        }>;
-        usage?: {
-          prompt_tokens?: number;
-          completion_tokens?: number;
-          total_tokens?: number;
-          cost?: number;
-        };
-      };
-      const choice = data.choices?.[0];
-      const payloadFailure = mapProviderPayloadFailure(
-        choice?.error?.metadata?.error_type ?? data.error?.metadata?.error_type,
-      );
-      if (payloadFailure) throw payloadFailure;
-
-      const costUsd = verifiedZeroCost(data.usage?.cost);
-      const routingEvidence = verifiedRoutingEvidence(
-        request.plan.modelId,
-        data.model,
-        attempt,
-      );
-      const text = extractProviderText(choice?.message?.content);
-
-      if (!text && attempt === 1) continue;
-      if (!text) {
-        throw new OriginProviderError(
-          "PROVIDER_INVALID_RESPONSE",
-          "無料AIから有効な回答を受け取れませんでした。",
-          502,
-          true,
-        );
-      }
-
-      return {
-        text,
-        actualCostUsd: costUsd,
-        providerDataPolicy: request.plan.providerDataPolicy,
-        routingEvidence,
-        usage: {
-          promptTokens: data.usage?.prompt_tokens,
-          completionTokens: data.usage?.completion_tokens,
-          totalTokens: data.usage?.total_tokens,
-          costUsd,
+        temperature: 0.2,
+        top_p: 0.9,
+        provider: {
+          allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
+          data_collection: request.plan.providerDataPolicy.dataCollection,
         },
-      };
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw mapHttpFailure(
+        response.status,
+        parseRetryAfterSeconds(response.headers.get("Retry-After")),
+      );
     }
 
-    throw new OriginProviderError(
-      "PROVIDER_INVALID_RESPONSE",
-      "無料AIから有効な回答を受け取れませんでした。",
-      502,
-      true,
+    const data = await response.json() as {
+      model?: string;
+      error?: { metadata?: { error_type?: string } };
+      choices?: Array<{
+        finish_reason?: string;
+        message?: { content?: OriginProviderContent };
+        error?: { metadata?: { error_type?: string } };
+      }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        cost?: number;
+      };
+    };
+    const choice = data.choices?.[0];
+    const payloadFailure = mapProviderPayloadFailure(
+      choice?.error?.metadata?.error_type ?? data.error?.metadata?.error_type,
     );
+    if (payloadFailure) throw payloadFailure;
+
+    const costUsd = verifiedZeroCost(data.usage?.cost);
+    const routingEvidence = verifiedRoutingEvidence(
+      request.plan.modelId,
+      data.model,
+    );
+    const text = extractProviderText(choice?.message?.content);
+
+    if (!text) {
+      throw new OriginProviderError(
+        "PROVIDER_INVALID_RESPONSE",
+        "無料AIから有効な回答を受け取れませんでした。",
+        502,
+        true,
+      );
+    }
+
+    return {
+      text,
+      actualCostUsd: costUsd,
+      providerDataPolicy: request.plan.providerDataPolicy,
+      routingEvidence,
+      usage: {
+        promptTokens: data.usage?.prompt_tokens,
+        completionTokens: data.usage?.completion_tokens,
+        totalTokens: data.usage?.total_tokens,
+        costUsd,
+      },
+    };
   } catch (error) {
     if (error instanceof OriginProviderError) throw error;
     if (error instanceof Error && error.name === "AbortError") {

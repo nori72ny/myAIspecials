@@ -1,4 +1,6 @@
-export type OriginFreeModelId = `${string}/${string}:free` | "openrouter/free";
+export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL =
+  "inclusionai/ling-3.0-flash:free" as const;
+export type OriginFreeModelId = typeof ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
 
 export interface OriginFreeModelEvidence {
   providerId: "openrouter-free";
@@ -10,19 +12,18 @@ export interface OriginFreeModelEvidence {
   sourceDescription: string;
 }
 
-export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL = "openrouter/free" as const;
-const ORIGIN_OPENROUTER_FREE_ROUTER_SOURCE =
-  "https://openrouter.ai/docs/guides/routing/routers/free-router" as const;
+const ORIGIN_OPENROUTER_FREE_MODEL_SOURCE =
+  "https://openrouter.ai/inclusionai/ling-3.0-flash:free" as const;
 
 export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence[] = [
   {
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-07-24T00:00:00.000Z",
-    reviewAfter: "2026-08-01T23:59:59.999Z",
-    sourceUrl: ORIGIN_OPENROUTER_FREE_ROUTER_SOURCE,
-    sourceDescription: "OpenRouter's official Free Models Router documentation states that openrouter/free selects only currently available free models and that both the router and routed requests are free.",
+    verifiedAt: "2026-08-01T00:00:00.000Z",
+    reviewAfter: "2026-08-08T23:59:59.999Z",
+    sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
+    sourceDescription: "OpenRouter's official model page identified this exact model ID as a free model with zero listed input and output pricing at verification time.",
   },
 ] as const;
 
@@ -44,16 +45,11 @@ function isValidEvidence(entry: OriginFreeModelEvidence): boolean {
   const reviewAfter = parseTimestamp(entry.reviewAfter);
 
   return entry.providerId === "openrouter-free"
-    && (entry.modelId === "openrouter/free" || entry.modelId.endsWith(":free"))
+    && entry.modelId === ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL
     && entry.sourceUrl.startsWith("https://openrouter.ai/")
     && verifiedAt !== null
     && reviewAfter !== null
     && reviewAfter > verifiedAt;
-}
-
-function isOfficialFreeRouterEvidence(entry: OriginFreeModelEvidence): boolean {
-  return entry.modelId === ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL
-    && entry.sourceUrl === ORIGIN_OPENROUTER_FREE_ROUTER_SOURCE;
 }
 
 export function selectCurrentOriginFreeModel(
@@ -74,7 +70,7 @@ export function selectCurrentOriginFreeModel(
     return verifiedAt !== null
       && reviewAfter !== null
       && nowMs >= verifiedAt
-      && (isOfficialFreeRouterEvidence(entry) || nowMs <= reviewAfter);
+      && nowMs <= reviewAfter;
   });
 
   if (!current) {

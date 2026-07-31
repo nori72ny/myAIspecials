@@ -8,10 +8,10 @@ const request = {
   goal: "認証処理の安全性を確認してください",
 };
 
-const verifiedNow = Date.parse("2026-07-24T20:48:17.419Z");
+const verifiedNow = Date.parse("2026-08-01T12:00:00.000Z");
 
 describe("buildOriginExecutionPlan", () => {
-  it("selects the current evidence-backed OpenRouter free router with data collection denied", () => {
+  it("selects the current evidence-backed fixed free model with data collection denied", () => {
     const result = buildOriginExecutionPlan(
       request,
       { openRouterConfigured: true },
@@ -23,20 +23,21 @@ describe("buildOriginExecutionPlan", () => {
     if (!result.ok) return;
 
     expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
-    expect(result.plan.modelId).toBe("openrouter/free");
+    expect(result.plan.modelId).toBe("inclusionai/ling-3.0-flash:free");
     expect(result.plan.freeOnly).toBe(true);
     expect(result.plan.estimatedCostUsd).toBe(0);
     expect(result.plan.requiresOwnerApproval).toBe(false);
     expect(result.plan.taskType).toBe("security");
     expect(result.plan.reason).toContain("品質優位性の主張ではありません");
+    expect(result.plan.reason).toContain("別モデルへの自動切替は行わず");
     expect(result.plan.providerDataPolicy).toEqual({
       allowProviderFallbacks: false,
       dataCollection: "deny",
       requireZeroDataRetention: false,
     });
     expect(result.plan.modelEvidence).toEqual(expect.objectContaining({
-      verifiedAt: "2026-07-24T00:00:00.000Z",
-      reviewAfter: "2026-08-01T23:59:59.999Z",
+      verifiedAt: "2026-08-01T00:00:00.000Z",
+      reviewAfter: "2026-08-08T23:59:59.999Z",
       sourceUrl: expect.stringContaining("openrouter.ai"),
     }));
   });
@@ -56,20 +57,17 @@ describe("buildOriginExecutionPlan", () => {
     });
   });
 
-  it("keeps the official free router available after the scheduled review date", () => {
+  it("fails closed after the fixed model evidence expires", () => {
     const result = buildOriginExecutionPlan(
       request,
       { openRouterConfigured: true },
       undefined,
-      { nowMs: Date.parse("2026-08-19T00:00:00.000Z") },
+      { nowMs: Date.parse("2026-08-09T00:00:00.000Z") },
     );
 
     expect(result).toEqual(expect.objectContaining({
-      ok: true,
-      plan: expect.objectContaining({
-        modelId: "openrouter/free",
-        estimatedCostUsd: 0,
-      }),
+      ok: false,
+      code: "FREE_MODEL_EVIDENCE_STALE",
     }));
   });
 
