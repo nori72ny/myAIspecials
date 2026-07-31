@@ -27,6 +27,7 @@ describe("ORIGIN Personal production entrypoint", () => {
     expect(document).toContain("<title>ORIGIN Personal</title>");
     expect(document).not.toContain("Ultimate");
     expect(document).not.toMatch(/img-src[^;]*https/);
+    expect(document).not.toMatch(/media-src[^;]*https/);
     expect(document).not.toContain("fonts.googleapis.com");
     expect(styles).not.toContain("fonts.googleapis.com");
     expect(styles).toContain("env(safe-area-inset-bottom)");
