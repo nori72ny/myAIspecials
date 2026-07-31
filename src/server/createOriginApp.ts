@@ -4,7 +4,18 @@ import { originChatBoundaryGuard } from "../legacy/originChatBoundaryGuard";
 import { createOriginChatRouter } from "../legacy/originChatRouter";
 import { createOriginLegacyProviderBoundaryRouter } from "../legacy/originLegacyProviderBoundaryGuard";
 
-export function createOriginApp(): Express {
+const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
+
+export function resolveOriginReleaseSha(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA;
+  return candidate && FULL_GIT_SHA.test(candidate)
+    ? candidate.toLowerCase()
+    : "unknown";
+}
+
+export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   const app = express();
 
   app.use((req, res, next) => {
@@ -26,12 +37,16 @@ export function createOriginApp(): Express {
   // mission mutation route before a later router can inspect or transmit input.
   app.use(createOriginLegacyProviderBoundaryRouter());
 
-  app.get("/health", (_req, res) => {
-    res.status(200).json({ status: "ok", service: "acos-2" });
+  app.get(["/health", "/api/health"], (_req, res) => {
+    res.status(200).json({
+      status: "ok",
+      service: "acos-2",
+      releaseSha: resolveOriginReleaseSha(env),
+    });
   });
 
   // Only the authoritative ORIGIN chat router may handle POST /api/chat.
-  app.use(createOriginChatRouter());
+  app.use(createOriginChatRouter({ env }));
   app.all("/api/chat", originChatBoundaryGuard);
 
   // The Personal release intentionally does not import or mount the legacy

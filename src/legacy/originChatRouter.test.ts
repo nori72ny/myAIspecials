@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy";
 import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
 
-const verifiedCatalogTime = Date.parse("2026-07-24T20:48:17.419Z");
+const verifiedCatalogTime = Date.parse("2026-08-01T12:00:00.000Z");
 const defaultExecutionResult = {
   text: "安全な確認結果です。",
   actualCostUsd: 0,
@@ -14,9 +14,9 @@ const defaultExecutionResult = {
     requireZeroDataRetention: false as const,
   },
   routingEvidence: {
-    requestedModel: "openrouter/free",
+    requestedModel: "inclusionai/ling-3.0-flash:free",
     servedModel: "inclusionai/ling-3.0-flash:free",
-    strategy: "free" as const,
+    strategy: "fixed-free-model" as const,
     provider: "Synthetic Free Provider",
     region: "iad",
     attempt: 1,
@@ -166,7 +166,7 @@ describe("createOriginChatRouter", () => {
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN 無料AI",
       providerId: "openrouter-free",
-      modelId: "openrouter/free",
+      modelId: "inclusionai/ling-3.0-flash:free",
       taskType: "security",
       cost: 0,
       actualCostUsd: 0,
@@ -181,8 +181,8 @@ describe("createOriginChatRouter", () => {
         "依頼種別「セキュリティ」は独立確認の対象です。",
       ]),
       modelEvidence: expect.objectContaining({
-        verifiedAt: "2026-07-24T00:00:00.000Z",
-        reviewAfter: "2026-08-01T23:59:59.999Z",
+        verifiedAt: "2026-08-01T00:00:00.000Z",
+        reviewAfter: "2026-08-08T23:59:59.999Z",
         sourceUrl: expect.stringContaining("openrouter.ai"),
       }),
       providerDataPolicy: {
@@ -191,9 +191,9 @@ describe("createOriginChatRouter", () => {
         requireZeroDataRetention: false,
       },
       providerRouting: {
-        requestedModel: "openrouter/free",
+        requestedModel: "inclusionai/ling-3.0-flash:free",
         servedModel: "inclusionai/ling-3.0-flash:free",
-        strategy: "free",
+        strategy: "fixed-free-model",
         provider: "Synthetic Free Provider",
         region: "iad",
         attempt: 1,
@@ -217,7 +217,7 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).toHaveBeenCalledWith(expect.objectContaining({
       plan: expect.objectContaining({
         providerId: "openrouter-free",
-        modelId: "openrouter/free",
+        modelId: "inclusionai/ling-3.0-flash:free",
         freeOnly: true,
         providerDataPolicy: {
           allowProviderFallbacks: false,
@@ -427,24 +427,18 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
-  it("keeps the official free router available after the scheduled review date", async () => {
+  it("fails closed after the fixed model evidence expires", async () => {
     const response = await request(createApp(
       execute,
       { OPENROUTER_API_KEY: "synthetic-test-key" },
-      () => Date.parse("2026-08-19T00:00:00.000Z"),
+      () => Date.parse("2026-08-09T00:00:00.000Z"),
     )).post("/api/chat").send({
       messages: [{ role: "user", content: "文章を確認してください" }],
     });
 
-    expect(response.status).toBe(200);
-    expect(response.body.routing).toEqual(expect.objectContaining({
-      modelId: "openrouter/free",
-      cost: 0,
-      providerRouting: expect.objectContaining({
-        servedModel: "inclusionai/ling-3.0-flash:free",
-      }),
-    }));
-    expect(executeMock).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("FREE_MODEL_EVIDENCE_STALE");
+    expect(executeMock).not.toHaveBeenCalled();
   });
 
   it("handles weather location clarification without calling a provider", async () => {

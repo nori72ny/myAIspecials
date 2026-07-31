@@ -26,9 +26,9 @@ const plan: OriginExecutionPlan = {
     requireZeroDataRetention: false,
   },
   modelEvidence: {
-    verifiedAt: "2026-07-25T00:00:00.000Z",
-    reviewAfter: "2026-08-01T23:59:59.999Z",
-    sourceUrl: "https://openrouter.ai/docs/guides/routing/routers/free-router",
+    verifiedAt: "2026-08-01T00:00:00.000Z",
+    reviewAfter: "2026-08-08T23:59:59.999Z",
+    sourceUrl: "https://openrouter.ai/inclusionai/ling-3.0-flash:free",
   },
 };
 
@@ -54,12 +54,12 @@ function successfulProviderPayload(overrides: Record<string, unknown> = {}) {
 }
 
 describe("executeOriginProvider", () => {
-  it("enforces the official free router, no fallback, data deny, and zero-cost routing evidence", async () => {
+  it("enforces the fixed free model, no fallback, data deny, and zero-cost routing evidence", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       const headers = init?.headers as Record<string, string>;
 
-      expect(body.model).toBe("openrouter/free");
+      expect(body.model).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
       expect(body.max_tokens).toBe(1800);
       expect(body.reasoning).toEqual({
@@ -96,7 +96,7 @@ describe("executeOriginProvider", () => {
       routingEvidence: {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         servedModel: "inclusionai/ling-3.0-flash:free",
-        strategy: "free-router",
+        strategy: "fixed-free-model",
         provider: "OpenRouter",
         attempt: 1,
         fallbackUsed: false,
@@ -143,29 +143,26 @@ describe("executeOriginProvider", () => {
     expect(result.text).toBe("結論です。\n\n具体案です。");
   });
 
-  it("retries one empty free-model response within the same timeout budget", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({
+  it("fails closed on an empty response without automatic retry", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify(successfulProviderPayload({
         choices: [{ message: { content: "" }, finish_reason: "length" }],
       })), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload()), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
+      }),
+    );
 
-    const result = await executeOriginProvider(
+    await expect(executeOriginProvider(
       request,
       { OPENROUTER_API_KEY: "synthetic-test-key" },
       fetchMock as unknown as OriginFetch,
-    );
+    )).rejects.toMatchObject({
+      code: "PROVIDER_INVALID_RESPONSE",
+      retryable: true,
+    });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.routingEvidence.attempt).toBe(2);
-    expect(result.text).toBe("確認結果です。");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("maps a provider error embedded in a successful HTTP response", async () => {
@@ -221,6 +218,24 @@ describe("executeOriginProvider", () => {
       { OPENROUTER_API_KEY: "synthetic-test-key" },
       fetchMock as unknown as OriginFetch,
     )).rejects.toBeInstanceOf(OriginProviderError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a different free model plan before network access", async () => {
+    const fetchMock = vi.fn();
+    const switchedPlan = {
+      ...plan,
+      modelId: "google/gemma-3-27b-it:free",
+    } as unknown as OriginExecutionPlan;
+
+    await expect(executeOriginProvider(
+      { ...request, plan: switchedPlan },
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_POLICY_VIOLATION",
+      retryable: false,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -301,6 +316,26 @@ describe("executeOriginProvider", () => {
       code: "PROVIDER_ROUTING_UNVERIFIED",
       retryable: false,
     });
+  });
+
+  it("rejects a different free model instead of accepting an automatic switch", async () => {
+    const payload = successfulProviderPayload({
+      model: "google/gemma-3-27b-it:free",
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_ROUTING_UNVERIFIED",
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes provider errors without returning or logging provider content or credentials", async () => {

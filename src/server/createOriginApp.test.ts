@@ -94,4 +94,42 @@ describe("createOriginApp provider isolation", () => {
     expect(response.status).toBe(404);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("reports the normalized Vercel deployment SHA ahead of an explicit fallback", async () => {
+    const response = await request(createOriginApp({
+      ORIGIN_RELEASE_SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      VERCEL_GIT_COMMIT_SHA: "D128F5DCC826D4DFAE83F7B004F38AF1DAD9BC14",
+    })).get("/api/health");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      status: "ok",
+      service: "acos-2",
+      releaseSha: "d128f5dcc826d4dfae83f7b004f38af1dad9bc14",
+    });
+  });
+
+  it("keeps the local health path aligned with the production API health path", async () => {
+    const env = {
+      VERCEL_GIT_COMMIT_SHA: "cccccccccccccccccccccccccccccccccccccccc",
+    };
+    const localResponse = await request(createOriginApp(env)).get("/health");
+    const productionResponse = await request(createOriginApp(env)).get("/api/health");
+
+    expect(localResponse.body).toEqual(productionResponse.body);
+  });
+
+  it("uses the explicit fallback outside Vercel and rejects malformed values", async () => {
+    const fallbackResponse = await request(createOriginApp({
+      ORIGIN_RELEASE_SHA: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    })).get("/health");
+    const malformedResponse = await request(createOriginApp({
+      ORIGIN_RELEASE_SHA: "main",
+    })).get("/health");
+
+    expect(fallbackResponse.body.releaseSha).toBe(
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    );
+    expect(malformedResponse.body.releaseSha).toBe("unknown");
+  });
 });
