@@ -148,7 +148,7 @@
   align-items: center;
   border: 1px solid rgba(15, 118, 110, 0.18);
   border-radius: 999px;
-  padding: 0.35rem 0.7rem;
+  padding: 0.3rem 0.5rem;
   color: #115e59;
   background: rgba(240, 253, 250, 0.72);
 }
@@ -176,6 +176,32 @@
   border-radius: 1.25rem;
   border-color: rgba(148, 163, 184, 0.24);
   box-shadow: 0 12px 36px rgba(15, 23, 42, 0.06);
+}
+
+@media (min-width: 640px) and (max-height: 520px) {
+  .origin-dashboard {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
+
+  .origin-dashboard > section {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .origin-dashboard > section > div:first-child {
+    margin-bottom: 0;
+  }
+
+  .origin-dashboard .origin-composer textarea {
+    min-height: 7rem;
+  }
+
+  .origin-dashboard > section > div:last-child {
+    display: none;
+  }
 }
 
 @media (max-height: 520px) {
