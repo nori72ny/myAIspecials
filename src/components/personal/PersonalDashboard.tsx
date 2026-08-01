@@ -51,7 +51,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
           </div>
         </div>
 
-        <div className="origin-composer rounded-[1.5rem] border border-slate-200/90 bg-white/95 p-3 shadow-[0_20px_60px_rgba(15,23,42,0.10)] transition focus-within:border-teal-600/40 focus-within:ring-4 focus-within:ring-teal-600/10 dark:border-white/10 dark:bg-neutral-950/95 dark:shadow-black/30 dark:focus-within:border-teal-300/40 dark:focus-within:ring-teal-300/10">
+        <div className="origin-composer rounded-[1.5rem] border border-slate-200/90 bg-white/95 p-3 shadow-xl transition focus-within:border-teal-600/40 focus-within:ring-4 focus-within:ring-teal-600/10 dark:border-white/10 dark:bg-neutral-950/95 dark:shadow-black/30 dark:focus-within:border-teal-300/40 dark:focus-within:ring-teal-300/10">
           <label htmlFor="origin-home-request" className="sr-only">
             {isEn ? 'Describe what you want help with' : 'やりたいことを入力'}
           </label>
