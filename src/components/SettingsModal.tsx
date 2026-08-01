@@ -90,7 +90,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
             initial={{ opacity: 0, scale: 0.97, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
-            className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/90 bg-white text-slate-950 shadow-[0_24px_80px_rgba(15,23,42,0.24)] dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100 sm:max-h-[calc(100dvh-2rem)]"
+            className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/90 bg-white text-slate-950 shadow-2xl dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100 sm:max-h-[calc(100dvh-2rem)]"
           >
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-white/10">
               <div>
