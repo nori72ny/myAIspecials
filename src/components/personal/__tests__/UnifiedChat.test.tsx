@@ -257,7 +257,8 @@ describe('UnifiedChat', () => {
       expect(screen.getByText('確認状況')).toBeTruthy();
       expect(screen.getByText('今回は別のAIによる確認を実施していません。')).toBeTruthy();
       expect(screen.getByText('制約・未確認事項')).toBeTruthy();
-      expect(screen.getByText('次にできること')).toBeTruthy();
+      expect(screen.getByText('次に進めること')).toBeTruthy();
+      expect(screen.getByTestId('answer-next-actions')).toBeTruthy();
     });
     expect(screen.queryByText('従来互換の回答です。')).toBeNull();
   });
