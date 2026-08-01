@@ -204,7 +204,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
               </section>
             </div>
 
-            <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] dark:border-white/10 dark:bg-neutral-900/70">
+            <div className="safe-area-bottom shrink-0 border-t border-slate-200 bg-slate-50 px-4 pt-4 dark:border-white/10 dark:bg-neutral-900/70">
               <button
                 type="button"
                 onClick={onClose}
