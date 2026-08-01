@@ -107,7 +107,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                 onClick={onClose}
                 data-testid="close-settings-button"
                 aria-label={isEn ? 'Close settings' : '設定を閉じる'}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-slate-500 outline-none transition hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:hover:bg-white/10 dark:hover:text-white dark:focus-visible:ring-offset-neutral-950"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-slate-500 outline-none transition hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 dark:hover:bg-white/10 dark:hover:text-white dark:focus-visible:ring-offset-neutral-950"
               >
                 <X className="h-5 w-5" aria-hidden="true" />
               </button>
@@ -116,7 +116,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
             <div data-testid="settings-scroll-region" className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 pb-7">
               <section aria-labelledby="language-heading" className="space-y-3">
                 <h3 id="language-heading" className="flex items-center gap-2 text-sm font-bold">
-                  <Globe className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
+                  <Globe className="h-4 w-4 text-teal-700 dark:text-teal-300" aria-hidden="true" />
                   {isEn ? 'Language' : '表示言語'}
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
@@ -134,7 +134,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                         className={cn(
                           'flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition',
                           selected
-                            ? 'border-indigo-700 bg-indigo-600 text-white'
+                            ? 'border-teal-800 bg-teal-700 text-white dark:border-teal-300 dark:bg-teal-300 dark:text-teal-950'
                             : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-white/5',
                         )}
                       >
@@ -165,7 +165,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                         className={cn(
                           'flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition',
                           selected
-                            ? 'border-indigo-700 bg-indigo-600 text-white'
+                            ? 'border-teal-800 bg-teal-700 text-white dark:border-teal-300 dark:bg-teal-300 dark:text-teal-950'
                             : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-white/5',
                         )}
                       >
@@ -208,7 +208,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
               <button
                 type="button"
                 onClick={onClose}
-                className="min-h-11 w-full rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:focus-visible:ring-offset-neutral-900"
+                className="min-h-11 w-full rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:focus-visible:ring-offset-neutral-900"
               >
                 {isEn ? 'Close' : '閉じる'}
               </button>
