@@ -13,6 +13,9 @@ describe('PersonalDashboard', () => {
     expect(screen.getByText('何を手伝えばよいですか？')).toBeTruthy();
     expect(screen.getByLabelText('やりたいことを入力')).toBeTruthy();
     expect(screen.getByText(/無料と確認できるAIだけを使い/)).toBeTruthy();
+    expect(screen.getByText('$0.00上限')).toBeTruthy();
+    expect(screen.getByText('無料モデル固定')).toBeTruthy();
+    expect(screen.getByText('自動切替なし')).toBeTruthy();
     expect(screen.queryByText('提案資料作成')).toBeNull();
     expect(screen.queryByText('画像生成')).toBeNull();
     expect(screen.queryByText('SEO\/AIO分析')).toBeNull();
