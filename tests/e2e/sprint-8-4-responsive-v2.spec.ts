@@ -107,10 +107,7 @@ test('Personal release remains usable with reduced motion requested', async ({ p
 });
 
 
-const RESULT_VIEWPORTS = [
-  { name: 'mobile-390', width: 390, height: 844 },
-  { name: 'laptop', width: 1280, height: 720 },
-] as const;
+const RESULT_VIEWPORTS = VIEWPORTS;
 
 for (const viewport of RESULT_VIEWPORTS) {
   test(`Personal answer reads as a working document on ${viewport.name}`, async ({ page }, testInfo) => {
