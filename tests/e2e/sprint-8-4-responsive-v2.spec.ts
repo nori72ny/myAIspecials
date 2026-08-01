@@ -22,6 +22,10 @@ for (const viewport of VIEWPORTS) {
 
     await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/i })).toBeVisible({ timeout: 15_000 });
     await expectNoHorizontalOverflow(page);
+    await testInfo.attach(`personal-home-${viewport.name}`, {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
 
     if (viewport.width < 1024) {
       const openMenu = page.getByRole('button', { name: /メニューを開く|Open menu/i });
@@ -36,6 +40,10 @@ for (const viewport of VIEWPORTS) {
     await expect(input).toBeVisible();
     await expect(page.getByRole('button', { name: /依頼を送信|Send request/i })).toBeVisible();
     await expectNoHorizontalOverflow(page);
+    await testInfo.attach(`personal-chat-${viewport.name}`, {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
 
     if (viewport.width < 1024) {
       await page.getByRole('button', { name: /メニューを開く|Open menu/i }).click();
@@ -90,3 +98,67 @@ test('Personal release remains usable with reduced motion requested', async ({ p
   await page.getByTestId('nav-chat').click();
   await expect(page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/i })).toBeVisible();
 });
+
+
+const RESULT_VIEWPORTS = [
+  { name: 'mobile-390', width: 390, height: 844 },
+  { name: 'laptop', width: 1280, height: 720 },
+] as const;
+
+for (const viewport of RESULT_VIEWPORTS) {
+  test(`Personal answer reads as a working document on ${viewport.name}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.route('**/api/chat', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          content: '比較結果を整理しました。',
+          answer: {
+            schemaVersion: 'origin.answer.v1',
+            language: 'ja',
+            conclusion: 'まずは条件を三つに絞ると、判断しやすくなります。',
+            answer: '費用、使いやすさ、継続性の順で候補を比較してください。',
+            evidence: [],
+            verification: {
+              status: 'not-required',
+              independentReviewPerformed: false,
+              summary: 'この回答では追加の独立確認を必須としていません。',
+            },
+            limitations: [],
+            nextActions: ['候補ごとの条件を入力し、同じ基準で比較する。'],
+            richOutputs: [],
+          },
+          routing: {
+            model: 'ORIGIN 無料AI',
+            reason: '無料条件を満たす固定モデルを使用しました。',
+            timeMs: 85,
+            actualCostUsd: 0,
+            freeOnly: true,
+            verificationStatus: 'not-required',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/');
+    if (viewport.width < 1024) {
+      await page.getByRole('button', { name: /メニューを開く|Open menu/i }).click();
+    }
+    await page.getByTestId('nav-chat').click();
+
+    const input = page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/i });
+    await input.fill('二つの候補を比較して、次にやることを決めたい');
+    await page.getByRole('button', { name: /依頼を送信|Send request/i }).click();
+
+    await expect(page.getByRole('article', { name: /ORIGINの回答|ORIGIN answer/i })).toBeVisible();
+    await expect(page.getByTestId('answer-next-actions')).toBeVisible();
+    await expect(page.getByTestId('execution-details')).toContainText(/無料で回答しました|Answered for free/i);
+    await expectNoHorizontalOverflow(page);
+
+    await testInfo.attach(`personal-answer-${viewport.name}`, {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+  });
+}
