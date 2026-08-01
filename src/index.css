@@ -158,17 +158,17 @@
   backdrop-filter: blur(18px);
 }
 
-.origin-shell .markdown-body {
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body {
   color: #1f2937;
   font-size: 1rem;
   line-height: 1.8;
 }
 
-.origin-shell .markdown-body > :first-child {
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body > :first-child {
   margin-top: 0;
 }
 
-.origin-shell .markdown-body > :last-child {
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body > :last-child {
   margin-bottom: 0;
 }
 
@@ -201,6 +201,6 @@
   background: rgba(19, 78, 74, 0.28);
 }
 
-.dark .origin-shell .markdown-body {
+.dark .origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body {
   color: #e5e7eb;
 }
