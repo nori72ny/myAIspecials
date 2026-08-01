@@ -29,22 +29,22 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
   };
 
   return (
-    <div className="origin-dashboard mx-auto flex min-h-full w-full max-w-7xl flex-col px-4 py-8 sm:px-6 md:px-10 md:py-14">
+    <div className="origin-dashboard mx-auto flex min-h-full w-full max-w-7xl flex-col px-4 py-5 sm:px-6 sm:py-8 md:px-10 md:py-14">
       <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center">
-        <div className="mb-8 text-left md:mb-10">
-          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold tracking-[0.04em] text-slate-700 shadow-sm dark:border-white/10 dark:bg-neutral-950/80 dark:text-neutral-300">
+        <div className="mb-6 text-left sm:mb-8 md:mb-10">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold tracking-[0.04em] text-slate-700 shadow-sm dark:border-white/10 dark:bg-neutral-950/80 dark:text-neutral-300">
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
             <span>{isEn ? 'ORIGIN · From request to result' : 'ORIGIN · 相談から成果物まで'}</span>
           </div>
-          <h2 className="max-w-3xl text-[2.15rem] font-semibold leading-[1.18] tracking-[-0.035em] text-slate-950 dark:text-white sm:text-5xl md:text-[3.5rem]">
+          <h2 className="max-w-3xl text-[1.9rem] font-semibold leading-[1.18] tracking-[-0.035em] text-slate-950 dark:text-white sm:text-5xl md:text-[3.5rem]">
             {isEn ? 'What can I help you with?' : '何を手伝えばよいですか？'}
           </h2>
-          <p className="mt-5 max-w-2xl text-[0.95rem] leading-7 text-slate-600 dark:text-neutral-300 md:text-base md:leading-8">
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-neutral-300 sm:mt-4 sm:text-[0.95rem] sm:leading-7 md:text-base md:leading-8">
             {isEn
-              ? 'Start with a rough thought. ORIGIN organizes it into a usable result. It uses only AI confirmed as free and stops when cost or the actual route cannot be verified.'
-              : 'まだ曖昧な考えでも、そのまま書いてください。ORIGINが整理し、使える成果へ進めます。無料と確認できるAIだけを使い、費用や実行先を確認できない場合は回答を表示しません。'}
+              ? 'Start with a rough thought. ORIGIN turns it into a usable result. It uses only confirmed free AI and stops when the route cannot be verified.'
+              : 'まだ曖昧でも、そのまま書いてください。ORIGINが整理し、使える成果へ進めます。無料と確認できるAIだけを使い、確認できない場合は回答しません。'}
           </p>
-          <div className="mt-5 flex flex-wrap gap-2 text-xs font-semibold text-slate-600 dark:text-neutral-300" aria-label={isEn ? 'Execution guarantees' : '実行条件'}>
+          <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-neutral-300 sm:mt-5 sm:gap-2 sm:text-xs" aria-label={isEn ? 'Execution guarantees' : '実行条件'}>
             <span className="origin-trust-chip">{isEn ? '$0.00 maximum' : '$0.00上限'}</span>
             <span className="origin-trust-chip">{isEn ? 'Fixed free model' : '無料モデル固定'}</span>
             <span className="origin-trust-chip">{isEn ? 'No automatic switching' : '自動切替なし'}</span>
@@ -65,7 +65,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
                 submit();
               }
             }}
-            className="min-h-[168px] w-full resize-none border-none bg-transparent px-3 py-3 text-[1.05rem] leading-8 text-slate-950 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-neutral-500 md:text-lg"
+            className="min-h-[132px] w-full resize-none sm:min-h-[150px] md:min-h-[168px] border-none bg-transparent px-3 py-3 text-[1.05rem] leading-8 text-slate-950 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-neutral-500 md:text-lg"
             placeholder={isEn
               ? 'Example: Organize my product idea and create a simple proposal.'
               : '例：新商品のアイデアを整理して、提案文のたたき台を作りたい'}
@@ -89,7 +89,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
           </div>
         </div>
 
-        <div className="mt-8">
+        <div className="mt-6 md:mt-8">
           <p className="mb-3 text-left text-xs font-semibold tracking-[0.04em] text-slate-500 dark:text-neutral-400">
             {isEn ? 'Examples — you can edit them before sending' : '入力例 — 選んだ後に書き換えられます'}
           </p>
