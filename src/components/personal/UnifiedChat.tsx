@@ -657,7 +657,7 @@ export default function UnifiedChat({
                     'text-sm leading-relaxed',
                     message.role === 'user'
                       ? 'rounded-[1.1rem] bg-slate-950 px-4 py-3 text-white shadow-sm dark:bg-white dark:text-black'
-                      : 'rounded-[1.5rem] border border-slate-200/80 bg-white/90 p-5 shadow-[0_16px_48px_rgba(15,23,42,0.07)] dark:border-white/10 dark:bg-neutral-950/90 sm:p-7',
+                      : 'rounded-[1.5rem] border border-slate-200/80 bg-white/90 p-5 shadow-lg dark:border-white/10 dark:bg-neutral-950/90 sm:p-7',
                   )}>
                     <div className={cn(
                       'markdown-body',
@@ -884,7 +884,7 @@ export default function UnifiedChat({
 
       <div className="safe-area-bottom shrink-0 border-t border-slate-200 bg-white/95 px-3 pt-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4">
         <div className="mx-auto max-w-3xl">
-          <div className="flex items-end gap-2 rounded-[1.35rem] border border-slate-300/90 bg-white p-2 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition focus-within:border-teal-600/50 focus-within:ring-4 focus-within:ring-teal-600/10 dark:border-white/15 dark:bg-neutral-950 dark:focus-within:border-teal-300/40 dark:focus-within:ring-teal-300/10">
+          <div className="flex items-end gap-2 rounded-[1.35rem] border border-slate-300/90 bg-white p-2 shadow-lg transition focus-within:border-teal-600/50 focus-within:ring-4 focus-within:ring-teal-600/10 dark:border-white/15 dark:bg-neutral-950 dark:focus-within:border-teal-300/40 dark:focus-within:ring-teal-300/10">
             <textarea
               id="origin-chat-input"
               rows={1}
