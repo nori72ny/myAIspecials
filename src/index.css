@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Noto Sans JP", "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -15,6 +15,21 @@
 
   body {
     margin: 0;
+    background: #f5f6f3;
+    color: #111827;
+    font-synthesis: none;
+    letter-spacing: 0.005em;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  textarea {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline-offset: 2px;
   }
 
   ::-webkit-scrollbar {
@@ -100,4 +115,118 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+
+/* ORIGIN Personal — quiet work surface */
+.origin-shell {
+  --origin-ink: #111827;
+  --origin-paper: #f8f8f5;
+  --origin-accent: #0f766e;
+  background: var(--origin-paper);
+}
+
+.origin-dashboard {
+  position: relative;
+  isolation: isolate;
+}
+
+.origin-dashboard::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 14% 18%, rgba(15, 118, 110, 0.08), transparent 30rem),
+    radial-gradient(circle at 86% 82%, rgba(79, 70, 229, 0.06), transparent 28rem);
+}
+
+.origin-trust-chip {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 999px;
+  padding: 0.3rem 0.5rem;
+  color: #115e59;
+  background: rgba(240, 253, 250, 0.72);
+}
+
+.origin-composer {
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body {
+  color: #1f2937;
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] {
+  border-radius: 1.25rem;
+  border-color: rgba(148, 163, 184, 0.24);
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.06);
+}
+
+@media (min-width: 640px) and (max-height: 520px) {
+  .origin-dashboard {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
+
+  .origin-dashboard > section {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .origin-dashboard > section > div:first-child {
+    margin-bottom: 0;
+  }
+
+  .origin-dashboard .origin-composer textarea {
+    min-height: 7rem;
+  }
+
+  .origin-dashboard > section > div:last-child {
+    display: none;
+  }
+}
+
+@media (max-height: 520px) {
+  [data-testid="settings-modal"] {
+    border-radius: 0.875rem;
+  }
+}
+
+.dark .origin-shell {
+  --origin-paper: #090a0a;
+  --origin-ink: #f5f5f4;
+}
+
+.dark .origin-dashboard::before {
+  background:
+    radial-gradient(circle at 14% 18%, rgba(45, 212, 191, 0.08), transparent 30rem),
+    radial-gradient(circle at 86% 82%, rgba(129, 140, 248, 0.07), transparent 28rem);
+}
+
+.dark .origin-trust-chip {
+  border-color: rgba(94, 234, 212, 0.18);
+  color: #ccfbf1;
+  background: rgba(19, 78, 74, 0.28);
+}
+
+.dark .origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body {
+  color: #e5e7eb;
 }

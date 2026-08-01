@@ -70,7 +70,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
     <AnimatePresence>
       {isOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4"
+          className="fixed inset-0 z-50 flex min-h-0 items-center justify-center overflow-hidden p-3 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="settings-title"
@@ -81,7 +81,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-950/65 backdrop-blur-[2px]"
             aria-hidden="true"
           />
 
@@ -90,7 +90,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
             initial={{ opacity: 0, scale: 0.97, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
-            className="relative my-8 flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
+            className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/90 bg-white text-slate-950 shadow-2xl dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100 sm:max-h-[calc(100dvh-2rem)]"
           >
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-white/10">
               <div>
@@ -107,16 +107,16 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                 onClick={onClose}
                 data-testid="close-settings-button"
                 aria-label={isEn ? 'Close settings' : '設定を閉じる'}
-                className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-white/10 dark:hover:text-white"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-slate-500 outline-none transition hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 dark:hover:bg-white/10 dark:hover:text-white dark:focus-visible:ring-offset-neutral-950"
               >
                 <X className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
 
-            <div className="max-h-[70vh] space-y-6 overflow-y-auto p-5">
+            <div data-testid="settings-scroll-region" className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 pb-7">
               <section aria-labelledby="language-heading" className="space-y-3">
                 <h3 id="language-heading" className="flex items-center gap-2 text-sm font-bold">
-                  <Globe className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
+                  <Globe className="h-4 w-4 text-teal-700 dark:text-teal-300" aria-hidden="true" />
                   {isEn ? 'Language' : '表示言語'}
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
@@ -134,7 +134,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                         className={cn(
                           'flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition',
                           selected
-                            ? 'border-indigo-700 bg-indigo-600 text-white'
+                            ? 'border-teal-800 bg-teal-700 text-white dark:border-teal-300 dark:bg-teal-300 dark:text-teal-950'
                             : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-white/5',
                         )}
                       >
@@ -165,7 +165,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                         className={cn(
                           'flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition',
                           selected
-                            ? 'border-indigo-700 bg-indigo-600 text-white'
+                            ? 'border-teal-800 bg-teal-700 text-white dark:border-teal-300 dark:bg-teal-300 dark:text-teal-950'
                             : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-white/5',
                         )}
                       >
@@ -192,8 +192,8 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                   </p>
                   <p className="mt-1 text-xs leading-5">
                     {isEn
-                      ? 'The maximum cost is $0.00. ORIGIN does not show an answer when zero cost or the actual execution route cannot be verified.'
-                      : '費用上限は$0.00です。無料であることや実際の実行先を確認できない場合、回答は表示しません。'}
+                      ? '$0.00 maximum · fixed free model · no automatic switching. If zero cost or the actual execution route cannot be verified, ORIGIN does not show an answer.'
+                      : '$0.00上限・無料モデル固定・自動切替なし。無料であることや実際の実行先を確認できない場合、回答は表示しません。'}
                   </p>
                 </div>
                 <p className="text-xs leading-5 text-slate-500 dark:text-neutral-400">
@@ -204,11 +204,11 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
               </section>
             </div>
 
-            <div className="border-t border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-neutral-900/70">
+            <div className="safe-area-bottom shrink-0 border-t border-slate-200 bg-slate-50 px-4 pt-4 dark:border-white/10 dark:bg-neutral-900/70">
               <button
                 type="button"
                 onClick={onClose}
-                className="min-h-11 w-full rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
+                className="min-h-11 w-full rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:focus-visible:ring-offset-neutral-900"
               >
                 {isEn ? 'Close' : '閉じる'}
               </button>

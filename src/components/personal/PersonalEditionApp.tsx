@@ -155,7 +155,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   const shouldShowAiStatus = aiCoreState !== 'HEALTHY' && aiCoreState !== 'UNKNOWN';
 
   return (
-    <div className="flex h-screen h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900 dark:bg-black dark:text-neutral-100">
+    <div className="origin-shell flex h-screen h-dvh w-full overflow-hidden font-sans text-slate-900 dark:bg-black dark:text-neutral-100">
       <AnimatePresence>
         {isSidebarOpen && (
           <motion.div
@@ -176,14 +176,14 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
         aria-hidden={!isSidebarOpen}
         inert={!isSidebarOpen}
         className={cn(
-          'fixed z-50 flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white dark:border-white/10 dark:bg-neutral-950 lg:relative',
+          'fixed z-50 flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/95 backdrop-blur-xl dark:border-white/10 dark:bg-neutral-950/95 lg:relative',
           !isSidebarOpen && 'lg:w-0 lg:border-none',
         )}
       >
         <div className="flex shrink-0 items-center justify-between p-4">
-          <div className="flex items-center gap-2 px-2 text-sm font-bold tracking-tight">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 shadow-sm shadow-indigo-200 dark:bg-white">
-              <Sparkles className="h-3.5 w-3.5 text-white dark:text-black" aria-hidden="true" />
+          <div className="flex items-center gap-2.5 px-2 text-sm font-semibold tracking-[0.08em]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-950 shadow-sm dark:bg-white">
+              <Sparkles className="h-3.5 w-3.5 text-teal-200 dark:text-teal-700" aria-hidden="true" />
             </div>
             <span>ORIGIN</span>
           </div>
@@ -191,7 +191,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             type="button"
             onClick={() => setIsSidebarOpen(false)}
             aria-label={isEn ? 'Close menu' : 'メニューを閉じる'}
-            className="rounded-md p-2 text-slate-500 hover:bg-slate-200 dark:hover:bg-white/10 lg:hidden"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:hover:bg-white/10 dark:focus-visible:ring-teal-300 lg:hidden"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -202,7 +202,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             type="button"
             onClick={startNewChat}
             data-testid="new-chat-button"
-            className="flex w-full items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
+            className="flex min-h-11 w-full items-center gap-2 rounded-xl bg-slate-950 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:focus-visible:ring-teal-300 dark:focus-visible:ring-offset-neutral-950"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             <span>{isEn ? 'New request' : '新しい依頼'}</span>
@@ -218,9 +218,9 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
               data-testid={`nav-${item.id}`}
               aria-current={currentView === item.id ? 'page' : undefined}
               className={cn(
-                'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                'flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal-600 dark:focus-visible:ring-teal-300',
                 currentView === item.id
-                  ? 'bg-indigo-50 text-indigo-700 dark:bg-white/10 dark:text-white'
+                  ? 'bg-teal-50 text-teal-900 dark:bg-teal-400/10 dark:text-teal-100'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white',
               )}
             >
@@ -235,7 +235,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             type="button"
             onClick={openSettings}
             aria-label={isEn ? 'Open settings' : '設定を開く'}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-white/5"
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 outline-none transition-colors hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:text-neutral-400 dark:hover:bg-white/5 dark:focus-visible:ring-teal-300"
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-slate-600 dark:bg-white/10 dark:text-neutral-300">
               <SettingsIcon className="h-4 w-4" aria-hidden="true" />
@@ -246,19 +246,19 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       </motion.aside>
 
       <main className="relative flex h-full min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-white/10 dark:bg-black/90">
+        <header className="flex h-16 shrink-0 items-center border-b border-slate-200/80 bg-white/75 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/75 sm:px-5">
           {!isSidebarOpen && (
             <button
               type="button"
               onClick={() => setIsSidebarOpen(true)}
               aria-label={isEn ? 'Open menu' : 'メニューを開く'}
-              className="-ml-1.5 mr-2 rounded-md p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
+              className="-ml-1.5 mr-2 inline-flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:hover:bg-white/5 dark:focus-visible:ring-teal-300"
             >
               <Menu className="h-5 w-5" aria-hidden="true" />
             </button>
           )}
           <div className="flex flex-1 items-center justify-between gap-3">
-            <h1 className="truncate text-sm font-semibold">{currentViewLabel}</h1>
+            <h1 className="truncate text-sm font-semibold tracking-[0.02em]">{currentViewLabel}</h1>
             <div className="flex items-center gap-2">
               {shouldShowAiStatus && (
                 <div
@@ -277,7 +277,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
                 type="button"
                 onClick={openSettings}
                 aria-label={isEn ? 'Open settings' : '設定を開く'}
-                className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/80 bg-white/80 text-slate-500 outline-none transition hover:bg-white hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-teal-600 dark:border-white/10 dark:bg-neutral-950/80 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white dark:focus-visible:ring-teal-300"
               >
                 <SettingsIcon className="h-4 w-4" aria-hidden="true" />
               </button>
