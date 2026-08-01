@@ -36,7 +36,6 @@ jobs:
       uses: gitleaks/gitleaks-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      continue-on-error: true # Audit-only mode so minor false-positives do not break production deployment
 
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -76,19 +75,7 @@ jobs:
     - name: Run Lighthouse Audit
       run: |
         npm install -g @lhci/cli
-        lhci autorun --collect.staticDistDir=./dist --upload.target=temporary-public-storage || echo "Lighthouse audit completed with warnings."
-
-    - name: Ensure Evidence Report exists
-      if: always()
-      run: |
-        if [ ! -f PRODUCTION_EVIDENCE_REPORT.md ]; then
-          if [ -f Production_Evidence_Report_FINAL.md ]; then
-            cp Production_Evidence_Report_FINAL.md PRODUCTION_EVIDENCE_REPORT.md
-          else
-            echo "# Production Evidence Report" > PRODUCTION_EVIDENCE_REPORT.md
-            echo "Status: CI execution completed." >> PRODUCTION_EVIDENCE_REPORT.md
-          fi
-        fi
+        lhci autorun
 
     - name: Upload Playwright Report
       if: always()
@@ -106,14 +93,6 @@ jobs:
         path: test-results/
         retention-days: 30
         if-no-files-found: ignore
-
-    - name: Upload Production Evidence Report
-      if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-      with:
-        name: production-evidence-report-node-${{ matrix.node-version }}
-        path: PRODUCTION_EVIDENCE_REPORT.md
-        retention-days: 30
 
     - name: Generate SBOM (Software Bill of Materials)
       if: always()
@@ -183,12 +162,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download Production Evidence Report
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: production-evidence-report-node-*
-          merge-multiple: true
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -196,5 +169,3 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
-          files: |
-            PRODUCTION_EVIDENCE_REPORT.md

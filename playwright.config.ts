@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { E2E_RELEASE_SHA } from './tests/e2e/release-fixture';
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 120000, // 2 minutes for E2E
@@ -22,6 +24,9 @@ export default defineConfig({
   },
   webServer: {
     command: 'npm run start',
+    env: {
+      ORIGIN_RELEASE_SHA: E2E_RELEASE_SHA,
+    },
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,

@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+import { E2E_RELEASE_SHA } from './release-fixture';
+
 const VIEWPORTS = [
   { name: 'mobile-320', width: 320, height: 568 },
   { name: 'mobile-390', width: 390, height: 844 },
@@ -8,7 +10,7 @@ const VIEWPORTS = [
   { name: 'large-phone-landscape', width: 844, height: 390 },
   { name: 'laptop', width: 1280, height: 720 },
   { name: 'desktop', width: 1440, height: 900 },
-  { name: 'zoom-200-equivalent', width: 640, height: 720 },
+  { name: 'compact-desktop-640', width: 640, height: 720 },
 ] as const;
 
 async function expectNoHorizontalOverflow(page: import('@playwright/test').Page) {
@@ -79,6 +81,10 @@ for (const viewport of VIEWPORTS) {
       element.scrollTop = element.scrollHeight;
     });
     await expect(dialog.getByText(/安全と費用|Safety and cost/)).toBeVisible();
+    await expect(dialog.getByText(/リリースID|Release ID/)).toBeVisible();
+    await expect(dialog.getByTestId('release-sha-value')).toContainText(`${E2E_RELEASE_SHA.slice(0, 12)}…`);
+    await dialog.getByRole('button', { name: /全文を表示|Show full ID/i }).click();
+    await expect(dialog.getByTestId('release-sha-value')).toHaveText(E2E_RELEASE_SHA);
     await expect(dialog.getByRole('button', { name: /^(閉じる|Close)$/ })).toBeVisible();
 
     const accessibility = await new AxeBuilder({ page })
