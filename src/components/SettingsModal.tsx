@@ -113,7 +113,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 pb-7">
+            <div data-testid="settings-scroll-region" className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 pb-7">
               <section aria-labelledby="language-heading" className="space-y-3">
                 <h3 id="language-heading" className="flex items-center gap-2 text-sm font-bold">
                   <Globe className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
