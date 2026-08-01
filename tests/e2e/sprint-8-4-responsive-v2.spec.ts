@@ -21,6 +21,11 @@ for (const viewport of VIEWPORTS) {
     await page.goto('/');
 
     await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/i })).toBeVisible({ timeout: 15_000 });
+    const homeInput = page.getByRole('textbox', { name: /やりたいことを入力|Describe what you want help with/i });
+    await expect(homeInput).toBeVisible();
+    const homeInputBox = await homeInput.boundingBox();
+    expect(homeInputBox).not.toBeNull();
+    expect(homeInputBox!.y).toBeLessThan(viewport.height - 44);
     await expectNoHorizontalOverflow(page);
     await page.waitForTimeout(250);
     await testInfo.attach(`personal-home-${viewport.name}`, {
