@@ -13,17 +13,17 @@ export interface OriginFreeModelEvidence {
 }
 
 const ORIGIN_OPENROUTER_FREE_MODEL_SOURCE =
-  "https://openrouter.ai/inclusionai/ling-3.0-flash:free" as const;
+  "https://openrouter.ai/api/v1/models" as const;
 
 export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence[] = [
   {
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-08-01T00:00:00.000Z",
-    reviewAfter: "2026-08-08T23:59:59.999Z",
+    verifiedAt: "2026-08-02T00:00:00.000Z",
+    reviewAfter: "2026-08-09T23:59:59.999Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter's official model page identified this exact model ID as a free model with zero listed input and output pricing at verification time.",
+    sourceDescription: "OpenRouter's official models API listed this exact model ID with zero prompt and completion pricing at verification time.",
   },
 ] as const;
 

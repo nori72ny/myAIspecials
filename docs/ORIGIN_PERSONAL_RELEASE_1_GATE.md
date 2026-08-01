@@ -4,9 +4,9 @@ Status: Release decision record
 
 Owner: ノリさん
 
-Candidate branch: `plan/origin-ai-studio-foundation-v0-1`
+Candidate branch: `fix/audit-remediation-v2`
 
-Last aligned: 2026-07-23
+Last aligned: 2026-08-02
 
 ## 公開するもの
 
@@ -38,13 +38,13 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 
 | 経路 | 判定 | 理由 |
 |---|---|---|
-| Vercel serverless `api/index.ts` | CANDIDATE | `createOriginApp()`から正式`/api/chat`を提供する |
-| Node/Docker `server.ts` | CANDIDATE | `createOriginApp()`から正式`/api/chat`を提供する |
+| Vercel serverless `api/index.ts` | SELECTED | 第2公開で選択した唯一の正式公開経路。`createOriginApp()`から正式`/api/chat`と`/api/health`を提供し、Vercelの`VERCEL_GIT_COMMIT_SHA`をリリースIDに使用する |
+| Node/Docker `server.ts` | NOT SELECTED | ローカル・将来候補としてコードは維持するが、第2公開では使用しない。`ORIGIN_RELEASE_SHA`を明示注入しないDocker実行を公開済みと扱わない |
 | Cloudflare Worker `worker/index.mjs` | NOT ELIGIBLE | status用途に限定され、provider executionは明示的に無効 |
 | legacy provider endpoint | NOT ELIGIBLE | ORIGINの安全・無料実行境界を迂回できないよう無効 |
 | AI Studio direct runtime | NOT ELIGIBLE | fail-closed境界のみで、正式routeへ未接続 |
 
-公開先は、オーナーが別途デプロイを明示承認した後に限り選択する。この文書はホスティングサービス、アカウント、認証情報、課金設定の変更を承認しない。
+第2公開の公開先はVercelだけとする。ただし、実際のデプロイはオーナーが別途明示承認した後に限る。この文書はホスティングサービス、アカウント、認証情報、課金設定の変更を承認しない。
 
 ## 公開前の必須条件
 
@@ -56,6 +56,7 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 6. 公開環境のsmoke testで、秘密情報を含まない入力に対する成功、実費`$0.00`、要求モデルと提供モデルの一致、fallback未使用を確認する。
 7. APIキー未設定、無料証拠欠落、routing証拠不一致、provider不通の場合に回答を表示せず停止することを確認する。
 8. ノリさんがモバイルまたは日常利用端末で、入力、回答の読みやすさ、エラー表示を最終確認する。
+9. Vercel公開直後の`/api/health`が40桁の16進数SHAを返し、デプロイ対象のExact SHAと完全一致する。不一致または`unknown`の場合は公開成功と扱わない。
 
 ## 停止条件
 
@@ -71,7 +72,7 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 
 ## 公開時期の判断
 
-コードとCIが公開候補として全緑で、選択済みのVercelまたはNode/Docker環境に必要なサーバー設定が既に存在する場合、Ready変更・mainマージ・デプロイの各明示承認後、公開とsmoke testを同日中の作業として扱える。作業目安は承認後1〜3時間であり、外部サービスの障害や無料モデルの提供状況は含まない。
+コードとCIが公開候補として全緑で、選択済みのVercel環境に必要なサーバー設定が既に存在する場合、Ready変更・mainマージ・デプロイの各明示承認後、公開とsmoke testを同日中の作業として扱える。作業目安は承認後1〜3時間であり、外部サービスの障害や無料モデルの提供状況は含まない。
 
 公開環境または安全なサーバー設定が未準備の場合、日付は確約しない。$0.00と認証情報非開示を維持したまま、利用可能な既存環境と自動化経路を確認してから改めて候補時刻を提示する。
 
@@ -82,6 +83,7 @@ AI Studio direct runtimeは一次公開の期限を遅らせる条件にしな�
 「公開済み」と報告できるのは、mainへのマージだけではなく、承認された公開URLで次を確認した後に限る。
 
 - Personal画面が表示される
+- `/api/health`のリリースIDがデプロイ対象のExact SHAと一致する
 - `/api/chat`が正式ORIGIN境界を通る
 - 秘密情報を使わないsmoke inputへ回答できる
 - 実費`$0.00`とfallback未使用を確認できる

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PERSONAL_SETTINGS } from '../hooks/usePersonalSettings';
 import SettingsModal from './SettingsModal';
 
-const RELEASE_SHA = '1dd8916fdc353b1692f290a21fdda9262f53476e';
+const RELEASE_SHA = '0123456789abcdef0123456789abcdef01234567';
 
 function renderSettings() {
   return render(
@@ -36,7 +36,7 @@ describe('SettingsModal release identity', () => {
 
     renderSettings();
 
-    expect(await screen.findByText('1dd8916fdc35…')).toBeTruthy();
+    expect(await screen.findByText('0123456789ab…')).toBeTruthy();
     expect(screen.queryByText(RELEASE_SHA)).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '全文を表示' }));
@@ -53,7 +53,7 @@ describe('SettingsModal release identity', () => {
     });
 
     renderSettings();
-    await screen.findByText('1dd8916fdc35…');
+    await screen.findByText('0123456789ab…');
     fireEvent.click(screen.getByRole('button', { name: 'コピー' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'コピー済み' })).toBeTruthy());
@@ -68,7 +68,7 @@ describe('SettingsModal release identity', () => {
     });
 
     renderSettings();
-    await screen.findByText('1dd8916fdc35…');
+    await screen.findByText('0123456789ab…');
     fireEvent.click(screen.getByRole('button', { name: 'コピー' }));
 
     expect(await screen.findByText('リリースIDをコピーできませんでした。')).toBeTruthy();

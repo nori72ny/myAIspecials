@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy";
 import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
 
-const verifiedCatalogTime = Date.parse("2026-08-01T12:00:00.000Z");
+const verifiedCatalogTime = Date.parse("2026-08-02T12:00:00.000Z");
 const defaultExecutionResult = {
   text: "安全な確認結果です。",
   actualCostUsd: 0,
@@ -181,8 +181,8 @@ describe("createOriginChatRouter", () => {
         "依頼種別「セキュリティ」は独立確認の対象です。",
       ]),
       modelEvidence: expect.objectContaining({
-        verifiedAt: "2026-08-01T00:00:00.000Z",
-        reviewAfter: "2026-08-08T23:59:59.999Z",
+        verifiedAt: "2026-08-02T00:00:00.000Z",
+        reviewAfter: "2026-08-09T23:59:59.999Z",
         sourceUrl: expect.stringContaining("openrouter.ai"),
       }),
       providerDataPolicy: {
@@ -431,7 +431,7 @@ describe("createOriginChatRouter", () => {
     const response = await request(createApp(
       execute,
       { OPENROUTER_API_KEY: "synthetic-test-key" },
-      () => Date.parse("2026-08-09T00:00:00.000Z"),
+      () => Date.parse("2026-08-10T00:00:00.000Z"),
     )).post("/api/chat").send({
       messages: [{ role: "user", content: "文章を確認してください" }],
     });

@@ -87,6 +87,29 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(gate).toContain("デプロイについて、マージとは別の明示承認");
     expect(gate).toContain("実費`$0.00`");
     expect(gate).toContain("別モデルや別providerへ自動で切り替えない");
+    expect(gate).toContain("Vercel serverless `api/index.ts` | SELECTED");
+    expect(gate).toContain("Node/Docker `server.ts` | NOT SELECTED");
+    expect(gate).toContain("リリースIDがデプロイ対象のExact SHAと一致する");
+  });
+
+  it("exercises release identity through the real E2E server boundary", () => {
+    const playwrightConfig = readRepositoryFile("playwright.config.ts");
+    const responsiveSpec = readRepositoryFile(
+      "tests/e2e/sprint-8-4-responsive-v2.spec.ts",
+    );
+    const releaseFixture = readRepositoryFile(
+      "tests/e2e/release-fixture.ts",
+    );
+
+    expect(playwrightConfig).toContain("ORIGIN_RELEASE_SHA: E2E_RELEASE_SHA");
+    expect(responsiveSpec).not.toContain("page.route('**/api/health'");
+    expect(responsiveSpec).toContain("toHaveText(E2E_RELEASE_SHA)");
+    expect(releaseFixture).toContain(
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+    expect(releaseFixture).not.toContain(
+      "1dd8916fdc353b1692f290a21fdda9262f53476e",
+    );
   });
 
   it("does not publish invalidated release evidence or ignore Lighthouse failures", () => {
@@ -101,6 +124,11 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(workflow).not.toContain("Production_Evidence_Report_FINAL.md");
     expect(workflow).not.toContain('|| echo "Lighthouse audit completed with warnings."');
     expect(workflow).toContain("lhci autorun");
+    const gitleaksStep = workflow.slice(
+      workflow.indexOf("- name: Run Secret Scanning (Gitleaks)"),
+      workflow.indexOf("- name: Setup Node.js"),
+    );
+    expect(gitleaksStep).not.toContain("continue-on-error");
     expect(
       lighthouseConfig.ci?.assert?.assertions?.["categories:accessibility"],
     ).toEqual(["error", { minScore: 0.9 }]);

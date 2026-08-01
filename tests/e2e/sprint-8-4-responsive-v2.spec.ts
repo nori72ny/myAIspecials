@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+import { E2E_RELEASE_SHA } from './release-fixture';
+
 const VIEWPORTS = [
   { name: 'mobile-320', width: 320, height: 568 },
   { name: 'mobile-390', width: 390, height: 844 },
@@ -18,17 +20,6 @@ async function expectNoHorizontalOverflow(page: import('@playwright/test').Page)
 for (const viewport of VIEWPORTS) {
   test(`Personal release reflows without clipping on ${viewport.name}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    await page.route('**/api/health', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          status: 'ok',
-          service: 'acos-2',
-          releaseSha: '1dd8916fdc353b1692f290a21fdda9262f53476e',
-        }),
-      });
-    });
     await page.goto('/');
 
     await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/i })).toBeVisible({ timeout: 15_000 });
@@ -91,9 +82,9 @@ for (const viewport of VIEWPORTS) {
     });
     await expect(dialog.getByText(/安全と費用|Safety and cost/)).toBeVisible();
     await expect(dialog.getByText(/リリースID|Release ID/)).toBeVisible();
-    await expect(dialog.getByTestId('release-sha-value')).toContainText('1dd8916fdc35');
+    await expect(dialog.getByTestId('release-sha-value')).toContainText(`${E2E_RELEASE_SHA.slice(0, 12)}…`);
     await dialog.getByRole('button', { name: /全文を表示|Show full ID/i }).click();
-    await expect(dialog.getByTestId('release-sha-value')).toHaveText('1dd8916fdc353b1692f290a21fdda9262f53476e');
+    await expect(dialog.getByTestId('release-sha-value')).toHaveText(E2E_RELEASE_SHA);
     await expect(dialog.getByRole('button', { name: /^(閉じる|Close)$/ })).toBeVisible();
 
     const accessibility = await new AxeBuilder({ page })
