@@ -8,7 +8,7 @@ const VIEWPORTS = [
   { name: 'large-phone-landscape', width: 844, height: 390 },
   { name: 'laptop', width: 1280, height: 720 },
   { name: 'desktop', width: 1440, height: 900 },
-  { name: 'zoom-200-equivalent', width: 640, height: 720 },
+  { name: 'compact-desktop-640', width: 640, height: 720 },
 ] as const;
 
 async function expectNoHorizontalOverflow(page: import('@playwright/test').Page) {
@@ -18,6 +18,17 @@ async function expectNoHorizontalOverflow(page: import('@playwright/test').Page)
 for (const viewport of VIEWPORTS) {
   test(`Personal release reflows without clipping on ${viewport.name}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.route('**/api/health', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'ok',
+          service: 'acos-2',
+          releaseSha: '1dd8916fdc353b1692f290a21fdda9262f53476e',
+        }),
+      });
+    });
     await page.goto('/');
 
     await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/i })).toBeVisible({ timeout: 15_000 });
@@ -79,6 +90,10 @@ for (const viewport of VIEWPORTS) {
       element.scrollTop = element.scrollHeight;
     });
     await expect(dialog.getByText(/安全と費用|Safety and cost/)).toBeVisible();
+    await expect(dialog.getByText(/リリースID|Release ID/)).toBeVisible();
+    await expect(dialog.getByTestId('release-sha-value')).toContainText('1dd8916fdc35');
+    await dialog.getByRole('button', { name: /全文を表示|Show full ID/i }).click();
+    await expect(dialog.getByTestId('release-sha-value')).toHaveText('1dd8916fdc353b1692f290a21fdda9262f53476e');
     await expect(dialog.getByRole('button', { name: /^(閉じる|Close)$/ })).toBeVisible();
 
     const accessibility = await new AxeBuilder({ page })

@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Check,
+  Copy,
   Globe,
+  Info,
   Moon,
   ShieldCheck,
   Sun,
@@ -18,8 +20,18 @@ interface Props {
   updateSettings: (settings: Settings) => void;
 }
 
+const FULL_RELEASE_SHA = /^[0-9a-f]{40}$/i;
+
+type ReleaseIdentity =
+  | { status: 'loading' }
+  | { status: 'ready'; sha: string }
+  | { status: 'unavailable' };
+
 export default function SettingsModal({ isOpen, onClose, settings, updateSettings }: Props) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [releaseIdentity, setReleaseIdentity] = useState<ReleaseIdentity>({ status: 'loading' });
+  const [showFullReleaseSha, setShowFullReleaseSha] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const isEn = settings.language === 'en';
   const selectedTheme = settings.selectedTheme === 'light' ? 'light' : 'dark';
 
@@ -62,8 +74,70 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
     };
   }, [isOpen, onClose]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const controller = new AbortController();
+    let active = true;
+    const timeoutId = window.setTimeout(() => {
+      if (!active) return;
+      controller.abort();
+      setReleaseIdentity({ status: 'unavailable' });
+    }, 5_000);
+    setReleaseIdentity({ status: 'loading' });
+    setShowFullReleaseSha(false);
+    setCopyStatus('idle');
+
+    void (async () => {
+      try {
+        const response = await fetch('/api/health', {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error('release identity request failed');
+
+        const payload: unknown = await response.json();
+        const releaseSha = payload && typeof payload === 'object' && 'releaseSha' in payload
+          ? (payload as { releaseSha?: unknown }).releaseSha
+          : undefined;
+        if (typeof releaseSha !== 'string' || !FULL_RELEASE_SHA.test(releaseSha)) {
+          throw new Error('release identity is invalid');
+        }
+
+        if (active) {
+          window.clearTimeout(timeoutId);
+          setReleaseIdentity({ status: 'ready', sha: releaseSha.toLowerCase() });
+        }
+      } catch {
+        if (active) {
+          window.clearTimeout(timeoutId);
+          setReleaseIdentity({ status: 'unavailable' });
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [isOpen]);
+
   const update = (patch: Partial<Settings>) => {
     updateSettings({ ...settings, ...patch });
+  };
+
+  const copyReleaseSha = async () => {
+    if (releaseIdentity.status !== 'ready') return;
+    setCopyStatus('idle');
+    try {
+      await navigator.clipboard.writeText(releaseIdentity.sha);
+      setCopyStatus('success');
+    } catch {
+      setCopyStatus('error');
+    }
   };
 
   return (
@@ -201,6 +275,77 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                     ? 'Provider credentials are managed on the server. Do not enter passwords, API keys, tokens, or private keys here or in chat.'
                     : '接続用の認証情報はサーバーで管理します。パスワード、APIキー、トークン、秘密鍵を設定画面やチャットへ入力しないでください。'}
                 </p>
+              </section>
+
+              <section
+                data-testid="release-identity"
+                aria-labelledby="release-identity-heading"
+                className="space-y-3 border-t border-slate-200 pt-5 dark:border-white/10"
+              >
+                <h3 id="release-identity-heading" className="flex items-center gap-2 text-sm font-bold">
+                  <Info className="h-4 w-4 text-teal-700 dark:text-teal-300" aria-hidden="true" />
+                  {isEn ? 'Technical information' : '技術情報'}
+                </h3>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-neutral-900">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-600 dark:text-neutral-300">
+                        {isEn ? 'Release ID' : 'リリースID'}
+                      </p>
+                      {releaseIdentity.status === 'loading' && (
+                        <p role="status" className="mt-1 text-sm text-slate-600 dark:text-neutral-300">
+                          {isEn ? 'Checking…' : '確認中…'}
+                        </p>
+                      )}
+                      {releaseIdentity.status === 'unavailable' && (
+                        <p role="status" className="mt-1 inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800 dark:bg-red-400/15 dark:text-red-200">
+                          {isEn ? 'Could not verify' : '確認できません'}
+                        </p>
+                      )}
+                      {releaseIdentity.status === 'ready' && (
+                        <code data-testid="release-sha-value" className="mt-1 block max-w-full break-all text-sm font-semibold text-slate-900 dark:text-neutral-100">
+                          {showFullReleaseSha
+                            ? releaseIdentity.sha
+                            : `${releaseIdentity.sha.slice(0, 12)}…`}
+                        </code>
+                      )}
+                    </div>
+
+                    {releaseIdentity.status === 'ready' && (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowFullReleaseSha((current) => !current)}
+                          aria-expanded={showFullReleaseSha}
+                          className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:border-white/15 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-white/5"
+                        >
+                          {showFullReleaseSha
+                            ? (isEn ? 'Shorten' : '短く表示')
+                            : (isEn ? 'Show full ID' : '全文を表示')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void copyReleaseSha()}
+                          className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:border-white/15 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-white/5"
+                        >
+                          {copyStatus === 'success'
+                            ? <Check className="h-4 w-4" aria-hidden="true" />
+                            : <Copy className="h-4 w-4" aria-hidden="true" />}
+                          {copyStatus === 'success'
+                            ? (isEn ? 'Copied' : 'コピー済み')
+                            : (isEn ? 'Copy' : 'コピー')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <p aria-live="polite" className="mt-2 text-xs leading-5 text-slate-600 dark:text-neutral-300">
+                    {copyStatus === 'error'
+                      ? (isEn ? 'Could not copy the release ID.' : 'リリースIDをコピーできませんでした。')
+                      : (isEn
+                        ? 'Use this ID when checking which version is running.'
+                        : '現在動いている版を確認するときに使用します。')}
+                  </p>
+                </div>
               </section>
             </div>
 

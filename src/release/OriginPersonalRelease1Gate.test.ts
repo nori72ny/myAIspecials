@@ -88,4 +88,24 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(gate).toContain("実費`$0.00`");
     expect(gate).toContain("別モデルや別providerへ自動で切り替えない");
   });
+
+  it("does not publish invalidated release evidence or ignore Lighthouse failures", () => {
+    const workflow = readRepositoryFile(".github/workflows/ci.yml");
+    const lighthouseConfig = JSON.parse(
+      readRepositoryFile(".lighthouserc.json"),
+    ) as {
+      ci?: { assert?: { assertions?: Record<string, [string, { minScore: number }]> } };
+    };
+
+    expect(workflow).not.toContain("PRODUCTION_EVIDENCE_REPORT.md");
+    expect(workflow).not.toContain("Production_Evidence_Report_FINAL.md");
+    expect(workflow).not.toContain('|| echo "Lighthouse audit completed with warnings."');
+    expect(workflow).toContain("lhci autorun");
+    expect(
+      lighthouseConfig.ci?.assert?.assertions?.["categories:accessibility"],
+    ).toEqual(["error", { minScore: 0.9 }]);
+    expect(
+      lighthouseConfig.ci?.assert?.assertions?.["categories:best-practices"],
+    ).toEqual(["error", { minScore: 0.9 }]);
+  });
 });

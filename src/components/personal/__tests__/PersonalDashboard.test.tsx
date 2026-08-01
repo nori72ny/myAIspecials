@@ -58,7 +58,10 @@ describe('PersonalDashboard', () => {
     render(<PersonalDashboard onNavigateToChat={onNavigateToChat} />);
 
     const sendButton = screen.getByRole('button', { name: '依頼を送信' }) as HTMLButtonElement;
+    const input = screen.getByLabelText('やりたいことを入力');
     expect(sendButton.disabled).toBe(true);
+    expect(input.className).toContain('placeholder:text-slate-600');
+    expect(sendButton.className).toContain('disabled:bg-slate-300');
     expect(screen.getByText('個人情報、社外秘、パスワード、APIキー、秘密鍵は入力しないでください。')).toBeTruthy();
   });
 

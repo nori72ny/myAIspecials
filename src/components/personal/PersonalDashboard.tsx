@@ -65,13 +65,13 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
                 submit();
               }
             }}
-            className="min-h-[132px] w-full resize-none sm:min-h-[150px] md:min-h-[168px] border-none bg-transparent px-3 py-3 text-[1.05rem] leading-8 text-slate-950 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-neutral-500 md:text-lg"
+            className="min-h-[132px] w-full resize-none sm:min-h-[150px] md:min-h-[168px] border-none bg-transparent px-3 py-3 text-[1.05rem] leading-8 text-slate-950 outline-none placeholder:text-slate-600 dark:text-white dark:placeholder:text-neutral-400 md:text-lg"
             placeholder={isEn
               ? 'Example: Organize my product idea and create a simple proposal.'
               : '例：新商品のアイデアを整理して、提案文のたたき台を作りたい'}
           />
           <div className="flex items-end justify-between gap-3 border-t border-slate-100 px-2 pt-3 dark:border-white/5">
-            <p className="flex max-w-xl items-start gap-1.5 text-xs leading-5 text-slate-500 dark:text-neutral-400">
+            <p className="flex max-w-xl items-start gap-1.5 text-xs leading-5 text-slate-600 dark:text-neutral-300">
               <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
               {isEn
                 ? 'Do not enter personal information, confidential data, passwords, API keys, or private keys.'
@@ -82,7 +82,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
               onClick={submit}
               disabled={!input.trim()}
               aria-label={isEn ? 'Send request' : '依頼を送信'}
-              className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:focus-visible:ring-teal-300 dark:focus-visible:ring-offset-neutral-950"
+              className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:disabled:bg-neutral-700 dark:disabled:text-neutral-300 dark:focus-visible:ring-teal-300 dark:focus-visible:ring-offset-neutral-950"
             >
               <ArrowUp className="h-5 w-5" aria-hidden="true" />
             </button>

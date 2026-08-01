@@ -893,7 +893,7 @@ export default function UnifiedChat({
               placeholder={isEn ? 'Describe what you want to do' : 'やりたいことを入力'}
               aria-label={isEn ? 'Request to ORIGIN' : 'ORIGINへの依頼'}
               aria-describedby="origin-chat-guidance"
-              className="max-h-40 min-h-12 flex-1 resize-none border-none bg-transparent px-3 py-3 text-base leading-relaxed focus:outline-none sm:text-sm"
+              className="max-h-40 min-h-12 flex-1 resize-none border-none bg-transparent px-3 py-3 text-base leading-relaxed text-slate-950 outline-none placeholder:text-slate-600 focus:outline-none dark:text-white dark:placeholder:text-neutral-400 sm:text-sm"
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
@@ -906,14 +906,14 @@ export default function UnifiedChat({
               aria-label={isEn ? 'Send request' : '依頼を送信'}
               onClick={() => void handleSend()}
               disabled={!input.trim() || isTyping}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:focus-visible:ring-teal-300"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:disabled:bg-neutral-700 dark:disabled:text-neutral-300 dark:focus-visible:ring-teal-300"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
           <div
             id="origin-chat-guidance"
-            className="mt-2 flex flex-col gap-1 px-1 text-xs leading-5 text-slate-500 dark:text-neutral-400 sm:flex-row sm:items-center sm:justify-between"
+            className="mt-2 flex flex-col gap-1 px-1 text-xs leading-5 text-slate-600 dark:text-neutral-300 sm:flex-row sm:items-center sm:justify-between"
           >
             <span>{isEn ? 'Enter to send / Shift+Enter for a new line' : 'Enterで送信 / Shift+Enterで改行'}</span>
             <span>{isEn ? 'Do not enter passwords or API keys.' : 'パスワードやAPIキーは入力しないでください。'}</span>
