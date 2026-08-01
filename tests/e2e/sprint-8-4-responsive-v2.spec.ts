@@ -47,14 +47,24 @@ for (const viewport of VIEWPORTS) {
       await page.getByRole('main').getByRole('button', { name: /設定を開く|Open settings/i }).click();
     }
     const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
+    const modal = dialog.getByTestId('settings-modal');
+    const scrollRegion = dialog.getByTestId('settings-scroll-region');
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByTestId('settings-modal')).toHaveCSS('opacity', '1');
+    await expect(modal).toHaveCSS('opacity', '1');
 
-    const box = await dialog.boundingBox();
+    const box = await modal.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
-    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
+    expect(await modal.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+
+    await scrollRegion.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(dialog.getByText(/安全と費用|Safety and cost/)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /^(閉じる|Close)$/ })).toBeVisible();
 
     const accessibility = await new AxeBuilder({ page })
       .include('[role="dialog"]')
