@@ -22,6 +22,7 @@ for (const viewport of VIEWPORTS) {
 
     await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/i })).toBeVisible({ timeout: 15_000 });
     await expectNoHorizontalOverflow(page);
+    await page.waitForTimeout(250);
     await testInfo.attach(`personal-home-${viewport.name}`, {
       body: await page.screenshot({ fullPage: true }),
       contentType: 'image/png',
@@ -40,6 +41,7 @@ for (const viewport of VIEWPORTS) {
     await expect(input).toBeVisible();
     await expect(page.getByRole('button', { name: /依頼を送信|Send request/i })).toBeVisible();
     await expectNoHorizontalOverflow(page);
+    await page.waitForTimeout(250);
     await testInfo.attach(`personal-chat-${viewport.name}`, {
       body: await page.screenshot({ fullPage: true }),
       contentType: 'image/png',
@@ -155,6 +157,7 @@ for (const viewport of RESULT_VIEWPORTS) {
     await expect(page.getByTestId('answer-next-actions')).toBeVisible();
     await expect(page.getByTestId('execution-details')).toContainText(/無料で回答しました|Answered for free/i);
     await expectNoHorizontalOverflow(page);
+    await page.waitForTimeout(300);
 
     await testInfo.attach(`personal-answer-${viewport.name}`, {
       body: await page.screenshot({ fullPage: true }),
