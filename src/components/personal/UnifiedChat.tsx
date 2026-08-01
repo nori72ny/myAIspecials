@@ -566,14 +566,14 @@ export default function UnifiedChat({
   }, [messages, isTyping]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-50 dark:bg-black">
+    <div className="origin-chat flex h-full min-h-0 flex-col bg-transparent dark:bg-black">
       <div
         ref={scrollRef}
         role="log"
         aria-live="off"
         aria-busy={isTyping}
         aria-label={isEn ? 'Conversation history' : '会話履歴'}
-        className="mx-auto w-full max-w-4xl flex-1 space-y-6 overflow-y-auto p-3 pb-4 sm:p-4 sm:pb-6"
+        className="mx-auto w-full max-w-5xl flex-1 space-y-7 overflow-y-auto px-3 py-5 sm:px-6 sm:py-8"
       >
         <AnimatePresence initial={false}>
           {messages.map((message) => (
@@ -598,7 +598,7 @@ export default function UnifiedChat({
                 'mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
                 message.role === 'user'
                   ? 'bg-slate-200 dark:bg-neutral-800'
-                  : message.error ? 'bg-red-100 dark:bg-red-500/20' : 'bg-indigo-600 dark:bg-white',
+                  : message.error ? 'bg-red-100 dark:bg-red-500/20' : 'hidden',
               )}>
                 {message.role === 'user' ? (
                   <User className="h-4 w-4 text-slate-600 dark:text-neutral-300" aria-hidden="true" />
@@ -610,8 +610,8 @@ export default function UnifiedChat({
               </div>
 
               <div className={cn(
-                'flex min-w-0 flex-col gap-2',
-                message.role === 'user' ? 'max-w-[88%] sm:max-w-[85%]' : 'flex-1',
+                'flex min-w-0 flex-col gap-3',
+                message.role === 'user' ? 'max-w-[88%] sm:max-w-[72%]' : 'flex-1',
               )}>
                 {message.error ? (
                   <div role="alert" className="flex flex-col gap-3 rounded-2xl rounded-tl-none border border-red-200 bg-red-50 p-4 shadow-sm dark:border-red-500/20 dark:bg-red-500/10">
@@ -654,18 +654,18 @@ export default function UnifiedChat({
                   </div>
                 ) : (
                   <div className={cn(
-                    'rounded-2xl p-4 text-sm leading-relaxed',
+                    'text-sm leading-relaxed',
                     message.role === 'user'
-                      ? 'rounded-tr-none bg-indigo-600 text-white'
-                      : 'rounded-tl-none border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-neutral-900',
+                      ? 'rounded-[1.1rem] bg-slate-950 px-4 py-3 text-white shadow-sm dark:bg-white dark:text-black'
+                      : 'rounded-[1.5rem] border border-slate-200/80 bg-white/90 p-5 shadow-[0_16px_48px_rgba(15,23,42,0.07)] dark:border-white/10 dark:bg-neutral-950/90 sm:p-7',
                   )}>
                     <div className={cn(
                       'markdown-body',
                       message.role === 'user' && 'text-white prose-p:text-white prose-strong:text-white',
                     )}>
                       {message.answer && shouldShowSeparateConclusion(message.answer) && (
-                        <section data-testid="answer-conclusion" className="mb-4 border-b border-slate-200 pb-3 dark:border-white/10">
-                          <h3 className="mb-1 text-xs font-semibold text-slate-500 dark:text-neutral-400">
+                        <section data-testid="answer-conclusion" className="mb-6 border-l-2 border-teal-600 pl-4 dark:border-teal-300">
+                          <h3 className="mb-2 text-xs font-semibold tracking-[0.08em] text-teal-700 dark:text-teal-300">
                             {isEn ? 'Conclusion' : '結論'}
                           </h3>
                           <SafeMarkdown isEn={isEn}>{message.answer.conclusion}</SafeMarkdown>
@@ -675,7 +675,7 @@ export default function UnifiedChat({
                     </div>
 
                     {message.answer && shouldShowStructuredAnswer(message.answer) && (
-                      <div data-testid="structured-answer" className="mt-4 space-y-4 border-t border-slate-200 pt-4 dark:border-white/10">
+                      <div data-testid="structured-answer" className="mt-7 space-y-5 border-t border-slate-200/80 pt-5 dark:border-white/10">
                         {shouldShowVerificationDetails(message.answer) && (
                           <section
                             data-testid="answer-trust-overview"
@@ -781,11 +781,11 @@ export default function UnifiedChat({
                         )}
 
                         {message.answer.nextActions.length > 0 && (
-                          <section>
-                            <h3 className="mb-2 text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                              {isEn ? 'Next actions' : '次にできること'}
+                          <section data-testid="answer-next-actions" className="rounded-2xl border border-teal-700/15 bg-teal-50/60 p-4 dark:border-teal-300/15 dark:bg-teal-300/5">
+                            <h3 className="mb-3 text-xs font-semibold tracking-[0.06em] text-teal-800 dark:text-teal-200">
+                              {isEn ? 'Move forward next' : '次に進めること'}
                             </h3>
-                            <ul className="list-disc space-y-1 pl-5 text-sm">
+                            <ul className="list-decimal space-y-2 pl-5 text-sm leading-6 text-slate-800 marker:font-semibold marker:text-teal-700 dark:text-neutral-200 dark:marker:text-teal-300">
                               {message.answer.nextActions.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
                             </ul>
                           </section>
@@ -798,7 +798,7 @@ export default function UnifiedChat({
                 {message.routing && (
                   <details
                     data-testid="execution-details"
-                    className="group rounded-xl border border-slate-200 bg-white/70 text-xs text-slate-600 dark:border-white/10 dark:bg-neutral-900/70 dark:text-neutral-300"
+                    className="group rounded-xl border border-slate-200/80 bg-white/60 text-xs text-slate-600 dark:border-white/10 dark:bg-neutral-950/60 dark:text-neutral-300"
                   >
                     <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 font-medium outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-400 dark:hover:bg-white/5">
                       <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
@@ -853,18 +853,16 @@ export default function UnifiedChat({
 
           {isTyping && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3 sm:gap-4">
-              <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-600 dark:bg-white">
+              <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-950 dark:bg-white">
                 <Activity className="h-4 w-4 animate-pulse text-white dark:text-black" aria-hidden="true" />
               </div>
               <div
                 role="status"
                 aria-live="polite"
                 aria-label={isEn ? 'ORIGIN is working' : 'ORIGINが処理中'}
-                className="flex items-center gap-2 rounded-2xl rounded-tl-none border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-neutral-900"
+                className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm dark:border-white/10 dark:bg-neutral-950/90"
               >
-                <span aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-indigo-500" />
-                <span aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-purple-500 delay-75" />
-                <span aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-pink-500 delay-150" />
+                <span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-teal-600 dark:bg-teal-300" />
                 <span className="ml-1 text-sm text-slate-600 dark:text-neutral-300">
                   {isEn ? 'Organizing your request and preparing an answer…' : '依頼を整理して、回答を作成しています…'}
                 </span>
@@ -886,7 +884,7 @@ export default function UnifiedChat({
 
       <div className="safe-area-bottom shrink-0 border-t border-slate-200 bg-white/95 px-3 pt-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/95 sm:px-4">
         <div className="mx-auto max-w-3xl">
-          <div className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-slate-500 focus-within:ring-2 focus-within:ring-slate-200 dark:border-white/15 dark:bg-neutral-900 dark:focus-within:border-white/30 dark:focus-within:ring-white/10">
+          <div className="flex items-end gap-2 rounded-[1.35rem] border border-slate-300/90 bg-white p-2 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition focus-within:border-teal-600/50 focus-within:ring-4 focus-within:ring-teal-600/10 dark:border-white/15 dark:bg-neutral-950 dark:focus-within:border-teal-300/40 dark:focus-within:ring-teal-300/10">
             <textarea
               id="origin-chat-input"
               rows={1}
@@ -908,14 +906,14 @@ export default function UnifiedChat({
               aria-label={isEn ? 'Send request' : '依頼を送信'}
               onClick={() => void handleSend()}
               disabled={!input.trim() || isTyping}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-white dark:text-black"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:focus-visible:ring-teal-300"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
           <div
             id="origin-chat-guidance"
-            className="mt-2 flex flex-col gap-1 px-1 text-[11px] leading-4 text-slate-500 dark:text-neutral-500 sm:flex-row sm:items-center sm:justify-between"
+            className="mt-2 flex flex-col gap-1 px-1 text-xs leading-5 text-slate-500 dark:text-neutral-400 sm:flex-row sm:items-center sm:justify-between"
           >
             <span>{isEn ? 'Enter to send / Shift+Enter for a new line' : 'Enterで送信 / Shift+Enterで改行'}</span>
             <span>{isEn ? 'Do not enter passwords or API keys.' : 'パスワードやAPIキーは入力しないでください。'}</span>
