@@ -89,4 +89,31 @@ describe("ORIGIN Cloud Run production path", () => {
     expect(runbook).toContain("AI Studioのワンクリック公開はExact SHA要件を満たす本番経路として現時点では`NOT ELIGIBLE`");
     expect(runbook).toContain("`_APPROVED_RELEASE_SHA`はtrigger設定へ保存せず");
   });
+
+  it("runs a free Docker production smoke without deploying", () => {
+    const workflow = readRepositoryFile(".github/workflows/ci.yml");
+    const dockerJob = workflow.slice(
+      workflow.indexOf("  docker-production-smoke:"),
+      workflow.indexOf("  build-and-test:"),
+    );
+    const smoke = readRepositoryFile("scripts/docker-production-smoke.sh");
+    const preview = readRepositoryFile("docs/ORIGIN_REVIEW_PREVIEW.md");
+
+    expect(workflow).toContain("docker-production-smoke:");
+    expect(workflow).toContain("runs-on: ubuntu-latest");
+    expect(workflow).toContain("bash scripts/docker-production-smoke.sh");
+    expect(dockerJob).toContain("github.event.pull_request.head.sha");
+    expect(dockerJob.toLowerCase()).not.toContain("gcloud");
+    expect(dockerJob.toLowerCase()).not.toContain("deploy");
+    expect(dockerJob.toLowerCase()).not.toContain("billing");
+    expect(smoke).toContain("ORIGIN_RELEASE_SHA=unknown");
+    expect(smoke).toContain("timeout 10s docker run --rm");
+    expect(smoke).toContain("Runtime release SHA does not match the immutable image release SHA");
+    expect(smoke).toContain("payload.releaseSha !== expected");
+    expect(smoke).not.toContain("gcloud run deploy");
+    expect(preview).toContain("320 × 568");
+    expect(preview).toContain("1440 × 900");
+    expect(preview).toContain("ChatGPT/Codexがartifactから画像を抽出して会話内へ提示する");
+    expect(preview).toContain("Publish、Cloud Run deploy、GitHub export、mainへの書き戻しは行わない");
+  });
 });

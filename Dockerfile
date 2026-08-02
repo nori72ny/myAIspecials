@@ -4,11 +4,13 @@ FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb
 WORKDIR /app
 ARG ORIGIN_RELEASE_SHA
 
+COPY scripts/assert-origin-release-sha.mjs ./scripts/assert-origin-release-sha.mjs
+RUN node scripts/assert-origin-release-sha.mjs "$ORIGIN_RELEASE_SHA"
+
 COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN node scripts/assert-origin-release-sha.mjs "$ORIGIN_RELEASE_SHA"
 RUN printf '%s' "$ORIGIN_RELEASE_SHA" > /app/ORIGIN_RELEASE_SHA
 RUN npm run build
 
