@@ -18,6 +18,38 @@
   --color-origin-success: var(--origin-success);
 }
 
+:root {
+  --origin-ink: #16181a;
+  --origin-paper: #f6f5f2;
+  --origin-surface: #ffffff;
+  --origin-surface-muted: #efeee9;
+  --origin-secondary: #565a5f;
+  --origin-placeholder: #6c7075;
+  --origin-border: #dfddd6;
+  --origin-border-control: #8a867b;
+  --origin-accent: #1c3d5a;
+  --origin-accent-hover: #132b40;
+  --origin-accent-soft: #e8eef4;
+  --origin-accent-border: #b3c7db;
+  --origin-success: #0e6b45;
+}
+
+.dark {
+  --origin-paper: #0e1113;
+  --origin-ink: #edeeef;
+  --origin-surface: #171a1d;
+  --origin-surface-muted: #1e2226;
+  --origin-secondary: #a7abb0;
+  --origin-placeholder: #8b9096;
+  --origin-border: #2b2f34;
+  --origin-border-control: #6c737b;
+  --origin-accent: #a9c6e4;
+  --origin-accent-hover: #8cafd2;
+  --origin-accent-soft: #152538;
+  --origin-accent-border: #233b54;
+  --origin-success: #5cc194;
+}
+
 /* Global Smooth & Elegant Scrollbar (Fades-in on Hover, Hidden by default) */
 @layer base {
   html,
@@ -144,19 +176,6 @@
 
 /* ORIGIN Personal — quiet work surface */
 .origin-shell {
-  --origin-ink: #16181a;
-  --origin-paper: #f6f5f2;
-  --origin-surface: #ffffff;
-  --origin-surface-muted: #efeee9;
-  --origin-secondary: #565a5f;
-  --origin-placeholder: #6c7075;
-  --origin-border: #dfddd6;
-  --origin-border-control: #8a867b;
-  --origin-accent: #1c3d5a;
-  --origin-accent-hover: #132b40;
-  --origin-accent-soft: #e8eef4;
-  --origin-accent-border: #b3c7db;
-  --origin-success: #0e6b45;
   background: var(--origin-paper);
   color: var(--origin-ink);
 }
@@ -226,22 +245,6 @@
   [data-testid="settings-modal"] {
     border-radius: 0.875rem;
   }
-}
-
-.dark .origin-shell {
-  --origin-paper: #0e1113;
-  --origin-ink: #edeeef;
-  --origin-surface: #171a1d;
-  --origin-surface-muted: #1e2226;
-  --origin-secondary: #a7abb0;
-  --origin-placeholder: #8b9096;
-  --origin-border: #2b2f34;
-  --origin-border-control: #6c737b;
-  --origin-accent: #a9c6e4;
-  --origin-accent-hover: #8cafd2;
-  --origin-accent-soft: #152538;
-  --origin-accent-border: #233b54;
-  --origin-success: #5cc194;
 }
 
 .dark .origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body {
