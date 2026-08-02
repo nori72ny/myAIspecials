@@ -49,11 +49,8 @@ test.describe('ORIGIN Personal Edition critical journey', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
-    const sidebar = page.getByRole('complementary', { name: /メインナビゲーション|Primary navigation/i });
-
     await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible();
-    await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
-    await expect(sidebar).toHaveAttribute('inert', '');
+    await expect(page.getByRole('complementary', { name: /メインナビゲーション|Primary navigation/i })).toHaveCount(0);
     await expect(page.getByTestId('compact-home-button')).toBeVisible();
     await expect(page.getByTestId('compact-chat-button')).toBeVisible();
     await page.getByTestId('compact-chat-button').click();
