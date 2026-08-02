@@ -9,7 +9,18 @@ const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 export function resolveOriginReleaseSha(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA;
+  const explicitSha = env.ORIGIN_RELEASE_SHA;
+  const providerSha = env.VERCEL_GIT_COMMIT_SHA;
+
+  if (
+    explicitSha
+    && providerSha
+    && explicitSha.toLowerCase() !== providerSha.toLowerCase()
+  ) {
+    return "unknown";
+  }
+
+  const candidate = explicitSha ?? providerSha;
   return candidate && FULL_GIT_SHA.test(candidate)
     ? candidate.toLowerCase()
     : "unknown";
