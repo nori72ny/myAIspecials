@@ -3,8 +3,10 @@ import AxeBuilder from '@axe-core/playwright';
 
 test.describe('ORIGIN Personal Edition critical journey', () => {
   test('opens the personal dashboard and navigates to chat', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(50);
 
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
@@ -50,7 +52,8 @@ test.describe('ORIGIN Personal Edition critical journey', () => {
     const sidebar = page.getByRole('complementary', { name: /メインナビゲーション|Primary navigation/i });
 
     await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible();
-    await expect.poll(async () => (await sidebar.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1);
+    await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+    await expect(sidebar).toHaveAttribute('inert', '');
     await expect(page.getByTestId('compact-home-button')).toBeVisible();
     await expect(page.getByTestId('compact-chat-button')).toBeVisible();
     await page.getByTestId('compact-chat-button').click();
