@@ -108,6 +108,7 @@ test('Personal home keeps the C+ hierarchy in dark mode on mobile', async ({ pag
   const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
   await dialog.getByRole('button', { name: /暗い|Dark/i }).click();
   await dialog.getByRole('button', { name: /設定を閉じる|Close settings/i }).click();
+  await expect(dialog).toBeHidden();
 
   await expect(page.locator('html')).toHaveClass(/dark/);
   await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible();
