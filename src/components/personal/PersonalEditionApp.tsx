@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   Activity,
   LayoutDashboard,
@@ -41,6 +41,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
 }: PersonalEditionAppProps) {
   const settings = providedSettings ?? DEFAULT_PERSONAL_SETTINGS;
   const isEn = settings.language === 'en';
+  const prefersReducedMotion = useReducedMotion();
 
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
@@ -172,18 +173,19 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       <motion.aside
         initial={false}
         animate={{ width: isSidebarOpen ? 260 : 0, opacity: isSidebarOpen ? 1 : 0 }}
+        transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
         aria-label={isEn ? 'Primary navigation' : 'メインナビゲーション'}
         aria-hidden={!isSidebarOpen}
         inert={!isSidebarOpen}
         className={cn(
-          'fixed z-50 flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/95 backdrop-blur-xl dark:border-white/10 dark:bg-neutral-950/95 lg:relative',
+          'fixed z-50 flex h-full shrink-0 flex-col overflow-hidden border-r border-origin-border bg-white/95 backdrop-blur-xl dark:border-origin-border dark:bg-origin-surface/95 lg:relative',
           !isSidebarOpen && 'lg:w-0 lg:border-none',
         )}
       >
         <div className="flex shrink-0 items-center justify-between p-4">
           <div className="flex items-center gap-2.5 px-2 text-sm font-semibold tracking-[0.08em]">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-950 shadow-sm dark:bg-white">
-              <Sparkles className="h-3.5 w-3.5 text-teal-200 dark:text-teal-700" aria-hidden="true" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-origin-brand shadow-sm dark:bg-origin-brand">
+              <Sparkles className="h-3.5 w-3.5 text-white dark:text-origin-paper" aria-hidden="true" />
             </div>
             <span>ORIGIN</span>
           </div>
@@ -191,7 +193,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             type="button"
             onClick={() => setIsSidebarOpen(false)}
             aria-label={isEn ? 'Close menu' : 'メニューを閉じる'}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:hover:bg-white/10 dark:focus-visible:ring-teal-300 lg:hidden"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-origin-muted outline-none transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-origin-brand dark:text-origin-muted dark:hover:bg-origin-surface-muted dark:focus-visible:ring-origin-brand lg:hidden"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -202,7 +204,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             type="button"
             onClick={startNewChat}
             data-testid="new-chat-button"
-            className="flex min-h-11 w-full items-center gap-2 rounded-xl bg-slate-950 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:focus-visible:ring-teal-300 dark:focus-visible:ring-offset-neutral-950"
+            className="flex min-h-11 w-full items-center gap-2 rounded-xl bg-origin-brand px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition hover:bg-origin-brand-hover focus-visible:ring-2 focus-visible:ring-origin-brand focus-visible:ring-offset-2 dark:bg-origin-brand dark:text-origin-paper dark:hover:bg-origin-brand-hover dark:focus-visible:ring-origin-brand dark:focus-visible:ring-offset-origin-surface"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             <span>{isEn ? 'New request' : '新しい依頼'}</span>
@@ -218,9 +220,9 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
               data-testid={`nav-${item.id}`}
               aria-current={currentView === item.id ? 'page' : undefined}
               className={cn(
-                'flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal-600 dark:focus-visible:ring-teal-300',
+                'flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-origin-brand dark:focus-visible:ring-origin-brand',
                 currentView === item.id
-                  ? 'bg-teal-50 text-teal-900 dark:bg-teal-400/10 dark:text-teal-100'
+                  ? 'bg-origin-brand-soft text-origin-brand dark:bg-origin-brand-soft dark:text-origin-brand'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white',
               )}
             >
@@ -235,7 +237,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
             type="button"
             onClick={openSettings}
             aria-label={isEn ? 'Open settings' : '設定を開く'}
-            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 outline-none transition-colors hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:text-neutral-400 dark:hover:bg-white/5 dark:focus-visible:ring-teal-300"
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-origin-muted outline-none transition-colors hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-origin-brand dark:text-origin-muted dark:hover:bg-origin-surface-muted dark:focus-visible:ring-origin-brand"
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-slate-600 dark:bg-white/10 dark:text-neutral-300">
               <SettingsIcon className="h-4 w-4" aria-hidden="true" />
@@ -246,26 +248,53 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       </motion.aside>
 
       <main className="relative flex h-full min-w-0 flex-1 flex-col">
-        <header className="flex h-16 shrink-0 items-center border-b border-slate-200/80 bg-white/75 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/75 sm:px-5">
+        <header className="flex h-14 shrink-0 items-center border-b border-origin-border bg-origin-paper/92 px-4 backdrop-blur-xl dark:border-origin-border dark:bg-origin-paper/92 sm:h-16 sm:px-5">
           {!isSidebarOpen && (
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(true)}
-              aria-label={isEn ? 'Open menu' : 'メニューを開く'}
-              className="-ml-1.5 mr-2 inline-flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:hover:bg-white/5 dark:focus-visible:ring-teal-300"
-            >
-              <Menu className="h-5 w-5" aria-hidden="true" />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => selectView('dashboard')}
+                aria-label={isEn ? 'ORIGIN home' : 'ORIGINホーム'}
+                data-testid="compact-home-button"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-origin-brand dark:focus-visible:ring-origin-brand lg:hidden"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-origin-brand text-sm font-bold text-white dark:bg-origin-brand dark:text-origin-paper">O</span>
+                <span className="origin-display text-[17px] font-semibold text-origin-ink dark:text-origin-ink">ORIGIN</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                aria-label={isEn ? 'Open menu' : 'メニューを開く'}
+                className="-ml-1.5 mr-2 hidden h-11 w-11 items-center justify-center rounded-xl text-origin-muted outline-none transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-origin-brand dark:text-origin-muted dark:hover:bg-origin-surface-muted dark:focus-visible:ring-origin-brand lg:inline-flex"
+              >
+                <Menu className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </>
           )}
           <div className="flex flex-1 items-center justify-between gap-3">
-            <h1 className="truncate text-sm font-semibold tracking-[0.02em]">{currentViewLabel}</h1>
+            <h1 className="hidden truncate text-sm font-semibold tracking-[0.02em] lg:block">{currentViewLabel}</h1>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={startNewChat}
+                data-testid="compact-chat-button"
+                aria-current={currentView === 'chat' ? 'page' : undefined}
+                className={cn(
+                  'inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-origin-brand dark:focus-visible:ring-origin-brand lg:hidden',
+                  currentView === 'chat'
+                    ? 'bg-origin-brand-soft text-origin-brand dark:bg-origin-brand-soft dark:text-origin-brand'
+                    : 'text-origin-muted hover:bg-origin-surface-muted hover:text-origin-ink dark:text-origin-muted dark:hover:bg-origin-surface-muted dark:hover:text-origin-ink',
+                )}
+              >
+                <MessageSquare className="h-4 w-4" aria-hidden="true" />
+                <span>{isEn ? 'Chat' : '対話'}</span>
+              </button>
               {shouldShowAiStatus && (
                 <div
                   role="status"
                   aria-live="polite"
                   className={cn(
-                    'flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition-colors duration-300',
+                    'flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[13px] font-medium transition-colors duration-300',
                     getAiCoreColor(),
                   )}
                 >
@@ -277,7 +306,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
                 type="button"
                 onClick={openSettings}
                 aria-label={isEn ? 'Open settings' : '設定を開く'}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/80 bg-white/80 text-slate-500 outline-none transition hover:bg-white hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-teal-600 dark:border-white/10 dark:bg-neutral-950/80 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white dark:focus-visible:ring-teal-300"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-origin-muted outline-none transition hover:bg-origin-surface-muted hover:text-origin-ink focus-visible:ring-2 focus-visible:ring-origin-brand dark:text-origin-muted dark:hover:bg-origin-surface-muted dark:hover:text-origin-ink dark:focus-visible:ring-origin-brand"
               >
                 <SettingsIcon className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -292,7 +321,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.16 }}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
               className="h-full"
             >
               {currentView === 'dashboard' && (

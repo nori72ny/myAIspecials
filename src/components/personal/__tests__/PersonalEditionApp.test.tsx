@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PERSONAL_SETTINGS } from '../../../hooks/usePersonalSettings';
 import PersonalEditionApp from '../PersonalEditionApp';
@@ -22,7 +22,7 @@ describe('PersonalEditionApp mobile navigation', () => {
     })));
   });
 
-  it('keeps closed navigation inert until the user opens the menu', () => {
+  it('keeps the compact navigation focused on home, chat, and settings', async () => {
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} />);
 
     const navigation = document.querySelector<HTMLElement>(
@@ -33,12 +33,13 @@ describe('PersonalEditionApp mobile navigation', () => {
     expect(navigation.getAttribute('aria-hidden')).toBe('true');
     expect(navigation.hasAttribute('inert')).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'メニューを開く' }));
+    expect(screen.getByTestId('compact-home-button')).toBeTruthy();
+    expect(screen.getByTestId('compact-chat-button')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '設定を開く' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'メニューを開く' }).className).toContain('hidden');
 
-    expect(navigation.getAttribute('aria-hidden')).toBe('false');
-    expect(navigation.hasAttribute('inert')).toBe(false);
-    expect(screen.getByRole('complementary', { name: 'メインナビゲーション' })).toBe(navigation);
-    expect(screen.getByTestId('new-chat-button')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('compact-chat-button'));
+    await waitFor(() => expect(screen.getByLabelText('ORIGINへの依頼')).toBeTruthy());
   });
 
   it('keeps navigation aligned when the viewport crosses the tablet breakpoint', () => {

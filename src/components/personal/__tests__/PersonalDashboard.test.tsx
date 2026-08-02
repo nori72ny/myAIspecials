@@ -10,12 +10,9 @@ describe('PersonalDashboard', () => {
   it('presents one clear Japanese request entry point', () => {
     render(<PersonalDashboard onNavigateToChat={vi.fn()} />);
 
-    expect(screen.getByText('何を手伝えばよいですか？')).toBeTruthy();
+    expect(screen.getByText('考えがまとまる前から、始められます。')).toBeTruthy();
     expect(screen.getByLabelText('やりたいことを入力')).toBeTruthy();
-    expect(screen.getByText(/無料と確認できるAIだけを使い/)).toBeTruthy();
-    expect(screen.getByText('$0.00上限')).toBeTruthy();
-    expect(screen.getByText('無料モデル固定')).toBeTruthy();
-    expect(screen.getByText('自動切替なし')).toBeTruthy();
+    expect(screen.getByText('AI利用料 $0.00 · 無料モデル固定 · 自動切替なし')).toBeTruthy();
     expect(screen.queryByText('提案資料作成')).toBeNull();
     expect(screen.queryByText('画像生成')).toBeNull();
     expect(screen.queryByText('SEO\/AIO分析')).toBeNull();
@@ -60,15 +57,15 @@ describe('PersonalDashboard', () => {
     const sendButton = screen.getByRole('button', { name: '依頼を送信' }) as HTMLButtonElement;
     const input = screen.getByLabelText('やりたいことを入力');
     expect(sendButton.disabled).toBe(true);
-    expect(input.className).toContain('placeholder:text-slate-600');
-    expect(sendButton.className).toContain('disabled:bg-slate-300');
+    expect(input.className).toContain('placeholder:text-origin-placeholder');
+    expect(sendButton.className).toContain('disabled:bg-origin-placeholder');
     expect(screen.getByText('個人情報、社外秘、パスワード、APIキー、秘密鍵は入力しないでください。')).toBeTruthy();
   });
 
   it('renders the English variant when English is selected', () => {
     render(<PersonalDashboard onNavigateToChat={vi.fn()} language="en" />);
 
-    expect(screen.getByText('What can I help you with?')).toBeTruthy();
+    expect(screen.getByText('Start before your thoughts are fully formed.')).toBeTruthy();
     expect(screen.getByLabelText('Describe what you want help with')).toBeTruthy();
   });
 });
