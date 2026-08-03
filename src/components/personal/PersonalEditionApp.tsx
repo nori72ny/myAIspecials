@@ -7,7 +7,6 @@ import {
   MessageSquare,
   Plus,
   Settings as SettingsIcon,
-  Sparkles,
   X,
 } from 'lucide-react';
 import type { Settings } from '../../types';
@@ -185,9 +184,12 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
         <div className="flex shrink-0 items-center justify-between p-4">
           <div className="flex items-center gap-2.5 px-2 text-sm font-semibold tracking-[0.08em]">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-origin-brand shadow-sm dark:bg-origin-brand">
-              <Sparkles className="h-3.5 w-3.5 text-white dark:text-origin-paper" aria-hidden="true" />
+              <span className="origin-display text-base font-bold text-white dark:text-origin-paper" aria-hidden="true">O</span>
             </div>
             <span>ORIGIN</span>
+            <span className="rounded-md border border-origin-border bg-origin-surface-muted px-1.5 py-0.5 font-mono text-[11px] font-medium tracking-normal text-origin-muted dark:border-origin-border dark:bg-origin-surface-muted dark:text-origin-muted">
+              Personal
+            </span>
           </div>
           <button
             type="button"
@@ -260,6 +262,9 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
               >
                 <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-origin-brand text-sm font-bold text-white dark:bg-origin-brand dark:text-origin-paper">O</span>
                 <span className="origin-display text-[17px] font-semibold text-origin-ink dark:text-origin-ink">ORIGIN</span>
+                <span className="hidden rounded-md border border-origin-border bg-origin-surface-muted px-1.5 py-0.5 font-mono text-[11px] font-medium text-origin-muted dark:border-origin-border dark:bg-origin-surface-muted dark:text-origin-muted sm:inline-flex">
+                  Personal
+                </span>
               </button>
               <button
                 type="button"

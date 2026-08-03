@@ -25,6 +25,7 @@ describe('PersonalEditionApp mobile navigation', () => {
   it('keeps the compact navigation focused on home, chat, and settings', async () => {
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} />);
 
+    expect(screen.getAllByText('Personal')).toHaveLength(2);
     const navigation = document.querySelector<HTMLElement>(
       'aside[aria-label="メインナビゲーション"]',
     );
