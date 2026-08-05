@@ -164,14 +164,14 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
             initial={{ opacity: 0, scale: 0.97, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
-            className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/90 bg-white text-slate-950 shadow-2xl dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100 sm:max-h-[calc(100dvh-2rem)]"
+            className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-origin-border bg-origin-surface text-origin-ink shadow-xl sm:max-h-[calc(100dvh-2rem)]"
           >
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-white/10">
+            <div className="flex items-center justify-between border-b border-origin-border px-5 py-4">
               <div>
-                <h2 id="settings-title" className="text-base font-bold">
+                <h2 id="settings-title" className="text-base font-bold text-origin-ink">
                   {isEn ? 'Settings' : '設定'}
                 </h2>
-                <p id="settings-description" className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
+                <p id="settings-description" className="mt-1 text-[13px] text-origin-muted">
                   {isEn ? 'Changes are saved automatically.' : '変更は自動で保存されます。'}
                 </p>
               </div>
@@ -181,7 +181,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                 onClick={onClose}
                 data-testid="close-settings-button"
                 aria-label={isEn ? 'Close settings' : '設定を閉じる'}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-slate-500 outline-none transition hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 dark:hover:bg-white/10 dark:hover:text-white dark:focus-visible:ring-offset-neutral-950"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-origin-muted outline-none transition hover:bg-origin-surface-muted hover:text-origin-ink focus-visible:ring-2 focus-visible:ring-origin-brand focus-visible:ring-offset-2 focus-visible:ring-offset-origin-surface"
               >
                 <X className="h-5 w-5" aria-hidden="true" />
               </button>
@@ -189,8 +189,8 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
 
             <div data-testid="settings-scroll-region" className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 pb-7">
               <section aria-labelledby="language-heading" className="space-y-3">
-                <h3 id="language-heading" className="flex items-center gap-2 text-sm font-bold">
-                  <Globe className="h-4 w-4 text-teal-700 dark:text-teal-300" aria-hidden="true" />
+                <h3 id="language-heading" className="flex items-center gap-2 text-sm font-bold text-origin-ink">
+                  <Globe className="h-4 w-4 text-origin-brand" aria-hidden="true" />
                   {isEn ? 'Language' : '表示言語'}
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
@@ -208,8 +208,8 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                         className={cn(
                           'flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition',
                           selected
-                            ? 'border-teal-800 bg-teal-700 text-white dark:border-teal-300 dark:bg-teal-300 dark:text-teal-950'
-                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-white/5',
+                            ? 'border-origin-brand bg-origin-brand text-origin-paper'
+                            : 'border-origin-control bg-origin-surface text-origin-ink hover:bg-origin-surface-muted',
                         )}
                       >
                         {selected && <Check className="h-4 w-4" aria-hidden="true" />}
@@ -220,8 +220,8 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                 </div>
               </section>
 
-              <section aria-labelledby="appearance-heading" className="space-y-3 border-t border-slate-200 pt-5 dark:border-white/10">
-                <h3 id="appearance-heading" className="text-sm font-bold">
+              <section aria-labelledby="appearance-heading" className="space-y-3 border-t border-origin-border pt-5">
+                <h3 id="appearance-heading" className="text-sm font-bold text-origin-ink">
                   {isEn ? 'Appearance' : '画面の明るさ'}
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
@@ -239,8 +239,8 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                         className={cn(
                           'flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition',
                           selected
-                            ? 'border-teal-800 bg-teal-700 text-white dark:border-teal-300 dark:bg-teal-300 dark:text-teal-950'
-                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-white/5',
+                            ? 'border-origin-brand bg-origin-brand text-origin-paper'
+                            : 'border-origin-control bg-origin-surface text-origin-ink hover:bg-origin-surface-muted',
                         )}
                       >
                         <theme.icon className="h-4 w-4" aria-hidden="true" />
@@ -254,23 +254,23 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
               <section
                 data-testid="origin-execution-policy"
                 aria-labelledby="safety-heading"
-                className="space-y-3 border-t border-slate-200 pt-5 dark:border-white/10"
+                className="space-y-3 border-t border-origin-border pt-5"
               >
-                <h3 id="safety-heading" className="flex items-center gap-2 text-sm font-bold">
-                  <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                <h3 id="safety-heading" className="flex items-center gap-2 text-sm font-bold text-origin-ink">
+                  <ShieldCheck className="h-4 w-4 text-origin-brand" aria-hidden="true" />
                   {isEn ? 'Safety and cost' : '安全と費用'}
                 </h3>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-100">
+                <div className="rounded-xl border border-origin-brand-border bg-origin-brand-soft p-4 text-sm leading-6 text-origin-brand">
                   <p className="font-bold">
                     {isEn ? 'This release uses free AI only.' : 'この版は無料AIだけを使います。'}
                   </p>
-                  <p className="mt-1 text-xs leading-5">
+                  <p className="mt-1 text-[13px] leading-5">
                     {isEn
                       ? '$0.00 maximum · fixed free model · no automatic switching. If zero cost or the actual execution route cannot be verified, ORIGIN does not show an answer.'
                       : '$0.00上限・無料モデル固定・自動切替なし。無料であることや実際の実行先を確認できない場合、回答は表示しません。'}
                   </p>
                 </div>
-                <p className="text-xs leading-5 text-slate-500 dark:text-neutral-400">
+                <p className="text-[13px] leading-5 text-origin-muted">
                   {isEn
                     ? 'Provider credentials are managed on the server. Do not enter passwords, API keys, tokens, or private keys here or in chat.'
                     : '接続用の認証情報はサーバーで管理します。パスワード、APIキー、トークン、秘密鍵を設定画面やチャットへ入力しないでください。'}
@@ -280,30 +280,30 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
               <section
                 data-testid="release-identity"
                 aria-labelledby="release-identity-heading"
-                className="space-y-3 border-t border-slate-200 pt-5 dark:border-white/10"
+                className="space-y-3 border-t border-origin-border pt-5"
               >
-                <h3 id="release-identity-heading" className="flex items-center gap-2 text-sm font-bold">
-                  <Info className="h-4 w-4 text-teal-700 dark:text-teal-300" aria-hidden="true" />
+                <h3 id="release-identity-heading" className="flex items-center gap-2 text-sm font-bold text-origin-ink">
+                  <Info className="h-4 w-4 text-origin-brand" aria-hidden="true" />
                   {isEn ? 'Technical information' : '技術情報'}
                 </h3>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-neutral-900">
+                <div className="rounded-xl border border-origin-border bg-origin-surface-muted p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-600 dark:text-neutral-300">
+                      <p className="text-[13px] font-semibold text-origin-muted">
                         {isEn ? 'Release ID' : 'リリースID'}
                       </p>
                       {releaseIdentity.status === 'loading' && (
-                        <p role="status" className="mt-1 text-sm text-slate-600 dark:text-neutral-300">
+                        <p role="status" className="mt-1 text-sm text-origin-muted">
                           {isEn ? 'Checking…' : '確認中…'}
                         </p>
                       )}
                       {releaseIdentity.status === 'unavailable' && (
-                        <p role="status" className="mt-1 inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800 dark:bg-red-400/15 dark:text-red-200">
+                        <p role="status" className="mt-1 inline-flex rounded-lg bg-red-100 px-2.5 py-1 text-[13px] font-semibold text-red-800 dark:bg-red-950/50 dark:text-red-300">
                           {isEn ? 'Could not verify' : '確認できません'}
                         </p>
                       )}
                       {releaseIdentity.status === 'ready' && (
-                        <code data-testid="release-sha-value" className="mt-1 block max-w-full break-all text-sm font-semibold text-slate-900 dark:text-neutral-100">
+                        <code data-testid="release-sha-value" className="mt-1 block max-w-full break-all text-sm font-semibold text-origin-ink">
                           {showFullReleaseSha
                             ? releaseIdentity.sha
                             : `${releaseIdentity.sha.slice(0, 12)}…`}
@@ -317,7 +317,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                           type="button"
                           onClick={() => setShowFullReleaseSha((current) => !current)}
                           aria-expanded={showFullReleaseSha}
-                          className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:border-white/15 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-white/5"
+                          className="min-h-11 rounded-xl border border-origin-control bg-origin-surface px-3 text-[13px] font-semibold text-origin-ink outline-none transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-origin-brand"
                         >
                           {showFullReleaseSha
                             ? (isEn ? 'Shorten' : '短く表示')
@@ -326,7 +326,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                         <button
                           type="button"
                           onClick={() => void copyReleaseSha()}
-                          className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 dark:border-white/15 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-white/5"
+                          className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-origin-control bg-origin-surface px-3 text-[13px] font-semibold text-origin-ink outline-none transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-origin-brand"
                         >
                           {copyStatus === 'success'
                             ? <Check className="h-4 w-4" aria-hidden="true" />
@@ -338,7 +338,7 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
                       </div>
                     )}
                   </div>
-                  <p aria-live="polite" className="mt-2 text-xs leading-5 text-slate-600 dark:text-neutral-300">
+                  <p aria-live="polite" className="mt-2 text-[13px] leading-5 text-origin-muted">
                     {copyStatus === 'error'
                       ? (isEn ? 'Could not copy the release ID.' : 'リリースIDをコピーできませんでした。')
                       : (isEn
@@ -349,11 +349,11 @@ export default function SettingsModal({ isOpen, onClose, settings, updateSetting
               </section>
             </div>
 
-            <div className="safe-area-bottom shrink-0 border-t border-slate-200 bg-slate-50 px-4 pt-4 dark:border-white/10 dark:bg-neutral-900/70">
+            <div className="safe-area-bottom shrink-0 border-t border-origin-border bg-origin-surface-muted px-4 pt-4">
               <button
                 type="button"
                 onClick={onClose}
-                className="min-h-11 w-full rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:focus-visible:ring-offset-neutral-900"
+                className="min-h-11 w-full rounded-xl bg-origin-brand px-4 text-sm font-semibold text-origin-paper outline-none transition hover:bg-origin-brand-hover focus-visible:ring-2 focus-visible:ring-origin-brand focus-visible:ring-offset-2 focus-visible:ring-offset-origin-surface"
               >
                 {isEn ? 'Close' : '閉じる'}
               </button>

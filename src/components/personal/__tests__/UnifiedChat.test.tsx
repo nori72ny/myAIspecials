@@ -62,8 +62,8 @@ describe('UnifiedChat', () => {
     expect(screen.getByText('パスワードやAPIキーは入力しないでください。')).toBeTruthy();
 
     const input = screen.getByPlaceholderText('やりたいことを入力') as HTMLTextAreaElement;
-    expect(input.className).toContain('placeholder:text-slate-600');
-    expect(screen.getByRole('button', { name: '依頼を送信' }).className).toContain('disabled:bg-slate-300');
+    expect(input.className).toContain('placeholder:text-origin-placeholder');
+    expect(screen.getByRole('button', { name: '依頼を送信' }).className).toContain('disabled:bg-origin-control');
     fireEvent.change(input, { target: { value: '  詳細を確認してください  ' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
 

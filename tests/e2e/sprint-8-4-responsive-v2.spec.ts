@@ -22,7 +22,7 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto('/');
 
-    await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/i })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible({ timeout: 15_000 });
     const homeInput = page.getByRole('textbox', { name: /やりたいことを入力|Describe what you want help with/i });
     await expect(homeInput).toBeVisible();
     const homeInputBox = await homeInput.boundingBox();
@@ -36,10 +36,7 @@ for (const viewport of VIEWPORTS) {
     });
 
     if (viewport.width < 1024) {
-      const openMenu = page.getByRole('button', { name: /メニューを開く|Open menu/i });
-      await openMenu.click();
-      await expect(page.getByTestId('new-chat-button')).toBeVisible();
-      await page.getByTestId('nav-chat').click();
+      await page.getByTestId('compact-chat-button').click();
     } else {
       await page.getByTestId('nav-chat').click();
     }
@@ -54,15 +51,7 @@ for (const viewport of VIEWPORTS) {
       contentType: 'image/png',
     });
 
-    if (viewport.width < 1024) {
-      await page.getByRole('button', { name: /メニューを開く|Open menu/i }).click();
-      await page
-        .getByRole('complementary', { name: /メインナビゲーション|Primary navigation/i })
-        .getByRole('button', { name: /設定を開く|Open settings/i })
-        .click();
-    } else {
-      await page.getByRole('main').getByRole('button', { name: /設定を開く|Open settings/i }).click();
-    }
+    await page.getByRole('main').getByRole('button', { name: /設定を開く|Open settings/i }).click();
     const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
     const modal = dialog.getByTestId('settings-modal');
     const scrollRegion = dialog.getByTestId('settings-scroll-region');
@@ -91,7 +80,7 @@ for (const viewport of VIEWPORTS) {
       .include('[role="dialog"]')
       .withTags(['wcag2a', 'wcag2aa'])
       .analyze();
-    expect(accessibility.violations.filter((item) => ['critical', 'serious'].includes(item.impact ?? ''))).toEqual([]);
+    expect(accessibility.violations.filter((item) => ['critical', 'serious', 'moderate'].includes(item.impact ?? ''))).toEqual([]);
 
     await testInfo.attach(`personal-release-${viewport.name}`, {
       body: await page.screenshot({ fullPage: true }),
@@ -106,10 +95,28 @@ test('Personal release remains usable with reduced motion requested', async ({ p
   await page.goto('/');
 
   expect(await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
-  await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/i })).toBeVisible();
-  await page.getByRole('button', { name: /メニューを開く|Open menu/i }).click();
-  await page.getByTestId('nav-chat').click();
+  await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible();
+  await page.getByTestId('compact-chat-button').click();
   await expect(page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/i })).toBeVisible();
+});
+
+test('Personal home keeps the C+ hierarchy in dark mode on mobile', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+
+  await page.getByRole('main').getByRole('button', { name: /設定を開く|Open settings/i }).click();
+  const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
+  await dialog.getByRole('button', { name: /暗い|Dark/i }).click();
+  await dialog.getByRole('button', { name: /設定を閉じる|Close settings/i }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await testInfo.attach('personal-home-mobile-390-dark', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
 });
 
 
@@ -153,9 +160,10 @@ for (const viewport of RESULT_VIEWPORTS) {
 
     await page.goto('/');
     if (viewport.width < 1024) {
-      await page.getByRole('button', { name: /メニューを開く|Open menu/i }).click();
+      await page.getByTestId('compact-chat-button').click();
+    } else {
+      await page.getByTestId('nav-chat').click();
     }
-    await page.getByTestId('nav-chat').click();
 
     const input = page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/i });
     await input.fill('二つの候補を比較して、次にやることを決めたい');

@@ -5,7 +5,7 @@ test.describe('ORIGIN Personal release navigation', () => {
     await page.goto('/');
     await expect(page).toHaveTitle('ORIGIN Personal');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
-    await expect(page.getByRole('heading', { name: /何を手伝えばよいですか？|What can I help you with\?/ })).toBeVisible({
+    await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./ })).toBeVisible({
       timeout: 15_000,
     });
 
@@ -17,7 +17,7 @@ test.describe('ORIGIN Personal release navigation', () => {
     await expect(page.getByTestId('nav-chat')).toHaveText(/チャット|Chat/);
     await expect(page.getByTestId('nav-workspace')).toHaveCount(0);
     await expect(page.getByTestId('nav-memory')).toHaveCount(0);
-    await expect(page.locator('main h1')).toHaveText(/ホーム|Home/);
+    await expect(page.getByRole('main').getByText(/AI利用料 \$0\.00|AI usage \$0\.00/i)).toBeVisible();
 
     await expect(page.getByText(/最近のプロジェクト|Recent projects/)).toHaveCount(0);
     await expect(page.getByText(/ACOS Development|Sales Deck|Marketing|Memory Fragments/)).toHaveCount(0);
@@ -29,13 +29,9 @@ test.describe('ORIGIN Personal release navigation', () => {
   test('opens a fresh chat from the primary action', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
-    await page.getByRole('button', { name: /メニューを開く|Open menu/ }).click();
-    await expect(
-      page.getByRole('complementary', { name: /メインナビゲーション|Primary navigation/ }),
-    ).toBeVisible();
-    await page.getByTestId('new-chat-button').click();
+    await expect(page.getByTestId('compact-home-button')).toBeVisible();
+    await page.getByTestId('compact-chat-button').click();
 
-    await expect(page.locator('main h1')).toHaveText(/チャット|Chat/);
     await expect(page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/ })).toBeVisible();
     await expect(page.getByTestId('nav-workspace')).toHaveCount(0);
     await expect(page.getByTestId('nav-memory')).toHaveCount(0);

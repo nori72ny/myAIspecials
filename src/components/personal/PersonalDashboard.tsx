@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowUp, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, ShieldCheck } from 'lucide-react';
 
 type PersonalDashboardProps = {
   onNavigateToChat: (prompt?: string) => void;
@@ -29,29 +29,35 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
   };
 
   return (
-    <div className="origin-dashboard mx-auto flex min-h-full w-full max-w-7xl flex-col px-4 py-5 sm:px-6 sm:py-8 md:px-10 md:py-14">
-      <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center">
-        <div className="mb-6 text-left sm:mb-8 md:mb-10">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold tracking-[0.04em] text-slate-700 shadow-sm dark:border-white/10 dark:bg-neutral-950/80 dark:text-neutral-300">
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>{isEn ? 'ORIGIN · From request to result' : 'ORIGIN · 相談から成果物まで'}</span>
-          </div>
-          <h2 className="max-w-3xl text-[1.9rem] font-semibold leading-[1.18] tracking-[-0.035em] text-slate-950 dark:text-white sm:text-5xl md:text-[3.5rem]">
-            {isEn ? 'What can I help you with?' : '何を手伝えばよいですか？'}
-          </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-neutral-300 sm:mt-4 sm:text-[0.95rem] sm:leading-7 md:text-base md:leading-8">
+    <div className="origin-dashboard mx-auto flex min-h-full w-full max-w-[800px] flex-col px-4 py-8 sm:px-6 sm:py-12 md:py-16">
+      <section className="flex w-full flex-1 flex-col justify-center">
+        <div className="mb-8 text-center sm:mb-10">
+          <p
+            className="mb-5 text-[13px] font-medium leading-5 text-origin-muted dark:text-origin-muted"
+            aria-label={isEn ? 'Execution guarantees' : '実行条件'}
+          >
             {isEn
-              ? 'Start with a rough thought. ORIGIN turns it into a usable result. It uses only confirmed free AI and stops when the route cannot be verified.'
-              : 'まだ曖昧でも、そのまま書いてください。ORIGINが整理し、使える成果へ進めます。無料と確認できるAIだけを使い、確認できない場合は回答しません。'}
+              ? 'AI usage $0.00 · fixed free model · no automatic switching'
+              : 'AI利用料 $0.00 · 無料モデル固定 · 自動切替なし'}
           </p>
-          <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-neutral-300 sm:mt-5 sm:gap-2 sm:text-xs" aria-label={isEn ? 'Execution guarantees' : '実行条件'}>
-            <span className="origin-trust-chip">{isEn ? '$0.00 maximum' : '$0.00上限'}</span>
-            <span className="origin-trust-chip">{isEn ? 'Fixed free model' : '無料モデル固定'}</span>
-            <span className="origin-trust-chip">{isEn ? 'No automatic switching' : '自動切替なし'}</span>
-          </div>
+          <h2 className="origin-display auto-phrase text-[1.75rem] font-semibold leading-[1.3] text-origin-ink dark:text-origin-ink sm:text-[2.125rem] md:text-[2.5rem]">
+            {isEn ? 'Start before your thoughts are fully formed.' : '考えがまとまる前から、始められます。'}
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-[15px] leading-[1.75] text-origin-muted dark:text-origin-muted sm:text-base">
+            {isEn ? (
+              'Write whatever you have. ORIGIN organizes it into something you can use next.'
+            ) : (
+              <>
+                <span className="block">断片のまま入力してください。</span>
+                <span className="block">
+                  ORIGINが整理し、<span className="whitespace-nowrap">次に使える形へ整えます。</span>
+                </span>
+              </>
+            )}
+          </p>
         </div>
 
-        <div className="origin-composer rounded-[1.5rem] border border-slate-200/90 bg-white/95 p-3 shadow-xl transition focus-within:border-teal-600/40 focus-within:ring-4 focus-within:ring-teal-600/10 dark:border-white/10 dark:bg-neutral-950/95 dark:shadow-black/30 dark:focus-within:border-teal-300/40 dark:focus-within:ring-teal-300/10">
+        <div className="origin-composer rounded-2xl border border-origin-control bg-white p-4 shadow-sm transition focus-within:border-origin-brand focus-within:ring-2 focus-within:ring-origin-brand/20 dark:border-origin-control dark:bg-origin-surface dark:focus-within:border-origin-brand dark:focus-within:ring-origin-brand/20 sm:p-5">
           <label htmlFor="origin-home-request" className="sr-only">
             {isEn ? 'Describe what you want help with' : 'やりたいことを入力'}
           </label>
@@ -65,16 +71,16 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
                 submit();
               }
             }}
-            className="min-h-[132px] w-full resize-none sm:min-h-[150px] md:min-h-[168px] border-none bg-transparent px-3 py-3 text-[1.05rem] leading-8 text-slate-950 outline-none placeholder:text-slate-600 dark:text-white dark:placeholder:text-neutral-400 md:text-lg"
+            className="min-h-[136px] w-full resize-none border-none bg-transparent p-0 text-base leading-7 text-origin-ink outline-none placeholder:text-origin-placeholder focus:ring-0 dark:text-origin-ink dark:placeholder:text-origin-placeholder sm:min-h-[152px]"
             placeholder={isEn
               ? 'Example: Organize my product idea and create a simple proposal.'
               : '例：新商品のアイデアを整理して、提案文のたたき台を作りたい'}
           />
-          <div className="flex items-end justify-between gap-3 border-t border-slate-100 px-2 pt-3 dark:border-white/5">
-            <p className="flex max-w-xl items-start gap-1.5 text-xs leading-5 text-slate-600 dark:text-neutral-300">
-              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+          <div className="mt-3 flex flex-col gap-3 border-t border-origin-border pt-3 dark:border-origin-border sm:flex-row sm:items-center sm:justify-between">
+            <p className="flex items-start gap-2 text-[13px] leading-5 text-origin-muted dark:text-origin-muted">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-origin-brand dark:text-origin-brand" aria-hidden="true" />
               {isEn
-                ? 'Do not enter personal information, confidential data, passwords, API keys, or private keys.'
+                ? 'Do not enter personal information, passwords, API keys, or private keys.'
                 : '個人情報、社外秘、パスワード、APIキー、秘密鍵は入力しないでください。'}
             </p>
             <button
@@ -82,26 +88,31 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
               onClick={submit}
               disabled={!input.trim()}
               aria-label={isEn ? 'Send request' : '依頼を送信'}
-              className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 dark:bg-white dark:text-black dark:hover:bg-neutral-200 dark:disabled:bg-neutral-700 dark:disabled:text-neutral-300 dark:focus-visible:ring-teal-300 dark:focus-visible:ring-offset-neutral-950"
+              className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-origin-brand px-5 text-[15px] font-semibold text-white outline-none transition hover:bg-origin-brand-hover focus-visible:ring-2 focus-visible:ring-origin-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-origin-placeholder dark:bg-origin-brand dark:text-origin-paper dark:hover:bg-origin-brand-hover dark:focus-visible:ring-origin-brand dark:focus-visible:ring-offset-origin-surface sm:w-auto"
             >
-              <ArrowUp className="h-5 w-5" aria-hidden="true" />
+              <span>{isEn ? 'Start organizing' : '整理を始める'}</span>
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
         </div>
 
-        <div className="mt-6 md:mt-8">
-          <p className="mb-3 text-left text-xs font-semibold tracking-[0.04em] text-slate-500 dark:text-neutral-400">
-            {isEn ? 'Examples — you can edit them before sending' : '入力例 — 選んだ後に書き換えられます'}
+        <div className="mt-8">
+          <p className="mb-2 text-[13px] font-semibold leading-5 text-origin-muted dark:text-origin-muted">
+            {isEn ? 'Examples — select one, then edit it' : '入力例 — 選んだあとに書き換えられます'}
           </p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {examples.map((example) => (
+          <div className="divide-y divide-origin-border border-y border-origin-border dark:divide-origin-border dark:border-origin-border">
+            {examples.map((example, index) => (
               <button
                 type="button"
                 key={example}
                 onClick={() => setInput(example)}
-                className="min-h-12 rounded-2xl border border-slate-200/90 bg-white/80 px-4 py-3 text-left text-sm leading-6 text-slate-700 shadow-sm outline-none transition hover:-translate-y-0.5 hover:border-teal-600/30 hover:bg-white hover:text-slate-950 hover:shadow-md focus-visible:ring-2 focus-visible:ring-teal-600 dark:border-white/10 dark:bg-neutral-950/80 dark:text-neutral-300 dark:hover:border-teal-300/30 dark:hover:bg-neutral-950 dark:hover:text-white"
+                aria-label={example}
+                className="group flex min-h-12 w-full items-center gap-3 px-2 py-3 text-left text-[14px] leading-6 text-origin-ink outline-none transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-origin-brand dark:text-origin-ink dark:hover:bg-origin-surface-muted dark:focus-visible:ring-origin-brand"
               >
-                {example}
+                <span className="w-7 shrink-0 font-mono text-[13px] text-origin-muted dark:text-origin-muted">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <span>{example}</span>
               </button>
             ))}
           </div>
