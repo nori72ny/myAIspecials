@@ -3,8 +3,9 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy";
 import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
+import { OriginProviderError } from "./originProviderClient";
 
-const verifiedCatalogTime = Date.parse("2026-08-02T12:00:00.000Z");
+const verifiedCatalogTime = Date.parse("2026-08-06T12:00:00.000Z");
 const defaultExecutionResult = {
   text: "安全な確認結果です。",
   actualCostUsd: 0,
@@ -181,8 +182,8 @@ describe("createOriginChatRouter", () => {
         "依頼種別「セキュリティ」は独立確認の対象です。",
       ]),
       modelEvidence: expect.objectContaining({
-        verifiedAt: "2026-08-02T00:00:00.000Z",
-        reviewAfter: "2026-08-09T23:59:59.999Z",
+        verifiedAt: "2026-08-06T00:00:00.000Z",
+        reviewAfter: "2026-08-13T23:59:59.999Z",
         sourceUrl: expect.stringContaining("openrouter.ai"),
       }),
       providerDataPolicy: {
@@ -415,6 +416,32 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
+  it("returns only sanitized upstream diagnostics for provider failures", async () => {
+    executeMock.mockRejectedValueOnce(new OriginProviderError(
+      "PROVIDER_UNAVAILABLE",
+      "無料AIを現在利用できません。",
+      503,
+      false,
+      undefined,
+      { upstreamStatus: 403 },
+    ));
+
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "短い案内文を作ってください" }],
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual(expect.objectContaining({
+      code: "PROVIDER_UNAVAILABLE",
+      retryable: false,
+      requestId: "origin-test-trace",
+      diagnostic: { upstreamStatus: 403 },
+    }));
+    expect(JSON.stringify(response.body)).not.toContain("synthetic-test-key");
+    expect(response.body.diagnostic).not.toHaveProperty("body");
+    expect(response.body.diagnostic).not.toHaveProperty("response");
+  });
+
   it("fails closed when no explicitly free provider is configured", async () => {
     const response = await request(createApp(execute, {
       GEMINI_API_KEY: "synthetic-gemini-key",
@@ -431,7 +458,7 @@ describe("createOriginChatRouter", () => {
     const response = await request(createApp(
       execute,
       { OPENROUTER_API_KEY: "synthetic-test-key" },
-      () => Date.parse("2026-08-10T00:00:00.000Z"),
+      () => Date.parse("2026-08-14T00:00:00.000Z"),
     )).post("/api/chat").send({
       messages: [{ role: "user", content: "文章を確認してください" }],
     });

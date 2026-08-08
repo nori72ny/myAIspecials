@@ -124,7 +124,9 @@ describe('UnifiedChat', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('log', { name: '会話履歴' }).getAttribute('aria-busy')).toBe('true');
     expect(screen.getByRole('article', { name: 'あなたの依頼' })).toBeTruthy();
-    expect(screen.getByText('依頼を整理して、回答を作成しています…')).toBeTruthy();
+    const processingStatus = screen.getByTestId('processing-status-card');
+    expect(processingStatus.textContent).toContain('依頼を確認中');
+    expect(processingStatus.textContent).toContain('0秒');
 
     resolveFetch({
       ok: true,

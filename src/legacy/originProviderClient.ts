@@ -49,6 +49,12 @@ export type OriginProviderErrorCode =
   | "PROVIDER_INVALID_RESPONSE"
   | "PROVIDER_INTERNAL_ERROR";
 
+export interface OriginProviderDiagnostic {
+  upstreamStatus?: number;
+  upstreamErrorType?: string;
+  transportFailure?: "timeout" | "network";
+}
+
 export class OriginProviderError extends Error {
   constructor(
     public readonly code: OriginProviderErrorCode,
@@ -56,6 +62,7 @@ export class OriginProviderError extends Error {
     public readonly status: number,
     public readonly retryable: boolean,
     public readonly retryAfterSeconds?: number,
+    public readonly diagnostic?: OriginProviderDiagnostic,
   ) {
     super(message);
     this.name = "OriginProviderError";
@@ -63,6 +70,22 @@ export class OriginProviderError extends Error {
 }
 
 export type OriginFetch = typeof fetch;
+
+const MAX_COMPLETION_SEGMENTS = 3;
+
+function mergeContinuation(previous: string, continuation: string): string {
+  const left = previous.trimEnd();
+  const right = continuation.trimStart();
+  const maximumOverlap = Math.min(left.length, right.length, 500);
+
+  for (let length = maximumOverlap; length >= 20; length -= 1) {
+    if (left.slice(-length) === right.slice(0, length)) {
+      return `${left}${right.slice(length)}`.trim();
+    }
+  }
+
+  return `${left}\n\n${right}`.trim();
+}
 
 function normalizeMessages(messages: OriginChatMessage[], systemInstruction: string) {
   return [
@@ -105,12 +128,15 @@ function parseRetryAfterSeconds(value: string | null): number | undefined {
 }
 
 function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProviderError {
+  const diagnostic: OriginProviderDiagnostic = { upstreamStatus: status };
   if (status === 401) {
     return new OriginProviderError(
       "PROVIDER_NOT_CONFIGURED",
       "無料AIの認証情報を確認できませんでした。",
       503,
       false,
+      undefined,
+      diagnostic,
     );
   }
   if (status === 402 || status === 403) {
@@ -119,6 +145,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       "無料AIを現在利用できません。",
       503,
       false,
+      undefined,
+      diagnostic,
     );
   }
   if (status === 404) {
@@ -127,6 +155,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       "安全条件を満たす無料AIの実行先を現在利用できません。",
       503,
       true,
+      undefined,
+      diagnostic,
     );
   }
   if (status === 429) {
@@ -138,6 +168,7 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       429,
       true,
       retryAfterSeconds,
+      diagnostic,
     );
   }
   if (status === 408 || status === 504) {
@@ -146,6 +177,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       "無料AIの応答が時間内に完了しませんでした。",
       504,
       true,
+      undefined,
+      diagnostic,
     );
   }
   if (status === 502 || status === 503) {
@@ -154,6 +187,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       "無料AIを現在利用できません。",
       503,
       true,
+      undefined,
+      diagnostic,
     );
   }
   return new OriginProviderError(
@@ -161,6 +196,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
     "無料AIの処理に失敗しました。",
     status >= 400 && status < 600 ? status : 500,
     status >= 500,
+    undefined,
+    diagnostic,
   );
 }
 
@@ -248,12 +285,15 @@ function extractProviderText(content: OriginProviderContent | undefined): string
 
 function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | null {
   if (typeof errorType !== "string" || !errorType) return null;
+  const diagnostic: OriginProviderDiagnostic = { upstreamErrorType: errorType };
   if (errorType === "rate_limit_exceeded") {
     return new OriginProviderError(
       "PROVIDER_RATE_LIMITED",
       "無料AIの利用上限に達しました。時間をおいて再試行してください。",
       429,
       true,
+      undefined,
+      diagnostic,
     );
   }
   if (errorType === "timeout") {
@@ -262,6 +302,8 @@ function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | nu
       "無料AIの応答が時間内に完了しませんでした。",
       504,
       true,
+      undefined,
+      diagnostic,
     );
   }
   if (errorType === "provider_overloaded" || errorType === "provider_unavailable") {
@@ -270,6 +312,8 @@ function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | nu
       "無料AIを現在利用できません。",
       503,
       true,
+      undefined,
+      diagnostic,
     );
   }
   return new OriginProviderError(
@@ -277,6 +321,8 @@ function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | nu
     "無料AIの処理に失敗しました。",
     502,
     false,
+    undefined,
+    diagnostic,
   );
 }
 
@@ -311,90 +357,134 @@ export async function executeOriginProvider(
   const timeout = setTimeout(() => controller.abort(), request.plan.timeoutMs);
 
   try {
-    const response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://myaispecials.ai.studio/",
-        "X-OpenRouter-Title": "ORIGIN Personal",
-      },
-      body: JSON.stringify({
-        model: request.plan.modelId,
-        messages: normalizeMessages(request.messages, request.systemInstruction),
-        // Bound output generation and keep reasoning models from spending the
-        // entire completion budget before producing user-visible text.
-        max_tokens: originCompletionTokenBudget(request.plan.taskType),
-        reasoning: {
-          effort: "low",
-          exclude: true,
-        },
-        temperature: 0.2,
-        top_p: 0.9,
-        provider: {
-          allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
-          data_collection: request.plan.providerDataPolicy.dataCollection,
-        },
-      }),
-      signal: controller.signal,
-    });
+    const baseMessages = normalizeMessages(request.messages, request.systemInstruction);
+    let providerMessages = baseMessages;
+    let completedText = "";
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let totalTokens = 0;
 
-    if (!response.ok) {
-      throw mapHttpFailure(
-        response.status,
-        parseRetryAfterSeconds(response.headers.get("Retry-After")),
-      );
-    }
+    for (let segment = 0; segment < MAX_COMPLETION_SEGMENTS; segment += 1) {
+      const response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "HTTP-Referer": "https://myaispecials.ai.studio/",
+          "X-OpenRouter-Title": "ORIGIN Personal",
+        },
+        body: JSON.stringify({
+          model: request.plan.modelId,
+          messages: providerMessages,
+          // Bound each segment for latency. When the provider explicitly reports
+          // a length stop, ORIGIN requests a continuation and returns nothing
+          // until a complete answer has been verified.
+          max_tokens: originCompletionTokenBudget(request.plan.taskType),
+          reasoning: {
+            effort: "low",
+            exclude: true,
+          },
+          temperature: 0.2,
+          top_p: 0.9,
+          provider: {
+            allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
+            data_collection: request.plan.providerDataPolicy.dataCollection,
+          },
+        }),
+        signal: controller.signal,
+      });
 
-    const data = await response.json() as {
-      model?: string;
-      error?: { metadata?: { error_type?: string } };
-      choices?: Array<{
-        finish_reason?: string;
-        message?: { content?: OriginProviderContent };
+      if (!response.ok) {
+        throw mapHttpFailure(
+          response.status,
+          parseRetryAfterSeconds(response.headers.get("Retry-After")),
+        );
+      }
+
+      const data = await response.json() as {
+        model?: string;
         error?: { metadata?: { error_type?: string } };
-      }>;
-      usage?: {
-        prompt_tokens?: number;
-        completion_tokens?: number;
-        total_tokens?: number;
-        cost?: number;
+        choices?: Array<{
+          finish_reason?: string;
+          message?: { content?: OriginProviderContent };
+          error?: { metadata?: { error_type?: string } };
+        }>;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+          cost?: number;
+        };
       };
-    };
-    const choice = data.choices?.[0];
-    const payloadFailure = mapProviderPayloadFailure(
-      choice?.error?.metadata?.error_type ?? data.error?.metadata?.error_type,
-    );
-    if (payloadFailure) throw payloadFailure;
-
-    const costUsd = verifiedZeroCost(data.usage?.cost);
-    const routingEvidence = verifiedRoutingEvidence(
-      request.plan.modelId,
-      data.model,
-    );
-    const text = extractProviderText(choice?.message?.content);
-
-    if (!text) {
-      throw new OriginProviderError(
-        "PROVIDER_INVALID_RESPONSE",
-        "無料AIから有効な回答を受け取れませんでした。",
-        502,
-        true,
+      const choice = data.choices?.[0];
+      const payloadFailure = mapProviderPayloadFailure(
+        choice?.error?.metadata?.error_type ?? data.error?.metadata?.error_type,
       );
+      if (payloadFailure) throw payloadFailure;
+
+      const costUsd = verifiedZeroCost(data.usage?.cost);
+      const routingEvidence = verifiedRoutingEvidence(
+        request.plan.modelId,
+        data.model,
+      );
+      const segmentText = extractProviderText(choice?.message?.content);
+
+      if (!segmentText) {
+        throw new OriginProviderError(
+          "PROVIDER_INVALID_RESPONSE",
+          "無料AIから有効な回答を受け取れませんでした。",
+          502,
+          true,
+        );
+      }
+
+      completedText = completedText
+        ? mergeContinuation(completedText, segmentText)
+        : segmentText;
+      promptTokens += data.usage?.prompt_tokens ?? 0;
+      completionTokens += data.usage?.completion_tokens ?? 0;
+      totalTokens += data.usage?.total_tokens ?? 0;
+
+      if (choice?.finish_reason !== "length") {
+        return {
+          text: completedText,
+          actualCostUsd: costUsd,
+          providerDataPolicy: request.plan.providerDataPolicy,
+          routingEvidence,
+          usage: {
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            costUsd,
+          },
+        };
+      }
+
+      if (segment === MAX_COMPLETION_SEGMENTS - 1) {
+        throw new OriginProviderError(
+          "PROVIDER_INVALID_RESPONSE",
+          "回答が長く、完了を確認できなかったため途中の内容は表示しません。依頼を分けて再実行してください。",
+          502,
+          true,
+        );
+      }
+
+      providerMessages = [
+        ...baseMessages,
+        { role: "assistant", content: completedText },
+        {
+          role: "user",
+          content: "直前の回答が出力上限で途切れました。重複や前置きを入れず、途切れた箇所から最後まで続けてください。",
+        },
+      ];
     }
 
-    return {
-      text,
-      actualCostUsd: costUsd,
-      providerDataPolicy: request.plan.providerDataPolicy,
-      routingEvidence,
-      usage: {
-        promptTokens: data.usage?.prompt_tokens,
-        completionTokens: data.usage?.completion_tokens,
-        totalTokens: data.usage?.total_tokens,
-        costUsd,
-      },
-    };
+    throw new OriginProviderError(
+      "PROVIDER_INVALID_RESPONSE",
+      "回答の完了を確認できませんでした。",
+      502,
+      true,
+    );
   } catch (error) {
     if (error instanceof OriginProviderError) throw error;
     if (error instanceof Error && error.name === "AbortError") {
@@ -403,6 +493,8 @@ export async function executeOriginProvider(
         "無料AIの応答が時間内に完了しませんでした。",
         504,
         true,
+        undefined,
+        { transportFailure: "timeout" },
       );
     }
     throw new OriginProviderError(
@@ -410,6 +502,8 @@ export async function executeOriginProvider(
       "無料AIとの通信に失敗しました。",
       500,
       true,
+      undefined,
+      { transportFailure: "network" },
     );
   } finally {
     clearTimeout(timeout);
