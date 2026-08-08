@@ -26,7 +26,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.disable("x-powered-by");
   if (env.NODE_ENV === "production") app.set("trust proxy", 1);
 
-  app.use(applyOriginSecurityHeaders);
+  app.use(applyOriginSecurityHeaders(env));
 
   app.use(
     "/api/chat",
