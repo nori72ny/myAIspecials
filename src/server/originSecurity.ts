@@ -36,12 +36,9 @@ function safeOrigin(value: string | undefined): string | null {
   }
 }
 
-export function applyOriginSecurityHeaders(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  const isProduction = process.env.NODE_ENV === "production";
+export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+  const isProduction = env.NODE_ENV === "production";
   const scriptSources = isProduction
     ? "'self'"
     : "'self' 'unsafe-inline' 'unsafe-eval'";
@@ -79,6 +76,7 @@ export function applyOriginSecurityHeaders(
   }
 
   next();
+  };
 }
 
 export function requireSafeOriginChatRequest(env: NodeJS.ProcessEnv = process.env) {
