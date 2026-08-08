@@ -187,6 +187,7 @@ describe("executeOriginProvider", () => {
     )).rejects.toMatchObject({
       code: "PROVIDER_UNAVAILABLE",
       retryable: true,
+      diagnostic: { upstreamErrorType: "provider_unavailable" },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -360,6 +361,7 @@ describe("executeOriginProvider", () => {
         status: 429,
         retryable: true,
         message: "無料AIの利用上限に達しました。時間をおいて再試行してください。",
+        diagnostic: { upstreamStatus: 429 },
       });
       expect(String(thrown)).not.toContain(providerBody);
       expect(String(thrown)).not.toContain(apiKey);
@@ -405,6 +407,7 @@ describe("executeOriginProvider", () => {
     )).rejects.toMatchObject({
       code,
       retryable,
+      diagnostic: { upstreamStatus: status },
     });
   });
 });
