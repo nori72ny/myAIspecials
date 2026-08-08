@@ -271,6 +271,13 @@ function answerCompletionAnnouncement(
     : `ORIGINの回答が届きました。${sources}。別AIによる確認：${review}。`;
 }
 
+function processingStatus(seconds: number, isEn: boolean): string {
+  if (seconds < 5) return isEn ? 'Understanding your request' : '依頼を確認中';
+  if (seconds < 15) return isEn ? 'Selecting the best available AI' : '最適なAIを選定中';
+  if (seconds < 30) return isEn ? 'Creating the answer' : '回答を作成中';
+  return isEn ? 'Checking and finishing the answer' : '回答を確認・仕上げ中';
+}
+
 function SafeMarkdown({
   children,
   isEn,
@@ -324,6 +331,7 @@ export default function UnifiedChat({
   ));
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [processingSeconds, setProcessingSeconds] = useState(0);
   const [completionAnnouncement, setCompletionAnnouncement] = useState('');
   const [retrySecondsRemaining, setRetrySecondsRemaining] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -336,6 +344,7 @@ export default function UnifiedChat({
 
   const processSend = async (messageList: Message[]) => {
     setIsTyping(true);
+    setProcessingSeconds(0);
     setCompletionAnnouncement('');
     dispatchAiCoreState('CONNECTING');
 
@@ -551,6 +560,15 @@ export default function UnifiedChat({
     }, 1_000);
     return () => window.clearInterval(timer);
   }, [retrySecondsRemaining > 0]);
+
+  useEffect(() => {
+    if (!isTyping) return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setProcessingSeconds(Math.floor((Date.now() - startedAt) / 1_000));
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [isTyping]);
 
   useEffect(() => {
     const prompt = initialPrompt?.trim();
@@ -857,15 +875,38 @@ export default function UnifiedChat({
                 <Activity className="h-4 w-4 animate-pulse text-white dark:text-black" aria-hidden="true" />
               </div>
               <div
+                data-testid="processing-status-card"
                 role="status"
                 aria-live="polite"
+                aria-atomic="true"
                 aria-label={isEn ? 'ORIGIN is working' : 'ORIGINが処理中'}
-                className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm dark:border-white/10 dark:bg-neutral-950/90"
+                className="min-w-0 flex-1 rounded-2xl border border-origin-border bg-origin-surface px-4 py-3 shadow-sm dark:border-origin-border dark:bg-origin-surface"
               >
-                <span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-origin-brand dark:bg-origin-brand" />
-                <span className="ml-1 text-sm text-slate-600 dark:text-neutral-300">
-                  {isEn ? 'Organizing your request and preparing an answer…' : '依頼を整理して、回答を作成しています…'}
-                </span>
+                <div className="flex min-w-0 items-center gap-3">
+                  <span aria-hidden="true" className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-origin-brand dark:bg-origin-brand" />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-origin-ink dark:text-origin-ink">
+                    {processingStatus(processingSeconds, isEn)}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[13px] text-origin-muted dark:text-origin-muted">
+                    {processingSeconds}{isEn ? 's' : '秒'}
+                  </span>
+                </div>
+                <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-origin-border dark:bg-origin-border" aria-hidden="true">
+                  <motion.div
+                    className="h-full rounded-full bg-origin-brand dark:bg-origin-brand"
+                    initial={{ width: '12%' }}
+                    animate={{
+                      width: processingSeconds < 5
+                        ? '24%'
+                        : processingSeconds < 15
+                          ? '48%'
+                          : processingSeconds < 30
+                            ? '72%'
+                            : '88%',
+                    }}
+                    transition={{ duration: 0.35 }}
+                  />
+                </div>
               </div>
             </motion.div>
           )}

@@ -143,6 +143,63 @@ describe("executeOriginProvider", () => {
     expect(result.text).toBe("結論です。\n\n具体案です。");
   });
 
+  it("continues a non-empty length-limited answer and returns only the completed result", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({
+        choices: [{ message: { content: "結論と理由の前半です。" }, finish_reason: "length" }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30, cost: 0 },
+      })), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({
+        choices: [{ message: { content: "後半と次の行動です。" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50, cost: 0 },
+      })), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+
+    const result = await executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    );
+
+    expect(result.text).toBe("結論と理由の前半です。\n\n後半と次の行動です。");
+    expect(result.usage).toEqual({
+      promptTokens: 50,
+      completionTokens: 30,
+      totalTokens: 80,
+      costUsd: 0,
+    });
+    const continuationBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(continuationBody.messages.at(-2)).toEqual({
+      role: "assistant",
+      content: "結論と理由の前半です。",
+    });
+    expect(continuationBody.messages.at(-1).content).toContain("途切れた箇所から最後まで");
+  });
+
+  it("fails closed instead of displaying a partial answer after the continuation limit", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload({
+      choices: [{ message: { content: "まだ続く回答です。" }, finish_reason: "length" }],
+    })), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_INVALID_RESPONSE",
+      retryable: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("fails closed on an empty response without automatic retry", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       new Response(JSON.stringify(successfulProviderPayload({
@@ -187,6 +244,7 @@ describe("executeOriginProvider", () => {
     )).rejects.toMatchObject({
       code: "PROVIDER_UNAVAILABLE",
       retryable: true,
+      diagnostic: { upstreamErrorType: "provider_unavailable" },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -360,6 +418,7 @@ describe("executeOriginProvider", () => {
         status: 429,
         retryable: true,
         message: "無料AIの利用上限に達しました。時間をおいて再試行してください。",
+        diagnostic: { upstreamStatus: 429 },
       });
       expect(String(thrown)).not.toContain(providerBody);
       expect(String(thrown)).not.toContain(apiKey);
@@ -405,6 +464,7 @@ describe("executeOriginProvider", () => {
     )).rejects.toMatchObject({
       code,
       retryable,
+      diagnostic: { upstreamStatus: status },
     });
   });
 });
