@@ -1,0 +1,110 @@
+steps:
+  - id: verify-release-source
+    name: gcr.io/cloud-builders/git
+    entrypoint: sh
+    env:
+      - REPO_NAME_VALUE=$REPO_NAME
+      - REPO_FULL_NAME_VALUE=$REPO_FULL_NAME
+      - BRANCH_NAME_VALUE=$BRANCH_NAME
+      - COMMIT_SHA_VALUE=$COMMIT_SHA
+      - BUILD_SERVICE_ACCOUNT_VALUE=$SERVICE_ACCOUNT_EMAIL
+      - APPROVED_RELEASE_SHA_VALUE=${_APPROVED_RELEASE_SHA}
+      - SERVICE_VALUE=${_SERVICE}
+      - REGION_VALUE=${_REGION}
+      - AR_REPOSITORY_VALUE=${_AR_REPOSITORY}
+      - OPENROUTER_SECRET_VALUE=${_OPENROUTER_SECRET}
+      - OPENROUTER_SECRET_VERSION_VALUE=${_OPENROUTER_SECRET_VERSION}
+      - RUNTIME_SERVICE_ACCOUNT_VALUE=${_RUNTIME_SERVICE_ACCOUNT}
+      - EXPECTED_BUILD_SERVICE_ACCOUNT_VALUE=${_EXPECTED_BUILD_SERVICE_ACCOUNT}
+    args:
+      - -ceu
+      - |
+        test "$${REPO_NAME_VALUE}" = "myAIspecials"
+        test "$${REPO_FULL_NAME_VALUE}" = "nori72ny/myAIspecials"
+        test "$${BRANCH_NAME_VALUE}" = "main"
+        printf '%s\n' "$${COMMIT_SHA_VALUE}" | grep -Eq '^[0-9a-f]{40}$'
+        printf '%s\n' "$${APPROVED_RELEASE_SHA_VALUE}" | grep -Eq '^[0-9a-f]{40}$'
+        test "$${APPROVED_RELEASE_SHA_VALUE}" = "$${COMMIT_SHA_VALUE}"
+        printf '%s\n' "$${SERVICE_VALUE}" | grep -Eq '^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$'
+        printf '%s\n' "$${REGION_VALUE}" | grep -Eq '^[a-z]+-[a-z]+[0-9]+$'
+        printf '%s\n' "$${AR_REPOSITORY_VALUE}" | grep -Eq '^[a-z][a-z0-9-]{0,62}$'
+        printf '%s\n' "$${OPENROUTER_SECRET_VALUE}" | grep -Eq '^[A-Za-z0-9_-]{1,255}$'
+        printf '%s\n' "$${OPENROUTER_SECRET_VERSION_VALUE}" | grep -Eq '^[1-9][0-9]*$'
+        printf '%s\n' "$${RUNTIME_SERVICE_ACCOUNT_VALUE}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,62}@[A-Za-z0-9][A-Za-z0-9.-]{0,252}\.iam\.gserviceaccount\.com$'
+        printf '%s\n' "$${EXPECTED_BUILD_SERVICE_ACCOUNT_VALUE}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,62}@[A-Za-z0-9][A-Za-z0-9.-]{0,252}\.iam\.gserviceaccount\.com$'
+        test "$${BUILD_SERVICE_ACCOUNT_VALUE}" = "$${EXPECTED_BUILD_SERVICE_ACCOUNT_VALUE}"
+
+  - id: build-immutable-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - ORIGIN_RELEASE_SHA=$COMMIT_SHA
+      - --tag
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE}:$COMMIT_SHA
+      - .
+
+  - id: push-immutable-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE}:$COMMIT_SHA
+
+  - id: resolve-immutable-image-digest
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: sh
+    env:
+      - IMAGE_REPOSITORY=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE}
+      - COMMIT_SHA_VALUE=$COMMIT_SHA
+    args:
+      - -ceu
+      - |
+        digest="$$(gcloud artifacts docker images describe "$${IMAGE_REPOSITORY}:$${COMMIT_SHA_VALUE}" --format='value(image_summary.digest)')"
+        printf '%s\n' "$${digest}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+        printf '%s@%s' "$${IMAGE_REPOSITORY}" "$${digest}" > /workspace/origin-image-ref
+
+  - id: deploy-cloud-run
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: sh
+    env:
+      - SERVICE_VALUE=${_SERVICE}
+      - REGION_VALUE=${_REGION}
+      - COMMIT_SHA_VALUE=$COMMIT_SHA
+      - OPENROUTER_SECRET_VALUE=${_OPENROUTER_SECRET}
+      - OPENROUTER_SECRET_VERSION_VALUE=${_OPENROUTER_SECRET_VERSION}
+      - RUNTIME_SERVICE_ACCOUNT_VALUE=${_RUNTIME_SERVICE_ACCOUNT}
+      - IMAGE_REPOSITORY=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE}
+    args:
+      - -ceu
+      - |
+        image_ref="$$(cat /workspace/origin-image-ref)"
+        test "$${image_ref%%@*}" = "$${IMAGE_REPOSITORY}"
+        printf '%s\n' "$${image_ref#*@}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+        exec gcloud run deploy "$${SERVICE_VALUE}" \
+          --image="$${image_ref}" \
+          --region="$${REGION_VALUE}" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --min-instances=0 \
+          --max-instances=1 \
+          --service-account="$${RUNTIME_SERVICE_ACCOUNT_VALUE}" \
+          --update-env-vars="NODE_ENV=production,FREE_ONLY=true,ORIGIN_RELEASE_SHA=$${COMMIT_SHA_VALUE}" \
+          --update-secrets="OPENROUTER_API_KEY=$${OPENROUTER_SECRET_VALUE}:$${OPENROUTER_SECRET_VERSION_VALUE}" \
+          --quiet
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE}:$COMMIT_SHA
+
+substitutions:
+  _SERVICE: origin
+  _APPROVED_RELEASE_SHA: ""
+  _REGION: ""
+  _AR_REPOSITORY: ""
+  _OPENROUTER_SECRET: ""
+  _OPENROUTER_SECRET_VERSION: ""
+  _RUNTIME_SERVICE_ACCOUNT: ""
+  _EXPECTED_BUILD_SERVICE_ACCOUNT: ""
+
+options:
+  dynamicSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY

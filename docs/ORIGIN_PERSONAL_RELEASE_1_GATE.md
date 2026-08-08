@@ -4,7 +4,7 @@ Status: Release decision record
 
 Owner: ノリさん
 
-Candidate branch: `fix/audit-remediation-v2`
+Candidate branch: `infra/cloud-run-production-path`
 
 Last aligned: 2026-08-02
 
@@ -38,13 +38,15 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 
 | 経路 | 判定 | 理由 |
 |---|---|---|
-| Vercel serverless `api/index.ts` | SELECTED | 第2公開で選択した唯一の正式公開経路。`createOriginApp()`から正式`/api/chat`と`/api/health`を提供し、Vercelの`VERCEL_GIT_COMMIT_SHA`をリリースIDに使用する |
-| Node/Docker `server.ts` | NOT SELECTED | ローカル・将来候補としてコードは維持するが、第2公開では使用しない。`ORIGIN_RELEASE_SHA`を明示注入しないDocker実行を公開済みと扱わない |
+| Standard Cloud Build → Cloud Run container `server.ts` | CANDIDATE / BLOCKED | Exact SHAの機械注入とfail-closedは実装候補。課金設定追加なしで必要resourceを利用できるEXECUTED証拠が揃うまで選択しない |
+| AI Studio Starter Tier one-click publish | NOT ELIGIBLE | 無料の場合があるが、GitHub Exact SHAの自動注入とSecret境界を公式仕様から証明できない |
+| Vercel serverless `api/index.ts` | PREVIOUSLY SELECTED / NOT EXECUTED | 互換コードは維持。接続を確認できずデプロイは実施していない |
+| Node/Docker manual deployment | NOT ELIGIBLE | GitHub main、承認済みpipeline、Exact SHA注入を迂回する手動container公開は認めない |
 | Cloudflare Worker `worker/index.mjs` | NOT ELIGIBLE | status用途に限定され、provider executionは明示的に無効 |
 | legacy provider endpoint | NOT ELIGIBLE | ORIGINの安全・無料実行境界を迂回できないよう無効 |
-| AI Studio direct runtime | NOT ELIGIBLE | fail-closed境界のみで、正式routeへ未接続 |
+| AI Studio direct provider runtime | NOT ELIGIBLE | AI Studioは開発・監査・Starter Tier管理に限定し、Gemini providerを正式chat routeへ接続しない |
 
-第2公開の公開先はVercelだけとする。ただし、実際のデプロイはオーナーが別途明示承認した後に限る。この文書はホスティングサービス、アカウント、認証情報、課金設定の変更を承認しない。
+第2公開の次の公開候補は標準Cloud Build→Cloud Runとするが、無料条件の実アカウント証拠が揃うまでは`BLOCKED`であり正式選択しない。Cloud Build triggerは自動作成・有効化せず、実際のデプロイはオーナーが別途Exact SHAを指定して明示承認した後に限る。この文書はホスティングサービス、アカウント、認証情報、課金設定の変更を承認しない。
 
 ## 公開前の必須条件
 
@@ -56,7 +58,8 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 6. 公開環境のsmoke testで、秘密情報を含まない入力に対する成功、実費`$0.00`、要求モデルと提供モデルの一致、fallback未使用を確認する。
 7. APIキー未設定、無料証拠欠落、routing証拠不一致、provider不通の場合に回答を表示せず停止することを確認する。
 8. ノリさんがモバイルまたは日常利用端末で、入力、回答の読みやすさ、エラー表示を最終確認する。
-9. Vercel公開直後の`/api/health`が40桁の16進数SHAを返し、デプロイ対象のExact SHAと完全一致する。不一致または`unknown`の場合は公開成功と扱わない。
+9. Cloud Run公開直後の`/api/health`が40桁の16進数SHAを返し、デプロイ対象のExact SHAと完全一致する。不一致または`unknown`の場合は公開成功と扱わない。
+10. 必要な標準Cloud Build、Artifact Registry、Secret Manager、Cloud Runが対象アカウントで利用可能であり、支払方法、billing account、有料trialの追加を要求されない。要求された場合は停止する。
 
 ## 停止条件
 
@@ -72,11 +75,11 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 
 ## 公開時期の判断
 
-コードとCIが公開候補として全緑で、選択済みのVercel環境に必要なサーバー設定が既に存在する場合、Ready変更・mainマージ・デプロイの各明示承認後、公開とsmoke testを同日中の作業として扱える。作業目安は承認後1〜3時間であり、外部サービスの障害や無料モデルの提供状況は含まない。
+コードとCIが公開候補として全緑で、対象の標準Cloud Run経路、region、Artifact Registry、Secret Manager設定を課金追加なし・値非開示で確認できる場合、Ready変更・mainマージ・デプロイの各明示承認後に公開とsmoke testへ進める。性能は実測までUNVERIFIEDとする。
 
 公開環境または安全なサーバー設定が未準備の場合、日付は確約しない。$0.00と認証情報非開示を維持したまま、利用可能な既存環境と自動化経路を確認してから改めて候補時刻を提示する。
 
-AI Studio direct runtimeは一次公開の期限を遅らせる条件にしない。AI Studio連携の本番有効化時期は、上記のprovider要件と別途の実装・監査・承認が揃った時点で判断する。
+AI Studio direct provider runtimeとone-click publishは第2公開へ含めない。AI Studioは開発・監査補助に限定し、上記のprovider要件と別途の実装・監査・承認なしにGeminiを接続しない。
 
 ## 公開完了の定義
 
