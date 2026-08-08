@@ -140,11 +140,11 @@ describe("createOriginApp provider isolation", () => {
     expect(response.status).toBe(200);
     expect(response.headers["x-powered-by"]).toBeUndefined();
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
-    expect(response.headers["x-frame-options"]).toBe("DENY");
+    expect(response.headers["x-frame-options"]).toBeUndefined();
     expect(response.headers["referrer-policy"]).toBe("no-referrer");
     expect(response.headers["strict-transport-security"]).toContain("max-age=31536000");
     expect(response.headers["cache-control"]).toBe("no-store");
-    expect(response.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+    expect(response.headers["content-security-policy"]).toContain(\n      "frame-ancestors https://aistudio.google.com",\n    );\n    expect(response.headers["content-security-policy"]).not.toContain("frame-ancestors *");
     expect(response.headers["content-security-policy"]).toContain("object-src 'none'");
     expect(response.headers["content-security-policy"]).not.toContain("unsafe-eval");
   });
