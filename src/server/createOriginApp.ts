@@ -1,8 +1,13 @@
-import express, { type Express } from "express";
+import express, { type ErrorRequestHandler, type Express } from "express";
 
 import { originChatBoundaryGuard } from "../legacy/originChatBoundaryGuard";
 import { createOriginChatRouter } from "../legacy/originChatRouter";
 import { createOriginLegacyProviderBoundaryRouter } from "../legacy/originLegacyProviderBoundaryGuard";
+import {
+  applyOriginSecurityHeaders,
+  createOriginChatRateLimiter,
+  requireSafeOriginChatRequest,
+} from "./originSecurity";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 
@@ -18,23 +23,55 @@ export function resolveOriginReleaseSha(
 export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   const app = express();
 
-  app.use((req, res, next) => {
-    res.setHeader(
-      "Content-Security-Policy",
-      "default-src 'self'; " +
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-      "style-src 'self' 'unsafe-inline'; " +
-      "img-src 'self' data: blob:; " +
-      "font-src 'self' data:; " +
-      "connect-src 'self' ws: wss: https:;",
-    );
-    next();
-  });
+  app.disable("x-powered-by");
+  if (env.NODE_ENV === "production") app.set("trust proxy", 1);
 
-  app.use(express.json());
+  app.use(applyOriginSecurityHeaders);
 
-  // This guard must remain first. It blocks every provider-capable legacy and
-  // mission mutation route before a later router can inspect or transmit input.
+  app.use(
+    "/api/chat",
+    requireSafeOriginChatRequest(env),
+    createOriginChatRateLimiter(),
+  );
+
+  app.use(express.json({
+    limit: "64kb",
+    strict: true,
+    type: ["application/json", "application/*+json"],
+  }));
+
+  const invalidJsonHandler: ErrorRequestHandler = (error, _req, res, next) => {
+    if (error instanceof SyntaxError && "body" in error) {
+      res.status(400).json({
+        code: "INVALID_JSON_BODY",
+        message: "JSONリクエストの形式が正しくありません。",
+        retryable: false,
+        requestId: "UNKNOWN",
+      });
+      return;
+    }
+
+    if (
+      error
+      && typeof error === "object"
+      && "type" in error
+      && error.type === "entity.too.large"
+    ) {
+      res.status(413).json({
+        code: "REQUEST_BODY_TOO_LARGE",
+        message: "リクエストの容量が上限を超えています。",
+        retryable: false,
+        requestId: "UNKNOWN",
+      });
+      return;
+    }
+
+    next(error);
+  };
+  app.use(invalidJsonHandler);
+
+  // This guard must remain first among provider-capable routes. It blocks every
+  // retired provider and mission mutation path before input can be transmitted.
   app.use(createOriginLegacyProviderBoundaryRouter());
 
   app.get(["/health", "/api/health"], (_req, res) => {
