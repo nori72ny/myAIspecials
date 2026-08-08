@@ -3,6 +3,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy";
 import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
+import { OriginProviderError } from "./originProviderClient";
 
 const verifiedCatalogTime = Date.parse("2026-08-02T12:00:00.000Z");
 const defaultExecutionResult = {
@@ -413,6 +414,32 @@ describe("createOriginChatRouter", () => {
     expect(response.status).toBe(413);
     expect(response.body.code).toBe("LATEST_MESSAGE_TOO_LARGE");
     expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("returns only sanitized upstream diagnostics for provider failures", async () => {
+    executeMock.mockRejectedValueOnce(new OriginProviderError(
+      "PROVIDER_UNAVAILABLE",
+      "無料AIを現在利用できません。",
+      503,
+      false,
+      undefined,
+      { upstreamStatus: 403 },
+    ));
+
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "短い案内文を作ってください" }],
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual(expect.objectContaining({
+      code: "PROVIDER_UNAVAILABLE",
+      retryable: false,
+      requestId: "origin-test-trace",
+      diagnostic: { upstreamStatus: 403 },
+    }));
+    expect(JSON.stringify(response.body)).not.toContain("synthetic-test-key");
+    expect(response.body.diagnostic).not.toHaveProperty("body");
+    expect(response.body.diagnostic).not.toHaveProperty("response");
   });
 
   it("fails closed when no explicitly free provider is configured", async () => {
