@@ -132,4 +132,90 @@ describe("createOriginApp provider isolation", () => {
     );
     expect(malformedResponse.body.releaseSha).toBe("unknown");
   });
+
+  it("sets strict production security headers and removes Express fingerprinting", async () => {
+    const response = await request(createOriginApp({ NODE_ENV: "production" }))
+      .get("/api/health");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["x-powered-by"]).toBeUndefined();
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["x-frame-options"]).toBe("DENY");
+    expect(response.headers["referrer-policy"]).toBe("no-referrer");
+    expect(response.headers["strict-transport-security"]).toContain("max-age=31536000");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+    expect(response.headers["content-security-policy"]).toContain("object-src 'none'");
+    expect(response.headers["content-security-policy"]).not.toContain("unsafe-eval");
+  });
+
+  it("accepts only JSON requests on the public chat endpoint", async () => {
+    const response = await request(createOriginApp())
+      .post("/api/chat")
+      .type("text")
+      .send("plain text");
+
+    expect(response.status).toBe(415);
+    expect(response.body.code).toBe("UNSUPPORTED_MEDIA_TYPE");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks cross-origin chat submission before parsing or provider execution", async () => {
+    const response = await request(createOriginApp())
+      .post("/api/chat")
+      .set("Origin", "https://attacker.example")
+      .send({ messages: [{ role: "user", content: "送信しないでください" }] });
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe("CROSS_ORIGIN_REQUEST_BLOCKED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns a sanitized error for malformed JSON", async () => {
+    const response = await request(createOriginApp())
+      .post("/api/chat")
+      .set("Content-Type", "application/json")
+      .send('{"messages":');
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      code: "INVALID_JSON_BODY",
+      message: "JSONリクエストの形式が正しくありません。",
+      retryable: false,
+      requestId: "UNKNOWN",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects request bodies larger than the public API limit", async () => {
+    const response = await request(createOriginApp())
+      .post("/api/chat")
+      .send({
+        messages: [{ role: "user", content: "x".repeat(70_000) }],
+      });
+
+    expect(response.status).toBe(413);
+    expect(response.body.code).toBe("REQUEST_BODY_TOO_LARGE");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rate limits repeated chat requests before provider execution", async () => {
+    const app = createOriginApp();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await request(app).post("/api/chat").send({
+        messages: [{ role: "user", content: `安全な確認 ${attempt}` }],
+      });
+      expect(response.status).toBe(503);
+    }
+
+    const limited = await request(app).post("/api/chat").send({
+      messages: [{ role: "user", content: "上限確認" }],
+    });
+
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe("CHAT_RATE_LIMITED");
+    expect(limited.headers["retry-after"]).toBeDefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
 });

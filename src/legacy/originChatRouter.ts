@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import {
   createOriginAnswerEnvelope,
@@ -167,7 +168,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
   const catalogNow = options.catalogNow ?? Date.now;
   const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY;
   const createRequestId = options.createRequestId
-    ?? (() => `origin-${now()}-${Math.random().toString(36).slice(2, 8)}`);
+    ?? (() => `origin-${now()}-${randomUUID()}`);
   const execute = options.execute
     ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env));
 
