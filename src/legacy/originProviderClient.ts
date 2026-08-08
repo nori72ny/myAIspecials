@@ -49,6 +49,12 @@ export type OriginProviderErrorCode =
   | "PROVIDER_INVALID_RESPONSE"
   | "PROVIDER_INTERNAL_ERROR";
 
+export interface OriginProviderDiagnostic {
+  upstreamStatus?: number;
+  upstreamErrorType?: string;
+  transportFailure?: "timeout" | "network";
+}
+
 export class OriginProviderError extends Error {
   constructor(
     public readonly code: OriginProviderErrorCode,
@@ -56,6 +62,7 @@ export class OriginProviderError extends Error {
     public readonly status: number,
     public readonly retryable: boolean,
     public readonly retryAfterSeconds?: number,
+    public readonly diagnostic?: OriginProviderDiagnostic,
   ) {
     super(message);
     this.name = "OriginProviderError";
@@ -105,12 +112,15 @@ function parseRetryAfterSeconds(value: string | null): number | undefined {
 }
 
 function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProviderError {
+  const diagnostic: OriginProviderDiagnostic = { upstreamStatus: status };
   if (status === 401) {
     return new OriginProviderError(
       "PROVIDER_NOT_CONFIGURED",
       "無料AIの認証情報を確認できませんでした。",
       503,
       false,
+      undefined,
+      diagnostic,
     );
   }
   if (status === 402 || status === 403) {
@@ -119,6 +129,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       "無料AIを現在利用できません。",
       503,
       false,
+      undefined,
+      diagnostic,
     );
   }
   if (status === 404) {
@@ -127,6 +139,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       "安全条件を満たす無料AIの実行先を現在利用できません。",
       503,
       true,
+      undefined,
+      diagnostic,
     );
   }
   if (status === 429) {
@@ -138,6 +152,7 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       429,
       true,
       retryAfterSeconds,
+      diagnostic,
     );
   }
   if (status === 408 || status === 504) {
@@ -146,6 +161,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       "無料AIの応答が時間内に完了しませんでした。",
       504,
       true,
+      undefined,
+      diagnostic,
     );
   }
   if (status === 502 || status === 503) {
@@ -154,6 +171,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       "無料AIを現在利用できません。",
       503,
       true,
+      undefined,
+      diagnostic,
     );
   }
   return new OriginProviderError(
@@ -161,6 +180,8 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
     "無料AIの処理に失敗しました。",
     status >= 400 && status < 600 ? status : 500,
     status >= 500,
+    undefined,
+    diagnostic,
   );
 }
 
@@ -248,12 +269,15 @@ function extractProviderText(content: OriginProviderContent | undefined): string
 
 function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | null {
   if (typeof errorType !== "string" || !errorType) return null;
+  const diagnostic: OriginProviderDiagnostic = { upstreamErrorType: errorType };
   if (errorType === "rate_limit_exceeded") {
     return new OriginProviderError(
       "PROVIDER_RATE_LIMITED",
       "無料AIの利用上限に達しました。時間をおいて再試行してください。",
       429,
       true,
+      undefined,
+      diagnostic,
     );
   }
   if (errorType === "timeout") {
@@ -262,6 +286,8 @@ function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | nu
       "無料AIの応答が時間内に完了しませんでした。",
       504,
       true,
+      undefined,
+      diagnostic,
     );
   }
   if (errorType === "provider_overloaded" || errorType === "provider_unavailable") {
@@ -270,6 +296,8 @@ function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | nu
       "無料AIを現在利用できません。",
       503,
       true,
+      undefined,
+      diagnostic,
     );
   }
   return new OriginProviderError(
@@ -277,6 +305,8 @@ function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | nu
     "無料AIの処理に失敗しました。",
     502,
     false,
+    undefined,
+    diagnostic,
   );
 }
 
@@ -403,6 +433,8 @@ export async function executeOriginProvider(
         "無料AIの応答が時間内に完了しませんでした。",
         504,
         true,
+        undefined,
+        { transportFailure: "timeout" },
       );
     }
     throw new OriginProviderError(
@@ -410,6 +442,8 @@ export async function executeOriginProvider(
       "無料AIとの通信に失敗しました。",
       500,
       true,
+      undefined,
+      { transportFailure: "network" },
     );
   } finally {
     clearTimeout(timeout);
