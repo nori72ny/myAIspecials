@@ -21,12 +21,23 @@ describe("Cloudflare Workers free boundary", () => {
     expect(config.account_id).toBeUndefined();
   });
 
+  it("pins every Worker command to the free-preview configuration", () => {
+    const packageJson = JSON.parse(readProjectFile("package.json"));
+
+    expect(packageJson.scripts["check:worker"]).toContain(
+      "--config wrangler.jsonc",
+    );
+    expect(packageJson.scripts["check:worker"]).toContain("--dry-run");
+    expect(packageJson.scripts["check:worker"]).not.toContain("wrangler.toml");
+  });
+
   it("passes only approved runtime values into the existing application", () => {
     const worker = readProjectFile("worker.ts");
 
     expect(worker).toContain("createOriginApp");
     expect(worker).toContain('NODE_ENV: "production"');
-    expect(worker).toContain('FREE_ONLY: bindings.FREE_ONLY ?? "true"');
+    expect(worker).toContain('FREE_ONLY: "true"');
+    expect(worker).not.toContain("bindings.FREE_ONLY");
     expect(worker).toContain("OPENROUTER_API_KEY");
     expect(worker).toContain("APP_URL");
     expect(worker).toContain("ORIGIN_RELEASE_SHA");
