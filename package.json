@@ -13,7 +13,8 @@
     "test:api": "FREE_ONLY=false node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
     "test:e2e": "npm run test:api && npx playwright test",
     "eval:prepare": "tsx scripts/evaluate-codebase.ts",
-    "deliver": "node scripts/auto-deliver.mjs"
+    "deliver": "node scripts/auto-deliver.mjs",
+    "check:worker": "npm run build && npx --yes wrangler@4.44.0 deploy --dry-run --config wrangler.jsonc --outdir dist-worker"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
