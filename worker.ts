@@ -5,7 +5,6 @@ import { createOriginApp } from "./src/server/createOriginApp";
 
 interface OriginWorkerBindings {
   OPENROUTER_API_KEY?: string;
-  FREE_ONLY?: string;
   APP_URL?: string;
   ORIGIN_RELEASE_SHA?: string;
 }
@@ -16,7 +15,7 @@ function createOriginWorkerEnvironment(
   return {
     NODE_ENV: "production",
     OPENROUTER_API_KEY: bindings.OPENROUTER_API_KEY,
-    FREE_ONLY: bindings.FREE_ONLY ?? "true",
+    FREE_ONLY: "true",
     APP_URL: bindings.APP_URL,
     ORIGIN_RELEASE_SHA: bindings.ORIGIN_RELEASE_SHA,
   };
