@@ -1,0 +1,35 @@
+name: Cloudflare Workers Compatibility
+
+on:
+  pull_request:
+    paths:
+      - "worker.ts"
+      - "worker-cloudflare.d.ts"
+      - "wrangler.jsonc"
+      - "public/_headers"
+      - "src/server/originWorkerBoundary.test.ts"
+      - "package.json"
+      - ".github/workflows/cloudflare-compat.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: Worker dry run (no deploy)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Worker bundle without credentials
+        run: npm run check:worker
