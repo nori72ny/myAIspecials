@@ -14,7 +14,7 @@
     "test:e2e": "npm run test:api && npx playwright test",
     "eval:prepare": "tsx scripts/evaluate-codebase.ts",
     "deliver": "node scripts/auto-deliver.mjs",
-    "check:worker": "npm run build && npx --yes wrangler@4.44.0 deploy --dry-run --outdir dist-worker"
+    "check:worker": "npm run build && npx --yes wrangler@4.44.0 deploy --dry-run --config wrangler.jsonc --outdir dist-worker"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
