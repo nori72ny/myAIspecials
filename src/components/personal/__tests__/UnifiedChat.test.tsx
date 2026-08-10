@@ -81,6 +81,28 @@ describe('UnifiedChat', () => {
     }]);
   });
 
+  it('fails closed without parsing or displaying an HTML API response', async () => {
+    const json = vi.fn();
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
+      json,
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('短く整理してください');
+
+    await waitFor(() => {
+      expect(screen.getByText('ORIGIN APIに接続できません')).toBeTruthy();
+      expect(screen.getByText('ORIGIN APIから正しい形式の応答を受け取れませんでした（HTTP 200）。')).toBeTruthy();
+    });
+    expect(json).not.toHaveBeenCalled();
+    expect(screen.queryByText(/<!doctype/i)).toBeNull();
+    fireEvent.click(screen.getByText('技術情報'));
+    expect(screen.getByText('ORIGIN_API_NON_JSON')).toBeTruthy();
+  });
+
   it('keeps real conversation context but never transmits the display-only guidance', async () => {
     (global.fetch as any)
       .mockResolvedValueOnce({
