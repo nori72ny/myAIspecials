@@ -4,11 +4,14 @@ import { createTaskId } from "@origin/domain";
 import { asyncHandler } from "../middlewares/asyncHandler";
 import { Logger } from "../../infrastructure/logging/Logger";
 
+const routeParam = (value: string | string[]): string =>
+  Array.isArray(value) ? value[0] : value;
+
 export const createTaskRouter = (taskRepo: InMemoryTaskRepository) => {
   const router = Router();
 
   router.get("/:id", asyncHandler(async (req, res) => {
-    const taskIdStr = req.params.id;
+    const taskIdStr = routeParam(req.params.id);
     Logger.info(`API Request: Get task - ID: ${taskIdStr}`);
 
     const taskId = createTaskId(taskIdStr);
