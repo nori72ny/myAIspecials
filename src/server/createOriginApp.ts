@@ -86,6 +86,17 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.use(createOriginChatRouter({ env }));
   app.all("/api/chat", originChatBoundaryGuard);
 
+  // Never allow an unknown API request to fall through to an HTML SPA shell.
+  // Clients can therefore fail closed without parsing or displaying HTML.
+  app.all(["/api", "/api/{*splat}"], (_req, res) => {
+    res.status(404).json({
+      code: "ORIGIN_API_ROUTE_NOT_FOUND",
+      message: "指定されたAPIは利用できません。",
+      retryable: false,
+      requestId: "UNKNOWN",
+    });
+  });
+
   // The Personal release intentionally does not import or mount the legacy
   // dashboard API or Mission Engine. Known provider-capable paths still reach
   // the fail-closed guard above; every other retired route remains unavailable.
