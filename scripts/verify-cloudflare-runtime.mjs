@@ -38,7 +38,7 @@ const noSecretResponse = await fetch(`${baseUrl}/api/chat`, {
 });
 assert.equal(noSecretResponse.status, 503);
 const noSecret = await readJson(noSecretResponse, "credential-free POST /api/chat");
-assert.equal(typeof noSecret.code, "string");
+assert.equal(noSecret.code, "FREE_PROVIDER_NOT_CONFIGURED");
 
 const crossOriginResponse = await fetch(`${baseUrl}/api/chat`, {
   method: "POST",
