@@ -6,6 +6,9 @@ import { AgentRegistryService } from "../../application/agent/governance/AgentRe
 import { AgentLifecycleState, AgentCapability } from "../../application/agent/governance/AgentGovernanceTypes";
 import { Agent, createAgentId } from "@origin/domain";
 
+const routeParam = (value: string | string[]): string =>
+  Array.isArray(value) ? value[0] : value;
+
 export const createAgentRouter = (agentRepo: InMemoryAgentRepository) => {
   const router = Router();
   const governanceRegistry = AgentRegistryService.getInstance();
@@ -36,7 +39,7 @@ export const createAgentRouter = (agentRepo: InMemoryAgentRepository) => {
 
   // 2. GET /agents/:id - Get specific agent by ID
   router.get("/:id", asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     Logger.info(`API Request: Get agent by ID: ${id}`);
     const agent = governanceRegistry.getAgent(id);
     if (!agent) {
@@ -94,7 +97,7 @@ export const createAgentRouter = (agentRepo: InMemoryAgentRepository) => {
 
   // 4. PATCH /agents/:id - Update an agent's properties or toggle active/inactive state
   router.patch("/:id", asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     const { role, capabilities, permissions, priority, load, state } = req.body;
     Logger.info(`API Request: Patch agent: ${id}`);
 
@@ -146,7 +149,7 @@ export const createAgentRouter = (agentRepo: InMemoryAgentRepository) => {
 
   // 5. DELETE /agents/:id - Delete an agent from the platform
   router.delete("/:id", asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     Logger.info(`API Request: Delete agent: ${id}`);
 
     const deleted = governanceRegistry.deleteAgent(id);
@@ -167,7 +170,7 @@ export const createAgentRouter = (agentRepo: InMemoryAgentRepository) => {
 
   // Legacy route: GET /agents/capability/:capability - Get agents by capability
   router.get("/capability/:capability", asyncHandler(async (req: Request, res: Response) => {
-    const capability = req.params.capability;
+    const capability = routeParam(req.params.capability);
     Logger.info(`API Request: Get agents by capability: "${capability}"`);
 
     const agents = await agentRepo.findByCapability(capability);
@@ -184,4 +187,3 @@ export const createAgentRouter = (agentRepo: InMemoryAgentRepository) => {
 
   return router;
 };
-
