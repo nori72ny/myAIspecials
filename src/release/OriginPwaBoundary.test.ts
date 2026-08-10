@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
@@ -55,6 +55,43 @@ describe('ORIGIN PWA boundary', () => {
     expect(worker).toContain("request.headers.has('authorization')");
     expect(worker).toContain("request.headers.has('cookie')");
     expect(worker).not.toMatch(/cache\.put\s*\(/);
+  });
+
+  it('serves the fixed offline page for cookie-bearing navigations without caching them', async () => {
+    const listeners = new Map<string, (event: any) => void>();
+    const offlineResponse = new Response('offline');
+    const cacheMatch = vi.fn().mockResolvedValue(offlineResponse);
+    const networkFetch = vi.fn().mockRejectedValue(new Error('offline'));
+    const workerSelf = {
+      location: { origin: 'https://origin.example' },
+      clients: { claim: vi.fn() },
+      addEventListener: (type: string, handler: (event: any) => void) => {
+        listeners.set(type, handler);
+      },
+    };
+
+    const evaluateWorker = new Function('self', 'caches', 'fetch', read('public/sw.js'));
+    evaluateWorker(workerSelf, {
+      match: cacheMatch,
+      open: vi.fn(),
+      keys: vi.fn(),
+      delete: vi.fn(),
+    }, networkFetch);
+
+    let responsePromise: Promise<Response> | undefined;
+    listeners.get('fetch')?.({
+      request: {
+        method: 'GET',
+        mode: 'navigate',
+        url: 'https://origin.example/chat',
+        headers: new Headers({ cookie: 'incidental=1' }),
+      },
+      respondWith: (response: Promise<Response>) => { responsePromise = response; },
+    });
+
+    expect(networkFetch).toHaveBeenCalledOnce();
+    expect(await responsePromise).toBe(offlineResponse);
+    expect(cacheMatch).toHaveBeenCalledWith('/offline.html');
   });
 
   it('limits offline storage to fixed public assets and a fixed offline page', () => {

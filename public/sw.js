@@ -36,8 +36,6 @@ self.addEventListener('fetch', (event) => {
     || url.origin !== self.location.origin
     || url.pathname.startsWith('/api/')
     || url.pathname === '/health'
-    || request.headers.has('authorization')
-    || request.headers.has('cookie')
   ) {
     return;
   }
@@ -46,6 +44,13 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request).catch(() => caches.match('/offline.html')),
     );
+    return;
+  }
+
+  if (
+    request.headers.has('authorization')
+    || request.headers.has('cookie')
+  ) {
     return;
   }
 
