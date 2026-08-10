@@ -3,7 +3,10 @@ import { createRoot } from 'react-dom/client';
 import SettingsModal from './components/SettingsModal';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
 import { usePersonalSettings } from './hooks/usePersonalSettings';
+import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import './index.css';
+
+registerOriginServiceWorker();
 
 function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
