@@ -12,6 +12,7 @@
     "test": "FREE_ONLY=false vitest run --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default --reporter=junit --outputFile.junit=test-results/vitest-junit.xml",
     "test:api": "FREE_ONLY=false node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
     "test:e2e": "npm run test:api && npx playwright test",
+    "test:node-production": "npm run build && node scripts/verify-node-production-runtime.mjs",
     "eval:prepare": "tsx scripts/evaluate-codebase.ts",
     "deliver": "node scripts/auto-deliver.mjs",
     "check:worker": "npm run build && npx --yes wrangler@4.120.0 deploy --dry-run --config wrangler.jsonc --outdir dist-worker"
@@ -40,7 +41,7 @@
     "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.61.1",
     "@testing-library/react": "^16.3.2",
-    "@types/express": "4.17.25",
+    "@types/express": "5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.20.0",
