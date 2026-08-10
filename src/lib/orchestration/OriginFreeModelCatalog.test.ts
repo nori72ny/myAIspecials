@@ -5,7 +5,7 @@ import {
   type OriginFreeModelEvidence,
 } from "./OriginFreeModelCatalog";
 
-const currentTime = Date.parse("2026-08-06T12:00:00.000Z");
+const currentTime = Date.parse("2026-08-11T12:00:00.000Z");
 
 describe("selectCurrentOriginFreeModel", () => {
   it("returns the evidence-backed fixed zero-cost model", () => {
@@ -14,7 +14,7 @@ describe("selectCurrentOriginFreeModel", () => {
     expect(result).toEqual({
       ok: true,
       model: expect.objectContaining({
-        modelId: "inclusionai/ling-3.0-flash:free",
+        modelId: "nvidia/nemotron-3-ultra-550b-a55b:free",
         providerId: "openrouter-free",
         sourceUrl: "https://openrouter.ai/api/v1/models",
       }),
@@ -22,11 +22,12 @@ describe("selectCurrentOriginFreeModel", () => {
   });
 
   it.each([
+    "inclusionai/ling-3.0-flash:free",
     "openrouter/auto",
     "openrouter/free",
     "google/gemma-3-27b-it:free",
   ])(
-    "rejects automatic model identifier %s",
+    "rejects retired, automatic, or otherwise non-fixed model identifier %s",
     (modelId) => {
       const invalidCatalog = [{
         ...DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0],
@@ -51,7 +52,7 @@ describe("selectCurrentOriginFreeModel", () => {
 
     const invalidRange = [{
       ...DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0],
-      reviewAfter: "2026-07-31T00:00:00.000Z",
+      reviewAfter: "2026-08-10T00:00:00.000Z",
     }];
     expect(selectCurrentOriginFreeModel(invalidRange, currentTime)).toEqual(
       expect.objectContaining({ ok: false, code: "FREE_MODEL_CATALOG_INVALID" }),
@@ -61,7 +62,7 @@ describe("selectCurrentOriginFreeModel", () => {
   it("fails closed after the fixed model evidence expires", () => {
     expect(selectCurrentOriginFreeModel(
       DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
-      Date.parse("2026-08-14T00:00:00.000Z"),
+      Date.parse("2026-08-19T00:00:00.000Z"),
     )).toEqual({
       ok: false,
       code: "FREE_MODEL_EVIDENCE_STALE",
