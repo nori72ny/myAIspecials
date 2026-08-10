@@ -1,6 +1,9 @@
 import { Router, Request, Response } from "express";
 import { organizationExecutorInstance } from "./OrganizationExecutor";
 
+const routeParam = (value: string | string[]): string =>
+  Array.isArray(value) ? value[0] : value;
+
 export const createOrganizationRouter = (): Router => {
   const router = Router();
   const executor = organizationExecutorInstance;
@@ -27,7 +30,7 @@ export const createOrganizationRouter = (): Router => {
 
   // 3. GET SPECIFIC ORGANIZATION DETAILS
   router.get("/:orgId", (req: Request, res: Response) => {
-    const { orgId } = req.params;
+    const orgId = routeParam(req.params.orgId);
     try {
       const state = executor.getOrganizationState(orgId);
       if (!state) {
@@ -58,7 +61,7 @@ export const createOrganizationRouter = (): Router => {
 
   // 5. TRIGGER AUTOMATED CORPORATE EXECUTION
   router.post("/:orgId/execute", async (req: Request, res: Response) => {
-    const { orgId } = req.params;
+    const orgId = routeParam(req.params.orgId);
     const { description } = req.body;
 
     try {
@@ -77,7 +80,7 @@ export const createOrganizationRouter = (): Router => {
 
   // 6. SERVER-SENT EVENTS (SSE) FOR REAL-TIME CLIENTS
   router.get("/:orgId/sse", (req: Request, res: Response) => {
-    const { orgId } = req.params;
+    const orgId = routeParam(req.params.orgId);
     
     // Set headers for SSE stream
     res.setHeader("Content-Type", "text/event-stream");

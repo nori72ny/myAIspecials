@@ -9,6 +9,9 @@ import { InMemoryAgentRepository } from "../../infrastructure/registry/InMemoryA
 import { asyncHandler } from "../middlewares/asyncHandler";
 import { Logger } from "../../infrastructure/logging/Logger";
 
+const routeParam = (value: string | string[]): string =>
+  Array.isArray(value) ? value[0] : value;
+
 export const createMissionRouter = (
   missionRepo: InMemoryMissionRepository,
   taskRepo: InMemoryTaskRepository,
@@ -50,7 +53,7 @@ export const createMissionRouter = (
 
   // Execute a planned mission (Background/Async trigger)
   router.post("/:id/execute", asyncHandler(async (req, res) => {
-    const missionId = req.params.id;
+    const missionId = routeParam(req.params.id);
     Logger.info(`API Request: Execute mission - ID: ${missionId}`);
     
     // Trigger in background but catch failures to log and report in metrics
@@ -67,7 +70,7 @@ export const createMissionRouter = (
 
   // Fetch detailed status of a mission and its task graph
   router.get("/:id", asyncHandler(async (req, res) => {
-    const missionId = req.params.id;
+    const missionId = routeParam(req.params.id);
     Logger.info(`API Request: Get mission status - ID: ${missionId}`);
     
     const status = await getMissionStatusUseCase.execute(missionId);

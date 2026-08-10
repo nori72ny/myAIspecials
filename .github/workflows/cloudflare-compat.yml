@@ -8,6 +8,7 @@ on:
       - "wrangler.jsonc"
       - "public/_headers"
       - "src/server/originWorkerBoundary.test.ts"
+      - "scripts/verify-cloudflare-runtime.mjs"
       - "package.json"
       - ".github/workflows/cloudflare-compat.yml"
 
@@ -16,8 +17,10 @@ permissions:
 
 jobs:
   dry-run:
-    name: Worker dry run (no deploy)
+    name: Worker dry run and local runtime gate (no deploy)
     runs-on: ubuntu-24.04
+    env:
+      CLOUDFLARE_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -33,3 +36,33 @@ jobs:
 
       - name: Validate Worker bundle without credentials
         run: npm run check:worker
+
+      - name: Verify Node production runtime
+        run: node scripts/verify-node-production-runtime.mjs
+
+      - name: Verify routes in local workerd without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          worker_log="$RUNNER_TEMP/origin-worker.log"
+          npx --yes wrangler@4.120.0 dev             --config wrangler.jsonc             --ip 127.0.0.1             --port 8787             >"$worker_log" 2>&1 &
+          worker_pid=$!
+          trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8787/api/health >/dev/null; then
+              break
+            fi
+            if ! kill -0 "$worker_pid" 2>/dev/null; then
+              cat "$worker_log"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          curl --fail --silent http://127.0.0.1:8787/api/health >/dev/null || {
+            cat "$worker_log"
+            exit 1
+          }
+
+          ORIGIN_RUNTIME_BASE_URL=http://127.0.0.1:8787             node scripts/verify-cloudflare-runtime.mjs
