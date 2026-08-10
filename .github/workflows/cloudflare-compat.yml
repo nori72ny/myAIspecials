@@ -37,6 +37,9 @@ jobs:
       - name: Validate Worker bundle without credentials
         run: npm run check:worker
 
+      - name: Verify Node production runtime
+        run: node scripts/verify-node-production-runtime.mjs
+
       - name: Verify routes in local workerd without credentials
         shell: bash
         run: |
