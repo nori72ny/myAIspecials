@@ -119,6 +119,22 @@ describe("createOriginApp provider isolation", () => {
     expect(localResponse.body).toEqual(productionResponse.body);
   });
 
+  it.each(["/api", "/api/unknown", "/api/unknown/nested"])(
+    "returns a JSON fail-closed response for unknown API route %s",
+    async (path) => {
+      const response = await request(createOriginApp()).get(path);
+
+      expect(response.status).toBe(404);
+      expect(response.headers["content-type"]).toMatch(/^application\/json/);
+      expect(response.body).toEqual({
+        code: "ORIGIN_API_ROUTE_NOT_FOUND",
+        message: "指定されたAPIは利用できません。",
+        retryable: false,
+        requestId: "UNKNOWN",
+      });
+    },
+  );
+
   it("uses the explicit fallback outside Vercel and rejects malformed values", async () => {
     const fallbackResponse = await request(createOriginApp({
       ORIGIN_RELEASE_SHA: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",

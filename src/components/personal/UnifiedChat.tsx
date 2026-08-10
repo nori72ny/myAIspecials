@@ -369,6 +369,18 @@ export default function UnifiedChat({
         }),
       });
 
+      const contentType = response.headers?.get?.('content-type') ?? '';
+      if (response.headers?.get && !contentType.toLowerCase().includes('application/json')) {
+        throw {
+          code: 'ORIGIN_API_NON_JSON',
+          message: isEn
+            ? `ORIGIN returned an invalid API response (HTTP ${response.status}).`
+            : `ORIGIN APIから正しい形式の応答を受け取れませんでした（HTTP ${response.status}）。`,
+          retryable: true,
+          requestId: '',
+        };
+      }
+
       const data = await response.json();
       if (!response.ok) throw data;
 
@@ -495,6 +507,9 @@ export default function UnifiedChat({
       } else if (error.code === 'PROVIDER_TIMEOUT') {
         aiCoreState = 'OFFLINE';
         title = isEn ? 'The response took too long' : '応答に時間がかかりすぎました';
+      } else if (error.code === 'ORIGIN_API_NON_JSON') {
+        aiCoreState = 'OFFLINE';
+        title = isEn ? 'ORIGIN API is not reachable' : 'ORIGIN APIに接続できません';
       } else if (
         error.code === 'INVALID_EXECUTION_POLICY'
         || error.code === 'PROVIDER_POLICY_VIOLATION'
