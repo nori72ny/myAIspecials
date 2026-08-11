@@ -170,6 +170,7 @@ for (const viewport of RESULT_VIEWPORTS) {
     await page.getByRole('button', { name: /依頼を送信|Send request/i }).click();
 
     await expect(page.getByRole('article', { name: /ORIGINの回答|ORIGIN answer/i })).toBeVisible();
+    await expect(page.getByTestId('answer-conclusion')).toBeInViewport();
     await expect(page.getByTestId('answer-next-actions')).toBeVisible();
     await expect(page.getByTestId('execution-details')).toContainText(/無料で回答しました|Answered for free/i);
     await expectNoHorizontalOverflow(page);
