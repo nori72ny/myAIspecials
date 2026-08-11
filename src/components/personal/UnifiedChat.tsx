@@ -593,9 +593,23 @@ export default function UnifiedChat({
   }, [initialPrompt]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const scrollRegion = scrollRef.current;
+    if (!scrollRegion) return;
+
+    const latestMessage = messages[messages.length - 1];
+    if (!isTyping && latestMessage?.role === 'ai' && latestMessage.kind !== 'intro') {
+      const latestAnswer = scrollRegion.querySelector<HTMLElement>(
+        `[data-message-id="${latestMessage.id}"]`,
+      );
+      if (latestAnswer) {
+        const scrollRegionRect = scrollRegion.getBoundingClientRect();
+        const latestAnswerRect = latestAnswer.getBoundingClientRect();
+        scrollRegion.scrollTop += latestAnswerRect.top - scrollRegionRect.top;
+      }
+      return;
     }
+
+    scrollRegion.scrollTop = scrollRegion.scrollHeight;
   }, [messages, isTyping]);
 
   return (
@@ -612,6 +626,7 @@ export default function UnifiedChat({
           {messages.map((message) => (
             <motion.div
               key={message.id}
+              data-message-id={message.id}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               role="article"
