@@ -26,9 +26,9 @@ const plan: OriginExecutionPlan = {
     requireZeroDataRetention: false,
   },
   modelEvidence: {
-    verifiedAt: "2026-08-01T00:00:00.000Z",
-    reviewAfter: "2026-08-08T23:59:59.999Z",
-    sourceUrl: "https://openrouter.ai/inclusionai/ling-3.0-flash:free",
+    verifiedAt: "2026-08-11T00:00:00.000Z",
+    reviewAfter: "2026-08-18T23:59:59.999Z",
+    sourceUrl: "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free",
   },
 };
 
@@ -39,7 +39,7 @@ const request = {
 };
 
 function successfulProviderPayload(overrides: Record<string, unknown> = {}) {
-  const servedModel = "inclusionai/ling-3.0-flash:free";
+  const servedModel = "nvidia/nemotron-3-ultra-550b-a55b:free";
   return {
     model: servedModel,
     choices: [{ message: { content: "確認結果です。" } }],
@@ -63,7 +63,7 @@ describe("executeOriginProvider", () => {
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
       expect(body.max_tokens).toBe(1800);
       expect(body.reasoning).toEqual({
-        effort: "low",
+        effort: "medium",
         exclude: true,
       });
       expect(body.temperature).toBe(0.2);
@@ -95,7 +95,7 @@ describe("executeOriginProvider", () => {
       providerDataPolicy: plan.providerDataPolicy,
       routingEvidence: {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
-        servedModel: "inclusionai/ling-3.0-flash:free",
+        servedModel: "nvidia/nemotron-3-ultra-550b-a55b:free",
         strategy: "fixed-free-model",
         provider: "OpenRouter",
         attempt: 1,

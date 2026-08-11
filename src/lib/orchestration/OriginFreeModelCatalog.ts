@@ -1,5 +1,5 @@
 export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL =
-  "inclusionai/ling-3.0-flash:free" as const;
+  "nvidia/nemotron-3-ultra-550b-a55b:free" as const;
 export type OriginFreeModelId = typeof ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
 
 export interface OriginFreeModelEvidence {
@@ -20,8 +20,8 @@ export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-08-06T00:00:00.000Z",
-    reviewAfter: "2026-08-13T23:59:59.999Z",
+    verifiedAt: "2026-08-11T00:00:00.000Z",
+    reviewAfter: "2026-08-18T23:59:59.999Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
     sourceDescription: "OpenRouter's official models API listed this exact model ID with zero prompt and completion pricing at verification time.",
   },
