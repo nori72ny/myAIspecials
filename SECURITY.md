@@ -1,49 +1,144 @@
-# SECURITY.md - ACOS Security Policy & Audit
+# Security Policy
 
-## 🛡️ Security Policy
+最終確認日: 2026-08-11
 
-This document outlines the security architecture, threat models, and vulnerability reporting procedures for the AI Operating System (ACOS) 2.0.
+この文書は、ORIGIN（ACOS 2.0）の現行`main`で確認できるセキュリティ境界と、未検証事項を区別して記録します。「安全性100%」「Zero Trust認証済み」「完全に防御済み」とは主張しません。
 
-ACOS is built on a Zero-Trust Architecture to manage high-orchestration multi-agent pipelines without exposing sensitive cloud resources or agent context.
+## 対象
 
----
+基準main:
 
-## 🔒 Implemented Security Protections (OWASP Top 10 Alignment)
+```text
+36731864fbd4cda3947fc02dbd2e2c43eb3e029b
+```
 
-### 1. API Key Isolation & Secure Proxy (A01:2021-Broken Access Control)
-* **No Client Keys**: Standard environment rules forbid the storage or exposure of `GEMINI_API_KEY` or other 3rd-party keys on the browser client.
-* **Server-Side Brokerage**: All LLM queries and workspace sync operations are routed through secure, container-bound Express endpoints inside `/api/*`.
-* **Credential Sealing**: Secrets are mounted only inside the production environment variable layer and are read lazily (`process.env.GEMINI_API_KEY`), eliminating static memory leaks.
+現在の公開開発候補はORIGIN Personalです。旧Mission Engine、旧Gemini経路、未承認プロバイダー経路はPersonalランタイムの実行対象として扱いません。
 
-### 2. Prompt Injection Mitigation (A03:2021-Injection)
-* **Adversarial Scanner**: ACOS implements an inline lexical scanner detecting prompt bypass patterns like:
-  - `Ignore previous instructions`
-  - `System override`
-  - `You are now a developer`
-* **Output Sanitization**: Model responses are scanned to block rogue HTML tags and script injections before layout injection.
+## 確認できる実装境界
 
-### 3. XSS & HTML Safety (A03:2021-Injection)
-* **React Native Shield**: All user and agent responses are rendered through React’s JSX tree, providing native context-sensitive encoding.
-* **Markdown Sandbox**: When rendering rich documentation markdown (`react-markdown`), the component strictly escapes arbitrary `<script>` modules and custom styles. `dangerouslySetInnerHTML` is audited and forbidden in all standard components.
+### サーバー側AI実行
 
-### 4. LocalStorage & Local Memory Audits (A04:2021-Insecure Design)
-* **State Partitioning**: Client local state backups are strictly structured. Sensitive cryptographic materials or temporary credentials are never cached in `localStorage`.
-* **Reconnection Isolation**: On state hydration after disconnect, payload structures are schema-validated to prevent local storage corruption attacks.
+- 権威あるAI実行経路は`POST /api/chat`
+- OpenRouter APIキーは`OPENROUTER_API_KEY`環境変数からサーバー側で取得
+- ブラウザーへAPIキーを渡す設計ではない
+- `FREE_ONLY=true`を前提に無料限定を強制
+- 固定された単一モデルだけを許可
+- 自動モデル選択と有料フォールバックを禁止
+- 要求モデルと提供モデルが一致しない場合は安全停止
+- 無料根拠の期限切れ時は`FREE_MODEL_EVIDENCE_STALE`で安全停止
 
----
+固定モデル:
 
-## 📁 Security Audit Overview
+```text
+nvidia/nemotron-3-ultra-550b-a55b:free
+```
 
-| Risk Identifier | Severity | Mitigation Vector | Status |
-| :--- | :--- | :--- | :--- |
-| **API Key Leakage** | Critical | Enforced server-side Lazy proxying | **SECURED** |
-| **Prompt Injection** | High | Added Adversarial Syntax filters | **MITIGATED** |
-| **Cross-Site Scripting (XSS)** | High | Standard JSX escaping + sanitized Markdown | **SECURED** |
-| **Local State Tampering** | Medium | Structural validation on restore | **MITIGATED** |
-| **Dependency Injection** | Low | Regular security scanning on imports | **MONITORED** |
+無料根拠の再確認期限:
 
----
+```text
+2026-08-18T23:59:59.999Z
+```
 
-## 📬 Reporting Vulnerabilities
+### HTTP/API境界
 
-If you discover any security issues or prompt-leak vectors, please do not open a public issue. Email us directly at `security@acos-origin.io` so we can investigate and address the vulnerability coordinate-responsibly.
+現行サーバーには次の境界があります。
+
+- `x-powered-by`の無効化
+- セキュリティヘッダー
+- `/api/chat`のレート制限
+- JSON request bodyの64KB上限
+- 不正JSONを400で拒否
+- 過大request bodyを413で拒否
+- 未定義APIをJSON 404で返し、SPA HTMLへのフォールスルーを防止
+- 旧プロバイダー対応経路をfail-closedで遮断
+- JSON以外のAPI応答を安全側で拒否
+
+### 表示境界
+
+- Reactの通常レンダリング境界を使用
+- Markdown表示に`react-markdown`を使用
+- DOMPurifyを依存関係として使用
+- PWA/offline経路でAPI成功応答を捏造しない
+
+これらはコードと自動テストで確認した境界であり、あらゆるXSS、prompt injection、認証・認可問題を完全に防止する保証ではありません。
+
+## CIで確認している項目
+
+直近PRでは次の検査が成功しています。
+
+- TypeScript / design-token lint
+- unit / API / Playwright E2E
+- production build / Node.js runtime smoke
+- dependency review / `npm audit`
+- Gitleaks
+- CodeQL
+- OpenSSF Scorecard
+- Lighthouse
+- SBOM生成
+
+CI成功は、本番環境、未知の攻撃、運用設定、外部プロバイダーを含む完全な安全性証明ではありません。
+
+## 未検証事項
+
+- 本番URLと配信SHA
+- 本番Secret設定とログへの非露出
+- 本番WAF、TLS、CORS、rate limitの実効性
+- penetration test
+- 第三者による最新Exact SHAの独立セキュリティ監査
+- prompt injectionに対する網羅的耐性
+- provider側の保存・学習・地域処理の実運用確認
+- 長期間運用時の依存関係・モデル・費用変化
+- 物理端末と実ネットワークでの検証
+
+## 秘密情報
+
+次をIssue、PR、Discussion、commit、スクリーンショット、テストログへ投稿しないでください。
+
+- APIキー
+- access token
+- cookie / session
+- 個人情報
+- private prompt
+- 本番URLに紐づく非公開設定
+- 脆弱性を再現できる秘密情報
+
+サンプルには空値だけを使用します。
+
+```env
+OPENROUTER_API_KEY=""
+FREE_ONLY="true"
+```
+
+## 脆弱性の報告
+
+公開Issueへ秘密情報や未修正の攻撃手順を投稿しないでください。
+
+GitHubリポジトリでPrivate vulnerability reportingが利用可能な場合は、Securityタブの非公開報告経路を使用してください。利用できない場合は、秘密情報を含めずにリポジトリ所有者へ非公開の連絡手段を確認してください。
+
+所有確認できないメールアドレスを正式な通報先として記載しません。
+
+報告には、可能な範囲で次を含めてください。
+
+```text
+affected Git SHA
+affected path
+impact
+minimal reproduction
+required preconditions
+whether secrets were exposed
+suggested mitigation
+```
+
+## 修正と公開
+
+セキュリティ修正も通常の承認境界に従います。
+
+- 専用ブランチ
+- Exact SHAを固定したテスト
+- Draft PR
+- 独立確認
+- Ready化の個別承認
+- mainマージの個別承認
+- デプロイの個別承認
+
+緊急性があっても、有料サービス・Secret・DNS・クラウド・リポジトリ設定を暗黙に変更しません。
