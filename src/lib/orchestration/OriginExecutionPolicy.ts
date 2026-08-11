@@ -1,11 +1,11 @@
-import { classifyTask, type AITaskRequest, type AITaskType } from "./MultiAIOrchestrator";
+import { classifyTask, type AITaskRequest, type AITaskType } from "./MultiAIOrchestrator.js";
 import {
   DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
   ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
   selectCurrentOriginFreeModel,
   type OriginFreeModelEvidence,
   type OriginFreeModelId,
-} from "./OriginFreeModelCatalog";
+} from "./OriginFreeModelCatalog.js";
 
 export const ORIGIN_OPENROUTER_FREE_PROVIDER_ID = "openrouter-free" as const;
 export const ORIGIN_OPENROUTER_FREE_MODEL = ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;

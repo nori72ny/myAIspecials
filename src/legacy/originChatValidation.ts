@@ -1,9 +1,9 @@
-import type { OriginExecutionPolicy } from "../lib/orchestration/OriginExecutionPolicy";
+import type { OriginExecutionPolicy } from "../lib/orchestration/OriginExecutionPolicy.js";
 import {
   detectSensitiveInput,
   type SensitiveInputKind,
-} from "../lib/orchestration/SensitiveInputDetector";
-import type { OriginChatMessage } from "./originProviderClient";
+} from "../lib/orchestration/SensitiveInputDetector.js";
+import type { OriginChatMessage } from "./originProviderClient.js";
 
 export interface OriginChatBody {
   messages?: unknown;

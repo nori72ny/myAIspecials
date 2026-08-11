@@ -13,7 +13,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     };
 
     expect(apiEntrypoint).toContain(
-      'import("../src/server/createOriginApp.ts")',
+      'import("../src/server/createOriginApp.js")',
     );
     expect(apiEntrypoint).toContain("createVercelHandler");
     expect(apiEntrypoint).toContain("request: IncomingMessage");

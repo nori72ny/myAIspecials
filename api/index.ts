@@ -8,7 +8,10 @@ type OriginAppLoader = () => Promise<Express>;
 let originAppPromise: Promise<Express> | undefined;
 
 async function loadOriginApp(): Promise<Express> {
-  originAppPromise ??= import("../src/server/createOriginApp.ts")
+  // Vercel emits the TypeScript dependency graph as Node ESM. Keep the
+  // runtime specifier on the emitted .js path; TypeScript/esbuild resolve it
+  // back to the .ts source during local checks and bundling.
+  originAppPromise ??= import("../src/server/createOriginApp.js")
     .then(({ createOriginApp }) => createOriginApp());
   return originAppPromise;
 }

@@ -5,41 +5,41 @@ import {
   type OriginAnswerEnvelope,
   type OriginAnswerEvidenceItem,
   type OriginAnswerVerificationStatus,
-} from "../lib/orchestration/OriginAnswerEnvelope";
-import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence";
+} from "../lib/orchestration/OriginAnswerEnvelope.js";
+import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
 import {
   DEFAULT_ORIGIN_CONTEXT_POLICY,
   minimizeOriginContext,
   type OriginContextPolicy,
-} from "../lib/orchestration/OriginContextPolicy";
-import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
-import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog";
-import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy";
+} from "../lib/orchestration/OriginContextPolicy.js";
+import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
+import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
+import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy.js";
 import {
   classifyOriginRequestIntent,
   originRequestIntentInstruction,
   type OriginRequestIntent,
-} from "../lib/orchestration/OriginRequestIntent";
+} from "../lib/orchestration/OriginRequestIntent.js";
 import {
   buildOriginAgentWorkPlan,
   originAgentWorkPlanInstruction,
   type OriginAgentWorkPlan,
-} from "../lib/orchestration/OriginAgentWorkPlan";
+} from "../lib/orchestration/OriginAgentWorkPlan.js";
 import {
   createOriginCapabilityGuide,
   isOriginCapabilityQuestion,
-} from "../lib/orchestration/OriginCapabilityGuide";
+} from "../lib/orchestration/OriginCapabilityGuide.js";
 import {
   originServiceAssignmentInstruction,
   resolveOriginAgentWorkPlan,
   type OriginResolvedWorkPlan,
-} from "../lib/orchestration/OriginServiceRegistry";
+} from "../lib/orchestration/OriginServiceRegistry.js";
 import {
   executeOriginProvider,
   OriginProviderError,
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
-} from "./originProviderClient";
+} from "./originProviderClient.js";
 import {
   detectSensitiveConversation,
   hasOriginWeatherLocation,
@@ -47,7 +47,7 @@ import {
   originClientPolicy,
   type OriginChatBody,
   validateOriginChatMessages,
-} from "./originChatValidation";
+} from "./originChatValidation.js";
 
 export type OriginChatExecutor = (
   request: OriginProviderExecutionRequest,

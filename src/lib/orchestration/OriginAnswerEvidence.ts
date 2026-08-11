@@ -1,6 +1,6 @@
-import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope";
-import { extractExplicitOriginClaimCitations } from "./OriginClaimCitation";
-import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl";
+import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope.js";
+import { extractExplicitOriginClaimCitations } from "./OriginClaimCitation.js";
+import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl.js";
 
 const MAX_EVIDENCE_ITEMS = 10;
 const MAX_LABEL_LENGTH = 200;

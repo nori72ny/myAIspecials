@@ -2,7 +2,7 @@ import {
   ORIGIN_OPENROUTER_FREE_MODEL,
   type OriginExecutionPlan,
   type OriginProviderDataPolicy,
-} from "../lib/orchestration/OriginExecutionPolicy";
+} from "../lib/orchestration/OriginExecutionPolicy.js";
 
 export interface OriginChatMessage {
   role: "user" | "ai" | "assistant" | "model";

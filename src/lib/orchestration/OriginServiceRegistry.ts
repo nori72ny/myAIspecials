@@ -1,4 +1,4 @@
-import type { OriginAgentWorkPlan } from "./OriginAgentWorkPlan";
+import type { OriginAgentWorkPlan } from "./OriginAgentWorkPlan.js";
 
 export interface OriginServiceRegistration {
   id: string;

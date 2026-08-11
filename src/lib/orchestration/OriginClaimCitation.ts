@@ -1,6 +1,6 @@
-import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope";
-import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl";
-import { containsSensitiveInput } from "./SensitiveInputDetector";
+import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope.js";
+import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl.js";
+import { containsSensitiveInput } from "./SensitiveInputDetector.js";
 
 const MAX_CITATIONS = 10;
 const MAX_CLAIM_LENGTH = 1_000;

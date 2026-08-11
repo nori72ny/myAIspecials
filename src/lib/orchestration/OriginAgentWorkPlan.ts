@@ -1,4 +1,4 @@
-import type { OriginRequestIntent } from "./OriginRequestIntent";
+import type { OriginRequestIntent } from "./OriginRequestIntent.js";
 
 export type OriginWorkStepKind =
   | "understand-goal"
