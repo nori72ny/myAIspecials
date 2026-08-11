@@ -1,56 +1,111 @@
 # Changelog
 
-All notable changes to the AI Operating System (ACOS) project will be documented in this file.
+ORIGIN（ACOS 2.0）のGitHub `main`へ統合された、確認可能な変更を記録します。
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+この文書は正式リリースや本番公開を宣言しません。日付はmerge commitの日付、内容はGit履歴と差分で確認できる範囲に限定します。バージョン番号や性能値は、対応するtag・測定証跡・公開証跡がない限り付与しません。
 
----
+## Unreleased
 
-## [2.0.0-rc.2] - 2026-07-05
-### Added
-- **Production Package Certification**: Added `SECURITY.md`, `DEPLOYMENT_GUIDE.md`, `KNOWN_LIMITATIONS.md`, `QA_REPORT.md`, `PERFORMANCE_REPORT.md`, `ACCESSIBILITY_REPORT.md`, `APPSTORE_CHECKLIST.md`, and `PRODUCTION_CHECKLIST.md` to establish an audit-ready Release Package.
-- **Headless E2E Browser Testing Support**: Installed Playwright Chromium dependencies to allow full backend and cockpit headless automation traces.
+### Documentation
 
-### Fixed
-- **Design Token Cleanliness**: Cleaned up various arbitrary styles and locked design tokens using a custom AST-based static verification checker.
+- Release Notes、Changelog、Roadmapを現行実装・Git履歴・検証済み事実に合わせて再構成。
+- 将来構想と実装済み機能を分離。
+- RC公開、性能スコア、同時実行規模など、証拠のない断定を削除。
 
----
+## 2026-08-11
 
-## [2.0.0-rc.1] - 2026-07-01
-### Added
-- **Dynamic Agent Organizations (Orgs)**: Introduced `OrganizationAggregate` root to represent collaborative federated workspaces capable of scaling to 1,000+ active agents.
-- **Organization Execution Engine (OEE)**: Designed to coordinate and schedule task execution across organizational hierarchies.
-- **Organization Evolution Engine (OEvE)**: Self-improving framework designed to optimize organizational memory, relationship weights, and workflow topologies over time.
-- **Playwright E2E Suite**: Full integration test coverage verifying a complete round-trip mission trace (API tests, UI interactions, and dashboard metrics).
-- **Self-Healing Error Recovery**: Exponential backoff routing for AI models and local backup/restoration for corrupt states.
-- **Prompt Escape Filters**: Adversarial sanitization layer to mitigate injection attacks, system overrides, and prompt leakage.
-- **Multi-Tenant Workspace Isolation**: Ensured independent execution threads and strict memory boundary partitions.
+### PR #70 — READMEの真実性是正
 
-### Changed
-- **Modular Frontend Layout**: Refactored the dashboard frontend to decouple standard views from backend proxy routes, improving LCP to **1.2s**.
-- **Gemini SDK Migration**: Upgraded model orchestration layer to use the modern `@google/genai` TypeScript SDK exclusively on the secure server side.
-- **Server Bundling Configuration**: Optimized `esbuild` configuration in `package.json` to compile `server.ts` into a self-contained CommonJS target (`dist/server.cjs`) to ensure reliable deployment.
+Merge commit:
 
-### Removed
-- **Direct Client-Side Keys**: Removed all direct/public browser keys to prevent API credential leaks.
-- **Legacy Retry Mechanisms**: Retired old, blocking API polling strategies in favor of robust asynchronous state management.
+```text
+820389575c9a3e4f343c41b84a195fda33ba276b
+```
 
----
+- READMEをReact 19 / Vite 6 / Express 5 / npmの現行構成へ整合。
+- 固定無料モデル、無料根拠期限、安全停止、承認境界を明記。
+- 正式公開・本番稼働・性能・優位性が未証明であることを明記。
+- コピー対象をGitHubのコピーボタンが表示されるコードブロックへ整理。
 
-## [1.5.0] - 2026-04-15
-### Added
-- **Prompt Library Management**: Standardized system templates and prompt collections with tag categorization.
-- **Dynamic Workflow Builder**: Enabled graphical and declarative workflow layout generation.
-- **Shared Memory Explorer**: Added primitive visual mapping for agent memory clusters.
+### PR #69 — 依存関係アドバイザリ修正
 
-### Changed
-- **React 18 Upgrade**: Migrated UI and layout structures to React 18 and Vite.
-- **Tailwind v4 Integration**: Leveraged modernized Tailwind compiler rules for responsive design presets.
+Merge commit:
 
----
+```text
+76eef70d0076d8cf0872c78a979a7091cd0616a5
+```
 
-## [1.0.0] - 2026-01-10
-### Added
-- **Initial Core Runtime**: Supported single mission executions with isolated individual agents.
-- **Agent Governance Records**: Enabled basic lifecycle tracing, status monitoring, and authorization management.
-- **Safe Tool Execution**: Implemented basic sandbox routing for automated script executions.
+- DOMPurifyを3.4.13へ更新。
+- lockfile内のJS-YAML、PostCSS、Nanoid、Undiciを互換範囲内で更新。
+- full / production-onlyの`npm audit`で脆弱性0件を確認。
+- アプリケーションコード、モデルルーティング、UI、API、デプロイ設定は変更なし。
+
+### PR #68 — 固定無料モデルの交換
+
+Merge commit:
+
+```text
+1eeff53dd66bf96bef937e9a5b126c87322262a1
+```
+
+- 廃止された固定モデルを次へ交換。
+
+```text
+nvidia/nemotron-3-ultra-550b-a55b:free
+```
+
+- reasoning effortを当該モデルが受け付ける`medium`へ整合。
+- 旧モデル、自動ルーティングID、許可外モデルを拒否。
+- 無料根拠の再確認期限を2026-08-18 23:59:59.999Zに設定。
+
+## 2026-08-10
+
+### PR #67 — API JSON境界のfail-closed化
+
+Merge commit:
+
+```text
+458c74b305e5c31404bb0b6b66dfeb00e47150a8
+```
+
+- JSONでないAPI応答を表示用テキストとして扱わず、安全側で拒否。
+- 不正JSON、HTML応答、未定義API経路に対するテストを追加。
+- 旧API経路がSPA HTMLへフォールスルーしない境界を維持。
+
+### PR #66 — PWAインストール境界
+
+Merge commit:
+
+```text
+66057b179f5800e5f1aa8c69c4a5776b2b7192fa
+```
+
+- ORIGIN PersonalのPWAインストール境界を追加。
+- cookieを伴うオフラインナビゲーションを修正。
+- オフライン時にAPI応答を偽装しない安全境界を維持。
+
+### PR #65 — 本番ランタイム互換性ゲート
+
+Merge commit:
+
+```text
+d06550e826e7a9b17a4b9029b8e03cd6f2fb0ca1
+```
+
+- Node.js本番ランタイムのスモークゲートを追加。
+- Cloudflare workerd互換性のcredential-free dry runを追加。
+- Express 5ランタイム互換性を是正。
+- 互換性検査はデプロイを行わない。
+
+## 記録上の注意
+
+過去の文書には、次のような実装・測定・公開証拠と結び付かない記載がありました。
+
+- RC1 / RC2の正式リリース
+- Architecture 98%、Security 100%、LCP 1.2秒
+- 1,000以上の自律エージェント同時実行
+- 自己進化する組織・分散合意・永続Knowledge DNA
+- Gemini専用ランタイム
+- 本番公開済みのProduction Package
+
+これらはこのChangelogの確認済み変更として引き継ぎません。将来実装された場合は、Exact SHA、テスト、測定方法、公開証跡と共に新しい項目として記録します。
