@@ -12,8 +12,16 @@ describe("ORIGIN Personal release 1 gate", () => {
       rewrites?: Array<{ source?: string; destination?: string }>;
     };
 
-    expect(apiEntrypoint).toContain('import { createOriginApp }');
-    expect(apiEntrypoint).toContain("const app = createOriginApp()");
+    expect(apiEntrypoint).toContain(
+      'import("../src/server/createOriginApp.ts")',
+    );
+    expect(apiEntrypoint).toContain("createVercelHandler");
+    expect(apiEntrypoint).toContain("request: IncomingMessage");
+    expect(apiEntrypoint).toContain("response: ServerResponse");
+    expect(apiEntrypoint).toContain(
+      'console.error("ORIGIN_FUNCTION_INIT_FAILED", diagnostic)',
+    );
+    expect(apiEntrypoint).not.toContain("console.error(error)");
     expect(vercelConfig.rewrites).toContainEqual({
       source: "/api/(.*)",
       destination: "/api/index.ts",
