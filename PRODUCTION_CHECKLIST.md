@@ -51,14 +51,14 @@ GitHub Actions名`Production Release CI/CD`は、PR上では検証ワークフ�
 | automatic routing禁止 | 実装・テスト確認済み | fail-closed |
 | paid fallback禁止 | 実装・テスト確認済み | no fallback |
 | requested / served model一致 | 実装・テスト確認済み | 不一致時停止 |
-| 無料根拠期限 | 有効期限あり | 2026-08-18T23:59:59.999Z |
+| 無料根拠期限 | 有効期限あり | 2026-08-19T23:59:59.999Z |
 | 本番実行時actual cost | NOT VERIFIED | 本番実行なし |
 | provider data policy | 本番未確認 | 無料と非保存は同義ではない |
 
 固定モデル:
 
 ```text
-nvidia/nemotron-3-ultra-550b-a55b:free
+google/gemma-4-26b-a4b-it:free
 ```
 
 ## UX / Accessibility Gate

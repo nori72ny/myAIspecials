@@ -53,7 +53,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).toContain("servedModel !== requestedModel");
     expect(providerClient).not.toContain('"openrouter/free"');
     expect(providerClient).not.toContain("for (const attempt");
-    expect(modelCatalog).toContain('"nvidia/nemotron-3-ultra-550b-a55b:free"');
+    expect(modelCatalog).toContain('"google/gemma-4-26b-a4b-it:free"');
     expect(modelCatalog).not.toContain('"openrouter/free"');
     expect(providerClient).toContain("const apiKey = env.OPENROUTER_API_KEY");
     expect(providerClient).toContain(

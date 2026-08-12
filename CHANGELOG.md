@@ -6,6 +6,12 @@ ORIGIN（ACOS 2.0）のGitHub `main`へ統合された、確認可能な変更�
 
 ## Unreleased
 
+### Fixed model
+
+- `data_collection: deny`と両立しないNVIDIA無料エンドポイントを固定対象から除外。
+- 価格0、学習利用なしの無料エンドポイント、推論、構造化出力、140超言語対応を公式情報で確認できた`google/gemma-4-26b-a4b-it:free`へ固定モデルを変更。
+- 実生成は未実施であり、日本語回答品質、served model、実費は未検証。
+
 ### Documentation
 
 - Release Notes、Changelog、Roadmapを現行実装・Git履歴・検証済み事実に合わせて再構成。

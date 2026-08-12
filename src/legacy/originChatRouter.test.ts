@@ -5,7 +5,7 @@ import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPoli
 import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
 import { OriginProviderError } from "./originProviderClient";
 
-const verifiedCatalogTime = Date.parse("2026-08-11T12:00:00.000Z");
+const verifiedCatalogTime = Date.parse("2026-08-12T12:00:00.000Z");
 const defaultExecutionResult = {
   text: "安全な確認結果です。",
   actualCostUsd: 0,
@@ -15,8 +15,8 @@ const defaultExecutionResult = {
     requireZeroDataRetention: false as const,
   },
   routingEvidence: {
-    requestedModel: "nvidia/nemotron-3-ultra-550b-a55b:free",
-    servedModel: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    requestedModel: "google/gemma-4-26b-a4b-it:free",
+    servedModel: "google/gemma-4-26b-a4b-it:free",
     strategy: "fixed-free-model" as const,
     provider: "Synthetic Free Provider",
     region: "iad",
@@ -167,7 +167,7 @@ describe("createOriginChatRouter", () => {
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN 無料AI",
       providerId: "openrouter-free",
-      modelId: "nvidia/nemotron-3-ultra-550b-a55b:free",
+      modelId: "google/gemma-4-26b-a4b-it:free",
       taskType: "security",
       cost: 0,
       actualCostUsd: 0,
@@ -182,8 +182,8 @@ describe("createOriginChatRouter", () => {
         "依頼種別「セキュリティ」は独立確認の対象です。",
       ]),
       modelEvidence: expect.objectContaining({
-        verifiedAt: "2026-08-11T00:00:00.000Z",
-        reviewAfter: "2026-08-18T23:59:59.999Z",
+        verifiedAt: "2026-08-12T00:00:00.000Z",
+        reviewAfter: "2026-08-19T23:59:59.999Z",
         sourceUrl: expect.stringContaining("openrouter.ai"),
       }),
       providerDataPolicy: {
@@ -192,8 +192,8 @@ describe("createOriginChatRouter", () => {
         requireZeroDataRetention: false,
       },
       providerRouting: {
-        requestedModel: "nvidia/nemotron-3-ultra-550b-a55b:free",
-        servedModel: "nvidia/nemotron-3-ultra-550b-a55b:free",
+        requestedModel: "google/gemma-4-26b-a4b-it:free",
+        servedModel: "google/gemma-4-26b-a4b-it:free",
         strategy: "fixed-free-model",
         provider: "Synthetic Free Provider",
         region: "iad",
@@ -218,7 +218,7 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).toHaveBeenCalledWith(expect.objectContaining({
       plan: expect.objectContaining({
         providerId: "openrouter-free",
-        modelId: "nvidia/nemotron-3-ultra-550b-a55b:free",
+        modelId: "google/gemma-4-26b-a4b-it:free",
         freeOnly: true,
         providerDataPolicy: {
           allowProviderFallbacks: false,
@@ -458,7 +458,7 @@ describe("createOriginChatRouter", () => {
     const response = await request(createApp(
       execute,
       { OPENROUTER_API_KEY: "synthetic-test-key" },
-      () => Date.parse("2026-08-19T00:00:00.000Z"),
+      () => Date.parse("2026-08-20T00:00:00.000Z"),
     )).post("/api/chat").send({
       messages: [{ role: "user", content: "文章を確認してください" }],
     });

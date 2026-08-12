@@ -28,7 +28,7 @@ const plan: OriginExecutionPlan = {
   modelEvidence: {
     verifiedAt: "2026-08-11T00:00:00.000Z",
     reviewAfter: "2026-08-18T23:59:59.999Z",
-    sourceUrl: "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free",
+    sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free",
   },
 };
 
@@ -39,7 +39,7 @@ const request = {
 };
 
 function successfulProviderPayload(overrides: Record<string, unknown> = {}) {
-  const servedModel = "nvidia/nemotron-3-ultra-550b-a55b:free";
+  const servedModel = "google/gemma-4-26b-a4b-it:free";
   return {
     model: servedModel,
     choices: [{ message: { content: "確認結果です。" } }],
@@ -95,7 +95,7 @@ describe("executeOriginProvider", () => {
       providerDataPolicy: plan.providerDataPolicy,
       routingEvidence: {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
-        servedModel: "nvidia/nemotron-3-ultra-550b-a55b:free",
+        servedModel: "google/gemma-4-26b-a4b-it:free",
         strategy: "fixed-free-model",
         provider: "OpenRouter",
         attempt: 1,
