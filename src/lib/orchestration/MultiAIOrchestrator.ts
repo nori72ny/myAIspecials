@@ -1,4 +1,4 @@
-import { providerDisplayName, selectionReason, taskDisplayName } from "./DelegationPresentation";
+import { providerDisplayName, selectionReason, taskDisplayName } from "./DelegationPresentation.js";
 
 export type AITaskType =
   | "implementation"

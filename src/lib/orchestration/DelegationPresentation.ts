@@ -1,4 +1,4 @@
-import type { AIRoutingDecision, AITaskType } from "./MultiAIOrchestrator";
+import type { AIRoutingDecision, AITaskType } from "./MultiAIOrchestrator.js";
 
 const TASK_LABELS: Record<AITaskType, string> = {
   implementation: "実装・開発",

@@ -1,4 +1,4 @@
-import type { AITaskType } from "./MultiAIOrchestrator";
+import type { AITaskType } from "./MultiAIOrchestrator.js";
 
 export type OriginInteractionMode =
   | "conversation"

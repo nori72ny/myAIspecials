@@ -1,6 +1,6 @@
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import app from "./index";
+import app, { createVercelHandler } from "./index";
 
 const originalOpenRouterKey = process.env.OPENROUTER_API_KEY;
 const originalGeminiKey = process.env.GEMINI_API_KEY;
@@ -28,6 +28,36 @@ afterEach(() => {
 });
 
 describe("serverless ORIGIN chat boundary", () => {
+  it("exports a two-argument Vercel handler and serves health after deferred initialization", async () => {
+    expect(app.length).toBe(2);
+
+    const response = await request(app).get("/api/health");
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("ok");
+    expect(response.body.service).toBe("acos-2");
+  });
+
+  it("reports only a bounded error class and code when initialization fails", async () => {
+    const secret = ["synthetic", "initialization", "secret", "123456"].join("_");
+    const error = Object.assign(new Error(secret), { code: "ERR_MODULE_NOT_FOUND" });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const failingHandler = createVercelHandler(async () => {
+      throw error;
+    });
+
+    const response = await request(failingHandler).get("/api/health");
+
+    expect(response.status).toBe(500);
+    expect(response.body.code).toBe("ORIGIN_FUNCTION_INIT_FAILED");
+    expect(JSON.stringify(response.body)).not.toContain(secret);
+    expect(errorSpy).toHaveBeenCalledWith("ORIGIN_FUNCTION_INIT_FAILED", {
+      name: "Error",
+      code: "ERR_MODULE_NOT_FOUND",
+    });
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(secret);
+  });
+
   it("blocks a synthetic secret before legacy routing or provider execution", async () => {
     const secret = ["synthetic", "serverless", "secret", "123456"].join("_");
     const response = await request(app).post("/api/chat").send({

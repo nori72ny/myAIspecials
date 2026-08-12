@@ -1,13 +1,13 @@
 import express, { type ErrorRequestHandler, type Express } from "express";
 
-import { originChatBoundaryGuard } from "../legacy/originChatBoundaryGuard";
-import { createOriginChatRouter } from "../legacy/originChatRouter";
-import { createOriginLegacyProviderBoundaryRouter } from "../legacy/originLegacyProviderBoundaryGuard";
+import { originChatBoundaryGuard } from "../legacy/originChatBoundaryGuard.js";
+import { createOriginChatRouter } from "../legacy/originChatRouter.js";
+import { createOriginLegacyProviderBoundaryRouter } from "../legacy/originLegacyProviderBoundaryGuard.js";
 import {
   applyOriginSecurityHeaders,
   createOriginChatRateLimiter,
   requireSafeOriginChatRequest,
-} from "./originSecurity";
+} from "./originSecurity.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 

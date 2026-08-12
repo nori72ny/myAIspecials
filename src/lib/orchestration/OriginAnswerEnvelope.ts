@@ -1,6 +1,6 @@
-import { extractExplicitOriginClaimCitations } from "./OriginClaimCitation";
-import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl";
-import { containsSensitiveInput } from "./SensitiveInputDetector";
+import { extractExplicitOriginClaimCitations } from "./OriginClaimCitation.js";
+import { normalizeOriginPublicHttpsUrl } from "./OriginPublicSourceUrl.js";
+import { containsSensitiveInput } from "./SensitiveInputDetector.js";
 
 export type OriginAnswerVerificationStatus = "not-run" | "not-required" | "passed";
 
