@@ -1,6 +1,6 @@
 # ORIGIN（ACOS 2.0）Release Certification
 
-最終確認日: 2026-08-11
+最終確認日: 2026-08-12
 
 ## この文書の役割
 
@@ -21,13 +21,13 @@
 現在の固定無料モデル:
 
 ```text
-nvidia/nemotron-3-ultra-550b-a55b:free
+google/gemma-4-26b-a4b-it:free
 ```
 
 無料根拠の再確認期限:
 
 ```text
-2026-08-18T23:59:59.999Z
+2026-08-19T23:59:59.999Z
 ```
 
 ## 現在の判定

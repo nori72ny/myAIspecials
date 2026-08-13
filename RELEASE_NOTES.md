@@ -1,6 +1,6 @@
 # ORIGIN（ACOS 2.0）開発候補ノート
 
-最終確認日: 2026-08-11
+最終確認日: 2026-08-12
 
 この文書は、GitHub `main`の実装と検証証跡を説明する開発候補ノートです。正式リリース、本番公開、日常利用可能性、性能保証、競合優位性を宣言するものではありません。
 
@@ -34,14 +34,14 @@ ORIGIN Personalの現在の中心は、React / Viteの日本語UIとExpressの�
 ## 固定無料モデル
 
 ```text
-nvidia/nemotron-3-ultra-550b-a55b:free
+google/gemma-4-26b-a4b-it:free
 ```
 
 無料根拠の記録:
 
 ```text
-verifiedAt: 2026-08-11T00:00:00.000Z
-reviewAfter: 2026-08-18T23:59:59.999Z
+verifiedAt: 2026-08-12T00:00:00.000Z
+reviewAfter: 2026-08-19T23:59:59.999Z
 ```
 
 `reviewAfter`を過ぎた場合は、公式情報を再確認して証拠を更新するまで外部AI実行を停止します。

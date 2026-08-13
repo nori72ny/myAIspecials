@@ -33,14 +33,14 @@ ORIGINは、ユーザーの依頼を安全に処理し、検証状態・制約�
 現在の固定モデルIDは次のとおりです。
 
 ```text
-nvidia/nemotron-3-ultra-550b-a55b:free
+google/gemma-4-26b-a4b-it:free
 ```
 
 モデルの無料根拠は、OpenRouter公式モデルAPIで確認した記録に基づきます。
 
 ```text
-verifiedAt: 2026-08-11T00:00:00.000Z
-reviewAfter: 2026-08-18T23:59:59.999Z
+verifiedAt: 2026-08-12T00:00:00.000Z
+reviewAfter: 2026-08-19T23:59:59.999Z
 ```
 
 `reviewAfter`を過ぎた場合、再検証されるまで外部AI実行を停止します。別モデルへの自動切替や有料モデルへの切替は行いません。
