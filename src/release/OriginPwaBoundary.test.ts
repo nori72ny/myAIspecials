@@ -39,6 +39,21 @@ describe('ORIGIN PWA boundary', () => {
     expect(registration).toContain("updateViaCache: 'none'");
   });
 
+  it('checks for updates and applies a waiting worker only at a fresh launch', () => {
+    const registration = read('src/pwa/registerServiceWorker.ts');
+    const worker = read('public/sw.js');
+
+    expect(registration).toContain('registration.update()');
+    expect(registration).toContain('if (registration.waiting)');
+    expect(registration).toContain("postMessage({ type: 'SKIP_WAITING' })");
+    expect(registration).toContain("navigator.serviceWorker.addEventListener('controllerchange'");
+    expect(registration).not.toContain("document.addEventListener('visibilitychange'");
+    expect(worker).toContain("self.addEventListener('message'");
+    expect(worker).toContain('event.origin === self.location.origin');
+    expect(worker).toContain("event.data?.type === 'SKIP_WAITING'");
+    expect(worker).not.toMatch(/install[\s\S]{0,300}skipWaiting/);
+  });
+
   it('ships correctly sized application icons', () => {
     expect(readPngDimensions('public/pwa-192.png')).toEqual({ width: 192, height: 192 });
     expect(readPngDimensions('public/pwa-512.png')).toEqual({ width: 512, height: 512 });
@@ -99,7 +114,7 @@ describe('ORIGIN PWA boundary', () => {
 
     expect(worker).toContain("const CACHE_PREFIX = 'origin-pwa-'");
     expect(worker).toContain("caches.match('/offline.html')");
-    expect(worker).not.toContain('skipWaiting');
+    expect(worker).not.toMatch(/install[\s\S]{0,300}skipWaiting/);
     expect(worker).not.toContain('/api/chat');
     expect(worker).not.toMatch(/localStorage|indexedDB|OPENROUTER|prompt|messages/i);
   });

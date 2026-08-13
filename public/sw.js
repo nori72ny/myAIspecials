@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'origin-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const SAFE_STATIC_PATHS = new Set([
   '/offline.html',
   '/manifest.webmanifest',
@@ -25,6 +25,15 @@ self.addEventListener('activate', (event) => {
       ))
       .then(() => self.clients.claim()),
   );
+});
+
+self.addEventListener('message', (event) => {
+  if (
+    event.origin === self.location.origin
+    && event.data?.type === 'SKIP_WAITING'
+  ) {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {
