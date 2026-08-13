@@ -49,6 +49,7 @@ describe('ORIGIN PWA boundary', () => {
     expect(registration).toContain("navigator.serviceWorker.addEventListener('controllerchange'");
     expect(registration).not.toContain("document.addEventListener('visibilitychange'");
     expect(worker).toContain("self.addEventListener('message'");
+    expect(worker).toContain('event.origin === self.location.origin');
     expect(worker).toContain("event.data?.type === 'SKIP_WAITING'");
     expect(worker).not.toMatch(/install[\s\S]{0,300}skipWaiting/);
   });
