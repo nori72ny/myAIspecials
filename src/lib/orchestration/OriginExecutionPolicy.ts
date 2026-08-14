@@ -64,9 +64,10 @@ export type OriginExecutionPlanResult =
 export const DEFAULT_ORIGIN_EXECUTION_POLICY: OriginExecutionPolicy = {
   freeOnly: true,
   maxEstimatedCostUsd: 0,
-  // Free providers can take longer on a cold start. Keep a bounded server
-  // window so a valid first response is not discarded at the old 30s edge.
-  timeoutMs: 45_000,
+  // Free providers can take longer under load. Keep a bounded 90-second
+  // provider window so useful long-form answers are not discarded at 45s,
+  // while remaining below Vercel's explicitly configured function limit.
+  timeoutMs: 90_000,
 };
 
 export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = {
