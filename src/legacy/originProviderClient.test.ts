@@ -70,6 +70,7 @@ describe("executeOriginProvider", () => {
       expect(body.top_p).toBe(0.9);
       expect(body.usage).toBeUndefined();
       expect(body.provider).toEqual({
+        sort: "throughput",
         allow_fallbacks: false,
         data_collection: "deny",
       });
