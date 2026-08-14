@@ -273,7 +273,7 @@ function answerCompletionAnnouncement(
 
 function processingStatus(seconds: number, isEn: boolean): string {
   if (seconds < 5) return isEn ? 'Understanding your request' : '依頼を確認中';
-  if (seconds < 15) return isEn ? 'Selecting the best available AI' : '最適なAIを選定中';
+  if (seconds < 15) return isEn ? 'Checking the free AI connection' : '無料AIの接続を確認中';
   if (seconds < 30) return isEn ? 'Creating the answer' : '回答を作成中';
   return isEn ? 'Checking and finishing the answer' : '回答を確認・仕上げ中';
 }
@@ -688,7 +688,7 @@ export default function UnifiedChat({
                       data-testid="error-details"
                       className="group mt-1 border-t border-origin-border pt-2 text-[13px] text-origin-muted dark:border-origin-border dark:text-origin-muted"
                     >
-                      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md py-1 font-medium outline-none focus-visible:ring-2 focus-visible:ring-origin-brand">
+                      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md py-1 font-medium outline-none focus-visible:ring-2 focus-visible:ring-origin-brand">
                         <span>{isEn ? 'Technical information' : '技術情報'}</span>
                         <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
                       </summary>
@@ -906,18 +906,20 @@ export default function UnifiedChat({
               </div>
               <div
                 data-testid="processing-status-card"
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
                 aria-label={isEn ? 'ORIGIN is working' : 'ORIGINが処理中'}
                 className="min-w-0 flex-1 rounded-2xl border border-origin-border bg-origin-surface px-4 py-3 shadow-sm dark:border-origin-border dark:bg-origin-surface"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <span aria-hidden="true" className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-origin-brand dark:bg-origin-brand" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-origin-ink dark:text-origin-ink">
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="min-w-0 flex-1 truncate text-sm font-medium text-origin-ink dark:text-origin-ink"
+                  >
                     {processingStatus(processingSeconds, isEn)}
                   </span>
-                  <span className="shrink-0 tabular-nums text-[13px] text-origin-muted dark:text-origin-muted">
+                  <span aria-hidden="true" className="shrink-0 tabular-nums text-[13px] text-origin-muted dark:text-origin-muted">
                     {processingSeconds}{isEn ? 's' : '秒'}
                   </span>
                 </div>
@@ -966,7 +968,12 @@ export default function UnifiedChat({
               aria-describedby="origin-chat-guidance"
               className="max-h-40 min-h-12 flex-1 resize-none border-none bg-transparent px-3 py-3 text-base leading-relaxed text-origin-ink outline-none placeholder:text-origin-placeholder focus:outline-none dark:text-origin-ink dark:placeholder:text-origin-placeholder"
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
+                if (
+                  event.key === 'Enter'
+                  && !event.shiftKey
+                  && !event.nativeEvent.isComposing
+                  && event.keyCode !== 229
+                ) {
                   event.preventDefault();
                   void handleSend();
                 }
