@@ -26,6 +26,7 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.modelId).toBe("google/gemma-4-26b-a4b-it:free");
     expect(result.plan.freeOnly).toBe(true);
     expect(result.plan.estimatedCostUsd).toBe(0);
+    expect(result.plan.timeoutMs).toBe(90_000);
     expect(result.plan.requiresOwnerApproval).toBe(false);
     expect(result.plan.taskType).toBe("security");
     expect(result.plan.reason).toContain("品質優位性の主張ではありません");
