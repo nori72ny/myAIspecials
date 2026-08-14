@@ -620,7 +620,7 @@ export default function UnifiedChat({
         aria-live="off"
         aria-busy={isTyping}
         aria-label={isEn ? 'Conversation history' : '会話履歴'}
-        className="mx-auto w-full max-w-[760px] flex-1 space-y-7 overflow-y-auto px-3 py-5 sm:px-5 sm:py-8"
+        className="mx-auto w-full max-w-[820px] flex-1 space-y-6 overflow-y-auto px-3 py-5 sm:px-6 sm:py-8"
       >
         <AnimatePresence initial={false}>
           {messages.map((message) => (
@@ -662,9 +662,9 @@ export default function UnifiedChat({
                 message.role === 'user' ? 'max-w-[88%] sm:max-w-[72%]' : 'flex-1',
               )}>
                 {message.error ? (
-                  <div role="alert" className="flex flex-col gap-3 rounded-2xl rounded-tl-none border border-red-200 bg-red-50 p-4 shadow-sm dark:border-red-500/20 dark:bg-red-500/10">
-                    <h4 className="text-sm font-bold text-red-800 dark:text-red-300">{message.content}</h4>
-                    <p className="whitespace-pre-wrap text-sm text-red-700 dark:text-red-400">{message.error.description}</p>
+                  <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-origin-border border-l-4 border-l-red-400 bg-white p-4 shadow-sm dark:border-origin-border dark:border-l-red-400 dark:bg-origin-surface">
+                    <h4 className="text-sm font-semibold text-origin-ink dark:text-origin-ink">{message.content}</h4>
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-origin-muted dark:text-origin-muted">{message.error.description}</p>
 
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {message.error.retryable && (
@@ -672,7 +672,7 @@ export default function UnifiedChat({
                           type="button"
                           onClick={handleRetry}
                           disabled={isTyping || retrySecondsRemaining > 0}
-                          className="flex min-h-11 items-center gap-1.5 rounded-lg bg-red-100 px-3 py-1.5 text-[13px] font-medium text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-500/20 dark:text-red-300 dark:hover:bg-red-500/30"
+                          className="flex min-h-11 items-center gap-1.5 rounded-xl bg-origin-brand-soft px-3.5 py-2 text-[13px] font-semibold text-origin-brand transition-colors hover:bg-origin-brand-border disabled:opacity-50 dark:bg-origin-brand-soft dark:text-origin-brand dark:hover:bg-origin-brand-border"
                         >
                           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                           {retrySecondsRemaining > 0
@@ -686,13 +686,13 @@ export default function UnifiedChat({
 
                     <details
                       data-testid="error-details"
-                      className="group mt-1 border-t border-red-200/50 pt-2 text-[13px] text-red-700 dark:border-red-500/20 dark:text-red-300"
+                      className="group mt-1 border-t border-origin-border pt-2 text-[13px] text-origin-muted dark:border-origin-border dark:text-origin-muted"
                     >
-                      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md py-1 font-medium outline-none focus-visible:ring-2 focus-visible:ring-red-400">
+                      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md py-1 font-medium outline-none focus-visible:ring-2 focus-visible:ring-origin-brand">
                         <span>{isEn ? 'Technical information' : '技術情報'}</span>
                         <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
                       </summary>
-                      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-white/60 p-2 font-mono text-[13px] dark:bg-black/10">
+                      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-origin-surface-muted p-2 font-mono text-[13px] dark:bg-origin-surface-muted">
                         <dt>{isEn ? 'Error code' : 'エラーコード'}</dt>
                         <dd className="break-all">{message.error.code}</dd>
                         <dt>{isEn ? 'Reference ID' : '問い合わせID'}</dt>
@@ -954,7 +954,7 @@ export default function UnifiedChat({
       </div>
 
       <div className="safe-area-bottom shrink-0 border-t border-origin-border bg-origin-paper/95 px-3 pt-3 backdrop-blur dark:border-origin-border dark:bg-origin-paper/95 sm:px-4">
-        <div className="mx-auto max-w-[760px]">
+        <div className="mx-auto max-w-[820px]">
           <div className="flex items-end gap-2 rounded-2xl border border-origin-control bg-white p-2 shadow-sm transition focus-within:border-origin-brand focus-within:ring-2 focus-within:ring-origin-brand/20 dark:border-origin-control dark:bg-origin-surface dark:focus-within:border-origin-brand dark:focus-within:ring-origin-brand/20">
             <textarea
               id="origin-chat-input"
