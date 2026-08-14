@@ -8,7 +8,7 @@ const request = {
   goal: "認証処理の安全性を確認してください",
 };
 
-const verifiedNow = Date.parse("2026-08-12T12:00:00.000Z");
+const verifiedNow = Date.parse("2026-08-14T12:00:00.000Z");
 
 describe("buildOriginExecutionPlan", () => {
   it("selects the current evidence-backed fixed free model with data collection denied", () => {
@@ -36,8 +36,8 @@ describe("buildOriginExecutionPlan", () => {
       requireZeroDataRetention: false,
     });
     expect(result.plan.modelEvidence).toEqual(expect.objectContaining({
-      verifiedAt: "2026-08-12T00:00:00.000Z",
-      reviewAfter: "2026-08-19T23:59:59.999Z",
+      verifiedAt: "2026-08-14T00:00:00.000Z",
+      reviewAfter: "2026-08-21T23:59:59.999Z",
       sourceUrl: expect.stringContaining("openrouter.ai"),
     }));
   });
@@ -62,7 +62,7 @@ describe("buildOriginExecutionPlan", () => {
       request,
       { openRouterConfigured: true },
       undefined,
-      { nowMs: Date.parse("2026-08-20T00:00:00.000Z") },
+      { nowMs: Date.parse("2026-08-22T00:00:00.000Z") },
     );
 
     expect(result).toEqual(expect.objectContaining({
