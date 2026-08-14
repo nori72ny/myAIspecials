@@ -81,6 +81,21 @@ describe('UnifiedChat', () => {
     }]);
   });
 
+  it('does not submit while Japanese IME composition is active', () => {
+    render(<UnifiedChat />);
+    const input = screen.getByPlaceholderText('やりたいことを入力');
+
+    fireEvent.change(input, { target: { value: '変換中の入力' } });
+    fireEvent.keyDown(input, {
+      key: 'Enter',
+      shiftKey: false,
+      isComposing: true,
+      keyCode: 229,
+    });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it('fails closed without parsing or displaying an HTML API response', async () => {
     const json = vi.fn();
     (global.fetch as any).mockResolvedValueOnce({

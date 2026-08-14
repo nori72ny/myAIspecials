@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowRight, ShieldCheck } from 'lucide-react';
 
 type PersonalDashboardProps = {
@@ -9,6 +9,7 @@ type PersonalDashboardProps = {
 export default function PersonalDashboard({ onNavigateToChat, language }: PersonalDashboardProps) {
   const isEn = language === 'en';
   const [input, setInput] = useState('');
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const examples = isEn
     ? [
@@ -28,14 +29,23 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
     onNavigateToChat(prompt);
   };
 
+  const selectExample = (example: string) => {
+    setInput(example);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.scrollIntoView?.({ block: 'center' });
+    });
+  };
+
   return (
-    <div className="origin-dashboard mx-auto flex min-h-full w-full max-w-[800px] flex-col px-4 py-8 sm:px-6 sm:py-12 md:py-16">
+    <div className="origin-dashboard mx-auto flex min-h-full w-full max-w-[880px] flex-col px-4 py-7 sm:px-6 sm:py-10 md:py-14">
       <section className="flex w-full flex-1 flex-col justify-center">
-        <div className="mb-8 text-center sm:mb-10">
+        <div className="mb-7 text-center sm:mb-9">
           <p
-            className="mb-5 text-[13px] font-medium leading-5 text-origin-muted dark:text-origin-muted"
+            className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-origin-brand-border bg-origin-brand-soft px-3 py-1.5 text-[13px] font-semibold leading-5 text-origin-brand dark:border-origin-brand-border dark:bg-origin-brand-soft dark:text-origin-brand"
             aria-label={isEn ? 'Execution guarantees' : '実行条件'}
           >
+            <span className="h-1.5 w-1.5 rounded-full bg-origin-brand" aria-hidden="true" />
             {isEn
               ? 'AI usage $0.00 · fixed free model · no automatic switching'
               : 'AI利用料 $0.00 · 無料モデル固定 · 自動切替なし'}
@@ -48,33 +58,39 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
               'Write whatever you have. ORIGIN organizes it into something you can use next.'
             ) : (
               <>
-                <span className="block">断片のまま入力してください。</span>
+                <span className="block">断片的なメモや、うまく言葉にできない状態で構いません。</span>
                 <span className="block">
-                  ORIGINが整理し、<span className="whitespace-nowrap">次に使える形へ整えます。</span>
+                  ORIGINが一緒に整理し、<span className="whitespace-nowrap">次の一歩が見える形に整えます。</span>
                 </span>
               </>
             )}
           </p>
         </div>
 
-        <div className="origin-composer rounded-2xl border border-origin-control bg-white p-4 shadow-sm transition focus-within:border-origin-brand focus-within:ring-2 focus-within:ring-origin-brand/20 dark:border-origin-control dark:bg-origin-surface dark:focus-within:border-origin-brand dark:focus-within:ring-origin-brand/20 sm:p-5">
+        <div className="origin-composer rounded-[1.25rem] border border-origin-control bg-white/96 p-4 shadow-lg transition focus-within:border-origin-brand focus-within:ring-2 focus-within:ring-origin-brand/20 dark:border-origin-control dark:bg-origin-surface dark:focus-within:border-origin-brand dark:focus-within:ring-origin-brand/20 sm:p-5">
           <label htmlFor="origin-home-request" className="sr-only">
             {isEn ? 'Describe what you want help with' : 'やりたいことを入力'}
           </label>
           <textarea
             id="origin-home-request"
+            ref={inputRef}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (
+                event.key === 'Enter'
+                && !event.shiftKey
+                && !event.nativeEvent.isComposing
+                && event.keyCode !== 229
+              ) {
                 event.preventDefault();
                 submit();
               }
             }}
             className="min-h-[136px] w-full resize-none border-none bg-transparent p-0 text-base leading-7 text-origin-ink outline-none placeholder:text-origin-placeholder focus:ring-0 dark:text-origin-ink dark:placeholder:text-origin-placeholder sm:min-h-[152px]"
             placeholder={isEn
-              ? 'Example: Organize my product idea and create a simple proposal.'
-              : '例：新商品のアイデアを整理して、提案文のたたき台を作りたい'}
+              ? 'Write a memo, a question, or what you want to move forward.'
+              : 'メモ、悩み、進めたいことを、そのまま入力してください'}
           />
           <div className="mt-3 flex flex-col gap-3 border-t border-origin-border pt-3 dark:border-origin-border sm:flex-row sm:items-center sm:justify-between">
             <p className="flex items-start gap-2 text-[13px] leading-5 text-origin-muted dark:text-origin-muted">
@@ -96,20 +112,20 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
           </div>
         </div>
 
-        <div className="mt-8">
-          <p className="mb-2 text-[13px] font-semibold leading-5 text-origin-muted dark:text-origin-muted">
-            {isEn ? 'Examples — select one, then edit it' : '入力例 — 選んだあとに書き換えられます'}
+        <div className="mt-7 sm:mt-8">
+          <p className="mb-3 text-[13px] font-semibold leading-5 text-origin-muted dark:text-origin-muted">
+            {isEn ? 'Not sure what to write? Start with an example.' : '何を書けばよいか迷ったら、近い例から始められます'}
           </p>
-          <div className="divide-y divide-origin-border border-y border-origin-border dark:divide-origin-border dark:border-origin-border">
+          <div className="grid gap-2 sm:grid-cols-3">
             {examples.map((example, index) => (
               <button
                 type="button"
                 key={example}
-                onClick={() => setInput(example)}
+                onClick={() => selectExample(example)}
                 aria-label={example}
-                className="group flex min-h-12 w-full items-center gap-3 px-2 py-3 text-left text-[14px] leading-6 text-origin-ink outline-none transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-origin-brand dark:text-origin-ink dark:hover:bg-origin-surface-muted dark:focus-visible:ring-origin-brand"
+                className="group flex min-h-[4.5rem] w-full items-start gap-3 rounded-xl border border-origin-border bg-white/70 px-3 py-3 text-left text-[14px] leading-6 text-origin-ink outline-none transition hover:-translate-y-0.5 hover:border-origin-brand-border hover:bg-white hover:shadow-sm focus-visible:ring-2 focus-visible:ring-origin-brand dark:border-origin-border dark:bg-origin-surface/70 dark:text-origin-ink dark:hover:border-origin-brand-border dark:hover:bg-origin-surface dark:focus-visible:ring-origin-brand"
               >
-                <span className="w-7 shrink-0 font-mono text-[13px] text-origin-muted dark:text-origin-muted">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-origin-surface-muted font-mono text-[11px] font-semibold text-origin-muted transition group-hover:bg-origin-brand-soft group-hover:text-origin-brand dark:bg-origin-surface-muted dark:text-origin-muted dark:group-hover:bg-origin-brand-soft dark:group-hover:text-origin-brand">
                   {String(index + 1).padStart(2, '0')}
                 </span>
                 <span>{example}</span>

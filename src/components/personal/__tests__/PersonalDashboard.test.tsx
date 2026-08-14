@@ -50,6 +50,22 @@ describe('PersonalDashboard', () => {
     expect(onNavigateToChat).toHaveBeenCalledWith('比較表を作りたい');
   });
 
+  it('does not submit while Japanese IME composition is active', () => {
+    const onNavigateToChat = vi.fn();
+    render(<PersonalDashboard onNavigateToChat={onNavigateToChat} />);
+    const input = screen.getByLabelText('やりたいことを入力');
+
+    fireEvent.change(input, { target: { value: '変換中の入力' } });
+    fireEvent.keyDown(input, {
+      key: 'Enter',
+      shiftKey: false,
+      isComposing: true,
+      keyCode: 229,
+    });
+
+    expect(onNavigateToChat).not.toHaveBeenCalled();
+  });
+
   it('does not submit an empty request and explains secret handling', () => {
     const onNavigateToChat = vi.fn();
     render(<PersonalDashboard onNavigateToChat={onNavigateToChat} />);
