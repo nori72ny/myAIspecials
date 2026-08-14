@@ -5,7 +5,7 @@ import {
   type OriginFreeModelEvidence,
 } from "./OriginFreeModelCatalog";
 
-const currentTime = Date.parse("2026-08-12T12:00:00.000Z");
+const currentTime = Date.parse("2026-08-14T12:00:00.000Z");
 
 describe("selectCurrentOriginFreeModel", () => {
   it("returns the evidence-backed fixed zero-cost model", () => {
@@ -16,7 +16,7 @@ describe("selectCurrentOriginFreeModel", () => {
       model: expect.objectContaining({
         modelId: "google/gemma-4-26b-a4b-it:free",
         providerId: "openrouter-free",
-        sourceUrl: "https://openrouter.ai/api/v1/models",
+        sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free",
       }),
     });
   });
@@ -62,7 +62,7 @@ describe("selectCurrentOriginFreeModel", () => {
   it("fails closed after the fixed model evidence expires", () => {
     expect(selectCurrentOriginFreeModel(
       DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
-      Date.parse("2026-08-20T00:00:00.000Z"),
+      Date.parse("2026-08-22T00:00:00.000Z"),
     )).toEqual({
       ok: false,
       code: "FREE_MODEL_EVIDENCE_STALE",
