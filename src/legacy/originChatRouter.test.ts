@@ -243,6 +243,15 @@ describe("createOriginChatRouter", () => {
       "Identify the real objective",
     );
     expect(providerRequest.systemInstruction).toContain(
+      "Follow explicit user constraints over generic helpfulness",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "do not add urgency, importance, actions, owners, deadlines, channels, or other facts",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "return that deliverable without extra analysis, risks, or follow-up questions",
+    );
+    expect(providerRequest.systemInstruction).toContain(
       "specialist review, or other execution without evidence",
     );
     expect(providerRequest.systemInstruction).toContain(
