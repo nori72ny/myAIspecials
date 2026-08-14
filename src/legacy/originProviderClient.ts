@@ -381,9 +381,8 @@ export async function executeOriginProvider(
           // until a complete answer has been verified.
           max_tokens: originCompletionTokenBudget(request.plan.taskType),
           reasoning: {
-            // Nemotron 3 Ultra's fixed free endpoint currently supports
-            // medium and high reasoning effort. Keep this explicit so the
-            // provider cannot reinterpret an unsupported value.
+            // Keep reasoning effort explicit for the evidence-backed fixed
+            // free route so the provider cannot reinterpret the request.
             effort: "medium",
             exclude: true,
           },
