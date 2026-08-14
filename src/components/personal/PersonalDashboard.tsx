@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowRight, ShieldCheck } from 'lucide-react';
 
 type PersonalDashboardProps = {
@@ -9,6 +9,7 @@ type PersonalDashboardProps = {
 export default function PersonalDashboard({ onNavigateToChat, language }: PersonalDashboardProps) {
   const isEn = language === 'en';
   const [input, setInput] = useState('');
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const examples = isEn
     ? [
@@ -26,6 +27,14 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
     const prompt = input.trim();
     if (!prompt) return;
     onNavigateToChat(prompt);
+  };
+
+  const selectExample = (example: string) => {
+    setInput(example);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.scrollIntoView?.({ block: 'center' });
+    });
   };
 
   return (
@@ -64,10 +73,16 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
           </label>
           <textarea
             id="origin-home-request"
+            ref={inputRef}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (
+                event.key === 'Enter'
+                && !event.shiftKey
+                && !event.nativeEvent.isComposing
+                && event.keyCode !== 229
+              ) {
                 event.preventDefault();
                 submit();
               }
@@ -106,7 +121,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
               <button
                 type="button"
                 key={example}
-                onClick={() => setInput(example)}
+                onClick={() => selectExample(example)}
                 aria-label={example}
                 className="group flex min-h-[4.5rem] w-full items-start gap-3 rounded-xl border border-origin-border bg-white/70 px-3 py-3 text-left text-[14px] leading-6 text-origin-ink outline-none transition hover:-translate-y-0.5 hover:border-origin-brand-border hover:bg-white hover:shadow-sm focus-visible:ring-2 focus-visible:ring-origin-brand dark:border-origin-border dark:bg-origin-surface/70 dark:text-origin-ink dark:hover:border-origin-brand-border dark:hover:bg-origin-surface dark:focus-visible:ring-origin-brand"
               >
