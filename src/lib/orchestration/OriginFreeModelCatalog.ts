@@ -13,17 +13,17 @@ export interface OriginFreeModelEvidence {
 }
 
 const ORIGIN_OPENROUTER_FREE_MODEL_SOURCE =
-  "https://openrouter.ai/api/v1/models" as const;
+  "https://openrouter.ai/google/gemma-4-26b-a4b-it:free" as const;
 
 export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence[] = [
   {
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-08-12T00:00:00.000Z",
-    reviewAfter: "2026-08-19T23:59:59.999Z",
+    verifiedAt: "2026-08-14T00:00:00.000Z",
+    reviewAfter: "2026-08-21T23:59:59.999Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter's official models and endpoint APIs listed this exact model ID with zero prompt and completion pricing, a no-training free endpoint, reasoning, and structured-output support at verification time. Google documents multilingual support for the Gemma 4 family. Live Japanese output remains unverified until an explicitly authorized smoke test.",
+    sourceDescription: "OpenRouter's official model page listed this exact model ID as Free at verification time. Runtime still requires exact served-model identity, disabled provider fallbacks, denied data collection, and reported usage cost of zero before returning an answer. Live Japanese output remains separately verified by authorized smoke testing.",
   },
 ] as const;
 
