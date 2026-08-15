@@ -204,13 +204,13 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
 function validateProviderPolicy(plan: OriginExecutionPlan): void {
   const policy = plan.providerDataPolicy;
   if (
-    policy.allowProviderFallbacks !== false
+    policy.allowProviderFallbacks !== true
     || policy.dataCollection !== "deny"
     || policy.requireZeroDataRetention !== false
   ) {
     throw new OriginProviderError(
       "PROVIDER_POLICY_VIOLATION",
-      "無料ルーターのデータ収集拒否またはフォールバック禁止ポリシーに適合しない実行計画は使用できません。",
+      "固定無料モデル内の提供経路切替、データ収集拒否ポリシーに適合しない実行計画は使用できません。",
       400,
       false,
     );
@@ -389,9 +389,10 @@ export async function executeOriginProvider(
           temperature: 0.2,
           top_p: 0.9,
           provider: {
-            // Prefer the fastest eligible endpoint for the same fixed model.
-            // Fallbacks remain disabled, so this never changes the model or
-            // silently retries through another provider.
+            // Prefer the fastest eligible endpoint, then let OpenRouter try
+            // another endpoint for this exact fixed model if capacity is full.
+            // The request contains one verified :free model only; served-model
+            // equality and zero-cost checks still fail closed after completion.
             sort: "throughput",
             allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
             data_collection: request.plan.providerDataPolicy.dataCollection,

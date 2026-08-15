@@ -21,7 +21,7 @@ const plan: OriginExecutionPlan = {
   requiresOwnerApproval: false,
   reason: "test",
   providerDataPolicy: {
-    allowProviderFallbacks: false,
+    allowProviderFallbacks: true,
     dataCollection: "deny",
     requireZeroDataRetention: false,
   },
@@ -54,7 +54,7 @@ function successfulProviderPayload(overrides: Record<string, unknown> = {}) {
 }
 
 describe("executeOriginProvider", () => {
-  it("enforces the fixed free model, no fallback, data deny, and zero-cost routing evidence", async () => {
+  it("enforces the fixed free model, same-model provider failover, data deny, and zero-cost routing evidence", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       const headers = init?.headers as Record<string, string>;
@@ -71,7 +71,7 @@ describe("executeOriginProvider", () => {
       expect(body.usage).toBeUndefined();
       expect(body.provider).toEqual({
         sort: "throughput",
-        allow_fallbacks: false,
+        allow_fallbacks: true,
         data_collection: "deny",
       });
       expect(headers["X-OpenRouter-Title"]).toBe("ORIGIN Personal");
@@ -298,12 +298,12 @@ describe("executeOriginProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a plan that permits provider fallback, data collection, or changes the reviewed ZDR mode", async () => {
+  it("rejects a plan that disables same-model provider failover, permits data collection, or changes the reviewed ZDR mode", async () => {
     const fetchMock = vi.fn();
     const unsafePlan = {
       ...plan,
       providerDataPolicy: {
-        allowProviderFallbacks: true,
+        allowProviderFallbacks: false,
         dataCollection: "allow",
         requireZeroDataRetention: true,
       },

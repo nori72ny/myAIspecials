@@ -10,7 +10,7 @@ const defaultExecutionResult = {
   text: "安全な確認結果です。",
   actualCostUsd: 0,
   providerDataPolicy: {
-    allowProviderFallbacks: false as const,
+    allowProviderFallbacks: true as const,
     dataCollection: "deny" as const,
     requireZeroDataRetention: false as const,
   },
@@ -187,7 +187,7 @@ describe("createOriginChatRouter", () => {
         sourceUrl: expect.stringContaining("openrouter.ai"),
       }),
       providerDataPolicy: {
-        allowProviderFallbacks: false,
+        allowProviderFallbacks: true,
         dataCollection: "deny",
         requireZeroDataRetention: false,
       },
@@ -221,7 +221,7 @@ describe("createOriginChatRouter", () => {
         modelId: "google/gemma-4-26b-a4b-it:free",
         freeOnly: true,
         providerDataPolicy: {
-          allowProviderFallbacks: false,
+          allowProviderFallbacks: true,
           dataCollection: "deny",
           requireZeroDataRetention: false,
         },

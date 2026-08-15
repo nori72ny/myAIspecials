@@ -30,9 +30,10 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.requiresOwnerApproval).toBe(false);
     expect(result.plan.taskType).toBe("security");
     expect(result.plan.reason).toContain("品質優位性の主張ではありません");
-    expect(result.plan.reason).toContain("別モデルへの自動切替は行わず");
+    expect(result.plan.reason).toContain("同じ固定モデルの提供経路のみ混雑時の切替を許可し");
+    expect(result.plan.reason).toContain("別モデルへの自動切替は行いません");
     expect(result.plan.providerDataPolicy).toEqual({
-      allowProviderFallbacks: false,
+      allowProviderFallbacks: true,
       dataCollection: "deny",
       requireZeroDataRetention: false,
     });

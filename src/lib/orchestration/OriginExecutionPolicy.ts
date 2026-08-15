@@ -23,7 +23,7 @@ export interface OriginExecutionPolicy {
 }
 
 export interface OriginProviderDataPolicy {
-  allowProviderFallbacks: false;
+  allowProviderFallbacks: true;
   dataCollection: "deny";
   requireZeroDataRetention: false;
 }
@@ -71,7 +71,9 @@ export const DEFAULT_ORIGIN_EXECUTION_POLICY: OriginExecutionPolicy = {
 };
 
 export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = {
-  allowProviderFallbacks: false,
+  // Permit OpenRouter to try another endpoint for this exact fixed model
+  // when the fastest endpoint is overloaded. Model switching remains forbidden.
+  allowProviderFallbacks: true,
   dataCollection: "deny",
   requireZeroDataRetention: false,
 };
@@ -133,7 +135,7 @@ export function buildOriginExecutionPlan(
       estimatedCostUsd: 0,
       timeoutMs: policy.timeoutMs,
       requiresOwnerApproval: false,
-      reason: `依頼を「${taskType}」として分類し、公式情報で無料と確認した固定モデル「${model.modelId}」を選択しました。別モデルへの自動切替は行わず、実行後も要求モデルとの一致と利用額0ドルを確認します。これは品質優位性の主張ではありません。`,
+      reason: `依頼を「${taskType}」として分類し、公式情報で無料と確認した固定モデル「${model.modelId}」を選択しました。同じ固定モデルの提供経路のみ混雑時の切替を許可し、別モデルへの自動切替は行いません。実行後も要求モデルとの一致と利用額0ドルを確認します。これは品質優位性の主張ではありません。`,
       providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
       modelEvidence: {
         verifiedAt: model.verifiedAt,
