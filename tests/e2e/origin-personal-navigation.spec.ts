@@ -5,7 +5,7 @@ test.describe('ORIGIN Personal release navigation', () => {
     await page.goto('/');
     await expect(page).toHaveTitle('ORIGIN Personal');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
-    await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./ })).toBeVisible({
+    await expect(page.getByRole('heading', { name: /何を実現したいですか？|What would you like to accomplish\?/ })).toBeVisible({
       timeout: 15_000,
     });
 
@@ -17,7 +17,7 @@ test.describe('ORIGIN Personal release navigation', () => {
     await expect(page.getByTestId('nav-chat')).toHaveText(/チャット|Chat/);
     await expect(page.getByTestId('nav-workspace')).toHaveCount(0);
     await expect(page.getByTestId('nav-memory')).toHaveCount(0);
-    await expect(page.getByRole('main').getByText(/AI利用料 \$0\.00|AI usage \$0\.00/i)).toBeVisible();
+    await expect(page.getByRole('main').getByText(/無料AIのみを使用|uses free AI only/i)).toBeVisible();
 
     await expect(page.getByText(/最近のプロジェクト|Recent projects/)).toHaveCount(0);
     await expect(page.getByText(/ACOS Development|Sales Deck|Marketing|Memory Fragments/)).toHaveCount(0);
