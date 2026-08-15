@@ -73,6 +73,26 @@ describe("buildOriginExecutionPlan", () => {
     }));
   });
 
+  it("keeps legacy client timeout preferences above the server reliability floor", () => {
+    const legacyResult = buildOriginExecutionPlan(
+      request,
+      { openRouterConfigured: true },
+      { maxEstimatedCostUsd: 0, timeoutMs: 45_000 },
+      { nowMs: verifiedNow },
+    );
+    expect(legacyResult.ok).toBe(true);
+    if (legacyResult.ok) expect(legacyResult.plan.timeoutMs).toBe(90_000);
+
+    const explicitLongResult = buildOriginExecutionPlan(
+      request,
+      { openRouterConfigured: true },
+      { maxEstimatedCostUsd: 0, timeoutMs: 120_000 },
+      { nowMs: verifiedNow },
+    );
+    expect(explicitLongResult.ok).toBe(true);
+    if (explicitLongResult.ok) expect(explicitLongResult.plan.timeoutMs).toBe(120_000);
+  });
+
   it("rejects any nonzero cost ceiling and invalid timeout values", () => {
     for (const maxEstimatedCostUsd of [-1, 0.01, 1]) {
       expect(buildOriginExecutionPlan(
