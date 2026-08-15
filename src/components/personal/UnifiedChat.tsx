@@ -179,7 +179,7 @@ type ChatSettings = {
 
 type UnifiedChatProps = {
   initialPrompt?: string;
-  sessionId: string;
+  sessionId?: string;
   settingsOverride?: ChatSettings;
   onSessionUpdated?: () => void;
 };
@@ -318,6 +318,12 @@ export default function UnifiedChat({
   settingsOverride,
   onSessionUpdated,
 }: UnifiedChatProps) {
+  const generatedSessionIdRef = useRef<string>();
+  if (!generatedSessionIdRef.current) {
+    generatedSessionIdRef.current = `origin-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+  const activeSessionId = sessionId ?? generatedSessionIdRef.current;
+
   const settings: ChatSettings = settingsOverride ?? {
     language: 'ja',
     timeoutSeconds: 45,
@@ -329,7 +335,7 @@ export default function UnifiedChat({
     : 'こんにちは。やりたいことを、そのまま入力してください。';
 
   const [messages, setMessages] = useState<Message[]>(() => {
-    const stored = loadChatSession<Message>(sessionId);
+    const stored = loadChatSession<Message>(activeSessionId);
     if (stored?.messages.length) return stored.messages;
     return initialPrompt?.trim()
       ? []
@@ -354,13 +360,13 @@ export default function UnifiedChat({
     if (conversationMessages.length === 0) return;
     const firstRequest = conversationMessages.find((message) => message.role === 'user')?.content ?? '';
     saveChatSession<Message>({
-      id: sessionId,
+      id: activeSessionId,
       title: createChatTitle(firstRequest, isEn ? 'Untitled request' : '無題の依頼'),
       updatedAt: new Date().toISOString(),
       messages,
     });
     onSessionUpdated?.();
-  }, [isEn, messages, onSessionUpdated, sessionId]);
+  }, [activeSessionId, isEn, messages, onSessionUpdated]);
 
   const dispatchAiCoreState = (state: AiCoreState) => {
     window.dispatchEvent(new CustomEvent('aiCoreStateChange', { detail: state }));
