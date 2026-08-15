@@ -545,7 +545,7 @@ describe("createOriginChatRouter", () => {
       schemaVersion: "origin.answer.v1",
       language: "ja",
       verification: expect.objectContaining({
-        status: "not-required",
+        status: "not-run",
         independentReviewPerformed: false,
       }),
       limitations: [
@@ -558,31 +558,39 @@ describe("createOriginChatRouter", () => {
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN アプリ内処理",
       cost: 0,
-      verificationStatus: "not-required",
+      verificationStatus: "not-run",
     }));
     expect(executeMock).not.toHaveBeenCalled();
   });
 
-  it("does not present upcoming AI names as confirmed facts without live search", async () => {
+  it("provides useful future-AI trends without presenting unverified product names", async () => {
     const response = await request(createApp(execute, {})).post("/api/chat").send({
       messages: [{ role: "user", content: "今後出てくる予定のAIは何か詳しく教えて下さい" }],
     });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("今後登場するAIの具体名や時期");
-    expect(response.body.content).toContain("## 最も重要な判断基準");
-    expect(response.body.content).toContain("**提供開始済み**");
+    expect(response.body.content).toContain("## 注目すべき5つの方向性");
+    expect(response.body.content).toContain("**自律型AIエージェント**");
+    expect(response.body.content).toContain("## ORIGINで最優先にすべきこと");
+    expect(response.body.content).toContain("## 情報の確度");
+    expect(response.body.content).toContain("一般的な将来予測");
     expect(response.body.content).not.toContain("| 企業 |");
+    expect(response.body.content).not.toMatch(/GPT-|Claude |Gemini |Grok /);
+    expect(response.body.answer.verification).toEqual({
+      status: "not-run",
+      independentReviewPerformed: false,
+      summary: "最新情報の検索機能が未接続のため、個別製品は確認せず、一般的な技術動向だけを明示して回答しました。",
+    });
     expect(response.body.answer.limitations).toEqual([
-      "将来の時点に依存する主張は取得・確認していません。",
+      "今後登場する個別製品名や公開時期は取得・確認していません。",
     ]);
     expect(response.body.answer.nextActions).toEqual([
-      "最新の一次情報のURLまたは本文を貼り付けると、提示された根拠だけを整理・比較できます。",
+      "ライブ検索接続後、確認日付きで一次情報を照合した公開予定一覧を追加します。",
     ]);
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN アプリ内処理",
       cost: 0,
-      verificationStatus: "not-required",
+      verificationStatus: "not-run",
     }));
     expect(executeMock).not.toHaveBeenCalled();
   });
