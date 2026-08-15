@@ -359,6 +359,12 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。");
         nextActions.push("一次情報の出典を確認してから判断してください。");
       }
+      console.info("[origin-chat] provider request completed", {
+        requestId,
+        durationMs: Math.max(0, now() - startedAt),
+        modelId: planningResult.plan.modelId,
+        costUsd: result.actualCostUsd,
+      });
       return res.json({
         content: result.text,
         answer: answerEnvelope(
@@ -402,6 +408,14 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       });
     } catch (error) {
       if (error instanceof OriginProviderError) {
+        console.warn("[origin-chat] provider request failed", {
+          requestId,
+          durationMs: Math.max(0, now() - startedAt),
+          code: error.code,
+          status: error.status,
+          retryable: error.retryable,
+          diagnostic: error.diagnostic,
+        });
         return res.status(error.status).json({
           code: error.code,
           message: error.message,
@@ -411,6 +425,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           requestId,
         });
       }
+      console.error("[origin-chat] unexpected provider failure", {
+        requestId,
+        durationMs: Math.max(0, now() - startedAt),
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
       return res.status(500).json({
         code: "PROVIDER_INTERNAL_ERROR",
         message: "無料AIとの通信に失敗しました。",
