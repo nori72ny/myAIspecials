@@ -182,6 +182,37 @@ describe("executeOriginProvider", () => {
     expect(continuationBody.messages.at(-1).content).toContain("途切れた箇所から最後まで");
   });
 
+  it("removes a repeated continuation heading and overlapping list item", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({
+        choices: [{
+          message: { content: "## 重要点\n\n- 推論AI\n- エージェントAI" },
+          finish_reason: "length",
+        }],
+      })), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({
+        choices: [{
+          message: { content: "## 重要点（続き）\n\n- エージェントAI\n- オンデバイスAI" },
+          finish_reason: "stop",
+        }],
+      })), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+
+    const result = await executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    );
+
+    expect(result.text).toBe("## 重要点\n\n- 推論AI\n- エージェントAI\n- オンデバイスAI");
+    expect(result.text.match(/エージェントAI/g)).toHaveLength(1);
+  });
+
   it("fails closed instead of displaying a partial answer after the continuation limit", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload({
       choices: [{ message: { content: "まだ続く回答です。" }, finish_reason: "length" }],

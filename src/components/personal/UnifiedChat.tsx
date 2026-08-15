@@ -324,6 +324,56 @@ function processingStatus(seconds: number, isEn: boolean): string {
   return isEn ? 'Checking and finishing the answer' : '回答を確認・仕上げ中';
 }
 
+function markdownTableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function mobileFriendlyMarkdown(source: string): string {
+  const lines = source.replace(/\r\n/g, '\n').split('\n');
+  const rendered: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const headerLine = lines[index];
+    const separatorLine = lines[index + 1] ?? '';
+    const headers = markdownTableCells(headerLine);
+    const separators = markdownTableCells(separatorLine);
+    const isTable = headerLine.includes('|')
+      && separators.length === headers.length
+      && separators.length > 1
+      && separators.every((cell) => /^:?-{3,}:?$/.test(cell));
+
+    if (!isTable) {
+      rendered.push(headerLine);
+      continue;
+    }
+
+    const rows: string[][] = [];
+    index += 2;
+    while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
+      const cells = markdownTableCells(lines[index]);
+      if (cells.length === headers.length) rows.push(cells);
+      index += 1;
+    }
+    index -= 1;
+
+    for (const row of rows) {
+      const title = row[0] || headers[0];
+      rendered.push(`- **${headers[0]}：${title}**`);
+      for (let column = 1; column < headers.length; column += 1) {
+        if (row[column]) rendered.push(`  - **${headers[column]}：** ${row[column]}`);
+      }
+    }
+    rendered.push('');
+  }
+
+  return rendered.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function SafeMarkdown({
   children,
   isEn,
@@ -334,6 +384,39 @@ function SafeMarkdown({
   return (
     <ReactMarkdown
       components={{
+        h1: ({ children: heading }) => (
+          <h2 className="mb-3 mt-7 text-xl font-semibold leading-snug text-origin-ink first:mt-0">{heading}</h2>
+        ),
+        h2: ({ children: heading }) => (
+          <h2 className="mb-3 mt-7 text-lg font-semibold leading-snug text-origin-ink first:mt-0">{heading}</h2>
+        ),
+        h3: ({ children: heading }) => (
+          <h3 className="mb-2 mt-5 text-base font-semibold leading-snug text-origin-ink">{heading}</h3>
+        ),
+        p: ({ children: paragraph }) => (
+          <p className="mb-4 leading-7 last:mb-0">{paragraph}</p>
+        ),
+        ul: ({ children: items }) => (
+          <ul className="mb-4 list-disc space-y-2 pl-5 marker:text-origin-brand">{items}</ul>
+        ),
+        ol: ({ children: items }) => (
+          <ol className="mb-4 list-decimal space-y-2 pl-5 marker:font-semibold marker:text-origin-brand">{items}</ol>
+        ),
+        li: ({ children: item }) => <li className="pl-1 leading-7">{item}</li>,
+        strong: ({ children: text }) => <strong className="font-semibold text-origin-ink">{text}</strong>,
+        blockquote: ({ children: quote }) => (
+          <blockquote className="my-4 border-l-2 border-origin-brand pl-4 text-origin-muted">{quote}</blockquote>
+        ),
+        a: ({ children: label, href }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="font-medium text-origin-brand underline decoration-origin-brand/40 underline-offset-2"
+          >
+            {label}
+          </a>
+        ),
         img: ({ alt }) => (
           <span
             role="note"
@@ -346,7 +429,7 @@ function SafeMarkdown({
         ),
       }}
     >
-      {children}
+      {mobileFriendlyMarkdown(children)}
     </ReactMarkdown>
   );
 }

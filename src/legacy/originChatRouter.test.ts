@@ -563,6 +563,30 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
+  it("does not present upcoming AI names as confirmed facts without live search", async () => {
+    const response = await request(createApp(execute, {})).post("/api/chat").send({
+      messages: [{ role: "user", content: "今後出てくる予定のAIは何か詳しく教えて下さい" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("今後登場するAIの具体名や時期");
+    expect(response.body.content).toContain("## 最も重要な判断基準");
+    expect(response.body.content).toContain("**提供開始済み**");
+    expect(response.body.content).not.toContain("| 企業 |");
+    expect(response.body.answer.limitations).toEqual([
+      "将来の時点に依存する主張は取得・確認していません。",
+    ]);
+    expect(response.body.answer.nextActions).toEqual([
+      "最新の一次情報のURLまたは本文を貼り付けると、提示された根拠だけを整理・比較できます。",
+    ]);
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      model: "ORIGIN アプリ内処理",
+      cost: 0,
+      verificationStatus: "not-required",
+    }));
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
   it("does not answer acronym/definition requests like \"AIO対策\" without connected live search", async () => {
     // Regression test: ORIGIN previously guessed conflicting, incorrect definitions for
     // "AIO対策" (a marketing term meaning AI-search/GEO optimization) because the freshness
