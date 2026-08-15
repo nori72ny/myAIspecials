@@ -1,10 +1,18 @@
 import type { OriginRequestIntent } from "./OriginRequestIntent.js";
 
+export type OriginAiRole =
+  | "THINK"
+  | "RESEARCH"
+  | "BUILD"
+  | "ACT"
+  | "VERIFY";
+
 export type OriginWorkStepKind =
   | "understand-goal"
   | "gather-information"
   | "design-output"
   | "create-output"
+  | "execute-action"
   | "verify-output"
   | "deliver-result";
 
@@ -16,6 +24,7 @@ export type OriginWorkStepAvailability =
 export interface OriginAgentWorkStep {
   id: string;
   kind: OriginWorkStepKind;
+  aiRole: OriginAiRole;
   requiredCapability: string;
   availability: OriginWorkStepAvailability;
   reason: string;
@@ -51,6 +60,7 @@ function createOutputStep(output: string, index: number): OriginAgentWorkStep {
     return {
       id: `create-${index + 1}`,
       kind: "create-output",
+      aiRole: "BUILD",
       requiredCapability: "text-generation",
       availability: "available",
       reason: `${output}の内容は現在のテキスト回答内で作成できます。`,
@@ -61,6 +71,7 @@ function createOutputStep(output: string, index: number): OriginAgentWorkStep {
   return {
     id: `create-${index + 1}`,
     kind: "create-output",
+    aiRole: "BUILD",
     requiredCapability: capability,
     availability: "partial",
     reason: `${output}の内容設計はできますが、実ファイルまたは実行可能成果物の生成経路は未接続です。`,
@@ -71,6 +82,7 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
   const steps: OriginAgentWorkStep[] = [{
     id: "understand-goal",
     kind: "understand-goal",
+    aiRole: "THINK",
     requiredCapability: "goal-understanding",
     availability: "available",
     reason: "依頼の表現だけでなく、達成したい目的を整理します。",
@@ -80,6 +92,7 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
     steps.push({
       id: "gather-information",
       kind: "gather-information",
+      aiRole: "RESEARCH",
       requiredCapability: "live-research",
       availability: "unavailable",
       reason: "最新情報を取得・検証する検索経路は現在のリリースに接続されていません。",
@@ -90,6 +103,7 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
     steps.push({
       id: "design-output",
       kind: "design-output",
+      aiRole: "THINK",
       requiredCapability: "output-design",
       availability: "available",
       reason: "目的と利用場面に合わせて成果物の構成を設計します。",
@@ -100,9 +114,21 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
     steps.push(createOutputStep(output, index));
   }
 
+  if (intent.requiredCapabilities.includes("computer-action")) {
+    steps.push({
+      id: "execute-action",
+      kind: "execute-action",
+      aiRole: "ACT",
+      requiredCapability: "external-action",
+      availability: "unavailable",
+      reason: "ブラウザ、アプリ、決済、送信などを実行する承認付き操作経路は未接続です。",
+    });
+  }
+
   steps.push({
     id: "verify-output",
     kind: "verify-output",
+    aiRole: "VERIFY",
     requiredCapability: "quality-review",
     availability: intent.requiredCapabilities.includes("research") ? "partial" : "available",
     reason: intent.requiredCapabilities.includes("research")
@@ -114,6 +140,7 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
     steps.push({
       id: "deliver-result",
       kind: "deliver-result",
+      aiRole: "BUILD",
       requiredCapability: "result-presentation",
       availability: intent.requestedOutputs.every((output) => INLINE_TEXT_OUTPUTS.has(output))
         ? "available"
@@ -136,14 +163,16 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
 
 export function originAgentWorkPlanInstruction(plan: OriginAgentWorkPlan): string {
   const steps = plan.steps.map((step, index) =>
-    `${index + 1}. ${step.kind} | ${step.requiredCapability} | ${step.availability} | ${step.reason}`);
+    `${index + 1}. ${step.aiRole} | ${step.kind} | ${step.requiredCapability} | ${step.availability} | ${step.reason}`);
 
   return [
+    "ORIGIN capability roles: THINK=reason and plan; RESEARCH=retrieve and source-check; BUILD=create content or artifacts; ACT=operate external systems with approval; VERIFY=critique and validate.",
     "Application work plan (planning guidance; not proof that any step ran):",
     ...steps,
     `- Complete in the current release: ${plan.canCompleteInCurrentRelease ? "yes" : "no"}`,
+    "- Route by required capability and verified service evidence, never by brand preference or an unverified future model name.",
     "- Perform only the available text work in this response.",
     "- For partial or unavailable steps, provide useful preparation when possible and clearly state what was not executed.",
-    "- Never present an uncreated file, uncalled service, unverified search, or unexecuted review as completed.",
+    "- Never present an uncreated file, uncalled service, unverified search, unapproved action, or unexecuted review as completed.",
   ].join("\n");
 }
