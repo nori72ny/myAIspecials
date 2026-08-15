@@ -22,8 +22,8 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto('/');
 
-    await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible({ timeout: 15_000 });
-    const homeInput = page.getByRole('textbox', { name: /やりたいことを入力|Describe what you want help with/i });
+    await expect(page.getByRole('heading', { name: /何を実現したいですか？|What would you like to accomplish\?/i })).toBeVisible({ timeout: 15_000 });
+    const homeInput = page.getByRole('textbox', { name: /実現したいことを入力|Describe what you want to accomplish/i });
     await expect(homeInput).toBeVisible();
     const homeInputBox = await homeInput.boundingBox();
     expect(homeInputBox).not.toBeNull();
@@ -95,7 +95,7 @@ test('Personal release remains usable with reduced motion requested', async ({ p
   await page.goto('/');
 
   expect(await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
-  await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /何を実現したいですか？|What would you like to accomplish\?/i })).toBeVisible();
   await page.getByTestId('compact-chat-button').click();
   await expect(page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/i })).toBeVisible();
 });
@@ -111,7 +111,7 @@ test('Personal home keeps the C+ hierarchy in dark mode on mobile', async ({ pag
   await expect(dialog).toBeHidden();
 
   await expect(page.locator('html')).toHaveClass(/dark/);
-  await expect(page.getByRole('heading', { name: /考えがまとまる前から、始められます。|Start before your thoughts are fully formed\./i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /何を実現したいですか？|What would you like to accomplish\?/i })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await testInfo.attach('personal-home-mobile-390-dark', {
     body: await page.screenshot({ fullPage: true }),
