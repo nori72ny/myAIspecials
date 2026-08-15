@@ -389,6 +389,10 @@ export async function executeOriginProvider(
           temperature: 0.2,
           top_p: 0.9,
           provider: {
+            // Prefer the fastest eligible endpoint for the same fixed model.
+            // Fallbacks remain disabled, so this never changes the model or
+            // silently retries through another provider.
+            sort: "throughput",
             allow_fallbacks: request.plan.providerDataPolicy.allowProviderFallbacks,
             data_collection: request.plan.providerDataPolicy.dataCollection,
           },
