@@ -73,6 +73,15 @@ export type OriginFetch = typeof fetch;
 
 const MAX_COMPLETION_SEGMENTS = 3;
 
+function normalizedContinuationLine(line: string): string {
+  return line
+    .trim()
+    .replace(/^(?:#{1,6}|[-*+]|\d+[.)])\s+/, "")
+    .replace(/[（(]\s*(?:続き|continued)\s*[）)]/gi, "")
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
+}
+
 function mergeContinuation(previous: string, continuation: string): string {
   const left = previous.trimEnd();
   const right = continuation.trimStart();
@@ -81,6 +90,31 @@ function mergeContinuation(previous: string, continuation: string): string {
   for (let length = maximumOverlap; length >= 20; length -= 1) {
     if (left.slice(-length) === right.slice(0, length)) {
       return `${left}${right.slice(length)}`.trim();
+    }
+  }
+
+  const leftLines = left.split("\n");
+  const rightLines = right.split("\n");
+  const firstRightLine = rightLines.findIndex((line) => line.trim().length > 0);
+  if (
+    firstRightLine >= 0
+    && /^#{1,6}\s+/.test(rightLines[firstRightLine])
+    && leftLines.some((line) =>
+      normalizedContinuationLine(line) === normalizedContinuationLine(rightLines[firstRightLine]))
+  ) {
+    rightLines.splice(firstRightLine, 1);
+    while (rightLines[0]?.trim() === "") rightLines.shift();
+  }
+
+  const maximumLineOverlap = Math.min(leftLines.length, rightLines.length, 20);
+  for (let count = maximumLineOverlap; count >= 1; count -= 1) {
+    const leftOverlap = leftLines.slice(-count).map(normalizedContinuationLine);
+    const rightOverlap = rightLines.slice(0, count).map(normalizedContinuationLine);
+    if (
+      leftOverlap.every(Boolean)
+      && leftOverlap.every((line, index) => line === rightOverlap[index])
+    ) {
+      return [...leftLines, ...rightLines.slice(count)].join("\n").trim();
     }
   }
 
@@ -481,7 +515,7 @@ export async function executeOriginProvider(
         { role: "assistant", content: completedText },
         {
           role: "user",
-          content: "直前の回答が出力上限で途切れました。重複や前置きを入れず、途切れた箇所から最後まで続けてください。",
+          content: "直前の回答が出力上限で途切れました。新しい見出し、表、要約、前置きを作らず、途切れた箇所から最後まで不足部分だけを続けてください。すでに書いた文・項目・見出しは一切繰り返さず、短くても必ず完全な文で回答を終えてください。",
         },
       ];
     }
