@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   Activity,
+  History,
   LayoutDashboard,
   Menu,
   MessageSquare,
   Plus,
   Settings as SettingsIcon,
+  Trash2,
   X,
 } from 'lucide-react';
 import type { Settings } from '../../types';
@@ -14,6 +16,12 @@ import { cn } from '../../utils';
 import { DEFAULT_PERSONAL_SETTINGS } from '../../hooks/usePersonalSettings';
 import PersonalDashboard from './PersonalDashboard';
 import UnifiedChat from './UnifiedChat';
+import {
+  createChatSessionId,
+  deleteChatSession,
+  listChatSessions,
+  type StoredChatSession,
+} from './chatHistory';
 
 type ViewState = 'dashboard' | 'chat';
 type AiCoreState =
@@ -48,7 +56,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     return !window.matchMedia(COMPACT_NAVIGATION_QUERY).matches;
   });
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string>();
-  const [chatSessionId, setChatSessionId] = useState(0);
+  const [chatSessionId, setChatSessionId] = useState(() => createChatSessionId());
+  const [chatHistory, setChatHistory] = useState<StoredChatSession[]>(() => listChatSessions());
   const [aiCoreState, setAiCoreState] = useState<AiCoreState>('UNKNOWN');
 
   useEffect(() => {
@@ -83,6 +92,12 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     return () => media.removeEventListener('change', handleViewportChange);
   }, []);
 
+  useEffect(() => {
+    const refreshHistory = () => setChatHistory(listChatSessions());
+    window.addEventListener('originChatHistoryChanged', refreshHistory);
+    return () => window.removeEventListener('originChatHistoryChanged', refreshHistory);
+  }, []);
+
   const closeSidebarOnCompactViewport = () => {
     if (window.matchMedia(COMPACT_NAVIGATION_QUERY).matches) setIsSidebarOpen(false);
   };
@@ -94,15 +109,33 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
 
   const navigateToChat = (initialPrompt?: string) => {
     setChatInitialPrompt(initialPrompt);
+    setChatSessionId(createChatSessionId());
     setCurrentView('chat');
     closeSidebarOnCompactViewport();
   };
 
   const startNewChat = () => {
     setChatInitialPrompt(undefined);
-    setChatSessionId((sessionId) => sessionId + 1);
+    setChatSessionId(createChatSessionId());
     setCurrentView('chat');
     closeSidebarOnCompactViewport();
+  };
+
+  const openHistorySession = (sessionId: string) => {
+    setChatInitialPrompt(undefined);
+    setChatSessionId(sessionId);
+    setCurrentView('chat');
+    closeSidebarOnCompactViewport();
+  };
+
+  const removeHistorySession = (sessionId: string, title: string) => {
+    const confirmed = window.confirm(isEn
+      ? `Delete “${title}” from history?`
+      : `「${title}」を履歴から削除しますか？`);
+    if (!confirmed) return;
+    const remaining = deleteChatSession(sessionId);
+    setChatHistory(remaining);
+    if (chatSessionId === sessionId) startNewChat();
   };
 
   const openSettings = () => {
@@ -232,6 +265,40 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
               <span>{item.label}</span>
             </button>
           ))}
+          <section aria-labelledby="origin-history-heading" className="mt-4 border-t border-origin-border pt-4 dark:border-origin-border">
+            <h2 id="origin-history-heading" className="mb-2 flex items-center gap-2 px-3 text-[13px] font-semibold text-origin-muted dark:text-origin-muted">
+              <History className="h-4 w-4" aria-hidden="true" />
+              <span>{isEn ? 'History' : '履歴'}</span>
+            </h2>
+            {chatHistory.length === 0 ? (
+              <p className="px-3 py-2 text-[13px] leading-5 text-origin-muted dark:text-origin-muted">
+                {isEn ? 'Completed requests will appear here.' : '依頼すると、ここに履歴が表示されます。'}
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {chatHistory.map((session) => (
+                  <li key={session.id} className="group flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openHistorySession(session.id)}
+                      className="min-h-11 min-w-0 flex-1 truncate rounded-xl px-3 py-2 text-left text-sm text-origin-ink outline-none transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-origin-brand dark:text-origin-ink dark:hover:bg-origin-surface-muted"
+                      title={session.title}
+                    >
+                      {session.title}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeHistorySession(session.id, session.title)}
+                      aria-label={isEn ? `Delete ${session.title}` : `${session.title}を削除`}
+                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-origin-muted outline-none transition hover:bg-red-50 hover:text-red-700 focus-visible:ring-2 focus-visible:ring-origin-brand dark:text-origin-muted dark:hover:bg-red-500/10 dark:hover:text-red-300"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </nav>
 
         <div className="shrink-0 border-t border-slate-200 p-4 dark:border-white/10">
@@ -338,6 +405,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
               {currentView === 'chat' && (
                 <UnifiedChat
                   initialPrompt={chatInitialPrompt}
+                  sessionId={chatSessionId}
+                  onSessionUpdated={() => setChatHistory(listChatSessions())}
                   settingsOverride={{
                     language: settings.language,
                     timeoutSeconds: 45,
