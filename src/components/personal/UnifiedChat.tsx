@@ -5,10 +5,14 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
+  History,
+  Plus,
   RefreshCw,
   Send,
   Sparkles,
+  Trash2,
   User,
+  X,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -52,6 +56,48 @@ type Message = {
     retryAfterSeconds?: number;
   };
 };
+
+const CHAT_HISTORY_STORAGE_KEY = 'origin_chat_sessions_v1';
+const MAX_STORED_SESSIONS = 50;
+
+type ChatSession = {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+function newSessionId(): string {
+  return `origin-${Date.now()}-${window.crypto.randomUUID()}`;
+}
+
+function readChatSessions(): ChatSession[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(CHAT_HISTORY_STORAGE_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((session): session is ChatSession => Boolean(
+        session
+        && typeof session.id === 'string'
+        && typeof session.title === 'string'
+        && Array.isArray(session.messages)
+        && typeof session.createdAt === 'string'
+        && typeof session.updatedAt === 'string',
+      ))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, MAX_STORED_SESSIONS);
+  } catch {
+    return [];
+  }
+}
+
+function sessionTitle(messages: Message[], isEn: boolean): string {
+  const firstRequest = messages.find((message) => message.role === 'user')?.content.trim();
+  if (!firstRequest) return isEn ? 'New conversation' : '新しい依頼';
+  return firstRequest.length > 42 ? `${firstRequest.slice(0, 42)}…` : firstRequest;
+}
 
 function parseOriginAnswerEnvelope(value: unknown): OriginAnswerEnvelope | undefined {
   if (!value || typeof value !== 'object') return undefined;
@@ -319,16 +365,21 @@ export default function UnifiedChat({
     ? 'Hello. Describe what you want to do in your own words.'
     : 'こんにちは。やりたいことを、そのまま入力してください。';
 
-  const [messages, setMessages] = useState<Message[]>(() => (
-    initialPrompt?.trim()
-      ? []
-      : [{
-          id: '1',
-          role: 'ai',
-          content: defaultGreeting,
-          kind: 'intro',
-        }]
+  const initialSessionsRef = useRef<ChatSession[]>(readChatSessions());
+  const [sessions, setSessions] = useState<ChatSession[]>(initialSessionsRef.current);
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => (
+    initialPrompt?.trim() ? newSessionId() : initialSessionsRef.current[0]?.id ?? newSessionId()
   ));
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (initialPrompt?.trim()) return [];
+    return initialSessionsRef.current[0]?.messages ?? [{
+      id: '1',
+      role: 'ai',
+      content: defaultGreeting,
+      kind: 'intro',
+    }];
+  });
+  const [showHistory, setShowHistory] = useState(false);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [processingSeconds, setProcessingSeconds] = useState(0);
@@ -340,6 +391,57 @@ export default function UnifiedChat({
 
   const dispatchAiCoreState = (state: AiCoreState) => {
     window.dispatchEvent(new CustomEvent('aiCoreStateChange', { detail: state }));
+  };
+
+  const createNewConversation = () => {
+    if (inFlightRef.current) return;
+    const id = newSessionId();
+    setActiveSessionId(id);
+    setMessages([{
+      id: `intro-${id}`,
+      role: 'ai',
+      content: defaultGreeting,
+      kind: 'intro',
+    }]);
+    setInput('');
+    setShowHistory(false);
+  };
+
+  const openSession = (session: ChatSession) => {
+    if (inFlightRef.current) return;
+    setActiveSessionId(session.id);
+    setMessages(session.messages);
+    setInput('');
+    setShowHistory(false);
+  };
+
+  const deleteSession = (sessionId: string) => {
+    if (inFlightRef.current) return;
+    const confirmed = window.confirm(
+      isEn ? 'Delete this conversation history?' : 'この履歴を削除しますか？',
+    );
+    if (!confirmed) return;
+
+    const nextSessions = sessions.filter((session) => session.id !== sessionId);
+    setSessions(nextSessions);
+    window.localStorage.setItem(CHAT_HISTORY_STORAGE_KEY, JSON.stringify(nextSessions));
+
+    if (sessionId === activeSessionId) {
+      const next = nextSessions[0];
+      if (next) {
+        setActiveSessionId(next.id);
+        setMessages(next.messages);
+      } else {
+        const id = newSessionId();
+        setActiveSessionId(id);
+        setMessages([{
+          id: `intro-${id}`,
+          role: 'ai',
+          content: defaultGreeting,
+          kind: 'intro',
+        }]);
+      }
+    }
   };
 
   const processSend = async (messageList: Message[]) => {
@@ -569,6 +671,27 @@ export default function UnifiedChat({
   };
 
   useEffect(() => {
+    const hasRequest = messages.some((message) => message.role === 'user');
+    if (!hasRequest) return;
+
+    const now = new Date().toISOString();
+    setSessions((previous) => {
+      const existing = previous.find((session) => session.id === activeSessionId);
+      const updated: ChatSession = {
+        id: activeSessionId,
+        title: sessionTitle(messages, isEn),
+        messages,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+      const next = [updated, ...previous.filter((session) => session.id !== activeSessionId)]
+        .slice(0, MAX_STORED_SESSIONS);
+      window.localStorage.setItem(CHAT_HISTORY_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [activeSessionId, messages, isEn]);
+
+  useEffect(() => {
     if (retrySecondsRemaining <= 0) return;
     const timer = window.setInterval(() => {
       setRetrySecondsRemaining((seconds) => Math.max(0, seconds - 1));
@@ -613,7 +736,78 @@ export default function UnifiedChat({
   }, [messages, isTyping]);
 
   return (
-    <div className="origin-chat flex h-full min-h-0 flex-col bg-transparent dark:bg-origin-paper">
+    <div className="origin-chat relative flex h-full min-h-0 flex-col bg-transparent dark:bg-origin-paper">
+      <div className="flex items-center justify-between border-b border-origin-border bg-white/90 px-3 py-2 dark:bg-origin-surface/90 sm:px-6">
+        <button
+          type="button"
+          onClick={() => setShowHistory(true)}
+          className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-origin-brand transition hover:bg-origin-brand-soft"
+          aria-label={isEn ? 'Open conversation history' : '過去の依頼履歴を開く'}
+        >
+          <History className="h-4 w-4" aria-hidden="true" />
+          {isEn ? 'History' : '履歴'}
+          {sessions.length > 0 && (
+            <span className="rounded-full bg-origin-brand-soft px-2 py-0.5 text-xs">{sessions.length}</span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={createNewConversation}
+          disabled={isTyping}
+          className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-origin-brand transition hover:bg-origin-brand-soft disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {isEn ? 'New' : '新規'}
+        </button>
+      </div>
+
+      {showHistory && (
+        <div className="absolute inset-0 z-30 flex bg-black/30" role="presentation" onClick={() => setShowHistory(false)}>
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label={isEn ? 'Conversation history' : '過去の依頼履歴'}
+            className="h-full w-[min(88vw,380px)] overflow-y-auto border-r border-origin-border bg-white shadow-xl dark:bg-origin-surface"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="sticky top-0 flex items-center justify-between border-b border-origin-border bg-white px-4 py-3 dark:bg-origin-surface">
+              <h2 className="font-semibold text-origin-ink">{isEn ? 'History' : '過去の依頼'}</h2>
+              <button type="button" onClick={() => setShowHistory(false)} className="min-h-11 min-w-11 rounded-xl p-2 hover:bg-origin-surface-muted" aria-label={isEn ? 'Close history' : '履歴を閉じる'}>
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+            {sessions.length === 0 ? (
+              <p className="p-5 text-sm text-origin-muted">{isEn ? 'No saved requests yet.' : '保存された依頼はまだありません。'}</p>
+            ) : (
+              <ul className="divide-y divide-origin-border">
+                {sessions.map((session) => (
+                  <li key={session.id} className="flex items-stretch gap-1 p-2">
+                    <button
+                      type="button"
+                      onClick={() => openSession(session)}
+                      className="min-w-0 flex-1 rounded-xl px-3 py-3 text-left hover:bg-origin-surface-muted"
+                    >
+                      <span className="block truncate text-sm font-medium text-origin-ink">{session.title}</span>
+                      <time className="mt-1 block text-xs text-origin-muted">
+                        {new Intl.DateTimeFormat(isEn ? 'en' : 'ja-JP', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(session.updatedAt))}
+                      </time>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteSession(session.id)}
+                      className="min-h-11 min-w-11 self-center rounded-xl p-2 text-origin-muted hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
+                      aria-label={isEn ? `Delete ${session.title}` : `${session.title}を削除`}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+        </div>
+      )}
+
       <div
         ref={scrollRef}
         role="log"

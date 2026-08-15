@@ -32,6 +32,7 @@ async function expectNonRetryableError(title: string, code: string, description:
 describe('UnifiedChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     global.fetch = vi.fn();
   });
 
