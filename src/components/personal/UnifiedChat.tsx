@@ -318,7 +318,7 @@ export default function UnifiedChat({
   settingsOverride,
   onSessionUpdated,
 }: UnifiedChatProps) {
-  const generatedSessionIdRef = useRef<string>();
+  const generatedSessionIdRef = useRef<string | undefined>(undefined);
   if (!generatedSessionIdRef.current) {
     generatedSessionIdRef.current = `origin-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
