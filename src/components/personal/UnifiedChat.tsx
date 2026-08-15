@@ -18,6 +18,11 @@ import {
   type OriginAnswerRichOutput,
 } from '../../lib/orchestration/OriginAnswerEnvelope';
 import { cn } from '../../utils';
+import {
+  createChatTitle,
+  loadChatSession,
+  saveChatSession,
+} from './chatHistory';
 
 type RoutingMetadata = {
   model: string;
@@ -174,7 +179,9 @@ type ChatSettings = {
 
 type UnifiedChatProps = {
   initialPrompt?: string;
+  sessionId: string;
   settingsOverride?: ChatSettings;
+  onSessionUpdated?: () => void;
 };
 
 function verificationLabel(status: RoutingMetadata['verificationStatus'], isEn: boolean): string {
@@ -307,7 +314,9 @@ function SafeMarkdown({
 
 export default function UnifiedChat({
   initialPrompt,
+  sessionId,
   settingsOverride,
+  onSessionUpdated,
 }: UnifiedChatProps) {
   const settings: ChatSettings = settingsOverride ?? {
     language: 'ja',
@@ -319,16 +328,18 @@ export default function UnifiedChat({
     ? 'Hello. Describe what you want to do in your own words.'
     : 'こんにちは。やりたいことを、そのまま入力してください。';
 
-  const [messages, setMessages] = useState<Message[]>(() => (
-    initialPrompt?.trim()
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const stored = loadChatSession<Message>(sessionId);
+    if (stored?.messages.length) return stored.messages;
+    return initialPrompt?.trim()
       ? []
       : [{
           id: '1',
           role: 'ai',
           content: defaultGreeting,
           kind: 'intro',
-        }]
-  ));
+        }];
+  });
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [processingSeconds, setProcessingSeconds] = useState(0);
@@ -337,6 +348,19 @@ export default function UnifiedChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef(false);
   const handledInitialPromptRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const conversationMessages = messages.filter((message) => message.kind !== 'intro');
+    if (conversationMessages.length === 0) return;
+    const firstRequest = conversationMessages.find((message) => message.role === 'user')?.content ?? '';
+    saveChatSession<Message>({
+      id: sessionId,
+      title: createChatTitle(firstRequest, isEn ? 'Untitled request' : '無題の依頼'),
+      updatedAt: new Date().toISOString(),
+      messages,
+    });
+    onSessionUpdated?.();
+  }, [isEn, messages, onSessionUpdated, sessionId]);
 
   const dispatchAiCoreState = (state: AiCoreState) => {
     window.dispatchEvent(new CustomEvent('aiCoreStateChange', { detail: state }));
