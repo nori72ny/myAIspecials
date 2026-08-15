@@ -97,7 +97,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
           </p>
         </div>
 
-        <div className="origin-composer rounded-[1.125rem] border border-origin-control bg-origin-surface p-4 shadow-[0_8px_28px_rgba(22,24,26,0.07)] transition focus-within:border-origin-brand focus-within:ring-2 focus-within:ring-origin-brand/20 dark:border-origin-control dark:bg-origin-surface dark:focus-within:border-origin-brand dark:focus-within:ring-origin-brand/20 sm:p-5">
+        <div className="origin-composer rounded-[1.125rem] border border-origin-control bg-origin-surface p-4 shadow-lg transition focus-within:border-origin-brand focus-within:ring-2 focus-within:ring-origin-brand/20 dark:border-origin-control dark:bg-origin-surface dark:focus-within:border-origin-brand dark:focus-within:ring-origin-brand/20 sm:p-5">
           <label htmlFor="origin-home-request" className="sr-only">
             {isEn ? 'Describe what you want to accomplish' : '実現したいことを入力'}
           </label>
