@@ -165,6 +165,7 @@ export function originServiceAssignmentInstruction(resolved: OriginResolvedWorkP
     ...assignments,
     "- Only assigned services may be treated as available.",
     "- A partial or unavailable role must never be described as executed.",
-    "- Do not substitute another model or service automatically when an assignment is unavailable.",
+    "- Do not substitute another service automatically when an assignment is unavailable.",
+    "- Do not substitute another model automatically; a new model must pass the free-only, quality-evidence, and capability checks first.",
   ].join("\n");
 }
