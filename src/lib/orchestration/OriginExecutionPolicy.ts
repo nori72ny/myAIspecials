@@ -80,10 +80,22 @@ export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = {
 
 function normalizePolicy(policy?: Partial<OriginExecutionPolicy>): OriginExecutionPolicy | null {
   const maxEstimatedCostUsd = policy?.maxEstimatedCostUsd ?? DEFAULT_ORIGIN_EXECUTION_POLICY.maxEstimatedCostUsd;
-  const timeoutMs = policy?.timeoutMs ?? DEFAULT_ORIGIN_EXECUTION_POLICY.timeoutMs;
+  const requestedTimeoutMs = policy?.timeoutMs ?? DEFAULT_ORIGIN_EXECUTION_POLICY.timeoutMs;
 
   if (!Number.isFinite(maxEstimatedCostUsd) || maxEstimatedCostUsd !== 0) return null;
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 120_000) return null;
+  if (
+    !Number.isInteger(requestedTimeoutMs)
+    || requestedTimeoutMs < 1_000
+    || requestedTimeoutMs > 120_000
+  ) return null;
+
+  // The client may retain an older 45-50 second preference in localStorage.
+  // Never let that stale value shorten the production provider window below
+  // the server-owned 90-second reliability floor.
+  const timeoutMs = Math.max(
+    DEFAULT_ORIGIN_EXECUTION_POLICY.timeoutMs,
+    requestedTimeoutMs,
+  );
 
   return {
     freeOnly: true,

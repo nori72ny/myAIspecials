@@ -466,7 +466,9 @@ export default function UnifiedChat({
           userLocation: settings.location,
           executionPolicy: {
             maxEstimatedCostUsd: 0,
-            timeoutMs: Math.max(10, Math.min(120, settings.timeoutSeconds ?? 45)) * 1000,
+            // Keep the client aligned with the server-owned 90-second floor.
+            // Existing devices may still have a legacy 45-50 second value.
+            timeoutMs: Math.max(90, Math.min(120, settings.timeoutSeconds ?? 90)) * 1000,
           },
         }),
       });
