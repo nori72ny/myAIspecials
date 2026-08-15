@@ -69,7 +69,7 @@ type ChatSession = {
 };
 
 function newSessionId(): string {
-  return `origin-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `origin-${Date.now()}-${window.crypto.randomUUID()}`;
 }
 
 function readChatSessions(): ChatSession[] {
