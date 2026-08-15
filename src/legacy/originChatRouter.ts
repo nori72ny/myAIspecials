@@ -97,7 +97,11 @@ function systemInstruction(
 - For consequential decisions, state what the user must independently confirm before acting.${requestGuidance}${workPlanGuidance}${assignmentGuidance}`;
 }
 
-function applicationRouting(requestId: string, reason: string) {
+function applicationRouting(
+  requestId: string,
+  reason: string,
+  verificationStatus: OriginAnswerVerificationStatus = "not-required",
+) {
   return {
     model: "ORIGIN アプリ内処理",
     reason,
@@ -108,7 +112,7 @@ function applicationRouting(requestId: string, reason: string) {
     estimatedCostUsd: 0,
     freeOnly: true,
     traceId: requestId,
-    verificationStatus: "not-required",
+    verificationStatus,
   };
 }
 
@@ -116,6 +120,60 @@ function requiresFutureReleaseInformation(message: string): boolean {
   return /(?:今後|これから|次に).{0,18}(?:登場|出てくる|発売|公開|リリース|提供開始|予定)|(?:登場|発売|公開|リリース|提供開始)予定|次世代.{0,12}(?:AI|モデル)/.test(message)
     || /\b(?:upcoming|forthcoming)\s+(?:AI|models?|releases?)\b/i.test(message)
     || /\b(?:future|next[- ]generation)\s+(?:AI|models?)\b/i.test(message);
+}
+
+function futureAiDirectionGuidance(isEnglish: boolean): string {
+  if (isEnglish) {
+    return `Bottom line: specific upcoming product names and release dates cannot be confirmed without current official-source search. However, five broad directions are worth watching. These are technology trends, not a confirmed release schedule.
+
+## Five important directions
+
+1. **Autonomous AI agents:** systems that plan multi-step work, use tools, and complete tasks with human approval.
+2. **Real-time multimodal AI:** unified understanding and generation across text, voice, images, video, and screen context.
+3. **Smaller on-device models:** faster and more private AI that runs on phones, PCs, vehicles, and business devices.
+4. **Physical AI:** models that connect perception and reasoning to robots, vehicles, and industrial equipment.
+5. **Verification and governance:** source checking, permission controls, audit trails, and human approval becoming part of the product itself.
+
+## What matters most for ORIGIN
+
+- **Official-source search:** verify current announcements before naming products or dates.
+- **Capability-based routing:** select models by search, reasoning, coding, media, cost, and privacy rather than by brand name.
+- **Cross-checking:** separate answer generation, criticism, source validation, and final editing.
+- **Replaceable integrations:** add or remove future models without redesigning ORIGIN.
+
+## Confidence
+
+- **Confirmed product releases:** none were checked in this answer.
+- **Trend analysis:** the five directions above are general technical expectations.
+- **Rumors:** intentionally excluded.
+
+Once live search is connected, ORIGIN should add a dated, primary-source-verified release list above this trend analysis.`;
+  }
+
+  return `結論：今後登場する具体的な製品名や公開時期は、最新の公式情報を検索しなければ確定できません。一方、今後のAIで特に重要になる方向性は5つあります。以下は「発売予定一覧」ではなく、一般的な技術動向です。
+
+## 注目すべき5つの方向性
+
+1. **自律型AIエージェント**：複数工程を計画し、ツールを使い、人の承認を受けながら仕事を完了するAI
+2. **リアルタイム・マルチモーダルAI**：文章・音声・画像・動画・画面情報を一体で理解、生成するAI
+3. **小型・オンデバイスAI**：スマホ、PC、車、業務端末の中で高速かつプライバシーを保って動くAI
+4. **フィジカルAI**：認識と推論をロボット、自動車、製造設備などの物理動作へつなぐAI
+5. **検証・統制AI**：出典確認、権限管理、監査記録、人間の承認を製品機能として組み込むAI
+
+## ORIGINで最優先にすべきこと
+
+- **公式情報を検索する機能**：製品名や公開日を回答する前に、開発元の最新発表を確認する
+- **能力ベースのAI選択**：ブランド名ではなく、検索・推論・コード・画像・費用・プライバシーで選ぶ
+- **役割を分けた検証**：回答生成、批判、出典確認、最終編集を分離する
+- **交換可能な接続方式**：新しいAIが登場してもORIGIN全体を作り直さず追加・削除できるようにする
+
+## 情報の確度
+
+- **確認済みの個別製品**：この回答では確認していません
+- **技術動向**：上記5項目は一般的な将来予測です
+- **噂・未確認モデル名**：誤認防止のため掲載していません
+
+ライブ検索を接続した後は、この技術動向の前に「確認日付き・一次情報確認済みの公開予定一覧」を追加するのが適切です。`;
 }
 
 function requiresCurrentInformation(message: string): boolean {
@@ -231,8 +289,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const reason = "最新データ取得サービスが未接続のため推測を実行しませんでした。";
       return res.json({
         content,
-        answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason),
-        routing: applicationRouting(requestId, reason),
+        answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason),
+        routing: applicationRouting(requestId, reason, "not-run"),
       });
     }
 
@@ -261,26 +319,28 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     if (currentInformationRequired) {
       const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage);
       const content = futureReleaseInformationRequired
-        ? (isEnglish
-          ? "Bottom line: ORIGIN cannot responsibly name or date upcoming AI releases without checking current official announcements. Live search is not connected in this release, so it will not present rumors or possibly outdated model names as confirmed facts.\n\n## What matters most\n\n- **Confirmed releases:** require a current primary-source announcement from the developer.\n- **Announced plans:** must be separated from products that are already generally available.\n- **Rumors and forecasts:** must be labeled as unverified and must not be mixed into the confirmed list.\n\n## What you can do now\n\nPaste official announcement links or text. ORIGIN can then compare the supplied material by status, expected timing, capability, cost, and adoption relevance."
-          : "結論：今後登場するAIの具体名や時期は、最新の公式発表を確認せずに断定できません。この版ではライブ検索が未接続のため、噂や古い可能性があるモデル名を「確定情報」として並べません。\n\n## 最も重要な判断基準\n\n- **提供開始済み**：開発元の最新の一次情報で確認できるもの\n- **公式予告**：発表済みでも、一般提供前のもの\n- **噂・予測**：未確認として明示し、確定情報と混ぜないもの\n\n## 今できること\n\n公式発表のURLまたは本文を貼り付ければ、確度・予想時期・能力・費用・ORIGINへの採用価値の順で、重複なく比較できます。")
+        ? futureAiDirectionGuidance(isEnglish)
         : (isEnglish
           ? "ORIGIN cannot verify current information in this release because live search is not connected. It will not answer from potentially outdated knowledge."
           : "この版では最新情報を確認する検索機能が接続されていないため、古い可能性がある知識だけでは回答しません。");
-      const reason = isEnglish
-        ? "Live search is not connected, so external AI execution was skipped."
-        : "最新情報の検索機能が未接続のため、外部AIを実行しませんでした。";
+      const reason = futureReleaseInformationRequired
+        ? (isEnglish
+          ? "Live search is not connected. No specific future product was verified; only clearly labeled general trends were provided."
+          : "最新情報の検索機能が未接続のため、個別製品は確認せず、一般的な技術動向だけを明示して回答しました。")
+        : (isEnglish
+          ? "Live search is not connected, so current facts were not verified."
+          : "最新情報の検索機能が未接続のため、現在の事実確認を実施しませんでした。");
       const limitations = [futureReleaseInformationRequired
         ? (isEnglish
-          ? "Future time-sensitive claims were not retrieved or checked."
-          : "将来の時点に依存する主張は取得・確認していません。")
+          ? "No specific upcoming product name or release date was retrieved or checked."
+          : "今後登場する個別製品名や公開時期は取得・確認していません。")
         : (isEnglish
           ? "Current facts, prices, news, and other time-sensitive information were not retrieved or checked."
           : "現在の事実、料金、ニュースなど、時点に依存する情報は取得・確認していません。")];
       const nextActions = [futureReleaseInformationRequired
         ? (isEnglish
-          ? "Paste current primary-source links or text and ORIGIN can organize and compare only the supplied evidence."
-          : "最新の一次情報のURLまたは本文を貼り付けると、提示された根拠だけを整理・比較できます。")
+          ? "After live search is connected, add a dated release list verified against primary sources."
+          : "ライブ検索接続後、確認日付きで一次情報を照合した公開予定一覧を追加します。")
         : (isEnglish
           ? "Paste the relevant text from an official source and ORIGIN can organize or compare that supplied content."
           : "公式情報の本文または必要部分を貼り付けると、その内容を整理・比較できます。")];
@@ -289,13 +349,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         answer: answerEnvelope(
           content,
           isEnglish ? "en" : "ja",
-          "not-required",
+          "not-run",
           reason,
           [],
           limitations,
           nextActions,
         ),
-        routing: applicationRouting(requestId, reason),
+        routing: applicationRouting(requestId, reason, "not-run"),
       });
     }
 
