@@ -80,11 +80,15 @@ function systemInstruction(
 - Follow explicit user constraints over generic helpfulness. For rewriting, summarization, or formatting, preserve the supplied meaning and do not add urgency, importance, actions, owners, deadlines, channels, or other facts that were not provided. Preserve ambiguity or mark a placeholder instead of resolving it as fact.
 - When the user asks only for a transformed deliverable, return that deliverable without extra analysis, risks, or follow-up questions unless they explicitly request commentary.
 - Produce requested content now. Ask one concise question only when a missing fact would materially change the result; otherwise state minimal assumptions.
-- Structure for fast scanning: conclusion, useful result, key rationale, and next action. Use headings or a table only when they improve clarity.
+- For explanatory or comparison answers, make the opening block a one-to-three sentence bottom line, followed by three to five prioritized key points. Put the most decision-relevant information first.
+- Write for a phone screen: use short descriptive headings, one idea per paragraph, and compact bullet lists. Do not use a Markdown table unless the user explicitly asks for a table.
+- Use at most six main sections. Remove duplicated headings, repeated claims, generic filler, and repeated summaries.
 - Prefer specific recommendations, examples, and ready-to-use wording over generic advice.
-- Before sending, silently check goal fit, completeness, internal consistency, usability, and unnecessary repetition.
-- Do not invent current facts or claim access to unprovided tools, files, accounts, websites, or services.
-- Separate confirmed facts from assumptions, inferences, and recommendations. State meaningful uncertainty and identify user-supplied facts when relevant.
+- Silently use three passes before answering: draft the answer, challenge its factual support and omissions as a skeptic, then edit for priority, clarity, and completeness. Output only the final answer; this is self-review, not an independent external-AI review.
+- Fit the answer within the available output budget by prioritizing essential content instead of expanding indefinitely. Never restart the answer, repeat an earlier section, or end with a fragment.
+- Before sending, silently check goal fit, factual support, completeness, internal consistency, mobile readability, usability, and unnecessary repetition.
+- Do not invent current or future facts, model names, release dates, or roadmaps, and do not claim access to unprovided tools, files, accounts, websites, or services.
+- Separate confirmed facts, user-provided claims, assumptions, inferences, and recommendations with explicit labels when they could be confused. State meaningful uncertainty.
 - Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence.
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
 - When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line.
@@ -107,8 +111,15 @@ function applicationRouting(requestId: string, reason: string) {
   };
 }
 
+function requiresFutureReleaseInformation(message: string): boolean {
+  return /(?:今後|これから|次に).{0,18}(?:登場|出てくる|発売|公開|リリース|提供開始|予定)|(?:登場|発売|公開|リリース|提供開始)予定|次世代.{0,12}(?:AI|モデル)/.test(message)
+    || /\b(?:upcoming|forthcoming)\s+(?:AI|models?|releases?)\b/i.test(message)
+    || /\b(?:future|next[- ]generation)\s+(?:AI|models?)\b/i.test(message);
+}
+
 function requiresCurrentInformation(message: string): boolean {
-  return /最新(?:の)?(?:情報|ニュース|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果)|今日の(?:ニュース|天気|料金|価格|株価|相場|結果)|現在の(?:ニュース|天気|料金|価格|株価|相場|仕様|バージョン|状況)|料金|価格|リアルタイム/.test(message)
+  return requiresFutureReleaseInformation(message)
+    || /最新(?:の)?(?:情報|ニュース|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果)|今日の(?:ニュース|天気|料金|価格|株価|相場|結果)|現在の(?:ニュース|天気|料金|価格|株価|相場|仕様|バージョン|状況)|料金|価格|リアルタイム/.test(message)
     || /\b(?:news|pricing|prices?|weather|real[- ]time)\b/i.test(message)
     || /\b(?:latest|current|today'?s?)\s+(?:information|news|weather|pricing|prices?|rates?|status|results?|version|model)\b/i.test(message)
     // Short alphabetic acronyms/terms (e.g. AIO, SEO, GEO, DX) followed by "対策" or a definition-seeking
@@ -198,6 +209,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     }
 
     const lastUserMessage = messages[messages.length - 1].content;
+    const futureReleaseInformationRequired = requiresFutureReleaseInformation(lastUserMessage);
     const currentInformationRequired = requiresCurrentInformation(lastUserMessage);
     if (isOriginWeatherRequest(lastUserMessage)) {
       const isEnglish = /[a-zA-Z]/.test(lastUserMessage);
@@ -247,18 +259,30 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
 
     if (currentInformationRequired) {
       const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage);
-      const content = isEnglish
-        ? "ORIGIN cannot verify current information in this release because live search is not connected. It will not answer from potentially outdated knowledge."
-        : "この版では最新情報を確認する検索機能が接続されていないため、古い可能性がある知識だけでは回答しません。";
+      const content = futureReleaseInformationRequired
+        ? (isEnglish
+          ? "Bottom line: ORIGIN cannot responsibly name or date upcoming AI releases without checking current official announcements. Live search is not connected in this release, so it will not present rumors or possibly outdated model names as confirmed facts.\n\n## What matters most\n\n- **Confirmed releases:** require a current primary-source announcement from the developer.\n- **Announced plans:** must be separated from products that are already generally available.\n- **Rumors and forecasts:** must be labeled as unverified and must not be mixed into the confirmed list.\n\n## What you can do now\n\nPaste official announcement links or text. ORIGIN can then compare the supplied material by status, expected timing, capability, cost, and adoption relevance."
+          : "結論：今後登場するAIの具体名や時期は、最新の公式発表を確認せずに断定できません。この版ではライブ検索が未接続のため、噂や古い可能性があるモデル名を「確定情報」として並べません。\n\n## 最も重要な判断基準\n\n- **提供開始済み**：開発元の最新の一次情報で確認できるもの\n- **公式予告**：発表済みでも、一般提供前のもの\n- **噂・予測**：未確認として明示し、確定情報と混ぜないもの\n\n## 今できること\n\n公式発表のURLまたは本文を貼り付ければ、確度・予想時期・能力・費用・ORIGINへの採用価値の順で、重複なく比較できます。")
+        : (isEnglish
+          ? "ORIGIN cannot verify current information in this release because live search is not connected. It will not answer from potentially outdated knowledge."
+          : "この版では最新情報を確認する検索機能が接続されていないため、古い可能性がある知識だけでは回答しません。");
       const reason = isEnglish
         ? "Live search is not connected, so external AI execution was skipped."
         : "最新情報の検索機能が未接続のため、外部AIを実行しませんでした。";
-      const limitations = [isEnglish
-        ? "Current facts, prices, news, and other time-sensitive information were not retrieved or checked."
-        : "現在の事実、料金、ニュースなど、時点に依存する情報は取得・確認していません。"];
-      const nextActions = [isEnglish
-        ? "Paste the relevant text from an official source and ORIGIN can organize or compare that supplied content."
-        : "公式情報の本文または必要部分を貼り付けると、その内容を整理・比較できます。"];
+      const limitations = [futureReleaseInformationRequired
+        ? (isEnglish
+          ? "Future time-sensitive claims were not retrieved or checked."
+          : "将来の時点に依存する主張は取得・確認していません。")
+        : (isEnglish
+          ? "Current facts, prices, news, and other time-sensitive information were not retrieved or checked."
+          : "現在の事実、料金、ニュースなど、時点に依存する情報は取得・確認していません。")];
+      const nextActions = [futureReleaseInformationRequired
+        ? (isEnglish
+          ? "Paste current primary-source links or text and ORIGIN can organize and compare only the supplied evidence."
+          : "最新の一次情報のURLまたは本文を貼り付けると、提示された根拠だけを整理・比較できます。")
+        : (isEnglish
+          ? "Paste the relevant text from an official source and ORIGIN can organize or compare that supplied content."
+          : "公式情報の本文または必要部分を貼り付けると、その内容を整理・比較できます。")];
       return res.json({
         content,
         answer: answerEnvelope(
