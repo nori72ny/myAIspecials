@@ -1,5 +1,40 @@
 import type { OriginAgentWorkPlan, OriginAiRole } from "./OriginAgentWorkPlan.js";
 
+export const ORIGIN_AGENT_ARCHITECTURE_DIMENSIONS = [
+  "planner",
+  "memory",
+  "tool-router",
+  "computer-use",
+  "multi-agent",
+  "verification",
+  "permission",
+  "cost-control",
+  "model-routing",
+  "persistence",
+] as const;
+
+export type OriginAgentArchitectureDimension =
+  typeof ORIGIN_AGENT_ARCHITECTURE_DIMENSIONS[number];
+
+export type OriginAgentArchitectureSupport =
+  | "application-managed"
+  | "service-native"
+  | "unavailable";
+
+export interface OriginAgentArchitectureCapability {
+  support: OriginAgentArchitectureSupport;
+  evidenceIds: readonly string[];
+}
+
+export type OriginAgentArchitectureProfile = Readonly<Record<
+  OriginAgentArchitectureDimension,
+  OriginAgentArchitectureCapability
+>>;
+
+export interface OriginServicePermissionPolicy {
+  externalActions: "deny" | "require-owner-approval";
+}
+
 export interface OriginServiceRegistration {
   id: string;
   label: string;
@@ -9,6 +44,8 @@ export interface OriginServiceRegistration {
   freeOnly: true;
   maxEstimatedCostUsd: 0;
   automaticFallback: false;
+  permissionPolicy: OriginServicePermissionPolicy;
+  architectureProfile: OriginAgentArchitectureProfile;
   qualityEvidence: {
     testIds: readonly string[];
     validatedAt: string;
@@ -22,6 +59,8 @@ export interface OriginWorkStepAssignment {
   serviceId?: string;
   serviceLabel?: string;
   status: "assigned" | "partial" | "unavailable";
+  architectureProfileComplete?: true;
+  externalActionPolicy?: OriginServicePermissionPolicy["externalActions"];
 }
 
 export interface OriginResolvedWorkPlan {
@@ -40,6 +79,8 @@ export type OriginServiceRegistrationResult =
         | "INVALID_ADAPTER"
         | "INVALID_CAPABILITIES"
         | "INVALID_COST_POLICY"
+        | "INVALID_ARCHITECTURE_PROFILE"
+        | "INVALID_PERMISSION_POLICY"
         | "MISSING_QUALITY_EVIDENCE";
     };
 
@@ -58,6 +99,21 @@ export const ORIGIN_TEXT_RUNTIME_SERVICE: OriginServiceRegistration = {
   freeOnly: true,
   maxEstimatedCostUsd: 0,
   automaticFallback: false,
+  permissionPolicy: {
+    externalActions: "deny",
+  },
+  architectureProfile: {
+    planner: { support: "application-managed", evidenceIds: ["origin-agent-work-plan"] },
+    memory: { support: "application-managed", evidenceIds: ["origin-context-policy"] },
+    "tool-router": { support: "application-managed", evidenceIds: ["origin-service-registry"] },
+    "computer-use": { support: "unavailable", evidenceIds: ["origin-external-action-deny"] },
+    "multi-agent": { support: "unavailable", evidenceIds: ["origin-independent-review-not-run"] },
+    verification: { support: "application-managed", evidenceIds: ["origin-review-policy"] },
+    permission: { support: "application-managed", evidenceIds: ["origin-service-registry"] },
+    "cost-control": { support: "application-managed", evidenceIds: ["origin-execution-policy"] },
+    "model-routing": { support: "application-managed", evidenceIds: ["origin-free-model-catalog"] },
+    persistence: { support: "application-managed", evidenceIds: ["origin-chat-history-contract"] },
+  },
   qualityEvidence: {
     testIds: [
       "origin-chat-router",
@@ -67,6 +123,24 @@ export const ORIGIN_TEXT_RUNTIME_SERVICE: OriginServiceRegistration = {
     validatedAt: "2026-07-24",
   },
 };
+
+function hasCompleteArchitectureProfile(
+  profile: OriginAgentArchitectureProfile,
+): boolean {
+  const keys = Object.keys(profile).sort();
+  const required = [...ORIGIN_AGENT_ARCHITECTURE_DIMENSIONS].sort();
+  if (keys.length !== required.length || keys.some((key, index) => key !== required[index])) {
+    return false;
+  }
+
+  return ORIGIN_AGENT_ARCHITECTURE_DIMENSIONS.every((dimension) => {
+    const capability = profile[dimension];
+    return capability
+      && ["application-managed", "service-native", "unavailable"].includes(capability.support)
+      && capability.evidenceIds.length > 0
+      && capability.evidenceIds.every((evidenceId) => evidenceId.trim().length > 0);
+  });
+}
 
 function validateService(registration: OriginServiceRegistration): OriginServiceRegistrationResult {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(registration.id)) return { ok: false, code: "INVALID_SERVICE_ID" };
@@ -78,6 +152,15 @@ function validateService(registration: OriginServiceRegistration): OriginService
   }
   if (registration.freeOnly !== true || registration.maxEstimatedCostUsd !== 0 || registration.automaticFallback !== false) {
     return { ok: false, code: "INVALID_COST_POLICY" };
+  }
+  if (!hasCompleteArchitectureProfile(registration.architectureProfile)) {
+    return { ok: false, code: "INVALID_ARCHITECTURE_PROFILE" };
+  }
+  if (
+    registration.capabilities.includes("external-action")
+    && registration.permissionPolicy.externalActions !== "require-owner-approval"
+  ) {
+    return { ok: false, code: "INVALID_PERMISSION_POLICY" };
   }
   if (registration.available && (registration.qualityEvidence.testIds.length === 0 || !registration.qualityEvidence.validatedAt.trim())) {
     return { ok: false, code: "MISSING_QUALITY_EVIDENCE" };
@@ -101,6 +184,18 @@ export class OriginServiceRegistry {
     this.services.set(registration.id, Object.freeze({
       ...registration,
       capabilities: Object.freeze([...registration.capabilities]),
+      permissionPolicy: Object.freeze({ ...registration.permissionPolicy }),
+      architectureProfile: Object.freeze(Object.fromEntries(
+        ORIGIN_AGENT_ARCHITECTURE_DIMENSIONS.map((dimension) => [
+          dimension,
+          Object.freeze({
+            ...registration.architectureProfile[dimension],
+            evidenceIds: Object.freeze([
+              ...registration.architectureProfile[dimension].evidenceIds,
+            ]),
+          }),
+        ]),
+      )) as OriginAgentArchitectureProfile,
       qualityEvidence: Object.freeze({
         ...registration.qualityEvidence,
         testIds: Object.freeze([...registration.qualityEvidence.testIds]),
@@ -136,6 +231,8 @@ export function resolveOriginAgentWorkPlan(plan: OriginAgentWorkPlan, registry: 
           serviceId: service.id,
           serviceLabel: service.label,
           status: "assigned",
+          architectureProfileComplete: true,
+          externalActionPolicy: service.permissionPolicy.externalActions,
         }
       : {
           stepId: step.id,
@@ -164,8 +261,9 @@ export function originServiceAssignmentInstruction(resolved: OriginResolvedWorkP
     "Application service assignments (routing evidence; not proof of completed execution):",
     ...assignments,
     "- Only assigned services may be treated as available.",
+    "- Every assigned service passed the complete Planner, Memory, Tool Router, Computer Use, Multi-Agent, Verification, Permission, Cost Control, Model Routing, and Persistence profile.",
     "- A partial or unavailable role must never be described as executed.",
     "- Do not substitute another service automatically when an assignment is unavailable.",
-    "- Do not substitute another model automatically; a new model must pass the free-only, quality-evidence, and capability checks first.",
+    "- Do not substitute another model automatically; a new model must pass the free-only, quality-evidence, capability, architecture, and permission checks first.",
   ].join("\n");
 }
