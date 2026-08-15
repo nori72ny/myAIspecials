@@ -38,6 +38,7 @@ export const DEFAULT_ORIGIN_REQUEST_INTENT_CATALOG: OriginRequestIntentCatalog =
     { id: "data-analysis", patterns: [/データ分析|集計|統計|KPI|CSV|予測|\b(?:analytics?|statistics?|forecast)\b/i] },
     { id: "design", patterns: [/UI|UX|デザイン|レイアウト|アクセシビリティ|\bdesign\b/i] },
     { id: "security", patterns: [/セキュリティ|脆弱性|認証|権限|XSS|CORS|\bsecurity\b/i] },
+    { id: "computer-action", patterns: [/(?:ブラウザ|サイト|アプリ|フォーム|メール|カレンダー).{0,16}(?:操作|入力|送信|登録|予約|購入|注文|共有|手配|実行|完了)|(?:予約|購入|注文|送信|登録|共有|手配).{0,8}(?:して|実行|完了)|\b(?:book|buy|order|send|submit|schedule|operate).{0,24}(?:for me|it|this|the form)\b/i] },
   ],
   outputs: [
     { id: "presentation", patterns: [/スライド|プレゼン資料|PowerPoint|\b(?:slides?|presentation)\b/i] },
@@ -69,35 +70,19 @@ function uniqueMatches(input: string, rules: readonly OriginIntentRule[]): strin
 
 function suggestedOutputs(input: string, requested: readonly string[]): string[] {
   const suggestions: string[] = [];
-  if (/比較|候補|選択肢|メリット.{0,3}デメリット|\boptions?\b/i.test(input)) {
-    suggestions.push("comparison");
-  }
-  if (/数値|推移|割合|時系列|KPI|データ分析|\b(?:trend|metrics?)\b/i.test(input)) {
-    suggestions.push("chart");
-  }
-
+  if (/比較|候補|選択肢|メリット.{0,3}デメリット|\boptions?\b/i.test(input)) suggestions.push("comparison");
+  if (/数値|推移|割合|時系列|KPI|データ分析|\b(?:trend|metrics?)\b/i.test(input)) suggestions.push("chart");
   return suggestions.filter((output) => !requested.includes(output));
 }
 
-function interactionMode(
-  input: string,
-  requestedOutputs: readonly string[],
-  catalog: OriginRequestIntentCatalog,
-): OriginInteractionMode {
-  if (catalog.agentWorkflowSignals.some((pattern) => pattern.test(input))) {
-    return "agent-workflow";
-  }
+function interactionMode(input: string, requestedOutputs: readonly string[], catalog: OriginRequestIntentCatalog): OriginInteractionMode {
+  if (catalog.agentWorkflowSignals.some((pattern) => pattern.test(input))) return "agent-workflow";
   return requestedOutputs.length > 0 ? "deliverable" : "conversation";
 }
 
-export function classifyOriginRequestIntent(
-  input: string,
-  primaryTask: AITaskType,
-  catalog: OriginRequestIntentCatalog = DEFAULT_ORIGIN_REQUEST_INTENT_CATALOG,
-): OriginRequestIntent {
+export function classifyOriginRequestIntent(input: string, primaryTask: AITaskType, catalog: OriginRequestIntentCatalog = DEFAULT_ORIGIN_REQUEST_INTENT_CATALOG): OriginRequestIntent {
   const requiredCapabilities = uniqueMatches(input, catalog.capabilities);
   const requestedOutputs = uniqueMatches(input, catalog.outputs);
-
   return {
     primaryTask,
     interactionMode: interactionMode(input, requestedOutputs, catalog),
@@ -108,16 +93,9 @@ export function classifyOriginRequestIntent(
 }
 
 export function originRequestIntentInstruction(intent: OriginRequestIntent): string {
-  const capabilities = intent.requiredCapabilities.length > 0
-    ? intent.requiredCapabilities.join(", ")
-    : "general-reasoning";
-  const requested = intent.requestedOutputs.length > 0
-    ? intent.requestedOutputs.join(", ")
-    : "none";
-  const suggested = intent.suggestedOutputs.length > 0
-    ? intent.suggestedOutputs.join(", ")
-    : "none";
-
+  const capabilities = intent.requiredCapabilities.length > 0 ? intent.requiredCapabilities.join(", ") : "general-reasoning";
+  const requested = intent.requestedOutputs.length > 0 ? intent.requestedOutputs.join(", ") : "none";
+  const suggested = intent.suggestedOutputs.length > 0 ? intent.suggestedOutputs.join(", ") : "none";
   return [
     "Application request analysis (guidance only; not execution evidence):",
     `- Primary task: ${intent.primaryTask}`,
@@ -126,6 +104,6 @@ export function originRequestIntentInstruction(intent: OriginRequestIntent): str
     `- Explicitly requested output types: ${requested}`,
     `- Output types worth considering only if they improve the result: ${suggested}`,
     "- Treat capabilities and output types as extensible. Do not limit the answer to a fixed list of use cases.",
-    "- Do not say that an agent, specialist, tool, search, service, or artifact was used unless the execution record proves it.",
+    "- Do not say that an agent, specialist, tool, search, service, action, or artifact was used unless the execution record proves it.",
   ].join("\n");
 }
