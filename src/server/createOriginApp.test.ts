@@ -95,9 +95,9 @@ describe("createOriginApp provider isolation", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("reports the normalized Vercel deployment SHA ahead of an explicit fallback", async () => {
+  it("reports the release SHA when explicit and provider metadata agree", async () => {
     const response = await request(createOriginApp({
-      ORIGIN_RELEASE_SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      ORIGIN_RELEASE_SHA: "D128F5DCC826D4DFAE83F7B004F38AF1DAD9BC14",
       VERCEL_GIT_COMMIT_SHA: "D128F5DCC826D4DFAE83F7B004F38AF1DAD9BC14",
     })).get("/api/health");
 
@@ -107,6 +107,38 @@ describe("createOriginApp provider isolation", () => {
       service: "acos-2",
       releaseSha: "d128f5dcc826d4dfae83f7b004f38af1dad9bc14",
     });
+  });
+
+  it("returns unknown when explicit release identity conflicts with provider metadata", async () => {
+    const response = await request(createOriginApp({
+      ORIGIN_RELEASE_SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      VERCEL_GIT_COMMIT_SHA: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    })).get("/api/health");
+
+    expect(response.body.releaseSha).toBe("unknown");
+  });
+
+  it("never exposes provider secrets through health", async () => {
+    const secrets = [
+      "sentinel-openrouter-secret",
+      "sentinel-gemini-secret",
+      "sentinel-ai-studio-secret",
+    ];
+    const response = await request(createOriginApp({
+      ORIGIN_RELEASE_SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      OPENROUTER_API_KEY: secrets[0],
+      GEMINI_API_KEY: secrets[1],
+      ORIGIN_AI_STUDIO_API_KEY: secrets[2],
+    })).get("/api/health");
+
+    expect(response.body).toEqual({
+      status: "ok",
+      service: "acos-2",
+      releaseSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    });
+    for (const secret of secrets) {
+      expect(JSON.stringify(response.body)).not.toContain(secret);
+    }
   });
 
   it("keeps the local health path aligned with the production API health path", async () => {

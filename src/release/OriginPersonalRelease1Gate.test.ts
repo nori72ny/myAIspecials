@@ -95,8 +95,11 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(gate).toContain("デプロイについて、マージとは別の明示承認");
     expect(gate).toContain("実費`$0.00`");
     expect(gate).toContain("別モデルや別providerへ自動で切り替えない");
-    expect(gate).toContain("Vercel serverless `api/index.ts` | SELECTED");
-    expect(gate).toContain("Node/Docker `server.ts` | NOT SELECTED");
+    expect(gate).toContain("Standard Cloud Build → Cloud Run container `server.ts` | CANDIDATE / BLOCKED");
+    expect(gate).toContain("AI Studio Starter Tier one-click publish | NOT ELIGIBLE");
+    expect(gate).toContain("Vercel serverless `api/index.ts` | PREVIOUSLY SELECTED / NOT EXECUTED");
+    expect(gate).toContain("Cloud Build triggerは自動作成・有効化せず");
+    expect(gate).toContain("支払方法、billing account、有料trialの追加を要求されない");
     expect(gate).toContain("リリースIDがデプロイ対象のExact SHAと一致する");
   });
 

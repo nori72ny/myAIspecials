@@ -19,6 +19,23 @@ permissions:
   pull-requests: write # Required for PR comments in dependency review
 
 jobs:
+  docker-production-smoke:
+    name: Docker production SHA smoke
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact PR commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Build and start the production container
+        env:
+          SMOKE_RELEASE_SHA: 0123456789abcdef0123456789abcdef01234567
+        run: bash scripts/docker-production-smoke.sh
+
   build-and-test:
     timeout-minutes: 60
     runs-on: ubuntu-latest
