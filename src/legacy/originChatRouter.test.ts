@@ -310,6 +310,28 @@ describe("createOriginChatRouter", () => {
     }));
   });
 
+  it("does not treat a short representative-example question as a request for thin coverage", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "長野県で有名な果物を教えて" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const providerRequest = executeMock.mock.calls[0][0];
+    expect(providerRequest.systemInstruction).toContain(
+      "A short question can require a broad, concrete answer",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "give roughly 6-10 useful examples",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "named varieties, locations, seasons, uses, or other domain-specific details",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "Do not let generic selection tips, cautions, background, or a closing offer displace concrete information",
+    );
+  });
+
   it("exposes provider-supplied HTTPS sources without claiming they were checked", async () => {
     executeMock.mockResolvedValueOnce({
       ...defaultExecutionResult,
