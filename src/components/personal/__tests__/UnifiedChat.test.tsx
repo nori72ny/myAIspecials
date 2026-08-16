@@ -34,6 +34,10 @@ describe('UnifiedChat', () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     global.fetch = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
   });
 
   it('renders the plain Japanese greeting', () => {
@@ -836,5 +840,110 @@ describe('UnifiedChat', () => {
       expect(screen.getByText('外部画像は自動表示しません：確認用画像')).toBeTruthy();
     });
     expect(screen.queryByRole('img', { name: '確認用画像' })).toBeNull();
+  });
+
+  it('copies an answer and offers focused recovery actions after negative feedback', async () => {
+    (global.fetch as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: '最初の回答です。' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: '読みやすく改善しました。' }),
+      });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('回答してください');
+
+    await waitFor(() => expect(screen.getByText('最初の回答です。')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'コピー' }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith('最初の回答です。'));
+    expect(screen.getByText('コピー済み')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '改善が必要' }));
+    expect(screen.getByText('この回答を改善する')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '読みやすく整理' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '精度を再確認' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '別案と比較' })).toBeTruthy();
+
+    const feedback = JSON.parse(window.localStorage.getItem('origin_answer_feedback_v1') || '[]');
+    expect(feedback[0]).toEqual(expect.objectContaining({
+      rating: 'needs-improvement',
+    }));
+    expect(JSON.stringify(feedback)).not.toContain('最初の回答です。');
+
+    fireEvent.click(screen.getByRole('button', { name: '読みやすく整理' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    const secondRequest = JSON.parse((global.fetch as any).mock.calls[1][1].body);
+    expect(secondRequest.messages.at(-1).content).toContain('スマホで読みやすく整理');
+  });
+
+  it('does not duplicate a conclusion already present under a markdown heading', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '従来形式です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: 'A案を推奨します。',
+          answer: '## 結論\n\nA案を推奨します。\n\n## 根拠\n\n条件に最も合います。',
+          evidence: [],
+          verification: {
+            status: 'not-required',
+            independentReviewPerformed: false,
+            summary: '追加確認は不要です。',
+          },
+          limitations: [],
+          nextActions: ['A案を確認してください。'],
+          richOutputs: [],
+        },
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: '回答しました。',
+          timeMs: 10,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-required',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('比較してください');
+
+    await waitFor(() => expect(screen.getByText('条件に最も合います。')).toBeTruthy());
+    expect(screen.getAllByText('A案を推奨します。')).toHaveLength(1);
+    expect(screen.queryByTestId('answer-conclusion')).toBeNull();
+  });
+
+  it('shows the response mode and verification policy from execution evidence', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '比較結果です。',
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: '比較依頼として処理しました。',
+          timeMs: 10,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-required',
+          answerMode: 'decision',
+          verificationLevel: 'evidence-required',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('候補を比較してください');
+    await waitFor(() => expect(screen.getByText('比較結果です。')).toBeTruthy());
+
+    fireEvent.click(screen.getByText('詳細'));
+    expect(screen.getByText('回答形式')).toBeTruthy();
+    expect(screen.getByText('判断支援')).toBeTruthy();
+    expect(screen.getByText('確認方針')).toBeTruthy();
+    expect(screen.getByText('出典確認が必要')).toBeTruthy();
   });
 });

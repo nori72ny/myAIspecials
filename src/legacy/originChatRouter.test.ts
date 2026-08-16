@@ -176,6 +176,8 @@ describe("createOriginChatRouter", () => {
       traceId: "origin-test-trace",
       verificationStatus: "not-run",
       reviewRequired: true,
+      answerMode: "direct",
+      verificationLevel: "independent-review-required",
       reviewReasons: expect.arrayContaining([
         "ユーザーが独立レビューを指定しました。",
         "結果が重要な判断または操作に影響します。",
@@ -278,6 +280,12 @@ describe("createOriginChatRouter", () => {
     expect(providerRequest.systemInstruction).toContain(
       "Do not substitute another service automatically",
     );
+    expect(providerRequest.systemInstruction).toContain(
+      "Answer quality policy:",
+    );
+    expect(providerRequest.systemInstruction).toContain(
+      "Never display invented confidence percentages",
+    );
   });
 
   it("marks low-risk writing as not requiring an independent review", async () => {
@@ -297,6 +305,8 @@ describe("createOriginChatRouter", () => {
       verificationStatus: "not-required",
       reviewRequired: false,
       reviewReasons: [],
+      answerMode: "direct",
+      verificationLevel: "basic",
     }));
   });
 
