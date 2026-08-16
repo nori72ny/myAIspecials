@@ -30,6 +30,10 @@ import {
   isOriginCapabilityQuestion,
 } from "../lib/orchestration/OriginCapabilityGuide.js";
 import {
+  originAnswerQualityInstruction,
+  resolveOriginAnswerQualityPolicy,
+} from "../lib/orchestration/OriginAnswerQualityPolicy.js";
+import {
   originServiceAssignmentInstruction,
   resolveOriginAgentWorkPlan,
   type OriginResolvedWorkPlan,
@@ -67,11 +71,15 @@ function systemInstruction(
   intent?: OriginRequestIntent,
   workPlan?: OriginAgentWorkPlan,
   resolvedPlan?: OriginResolvedWorkPlan,
+  answerQualityInstruction?: string,
 ): string {
   const requestGuidance = intent ? `\n\n${originRequestIntentInstruction(intent)}` : "";
   const workPlanGuidance = workPlan ? `\n\n${originAgentWorkPlanInstruction(workPlan)}` : "";
   const assignmentGuidance = resolvedPlan
     ? `\n\n${originServiceAssignmentInstruction(resolvedPlan)}`
+    : "";
+  const qualityGuidance = answerQualityInstruction
+    ? `\n\n${answerQualityInstruction}`
     : "";
   return `You are ORIGIN Personal AI.
 - Reply in the language used by the user.
@@ -94,7 +102,7 @@ function systemInstruction(
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
 - When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line.
 - Do not use that citation format when the source does not directly support the statement.
-- For consequential decisions, state what the user must independently confirm before acting.${requestGuidance}${workPlanGuidance}${assignmentGuidance}`;
+- For consequential decisions, state what the user must independently confirm before acting.${requestGuidance}${workPlanGuidance}${assignmentGuidance}${qualityGuidance}`;
 }
 
 function applicationRouting(
@@ -411,15 +419,25 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       );
       const workPlan = buildOriginAgentWorkPlan(requestIntent);
       const resolvedPlan = resolveOriginAgentWorkPlan(workPlan);
-      const result = await execute({
-        plan: planningResult.plan,
-        messages: contextResult.window.messages,
-        systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan),
-      });
       const reviewDecision = decideOriginReviewForMessage(
         planningResult.plan.taskType,
         lastUserMessage,
       );
+      const answerQualityPolicy = resolveOriginAnswerQualityPolicy({
+        intent: requestIntent,
+        taskType: planningResult.plan.taskType,
+        independentReviewRequired: reviewDecision.required,
+      });
+      const result = await execute({
+        plan: planningResult.plan,
+        messages: contextResult.window.messages,
+        systemInstruction: systemInstruction(
+          requestIntent,
+          workPlan,
+          resolvedPlan,
+          originAnswerQualityInstruction(answerQualityPolicy),
+        ),
+      });
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required
         ? "not-run"
         : "not-required";
@@ -478,6 +496,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           verificationReason,
           reviewRequired: reviewDecision.required,
           reviewReasons: reviewDecision.reasons,
+          answerMode: answerQualityPolicy.answerMode,
+          verificationLevel: answerQualityPolicy.verificationLevel,
           modelEvidence: planningResult.plan.modelEvidence,
           providerDataPolicy: result.providerDataPolicy,
           providerRouting: result.routingEvidence,

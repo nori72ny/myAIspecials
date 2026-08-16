@@ -3,13 +3,17 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Activity,
   AlertTriangle,
+  Check,
   CheckCircle2,
   ChevronDown,
+  Copy,
   History,
   Plus,
   RefreshCw,
   Send,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   User,
   X,
@@ -38,6 +42,8 @@ type RoutingMetadata = {
   traceId?: string;
   verificationStatus?: 'not-run' | 'not-required' | 'passed' | 'failed' | 'pending';
   verificationReason?: string;
+  answerMode?: 'direct' | 'decision' | 'deliverable' | 'research';
+  verificationLevel?: 'basic' | 'evidence-required' | 'independent-review-required';
 };
 
 type Message = {
@@ -58,7 +64,39 @@ type Message = {
 };
 
 const CHAT_HISTORY_STORAGE_KEY = 'origin_chat_sessions_v1';
+const ANSWER_FEEDBACK_STORAGE_KEY = 'origin_answer_feedback_v1';
 const MAX_STORED_SESSIONS = 50;
+const MAX_STORED_FEEDBACK = 100;
+
+type AnswerFeedbackRating = 'helpful' | 'needs-improvement';
+
+type AnswerFeedbackRecord = {
+  messageId: string;
+  sessionId: string;
+  rating: AnswerFeedbackRating;
+  createdAt: string;
+};
+
+function readAnswerFeedback(): Record<string, AnswerFeedbackRating> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(ANSWER_FEEDBACK_STORAGE_KEY) || '[]');
+    if (!Array.isArray(parsed)) return {};
+    return parsed.slice(0, MAX_STORED_FEEDBACK).reduce<Record<string, AnswerFeedbackRating>>(
+      (ratings, record) => {
+        if (
+          record
+          && typeof record.messageId === 'string'
+          && (record.rating === 'helpful' || record.rating === 'needs-improvement')
+        ) ratings[record.messageId] = record.rating;
+        return ratings;
+      },
+      {},
+    );
+  } catch {
+    return {};
+  }
+}
 
 type ChatSession = {
   id: string;
@@ -178,7 +216,13 @@ function parseOriginAnswerEnvelope(value: unknown): OriginAnswerEnvelope | undef
 function shouldShowSeparateConclusion(answer: OriginAnswerEnvelope): boolean {
   const conclusion = answer.conclusion.trim();
   const body = answer.answer.trim();
-  return conclusion !== body && !body.startsWith(conclusion);
+  const normalizedOpening = body
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^(?:\*\*)?(?:結論|Conclusion|Bottom line)(?:\*\*)?\s*[：:]?\s*/i, '')
+    .replace(/^[*_]+|[*_]+$/g, '')
+    .trim();
+  const normalizedConclusion = conclusion.replace(/^[*_]+|[*_]+$/g, '').trim();
+  return conclusion !== body && !normalizedOpening.startsWith(normalizedConclusion);
 }
 
 function shouldShowVerificationDetails(answer: OriginAnswerEnvelope): boolean {
@@ -300,6 +344,24 @@ function verificationMatchesRouting(
   routing: RoutingMetadata | undefined,
 ): boolean {
   return routing?.verificationStatus === answer.verification.status;
+}
+
+function answerModeLabel(mode: RoutingMetadata['answerMode'], isEn: boolean): string {
+  if (mode === 'decision') return isEn ? 'Decision support' : '判断支援';
+  if (mode === 'deliverable') return isEn ? 'Deliverable' : '成果物';
+  if (mode === 'research') return isEn ? 'Research' : '調査';
+  return isEn ? 'Direct answer' : '直接回答';
+}
+
+function verificationLevelLabel(
+  level: RoutingMetadata['verificationLevel'],
+  isEn: boolean,
+): string {
+  if (level === 'independent-review-required') {
+    return isEn ? 'Independent review required' : '独立確認が必要';
+  }
+  if (level === 'evidence-required') return isEn ? 'Evidence required' : '出典確認が必要';
+  return isEn ? 'Basic quality check' : '基本品質確認';
 }
 
 function answerCompletionAnnouncement(
@@ -468,6 +530,10 @@ export default function UnifiedChat({
   const [processingSeconds, setProcessingSeconds] = useState(0);
   const [completionAnnouncement, setCompletionAnnouncement] = useState('');
   const [retrySecondsRemaining, setRetrySecondsRemaining] = useState(0);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [feedbackByMessage, setFeedbackByMessage] = useState<Record<string, AnswerFeedbackRating>>(
+    readAnswerFeedback,
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef(false);
   const handledInitialPromptRef = useRef<string | null>(null);
@@ -753,6 +819,37 @@ export default function UnifiedChat({
     inFlightRef.current = true;
     setMessages(validMessages);
     await processSend(validMessages);
+  };
+
+  const copyAnswer = async (message: Message) => {
+    const text = message.answer?.answer ?? message.content;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMessageId(message.id);
+      window.setTimeout(() => setCopiedMessageId((current) => (
+        current === message.id ? null : current
+      )), 2_000);
+    } catch {
+      setCopiedMessageId(null);
+    }
+  };
+
+  const recordAnswerFeedback = (messageId: string, rating: AnswerFeedbackRating) => {
+    setFeedbackByMessage((previous) => ({ ...previous, [messageId]: rating }));
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(ANSWER_FEEDBACK_STORAGE_KEY) || '[]');
+      const records: AnswerFeedbackRecord[] = Array.isArray(stored) ? stored : [];
+      const next: AnswerFeedbackRecord[] = [{
+        messageId,
+        sessionId: activeSessionId,
+        rating,
+        createdAt: new Date().toISOString(),
+      }, ...records.filter((record) => record?.messageId !== messageId)]
+        .slice(0, MAX_STORED_FEEDBACK);
+      window.localStorage.setItem(ANSWER_FEEDBACK_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Feedback is optional and must never block the conversation.
+    }
   };
 
   useEffect(() => {
@@ -1119,6 +1216,87 @@ export default function UnifiedChat({
                         )}
                       </div>
                     )}
+
+                    {message.role === 'ai' && message.kind !== 'intro' && (
+                      <section
+                        data-testid="answer-actions"
+                        aria-label={isEn ? 'Answer actions' : '回答への操作'}
+                        className="mt-6 flex flex-wrap items-center gap-2 border-t border-origin-border pt-4"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => void copyAnswer(message)}
+                          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-[13px] font-medium text-origin-muted transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-origin-brand"
+                        >
+                          {copiedMessageId === message.id
+                            ? <Check className="h-4 w-4 text-origin-success" aria-hidden="true" />
+                            : <Copy className="h-4 w-4" aria-hidden="true" />}
+                          {copiedMessageId === message.id
+                            ? (isEn ? 'Copied' : 'コピー済み')
+                            : (isEn ? 'Copy' : 'コピー')}
+                        </button>
+                        <span className="ml-auto text-[13px] text-origin-muted">
+                          {isEn ? 'Was this useful?' : '役に立ちましたか？'}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={isEn ? 'Helpful' : '役に立った'}
+                          aria-pressed={feedbackByMessage[message.id] === 'helpful'}
+                          onClick={() => recordAnswerFeedback(message.id, 'helpful')}
+                          className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-origin-muted transition hover:bg-origin-surface-muted aria-pressed:bg-origin-brand-soft aria-pressed:text-origin-brand focus-visible:ring-2 focus-visible:ring-origin-brand"
+                        >
+                          <ThumbsUp className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={isEn ? 'Needs improvement' : '改善が必要'}
+                          aria-pressed={feedbackByMessage[message.id] === 'needs-improvement'}
+                          onClick={() => recordAnswerFeedback(message.id, 'needs-improvement')}
+                          className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-origin-muted transition hover:bg-origin-surface-muted aria-pressed:bg-origin-brand-soft aria-pressed:text-origin-brand focus-visible:ring-2 focus-visible:ring-origin-brand"
+                        >
+                          <ThumbsDown className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        {feedbackByMessage[message.id] === 'needs-improvement' && (
+                          <div className="basis-full rounded-xl bg-origin-surface-muted p-3">
+                            <p className="mb-2 text-[13px] font-medium text-origin-ink">
+                              {isEn ? 'Improve this answer' : 'この回答を改善する'}
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {[
+                                {
+                                  label: isEn ? 'Make it clearer' : '読みやすく整理',
+                                  prompt: isEn
+                                    ? 'Rewrite the previous answer for a phone screen. Keep the conclusion first, remove repetition, and preserve all important facts.'
+                                    : '直前の回答をスマホで読みやすく整理してください。結論を先にし、重複を削除し、重要な事実は残してください。',
+                                },
+                                {
+                                  label: isEn ? 'Recheck accuracy' : '精度を再確認',
+                                  prompt: isEn
+                                    ? 'Recheck the previous answer. Separate confirmed facts, inference, and unverified points, and correct unsupported claims.'
+                                    : '直前の回答の精度を再確認してください。確認済み事実・推測・未確認事項を分け、根拠のない主張を修正してください。',
+                                },
+                                {
+                                  label: isEn ? 'Compare alternatives' : '別案と比較',
+                                  prompt: isEn
+                                    ? 'Reconsider the previous recommendation against the strongest alternative and show the decisive trade-off concisely.'
+                                    : '直前の推奨案を最も有力な別案と比較し、判断を分ける条件を簡潔に示してください。',
+                                },
+                              ].map((action) => (
+                                <button
+                                  key={action.label}
+                                  type="button"
+                                  disabled={isTyping}
+                                  onClick={() => void handleSend(action.prompt)}
+                                  className="min-h-11 rounded-xl border border-origin-border bg-origin-surface px-3 py-2 text-[13px] font-medium text-origin-ink transition hover:border-origin-brand disabled:opacity-50"
+                                >
+                                  {action.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </section>
+                    )}
                   </div>
                 )}
 
@@ -1168,6 +1346,28 @@ export default function UnifiedChat({
                           </dt>
                           <dd className="min-w-0 break-words text-slate-800 dark:text-neutral-200">
                             {message.routing.verificationReason}
+                          </dd>
+                        </>
+                      )}
+
+                      {message.routing.answerMode && (
+                        <>
+                          <dt className="text-slate-500 dark:text-neutral-500">
+                            {isEn ? 'Answer format' : '回答形式'}
+                          </dt>
+                          <dd className="text-slate-800 dark:text-neutral-200">
+                            {answerModeLabel(message.routing.answerMode, isEn)}
+                          </dd>
+                        </>
+                      )}
+
+                      {message.routing.verificationLevel && (
+                        <>
+                          <dt className="text-slate-500 dark:text-neutral-500">
+                            {isEn ? 'Verification policy' : '確認方針'}
+                          </dt>
+                          <dd className="text-slate-800 dark:text-neutral-200">
+                            {verificationLevelLabel(message.routing.verificationLevel, isEn)}
                           </dd>
                         </>
                       )}
