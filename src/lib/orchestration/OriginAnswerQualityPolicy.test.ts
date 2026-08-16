@@ -54,4 +54,24 @@ describe("OriginAnswerQualityPolicy", () => {
       "Never display invented confidence percentages",
     );
   });
+
+  it("requires concrete breadth for short representative-example questions", () => {
+    const policy = resolveOriginAnswerQualityPolicy({
+      intent: intent(),
+      taskType: "implementation",
+      independentReviewRequired: false,
+    });
+    const instruction = originAnswerQualityInstruction(policy);
+
+    expect(instruction).toContain(
+      "A short question can require a broad, concrete answer",
+    );
+    expect(instruction).toContain("roughly 6-10 useful examples");
+    expect(instruction).toContain(
+      "named varieties, locations, seasons, uses, or other domain-specific details",
+    );
+    expect(instruction).toContain(
+      "Do not let generic selection tips, cautions, background, or a closing offer displace concrete information",
+    );
+  });
 });
