@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import SettingsModal from './components/SettingsModal';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
@@ -8,30 +8,117 @@ import './index.css';
 
 registerOriginServiceWorker();
 
+const HISTORY_EXPORT_VERSION = 1;
+
+type ConversationMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+function parseImportedHistory(value: unknown): ConversationMessage[] {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as { messages?: unknown }).messages)) {
+    throw new Error('無効な会話履歴ファイルです。');
+  }
+  const messages = (value as { messages: unknown[] }).messages;
+  if (messages.length > 500) throw new Error('会話履歴が大きすぎます。');
+
+  return messages.map((message, index) => {
+    if (!message || typeof message !== 'object') throw new Error(`会話履歴 ${index + 1} 件目が無効です。`);
+    const candidate = message as Partial<ConversationMessage>;
+    if (candidate.role !== 'user' && candidate.role !== 'assistant' || typeof candidate.content !== 'string') {
+      throw new Error(`会話履歴 ${index + 1} 件目が無効です。`);
+    }
+    return {
+      id: typeof candidate.id === 'string' && candidate.id.length <= 128 ? candidate.id : `import-${index}-${Date.now()}`,
+      role: candidate.role,
+      content: candidate.content.slice(0, 50_000),
+    };
+  });
+}
+
 function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [resetSignal, setResetSignal] = useState(0);
+  const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false);
+  const [updateReady, setUpdateReady] = useState(false);
+
+  const resolvedTheme = useMemo(() => (
+    settings.selectedTheme === 'dark' || settings.selectedTheme === 'light'
+      ? settings.selectedTheme
+      : (systemPrefersDark ? 'dark' : 'light')
+  ), [settings.selectedTheme, systemPrefersDark]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches);
+    setSystemPrefersDark(media.matches);
+    media.addEventListener?.('change', onChange);
+    return () => media.removeEventListener?.('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    const announceUpdate = () => setUpdateReady(true);
+    window.addEventListener('origin:pwa-update-ready', announceUpdate);
+    return () => window.removeEventListener('origin:pwa-update-ready', announceUpdate);
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
-    const useLightTheme = settings.selectedTheme === 'light';
     root.lang = settings.language;
-    root.classList.toggle('light', useLightTheme);
-    root.classList.toggle('dark', !useLightTheme);
-  }, [settings.language, settings.selectedTheme]);
+    root.dataset.theme = resolvedTheme;
+    root.classList.toggle('light', resolvedTheme === 'light');
+    root.classList.toggle('dark', resolvedTheme === 'dark');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#111827' : '#f7f6f2');
+  }, [settings.language, resolvedTheme]);
+
+  const exportHistory = () => {
+    const payload = JSON.stringify({ version: HISTORY_EXPORT_VERSION, exportedAt: new Date().toISOString(), messages }, null, 2);
+    const anchor = document.createElement('a');
+    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json;charset=utf-8' }));
+    anchor.href = url;
+    anchor.download = `origin-personal-history-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importHistory = async (file: File) => {
+    if (file.size > 1_500_000) throw new Error('ファイルが大きすぎます。1.5MB以下のJSONを選択してください。');
+    const parsed = parseImportedHistory(JSON.parse(await file.text()));
+    setMessages(parsed);
+  };
+
+  const resetConversation = () => {
+    setMessages([]);
+    setResetSignal((value) => value + 1);
+  };
 
   return (
     <>
       <PersonalEditionApp
         settings={settings}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        messages={messages}
+        onMessagesChange={setMessages}
+        resetSignal={resetSignal}
       />
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         updateSettings={updateSettings}
+        messageCount={messages.length}
+        onExportHistory={exportHistory}
+        onImportHistory={importHistory}
+        onResetHistory={resetConversation}
       />
+      {updateReady && (
+        <p role="status" className="origin-pwa-update-notice">
+          最新版を次回の起動時に安全に適用します。現在の入力内容はそのまま保持されます。
+        </p>
+      )}
     </>
   );
 }
