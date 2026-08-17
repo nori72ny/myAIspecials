@@ -1,61 +1,32 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PERSONAL_SETTINGS } from '../../../hooks/usePersonalSettings';
 import PersonalEditionApp from '../PersonalEditionApp';
 
-describe('PersonalEditionApp mobile navigation', () => {
-  let viewportListener: ((event: MediaQueryListEvent) => void) | undefined;
-
-  beforeEach(() => {
-    viewportListener = undefined;
-    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
-      matches: query === '(max-width: 1023px)',
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn((event: string, listener: (event: MediaQueryListEvent) => void) => {
-        if (event === 'change') viewportListener = listener;
-      }),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })));
-  });
-
-  it('keeps the compact navigation focused on home, chat, and settings', async () => {
+describe('PersonalEditionApp for ORIGIN Personal 2.0', () => {
+  it('renders the Personal 2.0 core identity and all four starter cards', () => {
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} />);
 
-    expect(screen.getAllByText('Personal')).toHaveLength(2);
-    const navigation = document.querySelector<HTMLElement>(
-      'aside[aria-label="メインナビゲーション"]',
-    );
-    expect(navigation).not.toBeNull();
-    if (!navigation) throw new Error('Mobile navigation was not rendered.');
-    expect(navigation.getAttribute('aria-hidden')).toBe('true');
-    expect(navigation.hasAttribute('inert')).toBe(true);
-
-    expect(screen.getByTestId('compact-home-button')).toBeTruthy();
-    expect(screen.getByTestId('compact-chat-button')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '設定を開く' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'メニューを開く' }).className).toContain('hidden');
-
-    fireEvent.click(screen.getByTestId('compact-chat-button'));
-    await waitFor(() => expect(screen.getByLabelText('ORIGINへの依頼')).toBeTruthy());
+    expect(screen.getAllByText('ORIGIN', { exact: true }).length).toBeGreaterThan(0);
+    expect(screen.getByText('Personal 2.0', { exact: true })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '何を実現したいですか？' })).toBeTruthy();
+    expect(screen.getByTestId('origin-home-request')).toBeTruthy();
+    expect(screen.getByTestId('starter-0').textContent).toContain('整理する');
+    expect(screen.getByTestId('starter-1').textContent).toContain('比較する');
+    expect(screen.getByTestId('starter-2').textContent).toContain('文章にする');
+    expect(screen.getByTestId('starter-3').textContent).toContain('計画する');
   });
 
-  it('keeps navigation aligned when the viewport crosses the tablet breakpoint', () => {
-    render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} />);
-    const navigation = document.querySelector<HTMLElement>(
-      'aside[aria-label="メインナビゲーション"]',
+  it('preserves the production settings handoff', () => {
+    const onOpenSettings = vi.fn();
+    render(
+      <PersonalEditionApp
+        settings={DEFAULT_PERSONAL_SETTINGS}
+        onOpenSettings={onOpenSettings}
+      />,
     );
-    if (!navigation) throw new Error('Navigation was not rendered.');
 
-    expect(navigation.getAttribute('aria-hidden')).toBe('true');
-
-    act(() => viewportListener?.({ matches: false } as MediaQueryListEvent));
-    expect(navigation.getAttribute('aria-hidden')).toBe('false');
-
-    act(() => viewportListener?.({ matches: true } as MediaQueryListEvent));
-    expect(navigation.getAttribute('aria-hidden')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: '設定を開く' }));
+    expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 });
