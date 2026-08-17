@@ -20,6 +20,7 @@ type PersonalEditionAppProps = {
  * can export, import, and reset the exact production conversation safely.
  */
 const PersonalEditionApp = React.memo(function PersonalEditionApp({
+  settings,
   onOpenSettings,
   messages,
   onMessagesChange,
@@ -31,6 +32,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       messages={messages}
       onMessagesChange={onMessagesChange}
       resetSignal={resetSignal}
+      language={settings?.language ?? 'ja'}
     />
   );
 });
