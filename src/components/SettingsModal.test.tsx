@@ -116,3 +116,50 @@ describe('SettingsModal release identity', () => {
     expect(screen.getByText('確認できません')).toBeTruthy();
   });
 });
+
+
+describe('SettingsModal appearance and history actions', () => {
+  it('persists the system theme choice through the settings handoff', async () => {
+    const updateSettings = vi.fn();
+    mockHealth({ releaseSha: RELEASE_SHA });
+    render(
+      <SettingsModal
+        isOpen
+        onClose={vi.fn()}
+        settings={DEFAULT_PERSONAL_SETTINGS}
+        updateSettings={updateSettings}
+        messageCount={2}
+      />,
+    );
+
+    await screen.findByText('0123456789ab…');
+    fireEvent.click(screen.getByRole('button', { name: 'システム設定' }));
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ selectedTheme: 'system' }));
+    expect(screen.getByRole('button', { name: 'システム設定' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('exposes export and reset controls for the supplied conversation state', async () => {
+    const onExportHistory = vi.fn();
+    const onResetHistory = vi.fn();
+    mockHealth({ releaseSha: RELEASE_SHA });
+    render(
+      <SettingsModal
+        isOpen
+        onClose={vi.fn()}
+        settings={DEFAULT_PERSONAL_SETTINGS}
+        updateSettings={vi.fn()}
+        messageCount={3}
+        onExportHistory={onExportHistory}
+        onResetHistory={onResetHistory}
+      />,
+    );
+
+    await screen.findByText('0123456789ab…');
+    expect(screen.getByText('このブラウザーの会話は現在 3 件です。')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '書き出す' }));
+    fireEvent.click(screen.getByRole('button', { name: '初期化' }));
+    expect(onExportHistory).toHaveBeenCalledOnce();
+    expect(onResetHistory).toHaveBeenCalledOnce();
+    expect(screen.getByText('会話履歴を初期化しました。')).toBeTruthy();
+  });
+});
