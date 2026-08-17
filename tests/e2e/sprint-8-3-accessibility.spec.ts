@@ -12,7 +12,13 @@ async function openSettings(page: import('@playwright/test').Page) {
   return { opener, dialog };
 }
 
-test.describe('ORIGIN Personal release accessibility', () => {
+async function openConversation(page: import('@playwright/test').Page) {
+  await page.getByTestId('origin-home-request').fill('アクセシビリティを確認したい');
+  await page.getByTestId('start-request-button').click();
+  await expect(page.getByTestId('origin-chat-request')).toBeVisible();
+}
+
+test.describe('ORIGIN Personal 2.0 accessibility', () => {
   test('settings dialog traps focus and restores the opener on Escape', async ({ page }) => {
     await page.goto('/');
     const { opener, dialog } = await openSettings(page);
@@ -45,32 +51,30 @@ test.describe('ORIGIN Personal release accessibility', () => {
   });
 
   test('chat input exposes keyboard and secret guidance programmatically', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'text/plain', body: '確認しました。' });
+    });
     await page.goto('/');
-    await page.getByTestId('nav-chat').click();
+    await openConversation(page);
 
-    const input = page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/i });
+    const input = page.getByTestId('origin-chat-request');
     await expect(input).toHaveAttribute('aria-describedby', 'origin-chat-guidance');
-    await expect(page.locator('#origin-chat-guidance')).toContainText(/Enterで送信|Enter to send/);
-    await expect(page.locator('#origin-chat-guidance')).toContainText(/パスワードやAPIキー|passwords or API keys/i);
+    await expect(page.locator('#origin-chat-guidance')).toContainText(/Control|Command/);
+    await expect(page.locator('#origin-chat-guidance')).toContainText(/パスワードやAPIキー/);
   });
 
   test('conversation log announces completion without reading the full answer automatically', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'text/plain', body: '天気を確認しました。' });
+    });
     await page.goto('/');
-    await page.getByTestId('nav-chat').click();
+    await openConversation(page);
 
-    const log = page.getByRole('log', { name: /会話履歴|Conversation history/i });
+    const log = page.getByRole('log', { name: '会話履歴' });
     await expect(log).toHaveAttribute('aria-live', 'off');
     await expect(log).toHaveAttribute('aria-busy', 'false');
-
-    const input = page.getByRole('textbox', { name: /ORIGINへの依頼|Request to ORIGIN/i });
-    await input.fill('天気');
-    await page.getByRole('button', { name: /依頼を送信|Send request/i }).click();
-
-    await expect(page.getByTestId('response-announcement')).toContainText(
-      /ORIGINの回答が届きました|ORIGIN’s answer is ready/i,
-    );
-    await expect(log).toHaveAttribute('aria-busy', 'false');
-    await expect(page.getByRole('article', { name: /あなたの依頼|Your request/i })).toBeVisible();
+    await expect(page.getByTestId('response-announcement')).toContainText('ORIGINの回答が届きました');
+    await expect(page.getByRole('article', { name: 'あなたの依頼' })).toBeVisible();
   });
 
   test('language controls have pressed state and update the interface', async ({ page }) => {
