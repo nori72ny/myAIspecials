@@ -1,24 +1,38 @@
 import React from 'react';
 import App from '../../App';
+import type { ConversationMessage } from '../../App';
 import type { Settings } from '../../types';
 
 type PersonalEditionAppProps = {
   onSwitchToEnterprise?: () => void;
   settings?: Settings;
   onOpenSettings?: () => void;
+  messages?: ConversationMessage[];
+  onMessagesChange?: (messages: ConversationMessage[]) => void;
+  resetSignal?: number;
 };
 
 /**
  * Production entry surface for ORIGIN Personal.
  *
- * The Personal 2.0 interface lives in `src/App.tsx`; composing it here keeps
- * the production entrypoint and the standalone application implementation in
- * lockstep while preserving the settings modal owned by `src/main.tsx`.
+ * Personal 2.0 is rendered here as the single, shared application implementation.
+ * Conversation state is intentionally owned by the release root so settings actions
+ * can export, import, and reset the exact production conversation safely.
  */
 const PersonalEditionApp = React.memo(function PersonalEditionApp({
   onOpenSettings,
+  messages,
+  onMessagesChange,
+  resetSignal,
 }: PersonalEditionAppProps) {
-  return <App onOpenSettings={onOpenSettings} />;
+  return (
+    <App
+      onOpenSettings={onOpenSettings}
+      messages={messages}
+      onMessagesChange={onMessagesChange}
+      resetSignal={resetSignal}
+    />
+  );
 });
 
 export default PersonalEditionApp;
