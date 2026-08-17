@@ -1,5 +1,9 @@
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
+function announceUpdateReady() {
+  window.dispatchEvent(new CustomEvent('origin:pwa-update-ready'));
+}
+
 export function registerOriginServiceWorker(): void {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
     return;
@@ -17,19 +21,30 @@ export function registerOriginServiceWorker(): void {
       const activateWaitingWorker = (candidate: ServiceWorkerRegistration) => {
         candidate.waiting?.postMessage({ type: 'SKIP_WAITING' });
       };
+      const checkForUpdate = () => {
+        void registration.update().catch(() => {
+          // A temporary update-check failure must not interrupt the application.
+        });
+      };
 
-      // Activate a worker left waiting by a previous session, but never reload
-      // the current document. The active UI keeps running and the new worker
-      // controls the next navigation, so a fast user cannot lose a draft.
+      // A worker that was waiting before this launch is safe to activate: the
+      // current document is a fresh session and we never force a reload.
       if (registration.waiting) {
         activateWaitingWorker(registration);
       }
 
-      window.setInterval(() => {
-        void registration.update().catch(() => {
-          // A temporary update-check failure must not interrupt the application.
+      registration.addEventListener('updatefound', () => {
+        const installing = registration.installing;
+        installing?.addEventListener('statechange', () => {
+          if (installing.state === 'installed' && registration.waiting) {
+            // Keep the current draft intact. The next app launch activates it.
+            announceUpdateReady();
+          }
         });
-      }, UPDATE_CHECK_INTERVAL_MS);
+      });
+
+      window.setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
+      window.addEventListener('online', checkForUpdate);
     }).catch(() => {
       // PWA registration failure must not interrupt the application UI.
     });
