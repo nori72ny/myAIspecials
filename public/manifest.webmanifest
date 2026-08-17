@@ -1,14 +1,18 @@
 {
   "id": "/",
-  "name": "ORIGIN Personal",
+  "name": "ORIGIN Personal (ACOS 2.0)",
   "short_name": "ORIGIN",
-  "description": "無料AIだけを使用する個人向けAIワークスペース",
+  "description": "無料AIだけを使用する、プライバシー重視の個人向けAIワークスペース",
   "lang": "ja",
+  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
   "background_color": "#f7f6f2",
   "theme_color": "#1f4765",
+  "categories": ["productivity", "utilities"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/pwa-192.png",
