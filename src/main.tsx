@@ -9,6 +9,7 @@ import './index.css';
 registerOriginServiceWorker();
 
 const HISTORY_EXPORT_VERSION = 1;
+const HISTORY_STORAGE_KEY = 'origin_personal_history';
 
 type ConversationMessage = {
   id: string;
@@ -37,10 +38,19 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
   });
 }
 
+function loadStoredHistory(): ConversationMessage[] {
+  try {
+    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    return raw ? parseImportedHistory(JSON.parse(raw)) : [];
+  } catch {
+    return [];
+  }
+}
+
 function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [messages, setMessages] = useState<ConversationMessage[]>(loadStoredHistory);
   const [resetSignal, setResetSignal] = useState(0);
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false);
   const [updateReady, setUpdateReady] = useState(false);
@@ -74,6 +84,15 @@ function PersonalReleaseRoot() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#111827' : '#f7f6f2');
   }, [settings.language, resolvedTheme]);
 
+  useEffect(() => {
+    try {
+      if (messages.length) window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ version: HISTORY_EXPORT_VERSION, messages }));
+      else window.localStorage.removeItem(HISTORY_STORAGE_KEY);
+    } catch {
+      // History remains available in memory if storage is unavailable.
+    }
+  }, [messages]);
+
   const exportHistory = () => {
     const payload = JSON.stringify({ version: HISTORY_EXPORT_VERSION, exportedAt: new Date().toISOString(), messages }, null, 2);
     const anchor = document.createElement('a');
@@ -88,10 +107,12 @@ function PersonalReleaseRoot() {
     if (file.size > 1_500_000) throw new Error('ファイルが大きすぎます。1.5MB以下のJSONを選択してください。');
     const parsed = parseImportedHistory(JSON.parse(await file.text()));
     setMessages(parsed);
+    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ version: HISTORY_EXPORT_VERSION, messages: parsed }));
   };
 
   const resetConversation = () => {
     setMessages([]);
+    window.localStorage.removeItem(HISTORY_STORAGE_KEY);
     setResetSignal((value) => value + 1);
   };
 
