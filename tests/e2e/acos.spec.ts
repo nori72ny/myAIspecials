@@ -2,15 +2,30 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 test.describe('ORIGIN Personal 2.0 critical journey', () => {
-  test('renders the core identity, Personal 2.0 badge, and four starter cards', async ({ page }) => {
+  test('renders a focused core identity and a spacious command bar without starter-card noise', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('header').getByText('ORIGIN', { exact: true })).toBeVisible();
     await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
-    for (const [index, label] of ['整理する', '比較する', '文章にする', '計画する'].entries()) await expect(page.getByTestId(`starter-${index}`)).toContainText(label);
+    const commandBar = page.getByTestId('origin-home-request');
+    await expect(commandBar).toBeVisible();
+    expect(await commandBar.evaluate((element) => getComputedStyle(element).minHeight)).toBe('56px');
+    await expect(page.locator('[data-testid^="starter-"]')).toHaveCount(0);
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
+  });
+
+  test('shows pulsing ORIGIN thinking feedback immediately after sending', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '完了しました。' });
+    });
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('考えてください');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('origin-thinking')).toContainText('ORIGIN が思考・生成中…');
+    await expect(page.getByTestId('origin-thinking')).toBeHidden({ timeout: 15_000 });
   });
 
   test('uses translated artifact controls, HTML MIME download, and a locked-down preview sandbox', async ({ page }) => {

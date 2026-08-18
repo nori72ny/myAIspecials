@@ -9,7 +9,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
     await expect(page.getByTestId('origin-home-request')).toBeEditable();
-    await expect(page.getByTestId(/^starter-/)).toHaveCount(4);
+    await expect(page.getByTestId(/^starter-/)).toHaveCount(0);
     await expect(page.getByText(/最近のプロジェクト|Recent projects|ACOS Development|Sales Deck|Marketing|Memory Fragments/)).toHaveCount(0);
     await expect(page.getByTestId('nav-dashboard')).toHaveCount(0);
     await expect(page.getByTestId('nav-chat')).toHaveCount(0);
@@ -17,14 +17,15 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByText(/無料AIのみを使用|uses free AI only/i)).toBeVisible();
   });
 
-  test('submits a starter-card request within a compact viewport', async ({ page }) => {
+  test('submits a command-bar request within a compact viewport', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/chat', async (route) => {
       await route.fulfill({ status: 200, contentType: 'text/plain', body: '最初の計画を整理しました。' });
     });
     await page.goto('/');
 
-    await page.getByTestId('starter-3').click();
+    await page.getByTestId('origin-home-request').fill('最初の計画を整理してください');
+    await page.getByTestId('start-request-button').click();
     await expect(page.getByText('最初の計画を整理しました。')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('origin-chat-request')).toBeVisible();
     expect(await page.evaluate(

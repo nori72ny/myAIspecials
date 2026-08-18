@@ -25,7 +25,7 @@ for (const viewport of VIEWPORTS) {
     await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
-    await expect(page.getByTestId(/^starter-/)).toHaveCount(4);
+    await expect(page.getByTestId(/^starter-/)).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
 
     await testInfo.attach(`personal-2-home-${viewport.name}`, {
