@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import SettingsModal from './components/SettingsModal';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
 import { usePersonalSettings } from './hooks/usePersonalSettings';
+import { getTranslations } from './i18n';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import './index.css';
 
@@ -19,16 +20,16 @@ type ConversationMessage = {
 
 function parseImportedHistory(value: unknown): ConversationMessage[] {
   if (!value || typeof value !== 'object' || !Array.isArray((value as { messages?: unknown }).messages)) {
-    throw new Error('無効な会話履歴ファイルです。');
+    throw new Error('invalid-history');
   }
   const messages = (value as { messages: unknown[] }).messages;
-  if (messages.length > 500) throw new Error('会話履歴が大きすぎます。');
+  if (messages.length > 500) throw new Error('history-too-large');
 
   return messages.map((message, index) => {
-    if (!message || typeof message !== 'object') throw new Error(`会話履歴 ${index + 1} 件目が無効です。`);
+    if (!message || typeof message !== 'object') throw new Error(`invalid-history-${index}`);
     const candidate = message as Partial<ConversationMessage>;
     if (candidate.role !== 'user' && candidate.role !== 'assistant' || typeof candidate.content !== 'string') {
-      throw new Error(`会話履歴 ${index + 1} 件目が無効です。`);
+      throw new Error(`invalid-history-${index}`);
     }
     return {
       id: typeof candidate.id === 'string' && candidate.id.length <= 128 ? candidate.id : `import-${index}-${Date.now()}`,
@@ -49,6 +50,7 @@ function loadStoredHistory(): ConversationMessage[] {
 
 function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
+  const t = getTranslations(settings.language);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [messages, setMessages] = useState<ConversationMessage[]>(loadStoredHistory);
   const [resetSignal, setResetSignal] = useState(0);
@@ -104,10 +106,14 @@ function PersonalReleaseRoot() {
   };
 
   const importHistory = async (file: File) => {
-    if (file.size > 1_500_000) throw new Error('ファイルが大きすぎます。1.5MB以下のJSONを選択してください。');
-    const parsed = parseImportedHistory(JSON.parse(await file.text()));
-    setMessages(parsed);
-    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ version: HISTORY_EXPORT_VERSION, messages: parsed }));
+    if (file.size > 1_500_000) throw new Error(t.historyImportFailed);
+    try {
+      const parsed = parseImportedHistory(JSON.parse(await file.text()));
+      setMessages(parsed);
+      window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ version: HISTORY_EXPORT_VERSION, messages: parsed }));
+    } catch {
+      throw new Error(t.historyImportFailed);
+    }
   };
 
   const resetConversation = () => {
@@ -137,7 +143,7 @@ function PersonalReleaseRoot() {
       />
       {updateReady && (
         <p role="status" className="origin-pwa-update-notice">
-          最新版を次回の起動時に安全に適用します。現在の入力内容はそのまま保持されます。
+          {t.pwaUpdateNotice}
         </p>
       )}
     </>
