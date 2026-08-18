@@ -51,7 +51,7 @@ test('Personal 2.0 opens a renderable artifact workspace without overflow', asyn
   const workspace = page.getByTestId('artifact-workspace');
   await expect(workspace).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'プレビューを表示' }).click();
-  await expect(workspace.getByTitle('Preview')).toBeVisible();
+  await expect(workspace.getByTitle('プレビュー')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await testInfo.attach('personal-2-artifact-workspace', {

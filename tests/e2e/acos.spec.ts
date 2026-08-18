@@ -13,30 +13,60 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
   });
 
-  test('supports translated artifact controls and MIME-appropriate download', async ({ page }) => {
-    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を作成しました。\n```html:preview.html\n<div id="artifact-preview">ORIGIN Personal 2.0 preview</div>\n```' }));
+  test('uses translated artifact controls, HTML MIME download, and a locked-down preview sandbox', async ({ page }) => {
+    await page.addInitScript(() => {
+      const originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      (window as Window & { originBlobTypes?: string[] }).originBlobTypes = [];
+      URL.createObjectURL = ((blob: Blob) => {
+        (window as Window & { originBlobTypes?: string[] }).originBlobTypes?.push(blob.type);
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    });
+    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を作成しました。\n```html:preview.html\n<a href="https://example.invalid">ORIGIN Personal 2.0 preview</a>\n```' }));
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('成果物を作成したい');
     await page.getByTestId('start-request-button').click();
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: 'プレビューを表示' }).click();
-    await expect(workspace.getByTitle('Preview')).toBeVisible();
+    const preview = workspace.getByTitle('プレビュー');
+    await expect(preview).toBeVisible();
+    await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
+    await expect(preview).toHaveAttribute('referrerpolicy', 'no-referrer');
+    await expect(preview).toHaveAttribute('srcdoc', /default-src 'none';/);
+    await expect(preview).toHaveAttribute('srcdoc', /window\.open=function/);
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: '成果物をダウンロード' }).click();
     await expect((await download).suggestedFilename()).toBe('preview.html');
+    await expect.poll(() => page.evaluate(() => (window as Window & { originBlobTypes?: string[] }).originBlobTypes ?? [])).toContain('text/html;charset=utf-8');
     await page.getByRole('button', { name: '成果物ワークスペースを閉じる' }).click();
     await expect(workspace).toBeHidden();
   });
 
-  test('accepts text drag-and-drop and rejects attachments over 5MB', async ({ page }) => {
-    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, body: '' }));
+  test('accepts multiple text drag-and-drop attachments and rejects files over 5MB or totals over 10MB', async ({ page }) => {
     await page.goto('/');
     const homeRequest = page.getByTestId('origin-home-request');
-    await homeRequest.evaluate((element) => { const transfer = new DataTransfer(); transfer.items.add(new File(['hello origin'], 'note.txt', { type: 'text/plain' })); element.parentElement?.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer })); });
+    await homeRequest.evaluate((element) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['hello origin'], 'note.txt', { type: 'text/plain' }));
+      transfer.items.add(new File(['more context'], 'context.md', { type: 'text/markdown' }));
+      element.parentElement?.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+    });
     await expect(page.getByText(/添付: note.txt/)).toBeVisible();
-    await homeRequest.evaluate((element) => { const transfer = new DataTransfer(); transfer.items.add(new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'large.txt', { type: 'text/plain' })); element.parentElement?.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer })); });
+    await expect(page.getByText(/添付: context.md/)).toBeVisible();
+    await homeRequest.evaluate((element) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'large.txt', { type: 'text/plain' }));
+      element.parentElement?.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+    });
     await expect(page.getByRole('alert')).toContainText('5MB以下');
+    await homeRequest.evaluate((element) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([new Uint8Array(5 * 1024 * 1024)], 'first.txt', { type: 'text/plain' }));
+      transfer.items.add(new File([new Uint8Array(5 * 1024 * 1024)], 'second.txt', { type: 'text/plain' }));
+      element.parentElement?.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+    });
+    await expect(page.getByRole('alert')).toContainText('合計は10MB以下');
   });
 
   test('keeps settings, language, system theme, and history controls available', async ({ page }) => {
@@ -47,9 +77,10 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByRole('button', { name: 'システム設定' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', /light|dark/);
     await page.getByRole('button', { name: 'English' }).click();
-    await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Import' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Clear' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'What would you like to accomplish?' })).toBeVisible();
+    await expect(settingsDialog.getByRole('button', { name: 'Export' })).toBeVisible();
+    await expect(settingsDialog.getByRole('button', { name: 'Import' })).toBeVisible();
+    await expect(settingsDialog.getByRole('button', { name: 'Clear' })).toBeVisible();
     await page.getByTestId('close-settings-button').click();
     await expect(settingsDialog).toBeHidden();
   });
