@@ -13,17 +13,14 @@ afterEach(() => {
 });
 
 describe('PersonalEditionApp for ORIGIN Personal 2.0', () => {
-  it('renders the Personal 2.0 core identity and all four starter cards', () => {
+  it('renders the Personal 2.0 core identity and spacious command bar without starter-card noise', () => {
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} />);
 
     expect(screen.getAllByText('ORIGIN', { exact: true }).length).toBeGreaterThan(0);
     expect(screen.getByText('Personal 2.0', { exact: true })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '何を実現したいですか？' })).toBeTruthy();
-    expect(screen.getByTestId('origin-home-request')).toBeTruthy();
-    expect(screen.getByTestId('starter-0').textContent).toContain('整理する');
-    expect(screen.getByTestId('starter-1').textContent).toContain('比較する');
-    expect(screen.getByTestId('starter-2').textContent).toContain('文章にする');
-    expect(screen.getByTestId('starter-3').textContent).toContain('計画する');
+    expect(screen.getByTestId('origin-home-request').className).toContain('min-h-[56px]');
+    expect(screen.queryByTestId('starter-0')).toBeNull();
   });
 
   it('preserves the production settings handoff and accessible target', () => {
@@ -35,17 +32,18 @@ describe('PersonalEditionApp for ORIGIN Personal 2.0', () => {
     expect(screen.getByRole('button', { name: '新規対話を開始' })).toBeTruthy();
   });
 
-  it('sends a starter-card prompt immediately', async () => {
+  it('sends a command-bar request immediately', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okStreamingResponse());
     vi.stubGlobal('fetch', fetchMock);
     const onMessagesChange = vi.fn();
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={[]} onMessagesChange={onMessagesChange} resetSignal={0} />);
 
-    fireEvent.click(screen.getByTestId('starter-1'));
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '比較分析をお願いします' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(request.messages[0].content).toContain('多角的な基準で比較分析');
+    expect(request.messages[0].content).toContain('比較分析をお願いします');
     expect(onMessagesChange).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ role: 'user' }),
     ]));
