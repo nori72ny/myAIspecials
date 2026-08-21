@@ -22,4 +22,4 @@
 - [x] Quality: Add direct-touch and responsive-width regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
 - [x] Workspace: Export all session artifacts as a one-tap offline ZIP package with a standalone index.html manifest.
 - [x] Knowledge Map: Render local conversation/session nodes through a requestAnimationFrame-coalesced update path with immediate session restoration controls.
-- [ ] Quality: Add package-export and knowledge-map regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
+- [x] Quality: Add package-export and knowledge-map regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
