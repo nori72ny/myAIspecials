@@ -58,6 +58,30 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(workspace).toBeHidden();
   });
 
+  test('packages all generated artifacts into one offline ZIP download', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を作成しました。\n```html:bundle.html\n<main>Bundle preview</main>\n```\n```css:bundle.css\nmain { color: cyan; }\n```' }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('複数成果物を作成');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
+    const download = page.waitForEvent('download');
+    await page.getByTestId('artifact-action-bundle').click();
+    await expect((await download).suggestedFilename()).toMatch(/^origin-artifact-package-\d{4}-\d{2}-\d{2}\.zip$/);
+  });
+
+  test('restores a local archived conversation from the requestAnimationFrame knowledge map', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: 'セッションを整理しました。' }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('復元対象のローカルセッション');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByText('セッションを整理しました。')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: '新規対話を開始' }).click();
+    await page.getByTestId('knowledge-map-toggle').click();
+    await expect(page.getByTestId('knowledge-map-node-count')).toHaveText('1');
+    await page.getByTestId('knowledge-map-session-0').click();
+    await expect(page.getByText('復元対象のローカルセッション')).toBeVisible();
+  });
+
   test('exposes the four artifact actions and recovers a sandbox runtime error with a safe last-known-good snapshot', async ({ page }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,

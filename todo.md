@@ -20,3 +20,6 @@
 - [x] Workspace: Provide a Direct Touch toggle that edits only preview text within the opaque sandbox and keeps external communication blocked.
 - [x] Workspace: Convert a completed Direct Touch edit into a new immutable artifact revision without overwriting prior revisions.
 - [x] Quality: Add direct-touch and responsive-width regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
+- [x] Workspace: Export all session artifacts as a one-tap offline ZIP package with a standalone index.html manifest.
+- [x] Knowledge Map: Render local conversation/session nodes through a requestAnimationFrame-coalesced update path with immediate session restoration controls.
+- [ ] Quality: Add package-export and knowledge-map regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.

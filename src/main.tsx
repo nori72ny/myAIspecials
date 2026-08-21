@@ -11,11 +11,18 @@ registerOriginServiceWorker();
 
 const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';
+const SESSION_STORAGE_KEY = 'origin_personal_sessions';
 
 type ConversationMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+};
+type ConversationSession = {
+  id: string;
+  title: string;
+  createdAt: number;
+  messages: readonly ConversationMessage[];
 };
 
 function parseImportedHistory(value: unknown): ConversationMessage[] {
@@ -48,11 +55,30 @@ function loadStoredHistory(): ConversationMessage[] {
   }
 }
 
+function loadStoredSessions(): ConversationSession[] {
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.slice(0, 24).flatMap((candidate, index) => {
+      if (!candidate || typeof candidate !== 'object') return [];
+      const source = candidate as Partial<ConversationSession>;
+      if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return [];
+      try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; }
+      catch { return []; }
+    });
+  } catch {
+    return [];
+  }
+}
+
 function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
   const t = getTranslations(settings.language);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [messages, setMessages] = useState<ConversationMessage[]>(loadStoredHistory);
+  const [sessions, setSessions] = useState<ConversationSession[]>(loadStoredSessions);
   const [resetSignal, setResetSignal] = useState(0);
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false);
   const [updateReady, setUpdateReady] = useState(false);
@@ -95,6 +121,18 @@ function PersonalReleaseRoot() {
     }
   }, [messages]);
 
+  useEffect(() => {
+    try { window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions.slice(0, 24))); }
+    catch { /* Session history remains available in memory. */ }
+  }, [sessions]);
+
+  const archiveSession = (source: readonly ConversationMessage[]) => {
+    if (!source.length) return;
+    const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション';
+    const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: source.map((message) => ({ ...message })) };
+    setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24));
+  };
+
   const exportHistory = () => {
     const payload = JSON.stringify({ version: HISTORY_EXPORT_VERSION, exportedAt: new Date().toISOString(), messages }, null, 2);
     const anchor = document.createElement('a');
@@ -117,6 +155,7 @@ function PersonalReleaseRoot() {
   };
 
   const resetConversation = () => {
+    archiveSession(messages);
     setMessages([]);
     window.localStorage.removeItem(HISTORY_STORAGE_KEY);
     setResetSignal((value) => value + 1);
@@ -128,6 +167,9 @@ function PersonalReleaseRoot() {
         settings={settings}
         onOpenSettings={() => setIsSettingsOpen(true)}
         messages={messages}
+        sessions={sessions}
+        onArchiveSession={archiveSession}
+        onRestoreSession={(session) => setMessages(session.messages.map((message) => ({ ...message })))}
         onMessagesChange={setMessages}
         resetSignal={resetSignal}
       />

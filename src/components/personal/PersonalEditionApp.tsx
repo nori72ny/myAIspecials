@@ -1,6 +1,6 @@
 import React from 'react';
 import App from '../../App';
-import type { ConversationMessage } from '../../App';
+import type { ConversationMessage, ConversationSession } from '../../App';
 import type { Settings } from '../../types';
 
 type PersonalEditionAppProps = {
@@ -8,6 +8,9 @@ type PersonalEditionAppProps = {
   settings?: Settings;
   onOpenSettings?: () => void;
   messages?: ConversationMessage[];
+  sessions?: readonly ConversationSession[];
+  onArchiveSession?: (messages: readonly ConversationMessage[]) => void;
+  onRestoreSession?: (session: ConversationSession) => void;
   onMessagesChange?: (messages: ConversationMessage[]) => void;
   resetSignal?: number;
 };
@@ -23,6 +26,9 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   settings,
   onOpenSettings,
   messages,
+  sessions,
+  onArchiveSession,
+  onRestoreSession,
   onMessagesChange,
   resetSignal,
 }: PersonalEditionAppProps) {
@@ -30,6 +36,9 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     <App
       onOpenSettings={onOpenSettings}
       messages={messages}
+      sessions={sessions}
+      onArchiveSession={onArchiveSession}
+      onRestoreSession={onRestoreSession}
       onMessagesChange={onMessagesChange}
       resetSignal={resetSignal}
       language={settings?.language ?? 'ja'}

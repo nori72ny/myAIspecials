@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { applyDirectTouchEdits, ArtifactWorkspace, type ArtifactBlock } from './App';
+import { applyDirectTouchEdits, App, ArtifactWorkspace, createOfflineArtifactBundle, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -87,5 +87,33 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const revised = applyDirectTouchEdits('<main><p>Original</p></main>', [{ index: 0, text: '<strong>Literal text</strong>' }]);
     expect(revised).toContain('&lt;strong&gt;Literal text&lt;/strong&gt;');
     expect(revised).not.toContain('<strong>Literal text</strong>');
+  });
+
+  it('creates an offline ZIP with artifact files, a manifest, and a standalone index', async () => {
+    const blob = await createOfflineArtifactBundle([
+      { ...artifact, title: 'dashboard', content: '<main>Dashboard</main>' },
+      { ...artifact, id: 'artifact-2', title: 'styles', language: 'css', type: 'code', content: 'body { color: cyan; }' },
+    ]);
+    const archiveText = new TextDecoder().decode(await blob.arrayBuffer());
+    expect(archiveText).toContain('manifest.json');
+    expect(archiveText).toContain('index.html');
+    expect(archiveText).toContain('README.txt');
+    expect(archiveText).toContain('artifacts/01-dashboard.html');
+    expect(archiveText).toContain('artifacts/02-styles.css');
+    expect(archiveText).toContain('"artifactCount": 2');
+    expect(archiveText).toContain('ORIGIN Artifact Package');
+  });
+
+  it('coalesces knowledge-map restoration through requestAnimationFrame', () => {
+    const restore = vi.fn();
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { callback(0); return 1; });
+    const session: ConversationSession = { id: 'session-1', title: 'Previous planning session', createdAt: 1, messages: [{ id: 'm-1', role: 'user', content: 'Plan the project' }] };
+    render(<App sessions={[session]} onRestoreSession={restore} language="ja" />);
+    fireEvent.click(screen.getByTestId('knowledge-map-toggle'));
+    expect(screen.getByTestId('knowledge-map-node-count').textContent).toBe('1');
+    fireEvent.click(screen.getByTestId('knowledge-map-session-0'));
+    expect(frame).toHaveBeenCalled();
+    expect(restore).toHaveBeenCalledWith(session);
+    frame.mockRestore();
   });
 });
