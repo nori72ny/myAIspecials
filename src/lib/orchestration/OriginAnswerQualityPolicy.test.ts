@@ -25,6 +25,7 @@ describe("OriginAnswerQualityPolicy", () => {
     })).toEqual({
       answerMode: "decision",
       verificationLevel: "basic",
+      creativeSpecRequired: false,
     });
   });
 
@@ -36,6 +37,7 @@ describe("OriginAnswerQualityPolicy", () => {
     })).toEqual({
       answerMode: "research",
       verificationLevel: "evidence-required",
+      creativeSpecRequired: false,
     });
   });
 
@@ -73,5 +75,25 @@ describe("OriginAnswerQualityPolicy", () => {
     expect(instruction).toContain(
       "Do not let generic selection tips, cautions, background, or a closing offer displace concrete information",
     );
+  });
+
+  it("creates an internal Creative / Vibe Spec preflight for app, slide, website, and dashboard deliverables", () => {
+    const policy = resolveOriginAnswerQualityPolicy({
+      intent: intent({
+        interactionMode: "deliverable",
+        requiredCapabilities: ["application-development", "design"],
+        requestedOutputs: ["application", "dashboard"],
+      }),
+      taskType: "implementation",
+      independentReviewRequired: false,
+    });
+
+    expect(policy.creativeSpecRequired).toBe(true);
+    const instruction = originAnswerQualityInstruction(policy);
+    expect(instruction).toContain("Creative / Vibe Spec preflight (internal only)");
+    expect(instruction).toContain("purpose and target user");
+    expect(instruction).toContain("visual hierarchy and layout");
+    expect(instruction).toContain("OKLCH color palette");
+    expect(instruction).toContain("Do not output the spec");
   });
 });

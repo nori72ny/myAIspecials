@@ -11,6 +11,7 @@ export type OriginVerificationLevel =
 export interface OriginAnswerQualityPolicy {
   answerMode: OriginAnswerMode;
   verificationLevel: OriginVerificationLevel;
+  creativeSpecRequired: boolean;
 }
 
 interface OriginAnswerQualityPolicyInput {
@@ -20,6 +21,13 @@ interface OriginAnswerQualityPolicyInput {
 }
 
 const RESEARCH_TASKS = new Set<AITaskType>(["research", "current-information"]);
+const CREATIVE_ARTIFACT_OUTPUTS = new Set(["application", "website", "presentation", "dashboard"]);
+const CREATIVE_ARTIFACT_CAPABILITIES = new Set([
+  "application-development",
+  "website-development",
+  "presentation-creation",
+  "design",
+]);
 
 export function resolveOriginAnswerQualityPolicy(
   input: OriginAnswerQualityPolicyInput,
@@ -42,8 +50,13 @@ export function resolveOriginAnswerQualityPolicy(
     : researchRequired
       ? "evidence-required"
       : "basic";
+  const creativeSpecRequired = input.intent.interactionMode === "deliverable"
+    && (
+      input.intent.requestedOutputs.some((output) => CREATIVE_ARTIFACT_OUTPUTS.has(output))
+      || input.intent.requiredCapabilities.some((capability) => CREATIVE_ARTIFACT_CAPABILITIES.has(capability))
+    );
 
-  return { answerMode, verificationLevel };
+  return { answerMode, verificationLevel, creativeSpecRequired };
 }
 
 export function originAnswerQualityInstruction(
@@ -61,6 +74,14 @@ export function originAnswerQualityInstruction(
     "evidence-required": "Evidence is required for factual research claims. If evidence was not retrieved and checked, label the claim or limitation as unverified instead of filling the gap.",
     "independent-review-required": "An independent review is required by policy. If the execution record does not prove it ran, state that it was not performed and avoid a high-confidence recommendation.",
   };
+  const creativeSpecInstruction = policy.creativeSpecRequired
+    ? [
+      "Creative / Vibe Spec preflight (internal only):",
+      "- Before writing an HTML, SVG, slide, dashboard, or application code block, silently define: (1) purpose and target user, (2) visual hierarchy and layout, and (3) an OKLCH color palette with a clear typography hierarchy.",
+      "- Use that lightweight spec to make concrete composition choices: primary task first, a responsive grid, meaningful empty and error states, accessible controls, and restrained micro-interactions. Do not output the spec or claim that a design review occurred.",
+      "- Then return one complete, runnable deliverable in the requested fenced code format. Preserve requested functionality; do not substitute an image or an incomplete mockup for a working artifact.",
+    ]
+    : [];
 
   return [
     "Answer quality policy:",
@@ -74,5 +95,6 @@ export function originAnswerQualityInstruction(
     "- Never display invented confidence percentages, fake precision, or claims such as perfect, guaranteed, or world-best without measurable evidence.",
     "- Prefer fewer, stronger sections. Every heading must help the user decide, understand, or act.",
     "- End with a complete sentence or complete deliverable. Never leave a teaser, unfinished offer, or fragment.",
+    ...creativeSpecInstruction,
   ].join("\n");
 }

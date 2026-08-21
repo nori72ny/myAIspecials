@@ -124,7 +124,7 @@ describe('ORIGIN PWA boundary', () => {
     const headers = read('public/_headers');
 
     expect(headers).toContain("worker-src 'self'");
-    expect(headers).toContain('frame-ancestors https://aistudio.google.com');
+    expect(headers).toContain("frame-ancestors 'none'");
     expect(headers.toLowerCase()).not.toContain('x-frame-options');
   });
 });

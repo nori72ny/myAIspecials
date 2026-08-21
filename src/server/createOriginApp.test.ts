@@ -161,10 +161,11 @@ describe("createOriginApp provider isolation", () => {
     expect(response.headers["strict-transport-security"]).toContain("max-age=31536000");
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.headers["content-security-policy"]).toContain(
-      "frame-ancestors https://aistudio.google.com",
+      "frame-ancestors 'none'",
     );
     expect(response.headers["content-security-policy"]).not.toContain("frame-ancestors *");
     expect(response.headers["content-security-policy"]).toContain("object-src 'none'");
+    expect(response.headers["content-security-policy"]).toContain("base-uri 'self'");
     expect(response.headers["content-security-policy"]).not.toContain("unsafe-eval");
   });
 

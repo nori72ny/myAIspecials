@@ -56,8 +56,8 @@ export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env)
       "font-src 'self' data:",
       `connect-src ${connectSources}`,
       "object-src 'none'",
-      "base-uri 'none'",
-      "frame-ancestors https://aistudio.google.com",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
       "form-action 'self'",
     ].join("; "),
   );

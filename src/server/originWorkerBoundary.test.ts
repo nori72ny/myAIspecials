@@ -55,9 +55,7 @@ describe("Cloudflare Workers free boundary", () => {
     expect(headers).not.toContain("script-src 'self' 'unsafe-inline'");
     expect(headers).not.toContain("'unsafe-eval'");
     expect(headers).toContain("connect-src 'self'");
-    expect(headers).toContain(
-      "frame-ancestors https://aistudio.google.com",
-    );
+    expect(headers).toContain("frame-ancestors 'none'");
     expect(headers).not.toContain("X-Frame-Options");
     expect(headers).toContain("Strict-Transport-Security");
     expect(headers).toContain("X-Content-Type-Options: nosniff");

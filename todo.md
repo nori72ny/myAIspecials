@@ -12,3 +12,7 @@
 - [x] Phase 14: Add animated 375px, 768px, and 100% responsive preview width controls to Artifact Workspace.
 - [x] Phase 14: Preserve the opaque sandbox, local-first guardrails, and $0.00-only routing with regression coverage.
 - [x] Phase 14: Run lint, unit, API, E2E, production build, GitHub main sync, and Vercel production deployment verification.
+- [x] Quality: Re-audit strict preview iframe postMessage source validation and ready-only last-known-good confirmation.
+- [x] Quality: Re-audit top-level headers, meta CSP, opaque sandbox communication boundary, and zero-cost-only routing.
+- [x] Quality: Add a Creative / Vibe Spec preflight for web app, slide, and dashboard artifact generation prompts.
+- [ ] Quality: Add regression coverage, run lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.

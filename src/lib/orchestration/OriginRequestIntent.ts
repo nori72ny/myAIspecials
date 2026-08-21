@@ -47,6 +47,7 @@ export const DEFAULT_ORIGIN_REQUEST_INTENT_CATALOG: OriginRequestIntentCatalog =
     { id: "image", patterns: [/画像生成|画像を作|イラスト|バナー|\b(?:image|illustration|banner)\b/i] },
     { id: "application", patterns: [/アプリ.{0,12}(?:作|生成|開発|実装|完成)|\b(?:build|create|develop)\s+(?:an?\s+)?app\b/i] },
     { id: "website", patterns: [/(?:ホームページ|Webサイト|ウェブサイト).{0,16}(?:作|制作|生成|開発|完成)|\b(?:build|create|develop)\s+(?:a\s+)?website\b/i] },
+    { id: "dashboard", patterns: [/ダッシュボード|管理画面|KPI画面|\bdashboard\b/i] },
     { id: "social-post", patterns: [/Instagram投稿|インスタグラム投稿|SNS投稿|リール台本|フィード投稿|\b(?:social post|instagram post)\b/i] },
     { id: "research-result", patterns: [/検索のみ|調査結果|リサーチ結果|\b(?:search results?|research brief)\b/i] },
     { id: "spreadsheet", patterns: [/表計算|スプレッドシート|Excel|CSV|\bspreadsheet\b/i] },
