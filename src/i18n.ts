@@ -21,6 +21,15 @@ type Translation = {
   showPreview: string;
   copyArtifact: string;
   downloadArtifact: string;
+  shareArtifact: string;
+  editArtifact: string;
+  finishEditing: string;
+  shareCopied: string;
+  shareFailed: string;
+  sandboxRuntimeError: string;
+  sandboxRuntimeDetail: string;
+  restoreLastKnownGood: string;
+  noLastKnownGood: string;
   openFullscreen: string;
   exitFullscreenLabel: string;
   openSettings: string;
@@ -111,6 +120,15 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     showPreview: 'プレビューを表示',
     copyArtifact: '成果物をコピー',
     downloadArtifact: '成果物をダウンロード',
+    shareArtifact: '成果物を共有',
+    editArtifact: 'Canvas Direct Touchで編集',
+    finishEditing: '編集を完了',
+    shareCopied: '共有用データをコピーしました。',
+    shareFailed: '成果物を共有できませんでした。',
+    sandboxRuntimeError: 'Sandbox内で実行時エラーを検知しました。',
+    sandboxRuntimeDetail: 'プレビューは隔離され、会話と端末内データは保持されています。',
+    restoreLastKnownGood: '直前の正常版に復帰',
+    noLastKnownGood: '復帰できる正常版はまだありません。',
     openFullscreen: '全画面で表示',
     exitFullscreenLabel: '全画面表示を終了',
     openSettings: '設定を開く',
@@ -204,6 +222,15 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     showPreview: 'Show preview',
     copyArtifact: 'Copy artifact',
     downloadArtifact: 'Download artifact',
+    shareArtifact: 'Share artifact',
+    editArtifact: 'Edit with Canvas Direct Touch',
+    finishEditing: 'Finish editing',
+    shareCopied: 'Share data copied.',
+    shareFailed: 'This artifact could not be shared.',
+    sandboxRuntimeError: 'A runtime error was detected inside the sandbox.',
+    sandboxRuntimeDetail: 'The preview is isolated; your conversation and local data remain available.',
+    restoreLastKnownGood: 'Restore last known good version',
+    noLastKnownGood: 'No prior healthy version is available yet.',
     openFullscreen: 'View fullscreen',
     exitFullscreenLabel: 'Exit fullscreen',
     openSettings: 'Open settings',

@@ -82,32 +82,82 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; isOpe
   const t = getTranslations(language);
   const [activeTab, setActiveTab] = useState<'preview' | 'code'>('code');
   const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isDirectEditing, setIsDirectEditing] = useState(false);
+  const [workingContent, setWorkingContent] = useState('');
+  const [lastKnownGood, setLastKnownGood] = useState<ArtifactBlock | null>(null);
+  const [sandboxError, setSandboxError] = useState<string | null>(null);
   const workspaceRef = useRef<HTMLElement>(null);
+  const previewRef = useRef<HTMLIFrameElement>(null);
   useEffect(() => { const updateFullscreen = () => setIsFullscreen(document.fullscreenElement === workspaceRef.current); document.addEventListener('fullscreenchange', updateFullscreen); return () => document.removeEventListener('fullscreenchange', updateFullscreen); }, []);
-  useEffect(() => { setActiveTab('code'); setCopied(false); }, [artifact?.id]);
+  useEffect(() => { setActiveTab('code'); setCopied(false); setShared(false); setIsDirectEditing(false); setSandboxError(null); setLastKnownGood(null); }, [artifact?.id]);
+  useEffect(() => { if (!isDirectEditing) setWorkingContent(artifact?.content ?? ''); }, [artifact?.content, artifact?.id, isDirectEditing]);
+  const isRenderable = Boolean(artifact && (artifact.type === 'html' || artifact.language === 'html' || artifact.language === 'svg'));
   const sandboxSrcDoc = useMemo(() => {
-    if (!artifact || (artifact.type !== 'html' && artifact.language !== 'html' && artifact.language !== 'svg')) return '';
-    const sanitized = artifact.content.replace(/<meta[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '');
-    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none';"><meta name="referrer" content="no-referrer"><script>window.addEventListener('click',function(event){var target=event.target;while(target&&target.tagName!=='A')target=target.parentElement;if(target&&target.tagName==='A'){event.preventDefault();event.stopPropagation();}},true);window.open=function(){return null;};</script><style>html,body{min-height:100%;margin:0}body{font-family:system-ui,sans-serif;padding:16px;color:CanvasText;background:transparent}</style></head><body>${sanitized}</body></html>`;
-  }, [artifact]);
+    if (!artifact || !isRenderable) return '';
+    const sanitized = workingContent.replace(/<meta[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '');
+    const boundary = `<script>(function(){var source='ORIGIN_SANDBOX_BOUNDARY';var failed=false;var send=function(type,payload){try{parent.postMessage(Object.assign({source:source,type:type},payload||{}),'*')}catch(_){}};var report=function(value){if(failed)return;failed=true;var message=String(value&&value.message||value||'Unknown runtime error').replace(/\\s+/g,' ').slice(0,280);send('runtime-error',{message:message})};var onError=function(message,_source,_line,_column,error){report(error||message);return true};var onRejection=function(event){report(event&&event.reason);event&&event.preventDefault&&event.preventDefault()};window.onerror=onError;window.onunhandledrejection=onRejection;window.addEventListener('error',function(event){report(event.error||event.message);event.preventDefault&&event.preventDefault()},true);window.addEventListener('unhandledrejection',onRejection);window.addEventListener('DOMContentLoaded',function(){setTimeout(function(){if(!failed)send('ready')},64)},{once:true})})();</script>`;
+    const directTouch = isDirectEditing ? `<script>(function(){window.addEventListener('DOMContentLoaded',function(){document.body.contentEditable='true';document.body.setAttribute('data-origin-direct-touch','true');document.addEventListener('focusout',function(){try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'commit',content:document.body.innerHTML},'*')}catch(_){}})}, {once:true})})();</script>` : '';
+    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none';"><meta name="referrer" content="no-referrer"><style>html,body{min-height:100%;margin:0}body{font-family:system-ui,sans-serif;padding:16px;color:CanvasText;background:transparent}[data-origin-direct-touch="true"]{outline:2px dashed #22d3ee;outline-offset:-4px;cursor:text}</style></head><body>${boundary}${directTouch}<script>window.addEventListener('click',function(event){var target=event.target;while(target&&target.tagName!=='A')target=target.parentElement;if(target&&target.tagName==='A'){event.preventDefault();event.stopPropagation();}},true);window.open=function(){return null;};</script>${sanitized}</body></html>`;
+  }, [artifact, isDirectEditing, isRenderable, workingContent]);
+  useEffect(() => {
+    const onSandboxMessage = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== 'object') return;
+      const data = event.data as { source?: string; type?: string; message?: string; content?: string };
+      const isBoundaryMessage = data.source === 'ORIGIN_SANDBOX_BOUNDARY' && (data.type === 'ready' || data.type === 'runtime-error');
+      const isDirectTouchCommit = data.source === 'ORIGIN_DIRECT_TOUCH' && data.type === 'commit' && typeof data.content === 'string' && data.content.length <= 2_000_000;
+      if (!isBoundaryMessage && !isDirectTouchCommit) return;
+      if (data.source === 'ORIGIN_SANDBOX_BOUNDARY') {
+        if (data.type === 'runtime-error') setSandboxError(data.message || 'Unknown runtime error');
+        if (data.type === 'ready' && artifact) setLastKnownGood({ ...artifact, content: workingContent });
+      }
+      if (isDirectTouchCommit) setWorkingContent(data.content);
+    };
+    window.addEventListener('message', onSandboxMessage);
+    return () => window.removeEventListener('message', onSandboxMessage);
+  }, [artifact, workingContent]);
   if (!isOpen || !artifact) return null;
-  const isRenderable = artifact.type === 'html' || artifact.language === 'html' || artifact.language === 'svg';
+  const fileType = artifact.language === 'html' ? 'text/html;charset=utf-8' : artifact.language === 'svg' ? 'image/svg+xml;charset=utf-8' : artifact.language === 'markdown' || artifact.language === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
+  const extension = artifact.language === 'markdown' || artifact.language === 'md' ? 'md' : artifact.language === 'html' ? 'html' : artifact.language === 'svg' ? 'svg' : artifact.language || 'txt';
+  const safeTitle = artifact.title.replace(/[^a-z0-9._-]/gi, '_') || 'origin-artifact';
+  const fileName = safeTitle.toLowerCase().endsWith(`.${extension.toLowerCase()}`) ? safeTitle : `${safeTitle}.${extension}`;
   const downloadArtifact = () => {
-    const type = artifact.language === 'html' ? 'text/html;charset=utf-8' : artifact.language === 'svg' ? 'image/svg+xml;charset=utf-8' : artifact.language === 'markdown' || artifact.language === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
-    const extension = artifact.language === 'markdown' || artifact.language === 'md' ? 'md' : artifact.language === 'html' ? 'html' : artifact.language === 'svg' ? 'svg' : artifact.language || 'txt';
-    const url = URL.createObjectURL(new Blob([artifact.content], { type }));
+    const url = URL.createObjectURL(new Blob([workingContent], { type: fileType }));
     const anchor = document.createElement('a');
-    const safeTitle = artifact.title.replace(/[^a-z0-9._-]/gi, '_') || 'origin-artifact';
     anchor.href = url;
-    anchor.download = safeTitle.toLowerCase().endsWith(`.${extension.toLowerCase()}`) ? safeTitle : `${safeTitle}.${extension}`;
+    anchor.download = fileName;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
+  const shareArtifact = async () => {
+    try {
+      const file = new File([workingContent], fileName, { type: fileType });
+      const shareData: ShareData = { title: artifact.title, text: `${artifact.title}\n\n${workingContent.slice(0, 6_000)}` };
+      if (navigator.canShare?.({ files: [file] })) shareData.files = [file];
+      if (navigator.share) await navigator.share(shareData);
+      else await copyText(`data:${fileType},${encodeURIComponent(workingContent)}`);
+      setShared(true); window.setTimeout(() => setShared(false), 2_000);
+    } catch (error) {
+      if ((error as DOMException).name === 'AbortError') return;
+      try { await copyText(`data:${fileType},${encodeURIComponent(workingContent)}`); setShared(true); window.setTimeout(() => setShared(false), 2_000); }
+      catch { setShared(false); }
+    }
+  };
+  const restoreLastKnownGood = () => {
+    if (!lastKnownGood) return;
+    const safeSnapshot = lastKnownGood.content
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
+      .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    setWorkingContent(safeSnapshot);
+    setSandboxError(null);
+    setIsDirectEditing(false);
+    setActiveTab('preview');
+  };
   const toggleFullscreen = async () => { if (!workspaceRef.current) return; if (document.fullscreenElement) await document.exitFullscreen?.(); else await workspaceRef.current.requestFullscreen?.(); };
   return <aside ref={workspaceRef} aria-label={t.workspaceLabel} data-testid="artifact-workspace" className="origin-workspace fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l shadow-2xl sm:w-[560px]">
-    <div className="flex min-h-16 items-center justify-between gap-2 border-b border-[var(--border-default)] px-3 sm:px-4"><div className="min-w-0 flex flex-1 items-center gap-2"><span className="origin-badge rounded-md border px-2 py-1 text-xs font-mono font-semibold">{artifact.language}</span><h2 className="truncate text-sm font-semibold">{artifact.title}</h2></div><div className="flex items-center gap-1">{isRenderable && <div role="group" aria-label={t.displayMode} className="origin-surface-muted flex rounded-xl border p-1"><button type="button" aria-label={t.showCode} aria-pressed={activeTab === 'code'} onClick={() => setActiveTab('code')} className={`min-h-11 rounded-lg px-3 text-xs font-semibold ${activeTab === 'code' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{t.code}</button><button type="button" aria-label={t.showPreview} aria-pressed={activeTab === 'preview'} onClick={() => setActiveTab('preview')} className={`min-h-11 rounded-lg px-3 text-xs font-semibold ${activeTab === 'preview' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{t.preview}</button></div>}<button type="button" aria-label={t.copyArtifact} onClick={() => void copyText(artifact.content).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2_000); })} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-xs font-semibold">{copied ? t.copied : t.copy}</button><button type="button" aria-label={t.downloadArtifact} onClick={downloadArtifact} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-xs font-semibold">{t.download}</button><button type="button" aria-label={isFullscreen ? t.exitFullscreenLabel : t.openFullscreen} aria-pressed={isFullscreen} onClick={() => void toggleFullscreen()} className="origin-secondary-button hidden min-h-11 rounded-xl border px-3 text-xs font-semibold sm:inline-flex">{isFullscreen ? t.exitFullscreen : t.fullscreen}</button><button type="button" aria-label={t.closeWorkspace} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 items-center justify-center rounded-xl border text-lg">✕</button></div></div>
-    <div className="origin-code-panel min-h-0 flex-1 overflow-auto p-4">{activeTab === 'preview' && isRenderable ? <iframe title={t.previewTitle} aria-label={t.previewTitle} srcDoc={sandboxSrcDoc} sandbox="allow-scripts" referrerPolicy="no-referrer" className="origin-surface h-full w-full rounded-xl border" /> : <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs leading-6">{artifact.content}</pre>}</div>
+    <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-default)] px-3 py-2 sm:px-4"><div className="min-w-0 flex flex-1 items-center gap-2"><span className="origin-badge rounded-md border px-2 py-1 text-xs font-mono font-semibold">{artifact.language}</span><h2 className="truncate text-sm font-semibold">{artifact.title}</h2></div><div className="flex flex-wrap items-center justify-end gap-1">{isRenderable && <div role="group" aria-label={t.displayMode} className="origin-surface-muted flex rounded-xl border p-1"><button type="button" aria-label={t.showCode} aria-pressed={activeTab === 'code'} onClick={() => { setIsDirectEditing(false); setActiveTab('code'); }} className={`min-h-11 rounded-lg px-3 text-xs font-semibold ${activeTab === 'code' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{t.code}</button><button type="button" aria-label={t.showPreview} aria-pressed={activeTab === 'preview'} onClick={() => setActiveTab('preview')} className={`min-h-11 rounded-lg px-3 text-xs font-semibold ${activeTab === 'preview' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{t.preview}</button></div>}<div data-testid="artifact-action-bar" role="group" aria-label="Artifact actions" className="origin-surface-muted flex rounded-xl border p-1"><button type="button" data-testid="artifact-action-copy" aria-label={t.copyArtifact} onClick={() => void copyText(workingContent).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2_000); })} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📋 {copied ? t.copied : t.copy}</button><button type="button" data-testid="artifact-action-save" aria-label={t.downloadArtifact} onClick={downloadArtifact} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📥 {t.download}</button><button type="button" data-testid="artifact-action-share" aria-label={t.shareArtifact} onClick={() => void shareArtifact()} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📲 {shared ? t.shareCopied : t.shareArtifact}</button><button type="button" data-testid="artifact-action-edit" aria-label={t.editArtifact} aria-pressed={isDirectEditing} onClick={() => { setIsDirectEditing((current) => !current); setActiveTab('preview'); }} className={`min-h-11 rounded-lg px-3 text-xs font-semibold ${isDirectEditing ? 'origin-primary-button' : 'origin-secondary-button'}`}>✏️ {isDirectEditing ? t.finishEditing : t.editArtifact}</button></div><button type="button" aria-label={isFullscreen ? t.exitFullscreenLabel : t.openFullscreen} aria-pressed={isFullscreen} onClick={() => void toggleFullscreen()} className="origin-secondary-button hidden min-h-11 rounded-xl border px-3 text-xs font-semibold sm:inline-flex">{isFullscreen ? t.exitFullscreen : t.fullscreen}</button><button type="button" aria-label={t.closeWorkspace} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 items-center justify-center rounded-xl border text-lg">✕</button></div></div>
+    <div className="origin-code-panel relative min-h-0 flex-1 overflow-auto p-4">{activeTab === 'preview' && isRenderable ? <iframe ref={previewRef} title={t.previewTitle} aria-label={t.previewTitle} srcDoc={sandboxSrcDoc} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => { event.currentTarget.setAttribute('data-origin-loaded', 'true'); setLastKnownGood({ ...artifact, content: workingContent }); }} className="origin-surface h-full w-full rounded-xl border" /> : <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs leading-6">{workingContent}</pre>}{sandboxError && <div data-testid="sandbox-runtime-boundary" role="alert" className="absolute inset-6 flex flex-col justify-center rounded-2xl border border-red-400/60 bg-[var(--bg-surface)]/95 p-5 shadow-2xl backdrop-blur"><p className="m-0 text-sm font-bold text-red-500">{t.sandboxRuntimeError}</p><p className="mt-2 break-words font-mono text-xs">{sandboxError}</p><p className="origin-muted mt-3 text-xs">{t.sandboxRuntimeDetail}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" data-testid="restore-last-known-good" disabled={!lastKnownGood} title={!lastKnownGood ? t.noLastKnownGood : undefined} onClick={restoreLastKnownGood} className="origin-primary-button min-h-11 rounded-xl px-4 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50">{t.restoreLastKnownGood}</button><button type="button" onClick={() => setSandboxError(null)} className="origin-secondary-button min-h-11 rounded-xl border px-4 text-xs font-semibold">{t.close}</button></div></div>}</div>
   </aside>;
 };
 

@@ -58,6 +58,42 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(workspace).toBeHidden();
   });
 
+  test('exposes the four artifact actions and recovers a sandbox runtime error with a safe last-known-good snapshot', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '成果物を作成しました。\n```html:unstable.html\n<main>Last known good UI</main>\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('不安定な成果物を作成');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('artifact-action-copy')).toBeVisible();
+    await expect(page.getByTestId('artifact-action-save')).toBeVisible();
+    await expect(page.getByTestId('artifact-action-share')).toBeVisible();
+    await expect(page.getByTestId('artifact-action-edit')).toBeVisible();
+    for (const control of ['artifact-action-copy', 'artifact-action-save', 'artifact-action-share', 'artifact-action-edit']) {
+      await expect(page.getByTestId(control)).toHaveClass(/min-h-11/);
+    }
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    const preview = workspace.getByTitle('プレビュー');
+    await expect(preview).toBeVisible();
+    await expect(preview).toHaveAttribute('data-origin-loaded', 'true');
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', {
+      data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'unstable preview' },
+    })));
+    const boundary = page.getByTestId('sandbox-runtime-boundary');
+    await expect(boundary).toBeVisible({ timeout: 15_000 });
+    await expect(boundary).toContainText('Sandbox内で実行時エラーを検知しました。');
+    const restore = page.getByTestId('restore-last-known-good');
+    await expect(restore).toBeEnabled();
+    await restore.click();
+    await expect(boundary).toBeHidden();
+    await expect(preview).toHaveAttribute('srcdoc', /Last known good UI/);
+    await expect(preview).not.toHaveAttribute('srcdoc', /unstable preview/);
+  });
+
   test('accepts multiple text drag-and-drop attachments and rejects files over 5MB or totals over 10MB', async ({ page }) => {
     await page.goto('/');
     const homeRequest = page.getByTestId('origin-home-request');

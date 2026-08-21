@@ -2,6 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 import { E2E_RELEASE_SHA } from './tests/e2e/release-fixture';
 
+const E2E_PORT = Number.parseInt(process.env.TEST_PORT || '3000', 10);
+const E2E_BASE_URL = `http://localhost:${E2E_PORT}`;
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 120000, // 2 minutes for E2E
@@ -18,7 +21,7 @@ export default defineConfig({
     ['list']
   ],
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: E2E_BASE_URL,
     trace: 'on-first-retry',
     video: 'retain-on-failure',
   },
@@ -26,8 +29,9 @@ export default defineConfig({
     command: 'npm run start',
     env: {
       ORIGIN_RELEASE_SHA: E2E_RELEASE_SHA,
+      TEST_PORT: String(E2E_PORT),
     },
-    url: 'http://localhost:3000',
+    url: E2E_BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },
