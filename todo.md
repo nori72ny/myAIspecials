@@ -15,4 +15,4 @@
 - [x] Quality: Re-audit strict preview iframe postMessage source validation and ready-only last-known-good confirmation.
 - [x] Quality: Re-audit top-level headers, meta CSP, opaque sandbox communication boundary, and zero-cost-only routing.
 - [x] Quality: Add a Creative / Vibe Spec preflight for web app, slide, and dashboard artifact generation prompts.
-- [ ] Quality: Add regression coverage, run lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
+- [x] Quality: Add regression coverage, run lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
