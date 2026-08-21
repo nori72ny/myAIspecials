@@ -82,6 +82,35 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByText('復元対象のローカルセッション')).toBeVisible();
   });
 
+  test('migrates legacy localStorage to IndexedDB and persists generated artifact revisions locally', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('origin_personal_history', JSON.stringify({ version: 1, messages: [{ id: 'legacy-1', role: 'user', content: 'IndexedDBへ移行する履歴' }] }));
+      localStorage.setItem('origin_personal_sessions', JSON.stringify([{ id: 'legacy-session', title: '旧セッション', createdAt: 1, messages: [{ id: 'legacy-1', role: 'user', content: 'IndexedDBへ移行する履歴' }] }]));
+    });
+    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を保存します。\n```html:persisted.html\n<main>Persisted artifact</main>\n```' }));
+    await page.goto('/');
+    await expect(page.getByText('IndexedDBへ移行する履歴')).toBeVisible();
+    await expect.poll(() => page.evaluate(async () => new Promise<{ legacy: string | null; snapshot: unknown }>((resolve) => {
+      const request = indexedDB.open('origin-personal-local', 1);
+      request.onsuccess = () => {
+        const database = request.result;
+        const read = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
+        read.onsuccess = () => { resolve({ legacy: localStorage.getItem('origin_personal_history'), snapshot: read.result }); database.close(); };
+      };
+    }))).toMatchObject({ legacy: null, snapshot: { messages: [{ content: 'IndexedDBへ移行する履歴' }] } });
+    await page.getByTestId('origin-chat-request').fill('成果物を生成');
+    await page.getByTestId('origin-chat-request').press('Control+Enter');
+    await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => page.evaluate(async () => new Promise<unknown>((resolve) => {
+      const request = indexedDB.open('origin-personal-local', 1);
+      request.onsuccess = () => {
+        const database = request.result;
+        const read = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
+        read.onsuccess = () => { resolve(read.result); database.close(); };
+      };
+    }))).toMatchObject({ artifacts: [expect.objectContaining({ title: 'persisted.html', content: expect.stringContaining('<main>Persisted artifact</main>') })] });
+  });
+
   test('exposes the four artifact actions and recovers a sandbox runtime error with a safe last-known-good snapshot', async ({ page }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,

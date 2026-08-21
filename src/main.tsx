@@ -4,6 +4,7 @@ import SettingsModal from './components/SettingsModal';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
 import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
+import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import './index.css';
 
@@ -24,6 +25,18 @@ type ConversationSession = {
   createdAt: number;
   messages: readonly ConversationMessage[];
 };
+type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' };
+type PersistedArtifact = {
+  id: string;
+  type: 'code' | 'markdown' | 'mermaid' | 'html';
+  title: string;
+  language: string;
+  content: string;
+  isComplete: boolean;
+  revision?: number;
+  revisions?: readonly ArtifactRevision[];
+};
+type StorageHealth = 'loading' | 'ready' | Exclude<OriginStorageWriteResult, 'saved'>;
 
 function parseImportedHistory(value: unknown): ConversationMessage[] {
   if (!value || typeof value !== 'object' || !Array.isArray((value as { messages?: unknown }).messages)) {
@@ -73,12 +86,46 @@ function loadStoredSessions(): ConversationSession[] {
   }
 }
 
+function loadSessionsFromSnapshot(value: unknown): ConversationSession[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 24).flatMap((candidate, index) => {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const source = candidate as Partial<ConversationSession>;
+    if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return [];
+    try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; }
+    catch { return []; }
+  });
+}
+
+function parseStoredArtifacts(value: unknown): PersistedArtifact[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 500).flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const source = candidate as Partial<PersistedArtifact>;
+    if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.language !== 'string' || typeof source.content !== 'string' || typeof source.isComplete !== 'boolean' || !source.type) return [];
+    if (!['code', 'markdown', 'mermaid', 'html'].includes(source.type)) return [];
+    const revisions = Array.isArray(source.revisions) ? source.revisions.slice(0, 50).flatMap((revision) => {
+      if (!revision || typeof revision !== 'object') return [];
+      const current = revision as Partial<ArtifactRevision>;
+      if (typeof current.id !== 'string' || typeof current.content !== 'string' || typeof current.createdAt !== 'number' || (current.source !== 'generated' && current.source !== 'direct-touch')) return [];
+      return [{ id: current.id.slice(0, 160), content: current.content.slice(0, 1_000_000), createdAt: current.createdAt, source: current.source }];
+    }) : undefined;
+    return [{ id: source.id.slice(0, 160), type: source.type, title: source.title.slice(0, 160), language: source.language.slice(0, 48), content: source.content.slice(0, 1_000_000), isComplete: source.isComplete, revision: typeof source.revision === 'number' ? Math.max(1, Math.floor(source.revision)) : undefined, revisions }];
+  });
+}
+
+function snapshotFromState(messages: ConversationMessage[], sessions: ConversationSession[], artifacts: PersistedArtifact[]): OriginPersistedSnapshot {
+  return { version: 1, messages, sessions, artifacts, updatedAt: Date.now() };
+}
+
 function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
   const t = getTranslations(settings.language);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [messages, setMessages] = useState<ConversationMessage[]>(loadStoredHistory);
   const [sessions, setSessions] = useState<ConversationSession[]>(loadStoredSessions);
+  const [artifacts, setArtifacts] = useState<PersistedArtifact[]>([]);
+  const [storageHealth, setStorageHealth] = useState<StorageHealth>('loading');
   const [resetSignal, setResetSignal] = useState(0);
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false);
   const [updateReady, setUpdateReady] = useState(false);
@@ -113,18 +160,33 @@ function PersonalReleaseRoot() {
   }, [settings.language, resolvedTheme]);
 
   useEffect(() => {
-    try {
-      if (messages.length) window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ version: HISTORY_EXPORT_VERSION, messages }));
-      else window.localStorage.removeItem(HISTORY_STORAGE_KEY);
-    } catch {
-      // History remains available in memory if storage is unavailable.
-    }
-  }, [messages]);
+    let active = true;
+    const legacy = snapshotFromState(messages, sessions, []);
+    void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => {
+      window.localStorage.removeItem(HISTORY_STORAGE_KEY);
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    }).then((result) => {
+      if (!active) return;
+      if (result.source === 'indexeddb' && result.snapshot) {
+        try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); }
+        setSessions(loadSessionsFromSnapshot(result.snapshot.sessions));
+        setArtifacts(parseStoredArtifacts(result.snapshot.artifacts));
+      }
+      setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready');
+    });
+    return () => { active = false; };
+    // Legacy migration is intentionally one-shot. Later state changes use the IndexedDB writer below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
-    try { window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions.slice(0, 24))); }
-    catch { /* Session history remains available in memory. */ }
-  }, [sessions]);
+    if (storageHealth === 'loading') return;
+    const snapshot = snapshotFromState(messages, sessions, artifacts);
+    const timer = window.setTimeout(() => {
+      void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result));
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [artifacts, messages, sessions, storageHealth]);
 
   const archiveSession = (source: readonly ConversationMessage[]) => {
     if (!source.length) return;
@@ -148,7 +210,6 @@ function PersonalReleaseRoot() {
     try {
       const parsed = parseImportedHistory(JSON.parse(await file.text()));
       setMessages(parsed);
-      window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ version: HISTORY_EXPORT_VERSION, messages: parsed }));
     } catch {
       throw new Error(t.historyImportFailed);
     }
@@ -157,7 +218,6 @@ function PersonalReleaseRoot() {
   const resetConversation = () => {
     archiveSession(messages);
     setMessages([]);
-    window.localStorage.removeItem(HISTORY_STORAGE_KEY);
     setResetSignal((value) => value + 1);
   };
 
@@ -168,9 +228,11 @@ function PersonalReleaseRoot() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         messages={messages}
         sessions={sessions}
+        artifacts={artifacts}
         onArchiveSession={archiveSession}
         onRestoreSession={(session) => setMessages(session.messages.map((message) => ({ ...message })))}
         onMessagesChange={setMessages}
+        onArtifactsChange={setArtifacts}
         resetSignal={resetSignal}
       />
       <SettingsModal
@@ -188,6 +250,7 @@ function PersonalReleaseRoot() {
           {t.pwaUpdateNotice}
         </p>
       )}
+      {storageHealth !== 'ready' && <p data-testid="origin-storage-status" role="status" className="sr-only">{storageHealth === 'loading' ? '端末内ストレージを準備しています。' : '端末内ストレージへ保存できないため、このセッションはメモリ上で継続しています。'}</p>}
     </>
   );
 }
