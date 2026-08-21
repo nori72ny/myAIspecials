@@ -16,3 +16,7 @@
 - [x] Quality: Re-audit top-level headers, meta CSP, opaque sandbox communication boundary, and zero-cost-only routing.
 - [x] Quality: Add a Creative / Vibe Spec preflight for web app, slide, and dashboard artifact generation prompts.
 - [x] Quality: Add regression coverage, run lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
+- [x] Workspace: Provide animated 375px, 768px, and full-width responsive preview controls with accessible selected state.
+- [x] Workspace: Provide a Direct Touch toggle that edits only preview text within the opaque sandbox and keeps external communication blocked.
+- [x] Workspace: Convert a completed Direct Touch edit into a new immutable artifact revision without overwriting prior revisions.
+- [ ] Quality: Add direct-touch and responsive-width regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.

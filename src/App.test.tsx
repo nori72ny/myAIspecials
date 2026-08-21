@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { ArtifactWorkspace, type ArtifactBlock } from './App';
+import { applyDirectTouchEdits, ArtifactWorkspace, type ArtifactBlock } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -50,6 +50,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
     fireEvent.click(screen.getByTestId('preview-viewport-375'));
     expect(frame.style.width).toBe('375px');
+    expect(screen.getByTestId('preview-viewport-375').textContent).toContain('375px');
     fireEvent.click(screen.getByTestId('preview-viewport-768'));
     expect(frame.style.width).toBe('768px');
     fireEvent.click(screen.getByTestId('preview-viewport-fluid'));
@@ -61,5 +62,30 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(frame.srcdoc).toContain('var current=1');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('stores an approved Direct Touch text delta as an immutable new revision', () => {
+    const revisions: ArtifactBlock[] = [];
+    render(<ArtifactWorkspace artifact={{ ...artifact, content: '<main><p>Ready</p></main>' }} isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => revisions.push(next)} />);
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
+    fireEvent.click(screen.getByTestId('artifact-action-edit'));
+    const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    expect(frame.srcdoc).toContain('data-origin-direct-touch-root');
+    expect(frame.srcdoc).toContain("source:'ORIGIN_DIRECT_TOUCH'");
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: window, data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Forged' }] } })));
+    expect(revisions).toHaveLength(0);
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Edited safely' }] } })));
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0].content).toContain('Edited safely');
+    expect(revisions[0].content).not.toContain('Forged');
+    expect(revisions[0].revision).toBe(2);
+    expect(revisions[0].revisions).toHaveLength(2);
+    expect(artifact.content).toContain('Ready');
+  });
+
+  it('applies Direct Touch deltas to text nodes without treating edits as markup', () => {
+    const revised = applyDirectTouchEdits('<main><p>Original</p></main>', [{ index: 0, text: '<strong>Literal text</strong>' }]);
+    expect(revised).toContain('&lt;strong&gt;Literal text&lt;/strong&gt;');
+    expect(revised).not.toContain('<strong>Literal text</strong>');
   });
 });

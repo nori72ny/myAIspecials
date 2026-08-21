@@ -113,6 +113,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(sandbox.locator('body')).toBeVisible();
     await page.getByTestId('preview-viewport-375').click();
     await expect(preview).toHaveAttribute('style', /width: 375px/);
+    await expect(page.getByTestId('preview-viewport-375')).toContainText('375px');
     await page.getByTestId('preview-viewport-768').click();
     await expect(preview).toHaveAttribute('style', /width: 768px/);
     await page.getByTestId('preview-viewport-fluid').click();
@@ -129,6 +130,35 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(sandbox.getByText('Slide two')).toBeHidden();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('presentation-mode-toggle')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('edits preview text through Direct Touch and records an immutable new revision', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '成果物を作成しました。\n```html:direct-touch.html\n<main><p>Original editable text</p></main>\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('直接編集できる成果物を作成');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    await page.getByTestId('artifact-action-edit').click();
+    await expect(page.getByTestId('artifact-action-edit')).toHaveAttribute('aria-pressed', 'true');
+    const preview = workspace.getByTitle('プレビュー');
+    await expect(preview).toHaveAttribute('srcdoc', /data-origin-direct-touch-root/);
+    await expect(preview).toHaveAttribute('srcdoc', /ORIGIN_DIRECT_TOUCH/);
+    const sandbox = preview.contentFrame();
+    await expect(sandbox.locator('[data-origin-direct-touch-root]')).toBeVisible();
+    const target = sandbox.getByText('Original editable text');
+    await target.click();
+    await expect(target).toHaveAttribute('contenteditable', 'plaintext-only');
+    await expect(preview).toHaveAttribute('srcdoc', /oninput=/);
+    await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Edited locally' }], timestamp: Date.now() }, '*'));
+    await expect(page.getByTestId('artifact-revision-indicator')).toHaveText('v2');
+    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('srcdoc', /Edited locally/);
+    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
   });
 
   test('accepts multiple text drag-and-drop attachments and rejects files over 5MB or totals over 10MB', async ({ page }) => {
