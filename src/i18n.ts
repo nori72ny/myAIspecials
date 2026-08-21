@@ -32,6 +32,13 @@ type Translation = {
   noLastKnownGood: string;
   openFullscreen: string;
   exitFullscreenLabel: string;
+  presentation: string;
+  exitPresentation: string;
+  responsivePreview: string;
+  phoneViewport: string;
+  tabletViewport: string;
+  fluidViewport: string;
+  presentationKeyboardHint: string;
   openSettings: string;
   closeSettings: string;
   settings: string;
@@ -131,6 +138,13 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     noLastKnownGood: '復帰できる正常版はまだありません。',
     openFullscreen: '全画面で表示',
     exitFullscreenLabel: '全画面表示を終了',
+    presentation: 'プレゼン表示',
+    exitPresentation: 'プレゼン表示を終了',
+    responsivePreview: '表示幅を切り替える',
+    phoneViewport: '375pxのスマホ表示',
+    tabletViewport: '768pxのタブレット表示',
+    fluidViewport: '幅100%のデスクトップ表示',
+    presentationKeyboardHint: '左右の矢印キーでスライドを移動できます。',
     openSettings: '設定を開く',
     closeSettings: '設定を閉じる',
     settings: '設定',
@@ -233,6 +247,13 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     noLastKnownGood: 'No prior healthy version is available yet.',
     openFullscreen: 'View fullscreen',
     exitFullscreenLabel: 'Exit fullscreen',
+    presentation: 'Present',
+    exitPresentation: 'Exit presentation',
+    responsivePreview: 'Switch preview width',
+    phoneViewport: '375px phone preview',
+    tabletViewport: '768px tablet preview',
+    fluidViewport: '100% desktop preview',
+    presentationKeyboardHint: 'Use the left and right arrow keys to move between slides.',
     openSettings: 'Open settings',
     closeSettings: 'Close settings',
     settings: 'Settings',

@@ -96,6 +96,41 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(preview).not.toHaveAttribute('srcdoc', /unstable preview/);
   });
 
+  test('switches preview viewports and presents multi-slide artifacts with keyboard navigation', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '成果物を作成しました。\n```html:deck.html\n<section class="slide">Slide one</section><section class="slide">Slide two</section>\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('プレゼン資料を作成');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    const preview = workspace.getByTitle('プレビュー');
+    const sandbox = preview.contentFrame();
+    await expect(sandbox.locator('body')).toBeVisible();
+    await page.getByTestId('preview-viewport-375').click();
+    await expect(preview).toHaveAttribute('style', /width: 375px/);
+    await page.getByTestId('preview-viewport-768').click();
+    await expect(preview).toHaveAttribute('style', /width: 768px/);
+    await page.getByTestId('preview-viewport-fluid').click();
+    await expect(preview).toHaveAttribute('style', /width: 100%/);
+    await page.getByTestId('presentation-mode-toggle').click();
+    await expect(page.getByTestId('presentation-mode-toggle')).toHaveAttribute('aria-pressed', 'true');
+    await expect(sandbox.getByText('Slide one')).toBeVisible();
+    await expect(sandbox.getByText('Slide two')).toBeHidden();
+    await page.keyboard.press('ArrowRight');
+    await expect(sandbox.getByText('Slide one')).toBeHidden();
+    await expect(sandbox.getByText('Slide two')).toBeVisible();
+    await page.keyboard.press('ArrowLeft');
+    await expect(sandbox.getByText('Slide one')).toBeVisible();
+    await expect(sandbox.getByText('Slide two')).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('presentation-mode-toggle')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   test('accepts multiple text drag-and-drop attachments and rejects files over 5MB or totals over 10MB', async ({ page }) => {
     await page.goto('/');
     const homeRequest = page.getByTestId('origin-home-request');

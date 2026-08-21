@@ -43,4 +43,23 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'real error', timestamp: Date.now() } })));
     expect(screen.getByTestId('restore-last-known-good')).toHaveProperty('disabled', true);
   });
+
+  it('switches responsive preview widths and routes presentation arrow keys into the active sandbox', () => {
+    render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
+    const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    fireEvent.click(screen.getByTestId('preview-viewport-375'));
+    expect(frame.style.width).toBe('375px');
+    fireEvent.click(screen.getByTestId('preview-viewport-768'));
+    expect(frame.style.width).toBe('768px');
+    fireEvent.click(screen.getByTestId('preview-viewport-fluid'));
+    expect(frame.style.width).toBe('100%');
+    fireEvent.click(screen.getByTestId('presentation-mode-toggle'));
+    expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(frame.srcdoc).toContain('var presenting=true');
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(frame.srcdoc).toContain('var current=1');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('false');
+  });
 });
