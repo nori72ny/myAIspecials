@@ -25,11 +25,22 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
-    act(() => window.dispatchEvent(new MessageEvent('message', { origin: 'null', source: frame.contentWindow, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'ready' } })));
+    act(() => window.dispatchEvent(new MessageEvent('message', { origin: 'null', source: frame.contentWindow, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'ready', timestamp: Date.now() } })));
     act(() => window.dispatchEvent(new MessageEvent('message', { origin: 'null', source: frame.contentWindow, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'broken widget' } })));
     expect(screen.getByTestId('sandbox-runtime-boundary').textContent).toContain('Sandbox内で実行時エラーを検知しました。');
     fireEvent.click(screen.getByTestId('restore-last-known-good'));
     expect(screen.queryByTestId('sandbox-runtime-boundary')).toBeNull();
     expect((screen.getByTitle('プレビュー') as HTMLIFrameElement).srcdoc).toContain('Ready');
+  });
+
+  it('rejects forged cross-window messages and never confirms last-known-good from iframe load alone', () => {
+    render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
+    const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    fireEvent.load(frame);
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: window, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'forged error', timestamp: Date.now() } })));
+    expect(screen.queryByTestId('sandbox-runtime-boundary')).toBeNull();
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'real error', timestamp: Date.now() } })));
+    expect(screen.getByTestId('restore-last-known-good')).toHaveProperty('disabled', true);
   });
 });

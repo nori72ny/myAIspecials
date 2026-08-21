@@ -80,9 +80,11 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const preview = workspace.getByTitle('プレビュー');
     await expect(preview).toBeVisible();
     await expect(preview).toHaveAttribute('data-origin-loaded', 'true');
-    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', {
-      data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'unstable preview' },
-    })));
+    const sandbox = preview.contentFrame();
+    await expect(sandbox.locator('body')).toBeVisible();
+    await page.waitForTimeout(180);
+    await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'ready', timestamp: Date.now() }, '*'));
+    await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'unstable preview', timestamp: Date.now() }, '*'));
     const boundary = page.getByTestId('sandbox-runtime-boundary');
     await expect(boundary).toBeVisible({ timeout: 15_000 });
     await expect(boundary).toContainText('Sandbox内で実行時エラーを検知しました。');
