@@ -7,4 +7,4 @@
 - [x] P1: Require postMessage events to originate from the active preview iframe contentWindow.
 - [x] P1: Confirm last-known-good only after a sandbox clean-load notification with no runtime exception.
 - [x] P1: Remove unsafe-eval and restrict connect-src in the top-level CSP configuration.
-- [ ] P1: Run lint, unit, API, E2E, production build, GitHub main sync, and Vercel production header verification.
+- [x] P1: Run lint, unit, API, E2E, production build, GitHub main sync, and Vercel production header verification.
