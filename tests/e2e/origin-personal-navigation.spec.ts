@@ -133,7 +133,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('artifact-action-save').click();
     await expect((await download).suggestedFilename()).toBe('offline-persisted.html');
 
-    await page.getByRole('button', { name: '成果物を閉じる' }).click();
+    await page.getByRole('button', { name: '成果物ワークスペースを閉じる' }).click();
     let chatRequests = 0;
     page.on('request', (request) => { if (request.url().endsWith('/api/chat')) chatRequests += 1; });
     await page.getByTestId('origin-chat-request').fill('オフライン中の新規送信');
