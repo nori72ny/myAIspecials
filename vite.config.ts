@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import {readFile, writeFile} from 'node:fs/promises';
 import path from 'path';
 import {defineConfig, type Plugin} from 'vite';
 import {createOriginApp} from './src/server/createOriginApp';
@@ -13,9 +14,37 @@ function originApiDevPlugin(): Plugin {
   };
 }
 
+const ORIGIN_PRECACHE_MARKER = '/* __ORIGIN_PRECACHE_MANIFEST__ */ []';
+
+export function injectOriginPrecacheManifest(worker: string, assetPaths: readonly string[]): string {
+  const safePaths = [...new Set(assetPaths)]
+    .filter((assetPath) => assetPath.startsWith('/') && !assetPath.includes('..'))
+    .sort();
+  if (worker.split(ORIGIN_PRECACHE_MARKER).length !== 2) {
+    throw new Error('Service Worker precache marker is missing or ambiguous.');
+  }
+  return worker.replace(ORIGIN_PRECACHE_MARKER, JSON.stringify(safePaths));
+}
+
+function originOfflinePrecachePlugin(): Plugin {
+  return {
+    name: 'origin-offline-precache',
+    apply: 'build',
+    async writeBundle(options, bundle) {
+      const outputDirectory = path.resolve(__dirname, options.dir ?? 'dist');
+      const workerPath = path.join(outputDirectory, 'sw.js');
+      const worker = await readFile(workerPath, 'utf8');
+      const assetPaths = Object.keys(bundle)
+        .filter((fileName) => fileName !== 'sw.js')
+        .map((fileName) => `/${fileName}`);
+      await writeFile(workerPath, injectOriginPrecacheManifest(worker, assetPaths), 'utf8');
+    },
+  };
+}
+
 export default defineConfig(() => {
   return {
-    plugins: [originApiDevPlugin(), react(), tailwindcss()],
+    plugins: [originApiDevPlugin(), react(), tailwindcss(), originOfflinePrecachePlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -76,6 +76,57 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('response-verification-details')).toBeVisible();
   });
 
+  test('reloads the cached app offline, restores compressed artifacts, and exports locally without an API request', async ({ page, context }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '```html:offline-persisted.html\n<main><h1>Offline Persisted Artifact</h1></main>\n```',
+    }));
+    await page.goto('/');
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+    await page.getByTestId('origin-home-request').fill('オフライン保存用成果物を作成');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('artifact-workspace')).toBeVisible();
+    await expect.poll(async () => page.evaluate(async () => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('origin-personal-local', 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const stored = await new Promise<unknown>((resolve, reject) => {
+        const request = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      database.close();
+      return stored instanceof Blob ? stored.type : '';
+    })).toBe('application/vnd.origin.snapshot+gzip');
+
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
+    await page.getByTestId('history-drawer-toggle').click();
+    await page.getByTestId('history-search-input').fill('Offline Persisted Artifact');
+    await page.getByTestId('history-search-result-0').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible();
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    await expect(workspace.getByTitle('プレビュー').contentFrame().getByText('Offline Persisted Artifact')).toBeVisible();
+    const download = page.waitForEvent('download');
+    await page.getByTestId('artifact-action-save').click();
+    await expect((await download).suggestedFilename()).toBe('offline-persisted.html');
+
+    await page.getByRole('button', { name: '成果物を閉じる' }).click();
+    let chatRequests = 0;
+    page.on('request', (request) => { if (request.url().endsWith('/api/chat')) chatRequests += 1; });
+    await page.getByTestId('origin-home-request').fill('オフライン中の新規送信');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByText('現在オフラインです（保存済み成果物の閲覧・編集のみ可能です）')).toBeVisible();
+    expect(chatRequests).toBe(0);
+    await context.setOffline(false);
+  });
+
   test('shows the zero-cost congestion notice without a verified trace after provider retries', async ({ page }) => {
     let attempts = 0;
     await page.route('**/api/chat', async (route) => {

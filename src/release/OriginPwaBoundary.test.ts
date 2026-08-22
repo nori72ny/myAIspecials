@@ -131,6 +131,9 @@ describe('ORIGIN PWA boundary', () => {
     expect(worker).toContain("const CACHE_PREFIX = 'origin-pwa-'");
     expect(worker).toContain("caches.match('/offline.html')");
     expect(worker).toContain('APP_SHELL_KEY');
+    expect(worker).toContain('BUILD_ASSET_PATHS');
+    expect(worker).toContain('__ORIGIN_PRECACHE_MANIFEST__');
+    expect(worker).toContain('...BUILD_ASSET_PATHS');
     expect(worker).not.toMatch(/install[\s\S]{0,300}skipWaiting/);
     expect(worker).not.toContain('/api/chat');
     expect(worker).not.toMatch(/localStorage|indexedDB|OPENROUTER|prompt|messages|https?:\/\//i);

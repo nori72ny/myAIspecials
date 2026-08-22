@@ -1,6 +1,7 @@
 const CACHE_PREFIX = 'origin-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v4`;
+const CACHE_NAME = `${CACHE_PREFIX}v5`;
 const APP_SHELL_KEY = '/__origin-app-shell__';
+const BUILD_ASSET_PATHS = /* __ORIGIN_PRECACHE_MANIFEST__ */ [];
 const SAFE_STATIC_PATHS = new Set([
   '/offline.html',
   '/origin-artifact-sandbox.html',
@@ -14,7 +15,7 @@ const SAFE_STATIC_PATHS = new Set([
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      await cache.addAll([...SAFE_STATIC_PATHS]);
+      await cache.addAll([...SAFE_STATIC_PATHS, ...BUILD_ASSET_PATHS]);
       try {
         const response = await fetch('/', { credentials: 'same-origin' });
         if (response.ok) await cache.put(APP_SHELL_KEY, response);
