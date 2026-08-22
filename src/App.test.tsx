@@ -28,6 +28,37 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('artifact-action-copy')).toBeTruthy();
   });
 
+  it('accepts live steering only while an artifact is still streaming and protects IME composition', () => {
+    const onSteer = vi.fn();
+    const pendingArtifact = { ...artifact, isComplete: false };
+    const { rerender } = render(<ArtifactWorkspace artifact={pendingArtifact} isOpen language="ja" isStreaming onSteer={onSteer} onClose={() => undefined} />);
+    const input = screen.getByTestId('artifact-live-steering-input');
+    fireEvent.change(input, { target: { value: '落ち着いたネイビーに変更' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true, keyCode: 229 });
+    expect(onSteer).not.toHaveBeenCalled();
+    fireEvent.submit(screen.getByTestId('artifact-live-steering'));
+    expect(onSteer).toHaveBeenCalledWith('落ち着いたネイビーに変更');
+    rerender(<ArtifactWorkspace artifact={artifact} isOpen language="ja" isStreaming={false} onSteer={onSteer} onClose={() => undefined} />);
+    expect(screen.queryByTestId('artifact-live-steering')).toBeNull();
+  });
+
+  it('synchronizes allowlisted semantic theme tokens without replacing the opaque-origin iframe', async () => {
+    document.documentElement.style.setProperty('--accent-primary', 'oklch(0.62 0.15 235)');
+    const { rerender } = render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" designTheme="minimal" onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
+    const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
+    fireEvent.load(frame);
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ source: 'ORIGIN_ARTIFACT_THEME', designTheme: 'minimal', tokens: expect.objectContaining({ '--accent-primary': 'oklch(0.62 0.15 235)' }) }), '*');
+    expect(frame.getAttribute('data-origin-srcdoc')).toContain('data-origin-theme-bridge="true"');
+    expect(frame.getAttribute('data-origin-srcdoc')).toContain('event.source!==parent');
+    rerender(<ArtifactWorkspace artifact={artifact} isOpen language="ja" designTheme="luxury" onClose={() => undefined} />);
+    expect(screen.getByTitle('プレビュー')).toBe(frame);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ source: 'ORIGIN_ARTIFACT_THEME', designTheme: 'luxury' }), '*'));
+    postMessage.mockRestore();
+    document.documentElement.style.removeProperty('--accent-primary');
+  });
+
   it('isolates a sandbox runtime error and restores the last known good revision', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));

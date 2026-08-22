@@ -4,6 +4,7 @@ import { SafeStorage } from '../utils';
 
 export const PERSONAL_SETTINGS_STORAGE_KEY = 'origin_personal_settings';
 export type PersonalTheme = 'light' | 'dark' | 'system';
+export type PersonalDesignTheme = 'minimal' | 'luxury' | 'glass';
 
 export const DEFAULT_PERSONAL_SETTINGS: Settings = Object.freeze({
   autoRoute: false,
@@ -12,6 +13,7 @@ export const DEFAULT_PERSONAL_SETTINGS: Settings = Object.freeze({
   developerMode: false,
   uiMode: 'normal',
   selectedTheme: 'light',
+  designTheme: 'minimal',
   maxCostCap: 0,
   retryCount: 0,
   timeoutSeconds: 45,
@@ -20,13 +22,15 @@ export const DEFAULT_PERSONAL_SETTINGS: Settings = Object.freeze({
 type StoredPersonalSettings = {
   language: Settings['language'];
   selectedTheme: PersonalTheme;
+  designTheme?: PersonalDesignTheme;
 };
 
 function isStoredPersonalSettings(value: unknown): value is StoredPersonalSettings {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<StoredPersonalSettings>;
   return (candidate.language === 'ja' || candidate.language === 'en')
-    && (candidate.selectedTheme === 'light' || candidate.selectedTheme === 'dark' || candidate.selectedTheme === 'system');
+    && (candidate.selectedTheme === 'light' || candidate.selectedTheme === 'dark' || candidate.selectedTheme === 'system')
+    && (candidate.designTheme === undefined || candidate.designTheme === 'minimal' || candidate.designTheme === 'luxury' || candidate.designTheme === 'glass');
 }
 
 function toPersonalSettings(value: StoredPersonalSettings | null): Settings {
@@ -42,6 +46,9 @@ function toStoredPersonalSettings(nextSettings: Settings): StoredPersonalSetting
     selectedTheme: nextSettings.selectedTheme === 'light' || nextSettings.selectedTheme === 'dark'
       ? nextSettings.selectedTheme
       : 'system',
+    designTheme: nextSettings.designTheme === 'luxury' || nextSettings.designTheme === 'glass'
+      ? nextSettings.designTheme
+      : 'minimal',
   };
 }
 

@@ -19,6 +19,7 @@ describe('usePersonalSettings', () => {
       autoRoute: false,
       selectedAgents: [],
       selectedTheme: 'light',
+      designTheme: 'minimal',
       maxCostCap: 0,
       retryCount: 0,
       timeoutSeconds: 45,
@@ -40,7 +41,7 @@ describe('usePersonalSettings', () => {
     expect(result.current.settings).toEqual(DEFAULT_PERSONAL_SETTINGS);
   });
 
-  it('persists only language and theme while keeping execution policy inert', () => {
+  it('persists only language, appearance, and the safe design theme while keeping execution policy inert', () => {
     const { result } = renderHook(() => usePersonalSettings());
 
     act(() => {
@@ -48,6 +49,7 @@ describe('usePersonalSettings', () => {
         ...result.current.settings,
         language: 'en',
         selectedTheme: 'light',
+        designTheme: 'luxury',
         autoRoute: true,
         selectedAgents: ['paid-provider'],
         maxCostCap: 10,
@@ -59,10 +61,29 @@ describe('usePersonalSettings', () => {
       ...DEFAULT_PERSONAL_SETTINGS,
       language: 'en',
       selectedTheme: 'light',
+      designTheme: 'luxury',
     });
     expect(JSON.parse(localStorage.getItem(PERSONAL_SETTINGS_STORAGE_KEY) ?? '{}')).toEqual({
       language: 'en',
       selectedTheme: 'light',
+      designTheme: 'luxury',
     });
+  });
+
+  it('upgrades previously stored appearance settings to the default minimal design', () => {
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'ja', selectedTheme: 'dark' }));
+
+    const { result } = renderHook(() => usePersonalSettings());
+
+    expect(result.current.settings.designTheme).toBe('minimal');
+    expect(result.current.settings.selectedTheme).toBe('dark');
+  });
+
+  it('rejects unapproved design themes without importing unsafe execution settings', () => {
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'en', selectedTheme: 'light', designTheme: 'injected', autoRoute: true }));
+
+    const { result } = renderHook(() => usePersonalSettings());
+
+    expect(result.current.settings).toEqual(DEFAULT_PERSONAL_SETTINGS);
   });
 });

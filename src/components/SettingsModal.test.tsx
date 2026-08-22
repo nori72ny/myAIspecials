@@ -119,6 +119,19 @@ describe('SettingsModal release identity', () => {
 
 
 describe('SettingsModal appearance and history actions', () => {
+  it('exposes Minimal, Luxury, and Glass while updating only the selected design theme', async () => {
+    const updateSettings = vi.fn();
+    mockHealth({ releaseSha: RELEASE_SHA });
+    render(<SettingsModal isOpen onClose={vi.fn()} settings={DEFAULT_PERSONAL_SETTINGS} updateSettings={updateSettings} />);
+
+    await screen.findByText('0123456789ab…');
+    expect(screen.getByRole('button', { name: 'Minimal' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Luxury' }));
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ designTheme: 'luxury', selectedTheme: 'light', maxCostCap: 0 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Glass' }));
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ designTheme: 'glass', maxCostCap: 0 }));
+  });
+
   it('persists the system theme choice through the settings handoff', async () => {
     const updateSettings = vi.fn();
     mockHealth({ releaseSha: RELEASE_SHA });
