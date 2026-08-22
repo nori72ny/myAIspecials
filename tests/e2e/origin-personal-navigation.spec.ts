@@ -136,8 +136,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByRole('button', { name: '成果物を閉じる' }).click();
     let chatRequests = 0;
     page.on('request', (request) => { if (request.url().endsWith('/api/chat')) chatRequests += 1; });
-    await page.getByTestId('origin-home-request').fill('オフライン中の新規送信');
-    await page.getByTestId('start-request-button').click();
+    await page.getByTestId('origin-chat-request').fill('オフライン中の新規送信');
+    await page.getByTestId('send-request-button').click();
     await expect(page.getByText('現在オフラインです（保存済み成果物の閲覧・編集のみ可能です）')).toBeVisible();
     expect(chatRequests).toBe(0);
     await context.setOffline(false);
