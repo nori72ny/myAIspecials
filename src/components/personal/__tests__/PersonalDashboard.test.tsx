@@ -105,6 +105,9 @@ describe('PersonalDashboard', () => {
 
     expect(screen.getByText('What would you like to accomplish?')).toBeTruthy();
     expect(screen.getByLabelText('Describe what you want to accomplish')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Compare' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Evaluate' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Evaluate' }));
+    expect((screen.getByLabelText('Describe what you want to accomplish') as HTMLTextAreaElement).value).toContain('decision criteria');
+    expect(screen.getByText('Start with an executive workflow')).toBeTruthy();
   });
 });

@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { applyDirectTouchEdits, App, ArtifactWorkspace, createArtifactExportPayload, createArtifactVisualDiff, createOfflineArtifactBundle, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { applyDirectTouchEdits, App, ArtifactWorkspace, createArtifactExportPayload, createArtifactVisualDiff, createOfflineArtifactBundle, getOriginSystemPrompt, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -57,6 +57,20 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ source: 'ORIGIN_ARTIFACT_THEME', designTheme: 'luxury' }), '*'));
     postMessage.mockRestore();
     document.documentElement.style.removeProperty('--accent-primary');
+  });
+
+  it('injects the accessibility auto-linter before untrusted artifact markup and keeps it network isolated', () => {
+    const inaccessibleArtifact = { ...artifact, content: '<main style="background:#777"><p id="low-contrast" style="color:#777">Low contrast</p><button id="unnamed"><svg aria-hidden="true"></svg></button></main>' };
+    render(<ArtifactWorkspace artifact={inaccessibleArtifact} isOpen language="en" onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show preview' }));
+    const source = (screen.getByTitle('Preview') as HTMLIFrameElement).getAttribute('data-origin-srcdoc')!;
+    expect(source.indexOf('data-origin-a11y-linter="true"')).toBeLessThan(source.indexOf('id="low-contrast"'));
+    expect(source).toContain('data-origin-a11y-contrast-fixes');
+    expect(source).toContain('data-origin-a11y-name-fixes');
+    expect(source).toContain("source:'ORIGIN_SANDBOX_A11Y'");
+    expect(source).toContain('defaultLabel="Action button"');
+    expect(source).toContain("connect-src 'none'");
+    expect(source).toContain('window.__originRunA11yLint');
   });
 
   it('isolates a sandbox runtime error and restores the last known good revision', () => {
@@ -249,6 +263,21 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true, keyCode: 13 });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    vi.unstubAllGlobals();
+  });
+
+  it('uses executive-native English instructions while retaining the single fixed free model', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('Executive response', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="en" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'Assess the options' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { model: string; systemPrompt: string };
+    expect(request.model).toBe('google/gemma-4-26b-a4b-it:free');
+    expect(request.systemPrompt).toBe(getOriginSystemPrompt('en'));
+    for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'production-ready']) expect(request.systemPrompt).toContain(phrase);
+    expect(getOriginSystemPrompt('ja')).toContain('結論を1文で先に');
     vi.unstubAllGlobals();
   });
 
