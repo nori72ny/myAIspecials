@@ -1,0 +1,46 @@
+name: Verify free model evidence
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: verify-free-model-evidence
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify official OpenRouter pricing and refresh expiring evidence
+        run: npm run verify:free-model
+      - name: Test fail-closed verifier and catalog policy
+        run: npx vitest run scripts/verify-free-model.test.ts src/lib/orchestration/OriginFreeModelCatalog.test.ts
+      - name: Open evidence refresh pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- src/lib/orchestration/OriginFreeModelCatalog.ts; then
+            echo 'Evidence remains current; no pull request required.'
+            exit 0
+          fi
+          branch="automation/free-model-evidence-${GITHUB_RUN_ID}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git add src/lib/orchestration/OriginFreeModelCatalog.ts
+          git commit -m 'chore: refresh verified free-model evidence'
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title 'chore: refresh verified free-model evidence' --body 'Automated fail-closed verification confirmed the fixed OpenRouter model still reports zero prompt and completion pricing. Full CI must pass before merge.'
