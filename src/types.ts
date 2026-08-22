@@ -24,6 +24,7 @@ export interface Settings {
   developerMode?: boolean;
   uiMode?: "normal" | "developer" | "business" | "family";
   selectedTheme?: "dark" | "light" | "system" | "oled" | "retro"; // Theme settings (Dark, Light, System, OLED, Retro)
+  designTheme?: "minimal" | "luxury" | "glass";
   maxCostCap?: number; // Cost settings (Max cost cap per mission in USD)
   retryCount?: number; // Error Recovery: Retry count
   timeoutSeconds?: number; // Error Recovery: Timeout in seconds
@@ -644,4 +645,3 @@ export interface IntelligenceMemoryNetwork {
   nodes: IMNNode[];
   links: IMNLink[];
 }
-

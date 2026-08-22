@@ -57,6 +57,73 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.locator('.safe-area-bottom .origin-composer')).toBeVisible();
   });
 
+  test('interrupts an unfinished artifact and steers its continuation through the same free model', async ({ page }) => {
+    await page.addInitScript(() => {
+      const originalFetch = window.fetch.bind(window);
+      const state = window as Window & { originSteeringRequests?: Array<{ model: string; messages: Array<{ content: string }> }>; originSteeringAborted?: boolean };
+      state.originSteeringRequests = [];
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.endsWith('/api/chat')) return originalFetch(input, init);
+        state.originSteeringRequests?.push(JSON.parse(String(init?.body)) as { model: string; messages: Array<{ content: string }> });
+        if (state.originSteeringRequests?.length === 1) {
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('成果物を生成しています。\n```html:steered.html\n<main id="partial">Original draft</main>'));
+              init?.signal?.addEventListener('abort', () => { state.originSteeringAborted = true; controller.error(new DOMException('Interrupted', 'AbortError')); }, { once: true });
+            },
+          });
+          return new Response(stream, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+        }
+        return new Response('方向修正を反映しました。\n```html:steered.html\n<main id="steered">Navy final</main>\n```', { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      }) as typeof fetch;
+    });
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('成果物を作成してください');
+    await page.getByTestId('start-request-button').click();
+    const steering = page.getByTestId('artifact-live-steering');
+    await expect(steering).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('artifact-live-steering-input').fill('落ち着いたネイビーに変更');
+    await page.getByTestId('artifact-live-steering-submit').click();
+    await expect(page.getByTestId('artifact-workspace')).toContainText('Navy final');
+    await expect(steering).toBeHidden();
+    const state = await page.evaluate(() => {
+      const current = window as Window & { originSteeringRequests?: Array<{ model: string; messages: Array<{ content: string }> }>; originSteeringAborted?: boolean };
+      return { requests: current.originSteeringRequests, aborted: current.originSteeringAborted };
+    });
+    expect(state.aborted).toBe(true);
+    expect(state.requests).toHaveLength(2);
+    expect(state.requests?.map((request) => request.model)).toEqual(['google/gemma-4-26b-a4b-it:free', 'google/gemma-4-26b-a4b-it:free']);
+    expect(state.requests?.[1]?.messages.at(-1)?.content).toContain('落ち着いたネイビーに変更');
+    expect(state.requests?.[1]?.messages.at(-1)?.content).toContain('Original draft');
+  });
+
+  test('synchronizes semantic OKLCH design themes into an existing opaque-origin preview', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '```html:semantic-theme.html\n<main id="theme-target" style="color:var(--accent-primary)">Semantic preview</main>\n```' }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('テーマ同期を確認');
+    await page.getByTestId('start-request-button').click();
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    const preview = page.getByTestId('artifact-workspace').getByTitle('プレビュー');
+    const sandbox = preview.contentFrame();
+    await expect(sandbox.locator('html')).toHaveAttribute('data-origin-design-theme', 'minimal');
+    await preview.evaluate((element) => { (window as Window & { originThemeFrame?: Window | null }).originThemeFrame = (element as HTMLIFrameElement).contentWindow; });
+    const originalAccent = await sandbox.locator('html').evaluate((element) => getComputedStyle(element).getPropertyValue('--accent-primary').trim());
+    await page.getByTestId('artifact-action-details').click();
+    await page.getByTestId('artifact-open-design-settings').click();
+    await page.getByTestId('design-theme-luxury').click();
+    await expect(page.locator('html')).toHaveAttribute('data-design-theme', 'luxury');
+    await expect(sandbox.locator('html')).toHaveAttribute('data-origin-design-theme', 'luxury');
+    const luxuryAccent = await sandbox.locator('html').evaluate((element) => getComputedStyle(element).getPropertyValue('--accent-primary').trim());
+    expect(luxuryAccent).not.toBe(originalAccent);
+    expect(await preview.evaluate((element) => (window as Window & { originThemeFrame?: Window | null }).originThemeFrame === (element as HTMLIFrameElement).contentWindow)).toBe(true);
+    await page.getByTestId('design-theme-glass').click();
+    await expect(sandbox.locator('html')).toHaveAttribute('data-origin-design-theme', 'glass');
+    expect(await preview.evaluate((element) => (window as Window & { originThemeFrame?: Window | null }).originThemeFrame === (element as HTMLIFrameElement).contentWindow)).toBe(true);
+    await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /connect-src 'none'/);
+  });
+
   test('uses translated artifact controls, HTML MIME download, and a locked-down preview sandbox', async ({ page }) => {
     await page.addInitScript(() => {
       const originalCreateObjectURL = URL.createObjectURL.bind(URL);

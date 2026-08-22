@@ -48,6 +48,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       onArtifactsChange={onArtifactsChange}
       resetSignal={resetSignal}
       language={settings?.language ?? 'ja'}
+      designTheme={settings?.designTheme ?? 'minimal'}
     />
   );
 });

@@ -154,10 +154,11 @@ function PersonalReleaseRoot() {
     const root = document.documentElement;
     root.lang = settings.language;
     root.dataset.theme = resolvedTheme;
+    root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal';
     root.classList.toggle('light', resolvedTheme === 'light');
     root.classList.toggle('dark', resolvedTheme === 'dark');
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#111827' : '#f7f6f2');
-  }, [settings.language, resolvedTheme]);
+  }, [settings.language, settings.designTheme, resolvedTheme]);
 
   useEffect(() => {
     let active = true;
