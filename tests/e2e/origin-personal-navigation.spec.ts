@@ -1,4 +1,25 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+const readCompressedOriginSnapshot = (page: Page) => page.evaluate(async () => {
+  const database = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('origin-personal-local', 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const stored = await new Promise<unknown>((resolve, reject) => {
+    const request = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  database.close();
+  if (!(stored instanceof Blob)) return { type: 'legacy', snapshot: stored };
+  const bytes = new Uint8Array(await stored.arrayBuffer());
+  const gzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
+  const text = gzip
+    ? await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
+    : new TextDecoder().decode(bytes);
+  return { type: stored.type, snapshot: JSON.parse(text) as unknown };
+});
 
 test.describe('ORIGIN Personal 2.0 production surface', () => {
   test('shows the truthful first-release workspace without legacy navigation or sample data', async ({ page }) => {
@@ -88,20 +109,15 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-home-request').fill('オフライン保存用成果物を作成');
     await page.getByTestId('start-request-button').click();
     await expect(page.getByTestId('artifact-workspace')).toBeVisible();
-    await expect.poll(async () => page.evaluate(async () => {
-      const database = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open('origin-personal-local', 1);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      const stored = await new Promise<unknown>((resolve, reject) => {
-        const request = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      database.close();
-      return stored instanceof Blob ? stored.type : '';
-    })).toBe('application/vnd.origin.snapshot+gzip');
+    await expect.poll(() => readCompressedOriginSnapshot(page)).toMatchObject({
+      type: 'application/vnd.origin.snapshot+gzip',
+      snapshot: {
+        artifacts: [expect.objectContaining({
+          title: 'offline-persisted.html',
+          content: expect.stringContaining('Offline Persisted Artifact'),
+        })],
+      },
+    });
 
     await context.setOffline(true);
     await page.reload();
