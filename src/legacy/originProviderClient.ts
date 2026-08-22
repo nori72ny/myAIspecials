@@ -307,12 +307,14 @@ function verifiedRoutingEvidence(
   responseModel: unknown,
 ): OriginProviderRoutingEvidence {
   const requestedFreeRouteIsVerified =
-    requestedModel === ORIGIN_OPENROUTER_FREE_MODEL;
+    requestedModel === ORIGIN_OPENROUTER_FREE_MODEL
+    && requestedModel.endsWith(":free");
   const servedModel = typeof responseModel === "string" ? responseModel : "";
 
   if (
     !requestedFreeRouteIsVerified
     || servedModel !== requestedModel
+    || !servedModel.endsWith(":free")
   ) {
     throw new OriginProviderError(
       "PROVIDER_ROUTING_UNVERIFIED",

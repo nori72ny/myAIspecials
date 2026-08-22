@@ -129,6 +129,51 @@ const artifactExtension = (artifact: ArtifactBlock) => {
   return /^[a-z0-9]{1,12}$/i.test(artifact.language) ? artifact.language.toLowerCase() : 'txt';
 };
 const safeArtifactFileStem = (title: string, fallback: string) => title.replace(/[^a-z0-9._-]/gi, '_').replace(/^_+|_+$/g, '').slice(0, 80) || fallback;
+export type ArtifactExportFormat = 'html' | 'svg' | 'png' | 'markdown' | 'json';
+export type ArtifactExportPayload = { format: ArtifactExportFormat; fileName: string; type: string; content: string };
+
+const escapeArtifactXml = (value: string) => value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;' }[character] ?? character));
+const localArtifactText = (content: string) => content.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '').replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+const artifactSvgDocument = (artifact: ArtifactBlock): string => {
+  if (artifact.language === 'svg' || /^\s*<svg\b/i.test(artifact.content)) return artifact.content;
+  const visible = localArtifactText(artifact.content).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2_800);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#101827"/><text x="88" y="120" fill="#d7e8f7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="34">${escapeArtifactXml(artifact.title)}</text><foreignObject x="88" y="168" width="1424" height="650"><div xmlns="http://www.w3.org/1999/xhtml" style="color:#d7e8f7;font:22px/1.55 system-ui,sans-serif;white-space:pre-wrap">${escapeArtifactXml(visible || 'ORIGIN artifact')}</div></foreignObject></svg>`;
+};
+
+export const createArtifactExportPayload = (artifact: ArtifactBlock, format: Exclude<ArtifactExportFormat, 'png'>): ArtifactExportPayload => {
+  const stem = safeArtifactFileStem(artifact.title, 'origin-artifact');
+  if (format === 'html') return { format, fileName: `${stem}.html`, type: 'text/html;charset=utf-8', content: artifact.language === 'html' ? artifact.content : `<!doctype html><meta charset="utf-8"><pre>${escapeBundleHtml(artifact.content)}</pre>` };
+  if (format === 'svg') return { format, fileName: `${stem}.svg`, type: 'image/svg+xml;charset=utf-8', content: artifactSvgDocument(artifact) };
+  if (format === 'markdown') return { format, fileName: `${stem}.md`, type: 'text/markdown;charset=utf-8', content: artifact.language === 'markdown' || artifact.language === 'md' ? artifact.content : `# ${artifact.title}\n\n\`\`\`${artifact.language || 'text'}\n${artifact.content}\n\`\`\`\n` };
+  return { format, fileName: `${stem}.json`, type: 'application/json;charset=utf-8', content: JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), artifact: { ...artifact, revisions: artifact.revisions ?? [] } }, null, 2) };
+};
+
+export const createArtifactPngBlob = async (artifact: ArtifactBlock): Promise<Blob> => {
+  if (typeof document === 'undefined' || typeof URL === 'undefined') throw new Error('png-export-unavailable');
+  const canvas = document.createElement('canvas');
+  canvas.width = 1600; canvas.height = 900;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('png-context-unavailable');
+  context.fillStyle = '#101827'; context.fillRect(0, 0, canvas.width, canvas.height);
+  const renderFallback = () => {
+    const fallbackText = localArtifactText(artifact.content).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600);
+    context.fillStyle = '#d7e8f7'; context.font = 'bold 34px system-ui, sans-serif'; context.fillText(artifact.title.slice(0, 80), 88, 110);
+    context.font = '22px system-ui, sans-serif';
+    fallbackText.match(/.{1,88}(?:\s|$)/g)?.slice(0, 20).forEach((line, index) => context.fillText(line.trim(), 88, 175 + index * 36));
+  };
+  if (artifact.language === 'svg' || /^\s*<svg\b/i.test(artifact.content)) {
+    const url = URL.createObjectURL(new Blob([artifactSvgDocument(artifact)], { type: 'image/svg+xml;charset=utf-8' }));
+    try {
+      const image = new Image();
+      await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('png-render-failed')); image.src = url; });
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    } catch { renderFallback(); }
+    finally { URL.revokeObjectURL(url); }
+  } else {
+    renderFallback();
+  }
+  return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('png-encode-failed')), 'image/png'));
+};
 const escapeBundleHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] ?? character));
 const zipEncoder = new TextEncoder();
 const zipJoin = (chunks: readonly Uint8Array[]) => { const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0); const joined = new Uint8Array(total); let offset = 0; chunks.forEach((chunk) => { joined.set(chunk, offset); offset += chunk.length; }); return joined; };
@@ -296,6 +341,8 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   const [sandboxError, setSandboxError] = useState<string | null>(null);
   const [isBundling, setIsBundling] = useState(false);
   const [bundleError, setBundleError] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [exportError, setExportError] = useState(false);
   const [isDiffInspectorOpen, setIsDiffInspectorOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
   const workspaceRef = useRef<HTMLElement>(null);
@@ -370,6 +417,24 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
+  const downloadArtifactFormat = async (format: ArtifactExportFormat) => {
+    if (!artifact) return;
+    setExportError(false);
+    try {
+      const source = { ...artifact, content: workingContent };
+      const payload = format === 'png' ? undefined : createArtifactExportPayload(source, format);
+      const blob = format === 'png' ? await createArtifactPngBlob(source) : new Blob([payload.content], { type: payload.type });
+      const stem = safeArtifactFileStem(source.title, 'origin-artifact');
+      const fileName = format === 'png' ? `${stem}.png` : payload.fileName;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url; anchor.download = fileName; anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setIsExportMenuOpen(false);
+    } catch {
+      setExportError(true);
+    }
+  };
   const downloadArtifactBundle = async () => {
     if (isBundling) return;
     setIsBundling(true); setBundleError(false);
@@ -426,11 +491,11 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
           <div data-testid="responsive-viewport-bar" role="group" aria-label={t.responsivePreview} className="origin-surface-muted flex rounded-xl border p-1"><button type="button" data-testid="preview-viewport-375" aria-label={t.phoneViewport} aria-pressed={previewViewport === '375'} onClick={() => { setIsPresentation(false); setActiveTab('preview'); setPreviewViewport('375'); }} className={`min-h-11 rounded-lg px-2 text-xs font-semibold ${previewViewport === '375' ? 'origin-primary-button' : 'origin-secondary-button'}`}>📱 375px</button><button type="button" data-testid="preview-viewport-768" aria-label={t.tabletViewport} aria-pressed={previewViewport === '768'} onClick={() => { setIsPresentation(false); setActiveTab('preview'); setPreviewViewport('768'); }} className={`min-h-11 rounded-lg px-2 text-xs font-semibold ${previewViewport === '768' ? 'origin-primary-button' : 'origin-secondary-button'}`}>📱 768px</button><button type="button" data-testid="preview-viewport-fluid" aria-label={t.fluidViewport} aria-pressed={previewViewport === 'fluid'} onClick={() => { setIsPresentation(false); setActiveTab('preview'); setPreviewViewport('fluid'); }} className={`min-h-11 rounded-lg px-2 text-xs font-semibold ${previewViewport === 'fluid' ? 'origin-primary-button' : 'origin-secondary-button'}`}>💻 100%</button></div>
           <button type="button" data-testid="presentation-mode-toggle" aria-label={isPresentation ? t.exitPresentation : t.presentation} aria-pressed={isPresentation} onClick={() => void togglePresentation()} className={`min-h-11 rounded-xl border px-3 text-xs font-semibold ${isPresentation ? 'origin-primary-button' : 'origin-secondary-button'}`}>▣ {isPresentation ? t.exitPresentation : t.presentation}</button>
         </>}
-        <div data-testid="artifact-action-bar" role="group" aria-label="Artifact actions" className="origin-surface-muted flex rounded-xl border p-1"><button type="button" data-testid="artifact-action-copy" aria-label={t.copyArtifact} onClick={() => void copyText(workingContent).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2_000); })} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📋 {copied ? t.copied : t.copy}</button><button type="button" data-testid="artifact-action-save" aria-label={t.downloadArtifact} onClick={downloadArtifact} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📥 {t.download}</button><button type="button" data-testid="artifact-action-bundle" aria-label="一括パッケージ保存" aria-busy={isBundling} onClick={() => void downloadArtifactBundle()} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold disabled:cursor-wait" disabled={isBundling}>📦 {isBundling ? '準備中' : '一括保存'}</button><button type="button" data-testid="artifact-action-share" aria-label={t.shareArtifact} onClick={() => void shareArtifact()} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📲 {shared ? t.shareCopied : t.shareArtifact}</button><button type="button" data-testid="artifact-action-edit" aria-label={t.editArtifact} aria-pressed={isDirectEditing} onClick={() => { setIsDirectEditing((current) => !current); setActiveTab('preview'); }} className={`min-h-11 rounded-lg px-3 text-xs font-semibold ${isDirectEditing ? 'origin-primary-button' : 'origin-secondary-button'}`}>✏️ {isDirectEditing ? t.finishEditing : t.editArtifact}</button></div>
+        <div data-testid="artifact-action-bar" role="group" aria-label="Artifact actions" className="origin-surface-muted flex rounded-xl border p-1"><button type="button" data-testid="artifact-action-copy" aria-label={t.copyArtifact} onClick={() => void copyText(workingContent).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2_000); })} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📋 {copied ? t.copied : t.copy}</button><button type="button" data-testid="artifact-action-save" aria-label={t.downloadArtifact} onClick={downloadArtifact} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📥 {t.download}</button><div className="relative"><button type="button" data-testid="artifact-action-export-menu" aria-label="多形式で保存" aria-expanded={isExportMenuOpen} onClick={() => setIsExportMenuOpen((current) => !current)} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">形式</button>{isExportMenuOpen && <div data-testid="artifact-export-menu" role="menu" aria-label="成果物の保存形式" className="origin-surface absolute right-0 top-12 z-50 grid min-w-36 gap-1 rounded-xl border p-1 shadow-xl">{([{ key: 'html', label: 'HTML' }, { key: 'svg', label: 'SVG' }, { key: 'png', label: 'PNG' }, { key: 'markdown', label: 'Markdown' }, { key: 'json', label: 'JSON' }] as const).map((option) => <button key={option.key} type="button" data-testid={`artifact-export-${option.key}`} role="menuitem" onClick={() => void downloadArtifactFormat(option.key)} className="origin-secondary-button min-h-11 rounded-lg px-3 text-left text-xs font-semibold">{option.label}</button>)}</div>}</div><button type="button" data-testid="artifact-action-bundle" aria-label="一括パッケージ保存" aria-busy={isBundling} onClick={() => void downloadArtifactBundle()} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold disabled:cursor-wait" disabled={isBundling}>📦 {isBundling ? '準備中' : '一括保存'}</button><button type="button" data-testid="artifact-action-share" aria-label={t.shareArtifact} onClick={() => void shareArtifact()} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📲 {shared ? t.shareCopied : t.shareArtifact}</button><button type="button" data-testid="artifact-action-edit" aria-label={t.editArtifact} aria-pressed={isDirectEditing} onClick={() => { setIsDirectEditing((current) => !current); setActiveTab('preview'); }} className={`min-h-11 rounded-lg px-3 text-xs font-semibold ${isDirectEditing ? 'origin-primary-button' : 'origin-secondary-button'}`}>✏️ {isDirectEditing ? t.finishEditing : t.editArtifact}</button></div>
         {priorRevision && <button type="button" data-testid="artifact-visual-diff-toggle" aria-label="直前リビジョンとの差分を表示" aria-pressed={isDiffInspectorOpen} onClick={() => { setIsDirectEditing(false); setIsDiffInspectorOpen((current) => !current); }} className={`min-h-11 rounded-xl border px-3 text-xs font-semibold ${isDiffInspectorOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>🔍 差分表示</button>}
         <button type="button" aria-label={isFullscreen ? t.exitFullscreenLabel : t.openFullscreen} aria-pressed={isFullscreen} onClick={() => void toggleFullscreen()} className="origin-secondary-button hidden min-h-11 rounded-xl border px-3 text-xs font-semibold sm:inline-flex">{isFullscreen ? t.exitFullscreen : t.fullscreen}</button><button type="button" aria-label={t.closeWorkspace} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 items-center justify-center rounded-xl border text-lg">✕</button>
       </div>
-      {isPresentation && <p className="sr-only" role="status">{t.presentationKeyboardHint}</p>}{isOffline && <p data-testid="artifact-offline-status" role="status" className="text-xs text-amber-600 dark:text-amber-300">オフライン中: 端末内の成果物は閲覧・編集・保存できます。</p>}{bundleError && <p role="alert" className="text-xs text-[var(--danger)]">パッケージを作成できませんでした。</p>}
+      {isPresentation && <p className="sr-only" role="status">{t.presentationKeyboardHint}</p>}{isOffline && <p data-testid="artifact-offline-status" role="status" className="text-xs text-amber-600 dark:text-amber-300">オフライン中: 端末内の成果物は閲覧・編集・保存できます。</p>}{bundleError && <p role="alert" className="text-xs text-[var(--danger)]">パッケージを作成できませんでした。</p>}{exportError && <p role="alert" className="text-xs text-[var(--danger)]">この形式でのローカル書き出しを完了できませんでした。</p>}
     </div>
     <div className="origin-code-panel relative min-h-0 flex-1 overflow-auto p-4">{isDiffInspectorOpen && visualDiff && priorRevision ? <ArtifactVisualDiffInspector diff={visualDiff} priorRevision={Math.max(1, (artifact.revision ?? artifact.revisions?.length ?? 1) - 1)} /> : previewFrame}{sandboxError && <div data-testid="sandbox-runtime-boundary" role="alert" className="absolute inset-6 flex flex-col justify-center rounded-2xl border border-red-400/60 bg-[var(--bg-surface)]/95 p-5 shadow-2xl backdrop-blur"><p className="m-0 text-sm font-bold text-red-500">{t.sandboxRuntimeError}</p><p className="mt-2 break-words font-mono text-xs">{sandboxError}</p><p className="origin-muted mt-3 text-xs">{t.sandboxRuntimeDetail}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" data-testid="restore-last-known-good" disabled={!lastKnownGood} title={!lastKnownGood ? t.noLastKnownGood : undefined} onClick={restoreLastKnownGood} className="origin-primary-button min-h-11 rounded-xl px-4 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50">{t.restoreLastKnownGood}</button><button type="button" onClick={() => setSandboxError(null)} className="origin-secondary-button min-h-11 rounded-xl border px-4 text-xs font-semibold">{t.close}</button></div></div>}</div>
   </aside>;

@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { applyDirectTouchEdits, App, ArtifactWorkspace, createArtifactVisualDiff, createOfflineArtifactBundle, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { applyDirectTouchEdits, App, ArtifactWorkspace, createArtifactExportPayload, createArtifactVisualDiff, createOfflineArtifactBundle, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -115,6 +115,20 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(archiveText).toContain('artifacts/02-styles.css');
     expect(archiveText).toContain('"artifactCount": 2');
     expect(archiveText).toContain('ORIGIN Artifact Package');
+  });
+
+  it('creates HTML, SVG, Markdown, and JSON exports locally and exposes every format in the save menu', () => {
+    const html = createArtifactExportPayload(artifact, 'html');
+    const svg = createArtifactExportPayload(artifact, 'svg');
+    const markdown = createArtifactExportPayload(artifact, 'markdown');
+    const json = createArtifactExportPayload(artifact, 'json');
+    expect(html.fileName).toMatch(/\.html$/);
+    expect(svg.content).toContain('<svg');
+    expect(markdown.content).toContain('# Safe preview');
+    expect(json.content).toContain('"artifact-1"');
+    render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
+    fireEvent.click(screen.getByTestId('artifact-action-export-menu'));
+    for (const format of ['html', 'svg', 'png', 'markdown', 'json']) expect(screen.getByTestId(`artifact-export-${format}`)).toBeTruthy();
   });
 
   it('coalesces knowledge-map restoration through requestAnimationFrame', () => {

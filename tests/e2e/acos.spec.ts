@@ -69,6 +69,21 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect((await download).suggestedFilename()).toMatch(/^origin-artifact-package-\d{4}-\d{2}-\d{2}\.zip$/);
   });
 
+  test('exports an artifact locally as HTML, SVG, PNG, Markdown, and JSON', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '```html:multi-format.html\n<main><h1>Multi format export</h1></main>\n```' }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('多形式エクスポートを作成');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
+    for (const [format, extension] of [['html', 'html'], ['svg', 'svg'], ['png', 'png'], ['markdown', 'md'], ['json', 'json']] as const) {
+      await page.getByTestId('artifact-action-export-menu').click();
+      await expect(page.getByTestId('artifact-export-menu')).toBeVisible();
+      const downloadPromise = page.waitForEvent('download');
+      await page.getByTestId(`artifact-export-${format}`).click();
+      await expect((await downloadPromise).suggestedFilename()).toMatch(new RegExp(`\\.${extension}$`));
+    }
+  });
+
   test('restores a local archived conversation from the requestAnimationFrame knowledge map', async ({ page }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: 'セッションを整理しました。' }));
     await page.goto('/');
