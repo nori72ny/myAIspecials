@@ -50,6 +50,32 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(attempts).toBe(2);
   });
 
+  test('batches fragmented streamed output without losing Japanese characters or verification', async ({ page }) => {
+    await page.addInitScript(() => {
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (!url.endsWith('/api/chat')) return originalFetch(input, init);
+
+        const bytes = new TextEncoder().encode('結論：描画バッチで滑らかに表示します。');
+        return new Response(new ReadableStream({
+          start(controller) {
+            for (let index = 0; index < bytes.length; index += 1) {
+              controller.enqueue(bytes.slice(index, index + 1));
+            }
+            controller.close();
+          },
+        }), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      };
+    });
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('日本語の分割ストリームを検証');
+    await page.getByTestId('start-request-button').click();
+
+    await expect(page.getByText('結論：描画バッチで滑らかに表示します。')).toBeVisible();
+    await expect(page.getByTestId('response-verification-details')).toBeVisible();
+  });
+
   test('shows the zero-cost congestion notice without a verified trace after provider retries', async ({ page }) => {
     let attempts = 0;
     await page.route('**/api/chat', async (route) => {

@@ -6,10 +6,21 @@ export const ORIGIN_VERIFIED_FREE_MODEL = 'google/gemma-4-26b-a4b-it:free' as co
 export const OPENROUTER_MODELS_API = 'https://openrouter.ai/api/v1/models' as const;
 const DEFAULT_REVIEW_DAYS = 10;
 const DEFAULT_REFRESH_THRESHOLD_DAYS = 3;
+const RETRYABLE_MODELS_API_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 type OpenRouterModel = {
   id?: unknown;
   pricing?: { prompt?: unknown; completion?: unknown };
+};
+
+export type OriginFreeModelVerification = {
+  modelId: typeof ORIGIN_VERIFIED_FREE_MODEL;
+  pricing: { prompt: '0'; completion: '0' };
+  sourceUrl: string;
+  verifiedAt: string;
+  reviewAfter: string;
+  catalogPath: string;
+  updated: boolean;
 };
 
 const isExactZeroPrice = (value: unknown): boolean => {
@@ -52,16 +63,25 @@ export async function verifyAndRefreshFreeModel(options: {
   modelsUrl?: string;
   force?: boolean;
   refreshThresholdDays?: number;
-} = {}): Promise<{ verifiedAt: string; reviewAfter: string; catalogPath: string; updated: boolean }> {
+} = {}): Promise<OriginFreeModelVerification> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const catalogPath = resolve(options.catalogPath ?? 'src/lib/orchestration/OriginFreeModelCatalog.ts');
   const reviewDays = options.reviewDays ?? DEFAULT_REVIEW_DAYS;
   if (!Number.isInteger(reviewDays) || reviewDays < 1 || reviewDays > 30) throw new Error('Review window must be an integer from 1 to 30 days.');
-  const response = await fetchImpl(options.modelsUrl ?? OPENROUTER_MODELS_API, {
-    headers: { Accept: 'application/json', 'User-Agent': 'ORIGIN-Personal-Free-Model-Verifier/1.0' },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`OpenRouter /models verification failed with HTTP ${response.status}.`);
+  const sourceUrl = options.modelsUrl ?? OPENROUTER_MODELS_API;
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await fetchImpl(sourceUrl, {
+        headers: { Accept: 'application/json', 'User-Agent': 'ORIGIN-Personal-Free-Model-Verifier/1.0' },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (response.ok || !RETRYABLE_MODELS_API_STATUSES.has(response.status) || attempt === 1) break;
+    } catch (error) {
+      if (attempt === 1) throw error;
+    }
+  }
+  if (!response?.ok) throw new Error(`OpenRouter /models verification failed with HTTP ${response?.status ?? 'unavailable'}.`);
   verifyFreeModelPayload(await response.json());
 
   const now = options.now ?? new Date();
@@ -71,8 +91,14 @@ export async function verifyAndRefreshFreeModel(options: {
   const currentDeadline = currentReviewAfter ? Date.parse(currentReviewAfter) : Number.NaN;
   const refreshThresholdDays = options.refreshThresholdDays ?? DEFAULT_REFRESH_THRESHOLD_DAYS;
   if (!Number.isInteger(refreshThresholdDays) || refreshThresholdDays < 0 || refreshThresholdDays > reviewDays) throw new Error('Refresh threshold must be an integer from 0 through the review window.');
+  const proof = {
+    modelId: ORIGIN_VERIFIED_FREE_MODEL,
+    pricing: { prompt: '0', completion: '0' },
+    sourceUrl,
+    catalogPath,
+  } satisfies Pick<OriginFreeModelVerification, 'modelId' | 'pricing' | 'sourceUrl' | 'catalogPath'>;
   if (!options.force && Number.isFinite(currentDeadline) && currentDeadline - now.getTime() > refreshThresholdDays * 86_400_000) {
-    return { verifiedAt: now.toISOString(), reviewAfter: currentReviewAfter!, catalogPath, updated: false };
+    return { ...proof, verifiedAt: now.toISOString(), reviewAfter: currentReviewAfter!, updated: false };
   }
   const verifiedAt = now.toISOString();
   const reviewAfter = new Date(now.getTime() + reviewDays * 86_400_000 - 1).toISOString();
@@ -85,12 +111,29 @@ export async function verifyAndRefreshFreeModel(options: {
     await unlink(temporaryPath).catch(() => undefined);
     throw error;
   }
-  return { verifiedAt, reviewAfter, catalogPath, updated: true };
+  return { ...proof, verifiedAt, reviewAfter, updated: true };
+}
+
+export async function writeFreeModelVerificationReport(
+  verification: OriginFreeModelVerification,
+  reportPath: string,
+): Promise<void> {
+  const { modelId, pricing, sourceUrl, verifiedAt, reviewAfter, updated } = verification;
+  await writeFile(resolve(reportPath), `${JSON.stringify({ modelId, pricing, sourceUrl, verifiedAt, reviewAfter, updated }, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
 }
 
 const isEntrypoint = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isEntrypoint) {
   verifyAndRefreshFreeModel({ force: process.argv.includes('--force') })
-    .then(({ verifiedAt, reviewAfter, updated }) => console.log(`Verified ${ORIGIN_VERIFIED_FREE_MODEL} at $0.00; evidence ${updated ? 'refreshed' : 'remains current'} (${verifiedAt} → ${reviewAfter}).`))
+    .then(async (verification) => {
+      if (process.env.ORIGIN_FREE_MODEL_EVIDENCE_PATH) {
+        await writeFreeModelVerificationReport(verification, process.env.ORIGIN_FREE_MODEL_EVIDENCE_PATH);
+      }
+      const { verifiedAt, reviewAfter, updated } = verification;
+      console.log(`Verified ${ORIGIN_VERIFIED_FREE_MODEL} at $0.00; evidence ${updated ? 'refreshed' : 'remains current'} (${verifiedAt} → ${reviewAfter}).`);
+    })
     .catch((error: unknown) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
 }

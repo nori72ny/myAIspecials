@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -11,6 +11,63 @@ const artifact: ArtifactBlock = {
 
 describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   afterEach(cleanup);
+
+  it('batches all stream chunks received within one animation frame', () => {
+    const renderChunk = vi.fn();
+    let scheduledFrame: FrameRequestCallback | undefined;
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+      scheduledFrame = callback;
+      return 17;
+    });
+    const cancelFrame = vi.fn();
+    const batcher = createOriginStreamRenderBatcher(renderChunk, { requestFrame, cancelFrame });
+
+    batcher.enqueue('結論');
+    batcher.enqueue('を');
+    batcher.enqueue('まとめます。');
+
+    expect(requestFrame).toHaveBeenCalledOnce();
+    expect(renderChunk).not.toHaveBeenCalled();
+    scheduledFrame?.(16);
+    expect(renderChunk).toHaveBeenCalledOnce();
+    expect(renderChunk).toHaveBeenCalledWith('結論をまとめます。');
+    expect(cancelFrame).not.toHaveBeenCalled();
+  });
+
+  it('flushes the last streaming frame immediately without losing its content', () => {
+    const renderChunk = vi.fn();
+    const requestFrame = vi.fn(() => 21);
+    const cancelFrame = vi.fn();
+    const batcher = createOriginStreamRenderBatcher(renderChunk, { requestFrame, cancelFrame });
+
+    batcher.enqueue('途中');
+    batcher.enqueue('と最終チャンク');
+    batcher.flush();
+
+    expect(cancelFrame).toHaveBeenCalledWith(21);
+    expect(renderChunk).toHaveBeenCalledOnce();
+    expect(renderChunk).toHaveBeenCalledWith('途中と最終チャンク');
+  });
+
+  it('drops a cancelled streaming frame without revealing unverified content', () => {
+    const renderChunk = vi.fn();
+    let scheduledFrame: FrameRequestCallback | undefined;
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+      scheduledFrame = callback;
+      return 31;
+    });
+    const cancelFrame = vi.fn();
+    const batcher = createOriginStreamRenderBatcher(renderChunk, { requestFrame, cancelFrame });
+
+    batcher.enqueue('表示してはいけない途中応答');
+    batcher.cancel();
+    scheduledFrame?.(16);
+    batcher.enqueue('中止後の応答');
+    batcher.flush();
+
+    expect(cancelFrame).toHaveBeenCalledWith(31);
+    expect(renderChunk).not.toHaveBeenCalled();
+  });
 
   it('keeps only edit, share, and save as primary actions, and groups advanced actions under details', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
