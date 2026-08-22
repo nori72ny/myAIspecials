@@ -220,6 +220,8 @@ const artifactExtension = (artifact: ArtifactBlock) => {
 const safeArtifactFileStem = (title: string, fallback: string) => title.replace(/[^a-z0-9._-]/gi, '_').replace(/^_+|_+$/g, '').slice(0, 80) || fallback;
 export type ArtifactExportFormat = 'html' | 'svg' | 'png' | 'markdown' | 'json';
 export type ArtifactExportPayload = { format: ArtifactExportFormat; fileName: string; type: string; content: string };
+export type ArtifactIntegrityEntry = { id: string; title: string; language: string; type: ArtifactBlock['type']; revision: number; path: string; bytes: number; sha256: string };
+export type ArtifactIntegrityManifest = { format: 'ORIGIN Artifact Integrity Manifest'; version: 2; algorithm: 'SHA-256'; exportedAt: string; artifactCount: number; artifacts: readonly ArtifactIntegrityEntry[] };
 
 const escapeArtifactXml = (value: string) => value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;' }[character] ?? character));
 const localArtifactText = (content: string) => content.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '').replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
@@ -235,6 +237,45 @@ export const createArtifactExportPayload = (artifact: ArtifactBlock, format: Exc
   if (format === 'svg') return { format, fileName: `${stem}.svg`, type: 'image/svg+xml;charset=utf-8', content: artifactSvgDocument(artifact) };
   if (format === 'markdown') return { format, fileName: `${stem}.md`, type: 'text/markdown;charset=utf-8', content: artifact.language === 'markdown' || artifact.language === 'md' ? artifact.content : `# ${artifact.title}\n\n\`\`\`${artifact.language || 'text'}\n${artifact.content}\n\`\`\`\n` };
   return { format, fileName: `${stem}.json`, type: 'application/json;charset=utf-8', content: JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), artifact: { ...artifact, revisions: artifact.revisions ?? [] } }, null, 2) };
+};
+
+const sha256Hex = async (content: string): Promise<string> => {
+  if (!globalThis.crypto?.subtle) throw new Error('sha256-unavailable');
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', zipEncoder.encode(content));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+
+export const createArtifactIntegrityManifest = async (
+  artifacts: readonly { artifact: ArtifactBlock; path: string; content: string }[],
+  exportedAt: string = new Date().toISOString(),
+): Promise<ArtifactIntegrityManifest> => ({
+  format: 'ORIGIN Artifact Integrity Manifest',
+  version: 2,
+  algorithm: 'SHA-256',
+  exportedAt,
+  artifactCount: artifacts.length,
+  artifacts: await Promise.all(artifacts.map(async ({ artifact, path, content }) => ({
+    id: artifact.id,
+    title: artifact.title,
+    language: artifact.language,
+    type: artifact.type,
+    revision: artifact.revision ?? 1,
+    path,
+    bytes: zipEncoder.encode(content).byteLength,
+    sha256: await sha256Hex(content),
+  }))),
+});
+
+const serializeEmbeddedManifest = (manifest: ArtifactIntegrityManifest): string => JSON.stringify(manifest, null, 2).replace(/</g, '\\u003c');
+
+export const createArtifactHtmlExportPayload = async (artifact: ArtifactBlock, exportedAt: string = new Date().toISOString()): Promise<ArtifactExportPayload> => {
+  const base = createArtifactExportPayload(artifact, 'html');
+  const manifest = await createArtifactIntegrityManifest([{ artifact, path: base.fileName, content: base.content }], exportedAt);
+  const metadata = `<script type="application/json" id="origin-export-manifest" data-filename="manifest.json">${serializeEmbeddedManifest(manifest)}</script>`;
+  const content = /<\/body\s*>/i.test(base.content)
+    ? base.content.replace(/<\/body\s*>/i, `${metadata}</body>`)
+    : `${base.content}\n${metadata}`;
+  return { ...base, content };
 };
 
 export const createArtifactPngBlob = async (artifact: ArtifactBlock): Promise<Blob> => {
@@ -283,18 +324,19 @@ const createStoredZip = (entries: readonly { path: string; content: string }[]) 
 
 export const createOfflineArtifactBundle = async (artifacts: readonly ArtifactBlock[]) => {
   const included = artifacts.filter((artifact) => artifact.content.length > 0).slice(0, 100);
-  const createdAt = new Date().toISOString();
+  const exportedAt = new Date().toISOString();
   const bundleEntries: { path: string; content: string }[] = [];
-  const files = included.map((artifact, index) => {
+  const sources = included.map((artifact, index) => {
     const filename = `${String(index + 1).padStart(2, '0')}-${safeArtifactFileStem(artifact.title, `artifact-${index + 1}`)}.${artifactExtension(artifact)}`;
     const path = `artifacts/${filename}`;
     bundleEntries.push({ path, content: artifact.content });
-    return { id: artifact.id, title: artifact.title, language: artifact.language, type: artifact.type, revision: artifact.revision ?? 1, path };
+    return { artifact, path, content: artifact.content };
   });
-  const manifest = { format: 'ORIGIN Offline Artifact Package', version: 1, createdAt, artifactCount: files.length, artifacts: files };
+  const manifest = await createArtifactIntegrityManifest(sources, exportedAt);
+  const files = manifest.artifacts;
   bundleEntries.push({ path: 'manifest.json', content: JSON.stringify(manifest, null, 2) });
-  bundleEntries.push({ path: 'README.txt', content: `ORIGIN Offline Artifact Package\nCreated: ${createdAt}\nArtifacts: ${files.length}\n\nOpen index.html after extracting this ZIP. Artifact source files are stored in the artifacts directory.\n` });
-  bundleEntries.push({ path: 'index.html', content: `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ORIGIN Artifact Package</title><style>body{margin:0;background:#0d1117;color:#e6edf3;font:16px/1.55 system-ui,sans-serif}.shell{max-width:900px;margin:0 auto;padding:48px 24px}h1{margin:0 0 8px}p{color:#9da7b3}.card{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:16px;margin:12px 0;border:1px solid #30363d;border-radius:14px;background:#161b22}a{color:#58d5ff;font-weight:700}@media(max-width:560px){.card{align-items:flex-start;flex-direction:column}}</style></head><body><main class="shell"><h1>ORIGIN Artifact Package</h1><p>Offline package · ${files.length} artifact(s) · ${escapeBundleHtml(createdAt)}</p><section>${files.map((file) => `<article class="card"><div><strong>${escapeBundleHtml(file.title)}</strong><br><small>${escapeBundleHtml(file.language)} · v${file.revision}</small></div><a href="${encodeURI(file.path)}">Open source</a></article>`).join('')}</section></main></body></html>` });
+  bundleEntries.push({ path: 'README.txt', content: `ORIGIN Offline Artifact Package\nExported: ${exportedAt}\nArtifacts: ${files.length}\nIntegrity: SHA-256 hashes are recorded in manifest.json.\n\nOpen index.html after extracting this ZIP. Artifact source files are stored in the artifacts directory.\n` });
+  bundleEntries.push({ path: 'index.html', content: `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ORIGIN Artifact Package</title><style>body{margin:0;background:#0d1117;color:#e6edf3;font:16px/1.55 system-ui,sans-serif}.shell{max-width:900px;margin:0 auto;padding:48px 24px}h1{margin:0 0 8px}p{color:#9da7b3}.card{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:16px;margin:12px 0;border:1px solid #30363d;border-radius:14px;background:#161b22}a{color:#58d5ff;font-weight:700}@media(max-width:560px){.card{align-items:flex-start;flex-direction:column}}</style></head><body><main class="shell"><h1>ORIGIN Artifact Package</h1><p>Offline package · ${files.length} artifact(s) · ${escapeBundleHtml(exportedAt)} · SHA-256 manifest included</p><section>${files.map((file) => `<article class="card"><div><strong>${escapeBundleHtml(file.title)}</strong><br><small>${escapeBundleHtml(file.language)} · latest · SHA-256 ${file.sha256.slice(0, 12)}…</small></div><a href="${encodeURI(file.path)}">Open source</a></article>`).join('')}</section></main></body></html>` });
   return new Blob([createStoredZip(bundleEntries)], { type: 'application/zip' });
 };
 
@@ -580,8 +622,10 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   const extension = artifact.language === 'markdown' || artifact.language === 'md' ? 'md' : artifact.language === 'html' ? 'html' : artifact.language === 'svg' ? 'svg' : artifact.language || 'txt';
   const safeTitle = artifact.title.replace(/[^a-z0-9._-]/gi, '_') || 'origin-artifact';
   const fileName = safeTitle.toLowerCase().endsWith(`.${extension.toLowerCase()}`) ? safeTitle : `${safeTitle}.${extension}`;
-  const downloadArtifact = () => {
-    const url = URL.createObjectURL(new Blob([workingContent], { type: fileType }));
+  const downloadArtifact = async () => {
+    const source = { ...artifact, content: workingContent };
+    const content = artifact.language === 'html' ? (await createArtifactHtmlExportPayload(source)).content : workingContent;
+    const url = URL.createObjectURL(new Blob([content], { type: fileType }));
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = fileName;
@@ -593,7 +637,7 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
     setExportError(false);
     try {
       const source = { ...artifact, content: workingContent };
-      const payload = format === 'png' ? undefined : createArtifactExportPayload(source, format);
+      const payload = format === 'png' ? undefined : format === 'html' ? await createArtifactHtmlExportPayload(source) : createArtifactExportPayload(source, format);
       const blob = format === 'png' ? await createArtifactPngBlob(source) : new Blob([payload.content], { type: payload.type });
       const stem = safeArtifactFileStem(source.title, 'origin-artifact');
       const fileName = format === 'png' ? `${stem}.png` : payload.fileName;
