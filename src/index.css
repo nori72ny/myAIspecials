@@ -217,6 +217,7 @@
 
 .origin-pwa-update-notice {
   position: fixed;
+  pointer-events: none;
   right: 1rem;
   bottom: max(1rem, env(safe-area-inset-bottom));
   z-index: 60;
@@ -230,4 +231,8 @@
   padding: 0.75rem 1rem;
   font-size: 0.8125rem;
   line-height: 1.45;
+}
+
+body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
+  bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 7.5rem);
 }
