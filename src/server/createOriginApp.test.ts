@@ -169,6 +169,23 @@ describe("createOriginApp provider isolation", () => {
     expect(response.headers["content-security-policy"]).not.toContain("unsafe-eval");
   });
 
+  it("isolates executable artifact CSP without relaxing the parent production policy", async () => {
+    const app = createOriginApp({ NODE_ENV: "production" });
+    app.get("/origin-artifact-sandbox.html", (_request, response) => {
+      response.status(200).send("isolated artifact runtime");
+    });
+    const parent = await request(app).get("/api/health");
+    const sandbox = await request(app).get("/origin-artifact-sandbox.html");
+
+    expect(parent.headers["content-security-policy"]).toContain("script-src 'self'");
+    expect(parent.headers["content-security-policy"]).not.toContain("script-src 'unsafe-inline'");
+    expect(parent.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+    expect(sandbox.headers["content-security-policy"]).toContain("default-src 'none'");
+    expect(sandbox.headers["content-security-policy"]).toContain("script-src 'unsafe-inline'");
+    expect(sandbox.headers["content-security-policy"]).toContain("connect-src 'none'");
+    expect(sandbox.headers["content-security-policy"]).toContain("frame-ancestors 'self'");
+  });
+
   it("accepts only JSON requests on the public chat endpoint", async () => {
     const response = await request(createOriginApp())
       .post("/api/chat")

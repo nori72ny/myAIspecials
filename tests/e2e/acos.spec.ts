@@ -73,9 +73,10 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const preview = workspace.getByTitle('プレビュー');
     await expect(preview).toBeVisible();
     await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
+    await expect(preview).toHaveAttribute('src', '/origin-artifact-sandbox.html');
     await expect(preview).toHaveAttribute('referrerpolicy', 'no-referrer');
-    await expect(preview).toHaveAttribute('srcdoc', /default-src 'none';/);
-    await expect(preview).toHaveAttribute('srcdoc', /window\.open=function/);
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /default-src 'none';/);
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /window\.open=function/);
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: '成果物をダウンロード' }).click();
     await expect((await download).suggestedFilename()).toBe('preview.html');
@@ -241,8 +242,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(restore).toBeEnabled();
     await restore.click();
     await expect(boundary).toBeHidden();
-    await expect(preview).toHaveAttribute('srcdoc', /Last known good UI/);
-    await expect(preview).not.toHaveAttribute('srcdoc', /unstable preview/);
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /Last known good UI/);
+    await expect(preview).not.toHaveAttribute('data-origin-srcdoc', /unstable preview/);
   });
 
   test('switches preview viewports and presents multi-slide artifacts with keyboard navigation', async ({ page }) => {
@@ -297,18 +298,18 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('artifact-action-edit').click();
     await expect(page.getByTestId('artifact-action-edit')).toHaveAttribute('aria-pressed', 'true');
     const preview = workspace.getByTitle('プレビュー');
-    await expect(preview).toHaveAttribute('srcdoc', /data-origin-direct-touch-root/);
-    await expect(preview).toHaveAttribute('srcdoc', /ORIGIN_DIRECT_TOUCH/);
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /data-origin-direct-touch-root/);
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /ORIGIN_DIRECT_TOUCH/);
     const sandbox = preview.contentFrame();
     await expect(sandbox.locator('[data-origin-direct-touch-root]')).toBeVisible();
     const target = sandbox.getByText('Original editable text');
     await target.click();
     await expect(target).toHaveAttribute('contenteditable', 'plaintext-only');
-    await expect(preview).toHaveAttribute('srcdoc', /oninput=/);
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /oninput=/);
     await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Edited locally' }], timestamp: Date.now() }, '*'));
     await expect(page.getByTestId('artifact-revision-indicator')).toHaveText('最新');
     await expect(page.getByText('1つ前の版あり')).toBeVisible();
-    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('srcdoc', /Edited locally/);
+    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('data-origin-srcdoc', /Edited locally/);
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
   });
 

@@ -37,7 +37,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('sandbox-runtime-boundary').textContent).toContain('Sandbox内で実行時エラーを検知しました。');
     fireEvent.click(screen.getByTestId('restore-last-known-good'));
     expect(screen.queryByTestId('sandbox-runtime-boundary')).toBeNull();
-    expect((screen.getByTitle('プレビュー') as HTMLIFrameElement).srcdoc).toContain('Ready');
+    expect((screen.getByTitle('プレビュー') as HTMLIFrameElement).getAttribute('data-origin-srcdoc')!).toContain('Ready');
   });
 
   it('provides complete, isolated Storage semantics before untrusted opaque-origin artifact scripts', () => {
@@ -45,11 +45,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<ArtifactWorkspace artifact={isolatedArtifact} isOpen language="ja" onClose={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
-    const match = frame.srcdoc.match(/<script data-origin-storage-polyfill="true">([\s\S]*?)<\/script>/);
+    const match = frame.getAttribute('data-origin-srcdoc')!.match(/<script data-origin-storage-polyfill="true">([\s\S]*?)<\/script>/);
     expect(match).not.toBeNull();
-    expect(frame.srcdoc.indexOf('data-origin-storage-polyfill')).toBeLessThan(frame.srcdoc.indexOf('localStorage.setItem("artifact", "ready")'));
+    expect(frame.getAttribute('data-origin-srcdoc')!.indexOf('data-origin-storage-polyfill')).toBeLessThan(frame.getAttribute('data-origin-srcdoc')!.indexOf('localStorage.setItem("artifact", "ready")'));
     expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
-    expect(frame.srcdoc).toContain("connect-src 'none'");
+    expect(frame.getAttribute('src')).toBe('/origin-artifact-sandbox.html');
+    expect(frame.getAttribute('data-origin-srcdoc')!).toContain("connect-src 'none'");
 
     const isolatedWindow = {} as { localStorage: Storage; sessionStorage: Storage };
     new Function('window', match![1])(isolatedWindow);
@@ -96,9 +97,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('artifact-action-details'));
     fireEvent.click(screen.getByTestId('presentation-mode-toggle'));
     expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('true');
-    expect(frame.srcdoc).toContain('var presenting=true');
+    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var presenting=true');
     fireEvent.keyDown(window, { key: 'ArrowRight' });
-    expect(frame.srcdoc).toContain('var current=1');
+    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=1');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('false');
   });
@@ -109,8 +110,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     fireEvent.click(screen.getByTestId('artifact-action-edit'));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
-    expect(frame.srcdoc).toContain('data-origin-direct-touch-root');
-    expect(frame.srcdoc).toContain("source:'ORIGIN_DIRECT_TOUCH'");
+    expect(frame.getAttribute('data-origin-srcdoc')!).toContain('data-origin-direct-touch-root');
+    expect(frame.getAttribute('data-origin-srcdoc')!).toContain("source:'ORIGIN_DIRECT_TOUCH'");
     act(() => window.dispatchEvent(new MessageEvent('message', { source: window, data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Forged' }] } })));
     expect(revisions).toHaveLength(0);
     act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Edited safely' }] } })));
