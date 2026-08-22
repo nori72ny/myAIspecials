@@ -35,4 +35,4 @@
 - [x] Quality: Add visual-diff and offline-continuity regression coverage; verify no prohibited external runtime assets, then complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
 - [x] Workspace: Provide a local multi-format export menu for HTML, SVG, PNG, Markdown, and JSON without external scripts or network requests.
 - [x] Safety: Strengthen 2026-08-24 free-model response verification so declared usage cost above $0.00 or paid evidence is discarded before rendering.
-- [ ] Quality: Add multi-format export and zero-cost guard regression coverage; verify no prohibited external runtime assets, then complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
+- [x] Quality: Add multi-format export and zero-cost guard regression coverage; verify no prohibited external runtime assets, then complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
