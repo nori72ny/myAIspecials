@@ -5,7 +5,7 @@ import {
   type OriginFreeModelEvidence,
 } from "./OriginFreeModelCatalog";
 
-const currentTime = Date.parse("2026-08-14T12:00:00.000Z");
+const currentTime = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
 
 describe("selectCurrentOriginFreeModel", () => {
   it("returns the evidence-backed fixed zero-cost model", () => {
@@ -62,7 +62,7 @@ describe("selectCurrentOriginFreeModel", () => {
   it("fails closed after the fixed model evidence expires", () => {
     expect(selectCurrentOriginFreeModel(
       DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
-      Date.parse("2026-08-25T00:00:00.000Z"),
+      Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].reviewAfter) + 1,
     )).toEqual({
       ok: false,
       code: "FREE_MODEL_EVIDENCE_STALE",
@@ -70,8 +70,8 @@ describe("selectCurrentOriginFreeModel", () => {
     });
   });
 
-  it("keeps the 2026-08-24 evidence valid through its exact deadline and stops one millisecond later", () => {
-    const deadline = Date.parse("2026-08-24T23:59:59.999Z");
+  it("keeps refreshed evidence valid through its exact deadline and stops one millisecond later", () => {
+    const deadline = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].reviewAfter);
     expect(selectCurrentOriginFreeModel(DEFAULT_ORIGIN_FREE_MODEL_CATALOG, deadline)).toEqual(
       expect.objectContaining({ ok: true }),
     );
