@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { applyDirectTouchEdits, App, ArtifactWorkspace, createArtifactExportPayload, createArtifactVisualDiff, createOfflineArtifactBundle, getOriginSystemPrompt, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactVisualDiff, createOfflineArtifactBundle, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -173,6 +173,43 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(artifact.content).toContain('Ready');
   });
 
+  it('completes non-void HTML closing tags without duplicating existing or self-closing tags', () => {
+    expect(completeArtifactClosingTag('<main><article>', 15)).toEqual({ content: '<main><article></article>', cursor: 15, completed: true });
+    expect(completeArtifactClosingTag('<img>', 5).completed).toBe(false);
+    expect(completeArtifactClosingTag('<section></section>', 9).completed).toBe(false);
+    expect(completeArtifactClosingTag('<path />', 8).completed).toBe(false);
+  });
+
+  it('reports malformed HTML and JSON positions while accepting scripts and optional HTML tags', () => {
+    expect(analyzeArtifactSyntax('<main>\n  <p>Ready</p>\n</main>', 'html')).toEqual({ valid: true, issue: null });
+    expect(analyzeArtifactSyntax('<ul><li>One<li>Two</ul>', 'html')).toEqual({ valid: true, issue: null });
+    expect(analyzeArtifactSyntax('<script>if (a < b) console.log(a)</script>', 'html')).toEqual({ valid: true, issue: null });
+    expect(analyzeArtifactSyntax('<main>\n  <section>', 'html')).toEqual(expect.objectContaining({ valid: false, issue: expect.objectContaining({ line: 2, column: 3, message: expect.stringContaining('</section>') }) }));
+    expect(analyzeArtifactSyntax('<main></article>', 'html')).toEqual(expect.objectContaining({ valid: false, issue: expect.objectContaining({ message: expect.stringContaining('</article>') }) }));
+    expect(analyzeArtifactSyntax('{"ok":}', 'json').valid).toBe(false);
+  });
+
+  it('blocks malformed source edits and saves only a verified immutable revision', () => {
+    const revisions: ArtifactBlock[] = [];
+    render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => revisions.push(next)} />);
+    fireEvent.click(screen.getByTestId('artifact-action-edit'));
+    fireEvent.click(screen.getByRole('button', { name: 'コードを表示' }));
+    const editor = screen.getByTestId('artifact-code-editor') as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: '<main><section>Broken</main>', selectionStart: 28 } });
+    expect(screen.getByTestId('artifact-code-syntax-status').getAttribute('role')).toBe('alert');
+    expect(screen.getByTestId('artifact-code-apply')).toHaveProperty('disabled', true);
+    fireEvent.click(screen.getByTestId('artifact-action-edit'));
+    expect(screen.getByTestId('artifact-action-edit').getAttribute('aria-pressed')).toBe('true');
+    expect(revisions).toHaveLength(0);
+    fireEvent.change(editor, { target: { value: '<main><section>Validated</section></main>', selectionStart: 40 } });
+    expect(screen.getByTestId('artifact-code-syntax-status').textContent).toContain('構文を確認済み');
+    fireEvent.click(screen.getByTestId('artifact-code-apply'));
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0].content).toBe('<main><section>Validated</section></main>');
+    expect(revisions[0].revisions).toHaveLength(2);
+    expect(revisions[0].revisions?.[0].content).toBe(artifact.content);
+  });
+
   it('shows changes and restores one prior version through natural-language controls', () => {
     const revisedArtifact: ArtifactBlock = { ...artifact, content: '<main class="next"><h1>New</h1></main><style>main { color: cyan; }</style>', revision: 2, revisions: [{ id: 'artifact-1:v1', content: '<main><h1>Old</h1></main><style>main { color: slate; }</style>', createdAt: 1, source: 'generated' }, { id: 'artifact-1:v2', content: '<main class="next"><h1>New</h1></main><style>main { color: cyan; }</style>', createdAt: 2, source: 'direct-touch' }] };
     const revisions: ArtifactBlock[] = [];
@@ -309,7 +346,57 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '安全な回答を依頼' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     await waitFor(() => expect(screen.getByText('無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。')).toBeTruthy());
+    expect(screen.getByTestId('origin-safe-waiting-state').getAttribute('aria-live')).toBe('assertive');
     expect(screen.queryByText('表示してはいけない応答')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects paid or substituted successful JSON responses before revealing their content', async () => {
+    const model = 'google/gemma-4-26b-a4b-it:free';
+    const payload = {
+      content: '表示してはいけない有料応答',
+      routing: { modelId: model, freeOnly: true, cost: 0.01, actualCostUsd: 0.01, estimatedCostUsd: 0, usage: { costUsd: 0.01 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '無料条件を確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state')).toBeTruthy());
+    expect(screen.queryByText('表示してはいけない有料応答')).toBeNull();
+    expect(screen.queryByLabelText('ORIGINの回答')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('accepts verified fixed-model JSON responses and rejects paid headers or unverifiable routing', async () => {
+    const model = 'google/gemma-4-26b-a4b-it:free';
+    const valid = { content: '検証済みの無料回答', routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } } };
+    expect(isVerifiedZeroCostChatPayload(valid)).toBe(true);
+    expect(isVerifiedZeroCostChatPayload({ ...valid, routing: { ...valid.routing, freeOnly: false } })).toBe(false);
+    expect(isVerifiedZeroCostChatPayload({ ...valid, routing: { ...valid.routing, providerRouting: { ...valid.routing.providerRouting, servedModel: 'paid-model' } } })).toBe(false);
+    expect(isVerifiedZeroCostChatPayload({ content: 'ローカル応答', routing: { model: 'ORIGIN アプリ内処理', freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0 } })).toBe(true);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(valid), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '無料で回答' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('検証済みの無料回答')).toBeTruthy());
+    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('withholds streamed content when response headers report a paid tier', async () => {
+    const fetchMock = vi.fn(async () => new Response('Paid streaming response must remain hidden', {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain', 'X-Origin-Cost-Usd': '0.001', 'X-Origin-Billing-Tier': 'paid' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="en" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'Validate billing safety' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state').textContent).toContain('$0.00'));
+    expect(screen.getByTestId('origin-safe-waiting-state').textContent).toContain('withheld');
+    expect(screen.queryByText('Paid streaming response must remain hidden')).toBeNull();
     vi.unstubAllGlobals();
   });
 

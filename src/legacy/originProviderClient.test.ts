@@ -402,6 +402,59 @@ describe("executeOriginProvider", () => {
     });
   });
 
+  it.each([
+    [{ billing_tier: "paid" }, "a paid billing tier"],
+    [{ is_free: false }, "an explicit paid-model flag"],
+    [{ pricing: { prompt: "0.000001", completion: "0" } }, "nonzero model pricing"],
+    [{ usage: { cost: 0, cost_details: { upstream_inference_cost: 0.000001 } } }, "an upstream inference charge"],
+    [{ usage: { cost: 0, is_byok: true } }, "a bring-your-own-key billing route"],
+  ] as const)("discards zero-cost-looking responses containing %s", async (overrides, _description) => {
+    const payload = successfulProviderPayload(overrides as Record<string, unknown>);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_POLICY_VIOLATION",
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies an upstream payment-required response as a non-retryable safety violation", async () => {
+    const fetchMock = vi.fn(async () => new Response("payment details must remain private", { status: 402 }));
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_POLICY_VIOLATION",
+      status: 502,
+      retryable: false,
+      diagnostic: { upstreamStatus: 402 },
+    });
+  });
+
+  it("discards paid provider errors embedded in an otherwise successful response", async () => {
+    const payload = successfulProviderPayload({
+      choices: [{ error: { metadata: { error_type: "payment_required" } } }],
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
+  });
+
   it("rejects a response served by a model that is not explicitly free", async () => {
     const payload = successfulProviderPayload({
       model: "google/gemini-3.6-flash",
@@ -496,7 +549,7 @@ describe("executeOriginProvider", () => {
 
   it.each([
     [401, "PROVIDER_NOT_CONFIGURED", false],
-    [402, "PROVIDER_UNAVAILABLE", false],
+    [402, "PROVIDER_POLICY_VIOLATION", false],
     [403, "PROVIDER_UNAVAILABLE", false],
     [404, "PROVIDER_UNAVAILABLE", true],
   ] as const)("maps provider HTTP %s to a truthful public error", async (status, code, retryable) => {

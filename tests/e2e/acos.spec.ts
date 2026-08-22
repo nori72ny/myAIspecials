@@ -405,6 +405,68 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
   });
 
+  test('assists direct source editing and prevents malformed HTML revisions', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '成果物を作成しました。\n```html:smart-assist.html\n<main><p>Original source</p></main>\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('構文アシスト付き成果物を作成');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('artifact-action-edit').click();
+    await page.getByRole('button', { name: 'コードを表示' }).click();
+    const editor = page.getByTestId('artifact-code-editor');
+    await editor.fill('<main><section>Broken</main>');
+    await expect(page.getByTestId('artifact-code-syntax-status')).toHaveAttribute('role', 'alert');
+    await expect(page.getByTestId('artifact-code-apply')).toBeDisabled();
+    await page.getByTestId('artifact-action-edit').click();
+    await expect(page.getByTestId('artifact-action-edit')).toHaveAttribute('aria-pressed', 'true');
+    await editor.fill('<main></main>');
+    await editor.press('ArrowLeft');
+    await editor.press('ArrowLeft');
+    await editor.press('ArrowLeft');
+    await editor.press('ArrowLeft');
+    await editor.press('ArrowLeft');
+    await editor.press('ArrowLeft');
+    await editor.press('ArrowLeft');
+    await editor.pressSequentially('<section>');
+    await expect(editor).toHaveValue('<main><section></section></main>');
+    await expect(page.getByTestId('artifact-code-apply')).toBeEnabled();
+    await page.getByTestId('artifact-code-apply').click();
+    await expect(page.getByText('1つ前の版あり')).toBeVisible();
+    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('data-origin-srcdoc', /<section><\/section>/);
+    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
+  });
+
+  test('discards paid successful responses and shows a zero-cost safe-waiting state', async ({ page }) => {
+    const model = 'google/gemma-4-26b-a4b-it:free';
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        content: 'NEVER DISPLAY THIS PAID RESPONSE',
+        routing: {
+          modelId: model,
+          freeOnly: true,
+          cost: 0.01,
+          actualCostUsd: 0.01,
+          estimatedCostUsd: 0,
+          usage: { costUsd: 0.01 },
+          providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false },
+        },
+      }),
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('無料条件の安全網を確認');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('origin-safe-waiting-state')).toContainText('$0.00');
+    await expect(page.getByText('NEVER DISPLAY THIS PAID RESPONSE')).toHaveCount(0);
+    await expect(page.getByTestId('origin-thinking')).toHaveCount(0);
+  });
+
   test('visualizes changes using natural-language controls and keeps local artifact export available offline', async ({ page, context }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '```html:visual-diff.html\n<main><p>Original visual text</p></main>\n```' }));
     await page.goto('/');
