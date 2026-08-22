@@ -21,9 +21,9 @@ export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
     verifiedAt: "2026-08-14T00:00:00.000Z",
-    reviewAfter: "2026-08-21T23:59:59.999Z",
+    reviewAfter: "2026-08-24T23:59:59.999Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter's official model page listed this exact model ID as Free at verification time. Runtime still requires exact served-model identity, disabled provider fallbacks, denied data collection, and reported usage cost of zero before returning an answer. Live Japanese output remains separately verified by authorized smoke testing.",
+    sourceDescription: "OpenRouter's official model page listed this exact model ID as Free at verification time. This evidence expires on 2026-08-24T23:59:59.999Z. Runtime still requires exact served-model identity, fixed-route evidence, denied data collection, and reported usage cost of zero before returning an answer.",
   },
 ] as const;
 

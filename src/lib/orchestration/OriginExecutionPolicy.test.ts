@@ -39,7 +39,7 @@ describe("buildOriginExecutionPlan", () => {
     });
     expect(result.plan.modelEvidence).toEqual(expect.objectContaining({
       verifiedAt: "2026-08-14T00:00:00.000Z",
-      reviewAfter: "2026-08-21T23:59:59.999Z",
+      reviewAfter: "2026-08-24T23:59:59.999Z",
       sourceUrl: expect.stringContaining("openrouter.ai"),
     }));
   });
@@ -64,7 +64,7 @@ describe("buildOriginExecutionPlan", () => {
       request,
       { openRouterConfigured: true },
       undefined,
-      { nowMs: Date.parse("2026-08-22T00:00:00.000Z") },
+      { nowMs: Date.parse("2026-08-25T00:00:00.000Z") },
     );
 
     expect(result).toEqual(expect.objectContaining({

@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { getTranslations, type OriginLanguage } from './i18n';
+import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
 
 export interface ArtifactBlock {
   id: string;
@@ -52,6 +53,33 @@ export interface ParsedStreamFrame {
 export type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string };
 export type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type Attachment = { name: string; content: string; mediaType: string; kind: 'image' | 'text'; bytes: number };
+export type OriginLocalSearchResult = { kind: 'session' | 'artifact'; id: string; title: string; detail: string; session?: ConversationSession; artifact?: ArtifactBlock };
+
+export const searchOriginLocalSnapshot = (query: string, sessions: readonly ConversationSession[], artifacts: readonly ArtifactBlock[]): OriginLocalSearchResult[] => {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+  if (!terms.length) return [];
+  const matches = (value: string) => { const normalized = value.toLocaleLowerCase(); return terms.every((term) => normalized.includes(term)); };
+  const results: OriginLocalSearchResult[] = [];
+  sessions.forEach((session) => {
+    const source = `${session.title}\n${session.messages.map((message) => message.content).join('\n')}`;
+    if (matches(source)) results.push({ kind: 'session', id: session.id, title: session.title, detail: session.messages.at(-1)?.content.slice(0, 160) || '会話セッション', session });
+  });
+  artifacts.forEach((artifact) => {
+    const revisions = artifact.revisions?.map((revision) => revision.content).join('\n') || '';
+    const source = `${artifact.title}\n${artifact.language}\n${artifact.content}\n${revisions}`;
+    if (matches(source)) results.push({ kind: 'artifact', id: artifact.id, title: artifact.title, detail: `${artifact.language} · v${artifact.revision ?? 1} · ${artifact.content.slice(0, 140)}`, artifact });
+  });
+  return results.slice(0, 30);
+};
+
+const isStoredArtifactBlock = (value: unknown): value is ArtifactBlock => Boolean(value)
+  && typeof value === 'object'
+  && typeof (value as ArtifactBlock).id === 'string'
+  && typeof (value as ArtifactBlock).title === 'string'
+  && typeof (value as ArtifactBlock).language === 'string'
+  && typeof (value as ArtifactBlock).content === 'string'
+  && ['code', 'markdown', 'mermaid', 'html'].includes((value as ArtifactBlock).type)
+  && typeof (value as ArtifactBlock).isComplete === 'boolean';
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -141,6 +169,8 @@ const copyText = async (value: string) => {
 };
 
 const isTextLike = (file: File) => file.type.startsWith('text/') || /\.(md|txt|json|csv|ts|tsx|js|jsx|css|html|svg|xml|yml|yaml)$/i.test(file.name);
+const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE']);
+const SAFE_WAITING_MESSAGE = '無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
 const readAttachment = async (file: File): Promise<Attachment> => {
   if (file.type.startsWith('image/')) {
     return new Promise((resolve, reject) => {
@@ -154,7 +184,7 @@ const readAttachment = async (file: File): Promise<Attachment> => {
   throw new Error('unsupported');
 };
 
-const KnowledgeMap: React.FC<{ sessions: readonly ConversationSession[]; onRestoreSession?: (session: ConversationSession) => void }> = ({ sessions, onRestoreSession }) => {
+const LegacyKnowledgeMap: React.FC<{ sessions: readonly ConversationSession[]; onRestoreSession?: (session: ConversationSession) => void }> = ({ sessions, onRestoreSession }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -171,6 +201,45 @@ const KnowledgeMap: React.FC<{ sessions: readonly ConversationSession[]; onResto
   }), [sessions]);
   return <><button type="button" data-testid="knowledge-map-toggle" aria-label="ナレッジマップを開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-xs font-semibold">◎ Map</button>{isOpen && <section data-testid="knowledge-map" aria-label="ローカルナレッジマップ" className="origin-surface absolute right-4 top-20 z-40 w-[min(94vw,420px)] rounded-2xl border p-4 shadow-2xl"><div className="flex items-center justify-between gap-3"><div><h2 className="m-0 text-sm font-bold">ナレッジマップ</h2><p className="origin-muted m-0 mt-1 text-xs">端末内のセッションのみを関連ノードとして表示します。</p></div><span data-testid="knowledge-map-node-count" className="origin-badge rounded-md border px-2 py-1 text-xs font-mono">{nodes.length}</span></div>{nodes.length === 0 ? <p className="origin-muted mt-4 text-sm">復元できる過去セッションはまだありません。</p> : <><svg data-testid="knowledge-map-canvas" viewBox="0 0 300 270" role="img" aria-label="セッション関連ノード" className="mt-4 h-56 w-full rounded-xl border bg-black/10">{nodes.slice(1).map((node) => <line key={`edge-${node.session.id}`} x1="150" y1="135" x2={node.x} y2={node.y} stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />)}{nodes.map((node, index) => <g key={node.session.id} role="button" tabIndex={0} aria-label={`${node.session.title}を復元`} onClick={() => schedule(() => { setSelectedSessionId(node.session.id); onRestoreSession?.(node.session); })} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); schedule(() => { setSelectedSessionId(node.session.id); onRestoreSession?.(node.session); }); } }} className="cursor-pointer outline-none"><circle cx={node.x} cy={node.y} r={selectedSessionId === node.session.id ? 19 : 15} fill={index === 0 ? '#22d3ee' : '#334155'} stroke={selectedSessionId === node.session.id ? '#e6edf3' : '#64748b'} strokeWidth="2" /><text x={node.x} y={node.y + 4} textAnchor="middle" fill="#f8fafc" fontSize="10" fontWeight="700">{index + 1}</text></g>)}</svg><div className="mt-3 grid max-h-36 gap-2 overflow-auto">{nodes.map(({ session }, index) => <button type="button" key={`restore-${session.id}`} data-testid={`knowledge-map-session-${index}`} aria-pressed={selectedSessionId === session.id} onClick={() => schedule(() => { setSelectedSessionId(session.id); onRestoreSession?.(session); })} className="origin-secondary-button min-h-11 truncate rounded-xl border px-3 text-left text-xs font-semibold">{index + 1}. {session.title}</button>)}</div></>}</section>}</>;
 };
+
+const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; artifacts?: readonly ArtifactBlock[]; onRestoreSession?: (session: ConversationSession) => void; onOpenArtifact?: (artifact: ArtifactBlock) => void }> = ({ sessions, artifacts = [], onRestoreSession, onOpenArtifact }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [storedSessions, setStoredSessions] = useState<ConversationSession[] | null>(null);
+  const [storedArtifacts, setStoredArtifacts] = useState<ArtifactBlock[] | null>(null);
+  const deferredQuery = useDeferredValue(query);
+  const frameRef = useRef<number | null>(null);
+  const queuedAction = useRef<(() => void) | null>(null);
+  const schedule = (action: () => void) => {
+    queuedAction.current = action;
+    if (frameRef.current !== null) return;
+    frameRef.current = window.requestAnimationFrame(() => { frameRef.current = null; const next = queuedAction.current; queuedAction.current = null; next?.(); });
+  };
+  useEffect(() => () => { if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current); }, []);
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    void originIndexedDbAdapter.load().then((snapshot) => {
+      if (!active || !snapshot) return;
+      const restoredSessions = snapshot.sessions.flatMap((value): ConversationSession[] => {
+        if (!value || typeof value !== 'object') return [];
+        const candidate = value as Partial<ConversationSession>;
+        if (typeof candidate.id !== 'string' || typeof candidate.title !== 'string' || typeof candidate.createdAt !== 'number' || !Array.isArray(candidate.messages)) return [];
+        const messages = candidate.messages.flatMap((message): ConversationMessage[] => message && typeof message === 'object' && ((message as ConversationMessage).role === 'user' || (message as ConversationMessage).role === 'assistant') && typeof (message as ConversationMessage).content === 'string' ? [{ id: String((message as ConversationMessage).id || ''), role: (message as ConversationMessage).role, content: (message as ConversationMessage).content }] : []);
+        return [{ id: candidate.id, title: candidate.title, createdAt: candidate.createdAt, messages }];
+      });
+      setStoredSessions(restoredSessions);
+      setStoredArtifacts(snapshot.artifacts.filter(isStoredArtifactBlock));
+    });
+    return () => { active = false; };
+  }, [isOpen]);
+  const searchableSessions = storedSessions ?? sessions;
+  const searchableArtifacts = storedArtifacts ?? artifacts;
+  const results = useMemo(() => searchOriginLocalSnapshot(deferredQuery, searchableSessions, searchableArtifacts), [deferredQuery, searchableArtifacts, searchableSessions]);
+  return <><button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-xs font-semibold">☰ 履歴</button>{isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface absolute right-4 top-20 z-40 w-[min(94vw,460px)] rounded-2xl border p-4 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h2 className="m-0 text-sm font-bold">履歴を検索</h2><p className="origin-muted m-0 mt-1 text-xs">会話、成果物コード、リビジョンを端末内だけで検索します。</p></div><span className="origin-badge rounded-md border px-2 py-1 text-xs font-mono">Local</span></div><label className="mt-4 block text-xs font-semibold" htmlFor="origin-history-search">検索語</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="会話・コード・成果物を検索" className="origin-input mt-1 min-h-11 w-full rounded-xl border bg-transparent px-3 text-sm" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid max-h-72 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 rounded-xl border px-3 py-2 text-left"><span className="block truncate text-xs font-bold">{result.kind === 'session' ? '会話' : '成果物'} · {result.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[11px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-sm">一致する端末内履歴はありません。</p>}</div> : <p className="origin-muted mt-3 text-xs">入力すると、保存済みの全セッションと成果物本文を即時に絞り込みます。</p>}</section>}</>;
+};
+
+const KnowledgeMap: React.FC<{ sessions: readonly ConversationSession[]; onRestoreSession?: (session: ConversationSession) => void }> = ({ sessions, onRestoreSession }) => <><LegacyKnowledgeMap sessions={sessions} onRestoreSession={onRestoreSession} /><HistoryDrawer sessions={sessions} onRestoreSession={onRestoreSession} /></>;
 
 export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artifacts?: readonly ArtifactBlock[]; isOpen: boolean; language: OriginLanguage; onClose: () => void; onArtifactRevision?: (artifact: ArtifactBlock) => void }> = ({ artifact, artifacts = [], isOpen, language, onClose, onArtifactRevision }) => {
   const t = getTranslations(language);
@@ -364,6 +433,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
   const handleSend = async (textToSend?: string) => {
     const text = textToSend || inputText;
     if ((!text.trim() && !attachments.length) || isLoading) return;
+    setAttachmentError('');
     const attachmentMessage = attachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
     const userMessage: ConversationMessage = { id: `u-${Date.now()}`, role: 'user', content: `${text.trim()}${attachmentMessage}`.trim() };
     const conversation = updateMessages((current) => [...current, userMessage]);
@@ -371,7 +441,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
     const controller = new AbortController(); abortRef.current = controller;
     try {
       const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal, body: JSON.stringify({ model: 'google/gemma-4-26b-a4b-it:free', systemPrompt: 'You are ORIGIN Personal 2.0. State the conclusion first and structure your answer logically. Use ```language:title for artifacts.', messages: conversation.map((message) => ({ role: message.role, content: message.content })) }) });
-      if (!response.ok) throw new Error('request-error');
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as { code?: unknown } | null;
+        if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
+          setAttachmentError(SAFE_WAITING_MESSAGE);
+          return;
+        }
+        throw new Error('request-error');
+      }
       const reader = response.body?.getReader(); const decoder = new TextDecoder(); let fullText = ''; const assistantId = `a-${Date.now()}`;
       updateMessages((current) => [...current, { id: assistantId, role: 'assistant', content: '' }]);
       while (reader) { const { done, value } = await reader.read(); if (done) break; fullText += decoder.decode(value, { stream: true }); const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } }

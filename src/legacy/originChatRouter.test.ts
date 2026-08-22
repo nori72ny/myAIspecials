@@ -18,7 +18,7 @@ const defaultExecutionResult = {
     requestedModel: "google/gemma-4-26b-a4b-it:free",
     servedModel: "google/gemma-4-26b-a4b-it:free",
     strategy: "fixed-free-model" as const,
-    provider: "Synthetic Free Provider",
+    provider: "OpenRouter",
     region: "iad",
     attempt: 1,
     fallbackUsed: false,
@@ -185,7 +185,7 @@ describe("createOriginChatRouter", () => {
       ]),
       modelEvidence: expect.objectContaining({
         verifiedAt: "2026-08-14T00:00:00.000Z",
-        reviewAfter: "2026-08-21T23:59:59.999Z",
+        reviewAfter: "2026-08-24T23:59:59.999Z",
         sourceUrl: expect.stringContaining("openrouter.ai"),
       }),
       providerDataPolicy: {
@@ -197,7 +197,7 @@ describe("createOriginChatRouter", () => {
         requestedModel: "google/gemma-4-26b-a4b-it:free",
         servedModel: "google/gemma-4-26b-a4b-it:free",
         strategy: "fixed-free-model",
-        provider: "Synthetic Free Provider",
+        provider: "OpenRouter",
         region: "iad",
         attempt: 1,
         fallbackUsed: false,
@@ -499,7 +499,7 @@ describe("createOriginChatRouter", () => {
     const response = await request(createApp(
       execute,
       { OPENROUTER_API_KEY: "synthetic-test-key" },
-      () => Date.parse("2026-08-22T00:00:00.000Z"),
+      () => Date.parse("2026-08-25T00:00:00.000Z"),
     )).post("/api/chat").send({
       messages: [{ role: "user", content: "文章を確認してください" }],
     });

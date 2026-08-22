@@ -40,6 +40,7 @@ import {
 } from "../lib/orchestration/OriginServiceRegistry.js";
 import {
   executeOriginProvider,
+  assertOriginZeroCostExecutionResult,
   OriginProviderError,
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
@@ -438,6 +439,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           originAnswerQualityInstruction(answerQualityPolicy),
         ),
       });
+      // Do not trust an executor boundary alone: a paid, substituted, or otherwise
+      // unverifiable result is discarded before any text reaches the response body.
+      assertOriginZeroCostExecutionResult(result, planningResult.plan.modelId);
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required
         ? "not-run"
         : "not-required";

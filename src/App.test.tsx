@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { applyDirectTouchEdits, App, ArtifactWorkspace, createOfflineArtifactBundle, type ArtifactBlock, type ConversationSession } from './App';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { applyDirectTouchEdits, App, ArtifactWorkspace, createOfflineArtifactBundle, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -115,5 +115,24 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(frame).toHaveBeenCalled();
     expect(restore).toHaveBeenCalledWith(session);
     frame.mockRestore();
+  });
+
+  it('searches local sessions, artifact code, and immutable revisions without a network request', () => {
+    const session: ConversationSession = { id: 'session-1', title: 'Database migration', createdAt: 1, messages: [{ id: 'm-1', role: 'user', content: 'IndexedDBの耐障害性を確認する' }] };
+    const indexedArtifact: ArtifactBlock = { ...artifact, id: 'artifact-search', title: 'Storage repository', content: 'const storage = indexedDB;', revisions: [{ id: 'artifact-search:v1', content: 'legacy localStorage migration', createdAt: 1, source: 'generated' }, { id: 'artifact-search:v2', content: 'quota safe revision', createdAt: 2, source: 'direct-touch' }] };
+    expect(searchOriginLocalSnapshot('IndexedDB', [session], [indexedArtifact]).map((result) => result.kind)).toContain('session');
+    expect(searchOriginLocalSnapshot('quota safe', [session], [indexedArtifact])).toEqual([expect.objectContaining({ kind: 'artifact', id: 'artifact-search' })]);
+    expect(searchOriginLocalSnapshot('network request', [session], [indexedArtifact])).toEqual([]);
+  });
+
+  it('discards a paid or unverifiable API result and shows the safe-waiting UI instead of a response', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ code: 'PROVIDER_POLICY_VIOLATION' }), { status: 502, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '安全な回答を依頼' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。')).toBeTruthy());
+    expect(screen.queryByText('表示してはいけない応答')).toBeNull();
+    vi.unstubAllGlobals();
   });
 });

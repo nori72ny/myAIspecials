@@ -111,6 +111,26 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     }))).toMatchObject({ artifacts: [expect.objectContaining({ title: 'persisted.html', content: expect.stringContaining('<main>Persisted artifact</main>') })] });
   });
 
+  test('searches IndexedDB-backed sessions and artifact code locally from the history drawer', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('origin_personal_history', JSON.stringify({ version: 1, messages: [{ id: 'legacy-search', role: 'user', content: '検索可能なIndexedDB会話' }] }));
+      localStorage.setItem('origin_personal_sessions', JSON.stringify([{ id: 'search-session', title: '検索用セッション', createdAt: 1, messages: [{ id: 'legacy-search', role: 'user', content: '検索可能なIndexedDB会話' }] }]));
+    });
+    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '```html:searchable.html\n<main>Artifact Search Needle</main>\n```' }));
+    await page.goto('/');
+    await page.getByTestId('origin-chat-request').fill('成果物を追加');
+    await page.getByTestId('origin-chat-request').press('Control+Enter');
+    await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: '成果物ワークスペースを閉じる' }).click();
+    await page.waitForTimeout(250);
+    await page.getByTestId('history-drawer-toggle').click();
+    const search = page.getByTestId('history-search-input');
+    await search.fill('IndexedDB');
+    await expect(page.getByTestId('history-search-results')).toContainText('検索用セッション');
+    await search.fill('Artifact Search Needle');
+    await expect(page.getByTestId('history-search-results')).toContainText('searchable.html');
+  });
+
   test('exposes the four artifact actions and recovers a sandbox runtime error with a safe last-known-good snapshot', async ({ page }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,

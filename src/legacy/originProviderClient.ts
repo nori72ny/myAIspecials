@@ -38,6 +38,37 @@ export interface OriginProviderExecutionResult {
   };
 }
 
+export function assertOriginZeroCostExecutionResult(
+  result: OriginProviderExecutionResult,
+  expectedModel: string = ORIGIN_OPENROUTER_FREE_MODEL,
+): void {
+  if (result.actualCostUsd !== 0 || result.usage?.costUsd !== 0) {
+    throw new OriginProviderError(
+      "PROVIDER_POLICY_VIOLATION",
+      "無料モデルの実行で0ドル以外の利用額が報告されたため、回答を破棄しました。",
+      502,
+      false,
+    );
+  }
+  const evidence = result.routingEvidence;
+  if (
+    expectedModel !== ORIGIN_OPENROUTER_FREE_MODEL
+    || evidence.requestedModel !== expectedModel
+    || evidence.servedModel !== expectedModel
+    || evidence.strategy !== "fixed-free-model"
+    || evidence.provider !== "OpenRouter"
+    || evidence.attempt !== 1
+    || evidence.fallbackUsed !== false
+  ) {
+    throw new OriginProviderError(
+      "PROVIDER_ROUTING_UNVERIFIED",
+      "固定無料モデルの応答証跡を確認できなかったため、回答を返しません。",
+      502,
+      false,
+    );
+  }
+}
+
 export type OriginProviderErrorCode =
   | "PROVIDER_NOT_CONFIGURED"
   | "PROVIDER_POLICY_VIOLATION"

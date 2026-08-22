@@ -27,3 +27,6 @@
 - [x] Storage: Migrate existing compatible localStorage history/session data to IndexedDB once, preserving source data until durable persistence succeeds.
 - [x] Storage: Handle unavailable IndexedDB and quota/write failures without blocking in-memory use or exposing unhandled errors.
 - [x] Quality: Add IndexedDB migration and storage-failure regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
+- [x] Safety: Reject any model response whose declared model or usage is not the fixed zero-cost OpenRouter model, and display safe-waiting state without rendering content.
+- [x] Search: Add local incremental full-text search across IndexedDB conversation sessions, messages, artifacts, and artifact revisions from the history drawer.
+- [ ] Quality: Prove no prohibited external runtime assets are present and add model-guard and IndexedDB search regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.

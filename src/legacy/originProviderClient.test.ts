@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  assertOriginZeroCostExecutionResult,
   executeOriginProvider,
   originCompletionTokenBudget,
   OriginProviderError,
@@ -54,6 +55,18 @@ function successfulProviderPayload(overrides: Record<string, unknown> = {}) {
 }
 
 describe("executeOriginProvider", () => {
+  it("rejects a paid or substituted executor result before a router can render its text", () => {
+    const result = {
+      text: "表示してはいけない応答",
+      actualCostUsd: 0.000001,
+      providerDataPolicy: plan.providerDataPolicy,
+      routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "fixed-free-model", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
+      usage: { costUsd: 0.000001 },
+    } as unknown as Awaited<ReturnType<typeof executeOriginProvider>>;
+    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("0ドル以外の利用額");
+    expect(() => assertOriginZeroCostExecutionResult({ ...result, actualCostUsd: 0, usage: { costUsd: 0 }, routingEvidence: { ...result.routingEvidence, servedModel: "paid-model" } })).toThrow("応答証跡を確認できなかった");
+  });
+
   it("enforces the fixed free model, same-model provider failover, data deny, and zero-cost routing evidence", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));

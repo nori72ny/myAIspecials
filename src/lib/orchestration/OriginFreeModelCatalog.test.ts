@@ -62,7 +62,7 @@ describe("selectCurrentOriginFreeModel", () => {
   it("fails closed after the fixed model evidence expires", () => {
     expect(selectCurrentOriginFreeModel(
       DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
-      Date.parse("2026-08-22T00:00:00.000Z"),
+      Date.parse("2026-08-25T00:00:00.000Z"),
     )).toEqual({
       ok: false,
       code: "FREE_MODEL_EVIDENCE_STALE",

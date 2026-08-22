@@ -31,6 +31,7 @@ describe('ORIGIN Personal 2.0 production entrypoint', () => {
   it('uses a Japanese-first, dependency-light document boundary', () => {
     const document = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
     const styles = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+    const entrypoint = readFileSync(resolve(process.cwd(), 'src/main.tsx'), 'utf8');
 
     expect(document).toContain('<html lang="ja">');
     expect(document).toContain('<title>ORIGIN Personal</title>');
@@ -39,6 +40,10 @@ describe('ORIGIN Personal 2.0 production entrypoint', () => {
     expect(document).not.toContain('fonts.googleapis.com');
     expect(styles).not.toContain('fonts.googleapis.com');
     expect(styles).toContain('env(safe-area-inset-bottom)');
+    for (const source of [document, styles, entrypoint]) {
+      expect(source).not.toMatch(/manus-runtime|manus\.computer|debug-collector/i);
+      expect(source).not.toMatch(/<script[^>]+src=["']https?:\/\//i);
+    }
   });
 
   it('does not mount the legacy dashboard API or Mission Engine', () => {
