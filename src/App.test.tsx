@@ -100,6 +100,11 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var presenting=true');
     fireEvent.keyDown(window, { key: 'ArrowRight' });
     expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=1');
+    const focusedFrame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: window, data: { source: 'ORIGIN_PRESENTATION_KEYBOARD', key: 'ArrowLeft' } })));
+    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=1');
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: focusedFrame.contentWindow, data: { source: 'ORIGIN_PRESENTATION_KEYBOARD', key: 'ArrowLeft' } })));
+    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=0');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('false');
   });
