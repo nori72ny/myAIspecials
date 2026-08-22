@@ -34,7 +34,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     const controls = [
       screen.getByTestId('history-drawer-toggle'),
-      screen.getByTestId('knowledge-map-toggle'),
       screen.getByRole('button', { name: '設定を開く' }),
       screen.getByRole('button', { name: '新規対話を開始' }),
       within(document.querySelector('.origin-composer') as HTMLElement).getByRole('button', { name: 'ファイルを添付' }),
@@ -45,6 +44,18 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(control.className).toMatch(/\b(?:min-h-11|h-11)\b/);
       expect(control.className).toMatch(/\b(?:min-w-11|w-11)\b/);
     }
+
+    const header = document.querySelector('.origin-header') as HTMLElement;
+    expect(within(header).getAllByRole('button')).toHaveLength(3);
+    for (const control of within(header).getAllByRole('button')) {
+      expect(control.className).toContain('whitespace-nowrap');
+      expect(control.className).toContain('shrink-0');
+    }
+
+    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
+    const knowledgeMap = screen.getByTestId('knowledge-map-toggle');
+    expect(knowledgeMap.className).toContain('min-h-11');
+    expect(knowledgeMap.className).toContain('min-w-11');
   });
 
   it('grants normal previews only script execution and never modal or same-origin privileges', () => {
@@ -329,6 +340,18 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(verificationLog.textContent).toContain('固定の無料モデル');
   });
 
+  it('never discloses a verified Process Trace for a failed assistant message', () => {
+    render(<App language="ja" messages={[{
+      id: 'error-1',
+      role: 'assistant',
+      content: '現在モデルが混雑しています。',
+      deliveryState: 'error',
+    }]} />);
+
+    expect(screen.getByText('現在モデルが混雑しています。')).toBeTruthy();
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
+  });
+
   it('uses an initial 76px composition surface and reduces it after a response', () => {
     const { rerender } = render(<App language="ja" />);
     expect(screen.getByTestId('origin-home-request').getAttribute('rows')).toBe('1');
@@ -372,6 +395,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { callback(0); return 1; });
     const session: ConversationSession = { id: 'session-1', title: 'Previous planning session', createdAt: 1, messages: [{ id: 'm-1', role: 'user', content: 'Plan the project' }] };
     render(<App sessions={[session]} onRestoreSession={restore} language="ja" />);
+    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
     fireEvent.click(screen.getByTestId('knowledge-map-toggle'));
     expect(screen.getByTestId('knowledge-map-node-count').textContent).toBe('1');
     fireEvent.click(screen.getByTestId('knowledge-map-session-0'));
@@ -429,6 +453,34 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('再試行後の回答')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId('response-verification-details')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('retries one temporary network timeout before displaying a verified response', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Network request timed out'))
+      .mockResolvedValueOnce(new Response('タイムアウト後に復旧しました。', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信を復旧' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText('タイムアウト後に復旧しました。')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('response-verification-details')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('fails closed with the zero-cost busy notice after two network timeouts', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Network request timed out'));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信停止時の案内を確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText('現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
   });
 
