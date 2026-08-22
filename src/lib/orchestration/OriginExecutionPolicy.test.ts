@@ -3,12 +3,14 @@ import {
   buildOriginExecutionPlan,
   ORIGIN_OPENROUTER_FREE_MODEL,
 } from "./OriginExecutionPolicy";
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "./OriginFreeModelCatalog";
 
 const request = {
   goal: "認証処理の安全性を確認してください",
 };
 
-const verifiedNow = Date.parse("2026-08-14T12:00:00.000Z");
+const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
+const verifiedNow = Date.parse(verifiedEvidence.verifiedAt) + 1;
 
 describe("buildOriginExecutionPlan", () => {
   it("selects the current evidence-backed fixed free model with data collection denied", () => {
@@ -38,8 +40,8 @@ describe("buildOriginExecutionPlan", () => {
       requireZeroDataRetention: false,
     });
     expect(result.plan.modelEvidence).toEqual(expect.objectContaining({
-      verifiedAt: "2026-08-14T00:00:00.000Z",
-      reviewAfter: "2026-08-24T23:59:59.999Z",
+      verifiedAt: verifiedEvidence.verifiedAt,
+      reviewAfter: verifiedEvidence.reviewAfter,
       sourceUrl: expect.stringContaining("openrouter.ai"),
     }));
   });
@@ -64,7 +66,7 @@ describe("buildOriginExecutionPlan", () => {
       request,
       { openRouterConfigured: true },
       undefined,
-      { nowMs: Date.parse("2026-08-25T00:00:00.000Z") },
+      { nowMs: Date.parse(verifiedEvidence.reviewAfter) + 1 },
     );
 
     expect(result).toEqual(expect.objectContaining({

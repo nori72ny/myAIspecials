@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactVisualDiff, createOfflineArtifactBundle, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -250,7 +250,24 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(archiveText).toContain('artifacts/01-dashboard.html');
     expect(archiveText).toContain('artifacts/02-styles.css');
     expect(archiveText).toContain('"artifactCount": 2');
+    expect(archiveText).toContain('"algorithm": "SHA-256"');
+    expect(archiveText).toContain('"exportedAt":');
+    expect(archiveText).toContain('f01c117d6158055b0257a23fca485d24de5990c7d453116af450a078bf0c7b7c');
+    expect(archiveText).toContain('58c7a4f4ed3d279372ec24f52aef5e74ee55ba2e9973e491abdae2945234c648');
     expect(archiveText).toContain('ORIGIN Artifact Package');
+  });
+
+  it('creates deterministic SHA-256 integrity metadata and embeds it in standalone HTML exports', async () => {
+    const exportedAt = '2026-08-22T12:00:00.000Z';
+    const manifest = await createArtifactIntegrityManifest([{ artifact, path: 'safe-preview.html', content: artifact.content }], exportedAt);
+    expect(manifest).toEqual(expect.objectContaining({ algorithm: 'SHA-256', exportedAt, artifactCount: 1 }));
+    expect(manifest.artifacts[0]).toEqual(expect.objectContaining({ path: 'safe-preview.html', bytes: new TextEncoder().encode(artifact.content).byteLength, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }));
+    const html = await createArtifactHtmlExportPayload(artifact, exportedAt);
+    expect(html.fileName).toMatch(/\.html$/);
+    expect(html.content).toContain('id="origin-export-manifest"');
+    expect(html.content).toContain('data-filename="manifest.json"');
+    expect(html.content).toContain(manifest.artifacts[0].sha256);
+    expect(html.content).not.toContain('src="http');
   });
 
   it('creates HTML, SVG, Markdown, and JSON exports locally and exposes every format in the save menu', () => {

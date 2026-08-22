@@ -29,6 +29,8 @@
     "test:node-production": "npm run build && node scripts/verify-node-production-runtime.mjs",
     
     "eval:prepare": "tsx scripts/evaluate-codebase.ts",
+
+    "verify:free-model": "node --import tsx scripts/verify-free-model.ts",
     
     "deliver": "node scripts/auto-deliver.mjs",
     
@@ -127,8 +129,6 @@
   }
   
 }
-
-
 
 
 

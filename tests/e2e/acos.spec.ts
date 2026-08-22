@@ -214,7 +214,39 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('artifact-action-details').click();
     const download = page.waitForEvent('download');
     await page.getByTestId('artifact-action-bundle').click();
-    await expect((await download).suggestedFilename()).toMatch(/^origin-artifact-package-\d{4}-\d{2}-\d{2}\.zip$/);
+    const downloaded = await download;
+    await expect(downloaded.suggestedFilename()).toMatch(/^origin-artifact-package-\d{4}-\d{2}-\d{2}\.zip$/);
+    const archive = await downloaded.createReadStream();
+    let bytes = Buffer.alloc(0);
+    for await (const chunk of archive) bytes = Buffer.concat([bytes, Buffer.from(chunk)]);
+    const archiveText = bytes.toString('utf8');
+    expect(archiveText).toContain('manifest.json');
+    expect(archiveText).toContain('"algorithm": "SHA-256"');
+    expect(archiveText).toMatch(/"sha256": "[a-f0-9]{64}"/);
+    expect(archiveText).toContain('"exportedAt":');
+  });
+
+  test('embeds an offline SHA-256 integrity manifest in standalone HTML downloads', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '```html:integrity.html\n<!doctype html><html><body><main>Integrity export</main></body></html>\n```' }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('整合性付きHTMLを作成');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('artifact-action-details').click();
+    await page.getByTestId('artifact-action-export-menu').click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByTestId('artifact-export-html').click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.html$/);
+    const stream = await download.createReadStream();
+    let bytes = Buffer.alloc(0);
+    for await (const chunk of stream) bytes = Buffer.concat([bytes, Buffer.from(chunk)]);
+    const html = bytes.toString('utf8');
+    expect(html).toContain('id="origin-export-manifest"');
+    expect(html).toContain('data-filename="manifest.json"');
+    expect(html).toContain('"algorithm": "SHA-256"');
+    expect(html).toMatch(/"sha256": "[a-f0-9]{64}"/);
+    expect(html).not.toContain('<script src=');
   });
 
   test('exports an artifact locally as HTML, SVG, PNG, Markdown, and JSON', async ({ page }) => {
