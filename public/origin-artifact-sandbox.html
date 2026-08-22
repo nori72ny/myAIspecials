@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="端末内で成果物の安全なプレビューを準備しています。" />
+    <meta name="referrer" content="no-referrer" />
+    <title>ORIGIN — プレビューを準備中</title>
+    <style>
+      body { margin: 16px; color: #182027; background: #fff; font: 16px/1.75 system-ui, sans-serif; }
+      h1 { font: inherit; }
+    </style>
+  </head>
+  <body>
+    <main><h1>プレビューを準備しています。</h1></main>
+    <script>
+      (function () {
+        function initialize(event) {
+          if (event.source !== window.parent) return;
+          var payload = event.data;
+          if (!payload || payload.source !== 'ORIGIN_SANDBOX_INIT' || typeof payload.html !== 'string') return;
+          window.removeEventListener('message', initialize);
+          document.open();
+          document.write(payload.html);
+          document.close();
+        }
+
+        window.addEventListener('message', initialize);
+      })();
+    </script>
+  </body>
+</html>

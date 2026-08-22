@@ -19,6 +19,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     }
     expect(screen.getByRole('button', { name: '成果物を共有' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Canvas Direct Touchで編集' })).toBeTruthy();
+    expect(screen.getByTestId('artifact-action-edit').textContent).toBe('✏️ 編集');
+    expect(screen.getByTestId('artifact-action-share').textContent).toBe('📲 共有');
+    expect(screen.getByTestId('artifact-action-save').textContent).toBe('📥 保存');
     expect(screen.queryByTestId('artifact-action-copy')).toBeNull();
     fireEvent.click(screen.getByTestId('artifact-action-details'));
     expect(screen.getByTestId('artifact-details-menu')).toBeTruthy();
@@ -34,7 +37,39 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('sandbox-runtime-boundary').textContent).toContain('Sandbox内で実行時エラーを検知しました。');
     fireEvent.click(screen.getByTestId('restore-last-known-good'));
     expect(screen.queryByTestId('sandbox-runtime-boundary')).toBeNull();
-    expect((screen.getByTitle('プレビュー') as HTMLIFrameElement).srcdoc).toContain('Ready');
+    expect((screen.getByTitle('プレビュー') as HTMLIFrameElement).getAttribute('data-origin-srcdoc')!).toContain('Ready');
+  });
+
+  it('provides complete, isolated Storage semantics before untrusted opaque-origin artifact scripts', () => {
+    const isolatedArtifact = { ...artifact, content: '<script>localStorage.setItem("artifact", "ready")</script><main>Storage ready</main>' };
+    render(<ArtifactWorkspace artifact={isolatedArtifact} isOpen language="ja" onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
+    const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    const match = frame.getAttribute('data-origin-srcdoc')!.match(/<script data-origin-storage-polyfill="true">([\s\S]*?)<\/script>/);
+    expect(match).not.toBeNull();
+    expect(frame.getAttribute('data-origin-srcdoc')!.indexOf('data-origin-storage-polyfill')).toBeLessThan(frame.getAttribute('data-origin-srcdoc')!.indexOf('localStorage.setItem("artifact", "ready")'));
+    expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
+    expect(frame.getAttribute('src')).toBe('/origin-artifact-sandbox.html');
+    expect(frame.getAttribute('data-origin-srcdoc')!).toContain("connect-src 'none'");
+
+    const isolatedWindow = {} as { localStorage: Storage; sessionStorage: Storage };
+    new Function('window', match![1])(isolatedWindow);
+    isolatedWindow.localStorage.setItem('habit', 42 as unknown as string);
+    isolatedWindow.localStorage.setItem('__proto__', 'safe');
+    isolatedWindow.localStorage['named-value'] = 'named';
+    isolatedWindow.sessionStorage.setItem('session', 'separate');
+    expect(isolatedWindow.localStorage.length).toBe(3);
+    expect(isolatedWindow.localStorage.key(0)).toBe('habit');
+    expect(isolatedWindow.localStorage.getItem('habit')).toBe('42');
+    expect(isolatedWindow.localStorage.getItem('__proto__')).toBe('safe');
+    expect(Object.keys(isolatedWindow.localStorage)).toEqual(['habit', '__proto__', 'named-value']);
+    expect(isolatedWindow.localStorage.getItem('session')).toBeNull();
+    isolatedWindow.localStorage.removeItem('habit');
+    delete isolatedWindow.localStorage['named-value'];
+    expect(isolatedWindow.localStorage.length).toBe(1);
+    isolatedWindow.localStorage.clear();
+    expect(isolatedWindow.localStorage.length).toBe(0);
+    expect(isolatedWindow.sessionStorage.getItem('session')).toBe('separate');
   });
 
   it('rejects forged cross-window messages and never confirms last-known-good from iframe load alone', () => {
@@ -62,9 +97,14 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('artifact-action-details'));
     fireEvent.click(screen.getByTestId('presentation-mode-toggle'));
     expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('true');
-    expect(frame.srcdoc).toContain('var presenting=true');
+    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var presenting=true');
     fireEvent.keyDown(window, { key: 'ArrowRight' });
-    expect(frame.srcdoc).toContain('var current=1');
+    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=1');
+    const focusedFrame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: window, data: { source: 'ORIGIN_PRESENTATION_KEYBOARD', key: 'ArrowLeft' } })));
+    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=1');
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: focusedFrame.contentWindow, data: { source: 'ORIGIN_PRESENTATION_KEYBOARD', key: 'ArrowLeft' } })));
+    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=0');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('false');
   });
@@ -75,8 +115,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     fireEvent.click(screen.getByTestId('artifact-action-edit'));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
-    expect(frame.srcdoc).toContain('data-origin-direct-touch-root');
-    expect(frame.srcdoc).toContain("source:'ORIGIN_DIRECT_TOUCH'");
+    expect(frame.getAttribute('data-origin-srcdoc')!).toContain('data-origin-direct-touch-root');
+    expect(frame.getAttribute('data-origin-srcdoc')!).toContain("source:'ORIGIN_DIRECT_TOUCH'");
     act(() => window.dispatchEvent(new MessageEvent('message', { source: window, data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Forged' }] } })));
     expect(revisions).toHaveLength(0);
     act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Edited safely' }] } })));
@@ -153,7 +193,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(verification.hasAttribute('open')).toBe(false);
     fireEvent.click(screen.getByText('検証済み'));
     expect(verification.hasAttribute('open')).toBe(true);
-    expect(screen.getByTestId('response-verification-log').textContent).toContain('固定の無料モデル');
+    const verificationLog = screen.getByTestId('response-verification-log');
+    for (const label of ['意図分析', '制作仕様', '構文検証']) expect(verificationLog.textContent).toContain(label);
+    expect(verificationLog.textContent).toContain('固定の無料モデル');
   });
 
   it('uses an initial 76px composition surface and reduces it after a response', () => {
@@ -161,6 +203,21 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(document.querySelector('.origin-composer')?.className).not.toContain('origin-composer--compact');
     rerender(<App language="ja" messages={[{ id: 'a-1', role: 'assistant', content: '返信' }]} />);
     expect(document.querySelector('.origin-composer')?.className).toContain('origin-composer--compact');
+    expect(document.querySelector('.safe-area-bottom .origin-composer')).not.toBeNull();
+  });
+
+  it('never submits a Japanese IME composition but keeps Control+Enter available afterward', async () => {
+    const fetchMock = vi.fn(async () => new Response('確定後の回答', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    const input = screen.getByTestId('origin-home-request');
+    fireEvent.change(input, { target: { value: '変換中の文章' } });
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true, isComposing: true });
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true, keyCode: 229 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true, keyCode: 13 });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    vi.unstubAllGlobals();
   });
 
   it('coalesces knowledge-map restoration through requestAnimationFrame', () => {

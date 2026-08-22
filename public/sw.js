@@ -1,8 +1,9 @@
 const CACHE_PREFIX = 'origin-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v3`;
+const CACHE_NAME = `${CACHE_PREFIX}v4`;
 const APP_SHELL_KEY = '/__origin-app-shell__';
 const SAFE_STATIC_PATHS = new Set([
   '/offline.html',
+  '/origin-artifact-sandbox.html',
   '/manifest.webmanifest',
   '/pwa-192.png',
   '/pwa-512.png',
@@ -59,6 +60,11 @@ self.addEventListener('fetch', (event) => {
   }
 
   const hasSensitiveHeaders = request.headers.has('authorization') || request.headers.has('cookie');
+
+  if (url.pathname === '/origin-artifact-sandbox.html') {
+    event.respondWith(caches.match(request).then((cached) => cached || fetch(request)));
+    return;
+  }
 
   if (request.mode === 'navigate') {
     event.respondWith(

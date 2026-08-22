@@ -46,9 +46,10 @@ export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env)
     ? "'self'"
     : "'self' ws: wss:";
 
-  res.setHeader(
-    "Content-Security-Policy",
-    [
+  const isolatedArtifactRuntime = req.path === "/origin-artifact-sandbox.html";
+  const contentSecurityPolicy = isolatedArtifactRuntime
+    ? "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
+    : [
       "default-src 'self'",
       `script-src ${scriptSources}`,
       "style-src 'self' 'unsafe-inline'",
@@ -59,8 +60,9 @@ export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env)
       "base-uri 'self'",
       "frame-ancestors 'none'",
       "form-action 'self'",
-    ].join("; "),
-  );
+    ].join("; ");
+
+  res.setHeader("Content-Security-Policy", contentSecurityPolicy);
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");

@@ -125,7 +125,7 @@
 .origin-composer--compact textarea { min-height: 52px; }
 .origin-verification summary::-webkit-details-marker { display: none; }
 .origin-verification summary { cursor: pointer; }
-.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: 1rem; line-height: 1.8; }
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: 1rem; line-height: 1.75; }
 
 .safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 @media (min-width: 640px) { .safe-area-bottom { padding-bottom: 1.25rem; } }
@@ -139,7 +139,7 @@
   max-width: min(30rem, calc(100vw - 2rem));
   margin: 0;
   border: 1px solid var(--accent-border);
-  border-radius: 0.875rem;
+  border-radius: var(--radius-card);
   background: var(--accent-soft);
   color: var(--text-primary);
   box-shadow: 0 12px 28px var(--shadow-color);

@@ -62,6 +62,18 @@ describe('ORIGIN PWA boundary', () => {
     expect(readPngDimensions('public/apple-touch-icon.png')).toEqual({ width: 180, height: 180 });
   });
 
+  it('ships a paintable isolated artifact runtime and makes it available offline', () => {
+    const runtime = read('public/origin-artifact-sandbox.html');
+    const worker = read('public/sw.js');
+
+    expect(runtime).toContain('<meta name="viewport"');
+    expect(runtime).toContain('<main><h1>プレビューを準備しています。</h1></main>');
+    expect(runtime).toContain('event.source !== window.parent');
+    expect(runtime).toContain('ORIGIN_SANDBOX_INIT');
+    expect(runtime).not.toMatch(/https?:\/\/|fetch\(|XMLHttpRequest/);
+    expect(worker).toContain('/origin-artifact-sandbox.html');
+  });
+
   it('never caches APIs, non-GET requests, or authenticated requests while allowing a same-origin app shell', () => {
     const worker = read('public/sw.js');
 
