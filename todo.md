@@ -40,4 +40,4 @@
 - [x] Phase 15: Reduce input-bar visual weight after replies while preserving an initial 76–80px composition-safe authoring surface.
 - [x] Phase 15: Keep edit, share, and download primary; move diff, history, rollback, packaging, and format export into an accessible details menu using natural-language labels.
 - [x] Phase 15: Normalize visible revision language, font sizing, radius scale, and low-value borders without weakening accessibility or existing guardrails.
-- [ ] Quality: Add Phase 15 regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
+- [x] Quality: Add Phase 15 regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
