@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
@@ -16,6 +16,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
     for (const id of ['artifact-action-save', 'artifact-action-share', 'artifact-action-edit', 'artifact-action-details']) {
       expect(screen.getByTestId(id).className).toContain('min-h-11');
+      expect(screen.getByTestId(id).className).toContain('min-w-11');
     }
     expect(screen.getByRole('button', { name: '成果物を共有' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Canvas Direct Touchで編集' })).toBeTruthy();
@@ -26,6 +27,37 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('artifact-action-details'));
     expect(screen.getByTestId('artifact-details-menu')).toBeTruthy();
     expect(screen.getByTestId('artifact-action-copy')).toBeTruthy();
+  });
+
+  it('keeps header, composer, and attachment controls at least 44px in both dimensions', () => {
+    render(<App language="ja" />);
+
+    const controls = [
+      screen.getByTestId('history-drawer-toggle'),
+      screen.getByTestId('knowledge-map-toggle'),
+      screen.getByRole('button', { name: '設定を開く' }),
+      screen.getByRole('button', { name: '新規対話を開始' }),
+      within(document.querySelector('.origin-composer') as HTMLElement).getByRole('button', { name: 'ファイルを添付' }),
+      screen.getByTestId('start-request-button'),
+    ];
+
+    for (const control of controls) {
+      expect(control.className).toMatch(/\b(?:min-h-11|h-11)\b/);
+      expect(control.className).toMatch(/\b(?:min-w-11|w-11)\b/);
+    }
+  });
+
+  it('grants normal previews only script execution and never modal or same-origin privileges', () => {
+    render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
+
+    const permissions = (screen.getByTitle('プレビュー') as HTMLIFrameElement)
+      .getAttribute('sandbox')
+      ?.split(/\s+/);
+
+    expect(permissions).toEqual(['allow-scripts']);
+    expect(permissions).not.toContain('allow-modals');
+    expect(permissions).not.toContain('allow-same-origin');
   });
 
   it('accepts live steering only while an artifact is still streaming and protects IME composition', () => {

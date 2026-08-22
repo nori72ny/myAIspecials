@@ -923,7 +923,7 @@ export default function UnifiedChat({
         <button
           type="button"
           onClick={() => setShowHistory(true)}
-          className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-origin-brand transition hover:bg-origin-brand-soft"
+          className="flex min-h-11 min-w-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-origin-brand transition hover:bg-origin-brand-soft"
           aria-label={isEn ? 'Open conversation history' : '過去の依頼履歴を開く'}
         >
           <History className="h-4 w-4" aria-hidden="true" />
@@ -936,7 +936,7 @@ export default function UnifiedChat({
           type="button"
           onClick={createNewConversation}
           disabled={isTyping}
-          className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-origin-brand transition hover:bg-origin-brand-soft disabled:opacity-50"
+          className="flex min-h-11 min-w-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-origin-brand transition hover:bg-origin-brand-soft disabled:opacity-50"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
           {isEn ? 'New' : '新規'}
@@ -1048,7 +1048,7 @@ export default function UnifiedChat({
                           type="button"
                           onClick={handleRetry}
                           disabled={isTyping || retrySecondsRemaining > 0}
-                          className="flex min-h-11 items-center gap-1.5 rounded-xl bg-origin-brand-soft px-3.5 py-2 text-[13px] font-semibold text-origin-brand transition-colors hover:bg-origin-brand-border disabled:opacity-50 dark:bg-origin-brand-soft dark:text-origin-brand dark:hover:bg-origin-brand-border"
+                          className="flex min-h-11 min-w-11 items-center gap-1.5 rounded-xl bg-origin-brand-soft px-3.5 py-2 text-[13px] font-semibold text-origin-brand transition-colors hover:bg-origin-brand-border disabled:opacity-50 dark:bg-origin-brand-soft dark:text-origin-brand dark:hover:bg-origin-brand-border"
                         >
                           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                           {retrySecondsRemaining > 0
@@ -1226,7 +1226,7 @@ export default function UnifiedChat({
                         <button
                           type="button"
                           onClick={() => void copyAnswer(message)}
-                          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-[13px] font-medium text-origin-muted transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-origin-brand"
+                          className="inline-flex min-h-11 min-w-11 items-center gap-2 rounded-xl px-3 text-[13px] font-medium text-origin-muted transition hover:bg-origin-surface-muted focus-visible:ring-2 focus-visible:ring-origin-brand"
                         >
                           {copiedMessageId === message.id
                             ? <Check className="h-4 w-4 text-origin-success" aria-hidden="true" />
@@ -1287,7 +1287,7 @@ export default function UnifiedChat({
                                   type="button"
                                   disabled={isTyping}
                                   onClick={() => void handleSend(action.prompt)}
-                                  className="min-h-11 rounded-xl border border-origin-border bg-origin-surface px-3 py-2 text-[13px] font-medium text-origin-ink transition hover:border-origin-brand disabled:opacity-50"
+                                  className="min-h-11 min-w-11 rounded-xl border border-origin-border bg-origin-surface px-3 py-2 text-[13px] font-medium text-origin-ink transition hover:border-origin-brand disabled:opacity-50"
                                 >
                                   {action.label}
                                 </button>

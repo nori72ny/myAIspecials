@@ -217,8 +217,10 @@ export default function MissionInput({
             <div className="flex items-center gap-3 flex-shrink-0 ml-4">
               <button
                 type="button"
+                aria-label={isListening ? "Stop voice input" : "Start voice input"}
+                aria-pressed={isListening}
                 onClick={toggleVoiceInput}
-                className={`p-3 rounded-full transition-colors ${
+                className={`inline-flex min-h-11 min-w-11 items-center justify-center p-3 rounded-full transition-colors ${
                   isListening 
                     ? 'bg-rose-500/10 text-rose-500' 
                     : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-black/5 dark:hover:bg-white/5'
@@ -229,8 +231,9 @@ export default function MissionInput({
               
               <button
                 type="submit"
+                aria-label="Send mission"
                 disabled={!prompt.trim()}
-                className="group relative flex items-center justify-center w-12 h-12 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-transform active:scale-95 shadow-sm"
+                className="group relative flex min-h-11 min-w-11 items-center justify-center w-12 h-12 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-transform active:scale-95 shadow-sm"
               >
                 <Send className="w-5 h-5 translate-x-[-1px] translate-y-[1px] group-hover:translate-x-0 group-hover:translate-y-0 transition-transform" />
               </button>

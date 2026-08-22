@@ -19,6 +19,51 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
   });
 
+  test('keeps interactive targets at least 44px square and grants previews only script execution', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '```html:touch-targets.html\n<main>Accessible isolated preview</main>\n```',
+    }));
+    await page.goto('/');
+
+    const primaryControls = [
+      page.getByTestId('history-drawer-toggle'),
+      page.getByRole('button', { name: '設定を開く' }),
+      page.locator('.origin-composer').getByRole('button', { name: 'ファイルを添付' }),
+      page.getByTestId('start-request-button'),
+    ];
+
+    for (const control of primaryControls) {
+      await expect(control).toBeVisible();
+      const bounds = await control.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.height).toBeGreaterThanOrEqual(44);
+      expect(bounds!.width).toBeGreaterThanOrEqual(44);
+      await expect(control).toHaveCSS('min-width', '44px');
+    }
+
+    await page.getByTestId('origin-home-request').fill('44px の操作領域を検証');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+
+    for (const id of ['artifact-action-save', 'artifact-action-share', 'artifact-action-edit', 'artifact-action-details']) {
+      const control = page.getByTestId(id);
+      const bounds = await control.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.height).toBeGreaterThanOrEqual(44);
+      expect(bounds!.width).toBeGreaterThanOrEqual(44);
+      await expect(control).toHaveCSS('min-width', '44px');
+    }
+
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    const preview = workspace.getByTitle('プレビュー');
+    await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
+    expect((await preview.getAttribute('sandbox'))?.split(/\s+/)).toEqual(['allow-scripts']);
+    expect(await page.locator('script[src]').evaluateAll((scripts) => scripts.every((script) => new URL((script as HTMLScriptElement).src).origin === window.location.origin))).toBe(true);
+  });
+
   test('shows pulsing ORIGIN thinking feedback immediately after sending', async ({ page }) => {
     await page.route('**/api/chat', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -347,6 +392,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('artifact-action-save')).toHaveText('📥 保存');
     for (const control of ['artifact-action-save', 'artifact-action-share', 'artifact-action-edit', 'artifact-action-details']) {
       await expect(page.getByTestId(control)).toHaveClass(/min-h-11/);
+      await expect(page.getByTestId(control)).toHaveClass(/min-w-11/);
     }
     await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('artifact-action-copy')).toBeVisible();

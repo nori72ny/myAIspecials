@@ -186,13 +186,17 @@
 .origin-input { color: var(--text-primary); caret-color: var(--accent-primary); }
 .origin-input::placeholder { color: var(--text-placeholder); opacity: 1; }
 .origin-muted { color: var(--text-secondary); }
-.origin-primary-button, .origin-secondary-button, .origin-danger-button { border-radius: var(--radius-control); }
-.origin-primary-button { background: var(--accent-primary); color: var(--text-on-accent); min-height: 44px; }
+.origin-primary-button, .origin-secondary-button, .origin-danger-button {
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: var(--radius-control);
+}
+.origin-primary-button { background: var(--accent-primary); color: var(--text-on-accent); }
 .origin-primary-button:hover:not(:disabled) { background: var(--accent-hover); }
 .origin-primary-button:disabled { background: var(--bg-surface-muted); color: var(--text-placeholder); }
-.origin-secondary-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-primary); min-height: 44px; }
+.origin-secondary-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-primary); }
 .origin-secondary-button:hover:not(:disabled) { background: var(--bg-elevated); border-color: var(--border-strong); }
-.origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface)); border-color: color-mix(in oklch, var(--danger) 46%, var(--border-default)); color: var(--danger); min-height: 44px; }
+.origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface)); border-color: color-mix(in oklch, var(--danger) 46%, var(--border-default)); color: var(--danger); }
 .origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-primary); }
 .origin-chat-user { background: var(--accent-primary); color: var(--text-on-accent); }
 .origin-chat-assistant { background: var(--bg-surface); color: var(--text-primary); }
