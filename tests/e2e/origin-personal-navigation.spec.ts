@@ -121,7 +121,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
     await context.setOffline(true);
     await page.reload();
-    await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
+    await expect(page.getByTestId('origin-chat-request')).toBeVisible();
     await page.getByTestId('history-drawer-toggle').click();
     await page.getByTestId('history-search-input').fill('Offline Persisted Artifact');
     await page.getByTestId('history-search-result-0').click();
