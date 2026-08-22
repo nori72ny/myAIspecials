@@ -1,5 +1,26 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+
+const readCompressedOriginSnapshot = (page: Page) => page.evaluate(async () => {
+  const database = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('origin-personal-local', 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const stored = await new Promise<unknown>((resolve, reject) => {
+    const request = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  database.close();
+  if (!(stored instanceof Blob)) return { type: 'legacy', snapshot: stored };
+  const bytes = new Uint8Array(await stored.arrayBuffer());
+  const gzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
+  const text = gzip
+    ? await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
+    : new TextDecoder().decode(bytes);
+  return { type: stored.type, snapshot: JSON.parse(text) as unknown };
+});
 
 test.describe('ORIGIN Personal 2.0 critical journey', () => {
   test('renders a focused core identity and a spacious command bar without starter-card noise', async ({ page }) => {
@@ -332,25 +353,21 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を保存します。\n```html:persisted.html\n<main>Persisted artifact</main>\n```' }));
     await page.goto('/');
     await expect(page.getByText('IndexedDBへ移行する履歴')).toBeVisible();
-    await expect.poll(() => page.evaluate(async () => new Promise<{ legacy: string | null; snapshot: unknown }>((resolve) => {
-      const request = indexedDB.open('origin-personal-local', 1);
-      request.onsuccess = () => {
-        const database = request.result;
-        const read = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
-        read.onsuccess = () => { resolve({ legacy: localStorage.getItem('origin_personal_history'), snapshot: read.result }); database.close(); };
-      };
-    }))).toMatchObject({ legacy: null, snapshot: { messages: [{ content: 'IndexedDBへ移行する履歴' }] } });
+    await expect.poll(async () => ({
+      legacy: await page.evaluate(() => localStorage.getItem('origin_personal_history')),
+      ...await readCompressedOriginSnapshot(page),
+    })).toMatchObject({
+      legacy: null,
+      type: 'application/vnd.origin.snapshot+gzip',
+      snapshot: { messages: [{ content: 'IndexedDBへ移行する履歴' }] },
+    });
     await page.getByTestId('origin-chat-request').fill('成果物を生成');
     await page.getByTestId('origin-chat-request').press('Control+Enter');
     await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
-    await expect.poll(() => page.evaluate(async () => new Promise<unknown>((resolve) => {
-      const request = indexedDB.open('origin-personal-local', 1);
-      request.onsuccess = () => {
-        const database = request.result;
-        const read = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
-        read.onsuccess = () => { resolve(read.result); database.close(); };
-      };
-    }))).toMatchObject({ artifacts: [expect.objectContaining({ title: 'persisted.html', content: expect.stringContaining('<main>Persisted artifact</main>') })] });
+    await expect.poll(() => readCompressedOriginSnapshot(page)).toMatchObject({
+      type: 'application/vnd.origin.snapshot+gzip',
+      snapshot: { artifacts: [expect.objectContaining({ title: 'persisted.html', content: expect.stringContaining('<main>Persisted artifact</main>') })] },
+    });
   });
 
   test('searches IndexedDB-backed sessions and artifact code locally from the history drawer', async ({ page }) => {

@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, ORIGIN_OFFLINE_MESSAGE, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -596,7 +596,25 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'オフライン要求' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('オフライン中は新規AI応答を停止しています。端末内の履歴・成果物は閲覧、直接編集、保存、パッケージ化を継続できます。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(ORIGIN_OFFLINE_MESSAGE)).toBeTruthy());
+    if (online) Object.defineProperty(window.navigator, 'onLine', online);
+    else delete (window.navigator as { onLine?: boolean }).onLine;
+  });
+
+  it('switches to the offline notice when both transport attempts fail after connectivity drops', async () => {
+    const online = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
+    const fetchMock = vi.fn(async () => {
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+      throw new TypeError('network disconnected');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信断を検証' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText(ORIGIN_OFFLINE_MESSAGE)).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
     if (online) Object.defineProperty(window.navigator, 'onLine', online);
     else delete (window.navigator as { onLine?: boolean }).onLine;
   });

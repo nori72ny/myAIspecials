@@ -1,4 +1,25 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+const readCompressedOriginSnapshot = (page: Page) => page.evaluate(async () => {
+  const database = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('origin-personal-local', 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const stored = await new Promise<unknown>((resolve, reject) => {
+    const request = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  database.close();
+  if (!(stored instanceof Blob)) return { type: 'legacy', snapshot: stored };
+  const bytes = new Uint8Array(await stored.arrayBuffer());
+  const gzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
+  const text = gzip
+    ? await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
+    : new TextDecoder().decode(bytes);
+  return { type: stored.type, snapshot: JSON.parse(text) as unknown };
+});
 
 test.describe('ORIGIN Personal 2.0 production surface', () => {
   test('shows the truthful first-release workspace without legacy navigation or sample data', async ({ page }) => {
@@ -74,6 +95,52 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
     await expect(page.getByText('結論：描画バッチで滑らかに表示します。')).toBeVisible();
     await expect(page.getByTestId('response-verification-details')).toBeVisible();
+  });
+
+  test('reloads the cached app offline, restores compressed artifacts, and exports locally without an API request', async ({ page, context }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '```html:offline-persisted.html\n<main><h1>Offline Persisted Artifact</h1></main>\n```',
+    }));
+    await page.goto('/');
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+    await page.getByTestId('origin-home-request').fill('オフライン保存用成果物を作成');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('artifact-workspace')).toBeVisible();
+    await expect.poll(() => readCompressedOriginSnapshot(page)).toMatchObject({
+      type: 'application/vnd.origin.snapshot+gzip',
+      snapshot: {
+        artifacts: [expect.objectContaining({
+          title: 'offline-persisted.html',
+          content: expect.stringContaining('Offline Persisted Artifact'),
+        })],
+      },
+    });
+
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.getByTestId('origin-chat-request')).toBeVisible();
+    await page.getByTestId('history-drawer-toggle').click();
+    await page.getByTestId('history-search-input').fill('Offline Persisted Artifact');
+    await page.getByTestId('history-search-result-0').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible();
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    await expect(workspace.getByTitle('プレビュー').contentFrame().getByText('Offline Persisted Artifact')).toBeVisible();
+    const download = page.waitForEvent('download');
+    await page.getByTestId('artifact-action-save').click();
+    await expect((await download).suggestedFilename()).toBe('offline-persisted.html');
+
+    await page.getByRole('button', { name: '成果物ワークスペースを閉じる' }).click();
+    let chatRequests = 0;
+    page.on('request', (request) => { if (request.url().endsWith('/api/chat')) chatRequests += 1; });
+    await page.getByTestId('origin-chat-request').fill('オフライン中の新規送信');
+    await page.getByTestId('send-request-button').click();
+    await expect(page.getByText('現在オフラインです（保存済み成果物の閲覧・編集のみ可能です）')).toBeVisible();
+    expect(chatRequests).toBe(0);
+    await context.setOffline(false);
   });
 
   test('shows the zero-cost congestion notice without a verified trace after provider retries', async ({ page }) => {
