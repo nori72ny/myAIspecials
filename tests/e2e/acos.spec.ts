@@ -124,6 +124,28 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(preview).toHaveAttribute('data-origin-srcdoc', /connect-src 'none'/);
   });
 
+  test('auto-corrects low contrast and unnamed buttons inside the isolated artifact sandbox', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '```html:a11y-auto-lint.html\n<main style="background:#777"><p id="low-contrast" style="color:#777">Important result</p><button id="unnamed-button"><svg aria-hidden="true" viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button></main>\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('アクセシビリティ補正を確認');
+    await page.getByTestId('start-request-button').click();
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    const preview = page.getByTestId('artifact-workspace').getByTitle('プレビュー');
+    const sandbox = preview.contentFrame();
+    await expect(sandbox.locator('html')).toHaveAttribute('data-origin-a11y-checked', 'true');
+    await expect(sandbox.locator('html')).toHaveAttribute('data-origin-a11y-contrast-fixes', '1');
+    await expect(sandbox.locator('html')).toHaveAttribute('data-origin-a11y-name-fixes', '1');
+    await expect(sandbox.locator('#low-contrast')).toHaveAttribute('data-origin-contrast-fixed', 'true');
+    await expect(sandbox.locator('#unnamed-button')).toHaveAttribute('aria-label', '操作ボタン 1');
+    expect(await sandbox.locator('#low-contrast').evaluate((element) => getComputedStyle(element).color)).not.toBe('rgb(119, 119, 119)');
+    await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /connect-src 'none'/);
+  });
+
   test('uses translated artifact controls, HTML MIME download, and a locked-down preview sandbox', async ({ page }) => {
     await page.addInitScript(() => {
       const originalCreateObjectURL = URL.createObjectURL.bind(URL);

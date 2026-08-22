@@ -12,56 +12,26 @@ type Starter = {
   prompt: string;
 };
 
+const ENGLISH_STARTERS: readonly Starter[] = [
+  { label: 'Frame', description: 'Turn incomplete context into a crisp decision brief', prompt: 'Frame this context as an executive brief with a recommendation, evidence, risks, and next action' },
+  { label: 'Evaluate', description: 'Compare strategic options and surface the trade-offs', prompt: 'Evaluate these options against clear decision criteria and recommend a course of action' },
+  { label: 'Draft', description: 'Create an executive-ready deliverable from working notes', prompt: 'Transform these notes into a concise, executive-ready deliverable' },
+  { label: 'Plan', description: 'Translate the objective into owners, milestones, and actions', prompt: 'Build an execution roadmap with priorities, owners, milestones, risks, and the immediate next action' },
+];
+
+const JAPANESE_STARTERS: readonly Starter[] = [
+  { label: '整理する', description: '断片的な考えから、次の一歩を明確にする', prompt: '考えを整理して、次にやることを決めたい' },
+  { label: '比較する', description: '候補の違いと判断基準を見える形にする', prompt: '候補の情報を貼り付けて、違いを比較したい' },
+  { label: '文章にする', description: 'メモを、伝わる文書へ整える', prompt: 'メモから、読みやすい文書を作りたい' },
+  { label: '計画する', description: '目的から、実行できる順序を組み立てる', prompt: 'この目標を、実行できる計画に整理したい' },
+];
+
 export default function PersonalDashboard({ onNavigateToChat, language }: PersonalDashboardProps) {
   const isEn = language === 'en';
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const starters: Starter[] = isEn
-    ? [
-        {
-          label: 'Organize',
-          description: 'Turn scattered thoughts into a clear next step',
-          prompt: 'Help me organize my thoughts and decide the next step',
-        },
-        {
-          label: 'Compare',
-          description: 'Clarify differences and decision criteria',
-          prompt: 'Paste the option details and compare the differences',
-        },
-        {
-          label: 'Write',
-          description: 'Shape notes into a readable document',
-          prompt: 'Turn these notes into a clear document',
-        },
-        {
-          label: 'Plan',
-          description: 'Break a goal into an actionable sequence',
-          prompt: 'Help me turn this goal into a practical plan',
-        },
-      ]
-    : [
-        {
-          label: '整理する',
-          description: '断片的な考えから、次の一歩を明確にする',
-          prompt: '考えを整理して、次にやることを決めたい',
-        },
-        {
-          label: '比較する',
-          description: '候補の違いと判断基準を見える形にする',
-          prompt: '候補の情報を貼り付けて、違いを比較したい',
-        },
-        {
-          label: '文章にする',
-          description: 'メモを、伝わる文書へ整える',
-          prompt: 'メモから、読みやすい文書を作りたい',
-        },
-        {
-          label: '計画する',
-          description: '目的から、実行できる順序を組み立てる',
-          prompt: 'この目標を、実行できる計画に整理したい',
-        },
-      ];
+  const starters = isEn ? ENGLISH_STARTERS : JAPANESE_STARTERS;
 
   const submit = () => {
     const prompt = input.trim();
@@ -92,7 +62,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
             className="mx-auto mt-3 max-w-xl text-[15px] leading-[1.75] text-origin-muted dark:text-origin-muted sm:text-base"
           >
             {isEn
-              ? 'Your thoughts do not need to be complete. ORIGIN helps clarify the purpose, conditions, and next step.'
+              ? 'Bring an objective, decision, or unfinished brief. ORIGIN will turn it into an executive-ready next step.'
               : '考えがまとまっていなくても構いません。目的と条件を一緒に整理し、次の一歩が見える形に整えます。'}
           </p>
         </div>
@@ -120,7 +90,7 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
             }}
             className="min-h-[112px] w-full resize-none border-none bg-transparent p-0 text-base leading-7 text-origin-ink outline-none placeholder:text-origin-placeholder focus:ring-0 dark:text-origin-ink dark:placeholder:text-origin-placeholder sm:min-h-[132px]"
             placeholder={isEn
-              ? 'Describe the result you want, a question, or unfinished notes.'
+              ? 'Describe the decision, outcome, or deliverable you need.'
               : '実現したいこと、迷っていること、途中のメモをそのまま入力'}
           />
           <div className="mt-3 flex flex-col gap-3 border-t border-origin-border pt-3 dark:border-origin-border sm:flex-row sm:items-center sm:justify-between">
@@ -146,10 +116,10 @@ export default function PersonalDashboard({ onNavigateToChat, language }: Person
         <div className="mt-6 sm:mt-7">
           <div className="mb-3 flex items-end justify-between gap-3">
             <p className="text-[13px] font-semibold leading-5 text-origin-ink dark:text-origin-ink">
-              {isEn ? 'Choose a starting point' : '始め方を選ぶ'}
+              {isEn ? 'Start with an executive workflow' : '始め方を選ぶ'}
             </p>
             <p className="text-[12px] leading-5 text-origin-muted dark:text-origin-muted">
-              {isEn ? 'Adds an editable prompt' : '選んだ後に編集できます'}
+              {isEn ? 'Adds an editable decision brief' : '選んだ後に編集できます'}
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
