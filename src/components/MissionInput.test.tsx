@@ -59,19 +59,25 @@ describe("MissionInput Component", () => {
 
   it("enables voice recording simulation UI on voice button click", () => {
     render(<MissionInput />);
-    
-    // We can find the button by checking its type or looking for the mic icon
-    // It's the button before the submit button
-    const buttons = screen.getAllByRole("button");
-    const voiceBtn = buttons[0]; // Assuming it's the first button in the component
-    
-    expect(voiceBtn).toBeTruthy();
-    
-    // Click voice button
+
+    const voiceBtn = screen.getByRole("button", { name: "Start voice input" });
+    expect(voiceBtn.className).toContain("min-h-11");
+    expect(voiceBtn.className).toContain("min-w-11");
+    expect(voiceBtn.getAttribute("aria-pressed")).toBe("false");
+
     fireEvent.click(voiceBtn);
-    
-    // Wait for simulate voice typing effect (setPrompt is called)
-    // We just verify it toggled state
-    expect(voiceBtn).not.toBeNull();
+
+    expect(screen.getByRole("button", { name: "Stop voice input" })).toBe(voiceBtn);
+    expect(voiceBtn.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("keeps both voice and send controls at least 44px in each dimension", () => {
+    render(<MissionInput />);
+
+    for (const name of ["Start voice input", "Send mission"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.className).toContain("min-h-11");
+      expect(button.className).toContain("min-w-11");
+    }
   });
 });
