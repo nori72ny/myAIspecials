@@ -400,6 +400,38 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows the concrete busy notice without a verified Process Trace after the API retry is exhausted', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      code: 'PROVIDER_RATE_LIMITED',
+      retryable: true,
+      retryAttempted: true,
+    }), { status: 429, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '混雑時の動作を確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText('現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('retries one edge-level transient /api/chat failure before displaying a verified response', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('temporary edge failure', { status: 503 }))
+      .mockResolvedValueOnce(new Response('再試行後の回答', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '一時エラーを再試行' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText('再試行後の回答')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('response-verification-details')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
   it('rejects paid or substituted successful JSON responses before revealing their content', async () => {
     const model = 'google/gemma-4-26b-a4b-it:free';
     const payload = {

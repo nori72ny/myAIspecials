@@ -32,4 +32,25 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
     )).toBe(true);
   });
+
+  test('keeps the mobile header on one line with three 44px action targets', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.goto('/');
+
+    const header = page.locator('header.origin-header');
+    const history = page.getByTestId('history-drawer-toggle');
+    const settings = page.getByRole('button', { name: '設定を開く' });
+    const newConversation = page.getByRole('button', { name: '新規対話を開始' });
+
+    await expect(header).toContainText('ORIGIN');
+    await expect(header).toContainText('Personal 2.0');
+    for (const button of [history, settings, newConversation]) {
+      const box = await button.boundingBox();
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+      expect(box?.width).toBeGreaterThanOrEqual(44);
+      expect(await button.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
+    }
+    const headerWidth = await header.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+    expect(headerWidth.scroll).toBeLessThanOrEqual(headerWidth.client);
+  });
 });

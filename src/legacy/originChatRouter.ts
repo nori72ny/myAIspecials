@@ -68,6 +68,21 @@ export interface OriginChatRouterOptions {
   createRequestId?: () => string;
 }
 
+const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
+const MODEL_BUSY_MESSAGE = "現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）";
+const RETRYABLE_PROVIDER_CODES = new Set([
+  "PROVIDER_RATE_LIMITED",
+  "PROVIDER_TIMEOUT",
+  "PROVIDER_UNAVAILABLE",
+  "PROVIDER_INTERNAL_ERROR",
+]);
+
+function shouldRetryProvider(error: unknown): error is OriginProviderError {
+  return error instanceof OriginProviderError
+    && error.retryable
+    && RETRYABLE_PROVIDER_CODES.has(error.code);
+}
+
 function systemInstruction(
   intent?: OriginRequestIntent,
   workPlan?: OriginAgentWorkPlan,
@@ -413,6 +428,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     }
 
     const startedAt = now();
+    let providerRetryAttempted = false;
     try {
       const requestIntent = classifyOriginRequestIntent(
         lastUserMessage,
@@ -429,8 +445,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         taskType: planningResult.plan.taskType,
         independentReviewRequired: reviewDecision.required,
       });
-      const result = await execute({
-        plan: planningResult.plan,
+      const providerRequest: OriginProviderExecutionRequest = {
+        plan: {
+          ...planningResult.plan,
+          // Two bounded attempts must both fit inside the 120-second Vercel
+          // function window, including response validation and serialization.
+          timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS),
+        },
         messages: contextResult.window.messages,
         systemInstruction: systemInstruction(
           requestIntent,
@@ -438,7 +459,20 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           resolvedPlan,
           originAnswerQualityInstruction(answerQualityPolicy),
         ),
-      });
+      };
+      let result: OriginProviderExecutionResult;
+      try {
+        result = await execute(providerRequest);
+      } catch (firstError) {
+        if (!shouldRetryProvider(firstError)) throw firstError;
+        providerRetryAttempted = true;
+        console.warn("[origin-chat] transient provider failure; retrying once", {
+          requestId,
+          code: firstError.code,
+          status: firstError.status,
+        });
+        result = await execute(providerRequest);
+      }
       // Do not trust an executor boundary alone: a paid, substituted, or otherwise
       // unverifiable result is discarded before any text reaches the response body.
       assertOriginZeroCostExecutionResult(result, planningResult.plan.modelId);
@@ -513,6 +547,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             omittedCharacterCount: contextResult.window.omittedCharacterCount,
           },
           usage: result.usage,
+          providerAttempts: providerRetryAttempted ? 2 : 1,
         },
       });
     } catch (error) {
@@ -525,13 +560,15 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           retryable: error.retryable,
           diagnostic: error.diagnostic,
         });
+        const exhaustedTransientRetry = providerRetryAttempted && shouldRetryProvider(error);
         return res.status(error.status).json({
           code: error.code,
-          message: error.message,
+          message: exhaustedTransientRetry ? MODEL_BUSY_MESSAGE : error.message,
           retryable: error.retryable,
           retryAfterSeconds: error.retryAfterSeconds,
           diagnostic: error.diagnostic,
           requestId,
+          retryAttempted: providerRetryAttempted,
         });
       }
       console.error("[origin-chat] unexpected provider failure", {

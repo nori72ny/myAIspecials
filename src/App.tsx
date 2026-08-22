@@ -177,7 +177,12 @@ export interface ParsedStreamFrame {
   activeArtifact: ArtifactBlock | null;
 }
 
-export type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string };
+export type ConversationMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  deliveryState?: 'verified' | 'error';
+};
 export type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type Attachment = { name: string; content: string; mediaType: string; kind: 'image' | 'text'; bytes: number };
 export type OriginLocalSearchResult = { kind: 'session' | 'artifact'; id: string; title: string; detail: string; session?: ConversationSession; artifact?: ArtifactBlock };
@@ -385,7 +390,43 @@ const copyText = async (value: string) => {
 const isTextLike = (file: File) => file.type.startsWith('text/') || /\.(md|txt|json|csv|ts|tsx|js|jsx|css|html|svg|xml|yml|yaml)$/i.test(file.name);
 const ORIGIN_FIXED_FREE_MODEL = 'google/gemma-4-26b-a4b-it:free';
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
+const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
 const SAFE_WAITING_MESSAGE = '無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
+const MODEL_BUSY_MESSAGE = '現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）';
+const MODEL_BUSY_MESSAGE_EN = 'The model is currently busy. Please try again in a few dozen seconds (the $0.00 cost is still maintained).';
+
+type OriginChatFailurePayload = {
+  code?: unknown;
+  retryable?: unknown;
+  retryAttempted?: unknown;
+};
+
+const isTransientHttpStatus = (status: number) => status === 429 || status === 502 || status === 503 || status === 504;
+
+async function fetchOriginChatWithOneRetry(body: string, signal: AbortSignal): Promise<Response> {
+  let lastNetworkError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+        body,
+      });
+      if (response.ok || !isTransientHttpStatus(response.status) || attempt === 1) return response;
+
+      const failure = await response.clone().json().catch(() => null) as OriginChatFailurePayload | null;
+      // The API already performs its one permitted provider retry. Retry here
+      // only for an edge/proxy failure that did not reach that boundary.
+      if (failure?.retryAttempted === true || typeof failure?.code === 'string') return response;
+    } catch (error) {
+      if (signal.aborted) throw error;
+      lastNetworkError = error;
+      if (attempt === 1) throw error;
+    }
+  }
+  throw lastNetworkError instanceof Error ? lastNetworkError : new Error('request-error');
+}
 
 type OriginVerifiedChatPayload = {
   content?: unknown;
@@ -496,7 +537,7 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; artifa
   const searchableArtifacts = storedArtifacts ?? artifacts;
   const results = useMemo(() => searchOriginLocalSnapshot(deferredQuery, searchableSessions, searchableArtifacts), [deferredQuery, searchableArtifacts, searchableSessions]);
   return <>
-    <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button min-h-11 min-w-11 px-3 text-[13px] font-semibold">☰ 履歴</button>
+    <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[15px] font-semibold sm:w-auto sm:min-w-11 sm:px-3 sm:text-[13px]"><span aria-hidden="true">☰</span><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
     {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface absolute right-4 top-20 z-40 w-[min(94vw,460px)] p-4 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h2 className="m-0 text-base font-bold">履歴を検索</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話、成果物コード、保存済みの版を端末内だけで検索します。</p></div><span className="origin-badge px-2 py-1 text-[13px] font-mono">Local</span></div><label className="mt-4 block text-[13px] font-semibold" htmlFor="origin-history-search">検索語</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="会話・コード・成果物を検索" className="origin-input mt-1 min-h-11 w-full rounded-[10px] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid max-h-72 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{result.kind === 'session' ? '会話' : '成果物'} · {result.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する端末内履歴はありません。</p>}</div> : <p className="origin-muted mt-3 text-[13px]">入力すると、保存済みの全セッションと成果物本文を即時に絞り込みます。</p>}</section>}
   </>;
 };
@@ -816,6 +857,15 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
     }
     setInputText(''); setAttachments([]); setIsLoading(true);
     const controller = new AbortController(); abortRef.current = controller;
+    const appendFailure = (content: string) => {
+      setAttachmentError(content);
+      setIsSafeWaiting(true);
+      // A response that failed during streaming is never eligible for a
+      // verification trace. Remove that incomplete frame fail-closed.
+      updateMessages((current) => current.at(-1)?.role === 'assistant' && current.at(-1)?.deliveryState !== 'verified'
+        ? current.slice(0, -1)
+        : current);
+    };
     const enterSafeWaiting = () => {
       setAttachmentError(language === 'en'
         ? 'A verified $0.00 free-model response is unavailable. The response was withheld; please try again later.'
@@ -823,14 +873,22 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
       setIsSafeWaiting(true);
     };
     try {
-      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal, body: JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages }) });
+      const response = await fetchOriginChatWithOneRetry(
+        JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages }),
+        controller.signal,
+      );
       if (!response.ok) {
-        const failure = await response.json().catch(() => null) as { code?: unknown } | null;
+        const failure = await response.json().catch(() => null) as OriginChatFailurePayload | null;
         if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
           enterSafeWaiting();
           return;
         }
-        throw new Error('request-error');
+        if ((typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || failure?.retryable === true || isTransientHttpStatus(response.status)) {
+          appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+          return;
+        }
+        appendFailure(t.error);
+        return;
       }
       const reportedCost = response.headers.get('x-origin-cost-usd') ?? response.headers.get('x-openrouter-cost');
       const reportedModel = response.headers.get('x-origin-model-id');
@@ -858,7 +916,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
       const displayVerifiedText = (next: string) => { fullText += next; const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } };
       if (verifiedResponseText !== undefined) displayVerifiedText(verifiedResponseText);
       while (reader) { const { done, value } = await reader.read(); if (done) break; displayVerifiedText(decoder.decode(value, { stream: true })); }
-    } catch (error) { if ((error as DOMException).name !== 'AbortError') updateMessages((current) => [...current, { id: `err-${Date.now()}`, role: 'assistant', content: t.error }]); }
+      updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, deliveryState: 'verified' } : message));
+    } catch (error) {
+      if ((error as DOMException).name !== 'AbortError') appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+    }
     finally { if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); } }
   };
   const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} /><div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-2 rounded-[24px] border p-2 shadow-lg shadow-black/5 transition focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><textarea ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[60px] flex-1 resize-none bg-transparent px-4 py-3 text-base leading-7 focus:outline-none" /><button type="button" onClick={() => fileInputRef.current?.click()} aria-label={t.attachFile} className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-lg">＋</button>{isLoading ? <button type="button" aria-label={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-danger-button min-h-11 min-w-11 rounded-[10px] px-5 text-[13px] font-bold">{t.stop}</button> : <button type="button" data-testid={messages.length ? 'send-request-button' : 'start-request-button'} aria-label={messages.length ? t.sendRequest : t.startRequest} onClick={() => void handleSend()} disabled={(!inputText.trim() && !attachments.length)} className="origin-primary-button min-h-11 min-w-11 shrink-0 rounded-[10px] px-5 text-[13px] font-bold">{messages.length ? t.send : t.start}</button>}</div>{attachments.length > 0 && <div className="origin-muted mt-2 flex flex-wrap gap-2 text-[13px]"><span className="sr-only">{t.attachedFiles}</span>{attachments.map((attachment, index) => <span key={`${attachment.name}-${index}`} className="origin-surface-muted flex items-center gap-2 rounded-[10px] px-2 py-1"><span>{t.attach}: {attachment.name}</span><button type="button" onClick={() => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={`${t.removeAttachment}: ${attachment.name}`} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px]">✕</button></span>)}</div>}{attachmentError && <p data-testid={isSafeWaiting ? "origin-safe-waiting-state" : undefined} role="alert" aria-live={isSafeWaiting ? "assertive" : undefined} className="mt-2 text-[13px] text-[var(--danger)]">{attachmentError}</p>}<p id="origin-chat-guidance" className="sr-only">{t.keyboardGuidance}{t.dropFiles}</p></>;

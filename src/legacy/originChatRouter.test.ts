@@ -485,6 +485,47 @@ describe("createOriginChatRouter", () => {
     expect(response.body.diagnostic).not.toHaveProperty("response");
   });
 
+  it("immediately retries one transient provider failure and returns the verified result", async () => {
+    executeMock.mockRejectedValueOnce(new OriginProviderError(
+      "PROVIDER_RATE_LIMITED",
+      "一時的な利用上限です。",
+      429,
+      true,
+      8,
+      { upstreamStatus: 429 },
+    ));
+
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "短い案内文を整えてください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe("安全な確認結果です。");
+    expect(response.body.routing.providerAttempts).toBe(2);
+    expect(executeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed with the concrete busy notice after the single retry also times out", async () => {
+    executeMock.mockRejectedValue(new OriginProviderError(
+      "PROVIDER_TIMEOUT",
+      "upstream timeout",
+      504,
+      true,
+      undefined,
+      { transportFailure: "timeout" },
+    ));
+
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [{ role: "user", content: "短い案内文を整えてください" }],
+    });
+
+    expect(response.status).toBe(504);
+    expect(response.body.message).toBe("現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）");
+    expect(response.body.retryAttempted).toBe(true);
+    expect(response.body.retryable).toBe(true);
+    expect(executeMock).toHaveBeenCalledTimes(2);
+  });
+
   it("fails closed when no explicitly free provider is configured", async () => {
     const response = await request(createApp(execute, {
       GEMINI_API_KEY: "synthetic-gemini-key",

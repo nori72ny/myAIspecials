@@ -18,6 +18,7 @@ type ConversationMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  deliveryState?: 'verified' | 'error';
 };
 type ConversationSession = {
   id: string;
@@ -55,6 +56,9 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
       id: typeof candidate.id === 'string' && candidate.id.length <= 128 ? candidate.id : `import-${index}-${Date.now()}`,
       role: candidate.role,
       content: candidate.content.slice(0, 50_000),
+      deliveryState: candidate.deliveryState === 'verified' || candidate.deliveryState === 'error'
+        ? candidate.deliveryState
+        : undefined,
     };
   });
 }
