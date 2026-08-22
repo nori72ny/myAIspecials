@@ -2,33 +2,89 @@ name: Verify free model evidence
 
 on:
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '17 0,6,12,18 * * *'
   workflow_dispatch:
+    inputs:
+      force_refresh:
+        description: Refresh the verified evidence window immediately
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-free-model.yml'
+      - 'scripts/verify-free-model.ts'
+      - 'scripts/verify-free-model.test.ts'
+      - 'src/lib/orchestration/OriginFreeModelCatalog.ts'
 
 concurrency:
   group: verify-free-model-evidence
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   refresh-evidence:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout the exact default-branch revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - name: Verify official OpenRouter pricing and refresh expiring evidence
-        run: npm run verify:free-model
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify official OpenRouter zero pricing and evidence expiry
+        id: verify
+        env:
+          ORIGIN_FREE_MODEL_EVIDENCE_PATH: ${{ runner.temp }}/origin-free-model-evidence.json
+          ORIGIN_FORCE_FREE_MODEL_REFRESH: ${{ github.event_name == 'workflow_dispatch' && inputs.force_refresh && 'true' || 'false' }}
+        run: |
+          if [ "$ORIGIN_FORCE_FREE_MODEL_REFRESH" = 'true' ]; then
+            npm run verify:free-model -- --force
+          else
+            npm run verify:free-model
+          fi
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const evidence = JSON.parse(fs.readFileSync(process.env.ORIGIN_FREE_MODEL_EVIDENCE_PATH, 'utf8'));
+          if (evidence.modelId !== 'google/gemma-4-26b-a4b-it:free'
+            || evidence.pricing.prompt !== '0'
+            || evidence.pricing.completion !== '0'
+            || Date.parse(evidence.reviewAfter) <= Date.now()) {
+            throw new Error('Free-model evidence is invalid, paid, or already expired.');
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `review_after=${evidence.reviewAfter}\n`);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '## Fixed free-model verification',
+            `- Model: ${evidence.modelId}`,
+            `- Prompt price: $${evidence.pricing.prompt}.00`,
+            `- Completion price: $${evidence.pricing.completion}.00`,
+            `- Verified at: ${evidence.verifiedAt}`,
+            `- Evidence valid through: ${evidence.reviewAfter}`,
+            `- Official source: ${evidence.sourceUrl}`,
+            `- Catalog refreshed: ${evidence.updated}`,
+            '',
+          ].join('\n'));
+          NODE
+      - name: Preserve machine-readable zero-cost evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: origin-free-model-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/origin-free-model-evidence.json
+          retention-days: 30
+          if-no-files-found: error
       - name: Test fail-closed verifier and catalog policy
         run: npx vitest run scripts/verify-free-model.test.ts src/lib/orchestration/OriginFreeModelCatalog.test.ts
-      - name: Open evidence refresh pull request
+      - name: Open an evidence refresh pull request only when timestamps changed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -44,3 +100,8 @@ jobs:
           git commit -m 'chore: refresh verified free-model evidence'
           git push origin "$branch"
           gh pr create --base main --head "$branch" --title 'chore: refresh verified free-model evidence' --body 'Automated fail-closed verification confirmed the fixed OpenRouter model still reports zero prompt and completion pricing. Full CI must pass before merge.'
+      - name: Mark paid, unavailable, or expired evidence as unsafe
+        if: failure()
+        run: |
+          echo '::error::Free-model evidence could not be proven at $0.00. Paid fallback remains disabled and expired runtime evidence fails closed.'
+          echo '### Free-model verification failed; paid fallback remains disabled.' >> "$GITHUB_STEP_SUMMARY"
