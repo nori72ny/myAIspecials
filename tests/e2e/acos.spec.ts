@@ -11,6 +11,9 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const commandBar = page.getByTestId('origin-home-request');
     await expect(commandBar).toBeVisible();
     expect(await commandBar.evaluate((element) => getComputedStyle(element).minHeight)).toBe('60px');
+    const initialComposerHeight = await commandBar.evaluate((element) => element.closest('.origin-composer')!.getBoundingClientRect().height);
+    expect(initialComposerHeight).toBeGreaterThanOrEqual(76);
+    expect(initialComposerHeight).toBeLessThanOrEqual(80);
     await expect(page.locator('[data-testid^="starter-"]')).toHaveCount(0);
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
