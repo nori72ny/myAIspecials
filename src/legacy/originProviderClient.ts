@@ -204,7 +204,17 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
       diagnostic,
     );
   }
-  if (status === 402 || status === 403) {
+  if (status === 402) {
+    return new OriginProviderError(
+      "PROVIDER_POLICY_VIOLATION",
+      "無料モデルの利用に支払いが必要と判定されたため、実行を停止しました。",
+      502,
+      false,
+      undefined,
+      diagnostic,
+    );
+  }
+  if (status === 403) {
     return new OriginProviderError(
       "PROVIDER_UNAVAILABLE",
       "無料AIを現在利用できません。",
@@ -302,6 +312,42 @@ function verifiedZeroCost(value: unknown): 0 {
   return 0;
 }
 
+function assertProviderBillingRemainsFree(payload: {
+  billing_tier?: unknown;
+  billingTier?: unknown;
+  is_free?: unknown;
+  isFree?: unknown;
+  pricing?: Record<string, unknown>;
+  usage?: {
+    cost?: unknown;
+    cost_details?: Record<string, unknown>;
+    is_byok?: unknown;
+  };
+}): void {
+  const tier = payload.billing_tier ?? payload.billingTier;
+  const explicitlyPaid = (typeof tier === "string" && !/^(?:free|zero)$/i.test(tier))
+    || payload.is_free === false
+    || payload.isFree === false
+    || payload.usage?.is_byok === true;
+  const chargeFields = [
+    ...Object.entries(payload.usage?.cost_details ?? {}).filter(([key]) => /cost|price|charge/i.test(key)),
+    ...Object.entries(payload.pricing ?? {}).filter(([key]) => /prompt|completion|request|image|reasoning|search|price|cost/i.test(key)),
+  ];
+  const additionalCharge = chargeFields.some(([, value]) => {
+    if (typeof value !== "number" && typeof value !== "string") return false;
+    const amount = typeof value === "string" && value.trim() ? Number(value) : value;
+    return typeof amount === "number" && Number.isFinite(amount) && amount > 0;
+  });
+  if (explicitlyPaid || additionalCharge) {
+    throw new OriginProviderError(
+      "PROVIDER_POLICY_VIOLATION",
+      "無料モデルの応答に有料課金の兆候が含まれていたため、回答を破棄しました。",
+      502,
+      false,
+    );
+  }
+}
+
 function verifiedRoutingEvidence(
   requestedModel: string,
   responseModel: unknown,
@@ -353,6 +399,16 @@ function extractProviderText(content: OriginProviderContent | undefined): string
 function mapProviderPayloadFailure(errorType: unknown): OriginProviderError | null {
   if (typeof errorType !== "string" || !errorType) return null;
   const diagnostic: OriginProviderDiagnostic = { upstreamErrorType: errorType };
+  if (/^(?:payment_required|billing_required|insufficient_credits|paid_model|model_not_free)$/i.test(errorType)) {
+    return new OriginProviderError(
+      "PROVIDER_POLICY_VIOLATION",
+      "無料モデルの利用に有料課金が必要と判定されたため、回答を返しません。",
+      502,
+      false,
+      undefined,
+      diagnostic,
+    );
+  }
   if (errorType === "rate_limit_exceeded") {
     return new OriginProviderError(
       "PROVIDER_RATE_LIMITED",
@@ -477,6 +533,11 @@ export async function executeOriginProvider(
 
       const data = await response.json() as {
         model?: string;
+        billing_tier?: string;
+        billingTier?: string;
+        is_free?: boolean;
+        isFree?: boolean;
+        pricing?: Record<string, unknown>;
         error?: { metadata?: { error_type?: string } };
         choices?: Array<{
           finish_reason?: string;
@@ -488,6 +549,8 @@ export async function executeOriginProvider(
           completion_tokens?: number;
           total_tokens?: number;
           cost?: number;
+          cost_details?: Record<string, unknown>;
+          is_byok?: boolean;
         };
       };
       const choice = data.choices?.[0];
@@ -497,6 +560,7 @@ export async function executeOriginProvider(
       if (payloadFailure) throw payloadFailure;
 
       const costUsd = verifiedZeroCost(data.usage?.cost);
+      assertProviderBillingRemainsFree(data);
       const routingEvidence = verifiedRoutingEvidence(
         request.plan.modelId,
         data.model,

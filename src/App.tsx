@@ -15,8 +15,93 @@ export interface ArtifactBlock {
 
 export type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' | 'restore' };
 export type DirectTouchEdit = { index: number; text: string };
+export type ArtifactSyntaxIssue = { line: number; column: number; message: string };
+export type ArtifactSyntaxResult = { valid: true; issue: null } | { valid: false; issue: ArtifactSyntaxIssue };
 export type ArtifactVisualDiffLine = { kind: 'added' | 'removed' | 'context'; category: 'html' | 'css' | 'text'; value: string };
 export type ArtifactVisualDiff = { lines: readonly ArtifactVisualDiffLine[]; added: number; removed: number; htmlChanges: number; cssChanges: number };
+
+const VOID_HTML_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+const OPTIONAL_HTML_TAGS = new Set(['li', 'p', 'dt', 'dd', 'rt', 'rp', 'optgroup', 'option', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th']);
+
+const artifactSyntaxIssue = (content: string, index: number, message: string): ArtifactSyntaxResult => {
+  const prefix = content.slice(0, Math.max(index, 0));
+  return { valid: false, issue: { line: prefix.split('\n').length, column: prefix.length - prefix.lastIndexOf('\n'), message } };
+};
+
+export const analyzeArtifactSyntax = (content: string, language: string): ArtifactSyntaxResult => {
+  const normalizedLanguage = language.toLowerCase();
+  if (normalizedLanguage === 'json') {
+    try { JSON.parse(content); return { valid: true, issue: null }; }
+    catch (error) {
+      const offset = Number((error instanceof Error ? error.message : '').match(/position\s+(\d+)/i)?.[1] ?? 0);
+      return artifactSyntaxIssue(content, offset, 'JSON の形式が正しくありません。');
+    }
+  }
+  if (normalizedLanguage !== 'html' && normalizedLanguage !== 'svg') return { valid: true, issue: null };
+
+  const stack: { name: string; index: number }[] = [];
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.indexOf('<', cursor);
+    if (start < 0) break;
+    if (content.startsWith('<!--', start)) {
+      const end = content.indexOf('-->', start + 4);
+      if (end < 0) return artifactSyntaxIssue(content, start, 'HTML コメントが閉じられていません。');
+      cursor = end + 3;
+      continue;
+    }
+    if (/^<!doctype\b|^<!\[CDATA\[|^<\?/i.test(content.slice(start))) {
+      const end = content.indexOf('>', start + 2);
+      if (end < 0) return artifactSyntaxIssue(content, start, '宣言タグが閉じられていません。');
+      cursor = end + 1;
+      continue;
+    }
+    const nameMatch = content.slice(start).match(/^<\s*(\/?)\s*([a-zA-Z][\w:.-]*)\b/);
+    if (!nameMatch) { cursor = start + 1; continue; }
+    let quote: string | null = null;
+    let end = start + nameMatch[0].length;
+    for (; end < content.length; end += 1) {
+      const character = content[end];
+      if (quote) { if (character === quote) quote = null; continue; }
+      if (character === '"' || character === "'") { quote = character; continue; }
+      if (character === '>') break;
+      if (character === '<') return artifactSyntaxIssue(content, start, 'タグの終端 > が不足しています。');
+    }
+    if (end >= content.length) return artifactSyntaxIssue(content, start, quote ? '属性値の引用符が閉じられていません。' : 'タグの終端 > が不足しています。');
+    const name = nameMatch[2].toLowerCase();
+    const isClosing = Boolean(nameMatch[1]);
+    if (isClosing) {
+      while (stack.length && stack.at(-1)?.name !== name && OPTIONAL_HTML_TAGS.has(stack.at(-1)!.name)) stack.pop();
+      if (stack.at(-1)?.name !== name) return artifactSyntaxIssue(content, start, `</${name}> に対応する開始タグがありません。`);
+      stack.pop();
+    } else if (!VOID_HTML_TAGS.has(name) && !/\/\s*>$/.test(content.slice(start, end + 1))) {
+      if (stack.at(-1)?.name === name && OPTIONAL_HTML_TAGS.has(name)) stack.pop();
+      stack.push({ name, index: start });
+      if (name === 'script' || name === 'style') {
+        const closing = new RegExp(`<\\/\\s*${name}\\s*>`, 'ig');
+        closing.lastIndex = end + 1;
+        const match = closing.exec(content);
+        if (!match) return artifactSyntaxIssue(content, start, `<${name}> の閉じタグ </${name}> が不足しています。`);
+        stack.pop();
+        cursor = closing.lastIndex;
+        continue;
+      }
+    }
+    cursor = end + 1;
+  }
+  while (stack.length && OPTIONAL_HTML_TAGS.has(stack.at(-1)!.name)) stack.pop();
+  const unclosed = stack.at(-1);
+  return unclosed ? artifactSyntaxIssue(content, unclosed.index, `<${unclosed.name}> の閉じタグ </${unclosed.name}> が不足しています。`) : { valid: true, issue: null };
+};
+
+export const completeArtifactClosingTag = (content: string, cursor: number): { content: string; cursor: number; completed: boolean } => {
+  if (!Number.isInteger(cursor) || cursor < 1 || cursor > content.length || content[cursor - 1] !== '>') return { content, cursor, completed: false };
+  const opening = content.slice(0, cursor).match(/<([a-zA-Z][\w:.-]*)(?:\s[^<>]*?)?>$/);
+  if (!opening || /\/\s*>$/.test(opening[0]) || VOID_HTML_TAGS.has(opening[1].toLowerCase())) return { content, cursor, completed: false };
+  const closing = `</${opening[1]}>`;
+  if (content.slice(cursor).toLowerCase().startsWith(closing.toLowerCase())) return { content, cursor, completed: false };
+  return { content: `${content.slice(0, cursor)}${closing}${content.slice(cursor)}`, cursor, completed: true };
+};
 
 export const getOriginSystemPrompt = (language: OriginLanguage): string => language === 'en'
   ? 'You are ORIGIN Personal 2.0, an executive-grade decision and creation partner. Lead with a decisive one-sentence recommendation, then present evidence, trade-offs, risks, and the next action in concise native English. For artifacts, use fenced blocks in the exact format ```language:title and deliver production-ready output.'
@@ -256,8 +341,42 @@ const copyText = async (value: string) => {
 };
 
 const isTextLike = (file: File) => file.type.startsWith('text/') || /\.(md|txt|json|csv|ts|tsx|js|jsx|css|html|svg|xml|yml|yaml)$/i.test(file.name);
-const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE']);
+const ORIGIN_FIXED_FREE_MODEL = 'google/gemma-4-26b-a4b-it:free';
+const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
 const SAFE_WAITING_MESSAGE = '無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
+
+type OriginVerifiedChatPayload = {
+  content?: unknown;
+  model?: unknown;
+  usage?: { cost?: unknown; costUsd?: unknown };
+  routing?: {
+    model?: unknown;
+    modelId?: unknown;
+    freeOnly?: unknown;
+    cost?: unknown;
+    actualCostUsd?: unknown;
+    estimatedCostUsd?: unknown;
+    billingTier?: unknown;
+    usage?: { cost?: unknown; costUsd?: unknown };
+    providerRouting?: { requestedModel?: unknown; servedModel?: unknown; fallbackUsed?: unknown };
+  };
+};
+
+export const isVerifiedZeroCostChatPayload = (payload: OriginVerifiedChatPayload): boolean => {
+  const routing = payload.routing;
+  if (!routing || routing.freeOnly !== true || routing.cost !== 0 || routing.actualCostUsd !== 0 || routing.estimatedCostUsd !== 0) return false;
+  const visibleCosts = [payload.usage?.cost, payload.usage?.costUsd, routing.usage?.cost, routing.usage?.costUsd];
+  if (visibleCosts.some((cost) => cost !== undefined && (typeof cost !== 'number' || !Number.isFinite(cost) || cost !== 0))) return false;
+  if (routing.billingTier !== undefined && routing.billingTier !== 'free') return false;
+  if (routing.modelId === undefined) return routing.model === 'ORIGIN アプリ内処理' && payload.model === undefined;
+  const route = routing.providerRouting;
+  return routing.modelId === ORIGIN_FIXED_FREE_MODEL
+    && (payload.model === undefined || payload.model === ORIGIN_FIXED_FREE_MODEL)
+    && route?.requestedModel === ORIGIN_FIXED_FREE_MODEL
+    && route.servedModel === ORIGIN_FIXED_FREE_MODEL
+    && route.fallbackUsed === false
+    && routing.usage?.costUsd === 0;
+};
 const readAttachment = async (file: File): Promise<Attachment> => {
   if (file.type.startsWith('image/')) {
     return new Promise((resolve, reject) => {
@@ -372,12 +491,14 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
   const workspaceRef = useRef<HTMLElement>(null);
   const previewRef = useRef<HTMLIFrameElement>(null);
+  const codeEditorRef = useRef<HTMLTextAreaElement>(null);
   const cleanLoadConfirmed = useRef(false);
   const setLastKnownGood = (snapshot: ArtifactBlock | null) => { if (snapshot === null || cleanLoadConfirmed.current) setLastKnownGoodState(snapshot); };
   useEffect(() => { const updateFullscreen = () => { const active = document.fullscreenElement === workspaceRef.current; setIsFullscreen(active); if (!active) setIsPresentation(false); }; document.addEventListener('fullscreenchange', updateFullscreen); return () => document.removeEventListener('fullscreenchange', updateFullscreen); }, []);
   useEffect(() => { cleanLoadConfirmed.current = false; setActiveTab('code'); setCopied(false); setShared(false); setIsPresentation(false); setPresentationSlideIndex(0); setPreviewViewport('fluid'); setIsDirectEditing(false); setSandboxError(null); setLastKnownGood(null); setIsExportMenuOpen(false); setIsDetailsMenuOpen(false); }, [artifact?.id]);
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   useEffect(() => { if (!isDirectEditing) setWorkingContent(artifact?.content ?? ''); }, [artifact?.content, artifact?.id, isDirectEditing]);
+  const syntaxResult = useMemo(() => analyzeArtifactSyntax(workingContent, artifact?.language ?? ''), [artifact?.language, workingContent]);
   const isRenderable = Boolean(artifact && (artifact.type === 'html' || artifact.language === 'html' || artifact.language === 'svg'));
   const sandboxSrcDoc = useMemo(() => {
     if (!artifact || !isRenderable) return '';
@@ -539,16 +660,43 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   };
   const toggleFullscreen = async () => { if (!workspaceRef.current) return; if (document.fullscreenElement) await document.exitFullscreen?.(); else await workspaceRef.current.requestFullscreen?.(); };
   const togglePresentation = async () => { if (isPresentation) { setIsPresentation(false); setPresentationSlideIndex(0); if (document.fullscreenElement) await document.exitFullscreen?.(); return; } setIsDirectEditing(false); setActiveTab('preview'); setPresentationSlideIndex(0); setIsPresentation(true); const request = workspaceRef.current && !document.fullscreenElement ? workspaceRef.current.requestFullscreen?.() : undefined; await request?.catch(() => undefined); };
+  const commitCodeRevision = () => {
+    if (!syntaxResult.valid) { setActiveTab('code'); codeEditorRef.current?.focus(); return false; }
+    if (workingContent !== artifact.content) {
+      const history = artifact.revisions ?? [{ id: `${artifact.id}:v1`, content: artifact.content, createdAt: 0, source: 'generated' as const }];
+      const revision: ArtifactRevision = { id: `${artifact.id}:v${history.length + 1}`, content: workingContent, createdAt: Date.now(), source: 'direct-touch' };
+      cleanLoadConfirmed.current = false;
+      onArtifactRevision?.({ ...artifact, content: workingContent, revision: history.length + 1, revisions: [...history, revision] });
+    }
+    setIsDirectEditing(false);
+    setActiveTab(isRenderable ? 'preview' : 'code');
+    return true;
+  };
+  const updateCodeEditor = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.target.value;
+    const cursor = event.target.selectionStart ?? value.length;
+    const insertedSingleCharacter = value.length === workingContent.length + 1
+      && value.slice(0, cursor - 1) === workingContent.slice(0, cursor - 1)
+      && value.slice(cursor) === workingContent.slice(cursor - 1);
+    const completion = insertedSingleCharacter && (artifact.language === 'html' || artifact.language === 'svg')
+      ? completeArtifactClosingTag(value, cursor)
+      : { content: value, cursor, completed: false };
+    setWorkingContent(completion.content);
+    if (completion.completed) window.requestAnimationFrame(() => codeEditorRef.current?.setSelectionRange(completion.cursor, completion.cursor));
+  };
   const previewWidth = previewViewport === '375' ? '375px' : previewViewport === '768' ? '768px' : '100%';
-  const previewFrame = activeTab === 'preview' && isRenderable ? <div data-testid="responsive-preview-stage" className="flex h-full min-w-full items-start justify-center overflow-auto"><iframe ref={previewRef} title={t.previewTitle} aria-label={t.previewTitle} key={sandboxSrcDoc} src="/origin-artifact-sandbox.html" data-origin-srcdoc={sandboxSrcDoc} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => { event.currentTarget.setAttribute('data-origin-loaded', 'true'); event.currentTarget.contentWindow?.postMessage({ source: 'ORIGIN_SANDBOX_INIT', html: sandboxSrcDoc }, '*'); postArtifactTheme(); if (isPresentation) postPresentationCommand('presentation-start'); }} style={{ width: previewWidth }} className="origin-surface h-full shrink-0 rounded-2xl transition-[width] duration-200 ease-out motion-reduce:transition-none" /></div> : <pre className="m-0 whitespace-pre-wrap break-all font-mono text-[13px] leading-6">{workingContent}</pre>;
+  const codePanel = isDirectEditing
+    ? <div className="flex h-full min-h-0 flex-col gap-3"><label htmlFor="artifact-code-editor" className="text-[13px] font-semibold">{language === 'ja' ? '成果物のコードを直接編集' : 'Edit artifact source'}</label><textarea ref={codeEditorRef} id="artifact-code-editor" data-testid="artifact-code-editor" aria-label={language === 'ja' ? '成果物のコードを直接編集' : 'Edit artifact source'} aria-invalid={!syntaxResult.valid} aria-describedby="artifact-code-syntax-status" value={workingContent} onChange={updateCodeEditor} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); commitCodeRevision(); } }} spellCheck={false} className="origin-surface min-h-48 flex-1 resize-none rounded-2xl border border-[var(--border-default)] p-3 font-mono text-[13px] leading-6 focus:outline-none focus:ring-2 focus:ring-[var(--accent-glow)]" /><div id="artifact-code-syntax-status" data-testid="artifact-code-syntax-status" role={syntaxResult.valid ? 'status' : 'alert'} className={`text-[13px] ${syntaxResult.valid ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>{syntaxResult.valid ? language === 'ja' ? '✓ 構文を確認済み。閉じタグは自動補完されます。' : '✓ Syntax verified. Closing tags are completed automatically.' : language === 'ja' ? `${syntaxResult.issue.line}行 ${syntaxResult.issue.column}列: ${syntaxResult.issue.message}` : `Line ${syntaxResult.issue.line}, column ${syntaxResult.issue.column}: ${syntaxResult.issue.message}`}</div><button type="button" data-testid="artifact-code-apply" disabled={!syntaxResult.valid} onClick={commitCodeRevision} className="origin-primary-button min-h-11 rounded-[10px] px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '確認して編集を完了' : 'Validate and finish editing'}</button></div>
+    : <pre className="m-0 whitespace-pre-wrap break-all font-mono text-[13px] leading-6">{workingContent}</pre>;
+  const previewFrame = activeTab === 'preview' && isRenderable ? <div data-testid="responsive-preview-stage" className="flex h-full min-w-full items-start justify-center overflow-auto"><iframe ref={previewRef} title={t.previewTitle} aria-label={t.previewTitle} key={sandboxSrcDoc} src="/origin-artifact-sandbox.html" data-origin-srcdoc={sandboxSrcDoc} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => { event.currentTarget.setAttribute('data-origin-loaded', 'true'); event.currentTarget.contentWindow?.postMessage({ source: 'ORIGIN_SANDBOX_INIT', html: sandboxSrcDoc }, '*'); postArtifactTheme(); if (isPresentation) postPresentationCommand('presentation-start'); }} style={{ width: previewWidth }} className="origin-surface h-full shrink-0 rounded-2xl transition-[width] duration-200 ease-out motion-reduce:transition-none" /></div> : codePanel;
   const priorRevision = artifact.revisions && artifact.revisions.length >= 2 ? artifact.revisions[artifact.revisions.length - 2] : null;
   const visualDiff = priorRevision ? createArtifactVisualDiff(priorRevision.content, workingContent) : null;
   return <aside ref={workspaceRef} aria-label={t.workspaceLabel} data-testid="artifact-workspace" className="origin-workspace fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l shadow-2xl sm:w-[560px]">
     <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-default)] px-3 py-2 sm:px-4">
       <div className="min-w-0 flex flex-1 items-center gap-2"><span className="origin-badge rounded-[10px] px-2 py-1 text-[13px] font-mono font-semibold">{artifact.language}</span><h2 className="truncate text-base font-semibold">{artifact.title}</h2><span data-testid="artifact-revision-indicator" aria-live="polite" className="origin-muted shrink-0 text-[13px] font-semibold">最新</span>{priorRevision && <span className="origin-muted shrink-0 text-[13px]">1つ前の版あり</span>}</div>
       <div className="flex flex-wrap items-center justify-end gap-1">
-        {isRenderable && <><div role="group" aria-label={t.displayMode} className="origin-surface-muted flex rounded-2xl p-1"><button type="button" aria-label={t.showCode} aria-pressed={activeTab === 'code'} onClick={() => { setIsDirectEditing(false); setActiveTab('code'); }} className={`min-h-11 rounded-[10px] px-3 text-[13px] font-semibold ${activeTab === 'code' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{t.code}</button><button type="button" aria-label={t.showPreview} aria-pressed={activeTab === 'preview'} onClick={() => setActiveTab('preview')} className={`min-h-11 rounded-[10px] px-3 text-[13px] font-semibold ${activeTab === 'preview' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{t.preview}</button></div><div data-testid="responsive-viewport-bar" role="group" aria-label={t.responsivePreview} className="origin-surface-muted flex rounded-2xl p-1"><button type="button" data-testid="preview-viewport-375" aria-label={t.phoneViewport} aria-pressed={previewViewport === '375'} onClick={() => { setIsPresentation(false); setActiveTab('preview'); setPreviewViewport('375'); }} className={`min-h-11 rounded-[10px] px-2 text-[13px] font-semibold ${previewViewport === '375' ? 'origin-primary-button' : 'origin-secondary-button'}`}>📱 375px</button><button type="button" data-testid="preview-viewport-768" aria-label={t.tabletViewport} aria-pressed={previewViewport === '768'} onClick={() => { setIsPresentation(false); setActiveTab('preview'); setPreviewViewport('768'); }} className={`min-h-11 rounded-[10px] px-2 text-[13px] font-semibold ${previewViewport === '768' ? 'origin-primary-button' : 'origin-secondary-button'}`}>📱 768px</button><button type="button" data-testid="preview-viewport-fluid" aria-label={t.fluidViewport} aria-pressed={previewViewport === 'fluid'} onClick={() => { setIsPresentation(false); setActiveTab('preview'); setPreviewViewport('fluid'); }} className={`min-h-11 rounded-[10px] px-2 text-[13px] font-semibold ${previewViewport === 'fluid' ? 'origin-primary-button' : 'origin-secondary-button'}`}>💻 100%</button></div></>}
-        <div data-testid="artifact-action-bar" role="group" aria-label="成果物の主要操作" className="origin-surface-muted flex rounded-2xl p-1"><button type="button" data-testid="artifact-action-edit" aria-label={t.editArtifact} aria-pressed={isDirectEditing} onClick={() => { setIsDirectEditing((current) => !current); setActiveTab('preview'); }} className={`min-h-11 rounded-[10px] px-3 text-[13px] font-semibold ${isDirectEditing ? 'origin-primary-button' : 'origin-secondary-button'}`}>✏️ {isDirectEditing ? t.finishEditing : language === 'ja' ? '編集' : 'Edit'}</button><button type="button" data-testid="artifact-action-share" aria-label={t.shareArtifact} onClick={() => void shareArtifact()} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px] font-semibold">📲 {shared ? language === 'ja' ? '共有済み' : 'Shared' : language === 'ja' ? '共有' : 'Share'}</button><button type="button" data-testid="artifact-action-save" aria-label={t.downloadArtifact} onClick={downloadArtifact} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px] font-semibold">📥 {language === 'ja' ? '保存' : 'Save'}</button><div className="relative"><button type="button" data-testid="artifact-action-details" aria-label="成果物の詳細操作を開く" aria-expanded={isDetailsMenuOpen} onClick={() => { setIsDetailsMenuOpen((current) => !current); setIsExportMenuOpen(false); }} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px] font-semibold">••• 詳細</button>{isDetailsMenuOpen && <div data-testid="artifact-details-menu" role="menu" aria-label="成果物の詳細操作" className="origin-surface absolute right-0 top-12 z-50 grid min-w-52 gap-1 rounded-2xl p-2 shadow-xl"><button type="button" data-testid="artifact-action-copy" role="menuitem" aria-label={t.copyArtifact} onClick={() => void copyText(workingContent).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2_000); })} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">📋 {copied ? t.copied : t.copy}</button>{priorRevision && <button type="button" data-testid="artifact-visual-diff-toggle" role="menuitem" aria-label="最新と1つ前の版の変更箇所を見る" aria-pressed={isDiffInspectorOpen} onClick={() => { setIsDirectEditing(false); setIsDiffInspectorOpen((current) => !current); setIsDetailsMenuOpen(false); }} className={`min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold ${isDiffInspectorOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>🔍 {isDiffInspectorOpen ? '変更箇所を閉じる' : '変更箇所を見る'}</button>}<div className="relative"><button type="button" data-testid="artifact-action-export-menu" role="menuitem" aria-label="保存形式を選ぶ" aria-expanded={isExportMenuOpen} onClick={() => setIsExportMenuOpen((current) => !current)} className="origin-secondary-button min-h-11 w-full rounded-[10px] px-3 text-left text-[13px] font-semibold">形式を選んで保存</button>{isExportMenuOpen && <div data-testid="artifact-export-menu" role="menu" aria-label="成果物の保存形式" className="origin-surface absolute right-full top-0 z-[60] grid min-w-36 gap-1 rounded-2xl p-2 shadow-xl">{([{ key: 'html', label: 'HTML' }, { key: 'svg', label: 'SVG' }, { key: 'png', label: 'PNG' }, { key: 'markdown', label: 'Markdown' }, { key: 'json', label: 'JSON' }] as const).map((option) => <button key={option.key} type="button" data-testid={`artifact-export-${option.key}`} role="menuitem" onClick={() => void downloadArtifactFormat(option.key)} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">{option.label}</button>)}</div>}</div><button type="button" data-testid="artifact-action-bundle" role="menuitem" aria-label="一括パッケージ保存" aria-busy={isBundling} onClick={() => void downloadArtifactBundle()} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold disabled:cursor-wait" disabled={isBundling}>📦 {isBundling ? '準備中' : '一括パッケージ保存'}</button>{priorRevision && <button type="button" data-testid="artifact-restore-previous" role="menuitem" aria-label="1つ前の版をこの版に戻す" onClick={restorePreviousVersion} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">↶ この版に戻す</button>}{isRenderable && <button type="button" data-testid="presentation-mode-toggle" role="menuitem" aria-label={isPresentation ? t.exitPresentation : t.presentation} aria-pressed={isPresentation} onClick={() => void togglePresentation()} className={`min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold ${isPresentation ? 'origin-primary-button' : 'origin-secondary-button'}`}>▣ {isPresentation ? t.exitPresentation : t.presentation}</button>}{onOpenSettings && <button type="button" data-testid="artifact-open-design-settings" role="menuitem" onClick={() => { setIsDetailsMenuOpen(false); onOpenSettings(); }} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">🎨 {language === 'ja' ? 'デザインテーマ' : 'Design theme'}</button>}<button type="button" role="menuitem" aria-label={isFullscreen ? t.exitFullscreenLabel : t.openFullscreen} aria-pressed={isFullscreen} onClick={() => void toggleFullscreen()} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">{isFullscreen ? t.exitFullscreen : t.fullscreen}</button></div>}</div></div><button type="button" aria-label={t.closeWorkspace} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 items-center justify-center rounded-[10px] text-lg">✕</button>
+        {isRenderable && <><div role="group" aria-label={t.displayMode} className="origin-surface-muted flex rounded-2xl p-1"><button type="button" aria-label={t.showCode} aria-pressed={activeTab === 'code'} onClick={() => setActiveTab('code')} className={`min-h-11 rounded-[10px] px-3 text-[13px] font-semibold ${activeTab === 'code' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{t.code}</button><button type="button" aria-label={t.showPreview} aria-pressed={activeTab === 'preview'} onClick={() => { if (!isDirectEditing || syntaxResult.valid) setActiveTab('preview'); }} className={`min-h-11 rounded-[10px] px-3 text-[13px] font-semibold ${activeTab === 'preview' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{t.preview}</button></div><div data-testid="responsive-viewport-bar" role="group" aria-label={t.responsivePreview} className="origin-surface-muted flex rounded-2xl p-1"><button type="button" data-testid="preview-viewport-375" aria-label={t.phoneViewport} aria-pressed={previewViewport === '375'} onClick={() => { setIsPresentation(false); if (!isDirectEditing || syntaxResult.valid) setActiveTab('preview'); setPreviewViewport('375'); }} className={`min-h-11 rounded-[10px] px-2 text-[13px] font-semibold ${previewViewport === '375' ? 'origin-primary-button' : 'origin-secondary-button'}`}>📱 375px</button><button type="button" data-testid="preview-viewport-768" aria-label={t.tabletViewport} aria-pressed={previewViewport === '768'} onClick={() => { setIsPresentation(false); if (!isDirectEditing || syntaxResult.valid) setActiveTab('preview'); setPreviewViewport('768'); }} className={`min-h-11 rounded-[10px] px-2 text-[13px] font-semibold ${previewViewport === '768' ? 'origin-primary-button' : 'origin-secondary-button'}`}>📱 768px</button><button type="button" data-testid="preview-viewport-fluid" aria-label={t.fluidViewport} aria-pressed={previewViewport === 'fluid'} onClick={() => { setIsPresentation(false); if (!isDirectEditing || syntaxResult.valid) setActiveTab('preview'); setPreviewViewport('fluid'); }} className={`min-h-11 rounded-[10px] px-2 text-[13px] font-semibold ${previewViewport === 'fluid' ? 'origin-primary-button' : 'origin-secondary-button'}`}>💻 100%</button></div></>}
+        <div data-testid="artifact-action-bar" role="group" aria-label="成果物の主要操作" className="origin-surface-muted flex rounded-2xl p-1"><button type="button" data-testid="artifact-action-edit" aria-label={t.editArtifact} aria-pressed={isDirectEditing} onClick={() => { if (isDirectEditing) { commitCodeRevision(); return; } setIsDirectEditing(true); setActiveTab(isRenderable ? 'preview' : 'code'); }} className={`min-h-11 rounded-[10px] px-3 text-[13px] font-semibold ${isDirectEditing ? 'origin-primary-button' : 'origin-secondary-button'}`}>✏️ {isDirectEditing ? t.finishEditing : language === 'ja' ? '編集' : 'Edit'}</button><button type="button" data-testid="artifact-action-share" aria-label={t.shareArtifact} onClick={() => void shareArtifact()} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px] font-semibold">📲 {shared ? language === 'ja' ? '共有済み' : 'Shared' : language === 'ja' ? '共有' : 'Share'}</button><button type="button" data-testid="artifact-action-save" aria-label={t.downloadArtifact} onClick={downloadArtifact} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px] font-semibold">📥 {language === 'ja' ? '保存' : 'Save'}</button><div className="relative"><button type="button" data-testid="artifact-action-details" aria-label="成果物の詳細操作を開く" aria-expanded={isDetailsMenuOpen} onClick={() => { setIsDetailsMenuOpen((current) => !current); setIsExportMenuOpen(false); }} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px] font-semibold">••• 詳細</button>{isDetailsMenuOpen && <div data-testid="artifact-details-menu" role="menu" aria-label="成果物の詳細操作" className="origin-surface absolute right-0 top-12 z-50 grid min-w-52 gap-1 rounded-2xl p-2 shadow-xl"><button type="button" data-testid="artifact-action-copy" role="menuitem" aria-label={t.copyArtifact} onClick={() => void copyText(workingContent).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2_000); })} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">📋 {copied ? t.copied : t.copy}</button>{priorRevision && <button type="button" data-testid="artifact-visual-diff-toggle" role="menuitem" aria-label="最新と1つ前の版の変更箇所を見る" aria-pressed={isDiffInspectorOpen} onClick={() => { setIsDirectEditing(false); setIsDiffInspectorOpen((current) => !current); setIsDetailsMenuOpen(false); }} className={`min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold ${isDiffInspectorOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>🔍 {isDiffInspectorOpen ? '変更箇所を閉じる' : '変更箇所を見る'}</button>}<div className="relative"><button type="button" data-testid="artifact-action-export-menu" role="menuitem" aria-label="保存形式を選ぶ" aria-expanded={isExportMenuOpen} onClick={() => setIsExportMenuOpen((current) => !current)} className="origin-secondary-button min-h-11 w-full rounded-[10px] px-3 text-left text-[13px] font-semibold">形式を選んで保存</button>{isExportMenuOpen && <div data-testid="artifact-export-menu" role="menu" aria-label="成果物の保存形式" className="origin-surface absolute right-full top-0 z-[60] grid min-w-36 gap-1 rounded-2xl p-2 shadow-xl">{([{ key: 'html', label: 'HTML' }, { key: 'svg', label: 'SVG' }, { key: 'png', label: 'PNG' }, { key: 'markdown', label: 'Markdown' }, { key: 'json', label: 'JSON' }] as const).map((option) => <button key={option.key} type="button" data-testid={`artifact-export-${option.key}`} role="menuitem" onClick={() => void downloadArtifactFormat(option.key)} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">{option.label}</button>)}</div>}</div><button type="button" data-testid="artifact-action-bundle" role="menuitem" aria-label="一括パッケージ保存" aria-busy={isBundling} onClick={() => void downloadArtifactBundle()} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold disabled:cursor-wait" disabled={isBundling}>📦 {isBundling ? '準備中' : '一括パッケージ保存'}</button>{priorRevision && <button type="button" data-testid="artifact-restore-previous" role="menuitem" aria-label="1つ前の版をこの版に戻す" onClick={restorePreviousVersion} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">↶ この版に戻す</button>}{isRenderable && <button type="button" data-testid="presentation-mode-toggle" role="menuitem" aria-label={isPresentation ? t.exitPresentation : t.presentation} aria-pressed={isPresentation} onClick={() => void togglePresentation()} className={`min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold ${isPresentation ? 'origin-primary-button' : 'origin-secondary-button'}`}>▣ {isPresentation ? t.exitPresentation : t.presentation}</button>}{onOpenSettings && <button type="button" data-testid="artifact-open-design-settings" role="menuitem" onClick={() => { setIsDetailsMenuOpen(false); onOpenSettings(); }} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">🎨 {language === 'ja' ? 'デザインテーマ' : 'Design theme'}</button>}<button type="button" role="menuitem" aria-label={isFullscreen ? t.exitFullscreenLabel : t.openFullscreen} aria-pressed={isFullscreen} onClick={() => void toggleFullscreen()} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-left text-[13px] font-semibold">{isFullscreen ? t.exitFullscreen : t.fullscreen}</button></div>}</div></div><button type="button" aria-label={t.closeWorkspace} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 items-center justify-center rounded-[10px] text-lg">✕</button>
       </div>
       {isPresentation && <p className="sr-only" role="status">{t.presentationKeyboardHint}</p>}{isOffline && <p data-testid="artifact-offline-status" role="status" className="text-[13px] text-amber-600 dark:text-amber-300">オフライン中: 端末内の成果物は閲覧・編集・保存できます。</p>}{bundleError && <p role="alert" className="text-[13px] text-[var(--danger)]">パッケージを作成できませんでした。</p>}{exportError && <p role="alert" className="text-[13px] text-[var(--danger)]">この形式でのローカル書き出しを完了できませんでした。</p>}
     </div>
@@ -569,6 +717,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
+  const [isSafeWaiting, setIsSafeWaiting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -582,12 +731,13 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
     if (!fileList?.length) return;
     setAttachmentError('');
+    setIsSafeWaiting(false);
     const loaded: Attachment[] = [];
     let totalBytes = attachmentBytes;
     for (const file of Array.from(fileList)) {
@@ -607,6 +757,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
       return;
     }
     setAttachmentError('');
+    setIsSafeWaiting(false);
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
     if (interruptCurrent) abortRef.current?.abort();
     const attachmentMessage = attachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
@@ -620,23 +771,52 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
     }
     setInputText(''); setAttachments([]); setIsLoading(true);
     const controller = new AbortController(); abortRef.current = controller;
+    const enterSafeWaiting = () => {
+      setAttachmentError(language === 'en'
+        ? 'A verified $0.00 free-model response is unavailable. The response was withheld; please try again later.'
+        : SAFE_WAITING_MESSAGE);
+      setIsSafeWaiting(true);
+    };
     try {
-      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal, body: JSON.stringify({ model: 'google/gemma-4-26b-a4b-it:free', systemPrompt: getOriginSystemPrompt(language), messages: requestMessages }) });
+      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal, body: JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages }) });
       if (!response.ok) {
         const failure = await response.json().catch(() => null) as { code?: unknown } | null;
         if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
-          setAttachmentError(SAFE_WAITING_MESSAGE);
+          enterSafeWaiting();
           return;
         }
         throw new Error('request-error');
       }
-      const reader = response.body?.getReader(); const decoder = new TextDecoder(); let fullText = ''; const assistantId = `a-${Date.now()}`;
+      const reportedCost = response.headers.get('x-origin-cost-usd') ?? response.headers.get('x-openrouter-cost');
+      const reportedModel = response.headers.get('x-origin-model-id');
+      const reportedTier = response.headers.get('x-origin-billing-tier');
+      if ((reportedCost !== null && (!reportedCost.trim() || !Number.isFinite(Number(reportedCost)) || Number(reportedCost) !== 0))
+        || (reportedModel !== null && reportedModel !== ORIGIN_FIXED_FREE_MODEL)
+        || (reportedTier !== null && reportedTier.toLowerCase() !== 'free')
+        || response.headers.get('x-origin-free-only') === 'false') {
+        enterSafeWaiting();
+        await response.body?.cancel();
+        return;
+      }
+      let verifiedResponseText: string | undefined;
+      if ((response.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
+        const payload = await response.json() as OriginVerifiedChatPayload;
+        if (!isVerifiedZeroCostChatPayload(payload)) {
+          enterSafeWaiting();
+          return;
+        }
+        if (typeof payload.content !== 'string') throw new Error('invalid-response');
+        verifiedResponseText = payload.content;
+      }
+      const reader = verifiedResponseText === undefined ? response.body?.getReader() : undefined; const decoder = new TextDecoder(); let fullText = ''; const assistantId = `a-${Date.now()}`;
       updateMessages((current) => [...current, { id: assistantId, role: 'assistant', content: '' }]);
-      while (reader) { const { done, value } = await reader.read(); if (done) break; fullText += decoder.decode(value, { stream: true }); const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } }
+      const displayVerifiedText = (next: string) => { fullText += next; const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } };
+      if (verifiedResponseText !== undefined) displayVerifiedText(verifiedResponseText);
+      while (reader) { const { done, value } = await reader.read(); if (done) break; displayVerifiedText(decoder.decode(value, { stream: true })); }
     } catch (error) { if ((error as DOMException).name !== 'AbortError') updateMessages((current) => [...current, { id: `err-${Date.now()}`, role: 'assistant', content: t.error }]); }
     finally { if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); } }
   };
-  const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} /><div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-2 rounded-[24px] border p-2 shadow-lg shadow-black/5 transition focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><textarea ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[60px] flex-1 resize-none bg-transparent px-4 py-3 text-base leading-7 focus:outline-none" /><button type="button" onClick={() => fileInputRef.current?.click()} aria-label={t.attachFile} className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-lg">＋</button>{isLoading ? <button type="button" aria-label={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-danger-button min-h-11 rounded-[10px] px-5 text-[13px] font-bold">{t.stop}</button> : <button type="button" data-testid={messages.length ? 'send-request-button' : 'start-request-button'} aria-label={messages.length ? t.sendRequest : t.startRequest} onClick={() => void handleSend()} disabled={(!inputText.trim() && !attachments.length)} className="origin-primary-button min-h-11 shrink-0 rounded-[10px] px-5 text-[13px] font-bold">{messages.length ? t.send : t.start}</button>}</div>{attachments.length > 0 && <div className="origin-muted mt-2 flex flex-wrap gap-2 text-[13px]"><span className="sr-only">{t.attachedFiles}</span>{attachments.map((attachment, index) => <span key={`${attachment.name}-${index}`} className="origin-surface-muted flex items-center gap-2 rounded-[10px] px-2 py-1"><span>{t.attach}: {attachment.name}</span><button type="button" onClick={() => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={`${t.removeAttachment}: ${attachment.name}`} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px]">✕</button></span>)}</div>}{attachmentError && <p role="alert" className="mt-2 text-[13px] text-[var(--danger)]">{attachmentError}</p>}<p id="origin-chat-guidance" className="sr-only">{t.keyboardGuidance}{t.dropFiles}</p></>;
+  const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} /><div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-2 rounded-[24px] border p-2 shadow-lg shadow-black/5 transition focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><textarea ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[60px] flex-1 resize-none bg-transparent px-4 py-3 text-base leading-7 focus:outline-none" /><button type="button" onClick={() => fileInputRef.current?.click()} aria-label={t.attachFile} className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-lg">＋</button>{isLoading ? <button type="button" aria-label={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-danger-button min-h-11 rounded-[10px] px-5 text-[13px] font-bold">{t.stop}</button> : <button type="button" data-testid={messages.length ? 'send-request-button' : 'start-request-button'} aria-label={messages.length ? t.sendRequest : t.startRequest} onClick={() => void handleSend()} disabled={(!inputText.trim() && !attachments.length)} className="origin-primary-button min-h-11 shrink-0 rounded-[10px] px-5 text-[13px] font-bold">{messages.length ? t.send : t.start}</button>}</div>{attachments.length > 0 && <div className="origin-muted mt-2 flex flex-wrap gap-2 text-[13px]"><span className="sr-only">{t.attachedFiles}</span>{attachments.map((attachment, index) => <span key={`${attachment.name}-${index}`} className="origin-surface-muted flex items-center gap-2 rounded-[10px] px-2 py-1"><span>{t.attach}: {attachment.name}</span><button type="button" onClick={() => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={`${t.removeAttachment}: ${attachment.name}`} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px]">✕</button></span>)}</div>}{attachmentError && <p data-testid={isSafeWaiting ? "origin-safe-waiting-state" : undefined} role="alert" aria-live={isSafeWaiting ? "assertive" : undefined} className="mt-2 text-[13px] text-[var(--danger)]">{attachmentError}</p>}<p id="origin-chat-guidance" className="sr-only">{t.keyboardGuidance}{t.dropFiles}</p></>;
   return <div className="origin-app flex h-[100dvh] w-screen overflow-hidden font-sans"><main className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden"><header className="origin-header flex min-h-16 items-center justify-between px-3 backdrop-blur-md sm:px-4"><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-glow)]" aria-hidden="true" /><span className="text-base font-extrabold tracking-tight">ORIGIN</span><span className="origin-badge rounded-[10px] px-1.5 py-0.5 text-[13px] font-mono">Personal 2.0</span></div><div className="flex items-center gap-2"><KnowledgeMap sessions={sessions} onRestoreSession={onRestoreSession} /><button type="button" onClick={onOpenSettings} aria-label={t.openSettings} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px] font-semibold">⚙️ {t.settings}</button><button type="button" onClick={resetConversation} aria-label={t.newConversationLabel} className="origin-secondary-button min-h-11 rounded-[10px] px-3 text-[13px] font-semibold">{t.newConversation}</button></div></header><div className="min-h-0 flex-1 overflow-y-auto p-4">{messages.length === 0 ? <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col items-center justify-center py-4"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><div className="mb-1 text-[13px] font-semibold uppercase tracking-wider text-[var(--accent-primary)]">ORIGIN</div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p><div className="mt-8 w-full max-w-2xl">{composer}</div><p className="origin-safe-note mt-5 text-center text-[13px]">{t.freeOnlyNotice}</p></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`max-w-[88%] rounded-2xl px-4 py-3 text-base leading-7 sm:max-w-[76%] ${message.role === 'user' ? 'origin-chat-user' : 'origin-chat-assistant'}`}><p className="m-0 whitespace-pre-wrap break-all">{message.content || (isStreamingAssistant ? t.thinking : '')}</p></div>{message.role === 'assistant' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />✨ {t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-3xl px-4">{composer}</div>}</main><ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={isWorkspaceOpen} language={language} designTheme={designTheme} isStreaming={isLoading} onSteer={(direction) => { void handleSend(direction, true); }} onOpenSettings={onOpenSettings} onClose={() => setIsWorkspaceOpen(false)} onArtifactRevision={(next) => { setActiveArtifact(next); updateArtifacts((current) => current.map((block) => block.id === next.id ? next : block)); }} /></div>;
 };
 export default App;

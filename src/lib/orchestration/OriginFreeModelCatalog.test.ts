@@ -69,4 +69,14 @@ describe("selectCurrentOriginFreeModel", () => {
       message: "無料モデルの利用可能性を示す証拠が期限切れです。カタログを再確認するまで実行を停止します。",
     });
   });
+
+  it("keeps the 2026-08-24 evidence valid through its exact deadline and stops one millisecond later", () => {
+    const deadline = Date.parse("2026-08-24T23:59:59.999Z");
+    expect(selectCurrentOriginFreeModel(DEFAULT_ORIGIN_FREE_MODEL_CATALOG, deadline)).toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(selectCurrentOriginFreeModel(DEFAULT_ORIGIN_FREE_MODEL_CATALOG, deadline + 1)).toEqual(
+      expect.objectContaining({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" }),
+    );
+  });
 });
