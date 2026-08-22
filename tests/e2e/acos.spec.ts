@@ -317,6 +317,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('start-request-button').click();
     await expect(page.getByText('セッションを整理しました。')).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: '新規対話を開始' }).click();
+    await page.getByTestId('history-drawer-toggle').click();
     await page.getByTestId('knowledge-map-toggle').click();
     await expect(page.getByTestId('knowledge-map-node-count')).toHaveText('1');
     await page.getByTestId('knowledge-map-session-0').click();
