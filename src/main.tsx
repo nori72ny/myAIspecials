@@ -25,7 +25,7 @@ type ConversationSession = {
   createdAt: number;
   messages: readonly ConversationMessage[];
 };
-type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' };
+type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' | 'restore' };
 type PersistedArtifact = {
   id: string;
   type: 'code' | 'markdown' | 'mermaid' | 'html';

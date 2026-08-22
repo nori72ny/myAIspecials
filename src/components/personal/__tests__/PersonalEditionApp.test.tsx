@@ -19,7 +19,7 @@ describe('PersonalEditionApp for ORIGIN Personal 2.0', () => {
     expect(screen.getAllByText('ORIGIN', { exact: true }).length).toBeGreaterThan(0);
     expect(screen.getByText('Personal 2.0', { exact: true })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '何を実現したいですか？' })).toBeTruthy();
-    expect(screen.getByTestId('origin-home-request').className).toContain('min-h-[56px]');
+    expect(screen.getByTestId('origin-home-request').className).toContain('min-h-[60px]');
     expect(screen.queryByTestId('starter-0')).toBeNull();
   });
 

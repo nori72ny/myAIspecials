@@ -36,3 +36,8 @@
 - [x] Workspace: Provide a local multi-format export menu for HTML, SVG, PNG, Markdown, and JSON without external scripts or network requests.
 - [x] Safety: Strengthen 2026-08-24 free-model response verification so declared usage cost above $0.00 or paid evidence is discarded before rendering.
 - [x] Quality: Add multi-format export and zero-cost guard regression coverage; verify no prohibited external runtime assets, then complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
+- [x] Phase 15: Collapse completed Process Trace into an accessible verified summary with on-demand details.
+- [x] Phase 15: Reduce input-bar visual weight after replies while preserving an initial 76–80px composition-safe authoring surface.
+- [x] Phase 15: Keep edit, share, and download primary; move diff, history, rollback, packaging, and format export into an accessible details menu using natural-language labels.
+- [x] Phase 15: Normalize visible revision language, font sizing, radius scale, and low-value borders without weakening accessibility or existing guardrails.
+- [ ] Quality: Add Phase 15 regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.

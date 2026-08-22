@@ -16,6 +16,9 @@
   --color-origin-brand-soft: var(--accent-soft);
   --color-origin-brand-border: var(--accent-border);
   --color-origin-success: var(--success);
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-composer: 24px;
 }
 
 :root,
@@ -76,6 +79,8 @@
     -webkit-font-smoothing: antialiased;
     line-break: strict;
     overflow-wrap: break-word;
+    font-size: 16px;
+    line-height: 1.75;
     transition: background-color 160ms ease, color 160ms ease;
   }
   button, textarea, input, select { font: inherit; }
@@ -90,22 +95,23 @@
 
 .origin-app { background: var(--bg-primary); color: var(--text-primary); }
 .origin-header { background: color-mix(in oklch, var(--bg-surface) 92%, transparent); border-color: var(--border-default); }
-.origin-surface { background: var(--bg-surface); border-color: var(--border-default); box-shadow: 0 16px 36px var(--shadow-color); }
-.origin-surface-muted { background: var(--bg-surface-muted); border-color: var(--border-default); }
-.origin-card { background: color-mix(in oklch, var(--bg-surface) 92%, transparent); border-color: var(--border-default); color: var(--text-primary); }
+.origin-surface { background: var(--bg-surface); border-color: var(--border-default); border-radius: var(--radius-card); box-shadow: 0 16px 36px var(--shadow-color); }
+.origin-surface-muted { background: var(--bg-surface-muted); border-color: var(--border-default); border-radius: var(--radius-card); }
+.origin-card { background: color-mix(in oklch, var(--bg-surface) 92%, transparent); border-color: var(--border-default); border-radius: var(--radius-card); color: var(--text-primary); }
 .origin-card:hover { background: var(--bg-surface-muted); border-color: var(--accent-border); }
 .origin-input { color: var(--text-primary); caret-color: var(--accent-primary); }
 .origin-input::placeholder { color: var(--text-placeholder); opacity: 1; }
 .origin-muted { color: var(--text-secondary); }
+.origin-primary-button, .origin-secondary-button, .origin-danger-button { border-radius: var(--radius-control); }
 .origin-primary-button { background: var(--accent-primary); color: var(--text-on-accent); min-height: 44px; }
 .origin-primary-button:hover:not(:disabled) { background: var(--accent-hover); }
 .origin-primary-button:disabled { background: var(--bg-surface-muted); color: var(--text-placeholder); }
 .origin-secondary-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-primary); min-height: 44px; }
 .origin-secondary-button:hover:not(:disabled) { background: var(--bg-elevated); border-color: var(--border-strong); }
 .origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface)); border-color: color-mix(in oklch, var(--danger) 46%, var(--border-default)); color: var(--danger); min-height: 44px; }
-.origin-badge { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent-primary); }
+.origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-primary); }
 .origin-chat-user { background: var(--accent-primary); color: var(--text-on-accent); }
-.origin-chat-assistant { background: var(--bg-surface); border-color: var(--border-default); color: var(--text-primary); }
+.origin-chat-assistant { background: var(--bg-surface); color: var(--text-primary); }
 .origin-dialog-overlay { background: oklch(0.12 0.015 255 / 0.56); }
 .origin-workspace { background: var(--bg-surface); border-color: var(--border-default); color: var(--text-primary); }
 .origin-workspace:fullscreen { width: 100vw !important; height: 100dvh; max-width: none; border: 0; }
@@ -114,6 +120,11 @@
 .origin-logo-core { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--accent-primary); }
 .origin-logo-glow { background: radial-gradient(circle, var(--accent-glow), transparent 68%); }
 .origin-safe-note { color: var(--text-secondary); }
+.origin-composer { min-height: 76px; border-radius: var(--radius-composer); }
+.origin-composer--compact { min-height: 68px; box-shadow: 0 8px 20px var(--shadow-color); }
+.origin-composer--compact textarea { min-height: 52px; }
+.origin-verification summary::-webkit-details-marker { display: none; }
+.origin-verification summary { cursor: pointer; }
 .origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: 1rem; line-height: 1.8; }
 
 .safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }

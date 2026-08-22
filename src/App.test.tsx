@@ -12,13 +12,17 @@ const artifact: ArtifactBlock = {
 describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   afterEach(cleanup);
 
-  it('renders the four explicit artifact actions with 44px minimum targets', () => {
+  it('keeps only edit, share, and save as primary actions, and groups advanced actions under details', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
-    for (const id of ['artifact-action-copy', 'artifact-action-save', 'artifact-action-share', 'artifact-action-edit']) {
+    for (const id of ['artifact-action-save', 'artifact-action-share', 'artifact-action-edit', 'artifact-action-details']) {
       expect(screen.getByTestId(id).className).toContain('min-h-11');
     }
     expect(screen.getByRole('button', { name: '成果物を共有' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Canvas Direct Touchで編集' })).toBeTruthy();
+    expect(screen.queryByTestId('artifact-action-copy')).toBeNull();
+    fireEvent.click(screen.getByTestId('artifact-action-details'));
+    expect(screen.getByTestId('artifact-details-menu')).toBeTruthy();
+    expect(screen.getByTestId('artifact-action-copy')).toBeTruthy();
   });
 
   it('isolates a sandbox runtime error and restores the last known good revision', () => {
@@ -55,6 +59,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(frame.style.width).toBe('768px');
     fireEvent.click(screen.getByTestId('preview-viewport-fluid'));
     expect(frame.style.width).toBe('100%');
+    fireEvent.click(screen.getByTestId('artifact-action-details'));
     fireEvent.click(screen.getByTestId('presentation-mode-toggle'));
     expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('true');
     expect(frame.srcdoc).toContain('var presenting=true');
@@ -83,17 +88,26 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(artifact.content).toContain('Ready');
   });
 
-  it('highlights HTML and CSS changes against the immediately previous immutable revision', () => {
+  it('shows changes and restores one prior version through natural-language controls', () => {
     const revisedArtifact: ArtifactBlock = { ...artifact, content: '<main class="next"><h1>New</h1></main><style>main { color: cyan; }</style>', revision: 2, revisions: [{ id: 'artifact-1:v1', content: '<main><h1>Old</h1></main><style>main { color: slate; }</style>', createdAt: 1, source: 'generated' }, { id: 'artifact-1:v2', content: '<main class="next"><h1>New</h1></main><style>main { color: cyan; }</style>', createdAt: 2, source: 'direct-touch' }] };
+    const revisions: ArtifactBlock[] = [];
     const diff = createArtifactVisualDiff(revisedArtifact.revisions![0].content, revisedArtifact.content);
     expect(diff.added).toBeGreaterThan(0);
     expect(diff.removed).toBeGreaterThan(0);
     expect(diff.htmlChanges).toBeGreaterThan(0);
     expect(diff.cssChanges).toBeGreaterThan(0);
-    render(<ArtifactWorkspace artifact={revisedArtifact} isOpen language="ja" onClose={() => undefined} />);
+    render(<ArtifactWorkspace artifact={revisedArtifact} isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => revisions.push(next)} />);
+    expect(screen.getByTestId('artifact-revision-indicator').textContent).toBe('最新');
+    expect(screen.getByText('1つ前の版あり')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('artifact-action-details'));
     fireEvent.click(screen.getByTestId('artifact-visual-diff-toggle'));
     expect(screen.getByTestId('artifact-visual-diff-summary').textContent).toContain('HTML要素');
     expect(screen.getByTestId('artifact-visual-diff').textContent).toContain('New');
+    fireEvent.click(screen.getByTestId('artifact-action-details'));
+    fireEvent.click(screen.getByTestId('artifact-restore-previous'));
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0].content).toContain('Old');
+    expect(revisions[0].revisions?.at(-1)?.source).toBe('restore');
   });
 
   it('applies Direct Touch deltas to text nodes without treating edits as markup', () => {
@@ -127,8 +141,26 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(markdown.content).toContain('# Safe preview');
     expect(json.content).toContain('"artifact-1"');
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
+    fireEvent.click(screen.getByTestId('artifact-action-details'));
     fireEvent.click(screen.getByTestId('artifact-action-export-menu'));
     for (const format of ['html', 'svg', 'png', 'markdown', 'json']) expect(screen.getByTestId(`artifact-export-${format}`)).toBeTruthy();
+  });
+
+  it('collapses completed response verification into a one-line badge until requested', () => {
+    render(<App language="ja" messages={[{ id: 'a-1', role: 'assistant', content: '結論です。' }]} />);
+    const verification = screen.getByTestId('response-verification-details');
+    expect(verification.textContent).toContain('✓');
+    expect(verification.hasAttribute('open')).toBe(false);
+    fireEvent.click(screen.getByText('検証済み'));
+    expect(verification.hasAttribute('open')).toBe(true);
+    expect(screen.getByTestId('response-verification-log').textContent).toContain('固定の無料モデル');
+  });
+
+  it('uses an initial 76px composition surface and reduces it after a response', () => {
+    const { rerender } = render(<App language="ja" />);
+    expect(document.querySelector('.origin-composer')?.className).not.toContain('origin-composer--compact');
+    rerender(<App language="ja" messages={[{ id: 'a-1', role: 'assistant', content: '返信' }]} />);
+    expect(document.querySelector('.origin-composer')?.className).toContain('origin-composer--compact');
   });
 
   it('coalesces knowledge-map restoration through requestAnimationFrame', () => {
