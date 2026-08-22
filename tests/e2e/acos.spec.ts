@@ -28,6 +28,32 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('origin-thinking')).toBeHidden({ timeout: 15_000 });
   });
 
+  test('protects Japanese IME composition, then discloses exactly three verification stages', async ({ page }) => {
+    let requests = 0;
+    await page.route('**/api/chat', async (route) => {
+      requests += 1;
+      await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '変換確定後に回答しました。' });
+    });
+    await page.goto('/');
+    const composer = page.getByTestId('origin-home-request');
+    await composer.fill('日本語を変換中です');
+    await composer.evaluate((element) => element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, isComposing: true, bubbles: true })));
+    await composer.evaluate((element) => {
+      const event = new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true });
+      Object.defineProperty(event, 'keyCode', { value: 229 });
+      element.dispatchEvent(event);
+    });
+    expect(requests).toBe(0);
+    await composer.press('Control+Enter');
+    await expect(page.getByText('変換確定後に回答しました。')).toBeVisible();
+    expect(requests).toBe(1);
+    const verification = page.getByTestId('response-verification-details');
+    await expect(verification).not.toHaveAttribute('open');
+    await verification.getByText('検証済み').click();
+    for (const label of ['意図分析', '制作仕様', '構文検証']) await expect(page.getByTestId('response-verification-log')).toContainText(label);
+    await expect(page.locator('.safe-area-bottom .origin-composer')).toBeVisible();
+  });
+
   test('uses translated artifact controls, HTML MIME download, and a locked-down preview sandbox', async ({ page }) => {
     await page.addInitScript(() => {
       const originalCreateObjectURL = URL.createObjectURL.bind(URL);
@@ -56,6 +82,34 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect.poll(() => page.evaluate(() => (window as Window & { originBlobTypes?: string[] }).originBlobTypes ?? [])).toContain('text/html;charset=utf-8');
     await page.getByRole('button', { name: '成果物ワークスペースを閉じる' }).click();
     await expect(workspace).toBeHidden();
+  });
+
+  test('polyfills opaque-origin Storage without exposing parent data or permitting outbound requests', async ({ page }) => {
+    const outbound: string[] = [];
+    page.on('request', (request) => { if (request.url().includes('origin-egress.invalid')) outbound.push(request.url()); });
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '```html:isolated-storage.html\n<main id="storage-result">Waiting</main><script>localStorage.setItem("habit","done");sessionStorage.setItem("session","isolated");document.getElementById("storage-result").textContent=localStorage.getItem("habit");fetch("https://origin-egress.invalid/blocked").catch(function(){});</script>\n```',
+    }));
+    await page.goto('/');
+    await page.evaluate(() => localStorage.setItem('origin-parent-secret', 'parent-only'));
+    await page.getByTestId('origin-home-request').fill('保存できる習慣トラッカーを作成');
+    await page.getByTestId('start-request-button').click();
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    const preview = page.getByTestId('artifact-workspace').getByTitle('プレビュー');
+    await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
+    const sandbox = preview.contentFrame();
+    await expect(sandbox.locator('#storage-result')).toHaveText('done');
+    expect(await sandbox.locator('body').evaluate(() => ({
+      habit: localStorage.getItem('habit'),
+      session: sessionStorage.getItem('session'),
+      parentSecret: localStorage.getItem('origin-parent-secret'),
+      key: localStorage.key(0),
+      length: localStorage.length,
+    }))).toEqual({ habit: 'done', session: 'isolated', parentSecret: null, key: 'habit', length: 1 });
+    expect(await page.evaluate(() => localStorage.getItem('origin-parent-secret'))).toBe('parent-only');
+    expect(outbound).toEqual([]);
   });
 
   test('packages all generated artifacts into one offline ZIP download', async ({ page }) => {
@@ -163,6 +217,9 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('artifact-action-share')).toBeVisible();
     await expect(page.getByTestId('artifact-action-edit')).toBeVisible();
     await expect(page.getByTestId('artifact-action-details')).toBeVisible();
+    await expect(page.getByTestId('artifact-action-edit')).toHaveText('✏️ 編集');
+    await expect(page.getByTestId('artifact-action-share')).toHaveText('📲 共有');
+    await expect(page.getByTestId('artifact-action-save')).toHaveText('📥 保存');
     for (const control of ['artifact-action-save', 'artifact-action-share', 'artifact-action-edit', 'artifact-action-details']) {
       await expect(page.getByTestId(control)).toHaveClass(/min-h-11/);
     }

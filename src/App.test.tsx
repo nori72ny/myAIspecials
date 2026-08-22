@@ -19,6 +19,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     }
     expect(screen.getByRole('button', { name: '成果物を共有' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Canvas Direct Touchで編集' })).toBeTruthy();
+    expect(screen.getByTestId('artifact-action-edit').textContent).toBe('✏️ 編集');
+    expect(screen.getByTestId('artifact-action-share').textContent).toBe('📲 共有');
+    expect(screen.getByTestId('artifact-action-save').textContent).toBe('📥 保存');
     expect(screen.queryByTestId('artifact-action-copy')).toBeNull();
     fireEvent.click(screen.getByTestId('artifact-action-details'));
     expect(screen.getByTestId('artifact-details-menu')).toBeTruthy();
@@ -35,6 +38,37 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('restore-last-known-good'));
     expect(screen.queryByTestId('sandbox-runtime-boundary')).toBeNull();
     expect((screen.getByTitle('プレビュー') as HTMLIFrameElement).srcdoc).toContain('Ready');
+  });
+
+  it('provides complete, isolated Storage semantics before untrusted opaque-origin artifact scripts', () => {
+    const isolatedArtifact = { ...artifact, content: '<script>localStorage.setItem("artifact", "ready")</script><main>Storage ready</main>' };
+    render(<ArtifactWorkspace artifact={isolatedArtifact} isOpen language="ja" onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
+    const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    const match = frame.srcdoc.match(/<script data-origin-storage-polyfill="true">([\s\S]*?)<\/script>/);
+    expect(match).not.toBeNull();
+    expect(frame.srcdoc.indexOf('data-origin-storage-polyfill')).toBeLessThan(frame.srcdoc.indexOf('localStorage.setItem("artifact", "ready")'));
+    expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
+    expect(frame.srcdoc).toContain("connect-src 'none'");
+
+    const isolatedWindow = {} as { localStorage: Storage; sessionStorage: Storage };
+    new Function('window', match![1])(isolatedWindow);
+    isolatedWindow.localStorage.setItem('habit', 42 as unknown as string);
+    isolatedWindow.localStorage.setItem('__proto__', 'safe');
+    isolatedWindow.localStorage['named-value'] = 'named';
+    isolatedWindow.sessionStorage.setItem('session', 'separate');
+    expect(isolatedWindow.localStorage.length).toBe(3);
+    expect(isolatedWindow.localStorage.key(0)).toBe('habit');
+    expect(isolatedWindow.localStorage.getItem('habit')).toBe('42');
+    expect(isolatedWindow.localStorage.getItem('__proto__')).toBe('safe');
+    expect(Object.keys(isolatedWindow.localStorage)).toEqual(['habit', '__proto__', 'named-value']);
+    expect(isolatedWindow.localStorage.getItem('session')).toBeNull();
+    isolatedWindow.localStorage.removeItem('habit');
+    delete isolatedWindow.localStorage['named-value'];
+    expect(isolatedWindow.localStorage.length).toBe(1);
+    isolatedWindow.localStorage.clear();
+    expect(isolatedWindow.localStorage.length).toBe(0);
+    expect(isolatedWindow.sessionStorage.getItem('session')).toBe('separate');
   });
 
   it('rejects forged cross-window messages and never confirms last-known-good from iframe load alone', () => {
@@ -153,7 +187,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(verification.hasAttribute('open')).toBe(false);
     fireEvent.click(screen.getByText('検証済み'));
     expect(verification.hasAttribute('open')).toBe(true);
-    expect(screen.getByTestId('response-verification-log').textContent).toContain('固定の無料モデル');
+    const verificationLog = screen.getByTestId('response-verification-log');
+    for (const label of ['意図分析', '制作仕様', '構文検証']) expect(verificationLog.textContent).toContain(label);
+    expect(verificationLog.textContent).toContain('固定の無料モデル');
   });
 
   it('uses an initial 76px composition surface and reduces it after a response', () => {
@@ -161,6 +197,21 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(document.querySelector('.origin-composer')?.className).not.toContain('origin-composer--compact');
     rerender(<App language="ja" messages={[{ id: 'a-1', role: 'assistant', content: '返信' }]} />);
     expect(document.querySelector('.origin-composer')?.className).toContain('origin-composer--compact');
+    expect(document.querySelector('.safe-area-bottom .origin-composer')).not.toBeNull();
+  });
+
+  it('never submits a Japanese IME composition but keeps Control+Enter available afterward', async () => {
+    const fetchMock = vi.fn(async () => new Response('確定後の回答', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    const input = screen.getByTestId('origin-home-request');
+    fireEvent.change(input, { target: { value: '変換中の文章' } });
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true, isComposing: true });
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true, keyCode: 229 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true, keyCode: 13 });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    vi.unstubAllGlobals();
   });
 
   it('coalesces knowledge-map restoration through requestAnimationFrame', () => {
