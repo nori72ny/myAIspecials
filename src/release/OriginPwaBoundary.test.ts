@@ -62,7 +62,7 @@ describe('ORIGIN PWA boundary', () => {
     expect(readPngDimensions('public/apple-touch-icon.png')).toEqual({ width: 180, height: 180 });
   });
 
-  it('never caches APIs, non-GET requests, or authenticated requests', () => {
+  it('never caches APIs, non-GET requests, or authenticated requests while allowing a same-origin app shell', () => {
     const worker = read('public/sw.js');
 
     expect(worker).toContain("request.method !== 'GET'");
@@ -70,7 +70,10 @@ describe('ORIGIN PWA boundary', () => {
     expect(worker).toContain("url.pathname === '/health'");
     expect(worker).toContain("request.headers.has('authorization')");
     expect(worker).toContain("request.headers.has('cookie')");
-    expect(worker).not.toMatch(/cache\.put\s*\(/);
+    expect(worker).toContain("const APP_SHELL_KEY = '/__origin-app-shell__'");
+    expect(worker).toContain("url.pathname.startsWith('/assets/')");
+    expect(worker).toContain('!hasSensitiveHeaders');
+    expect(worker).not.toContain('/api/chat');
   });
 
   it('serves the fixed offline page for cookie-bearing navigations without caching them', async () => {
@@ -110,14 +113,15 @@ describe('ORIGIN PWA boundary', () => {
     expect(cacheMatch).toHaveBeenCalledWith('/offline.html');
   });
 
-  it('limits offline storage to fixed public assets and a fixed offline page', () => {
+  it('limits offline storage to the same-origin app shell and public static assets', () => {
     const worker = read('public/sw.js');
 
     expect(worker).toContain("const CACHE_PREFIX = 'origin-pwa-'");
     expect(worker).toContain("caches.match('/offline.html')");
+    expect(worker).toContain('APP_SHELL_KEY');
     expect(worker).not.toMatch(/install[\s\S]{0,300}skipWaiting/);
     expect(worker).not.toContain('/api/chat');
-    expect(worker).not.toMatch(/localStorage|indexedDB|OPENROUTER|prompt|messages/i);
+    expect(worker).not.toMatch(/localStorage|indexedDB|OPENROUTER|prompt|messages|https?:\/\//i);
   });
 
   it('keeps production worker policy same-origin and avoids X-Frame-Options', () => {

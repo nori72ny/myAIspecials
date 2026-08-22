@@ -30,3 +30,6 @@
 - [x] Safety: Reject any model response whose declared model or usage is not the fixed zero-cost OpenRouter model, and display safe-waiting state without rendering content.
 - [x] Search: Add local incremental full-text search across IndexedDB conversation sessions, messages, artifacts, and artifact revisions from the history drawer.
 - [x] Quality: Prove no prohibited external runtime assets are present and add model-guard and IndexedDB search regression coverage; complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.
+- [x] Workspace: Add an accessible Visual Diff toggle that compares the current artifact against its immediately prior immutable revision without exposing sandbox content outside its boundary.
+- [x] Offline: Preserve IndexedDB-backed artifact viewing, Direct Touch editing, revision history, and package export while navigator connectivity is unavailable.
+- [ ] Quality: Add visual-diff and offline-continuity regression coverage; verify no prohibited external runtime assets, then complete lint, unit, API, E2E, production build, GitHub main sync, and Vercel Production verification.

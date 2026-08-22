@@ -1,5 +1,6 @@
 const CACHE_PREFIX = 'origin-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v2`;
+const CACHE_NAME = `${CACHE_PREFIX}v3`;
+const APP_SHELL_KEY = '/__origin-app-shell__';
 const SAFE_STATIC_PATHS = new Set([
   '/offline.html',
   '/manifest.webmanifest',
@@ -11,7 +12,15 @@ const SAFE_STATIC_PATHS = new Set([
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll([...SAFE_STATIC_PATHS])),
+    caches.open(CACHE_NAME).then(async (cache) => {
+      await cache.addAll([...SAFE_STATIC_PATHS]);
+      try {
+        const response = await fetch('/', { credentials: 'same-origin' });
+        if (response.ok) await cache.put(APP_SHELL_KEY, response);
+      } catch {
+        // The fixed offline page remains available if first installation is offline.
+      }
+    }),
   );
 });
 
@@ -49,23 +58,36 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const hasSensitiveHeaders = request.headers.has('authorization') || request.headers.has('cookie');
+
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match('/offline.html')),
+      fetch(request).then(async (response) => {
+        if (response.ok && !hasSensitiveHeaders) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(APP_SHELL_KEY, response.clone());
+        }
+        return response;
+      }).catch(async () => (!hasSensitiveHeaders && await caches.match(APP_SHELL_KEY)) || caches.match('/offline.html')),
     );
     return;
   }
 
-  if (
-    request.headers.has('authorization')
-    || request.headers.has('cookie')
-  ) {
+  if (hasSensitiveHeaders) {
     return;
   }
 
-  if (SAFE_STATIC_PATHS.has(url.pathname)) {
+  if (SAFE_STATIC_PATHS.has(url.pathname) || url.pathname.startsWith('/assets/')) {
     event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request)),
+      caches.match(request).then(async (cached) => {
+        if (cached) return cached;
+        const response = await fetch(request);
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(request, response.clone());
+        }
+        return response;
+      }),
     );
   }
 });

@@ -234,6 +234,28 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
   });
 
+  test('visualizes the v2 HTML delta and keeps local artifact export available offline', async ({ page, context }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '```html:visual-diff.html\n<main><p>Original visual text</p></main>\n```' }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('差分対象を作成');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    const preview = workspace.getByTitle('プレビュー');
+    const sandbox = preview.contentFrame();
+    await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Updated visual text' }], timestamp: Date.now() }, '*'));
+    await expect(page.getByTestId('artifact-revision-indicator')).toHaveText('v2');
+    await page.getByTestId('artifact-visual-diff-toggle').click();
+    await expect(page.getByTestId('artifact-visual-diff')).toContainText('Updated visual text');
+    await context.setOffline(true);
+    await expect(page.getByTestId('artifact-offline-status')).toBeVisible();
+    const download = page.waitForEvent('download');
+    await page.getByTestId('artifact-action-bundle').click();
+    await expect((await download).suggestedFilename()).toMatch(/\.zip$/);
+    await context.setOffline(false);
+  });
+
   test('accepts multiple text drag-and-drop attachments and rejects files over 5MB or totals over 10MB', async ({ page }) => {
     await page.goto('/');
     const homeRequest = page.getByTestId('origin-home-request');

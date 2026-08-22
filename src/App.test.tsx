@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { applyDirectTouchEdits, App, ArtifactWorkspace, createOfflineArtifactBundle, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { applyDirectTouchEdits, App, ArtifactWorkspace, createArtifactVisualDiff, createOfflineArtifactBundle, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -83,6 +83,19 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(artifact.content).toContain('Ready');
   });
 
+  it('highlights HTML and CSS changes against the immediately previous immutable revision', () => {
+    const revisedArtifact: ArtifactBlock = { ...artifact, content: '<main class="next"><h1>New</h1></main><style>main { color: cyan; }</style>', revision: 2, revisions: [{ id: 'artifact-1:v1', content: '<main><h1>Old</h1></main><style>main { color: slate; }</style>', createdAt: 1, source: 'generated' }, { id: 'artifact-1:v2', content: '<main class="next"><h1>New</h1></main><style>main { color: cyan; }</style>', createdAt: 2, source: 'direct-touch' }] };
+    const diff = createArtifactVisualDiff(revisedArtifact.revisions![0].content, revisedArtifact.content);
+    expect(diff.added).toBeGreaterThan(0);
+    expect(diff.removed).toBeGreaterThan(0);
+    expect(diff.htmlChanges).toBeGreaterThan(0);
+    expect(diff.cssChanges).toBeGreaterThan(0);
+    render(<ArtifactWorkspace artifact={revisedArtifact} isOpen language="ja" onClose={() => undefined} />);
+    fireEvent.click(screen.getByTestId('artifact-visual-diff-toggle'));
+    expect(screen.getByTestId('artifact-visual-diff-summary').textContent).toContain('HTML要素');
+    expect(screen.getByTestId('artifact-visual-diff').textContent).toContain('New');
+  });
+
   it('applies Direct Touch deltas to text nodes without treating edits as markup', () => {
     const revised = applyDirectTouchEdits('<main><p>Original</p></main>', [{ index: 0, text: '<strong>Literal text</strong>' }]);
     expect(revised).toContain('&lt;strong&gt;Literal text&lt;/strong&gt;');
@@ -134,5 +147,16 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。')).toBeTruthy());
     expect(screen.queryByText('表示してはいけない応答')).toBeNull();
     vi.unstubAllGlobals();
+  });
+
+  it('stops new AI requests while offline and preserves local-only operations', async () => {
+    const online = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'オフライン要求' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('オフライン中は新規AI応答を停止しています。端末内の履歴・成果物は閲覧、直接編集、保存、パッケージ化を継続できます。')).toBeTruthy());
+    if (online) Object.defineProperty(window.navigator, 'onLine', online);
+    else delete (window.navigator as { onLine?: boolean }).onLine;
   });
 });

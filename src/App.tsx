@@ -15,6 +15,44 @@ export interface ArtifactBlock {
 
 export type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' };
 export type DirectTouchEdit = { index: number; text: string };
+export type ArtifactVisualDiffLine = { kind: 'added' | 'removed' | 'context'; category: 'html' | 'css' | 'text'; value: string };
+export type ArtifactVisualDiff = { lines: readonly ArtifactVisualDiffLine[]; added: number; removed: number; htmlChanges: number; cssChanges: number };
+
+const splitArtifactVisualUnits = (content: string): string[] => content
+  .replace(/>\s*</g, '>\n<')
+  .replace(/}\s*/g, '}\n')
+  .replace(/;\s*/g, ';\n')
+  .split('\n')
+  .map((line) => line.trim())
+  .filter(Boolean)
+  .slice(0, 320);
+
+const classifyArtifactVisualUnit = (value: string): ArtifactVisualDiffLine['category'] => {
+  if (/[{}:;]/.test(value)) return 'css';
+  if (value.startsWith('<') || value.startsWith('</')) return 'html';
+  return 'text';
+};
+
+export const createArtifactVisualDiff = (previousContent: string, currentContent: string): ArtifactVisualDiff => {
+  const previous = splitArtifactVisualUnits(previousContent);
+  const current = splitArtifactVisualUnits(currentContent);
+  const remainingCurrent = new Map<string, number>();
+  current.forEach((value) => remainingCurrent.set(value, (remainingCurrent.get(value) ?? 0) + 1));
+  const removed = previous.flatMap((value): ArtifactVisualDiffLine[] => {
+    const available = remainingCurrent.get(value) ?? 0;
+    if (available > 0) { remainingCurrent.set(value, available - 1); return []; }
+    return [{ kind: 'removed', category: classifyArtifactVisualUnit(value), value }];
+  });
+  const remainingPrevious = new Map<string, number>();
+  previous.forEach((value) => remainingPrevious.set(value, (remainingPrevious.get(value) ?? 0) + 1));
+  const added = current.flatMap((value): ArtifactVisualDiffLine[] => {
+    const available = remainingPrevious.get(value) ?? 0;
+    if (available > 0) { remainingPrevious.set(value, available - 1); return []; }
+    return [{ kind: 'added', category: classifyArtifactVisualUnit(value), value }];
+  });
+  const lines = [...removed, ...added].slice(0, 160);
+  return { lines, added: added.length, removed: removed.length, htmlChanges: lines.filter((line) => line.category === 'html').length, cssChanges: lines.filter((line) => line.category === 'css').length };
+};
 
 const DIRECT_TOUCH_TARGET_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,figcaption,td,th,button,label,span,a';
 const isDirectTouchEdits = (value: unknown): value is DirectTouchEdit[] => Array.isArray(value) && value.length > 0 && value.length <= 24 && value.every((edit) => Boolean(edit) && typeof edit.index === 'number' && Number.isInteger(edit.index) && edit.index >= 0 && edit.index < 2_000 && typeof edit.text === 'string' && edit.text.length <= 12_000);
@@ -241,6 +279,8 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; artifa
 
 const KnowledgeMap: React.FC<{ sessions: readonly ConversationSession[]; onRestoreSession?: (session: ConversationSession) => void }> = ({ sessions, onRestoreSession }) => <><LegacyKnowledgeMap sessions={sessions} onRestoreSession={onRestoreSession} /><HistoryDrawer sessions={sessions} onRestoreSession={onRestoreSession} /></>;
 
+const ArtifactVisualDiffInspector: React.FC<{ diff: ArtifactVisualDiff; priorRevision: number }> = ({ diff, priorRevision }) => <section data-testid="artifact-visual-diff" aria-label="成果物ビジュアル差分" className="origin-surface-muted h-full overflow-auto rounded-xl border p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="m-0 text-sm font-bold">直前版 v{priorRevision} との差分</h3><p className="origin-muted m-0 mt-1 text-xs">親側に保存済みの不変リビジョンのみを比較しています。</p></div><div className="flex gap-2 text-xs font-mono"><span className="rounded-md border border-emerald-400/50 px-2 py-1 text-emerald-500">+ {diff.added}</span><span className="rounded-md border border-red-400/50 px-2 py-1 text-red-500">− {diff.removed}</span></div></div><p data-testid="artifact-visual-diff-summary" className="origin-muted mt-3 text-xs">HTML要素 {diff.htmlChanges}件・CSS/スタイル {diff.cssChanges}件の変更</p>{diff.lines.length ? <pre className="m-0 mt-3 whitespace-pre-wrap break-words rounded-lg border bg-black/10 p-3 font-mono text-xs leading-6">{diff.lines.map((line, index) => <span key={`${line.kind}-${index}`} className={line.kind === 'added' ? 'block rounded bg-emerald-500/15 px-2 text-emerald-600 dark:text-emerald-300' : 'block rounded bg-red-500/15 px-2 text-red-600 dark:text-red-300'}>{line.kind === 'added' ? '+ ' : '− '}{line.value}</span>)}</pre> : <p className="origin-muted mt-5 text-sm">構造・スタイル上の変更はありません。</p>}</section>;
+
 export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artifacts?: readonly ArtifactBlock[]; isOpen: boolean; language: OriginLanguage; onClose: () => void; onArtifactRevision?: (artifact: ArtifactBlock) => void }> = ({ artifact, artifacts = [], isOpen, language, onClose, onArtifactRevision }) => {
   const t = getTranslations(language);
   const [activeTab, setActiveTab] = useState<'preview' | 'code'>('code');
@@ -256,12 +296,15 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   const [sandboxError, setSandboxError] = useState<string | null>(null);
   const [isBundling, setIsBundling] = useState(false);
   const [bundleError, setBundleError] = useState(false);
+  const [isDiffInspectorOpen, setIsDiffInspectorOpen] = useState(false);
+  const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
   const workspaceRef = useRef<HTMLElement>(null);
   const previewRef = useRef<HTMLIFrameElement>(null);
   const cleanLoadConfirmed = useRef(false);
   const setLastKnownGood = (snapshot: ArtifactBlock | null) => { if (snapshot === null || cleanLoadConfirmed.current) setLastKnownGoodState(snapshot); };
   useEffect(() => { const updateFullscreen = () => { const active = document.fullscreenElement === workspaceRef.current; setIsFullscreen(active); if (!active) setIsPresentation(false); }; document.addEventListener('fullscreenchange', updateFullscreen); return () => document.removeEventListener('fullscreenchange', updateFullscreen); }, []);
   useEffect(() => { cleanLoadConfirmed.current = false; setActiveTab('code'); setCopied(false); setShared(false); setIsPresentation(false); setPresentationSlideIndex(0); setPreviewViewport('fluid'); setIsDirectEditing(false); setSandboxError(null); setLastKnownGood(null); }, [artifact?.id]);
+  useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   useEffect(() => { if (!isDirectEditing) setWorkingContent(artifact?.content ?? ''); }, [artifact?.content, artifact?.id, isDirectEditing]);
   const isRenderable = Boolean(artifact && (artifact.type === 'html' || artifact.language === 'html' || artifact.language === 'svg'));
   const sandboxSrcDoc = useMemo(() => {
@@ -372,6 +415,8 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   const togglePresentation = async () => { if (isPresentation) { setIsPresentation(false); setPresentationSlideIndex(0); if (document.fullscreenElement) await document.exitFullscreen?.(); return; } setIsDirectEditing(false); setActiveTab('preview'); setPresentationSlideIndex(0); setIsPresentation(true); const request = workspaceRef.current && !document.fullscreenElement ? workspaceRef.current.requestFullscreen?.() : undefined; await request?.catch(() => undefined); };
   const previewWidth = previewViewport === '375' ? '375px' : previewViewport === '768' ? '768px' : '100%';
   const previewFrame = activeTab === 'preview' && isRenderable ? <div data-testid="responsive-preview-stage" className="flex h-full min-w-full items-start justify-center overflow-auto"><iframe ref={previewRef} title={t.previewTitle} aria-label={t.previewTitle} srcDoc={sandboxSrcDoc} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => { event.currentTarget.setAttribute('data-origin-loaded', 'true'); if (isPresentation) postPresentationCommand('presentation-start'); }} style={{ width: previewWidth }} className="origin-surface h-full shrink-0 rounded-xl border transition-[width] duration-200 ease-out motion-reduce:transition-none" /></div> : <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs leading-6">{workingContent}</pre>;
+  const priorRevision = artifact.revisions && artifact.revisions.length >= 2 ? artifact.revisions[artifact.revisions.length - 2] : null;
+  const visualDiff = priorRevision ? createArtifactVisualDiff(priorRevision.content, workingContent) : null;
   return <aside ref={workspaceRef} aria-label={t.workspaceLabel} data-testid="artifact-workspace" className="origin-workspace fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l shadow-2xl sm:w-[560px]">
     <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-default)] px-3 py-2 sm:px-4">
       <div className="min-w-0 flex flex-1 items-center gap-2"><span className="origin-badge rounded-md border px-2 py-1 text-xs font-mono font-semibold">{artifact.language}</span><h2 className="truncate text-sm font-semibold">{artifact.title}</h2><span data-testid="artifact-revision-indicator" aria-live="polite" className="origin-muted shrink-0 text-[11px] font-mono">v{artifact.revision ?? 1}</span></div>
@@ -382,11 +427,12 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
           <button type="button" data-testid="presentation-mode-toggle" aria-label={isPresentation ? t.exitPresentation : t.presentation} aria-pressed={isPresentation} onClick={() => void togglePresentation()} className={`min-h-11 rounded-xl border px-3 text-xs font-semibold ${isPresentation ? 'origin-primary-button' : 'origin-secondary-button'}`}>▣ {isPresentation ? t.exitPresentation : t.presentation}</button>
         </>}
         <div data-testid="artifact-action-bar" role="group" aria-label="Artifact actions" className="origin-surface-muted flex rounded-xl border p-1"><button type="button" data-testid="artifact-action-copy" aria-label={t.copyArtifact} onClick={() => void copyText(workingContent).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2_000); })} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📋 {copied ? t.copied : t.copy}</button><button type="button" data-testid="artifact-action-save" aria-label={t.downloadArtifact} onClick={downloadArtifact} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📥 {t.download}</button><button type="button" data-testid="artifact-action-bundle" aria-label="一括パッケージ保存" aria-busy={isBundling} onClick={() => void downloadArtifactBundle()} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold disabled:cursor-wait" disabled={isBundling}>📦 {isBundling ? '準備中' : '一括保存'}</button><button type="button" data-testid="artifact-action-share" aria-label={t.shareArtifact} onClick={() => void shareArtifact()} className="origin-secondary-button min-h-11 rounded-lg px-3 text-xs font-semibold">📲 {shared ? t.shareCopied : t.shareArtifact}</button><button type="button" data-testid="artifact-action-edit" aria-label={t.editArtifact} aria-pressed={isDirectEditing} onClick={() => { setIsDirectEditing((current) => !current); setActiveTab('preview'); }} className={`min-h-11 rounded-lg px-3 text-xs font-semibold ${isDirectEditing ? 'origin-primary-button' : 'origin-secondary-button'}`}>✏️ {isDirectEditing ? t.finishEditing : t.editArtifact}</button></div>
+        {priorRevision && <button type="button" data-testid="artifact-visual-diff-toggle" aria-label="直前リビジョンとの差分を表示" aria-pressed={isDiffInspectorOpen} onClick={() => { setIsDirectEditing(false); setIsDiffInspectorOpen((current) => !current); }} className={`min-h-11 rounded-xl border px-3 text-xs font-semibold ${isDiffInspectorOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>🔍 差分表示</button>}
         <button type="button" aria-label={isFullscreen ? t.exitFullscreenLabel : t.openFullscreen} aria-pressed={isFullscreen} onClick={() => void toggleFullscreen()} className="origin-secondary-button hidden min-h-11 rounded-xl border px-3 text-xs font-semibold sm:inline-flex">{isFullscreen ? t.exitFullscreen : t.fullscreen}</button><button type="button" aria-label={t.closeWorkspace} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 items-center justify-center rounded-xl border text-lg">✕</button>
       </div>
-      {isPresentation && <p className="sr-only" role="status">{t.presentationKeyboardHint}</p>}{bundleError && <p role="alert" className="text-xs text-[var(--danger)]">パッケージを作成できませんでした。</p>}
+      {isPresentation && <p className="sr-only" role="status">{t.presentationKeyboardHint}</p>}{isOffline && <p data-testid="artifact-offline-status" role="status" className="text-xs text-amber-600 dark:text-amber-300">オフライン中: 端末内の成果物は閲覧・編集・保存できます。</p>}{bundleError && <p role="alert" className="text-xs text-[var(--danger)]">パッケージを作成できませんでした。</p>}
     </div>
-    <div className="origin-code-panel relative min-h-0 flex-1 overflow-auto p-4">{previewFrame}{sandboxError && <div data-testid="sandbox-runtime-boundary" role="alert" className="absolute inset-6 flex flex-col justify-center rounded-2xl border border-red-400/60 bg-[var(--bg-surface)]/95 p-5 shadow-2xl backdrop-blur"><p className="m-0 text-sm font-bold text-red-500">{t.sandboxRuntimeError}</p><p className="mt-2 break-words font-mono text-xs">{sandboxError}</p><p className="origin-muted mt-3 text-xs">{t.sandboxRuntimeDetail}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" data-testid="restore-last-known-good" disabled={!lastKnownGood} title={!lastKnownGood ? t.noLastKnownGood : undefined} onClick={restoreLastKnownGood} className="origin-primary-button min-h-11 rounded-xl px-4 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50">{t.restoreLastKnownGood}</button><button type="button" onClick={() => setSandboxError(null)} className="origin-secondary-button min-h-11 rounded-xl border px-4 text-xs font-semibold">{t.close}</button></div></div>}</div>
+    <div className="origin-code-panel relative min-h-0 flex-1 overflow-auto p-4">{isDiffInspectorOpen && visualDiff && priorRevision ? <ArtifactVisualDiffInspector diff={visualDiff} priorRevision={Math.max(1, (artifact.revision ?? artifact.revisions?.length ?? 1) - 1)} /> : previewFrame}{sandboxError && <div data-testid="sandbox-runtime-boundary" role="alert" className="absolute inset-6 flex flex-col justify-center rounded-2xl border border-red-400/60 bg-[var(--bg-surface)]/95 p-5 shadow-2xl backdrop-blur"><p className="m-0 text-sm font-bold text-red-500">{t.sandboxRuntimeError}</p><p className="mt-2 break-words font-mono text-xs">{sandboxError}</p><p className="origin-muted mt-3 text-xs">{t.sandboxRuntimeDetail}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" data-testid="restore-last-known-good" disabled={!lastKnownGood} title={!lastKnownGood ? t.noLastKnownGood : undefined} onClick={restoreLastKnownGood} className="origin-primary-button min-h-11 rounded-xl px-4 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50">{t.restoreLastKnownGood}</button><button type="button" onClick={() => setSandboxError(null)} className="origin-secondary-button min-h-11 rounded-xl border px-4 text-xs font-semibold">{t.close}</button></div></div>}</div>
   </aside>;
 };
 
@@ -396,6 +442,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
   const [uncontrolledMessages, setUncontrolledMessages] = useState<ConversationMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
   const [activeArtifact, setActiveArtifact] = useState<ArtifactBlock | null>(null);
   const [uncontrolledArtifacts, setUncontrolledArtifacts] = useState<ArtifactBlock[]>([]);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -411,6 +458,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
   const messagesRef = useRef(messages);
   const attachmentBytes = attachments.reduce((total, attachment) => total + attachment.bytes, 0);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
   const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
@@ -433,6 +481,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
   const handleSend = async (textToSend?: string) => {
     const text = textToSend || inputText;
     if ((!text.trim() && !attachments.length) || isLoading) return;
+    if (isOffline) {
+      setAttachmentError('オフライン中は新規AI応答を停止しています。端末内の履歴・成果物は閲覧、直接編集、保存、パッケージ化を継続できます。');
+      return;
+    }
     setAttachmentError('');
     const attachmentMessage = attachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
     const userMessage: ConversationMessage = { id: `u-${Date.now()}`, role: 'user', content: `${text.trim()}${attachmentMessage}`.trim() };
