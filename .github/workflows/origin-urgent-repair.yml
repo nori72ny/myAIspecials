@@ -1,0 +1,251 @@
+name: ORIGIN urgent repair
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ !contains(github.event.head_commit.message, '[origin-urgent-repair]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply emergency repair
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          router = root / 'src/legacy/originChatRouter.ts'
+          text = router.read_text()
+          old_constants = '''const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
+const MODEL_BUSY_MESSAGE = "現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）";
+const RETRYABLE_PROVIDER_CODES = new Set([
+  "PROVIDER_RATE_LIMITED",
+  "PROVIDER_TIMEOUT",
+  "PROVIDER_UNAVAILABLE",
+  "PROVIDER_INTERNAL_ERROR",
+]);
+
+function shouldRetryProvider(error: unknown): error is OriginProviderError {
+  return error instanceof OriginProviderError
+    && error.retryable
+    && RETRYABLE_PROVIDER_CODES.has(error.code);
+}
+'''
+          new_constants = '''const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
+const MAX_PROVIDER_RETRY_COUNT = 3;
+const MAX_PROVIDER_TOTAL_BUDGET_MS = 100_000;
+const PROVIDER_RETRY_BACKOFF_MS = [1_500, 3_000, 5_000] as const;
+const MODEL_BUSY_MESSAGE = "現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）";
+const RETRYABLE_PROVIDER_CODES = new Set([
+  "PROVIDER_RATE_LIMITED",
+  "PROVIDER_TIMEOUT",
+  "PROVIDER_UNAVAILABLE",
+  "PROVIDER_INTERNAL_ERROR",
+]);
+
+function shouldRetryProvider(error: unknown): error is OriginProviderError {
+  return error instanceof OriginProviderError
+    && error.retryable
+    && RETRYABLE_PROVIDER_CODES.has(error.code);
+}
+
+function calculateProviderAttemptTimeout(
+  configuredTimeoutMs: number,
+  elapsedMs: number,
+  retryIndex: number,
+): number {
+  const remainingBudgetMs = Math.max(0, MAX_PROVIDER_TOTAL_BUDGET_MS - elapsedMs);
+  const futureBackoffMs = PROVIDER_RETRY_BACKOFF_MS
+    .slice(retryIndex)
+    .reduce((total, delay) => total + delay, 0);
+  const attemptsRemaining = MAX_PROVIDER_RETRY_COUNT - retryIndex + 1;
+  const fairShareMs = Math.floor(
+    Math.max(1_000, remainingBudgetMs - futureBackoffMs) / attemptsRemaining,
+  );
+  return Math.max(1_000, Math.min(configuredTimeoutMs, fairShareMs));
+}
+'''
+          if old_constants not in text:
+              raise SystemExit('retry constants marker not found')
+          text = text.replace(old_constants, new_constants, 1)
+          text = text.replace('  createRequestId?: () => string;\n}', '  createRequestId?: () => string;\n  sleep?: (ms: number) => Promise<void>;\n}', 1)
+          text = text.replace('  const createRequestId = options.createRequestId\n    ?? (() => `origin-${now()}-${randomUUID()}`);', '  const createRequestId = options.createRequestId\n    ?? (() => `origin-${now()}-${randomUUID()}`);\n  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));', 1)
+          old_block = re.compile(r'''      const providerRequest: OriginProviderExecutionRequest = \{.*?      // Do not trust an executor boundary alone:''', re.S)
+          new_block = '''      const providerRequest: OriginProviderExecutionRequest = {
+        plan: {
+          ...planningResult.plan,
+          timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS),
+        },
+        messages: contextResult.window.messages,
+        systemInstruction: systemInstruction(
+          requestIntent,
+          workPlan,
+          resolvedPlan,
+          originAnswerQualityInstruction(answerQualityPolicy),
+        ),
+      };
+      let result: OriginProviderExecutionResult;
+      let providerAttemptCount = 0;
+      for (let retryIndex = 0; retryIndex <= MAX_PROVIDER_RETRY_COUNT; retryIndex += 1) {
+        const elapsedBeforeAttemptMs = Math.max(0, now() - startedAt);
+        const timeoutMs = calculateProviderAttemptTimeout(
+          providerRequest.plan.timeoutMs,
+          elapsedBeforeAttemptMs,
+          retryIndex,
+        );
+        const attemptRequest: OriginProviderExecutionRequest = {
+          ...providerRequest,
+          plan: {
+            ...providerRequest.plan,
+            timeoutMs,
+          },
+        };
+        providerAttemptCount += 1;
+        try {
+          result = await execute(attemptRequest);
+          break;
+        } catch (attemptError) {
+          if (!shouldRetryProvider(attemptError) || retryIndex >= MAX_PROVIDER_RETRY_COUNT) {
+            throw attemptError;
+          }
+          providerRetryAttempted = true;
+          const backoffMs = PROVIDER_RETRY_BACKOFF_MS[retryIndex];
+          console.warn("[origin-chat] transient provider failure; retrying with exponential backoff", {
+            requestId,
+            code: attemptError.code,
+            status: attemptError.status,
+            retryIndex: retryIndex + 1,
+            backoffMs,
+            timeoutMs,
+          });
+          const elapsedAfterFailureMs = Math.max(0, now() - startedAt);
+          if (elapsedAfterFailureMs + backoffMs >= MAX_PROVIDER_TOTAL_BUDGET_MS) {
+            throw attemptError;
+          }
+          await sleep(backoffMs);
+        }
+      }
+      // Do not trust an executor boundary alone:'''
+          text, count = old_block.subn(new_block, text, count=1)
+          if count != 1:
+              raise SystemExit('provider retry block marker not found')
+          text = text.replace('          providerAttempts: providerRetryAttempted ? 2 : 1,', '          providerAttempts: providerAttemptCount,', 1)
+          router.write_text(text)
+
+          personal = root / 'src/components/personal/PersonalEditionApp.tsx'
+          p = personal.read_text()
+          p = p.replace(' * Personal 2.0 is rendered here as the single, shared application implementation.', ' * ORIGIN Personal is rendered here as the single, shared application implementation.', 1)
+          personal.write_text(p)
+
+          app = root / 'src/App.tsx'
+          a = app.read_text()
+          a = a.replace('You are ORIGIN Personal 2.0,', 'You are ORIGIN Personal,', 1)
+          a = a.replace('あなたは ORIGIN Personal 2.0 です。', 'あなたは ORIGIN Personal です。', 1)
+          app.write_text(a)
+
+          retry_test = root / 'src/legacy/originChatRetry.test.ts'
+          retry_test.write_text('''import express from "express";
+import request from "supertest";
+import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
+import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
+import { OriginProviderError } from "./originProviderClient";
+
+const catalogEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
+const success = {
+  text: "再試行後の正常応答です。",
+  actualCostUsd: 0,
+  providerDataPolicy: { allowProviderFallbacks: true as const, dataCollection: "deny" as const, requireZeroDataRetention: false as const },
+  routingEvidence: { requestedModel: "google/gemma-4-26b-a4b-it:free", servedModel: "google/gemma-4-26b-a4b-it:free", strategy: "fixed-free-model" as const, provider: "OpenRouter", region: "iad", attempt: 1, fallbackUsed: false },
+  usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, costUsd: 0 },
+};
+const providerError = (code: "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE", status: 429 | 503) => new OriginProviderError(code, "temporary provider failure", status, true);
+function app(execute: OriginChatExecutor, sleep = vi.fn().mockResolvedValue(undefined)) {
+  const server = express();
+  server.use(express.json());
+  server.use(createOriginChatRouter({
+    env: { OPENROUTER_API_KEY: "synthetic-test-key" }, execute, sleep,
+    now: () => 0,
+    catalogNow: () => Date.parse(catalogEvidence.verifiedAt) + 1,
+    freeModelCatalog: [catalogEvidence],
+    createRequestId: () => "origin-retry-test",
+  }));
+  return server;
+}
+describe("ORIGIN provider retry policy", () => {
+  it("retries 429 with 1.5s then 3s backoff and succeeds on the third attempt", async () => {
+    const execute = vi.fn().mockRejectedValueOnce(providerError("PROVIDER_RATE_LIMITED", 429)).mockRejectedValueOnce(providerError("PROVIDER_RATE_LIMITED", 429)).mockResolvedValueOnce(success) as unknown as OriginChatExecutor;
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const response = await request(app(execute, sleep)).post("/api/chat").send({ messages: [{ role: "user", content: "通常の質問です" }] });
+    expect(response.status).toBe(200);
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([1500, 3000]);
+    expect((execute as ReturnType<typeof vi.fn>).mock.calls.map(([request]) => request.plan.timeoutMs)).toEqual([22625, 30666, 47500]);
+    expect(response.body.routing.providerAttempts).toBe(3);
+  });
+  it("retries a 503 at most three times, then returns the provider error", async () => {
+    const execute = vi.fn().mockRejectedValue(providerError("PROVIDER_UNAVAILABLE", 503)) as unknown as OriginChatExecutor;
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const response = await request(app(execute, sleep)).post("/api/chat").send({ messages: [{ role: "user", content: "通常の質問です" }] });
+    expect(response.status).toBe(503);
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([1500, 3000, 5000]);
+    expect(response.body).toEqual(expect.objectContaining({ code: "PROVIDER_UNAVAILABLE", retryAttempted: true, requestId: "origin-retry-test" }));
+  });
+  it("does not retry non-retryable provider failures", async () => {
+    const execute = vi.fn().mockRejectedValue(new OriginProviderError("PROVIDER_INVALID_RESPONSE", "bad request", 400, false)) as unknown as OriginChatExecutor;
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const response = await request(app(execute, sleep)).post("/api/chat").send({ messages: [{ role: "user", content: "通常の質問です" }] });
+    expect(response.status).toBe(400);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+});
+''')
+
+          title_test = root / 'src/components/personal/PersonalTitleContract.test.ts'
+          title_test.write_text('''import { describe, expect, it } from "vitest";
+import { getOriginSystemPrompt } from "../../App";
+
+describe("ORIGIN Personal title contract", () => {
+  it("uses ORIGIN Personal without the retired 2.0 suffix", () => {
+    const japanese = getOriginSystemPrompt("ja");
+    const english = getOriginSystemPrompt("en");
+    expect(japanese).toContain("ORIGIN Personal");
+    expect(english).toContain("ORIGIN Personal");
+    expect(japanese).not.toContain("Personal 2.0");
+    expect(english).not.toContain("Personal 2.0");
+  });
+});
+''')
+          (root / '.github/workflows/origin-urgent-repair.yml').unlink(missing_ok=True)
+      - name: TypeScript and lint verification
+        run: npm run lint
+      - name: Vitest verification
+        run: npm test
+      - name: Production build verification
+        run: npm run build
+      - name: Commit repaired main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/legacy/originChatRouter.ts src/legacy/originChatRetry.test.ts src/components/personal/PersonalEditionApp.tsx src/components/personal/PersonalTitleContract.test.ts src/App.tsx .github/workflows/origin-urgent-repair.yml
+          git diff --cached --check
+          git commit -m "fix: harden ORIGIN provider retries and title [origin-urgent-repair]"
+          git push origin HEAD:main
