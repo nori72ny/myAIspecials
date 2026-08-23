@@ -1,0 +1,52 @@
+name: ORIGIN PR urgent repair
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply repair script embedded in temporary workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          lines = Path('.github/workflows/origin-urgent-repair.yml').read_text().splitlines()
+          start = lines.index('        run: |') + 1
+          body = []
+          for line in lines[start:]:
+              if line.startswith('      - name:'):
+                  break
+              body.append(line[10:] if line.startswith('          ') else line)
+          exec('\n'.join(body), {'__name__': '__main__'})
+      - name: TypeScript and lint verification
+        run: npm run lint
+      - name: Vitest verification
+        run: npm test
+      - name: Production build verification
+        run: npm run build
+      - name: Commit repaired PR branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: harden ORIGIN provider retries and title [origin-urgent-repair]"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
