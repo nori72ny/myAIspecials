@@ -28,10 +28,15 @@ jobs:
           app = app.replace(/Personal 2\.0/g, "Personal");
           fs.writeFileSync("src/App.tsx", app);
 
-          // 2. originChatRouter.ts の修正 (429/503 指数バックオフ 3回リトライ & 100秒予算)
+          // 2. originChatRouter.ts の修正 (429/503 指数バックオフ 3回リトライ)
           let router = fs.readFileSync("src/legacy/originChatRouter.ts", "utf8");
-          // タイムアウトとリトライの定数更新
-          router = router.replace(/MAX_PROVIDER_ATTEMPT_TIMEOUT_MS\s*=\s*\d+;/, "MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 25_000;");
+
+          // バックオフ遅延配列とタイムアウト定数の更新
+          router = router.replace(
+            /const\s+MAX_PROVIDER_ATTEMPT_TIMEOUT_MS\s*=\s*\d+;/,
+            "const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 25_000;\nconst RETRY_DELAYS_MS = [1500, 3000, 5000];"
+          );
+
           fs.writeFileSync("src/legacy/originChatRouter.ts", router);
           '
 
