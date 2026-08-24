@@ -78,9 +78,9 @@ jobs:
           const routerPath = 'src/legacy/originChatRouter.ts';
           let router = fs.readFileSync(routerPath, 'utf8');
           const retryStart = router.indexOf('const TOTAL_BUDGET_MS');
-          const fnStart = router.indexOf('async function executeWithRetry', retryStart);
-          if (retryStart < 0 || fnStart < 0) throw new Error('executeWithRetry block not found');
-          const fnMatch = router.slice(retryStart).match(/async function executeWithRetry[\\s\\S]*?\\n\\s*throw lastError;\\s*\\}/);
+          if (retryStart < 0) throw new Error('TOTAL_BUDGET_MS not found');
+          const suffix = router.slice(retryStart);
+          const fnMatch = suffix.match(/async function executeWithRetry[\s\S]*?\n\s*throw lastError;\s*\}/);
           if (!fnMatch) throw new Error('executeWithRetry body not found');
           const replacement = `const TOTAL_BUDGET_MS = 9_500;
           const DEFAULT_RETRY_DELAYS_MS = [1500, 3000];
@@ -120,7 +120,7 @@ jobs:
             }
             throw lastError;
           }`;
-          router = router.slice(0, retryStart) + replacement + router.slice(retryStart + fnMatch[0].length);
+          router = router.slice(0, retryStart) + replacement + suffix.slice(fnMatch[0].length);
           fs.writeFileSync(routerPath, router);
           NODE
 
