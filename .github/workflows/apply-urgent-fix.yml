@@ -27,17 +27,15 @@ jobs:
           app = app.replace(/Personal 2\.0/g, "Personal");
           fs.writeFileSync("src/App.tsx", app);
 
-          // 2. originChatRouter.ts の修正 (429/503 指数バックオフ 3回リトライループ本体の注入)
+          // 2. originChatRouter.ts の修正 (リトライ関数注入 & 呼び出し箇所の確実な置換)
           let router = fs.readFileSync("src/legacy/originChatRouter.ts", "utf8");
           
-          // リトライ遅延・予算設定の注入
-          router = router.replace(
-            /const\s+MAX_PROVIDER_ATTEMPT_TIMEOUT_MS\s*=\s*\d+;/,
-            "const TOTAL_BUDGET_MS = 100_000;\nconst RETRY_DELAYS_MS = [1500, 3000, 5000];\nconst MAX_RETRIES = 3;"
-          );
-
-          // 429/503 判定およびリトライ実行関数の注入/置換
+          // 既存の try { result = await execute(...) } catch ... ブロックを executeWithRetry に置換
           const retryLogic = `
+          const TOTAL_BUDGET_MS = 100_000;
+          const RETRY_DELAYS_MS = [1500, 3000, 5000];
+          const MAX_RETRIES = 3;
+
           async function executeWithRetry(executeFn, request) {
             const startTime = Date.now();
             let lastError;
@@ -64,11 +62,16 @@ jobs:
             throw lastError;
           }
           `;
-          
-          // ファイル内にヘルパーを追記
+
           if (!router.includes("executeWithRetry")) {
             router = retryLogic + "\n" + router;
           }
+
+          // 呼び出し箇所の差し替え
+          router = router.replace(
+            /result\s*=\s*await\s+execute\s*\(\s*providerRequest\s*\);/g,
+            "result = await executeWithRetry(execute, providerRequest);"
+          );
 
           fs.writeFileSync("src/legacy/originChatRouter.ts", router);
           '
