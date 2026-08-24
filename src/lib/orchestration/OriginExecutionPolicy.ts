@@ -64,15 +64,10 @@ export type OriginExecutionPlanResult =
 export const DEFAULT_ORIGIN_EXECUTION_POLICY: OriginExecutionPolicy = {
   freeOnly: true,
   maxEstimatedCostUsd: 0,
-  // Free providers can take longer under load. Keep a bounded 90-second
-  // provider window so useful long-form answers are not discarded at 45s,
-  // while remaining below Vercel's explicitly configured function limit.
-  timeoutMs: 90_000,
+  timeoutMs: 20_000,
 };
 
 export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = {
-  // Permit OpenRouter to try another endpoint for this exact fixed model
-  // when the fastest endpoint is overloaded. Model switching remains forbidden.
   allowProviderFallbacks: true,
   dataCollection: "deny",
   requireZeroDataRetention: false,
@@ -89,10 +84,7 @@ function normalizePolicy(policy?: Partial<OriginExecutionPolicy>): OriginExecuti
     || requestedTimeoutMs > 120_000
   ) return null;
 
-  // The client may retain an older 45-50 second preference in localStorage.
-  // Never let that stale value shorten the production provider window below
-  // the server-owned 90-second reliability floor.
-  const timeoutMs = Math.max(
+  const timeoutMs = Math.min(
     DEFAULT_ORIGIN_EXECUTION_POLICY.timeoutMs,
     requestedTimeoutMs,
   );
