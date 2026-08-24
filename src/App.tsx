@@ -936,7 +936,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
           enterSafeWaiting();
           return;
         }
-        if ((typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || failure?.retryable === true || isTransientHttpStatus(response.status)) {
+        const isModelBusy = failure?.retryable === true && (failure?.code === "PROVIDER_RATE_LIMITED" || failure?.code === "PROVIDER_TIMEOUT");
+      if (isModelBusy) {
           appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
           return;
         }

@@ -196,9 +196,9 @@ function mapHttpFailure(status: number, retryAfterSeconds?: number): OriginProvi
   const diagnostic: OriginProviderDiagnostic = { upstreamStatus: status };
   if (status === 401) {
     return new OriginProviderError(
-      "PROVIDER_NOT_CONFIGURED",
-      "無料AIの認証情報を確認できませんでした。",
-      503,
+    "PROVIDER_NOT_CONFIGURED",
+    "無料AIの認証情報を確認できませんでした。",
+    401,
       false,
       undefined,
       diagnostic,
