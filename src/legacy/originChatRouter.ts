@@ -1,6 +1,5 @@
-
 const TOTAL_BUDGET_MS = 100_000;
-const RETRY_DELAYS_MS = [1500, 3000, 5000];
+const DEFAULT_RETRY_DELAYS_MS = [1500, 3000, 5000];
 const MAX_RETRIES = 3;
 
 async function executeWithRetry(executeFn, request) {
@@ -14,10 +13,17 @@ async function executeWithRetry(executeFn, request) {
       return await executeFn(request, timeoutForAttempt);
     } catch (err) {
       lastError = err;
-      const status = err?.status || err?.statusCode || 0;
-      const is429or503 = status === 429 || status === 503 || (err?.message && (err.message.includes("429") || err.message.includes("503")));
+      const status = err?.status ?? err?.statusCode ?? 0;
+      const code = err?.code ?? "";
+      const is429or503 = 
+        status === 429 || 
+        status === 503 || 
+        code === "PROVIDER_RATE_LIMITED" || 
+        (code === "PROVIDER_UNAVAILABLE" && (status === 503 || status === 502));
+      
       if (is429or503 && attempt < MAX_RETRIES) {
-        const delay = RETRY_DELAYS_MS[attempt] || 5000;
+        let delay = (err?.retryAfterSeconds ? err.retryAfterSeconds * 1000 : DEFAULT_RETRY_DELAYS_MS[attempt]) || 5000;
+        delay = Math.min(delay, 10000);
         if (elapsed + delay + 5000 < TOTAL_BUDGET_MS) {
           await new Promise(r => setTimeout(r, delay));
           continue;
@@ -28,6 +34,8 @@ async function executeWithRetry(executeFn, request) {
   }
   throw lastError;
 }
+
+
 
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
@@ -492,18 +500,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         ),
       };
       let result: OriginProviderExecutionResult;
-      try {
-        result = await executeWithRetry(execute, providerRequest);
-      } catch (firstError) {
-        if (!shouldRetryProvider(firstError)) throw firstError;
-        providerRetryAttempted = true;
-        console.warn("[origin-chat] transient provider failure; retrying once", {
-          requestId,
-          code: firstError.code,
-          status: firstError.status,
-        });
-        result = await executeWithRetry(execute, providerRequest);
-      }
+      result = await executeWithRetry(execute, providerRequest);
       // Do not trust an executor boundary alone: a paid, substituted, or otherwise
       // unverifiable result is discarded before any text reaches the response body.
       assertOriginZeroCostExecutionResult(result, planningResult.plan.modelId);
