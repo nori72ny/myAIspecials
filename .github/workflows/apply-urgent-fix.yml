@@ -7,7 +7,7 @@ on:
 
 jobs:
   fix-and-commit:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'fix: ORIGIN clean initial state and Hobby timeout optimization' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'fix: ORIGIN final clean initial state and timeout optimization' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -20,12 +20,33 @@ jobs:
         with:
           node-version: 22
 
-      - name: Apply Clean Initial State & Fast Retry Fixes
+      - name: Apply Final ORIGIN Fixes
         run: |
           node <<'NODE'
           const fs = require('fs');
 
-          // 1. UnifiedChat: make New / ORIGIN navigation a true clean initial-state reset.
+          // 1. OriginExecutionPolicy: align the server-owned execution policy with the
+          // bounded provider execution window used by the chat router.
+          const policyPath = 'src/lib/orchestration/OriginExecutionPolicy.ts';
+          let policy = fs.readFileSync(policyPath, 'utf8');
+          policy = policy.replace(/timeoutMs:\s*90_000/g, 'timeoutMs: 20_000');
+          policy = policy.replace(
+            /const timeoutMs = Math\.max\(\s*DEFAULT_ORIGIN_EXECUTION_POLICY\.timeoutMs,\s*requestedTimeoutMs,\s*\);/s,
+            'const timeoutMs = Math.min(20_000, requestedTimeoutMs);',
+          );
+          fs.writeFileSync(policyPath, policy);
+
+          // 2. App title normalization. The actual chat clean-state behavior lives in
+          // UnifiedChat, so navigation can use the same reset path regardless of the
+          // shell/header component that renders the ORIGIN control.
+          const appPath = 'src/App.tsx';
+          let app = fs.readFileSync(appPath, 'utf8');
+          app = app.replace(/ORIGIN Personal 2\.0/g, 'ORIGIN Personal');
+          app = app.replace(/Personal 2\.0/g, 'Personal');
+          fs.writeFileSync(appPath, app);
+
+          // 3. UnifiedChat: ORIGIN logo / New Conversation must return to a clean
+          // initial state rather than retaining the previous conversation/error/input.
           const chatPath = 'src/components/personal/UnifiedChat.tsx';
           let chat = fs.readFileSync(chatPath, 'utf8');
           const start = chat.indexOf('  const createNewConversation = () => {');
@@ -53,18 +74,19 @@ jobs:
           };`;
           chat = chat.slice(0, start) + newCreate + chat.slice(end);
 
-          const marker = "  // ORIGIN logo navigation must always return to a clean initial conversation.\n";
+          const marker = '  // ORIGIN logo navigation must always return to a clean initial conversation.\n';
           if (!chat.includes(marker)) {
-            const pos = chat.indexOf(newCreate);
-            if (pos < 0) throw new Error('new create function anchor not found');
-            const insertAt = pos + newCreate.length;
+            const insertAt = chat.indexOf(newCreate) + newCreate.length;
+            if (insertAt <= newCreate.length - 1) throw new Error('new create function anchor not found');
             const effect = `\n\n${marker}  useEffect(() => {
             const onOriginNavigationClick = (event) => {
               const target = event.target;
               if (!(target instanceof Element)) return;
               const control = target.closest('a,button');
               if (!control) return;
-              const label = (control.getAttribute('aria-label') || control.textContent || '').trim().replace(/\\s+/g, ' ');
+              const label = (control.getAttribute('aria-label') || control.textContent || '')
+                .trim()
+                .replace(/\\s+/g, ' ');
               if (/^(ORIGIN(?:\\s+Personal)?)$/i.test(label)) createNewConversation();
             };
             window.addEventListener('click', onOriginNavigationClick, true);
@@ -74,7 +96,9 @@ jobs:
           }
           fs.writeFileSync(chatPath, chat);
 
-          // 2. originChatRouter: Hobby-safe 9.5s total budget, 2 retries (1.5s -> 3s).
+          // 4. originChatRouter: four total attempts (initial + 3 retries), fixed
+          // 20s attempt timeout, 1.5s / 3s / 5s backoff, and a 100s hard budget.
+          // Note: 4 x 20s + 9.5s of delays is ~89.5s worst-case, not ~70s.
           const routerPath = 'src/legacy/originChatRouter.ts';
           let router = fs.readFileSync(routerPath, 'utf8');
           const retryStart = router.indexOf('const TOTAL_BUDGET_MS');
@@ -82,9 +106,11 @@ jobs:
           const suffix = router.slice(retryStart);
           const fnMatch = suffix.match(/async function executeWithRetry[\s\S]*?\n\s*throw lastError;\s*\}/);
           if (!fnMatch) throw new Error('executeWithRetry body not found');
-          const replacement = `const TOTAL_BUDGET_MS = 9_500;
-          const DEFAULT_RETRY_DELAYS_MS = [1500, 3000];
-          const MAX_RETRIES = 2;
+
+          const replacement = `const TOTAL_BUDGET_MS = 100_000;
+          const DEFAULT_RETRY_DELAYS_MS = [1500, 3000, 5000];
+          const MAX_RETRIES = 3;
+          const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 20_000;
 
           async function executeWithRetry(executeFn, request) {
             const startTime = Date.now();
@@ -93,8 +119,8 @@ jobs:
               const elapsed = Date.now() - startTime;
               const remainingBudget = TOTAL_BUDGET_MS - elapsed;
               if (remainingBudget <= 0) throw lastError ?? new Error('Provider retry budget exhausted');
-              const remainingDelays = DEFAULT_RETRY_DELAYS_MS.slice(attempt).reduce((sum, delay) => sum + delay, 0);
-              const timeoutForAttempt = Math.max(500, Math.min(2500, remainingBudget - remainingDelays - 250));
+
+              const timeoutForAttempt = Math.min(MAX_PROVIDER_ATTEMPT_TIMEOUT_MS, remainingBudget);
               try {
                 return await executeFn(request, timeoutForAttempt);
               } catch (err) {
@@ -106,20 +132,22 @@ jobs:
                   status === 503 ||
                   code === 'PROVIDER_RATE_LIMITED' ||
                   code === 'PROVIDER_UNAVAILABLE';
+
                 if (!isRetryableProviderError || attempt >= MAX_RETRIES) throw err;
+
                 const delay = Math.min(
-                  5000,
-                  Number.isFinite(err?.retryAfterSeconds) ? Math.max(0, err.retryAfterSeconds * 1000) : DEFAULT_RETRY_DELAYS_MS[attempt],
+                  10_000,
+                  Number.isFinite(err?.retryAfterSeconds)
+                    ? Math.max(0, err.retryAfterSeconds * 1000)
+                    : DEFAULT_RETRY_DELAYS_MS[attempt],
                 );
-                if (Date.now() - startTime + delay + 500 < TOTAL_BUDGET_MS) {
-                  await new Promise((resolve) => setTimeout(resolve, delay));
-                  continue;
-                }
-                throw err;
+                if (Date.now() - startTime + delay + 500 >= TOTAL_BUDGET_MS) throw err;
+                await new Promise((resolve) => setTimeout(resolve, delay));
               }
             }
             throw lastError;
           }`;
+
           router = router.slice(0, retryStart) + replacement + suffix.slice(fnMatch[0].length);
           fs.writeFileSync(routerPath, router);
           NODE
@@ -133,8 +161,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add src/components/personal/UnifiedChat.tsx src/legacy/originChatRouter.ts
+          git add src/App.tsx src/components/personal/UnifiedChat.tsx src/legacy/originChatRouter.ts src/lib/orchestration/OriginExecutionPolicy.ts
           git diff --cached --check
           git diff --cached --quiet && exit 0
-          git commit -m "fix: ORIGIN clean initial state and Hobby timeout optimization"
+          git commit -m "fix: ORIGIN final clean initial state and timeout optimization"
           git push origin main
