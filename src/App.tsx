@@ -444,7 +444,8 @@ const ORIGIN_FIXED_FREE_MODEL = 'google/gemma-4-26b-a4b-it:free';
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
 const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
 const SAFE_WAITING_MESSAGE = '無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
-const MODEL_BUSY_MESSAGE = '現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）';
+const MODEL_BUSY_MESSAGE = "現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）";
+const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ", status: " + (status ?? "---") + ")";
 const MODEL_BUSY_MESSAGE_EN = 'The model is currently busy. Please try again in a few dozen seconds (the $0.00 cost is still maintained).';
 
 type OriginChatFailurePayload = {
