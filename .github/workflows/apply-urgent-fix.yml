@@ -17,35 +17,44 @@ jobs:
         with:
           node-version: 22
 
-      - name: Apply Fixes and Build
+      - name: Apply Exact Error Separation (Node Script)
         run: |
           node -e '
           const fs = require("fs");
 
-          // 1. App.tsx (タイトル統一)
-          if (fs.existsSync("src/App.tsx")) {
-            let app = fs.readFileSync("src/App.tsx", "utf8");
-            app = app.replace(/ORIGIN Personal 2\.0/g, "ORIGIN Personal").replace(/Personal 2\.0/g, "Personal");
-            fs.writeFileSync("src/App.tsx", app);
-            console.log("App.tsx updated");
+          // 1. originProviderClient.ts: 401 の 503 誤変換を 401 に修正
+          const providerPath = "src/legacy/originProviderClient.ts";
+          if (fs.existsSync(providerPath)) {
+            let code = fs.readFileSync(providerPath, "utf8");
+            code = code.replace(
+              /new OriginProviderError\(\s*"PROVIDER_NOT_CONFIGURED",\s*"無料AIの認証情報を確認できませんでした。",\s*503,/g,
+              "new OriginProviderError(\n    \"PROVIDER_NOT_CONFIGURED\",\n    \"無料AIの認証情報を確認できませんでした。\",\n    401,"
+            );
+            fs.writeFileSync(providerPath, code);
+            console.log("originProviderClient.ts: 401 status fixed");
           }
 
-          // 2. OriginExecutionPolicy.ts (タイムアウト20秒化)
-          const policyPath = "src/lib/orchestration/OriginExecutionPolicy.ts";
-          if (fs.existsSync(policyPath)) {
-            let policy = fs.readFileSync(policyPath, "utf8");
-            policy = policy.replace(/timeoutMs:\s*\d+/g, "timeoutMs: 20000");
-            fs.writeFileSync(policyPath, policy);
-            console.log("OriginExecutionPolicy.ts updated");
-          }
+          // 2. App.tsx: 混雑判定の厳格化 & エラーコード別の正確なメッセージ表示
+          const appPath = "src/App.tsx";
+          if (fs.existsSync(appPath)) {
+            let app = fs.readFileSync(appPath, "utf8");
 
-          // 3. originChatRouter.ts (20秒タイムアウト設定)
-          const routerPath = "src/legacy/originChatRouter.ts";
-          if (fs.existsSync(routerPath)) {
-            let router = fs.readFileSync(routerPath, "utf8");
-            router = router.replace(/const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS\s*=\s*\d+;/g, "const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 20000;");
-            fs.writeFileSync(routerPath, router);
-            console.log("originChatRouter.ts updated");
+            // 緩い混雑判定を厳格化
+            app = app.replace(
+              /if\s*\(\s*\(\s*typeof\s+failure\?\.code\s*===\s*[\x27\x22]string[\x27\x22]\s*&&\s*TRANSIENT_PROVIDER_CODES\.has\(failure\.code\)\s*\)\s*\|\|\s*failure\?\.retryable\s*===\s*true\s*\|\|\s*isTransientHttpStatus\(response\.status\)\s*\)/g,
+              "const isModelBusy = failure?.retryable === true && (failure?.code === \"PROVIDER_RATE_LIMITED\" || failure?.code === \"PROVIDER_TIMEOUT\");\n      if (isModelBusy)"
+            );
+
+            // 401 / PROVIDER_NOT_CONFIGURED 用の明示的エラーメッセージ追加
+            if (!app.includes("APIキーまたはサーバー設定エラーです")) {
+              app = app.replace(
+                /appendFailure\(MODEL_BUSY_MESSAGE\);\s*return;\s*\}/g,
+                "appendFailure(MODEL_BUSY_MESSAGE);\n        return;\n      }\n      if (failure?.code === \"PROVIDER_NOT_CONFIGURED\" || response.status === 401) {\n        appendFailure(\"APIキーまたはサーバー設定エラーです（code: PROVIDER_NOT_CONFIGURED, status: 401）。設定を確認してください。\");\n        return;\n      }\n      if (failure?.code === \"PROVIDER_UNAVAILABLE\" || response.status === 503) {\n        appendFailure(\"現在モデルを利用できません（code: PROVIDER_UNAVAILABLE, status: 503）。\");\n        return;\n      }"
+              );
+            }
+
+            fs.writeFileSync(appPath, app);
+            console.log("App.tsx: Exact error branching applied");
           }
           '
           npm ci
@@ -53,5 +62,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add src/
-          git commit -m "fix: OpenRouter 20s timeout and clean title sync" || echo "No changes to commit"
+          git commit -m "fix: eliminate error masking, preserve 401 status, and enforce strict error branching" || echo "No changes"
           git push origin main
