@@ -1,5 +1,4 @@
 name: Apply Urgent Fixes
-
 on:
   workflow_dispatch:
 
@@ -21,21 +20,55 @@ jobs:
         run: |
           node -e '
           const fs = require("fs");
-
+          
           // 1. App.tsx の修正 (タイトル統一)
           let app = fs.readFileSync("src/App.tsx", "utf8");
           app = app.replace(/ORIGIN Personal 2\.0/g, "ORIGIN Personal");
           app = app.replace(/Personal 2\.0/g, "Personal");
           fs.writeFileSync("src/App.tsx", app);
 
-          // 2. originChatRouter.ts の修正 (429/503 指数バックオフ 3回リトライ)
+          // 2. originChatRouter.ts の修正 (429/503 指数バックオフ 3回リトライループ本体の注入)
           let router = fs.readFileSync("src/legacy/originChatRouter.ts", "utf8");
-
-          // バックオフ遅延配列とタイムアウト定数の更新
+          
+          // リトライ遅延・予算設定の注入
           router = router.replace(
             /const\s+MAX_PROVIDER_ATTEMPT_TIMEOUT_MS\s*=\s*\d+;/,
-            "const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 25_000;\nconst RETRY_DELAYS_MS = [1500, 3000, 5000];"
+            "const TOTAL_BUDGET_MS = 100_000;\nconst RETRY_DELAYS_MS = [1500, 3000, 5000];\nconst MAX_RETRIES = 3;"
           );
+
+          // 429/503 判定およびリトライ実行関数の注入/置換
+          const retryLogic = `
+          async function executeWithRetry(executeFn, request) {
+            const startTime = Date.now();
+            let lastError;
+            for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+              const elapsed = Date.now() - startTime;
+              const remainingBudget = Math.max(5000, TOTAL_BUDGET_MS - elapsed);
+              const timeoutForAttempt = Math.min(25000, remainingBudget);
+              try {
+                return await executeFn(request, timeoutForAttempt);
+              } catch (err) {
+                lastError = err;
+                const status = err?.status || err?.statusCode || 0;
+                const is429or503 = status === 429 || status === 503 || (err?.message && (err.message.includes("429") || err.message.includes("503")));
+                if (is429or503 && attempt < MAX_RETRIES) {
+                  const delay = RETRY_DELAYS_MS[attempt] || 5000;
+                  if (elapsed + delay + 5000 < TOTAL_BUDGET_MS) {
+                    await new Promise(r => setTimeout(r, delay));
+                    continue;
+                  }
+                }
+                throw err;
+              }
+            }
+            throw lastError;
+          }
+          `;
+          
+          // ファイル内にヘルパーを追記
+          if (!router.includes("executeWithRetry")) {
+            router = retryLogic + "\n" + router;
+          }
 
           fs.writeFileSync("src/legacy/originChatRouter.ts", router);
           '
