@@ -1,0 +1,49 @@
+name: Apply Urgent Fixes
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix-and-commit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply In-Place Fixes (Node Script)
+        run: |
+          node -e '
+          const fs = require("fs");
+
+          // 1. App.tsx の修正 (タイトル統一)
+          let app = fs.readFileSync("src/App.tsx", "utf8");
+          app = app.replace(/ORIGIN Personal 2\.0/g, "ORIGIN Personal");
+          app = app.replace(/Personal 2\.0/g, "Personal");
+          fs.writeFileSync("src/App.tsx", app);
+
+          // 2. originChatRouter.ts の修正 (429/503 指数バックオフ 3回リトライ & 100秒予算)
+          let router = fs.readFileSync("src/legacy/originChatRouter.ts", "utf8");
+          // タイムアウトとリトライの定数更新
+          router = router.replace(/MAX_PROVIDER_ATTEMPT_TIMEOUT_MS\s*=\s*\d+;/, "MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 25_000;");
+          fs.writeFileSync("src/legacy/originChatRouter.ts", router);
+          '
+
+      - name: Run Tests & Build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit & Push to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx src/legacy/originChatRouter.ts
+          git commit -m "fix: OpenRouter 429 exponential backoff retry and unify ORIGIN Personal title" || exit 0
+          git push origin main
