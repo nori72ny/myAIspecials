@@ -4,21 +4,35 @@ import {
   ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
   selectCurrentOriginFreeModel,
   type OriginFreeModelEvidence,
-  type OriginFreeModelId,
 } from "./OriginFreeModelCatalog.js";
 
 export const ORIGIN_OPENROUTER_FREE_PROVIDER_ID = "openrouter-free" as const;
+export const ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID = "google-ai-studio-free" as const;
+export const ORIGIN_GROQ_FREE_PROVIDER_ID = "groq-free" as const;
 export const ORIGIN_OPENROUTER_FREE_MODEL = ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
+export const ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL = "gemini-2.5-flash" as const;
+export const ORIGIN_GROQ_FREE_MODEL = "llama-3.3-70b-versatile" as const;
 
-export type OriginExecutionProviderId = typeof ORIGIN_OPENROUTER_FREE_PROVIDER_ID;
+export type OriginExecutionProviderId =
+  | typeof ORIGIN_OPENROUTER_FREE_PROVIDER_ID
+  | typeof ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID
+  | typeof ORIGIN_GROQ_FREE_PROVIDER_ID;
+
+export const ORIGIN_ZERO_COST_PROVIDER_IDS: readonly OriginExecutionProviderId[] = [
+  ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
+  ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID,
+  ORIGIN_GROQ_FREE_PROVIDER_ID,
+];
 
 export interface OriginExecutionAvailability {
   openRouterConfigured: boolean;
+  googleAiStudioConfigured?: boolean;
+  groqConfigured?: boolean;
 }
 
 export interface OriginExecutionPolicy {
   freeOnly: true;
-  maxEstimatedCostUsd: number;
+  maxEstimatedCostUsd: 0;
   timeoutMs: number;
 }
 
@@ -31,7 +45,7 @@ export interface OriginProviderDataPolicy {
 export interface OriginExecutionPlan {
   providerId: OriginExecutionProviderId;
   providerLabel: string;
-  modelId: OriginFreeModelId;
+  modelId: string;
   taskType: AITaskType;
   freeOnly: true;
   estimatedCostUsd: 0;
@@ -39,11 +53,7 @@ export interface OriginExecutionPlan {
   requiresOwnerApproval: false;
   reason: string;
   providerDataPolicy: OriginProviderDataPolicy;
-  modelEvidence: {
-    verifiedAt: string;
-    reviewAfter: string;
-    sourceUrl: string;
-  };
+  modelEvidence: { verifiedAt: string; reviewAfter: string; sourceUrl: string };
 }
 
 export interface OriginExecutionPlanningOptions {
@@ -74,26 +84,11 @@ export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = {
 };
 
 function normalizePolicy(policy?: Partial<OriginExecutionPolicy>): OriginExecutionPolicy | null {
-  const maxEstimatedCostUsd = policy?.maxEstimatedCostUsd ?? DEFAULT_ORIGIN_EXECUTION_POLICY.maxEstimatedCostUsd;
+  const maxEstimatedCostUsd = policy?.maxEstimatedCostUsd ?? 0;
   const requestedTimeoutMs = policy?.timeoutMs ?? DEFAULT_ORIGIN_EXECUTION_POLICY.timeoutMs;
-
   if (!Number.isFinite(maxEstimatedCostUsd) || maxEstimatedCostUsd !== 0) return null;
-  if (
-    !Number.isInteger(requestedTimeoutMs)
-    || requestedTimeoutMs < 1_000
-    || requestedTimeoutMs > 120_000
-  ) return null;
-
-  const timeoutMs = Math.min(
-    DEFAULT_ORIGIN_EXECUTION_POLICY.timeoutMs,
-    requestedTimeoutMs,
-  );
-
-  return {
-    freeOnly: true,
-    maxEstimatedCostUsd: 0,
-    timeoutMs,
-  };
+  if (!Number.isInteger(requestedTimeoutMs) || requestedTimeoutMs < 1_000 || requestedTimeoutMs > 120_000) return null;
+  return { freeOnly: true, maxEstimatedCostUsd: 0, timeoutMs: Math.min(DEFAULT_ORIGIN_EXECUTION_POLICY.timeoutMs, requestedTimeoutMs) };
 }
 
 export function buildOriginExecutionPlan(
@@ -103,31 +98,17 @@ export function buildOriginExecutionPlan(
   planningOptions: OriginExecutionPlanningOptions = {},
 ): OriginExecutionPlanResult {
   const policy = normalizePolicy(policyInput);
-  if (!policy) {
-    return {
-      ok: false,
-      code: "INVALID_EXECUTION_POLICY",
-      message: "実行ポリシーの値が正しくありません。",
-    };
+  if (!policy) return { ok: false, code: "INVALID_EXECUTION_POLICY", message: "実行ポリシーの値が正しくありません。" };
+  if (!availability.openRouterConfigured && !availability.googleAiStudioConfigured && !availability.groqConfigured) {
+    return { ok: false, code: "FREE_PROVIDER_NOT_CONFIGURED", message: "明示的に無料と確認できるAIプロバイダーが設定されていません。" };
   }
-
-  if (!availability.openRouterConfigured) {
-    return {
-      ok: false,
-      code: "FREE_PROVIDER_NOT_CONFIGURED",
-      message: "明示的に無料と確認できるAIプロバイダーが設定されていません。",
-    };
-  }
-
   const freeModelResult = selectCurrentOriginFreeModel(
     planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
     planningOptions.nowMs ?? Date.now(),
   );
   if (freeModelResult.ok === false) return freeModelResult;
-
   const taskType = classifyTask(request);
   const model = freeModelResult.model;
-
   return {
     ok: true,
     plan: {
@@ -139,13 +120,9 @@ export function buildOriginExecutionPlan(
       estimatedCostUsd: 0,
       timeoutMs: policy.timeoutMs,
       requiresOwnerApproval: false,
-      reason: `依頼を「${taskType}」として分類し、公式情報で無料と確認した固定モデル「${model.modelId}」を選択しました。同じ固定モデルの提供経路のみ混雑時の切替を許可し、別モデルへの自動切替は行いません。実行後も要求モデルとの一致と利用額0ドルを確認します。これは品質優位性の主張ではありません。`,
+      reason: `依頼を「${taskType}」として分類し、0ドル固定ポリシーで実行します。一次経路が利用できない場合は許可リスト内の無料プロバイダーへ自動フォールバックし、有料モデルには切り替えません。`,
       providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
-      modelEvidence: {
-        verifiedAt: model.verifiedAt,
-        reviewAfter: model.reviewAfter,
-        sourceUrl: model.sourceUrl,
-      },
+      modelEvidence: { verifiedAt: model.verifiedAt, reviewAfter: model.reviewAfter, sourceUrl: model.sourceUrl },
     },
   };
 }
