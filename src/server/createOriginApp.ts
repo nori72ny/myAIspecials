@@ -8,8 +8,19 @@ import {
   createOriginChatRateLimiter,
   requireSafeOriginChatRequest,
 } from "./originSecurity.js";
+import { enhanceImagePrompt, type ImageStyle } from "../services/imagePromptEngine.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
+const IMAGE_STYLES: readonly ImageStyle[] = ["photorealistic", "ghibli", "disney", "fine_art", "scenery"];
+
+function isImageStyle(value: unknown): value is ImageStyle {
+  return typeof value === "string" && IMAGE_STYLES.includes(value as ImageStyle);
+}
+
+function looksLikeImageGenerationRequest(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return /(?:generate|create|make|render|draw|image|photo|photograph|picture|画像|写真|描いて|生成)/i.test(value);
+}
 
 export function resolveOriginReleaseSha(
   env: NodeJS.ProcessEnv = process.env,
@@ -69,6 +80,43 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
     next(error);
   };
   app.use(invalidJsonHandler);
+
+  // $0 image prompt optimization only. This endpoint never calls an image provider.
+  // It is deliberately separate from /api/chat so ordinary text conversations cannot be rewritten.
+  app.post("/api/generate-image", (req, res) => {
+    const prompt = req.body?.prompt;
+    const style = req.body?.style;
+
+    if (typeof prompt !== "string" || prompt.trim().length === 0) {
+      return res.status(400).json({
+        code: "INVALID_IMAGE_PROMPT",
+        message: "画像生成プロンプトを指定してください。",
+        retryable: false,
+      });
+    }
+    if (!isImageStyle(style)) {
+      return res.status(400).json({
+        code: "INVALID_IMAGE_STYLE",
+        message: "対応していない画像スタイルです。",
+        styles: IMAGE_STYLES,
+        retryable: false,
+      });
+    }
+
+    const enhanced = enhanceImagePrompt(prompt, style);
+    return res.status(200).json({
+      status: "ok",
+      provider: "local-zero-cost",
+      generated: false,
+      prompt: enhanced.prompt,
+      positivePrompt: enhanced.positivePrompt,
+      negativePrompt: enhanced.negativePrompt,
+      style: enhanced.style,
+      note: looksLikeImageGenerationRequest(prompt)
+        ? "プロンプトを$0のローカル最適化のみ実施しました。外部画像生成APIは呼び出していません。"
+        : "画像生成APIは呼び出さず、指定されたプロンプトのみ最適化しました。",
+    });
+  });
 
   // This guard must remain first among provider-capable routes. It blocks every
   // retired provider and mission mutation path before input can be transmitted.
