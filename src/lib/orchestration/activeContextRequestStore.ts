@@ -14,6 +14,10 @@ export function withActiveContext<T>(value: unknown, callback: () => T): T {
   return storage.run(sanitizeActiveContext(value), callback);
 }
 
+export function enterActiveContext(value: unknown): void {
+  storage.enterWith(sanitizeActiveContext(value));
+}
+
 export function getActiveContext(): string {
   return storage.getStore() ?? "";
 }
