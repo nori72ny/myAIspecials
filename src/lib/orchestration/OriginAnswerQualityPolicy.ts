@@ -1,6 +1,7 @@
 import type { AITaskType } from "./MultiAIOrchestrator.js";
 import type { OriginRequestIntent } from "./OriginRequestIntent.js";
 import { buildActiveContextInstruction, retrieveRelevantContext } from "../../services/activeContextGraph.js";
+import { getActiveContext } from "./activeContextRequestStore.js";
 
 export type OriginAnswerMode = "direct" | "decision" | "deliverable" | "research";
 export type OriginVerificationLevel = "basic" | "evidence-required" | "independent-review-required";
@@ -55,6 +56,7 @@ export function originAnswerQualityInstruction(policy: OriginAnswerQualityPolicy
     "- Use that lightweight spec to make concrete composition choices: primary task first, a responsive grid, meaningful empty and error states, accessible controls, and restrained micro-interactions. Do not output the spec or claim that a design review occurred.",
     "- Then return one complete, runnable deliverable in the requested fenced code format. Preserve requested functionality; do not substitute an image or an incomplete mockup for a working artifact.",
   ] : [];
+  const activeContextInstruction = buildActiveContextInstruction(getActiveContext());
   return [
     "Answer quality policy:",
     `- Response mode: ${policy.answerMode}. ${modeInstruction[policy.answerMode]}`,
@@ -70,11 +72,18 @@ export function originAnswerQualityInstruction(policy: OriginAnswerQualityPolicy
     "- End with a complete sentence or complete deliverable. Never leave a teaser, unfinished offer, or fragment.",
     ...executiveInstruction,
     ...creativeSpecInstruction,
+    ...(activeContextInstruction ? [activeContextInstruction] : []),
   ].join("\n");
 }
 
-export async function originAnswerQualityInstructionWithActiveContext(policy: OriginAnswerQualityPolicy, currentPrompt: string): Promise<string> {
-  const context = await retrieveRelevantContext(currentPrompt);
+export async function originAnswerQualityInstructionWithActiveContext(
+  policy: OriginAnswerQualityPolicy,
+  currentPrompt: string,
+  providedContext?: string,
+): Promise<string> {
+  const context = typeof providedContext === "string" && providedContext.trim().length > 0
+    ? providedContext.trim().slice(0, 6_000)
+    : await retrieveRelevantContext(currentPrompt);
   const contextInstruction = buildActiveContextInstruction(context);
   const base = originAnswerQualityInstruction(policy);
   return contextInstruction ? `${base}\n${contextInstruction}` : base;
