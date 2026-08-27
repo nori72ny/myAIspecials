@@ -13,9 +13,8 @@ export type EncryptedLocalIndex = {
   notes: Array<Pick<LocalNote, 'id' | 'path' | 'name' | 'updatedAt' | 'size'>>;
 };
 
-type MemoryGuardLike = {
-  encrypt?: (plaintext: string) => Promise<string>;
-};
+type MemoryGuardLike = { encrypt?: (plaintext: string) => Promise<string> };
+type DirectoryHandleWithEntries = FileSystemDirectoryHandle & { entries(): AsyncIterableIterator<[string, FileSystemHandle]> };
 
 const DB_NAME = 'origin-universal-master-v1';
 const STORE_NAME = 'encrypted-index';
@@ -70,10 +69,7 @@ export class LocalFirstSyncEngine {
   private notes = new Map<string, LocalNote>();
   private listeners = new Set<(notes: LocalNote[]) => void>();
 
-  constructor(memoryGuard?: MemoryGuardLike) {
-    this.memoryGuard = memoryGuard ?? null;
-  }
-
+  constructor(memoryGuard?: MemoryGuardLike) { this.memoryGuard = memoryGuard ?? null; }
   isSupported(): boolean { return supportsFileSystemAccess(); }
 
   onChange(listener: (notes: LocalNote[]) => void): () => void {
@@ -82,13 +78,14 @@ export class LocalFirstSyncEngine {
   }
 
   private async getKey(): Promise<CryptoKey> {
-    if (!this.keyPromise) {
-      this.keyPromise = crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt']);
-    }
+    if (!this.keyPromise) this.keyPromise = crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt']);
     return this.keyPromise;
   }
 
-  private emit(): void { const snapshot = [...this.notes.values()].sort((a, b) => a.path.localeCompare(b.path)); this.listeners.forEach((listener) => listener(snapshot)); }
+  private emit(): void {
+    const snapshot = [...this.notes.values()].sort((a, b) => a.path.localeCompare(b.path));
+    this.listeners.forEach((listener) => listener(snapshot));
+  }
 
   async chooseDirectory(): Promise<void> {
     if (!supportsFileSystemAccess()) throw new Error('file-system-access-unsupported');
@@ -103,14 +100,15 @@ export class LocalFirstSyncEngine {
     if (!this.directory) throw new Error('directory-not-selected');
     const next = new Map<string, LocalNote>();
     const walk = async (handle: FileSystemDirectoryHandle, prefix = ''): Promise<void> => {
-      for await (const entry of handle.values()) {
+      const directory = handle as DirectoryHandleWithEntries;
+      for await (const [entryName, entry] of directory.entries()) {
         if (entry.kind === 'directory') {
-          await walk(entry, prefix ? `${prefix}/${entry.name}` : entry.name);
-        } else if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.md')) {
-          const file = await entry.getFile();
-          const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+          await walk(entry as FileSystemDirectoryHandle, prefix ? `${prefix}/${entryName}` : entryName);
+        } else if (entry.kind === 'file' && entryName.toLowerCase().endsWith('.md')) {
+          const file = await (entry as FileSystemFileHandle).getFile();
+          const path = prefix ? `${prefix}/${entryName}` : entryName;
           const id = await digestId(path);
-          next.set(id, { id, path, name: entry.name, content: await file.text(), updatedAt: file.lastModified, size: file.size });
+          next.set(id, { id, path, name: entryName, content: await file.text(), updatedAt: file.lastModified, size: file.size });
         }
       }
     };
@@ -149,7 +147,6 @@ export class LocalFirstSyncEngine {
   }
 
   stopWatching(): void { if (this.watcher !== null) window.clearInterval(this.watcher); this.watcher = null; }
-
   dispose(): void { this.stopWatching(); this.listeners.clear(); this.directory = null; }
 }
 
