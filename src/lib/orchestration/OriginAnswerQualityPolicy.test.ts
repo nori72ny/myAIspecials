@@ -26,6 +26,7 @@ describe("OriginAnswerQualityPolicy", () => {
       answerMode: "decision",
       verificationLevel: "basic",
       creativeSpecRequired: false,
+      executiveReasoningRequired: true,
     });
   });
 
@@ -38,6 +39,7 @@ describe("OriginAnswerQualityPolicy", () => {
       answerMode: "research",
       verificationLevel: "evidence-required",
       creativeSpecRequired: false,
+      executiveReasoningRequired: true,
     });
   });
 
@@ -49,6 +51,7 @@ describe("OriginAnswerQualityPolicy", () => {
     });
 
     expect(policy.verificationLevel).toBe("independent-review-required");
+    expect(policy.executiveReasoningRequired).toBe(true);
     expect(originAnswerQualityInstruction(policy)).toContain(
       "If the execution record does not prove it ran",
     );
@@ -95,5 +98,23 @@ describe("OriginAnswerQualityPolicy", () => {
     expect(instruction).toContain("visual hierarchy and layout");
     expect(instruction).toContain("OKLCH color palette");
     expect(instruction).toContain("Do not output the spec");
+  });
+
+  it("enforces Executive Reasoning Protocol v5.0 without percentage confidence", () => {
+    const policy = resolveOriginAnswerQualityPolicy({
+      intent: intent({ suggestedOutputs: ["comparison"] }),
+      taskType: "implementation",
+      independentReviewRequired: false,
+    });
+    const instruction = originAnswerQualityInstruction(policy);
+
+    expect(instruction).toContain("Executive Reasoning Protocol v5.0");
+    expect(instruction).toContain("Direct Executive Framing");
+    expect(instruction).toContain("Counter-Hypothesis");
+    expect(instruction).toContain("Decision-Changing Conditions");
+    expect(instruction).toContain("Epistemic Confidence: use only High / Medium / Low");
+    expect(instruction).toContain("Information Needed");
+    expect(instruction).toContain("Claim-level calibration");
+    expect(instruction).not.toContain("confidence 87%");
   });
 });
