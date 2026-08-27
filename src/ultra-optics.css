@@ -4,10 +4,10 @@
 }
 
 :root {
-  --origin-ultra-bg: #030712;
-  --origin-ultra-platinum: #f5f5f4;
-  --origin-ultra-muted: #a1a1aa;
-  --origin-ultra-champagne: #d4c7b0;
+  --origin-ultra-bg: #F8FAFC;
+  --origin-ultra-platinum: #0F172A;
+  --origin-ultra-muted: #475569;
+  --origin-ultra-champagne: #64748B;
   --origin-ultra-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -23,12 +23,11 @@
   :where(input, textarea, select):focus-within,
   :where(input, textarea, select):focus-visible {
     outline: none;
-    border-color: rgba(255, 255, 255, 0.25) !important;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15) !important;
+    border-color: var(--accent-primary) !important;
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent-primary) 28%, transparent) !important;
   }
 }
 
-/* Executive cognition typography: Japanese reading gets its own rhythm. */
 .prose-jp,
 .markdown-body {
   letter-spacing: 0;
@@ -42,19 +41,18 @@
   font-size: 16px !important;
   line-height: 1.65 !important;
   letter-spacing: -0.01em !important;
-  color: #f5f5f4 !important;
+  color: var(--text-primary) !important;
 }
 
-/* Glass is a functional layer only: inputs, overlays, dialogs and floating tools. */
 .origin-ultra-panel,
 .origin-glass-control {
   position: relative;
-  background: rgba(3, 7, 18, 0.76);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-top-color: rgba(255, 255, 255, 0.15);
+  background: color-mix(in oklch, var(--bg-surface) 88%, transparent);
+  border: 1px solid var(--border-default);
+  border-top-color: var(--border-strong);
   backdrop-filter: blur(24px) saturate(105%);
   -webkit-backdrop-filter: blur(24px) saturate(105%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 20px 60px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, white 55%, transparent), 0 20px 60px var(--shadow-color);
 }
 
 .origin-chat .markdown-body,
@@ -65,7 +63,6 @@
   -webkit-backdrop-filter: none !important;
 }
 
-/* AI answers are content, not cards. Keep only semantic inner sections visually grouped. */
 .origin-chat [data-message-id] > div > div:has(.markdown-body) {
   background: transparent !important;
   border: 0 !important;
@@ -74,12 +71,11 @@
   padding: 0 !important;
 }
 
-/* The composer is the primary glass surface. */
 .origin-chat > div:last-child > div > div {
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  background: rgba(255, 255, 255, 0.035);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: color-mix(in oklch, var(--bg-surface) 92%, transparent);
+  border-color: var(--border-default);
 }
 
 .origin-ultra-splash {
@@ -90,7 +86,7 @@
   place-items: center;
   overflow: hidden;
   isolation: isolate;
-  background: #030712;
+  background: var(--bg-primary);
   animation: origin-ultra-splash-out 180ms var(--origin-ultra-ease) 420ms both;
   pointer-events: none;
 }
@@ -98,7 +94,7 @@
 .origin-ultra-splash__aurora {
   position: absolute;
   inset: -20%;
-  background: radial-gradient(circle at 50% 45%, rgba(255,255,255,.045), transparent 28%);
+  background: radial-gradient(circle at 50% 45%, color-mix(in oklch, var(--accent-primary) 7%, transparent), transparent 28%);
   filter: blur(48px);
 }
 
@@ -118,10 +114,10 @@
   height: 80px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255,255,255,.14);
+  border: 1px solid var(--border-default);
   border-radius: 24px;
-  background: linear-gradient(145deg, rgba(255,255,255,.09), rgba(255,255,255,.02));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 20px 60px rgba(0,0,0,.48);
+  background: linear-gradient(145deg, color-mix(in oklch, var(--bg-surface) 94%, transparent), color-mix(in oklch, var(--bg-surface-muted) 72%, transparent));
+  box-shadow: inset 0 1px 0 color-mix(in oklch, white 70%, transparent), 0 20px 60px var(--shadow-color);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
 }
@@ -130,7 +126,7 @@
   position: absolute;
   inset: -18px;
   border-radius: 32px;
-  background: radial-gradient(circle, rgba(255,255,255,.045), transparent 62%);
+  background: radial-gradient(circle, color-mix(in oklch, var(--accent-primary) 8%, transparent), transparent 62%);
   filter: blur(14px);
 }
 
@@ -142,27 +138,27 @@
   width: 52px;
   height: 52px;
   border-radius: 16px;
-  color: rgba(255,255,255,.94);
+  color: var(--text-primary);
   font-family: "Geist Mono", ui-monospace, monospace;
   font-size: 32px;
   font-weight: 650;
   letter-spacing: -0.08em;
-  background: linear-gradient(145deg, rgba(255,255,255,.1), rgba(255,255,255,.025));
-  border: 1px solid rgba(255,255,255,.18);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.16);
+  background: linear-gradient(145deg, color-mix(in oklch, var(--bg-surface) 96%, transparent), color-mix(in oklch, var(--bg-surface-muted) 78%, transparent));
+  border: 1px solid var(--border-default);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, white 72%, transparent);
 }
 
 .origin-ultra-logo__edge {
   position: absolute;
   inset: 1px;
   border-radius: 23px;
-  border-top: 1px solid rgba(255,255,255,.22);
-  border-left: 1px solid rgba(255,255,255,.06);
+  border-top: 1px solid var(--border-strong);
+  border-left: 1px solid var(--border-default);
 }
 
 .origin-ultra-wordmark {
   margin-top: 22px;
-  color: rgba(248,250,252,.96);
+  color: var(--text-primary);
   font-family: "Geist", "Noto Sans JP", sans-serif;
   font-size: 18px;
   font-weight: 650;
@@ -172,7 +168,7 @@
 
 .origin-ultra-caption {
   margin-top: 5px;
-  color: rgba(161,161,170,.64);
+  color: var(--text-secondary);
   font-family: "Geist Mono", ui-monospace, monospace;
   font-size: 8px;
   letter-spacing: .24em;
@@ -186,14 +182,14 @@
   bottom: 7vh;
   display: grid;
   gap: 9px;
-  opacity: .14;
+  opacity: .24;
 }
 
 .origin-ultra-skeleton span {
   display: block;
   height: 5px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(161,161,170,.02), rgba(255,255,255,.09), rgba(161,161,170,.02));
+  background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--text-secondary) 24%, transparent), transparent);
   background-size: 220% 100%;
   animation: origin-ultra-shimmer 1.5s linear infinite;
 }
@@ -216,7 +212,6 @@
   to { background-position: -20% 0; }
 }
 
-/* Focus Mode: remove chrome, retain content and composer. */
 html[data-origin-focus-mode="true"] body > * header,
 html[data-origin-focus-mode="true"] body > * aside,
 html[data-origin-focus-mode="true"] .origin-chat > div:first-child,
@@ -250,4 +245,12 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   .origin-ultra-skeleton span { animation: none; }
   .origin-ultra-splash__content { opacity: 1; transform: none; }
   .origin-ultra-splash { animation: none; opacity: 0; visibility: hidden; }
+}
+
+@media (max-width: 640px) {
+  .prose-jp,
+  .markdown-body { font-size: 15px; line-height: 1.78; }
+  .origin-chat [role="log"] { padding-inline: 12px; }
+  .origin-ultra-logo { width: 68px; height: 68px; border-radius: 20px; }
+  .origin-ultra-logo__core { width: 44px; height: 44px; border-radius: 14px; font-size: 27px; }
 }
