@@ -5,8 +5,8 @@
 
 :root {
   --origin-ultra-bg: #030712;
-  --origin-ultra-cyan: #22d3ee;
-  --origin-ultra-emerald: #34d399;
+  --origin-ultra-platinum: #e5e7eb;
+  --origin-ultra-platinum-muted: #a1a1aa;
   --origin-ultra-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -18,10 +18,13 @@
     letter-spacing: -0.012em;
   }
 
+  :where(input, textarea, select):focus,
+  :where(input, textarea, select):focus-within,
   :where(input, textarea, select):focus-visible {
     outline: none;
-    box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.7), 0 0 0 4px rgba(34, 211, 238, 0.12), 0 0 28px rgba(34, 211, 238, 0.16);
-    transition: box-shadow 180ms var(--origin-ultra-ease);
+    border-color: rgba(255, 255, 255, 0.25) !important;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15) !important;
+    transition: border-color 180ms var(--origin-ultra-ease), box-shadow 180ms var(--origin-ultra-ease);
   }
 }
 
@@ -30,8 +33,8 @@
   background: rgba(3, 7, 18, 0.76);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-top-color: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(48px) saturate(135%);
-  -webkit-backdrop-filter: blur(48px) saturate(135%);
+  backdrop-filter: blur(48px) saturate(105%);
+  -webkit-backdrop-filter: blur(48px) saturate(105%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 80px rgba(0, 0, 0, 0.28);
 }
 
@@ -52,9 +55,9 @@
   position: absolute;
   inset: -20%;
   background:
-    radial-gradient(circle at 50% 45%, rgba(34, 211, 238, 0.14), transparent 26%),
-    radial-gradient(circle at 62% 55%, rgba(52, 211, 153, 0.08), transparent 32%);
-  filter: blur(36px);
+    radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.055), transparent 26%),
+    radial-gradient(circle at 62% 55%, rgba(212, 212, 216, 0.035), transparent 32%);
+  filter: blur(48px);
   animation: origin-ultra-aurora 2.4s ease-in-out infinite alternate;
 }
 
@@ -77,9 +80,9 @@
   border: 1px solid rgba(255,255,255,.16);
   border-radius: 28px;
   background: linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.025));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 24px 80px rgba(0,0,0,.5), 0 0 42px rgba(34,211,238,.12);
-  backdrop-filter: blur(32px) saturate(150%);
-  -webkit-backdrop-filter: blur(32px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 24px 80px rgba(0,0,0,.5), 0 0 42px rgba(255,255,255,.045);
+  backdrop-filter: blur(32px) saturate(110%);
+  -webkit-backdrop-filter: blur(32px) saturate(110%);
   transform: translateZ(0);
 }
 
@@ -87,8 +90,8 @@
   position: absolute;
   inset: -24px;
   border-radius: 40px;
-  background: radial-gradient(circle, rgba(34,211,238,.2), transparent 62%);
-  filter: blur(12px);
+  background: radial-gradient(circle, rgba(255,255,255,.07), transparent 62%);
+  filter: blur(16px);
   animation: origin-ultra-breathe 2.1s ease-in-out infinite;
 }
 
@@ -100,14 +103,14 @@
   width: 56px;
   height: 56px;
   border-radius: 18px;
-  color: #ecfeff;
+  color: rgba(255,255,255,.94);
   font-family: "Geist Mono", ui-monospace, monospace;
   font-size: 34px;
   font-weight: 650;
   letter-spacing: -0.08em;
-  background: linear-gradient(145deg, rgba(34,211,238,.22), rgba(52,211,153,.08));
-  border: 1px solid rgba(103,232,249,.34);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 0 32px rgba(34,211,238,.16);
+  background: linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.035));
+  border: 1px solid rgba(255,255,255,.22);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 0 32px rgba(255,255,255,.055);
 }
 
 .origin-ultra-logo__edge {
@@ -130,7 +133,7 @@
 
 .origin-ultra-caption {
   margin-top: 6px;
-  color: rgba(148,163,184,.72);
+  color: rgba(161,161,170,.72);
   font-family: "Geist Mono", ui-monospace, monospace;
   font-size: 8px;
   letter-spacing: .28em;
@@ -151,7 +154,7 @@
   display: block;
   height: 6px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(148,163,184,.04), rgba(34,211,238,.22), rgba(148,163,184,.04));
+  background: linear-gradient(90deg, rgba(161,161,170,.035), rgba(255,255,255,.16), rgba(161,161,170,.035));
   background-size: 220% 100%;
   animation: origin-ultra-shimmer 1.65s linear infinite;
 }
