@@ -8,10 +8,10 @@ import {
   createOriginChatRateLimiter,
   requireSafeOriginChatRequest,
 } from "./originSecurity.js";
-import { enhanceImagePrompt, type ImageStyle } from "../services/imagePromptEngine.js";
+import { detectImageStyle, enhanceImagePrompt, type ImageStyle } from "../services/imagePromptEngine.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
-const IMAGE_STYLES: readonly ImageStyle[] = ["photorealistic", "ghibli", "disney", "fine_art", "scenery"];
+const IMAGE_STYLES: readonly ImageStyle[] = ["photorealistic", "manga", "cel_anime", "stylized_3d", "fine_art", "ghibli", "disney", "scenery"];
 
 function isImageStyle(value: unknown): value is ImageStyle {
   return typeof value === "string" && IMAGE_STYLES.includes(value as ImageStyle);
@@ -85,7 +85,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   // It is deliberately separate from /api/chat so ordinary text conversations cannot be rewritten.
   app.post("/api/generate-image", (req, res) => {
     const prompt = req.body?.prompt;
-    const style = req.body?.style;
+    const requestedStyle = req.body?.style;
 
     if (typeof prompt !== "string" || prompt.trim().length === 0) {
       return res.status(400).json({
@@ -94,7 +94,8 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
         retryable: false,
       });
     }
-    if (!isImageStyle(style)) {
+
+    if (requestedStyle !== undefined && !isImageStyle(requestedStyle)) {
       return res.status(400).json({
         code: "INVALID_IMAGE_STYLE",
         message: "対応していない画像スタイルです。",
@@ -103,7 +104,11 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
       });
     }
 
+    const style = isImageStyle(requestedStyle)
+      ? requestedStyle
+      : detectImageStyle(prompt);
     const enhanced = enhanceImagePrompt(prompt, style);
+
     return res.status(200).json({
       status: "ok",
       provider: "local-zero-cost",
@@ -112,6 +117,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
       positivePrompt: enhanced.positivePrompt,
       negativePrompt: enhanced.negativePrompt,
       style: enhanced.style,
+      styleDetected: requestedStyle === undefined,
       note: looksLikeImageGenerationRequest(prompt)
         ? "プロンプトを$0のローカル最適化のみ実施しました。外部画像生成APIは呼び出していません。"
         : "画像生成APIは呼び出さず、指定されたプロンプトのみ最適化しました。",
