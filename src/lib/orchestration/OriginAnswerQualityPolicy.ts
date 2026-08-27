@@ -1,22 +1,11 @@
 import type { AITaskType } from "./MultiAIOrchestrator.js";
 import type { OriginRequestIntent } from "./OriginRequestIntent.js";
+import { buildActiveContextInstruction, retrieveRelevantContext } from "../../services/activeContextGraph.js";
 
 export type OriginAnswerMode = "direct" | "decision" | "deliverable" | "research";
 export type OriginVerificationLevel = "basic" | "evidence-required" | "independent-review-required";
-
-export interface OriginAnswerQualityPolicy {
-  answerMode: OriginAnswerMode;
-  verificationLevel: OriginVerificationLevel;
-  creativeSpecRequired: boolean;
-  executiveReasoningRequired: boolean;
-}
-
-interface OriginAnswerQualityPolicyInput {
-  intent: OriginRequestIntent;
-  taskType: AITaskType;
-  independentReviewRequired: boolean;
-}
-
+export interface OriginAnswerQualityPolicy { answerMode: OriginAnswerMode; verificationLevel: OriginVerificationLevel; creativeSpecRequired: boolean; executiveReasoningRequired: boolean; }
+interface OriginAnswerQualityPolicyInput { intent: OriginRequestIntent; taskType: AITaskType; independentReviewRequired: boolean; }
 const RESEARCH_TASKS = new Set<AITaskType>(["research", "current-information"]);
 const EXECUTIVE_TASKS = new Set<AITaskType>(["research", "current-information", "architecture", "operations", "security"]);
 const CREATIVE_ARTIFACT_OUTPUTS = new Set(["application", "website", "presentation", "dashboard"]);
@@ -28,7 +17,7 @@ export function resolveOriginAnswerQualityPolicy(input: OriginAnswerQualityPolic
   const executiveReasoningRequired = EXECUTIVE_TASKS.has(input.taskType) || decisionRequested;
   const answerMode: OriginAnswerMode = input.intent.interactionMode === "deliverable" ? "deliverable" : researchRequired ? "research" : decisionRequested ? "decision" : "direct";
   const verificationLevel: OriginVerificationLevel = input.independentReviewRequired ? "independent-review-required" : researchRequired ? "evidence-required" : "basic";
-  const creativeSpecRequired = input.intent.interactionMode === "deliverable" && (input.intent.requestedOutputs.some((output) => CREATIVE_ARTIFACT_OUTPUTS.has(output)) || input.intent.requiredCapabilities.some((capability) => CREATIVE_ARTIFACT_CAPABILITIES.has(capability)));
+  const creativeSpecRequired = input.intent.interactionMode === "deliverable" && (input.intent.requestedOutputs.some((o) => CREATIVE_ARTIFACT_OUTPUTS.has(o)) || input.intent.requiredCapabilities.some((c) => CREATIVE_ARTIFACT_CAPABILITIES.has(c)));
   return { answerMode, verificationLevel, creativeSpecRequired, executiveReasoningRequired };
 }
 
@@ -82,4 +71,11 @@ export function originAnswerQualityInstruction(policy: OriginAnswerQualityPolicy
     ...executiveInstruction,
     ...creativeSpecInstruction,
   ].join("\n");
+}
+
+export async function originAnswerQualityInstructionWithActiveContext(policy: OriginAnswerQualityPolicy, currentPrompt: string): Promise<string> {
+  const context = await retrieveRelevantContext(currentPrompt);
+  const contextInstruction = buildActiveContextInstruction(context);
+  const base = originAnswerQualityInstruction(policy);
+  return contextInstruction ? `${base}\n${contextInstruction}` : base;
 }
