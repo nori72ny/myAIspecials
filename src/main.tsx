@@ -9,10 +9,12 @@ import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
 import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
+import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import './index.css';
 import './ultra-optics.css';
 
 registerOriginServiceWorker();
+installActiveContextChatBridge();
 
 const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';
