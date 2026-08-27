@@ -24,9 +24,9 @@ export function resolveOriginAnswerQualityPolicy(input: OriginAnswerQualityPolic
 
 function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy): string {
   const modeInstruction: Record<OriginAnswerMode, string> = {
-    direct: "Give the direct answer first. Add only the explanation needed to use it.",
+    direct: "Give the direct answer first. Use the Fast Path for simple, low-stakes questions: skip heavyweight reasoning, research, and unnecessary framing; stream the answer as soon as the required facts are available. Add only the explanation needed to use it.",
     decision: "Present a decision object: recommendation first, up to three decisive reasons, meaningful trade-offs or risks, uncertainty, and the next action. Do not repeat the conclusion at the end.",
-    deliverable: "Return the requested deliverable first. Do not surround it with generic analysis unless the user asked for analysis.",
+    deliverable: "Return the requested deliverable first. The first substantive content must be the usable artifact itself (complete text, proposal, table, code, or other requested output). Do not spend tokens on capability introductions, generic preambles, or meta-commentary unless the user explicitly asks for analysis.",
     research: "Separate confirmed facts, user-provided material, inference, and unverified points. Bind each time-sensitive factual claim to a directly supporting source when one was actually checked.",
   };
   const verificationInstruction: Record<OriginVerificationLevel, string> = {
@@ -61,6 +61,8 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
     `- Response mode: ${policy.answerMode}. ${modeInstruction[policy.answerMode]}`,
     `- Verification level: ${policy.verificationLevel}. ${verificationInstruction[policy.verificationLevel]}`,
     `- Executive reasoning: ${policy.executiveReasoningRequired ? "required for consequential decisions" : "apply only when decision stakes warrant it"}.`,
+    "- Deliverable First: when the user asks for something they can use, paste, submit, run, publish, or send, start with that finished output. Remove capability descriptions and generic preambles unless requested.",
+    "- Fast Path: for simple, deterministic, low-stakes requests, answer directly without unnecessary multi-step reasoning, broad research, or repeated framing. Preserve safety and factual calibration; speed never authorizes invented facts.",
     "- Silently evaluate correctness, relevance, completeness, freshness, evidence, calibration, actionability, and clarity before sending.",
     "- Calibrate depth to the question, not merely to its length. A short question can require a broad, concrete answer; do not mistake brevity for a request for minimal coverage.",
     "- For representative-example questions, cover the major categories before adding advice. When the subject naturally supports it, give roughly 6-10 useful examples, identify especially notable ones, and attach at least one distinguishing detail to each.",
