@@ -167,7 +167,7 @@ export function AdaptiveSimulationCanvas({ spec, className = '' }: { spec: Simul
   })), [spec.outputs, values]);
 
   return (
-    <section className={`rounded-2xl border border-cyan-400/20 bg-[#030712] p-4 shadow-[0_0_28px_rgba(34,211,238,0.08)] ${className}`} aria-label={spec.title ?? 'Interactive simulation'}>
+    <section className={`rounded-2xl border border-cyan-400/20 bg-slate-950 p-4 shadow-lg ${className}`} aria-label={spec.title ?? 'Interactive simulation'}>
       {spec.title && <h3 className="mb-4 text-base font-semibold text-slate-100">{spec.title}</h3>}
       <div className="space-y-4">
         {spec.parameters.map((parameter) => {
