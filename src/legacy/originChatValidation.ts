@@ -42,16 +42,11 @@ export function detectSensitiveConversation(messages: OriginChatMessage[]): Sens
     }
   }
 
-  // Structured credentials can be split across adjacent messages or across
-  // repeated turns of the same role. Scan canonicalized streams without adding
-  // separators, while keeping conversational credential terms scoped to the
-  // per-message user checks above to avoid blocking ordinary assistant advice.
   const structuredStreams = [
     messages.map((message) => message.content).join(""),
     messages.filter((message) => message.role === "user").map((message) => message.content).join(""),
     messages.filter((message) => message.role !== "user").map((message) => message.content).join(""),
   ];
-
   for (const stream of structuredStreams) {
     const detection = detectSensitiveInput(stream);
     for (const kind of detection.kinds) {
@@ -67,7 +62,7 @@ export function originClientPolicy(body: OriginChatBody): Partial<OriginExecutio
   if (!input) return undefined;
 
   const policy: Partial<OriginExecutionPolicy> = {};
-  if (typeof input.maxEstimatedCostUsd === "number") policy.maxEstimatedCostUsd = input.maxEstimatedCostUsd;
+  if (typeof input.maxEstimatedCostUsd === "number") policy.maxEstimatedCostUsd = input.maxEstimatedCostUsd as 0;
   if (typeof input.timeoutMs === "number") policy.timeoutMs = input.timeoutMs;
   return policy;
 }
@@ -98,8 +93,8 @@ export function hasOriginWeatherLocation(message: string, userLocation: unknown)
     || message.includes("大阪")
     || message.includes("札幌")
     || message.includes("福岡")
-    || /[市区町村都道府県]/.test(message)
-    || /\bin\b/i.test(message)
-    || /\bat\b/i.test(message)
-    || (typeof userLocation === "string" && userLocation.trim() !== "");
+    || message.includes("名古屋")
+    || message.includes("横浜")
+    || message.includes("京都")
+    || (typeof userLocation === "string" && userLocation.trim().length > 0);
 }
