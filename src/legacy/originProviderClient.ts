@@ -36,6 +36,14 @@ const MAX_COMPLETION_SEGMENTS = 3;
 export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel: string = ORIGIN_OPENROUTER_FREE_MODEL): void {
   if (result.actualCostUsd !== 0 || result.usage?.costUsd !== 0) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料モデルの実行で0ドル以外の利用額が報告されたため、回答を破棄しました。", 502, false);
   const e = result.routingEvidence;
+  const isZeroCostFallback =
+    e.requestedModel === expectedModel &&
+    e.fallbackUsed === true &&
+    e.strategy === "zero-cost-failover" &&
+    e.attempt === 1 &&
+    ((e.provider === "Google AI Studio" && e.servedModel === ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL) ||
+      (e.provider === "Groq" && e.servedModel === ORIGIN_GROQ_FREE_MODEL));
+  if (isZeroCostFallback) return;
   if (e.requestedModel !== expectedModel || e.servedModel !== expectedModel || e.strategy !== "fixed-free-model" || e.provider !== "OpenRouter" || e.attempt !== 1 || e.fallbackUsed !== false) {
     throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "固定無料モデルの応答証跡を確認できなかったため、回答を返しません。", 502, false);
   }
@@ -128,14 +136,14 @@ async function executeGemini(request: OriginProviderExecutionRequest, apiKey: st
   const response = await fetchImpl(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: request.systemInstruction }] }, contents, generationConfig: { maxOutputTokens: originCompletionTokenBudget(request.plan.taskType), temperature: 0.2, topP: 0.9 } }) });
   if (!response.ok) throw mapHttpFailure(response.status, parseRetryAfterSeconds(response.headers.get("Retry-After")));
   const data = await readJson(response); const text = extractText(data.candidates?.[0]?.content?.parts?.map((p: any) => ({ type: "text", text: p.text })));
-  if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "Geminiから有効な回答を受け取れませんでした。", 502, true);
+  if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "Geminiから有効な応答を受け取れませんでした。", 502, true);
   return { text, actualCostUsd: 0, providerDataPolicy: request.plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL, strategy: "zero-cost-failover", provider: "Google AI Studio", attempt: 1, fallbackUsed: true }, usage: { costUsd: 0 } };
 }
 
 async function executeGroq(request: OriginProviderExecutionRequest, apiKey: string, fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult> {
   const response = await fetchImpl("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: ORIGIN_GROQ_FREE_MODEL, messages: normalizeMessages(request.messages, request.systemInstruction).filter((m) => m.role !== "system"), max_tokens: originCompletionTokenBudget(request.plan.taskType), temperature: 0.2, top_p: 0.9 }) });
   if (!response.ok) throw mapHttpFailure(response.status, parseRetryAfterSeconds(response.headers.get("Retry-After")));
-  const data = await readJson(response); const text = extractText(data.choices?.[0]?.message?.content); if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "Groqから有効な回答を受け取れませんでした。", 502, true);
+  const data = await readJson(response); const text = extractText(data.choices?.[0]?.message?.content); if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "Groqから有効な応答を受け取れませんでした。", 502, true);
   return { text, actualCostUsd: 0, providerDataPolicy: request.plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_GROQ_FREE_MODEL, strategy: "zero-cost-failover", provider: "Groq", attempt: 1, fallbackUsed: true }, usage: { promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens, totalTokens: data.usage?.total_tokens, costUsd: 0 } };
 }
 
