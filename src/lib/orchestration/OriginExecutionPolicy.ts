@@ -32,7 +32,7 @@ export interface OriginExecutionAvailability {
 
 export interface OriginExecutionPolicy {
   freeOnly: true;
-  maxEstimatedCostUsd: 0;
+  maxEstimatedCostUsd: number;
   timeoutMs: number;
 }
 
