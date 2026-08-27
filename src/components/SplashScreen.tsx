@@ -5,7 +5,7 @@ export interface SplashScreenProps {
   visible?: boolean;
 }
 
-export default function SplashScreen({ durationMs = 900, visible = true }: SplashScreenProps) {
+export default function SplashScreen({ durationMs = 600, visible = true }: SplashScreenProps) {
   const [mounted, setMounted] = useState(visible);
 
   useEffect(() => {
@@ -14,7 +14,7 @@ export default function SplashScreen({ durationMs = 900, visible = true }: Splas
       return;
     }
     setMounted(true);
-    const timer = window.setTimeout(() => setMounted(false), durationMs);
+    const timer = window.setTimeout(() => setMounted(false), Math.max(0, durationMs));
     return () => window.clearTimeout(timer);
   }, [durationMs, visible]);
 
