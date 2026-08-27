@@ -4,6 +4,7 @@ import {
   type SensitiveInputKind,
 } from "../lib/orchestration/SensitiveInputDetector.js";
 import type { OriginChatMessage } from "./originProviderClient.js";
+import { enterActiveContext } from "../lib/orchestration/activeContextRequestStore.js";
 
 export interface OriginChatBody {
   messages?: unknown;
@@ -59,6 +60,11 @@ export function detectSensitiveConversation(messages: OriginChatMessage[]): Sens
 }
 
 export function originClientPolicy(body: OriginChatBody): Partial<OriginExecutionPolicy> | undefined {
+  // Bind the client-provided historical context to this request's async execution
+  // context before the router constructs its system instruction. The context is
+  // sanitized by the request store and is always treated as untrusted history.
+  enterActiveContext(body.activeContext);
+
   const input = body.executionPolicy;
   if (!input) return undefined;
 
