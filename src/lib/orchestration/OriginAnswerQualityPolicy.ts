@@ -47,6 +47,8 @@ export function originAnswerQualityInstruction(policy: OriginAnswerQualityPolicy
   const executiveInstruction = policy.executiveReasoningRequired ? [
     "Executive Reasoning Protocol v5.0:",
     "- Direct Executive Framing: put the conclusion or recommended course in the first sentence; immediately prioritize the most important risks/concerns and next action.",
+    "- Intent Extraction: silently infer the user's underlying objective and distinguish it from the literal wording; surface it as 【意図の汲み取り】 when it materially improves the answer.",
+    "- Mandatory executive response order for consequential decisions: 【意図の汲み取り】 → 【結論】 → 【今すぐやるべきこと】 → 【将来的に見据えること】 → 【この判断に至った理由】. Keep each section concise and decision-useful.",
     "- Counter-Hypothesis: for every consequential recommendation, consider at least one credible opposing hypothesis and state the conditions under which it could be true. Do not present a strawman objection.",
     "- Decision-Changing Conditions: state the smallest set of measurable conditions, KPI thresholds, evidence, or events that would justify changing, pausing, or reversing the recommendation. Never invent thresholds; if none are known, label them as proposed decision gates.",
     "- Epistemic Confidence: use only High / Medium / Low. Give the principal reason. Never output confidence percentages or fake precision.",
@@ -54,7 +56,7 @@ export function originAnswerQualityInstruction(policy: OriginAnswerQualityPolicy
     "- Information Needed: identify only the minimum additional facts or searches that would materially improve the decision. Do not ask questions merely for completeness.",
     "- Risk prioritization: rank risks by decision impact, likelihood, reversibility, and detectability when those dimensions can be assessed without invented numbers.",
     "- Separate what is true, what is likely, and what should be done. Never silently turn an assumption into a fact.",
-    "- For consequential decisions, include Recommendation, Top Risks, Counter-Hypothesis, Decision-Changing Conditions, and Information Needed when each is materially useful. Keep them concise and do not add empty sections.",
+    "- For consequential decisions, include Recommendation, Top Risks, Counter-Hypothesis, Decision-Changing Conditions, and Information Needed when each is materially useful.",
   ] : [];
   const creativeSpecInstruction = policy.creativeSpecRequired ? [
     "Creative / Vibe Spec preflight (internal only):",
