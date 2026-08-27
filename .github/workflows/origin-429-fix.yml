@@ -1,0 +1,137 @@
+name: ORIGIN 429 zero-cost fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply guarded source fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          provider = Path('src/legacy/originProviderClient.ts')
+          text = provider.read_text()
+          old = '''export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel: string = ORIGIN_OPENROUTER_FREE_MODEL): void {
+            if (result.actualCostUsd !== 0 || result.usage?.costUsd !== 0) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料モデルの実行で0ドル以外の利用額が報告されたため、回答を破棄しました。", 502, false);
+            const e = result.routingEvidence;
+            if (e.requestedModel !== expectedModel || e.servedModel !== expectedModel || e.strategy !== "fixed-free-model" || e.provider !== "OpenRouter" || e.attempt !== 1 || e.fallbackUsed !== false) {
+              throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "固定無料モデルの応答証跡を確認できなかったため、回答を返しません。", 502, false);
+            }
+          }'''
+          new = '''export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel: string = ORIGIN_OPENROUTER_FREE_MODEL): void {
+            if (result.actualCostUsd !== 0 || result.usage?.costUsd !== 0) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料モデルの実行で0ドル以外の利用額が報告されたため、回答を破棄しました。", 502, false);
+            const e = result.routingEvidence;
+            const isZeroCostFallback =
+              e.requestedModel === expectedModel &&
+              e.fallbackUsed === true &&
+              e.strategy === "zero-cost-failover" &&
+              e.attempt === 1 &&
+              ((e.provider === "Google AI Studio" && e.servedModel === ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL) ||
+                (e.provider === "Groq" && e.servedModel === ORIGIN_GROQ_FREE_MODEL));
+            if (isZeroCostFallback) return;
+            if (e.requestedModel !== expectedModel || e.servedModel !== expectedModel || e.strategy !== "fixed-free-model" || e.provider !== "OpenRouter" || e.attempt !== 1 || e.fallbackUsed !== false) {
+              throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "固定無料モデルの応答証跡を確認できなかったため、回答を返しません。", 502, false);
+            }
+          }'''
+          if old not in text:
+              raise SystemExit('provider target block not found; refusing to modify')
+          provider.write_text(text.replace(old, new, 1))
+
+          router = Path('src/legacy/originChatRouter.ts')
+          text = router.read_text()
+          old = '''      if (error instanceof OriginProviderError) {
+        console.warn("[origin-chat] provider request failed", {
+          requestId,
+          durationMs: Math.max(0, now() - startedAt),
+          code: error.code,
+          status: error.status,
+          retryable: error.retryable,
+          diagnostic: error.diagnostic,
+        });
+        const exhaustedTransientRetry = providerRetryAttempted && shouldRetryProvider(error);
+        return res.status(error.status).json({
+          code: error.code,
+          message: exhaustedTransientRetry ? MODEL_BUSY_MESSAGE : error.message,
+          retryable: error.retryable,
+          retryAfterSeconds: error.retryAfterSeconds,
+          diagnostic: error.diagnostic,
+          requestId,
+          retryAttempted: providerRetryAttempted,
+        });
+      }'''
+          new = '''      if (error instanceof OriginProviderError) {
+        console.warn("[origin-chat] provider request failed", {
+          requestId,
+          durationMs: Math.max(0, now() - startedAt),
+          code: error.code,
+          status: error.status,
+          retryable: error.retryable,
+          diagnostic: error.diagnostic,
+        });
+        if (shouldRetryProvider(error)) {
+          const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage);
+          const content = isEnglish
+            ? "Free AI capacity is temporarily busy. ORIGIN is keeping the $0 cost policy and safe synchronization active. Please try again in a few seconds."
+            : "現在無料APIの利用が一時的に集中しています。費用0円ポリシーを維持したまま安全に同期中ですので、数秒おいて再度お試しください。";
+          const reason = isEnglish
+            ? "All currently available zero-cost provider retry paths were exhausted; no paid provider was selected."
+            : "無料プロバイダーの再試行経路を使い切りました。有料プロバイダーへは切り替えず、0円ポリシーを維持しました。";
+          return res.status(200).json({
+            content,
+            answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason),
+            routing: {
+              ...applicationRouting(requestId, reason, "not-run"),
+              providerAttempts: providerRetryAttempted ? 2 : 1,
+              retryAttempted: providerRetryAttempted,
+            },
+          });
+        }
+        return res.status(error.status).json({
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          retryAfterSeconds: error.retryAfterSeconds,
+          diagnostic: error.diagnostic,
+          requestId,
+          retryAttempted: providerRetryAttempted,
+        });
+      }'''
+          if old not in text:
+              raise SystemExit('router target block not found; refusing to modify')
+          router.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Build verification
+        run: npm run build
+
+      - name: Commit source fixes and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/legacy/originProviderClient.ts src/legacy/originChatRouter.ts
+          git rm .github/workflows/origin-429-fix.yml
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "fix: accept zero-cost failover and soften exhausted 429 response"
+          git push origin HEAD:main
