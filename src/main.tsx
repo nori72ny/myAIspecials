@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import SettingsModal from './components/SettingsModal';
+import SplashScreen from './components/SplashScreen';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
 import { UniversalMasterEnginePanel } from './components/UniversalMasterEnginePanel';
 import { usePersonalSettings } from './hooks/usePersonalSettings';
@@ -8,6 +9,7 @@ import { getTranslations } from './i18n';
 import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import './index.css';
+import './ultra-optics.css';
 
 registerOriginServiceWorker();
 
@@ -54,7 +56,7 @@ function PersonalReleaseRoot() {
   const resolvedTheme = useMemo(() => settings.selectedTheme === 'dark' || settings.selectedTheme === 'light' ? settings.selectedTheme : (systemPrefersDark ? 'dark' : 'light'), [settings.selectedTheme, systemPrefersDark]);
   useEffect(() => { const media = window.matchMedia('(prefers-color-scheme: dark)'); const onChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches); setSystemPrefersDark(media.matches); media.addEventListener?.('change', onChange); return () => media.removeEventListener?.('change', onChange); }, []);
   useEffect(() => { const announceUpdate = () => setUpdateReady(true); window.addEventListener('origin:pwa-update-ready', announceUpdate); return () => window.removeEventListener('origin:pwa-update-ready', announceUpdate); }, []);
-  useEffect(() => { const root = document.documentElement; root.lang = settings.language; root.dataset.theme = resolvedTheme; root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal'; root.classList.toggle('light', resolvedTheme === 'light'); root.classList.toggle('dark', resolvedTheme === 'dark'); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#111827' : '#f7f6f2'); }, [settings.language, settings.designTheme, resolvedTheme]);
+  useEffect(() => { const root = document.documentElement; root.lang = settings.language; root.dataset.theme = resolvedTheme; root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal'; root.classList.toggle('light', resolvedTheme === 'light'); root.classList.toggle('dark', resolvedTheme === 'dark'); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#030712' : '#f7f6f2'); }, [settings.language, settings.designTheme, resolvedTheme]);
   useEffect(() => { let active = true; const legacy = snapshotFromState(messages, sessions, []); void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.source === 'indexeddb' && result.snapshot) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); }); return () => { active = false; }; }, []);
   useEffect(() => { if (storageHealth === 'loading') return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, messages, sessions, storageHealth]);
 
@@ -64,6 +66,7 @@ function PersonalReleaseRoot() {
   const resetConversation = () => { archiveSession(messages); setMessages([]); setResetSignal((value) => value + 1); };
 
   return <>
+    <SplashScreen />
     <UniversalMasterEnginePanel onContextReady={(context) => { setKnowledgeContext(context); window.dispatchEvent(new CustomEvent('origin:knowledge-context', { detail: { context } })); }} />
     {knowledgeContext && <p role="status" className="sr-only">ナレッジグラフからチャット文脈を選択しました。</p>}
     <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => setMessages(session.messages.map((message) => ({ ...message })))} onMessagesChange={setMessages} onArtifactsChange={setArtifacts} resetSignal={resetSignal} />
