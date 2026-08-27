@@ -8,6 +8,7 @@ import type { OriginChatMessage } from "./originProviderClient.js";
 export interface OriginChatBody {
   messages?: unknown;
   userLocation?: unknown;
+  activeContext?: unknown;
   executionPolicy?: {
     maxEstimatedCostUsd?: unknown;
     timeoutMs?: unknown;
