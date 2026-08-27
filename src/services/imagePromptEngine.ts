@@ -28,12 +28,12 @@ const COMMON_NEGATIVE = [
 ].join(', ');
 
 const STYLE_ALIASES: ReadonlyArray<readonly [RegExp, ImageStyle]> = [
+  [/\b(ghibli|ジブリ)\b/i, 'ghibli'],
+  [/\b(disney|ディズニー)\b/i, 'disney'],
   [/\b(manga|comic|マンガ|漫画)\b/i, 'manga'],
   [/\b(cel[- ]?anime|anime|アニメ|セル画)\b/i, 'cel_anime'],
   [/\b(stylized\s*3d|3d animation|3d|ピクサー|3dアニメ)\b/i, 'stylized_3d'],
   [/\b(fine art|oil painting|oil paint|painting|絵画|油彩)\b/i, 'fine_art'],
-  [/\b(ghibli|ジブリ)\b/i, 'ghibli'],
-  [/\b(disney|ディズニー)\b/i, 'disney'],
   [/\b(photo|photograph|photorealistic|realistic|写真|実写)\b/i, 'photorealistic'],
   [/\b(scenery|landscape|風景|景色)\b/i, 'scenery'],
 ];

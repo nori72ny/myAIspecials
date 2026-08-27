@@ -47,8 +47,10 @@ export function originAnswerQualityInstruction(policy: OriginAnswerQualityPolicy
   const executiveInstruction = policy.executiveReasoningRequired ? [
     "Executive Reasoning Protocol v5.0:",
     "- Direct Executive Framing: put the conclusion or recommended course in the first sentence; immediately prioritize the most important risks/concerns and next action.",
-    "- Intent Extraction: silently infer the user's underlying objective and distinguish it from the literal wording; surface it as 【意図の汲み取り】 when it materially improves the answer.",
-    "- Mandatory executive response order for consequential decisions: 【意図の汲み取り】 → 【結論】 → 【今すぐやるべきこと】 → 【将来的に見据えること】 → 【この判断に至った理由】. Keep each section concise and decision-useful.",
+    "- Intent Extraction: identify the user's underlying objective from the request and surface it explicitly as 【意図の汲み取り】 when answering a consequential decision or planning request. Do not invent motives that are unsupported by the request.",
+    "- Mandatory executive response order for consequential decisions: 【意図の汲み取り】 → 【結論】 → 【今すぐやるべきこと】 → 【将来的に見据えること】 → 【この判断に至った理由】. These headings are mandatory when the task is a consequential decision or plan, not merely when executive reasoning is available.",
+    "- 【結論】 must be the first substantive sentence of the response. Do not place greetings or generic preambles before it.",
+    "- 【意図の汲み取り】 should translate the literal request into the decision objective in one concise sentence; if the user's objective is ambiguous, state the uncertainty rather than fabricating it.",
     "- Counter-Hypothesis: for every consequential recommendation, consider at least one credible opposing hypothesis and state the conditions under which it could be true. Do not present a strawman objection.",
     "- Decision-Changing Conditions: state the smallest set of measurable conditions, KPI thresholds, evidence, or events that would justify changing, pausing, or reversing the recommendation. Never invent thresholds; if none are known, label them as proposed decision gates.",
     "- Epistemic Confidence: use only High / Medium / Low. Give the principal reason. Never output confidence percentages or fake precision.",
