@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import SettingsModal from './components/SettingsModal';
 import SplashScreen from './components/SplashScreen';
+import FocusModeController from './components/FocusModeController';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
 import { UniversalMasterEnginePanel } from './components/UniversalMasterEnginePanel';
 import { usePersonalSettings } from './hooks/usePersonalSettings';
@@ -66,6 +67,7 @@ function PersonalReleaseRoot() {
   const resetConversation = () => { archiveSession(messages); setMessages([]); setResetSignal((value) => value + 1); };
 
   return <>
+    <FocusModeController />
     <SplashScreen />
     <UniversalMasterEnginePanel onContextReady={(context) => { setKnowledgeContext(context); window.dispatchEvent(new CustomEvent('origin:knowledge-context', { detail: { context } })); }} />
     {knowledgeContext && <p role="status" className="sr-only">ナレッジグラフからチャット文脈を選択しました。</p>}
