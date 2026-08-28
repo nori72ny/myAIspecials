@@ -5,6 +5,8 @@ const DB_NAME = 'origin-agent-checkpoints-v1';
 const STORE_NAME = 'checkpoints';
 const KEY_NAME = 'aes-gcm-256';
 const RECORD_KEY = 'workspace';
+const MIGRATION_KEY = 'workspace:migration';
+const LEGACY_BACKUP_KEY = 'workspace:legacy-backup';
 const MAX_CHECKPOINTS = 100;
 const MAX_PAYLOAD_BYTES = 2_000_000;
 
@@ -102,23 +104,33 @@ async function decrypt(record: EncryptedRecord, key: CryptoKey): Promise<Checkpo
   });
 }
 
-async function readRecord(): Promise<EncryptedRecord | undefined> {
+async function readRecord(key = RECORD_KEY): Promise<EncryptedRecord | undefined> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
-    const request = tx.objectStore(STORE_NAME).get(RECORD_KEY);
+    const request = tx.objectStore(STORE_NAME).get(key);
     request.onsuccess = () => resolve(request.result as EncryptedRecord | undefined);
     request.onerror = () => reject(request.error ?? new Error('CHECKPOINT_READ_FAILED'));
   });
 }
 
-async function writeRecord(record: EncryptedRecord): Promise<void> {
+async function writeRecord(record: EncryptedRecord, key = RECORD_KEY): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).put(record, RECORD_KEY);
+    tx.objectStore(STORE_NAME).put(record, key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error('CHECKPOINT_WRITE_FAILED'));
+  });
+}
+
+async function deleteRecord(key: string): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error('CHECKPOINT_DELETE_FAILED'));
   });
 }
 
@@ -154,6 +166,38 @@ export async function loadCheckpointsFromIndexedDB(): Promise<CheckpointState[]>
     return await decryptWithKeyFallback(record);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Re-encrypts the current checkpoint history with a passkey-derived key.
+ * The legacy ciphertext is retained as a recovery backup and the new ciphertext
+ * is staged + verified before replacing the active record. Any failure leaves
+ * the pre-migration record decryptable with the original local key.
+ */
+export async function migrateCheckpointsToEncryptionKey(targetKey: CryptoKey): Promise<{ migrated: boolean }> {
+  if (!isBrowser()) throw new Error('CHECKPOINT_BROWSER_REQUIRED');
+  const current = await readRecord(RECORD_KEY);
+  if (!current) return { migrated: false };
+
+  const localKey = await loadOrCreateLocalKey();
+  const checkpoints = await decrypt(current, localKey);
+  const migratedRecord = await encrypt(checkpoints, targetKey);
+
+  await writeRecord(migratedRecord, MIGRATION_KEY);
+  try {
+    const staged = await readRecord(MIGRATION_KEY);
+    if (!staged) throw new Error('CHECKPOINT_MIGRATION_STAGE_MISSING');
+    const verified = await decrypt(staged, targetKey);
+    if (verified.length !== checkpoints.length) throw new Error('CHECKPOINT_MIGRATION_VERIFY_FAILED');
+
+    await writeRecord(current, LEGACY_BACKUP_KEY);
+    await writeRecord(staged, RECORD_KEY);
+    await deleteRecord(MIGRATION_KEY);
+    return { migrated: true };
+  } catch (error) {
+    await deleteRecord(MIGRATION_KEY).catch(() => undefined);
+    throw error;
   }
 }
 
