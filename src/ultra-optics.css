@@ -254,3 +254,36 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   .origin-ultra-logo { width: 68px; height: 68px; border-radius: 20px; }
   .origin-ultra-logo__core { width: 44px; height: 44px; border-radius: 14px; font-size: 27px; }
 }
+
+/* Sovereign Complete Engine: explicit light defaults, dark remains opt-in. */
+:root {
+  --origin-ultra-bg: #F8FAFC;
+  --origin-ultra-platinum: #0F172A;
+  --origin-ultra-muted: #475569;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #F8FAFC;
+  --bg-surface: #FFFFFF;
+  --bg-surface-muted: #F1F5F9;
+  --bg-elevated: #FFFFFF;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-placeholder: #64748B;
+  --shadow-color: rgb(15 23 42 / 0.10);
+}
+
+/* Keep touch targets and layout predictable on small screens. */
+.origin-chat,
+.origin-chat [role="log"] {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .origin-chat [role="log"] { padding-inline: 10px; }
+  .origin-chat > div:last-child > div { width: min(100%, 100vw - 16px); }
+  .origin-primary-button,
+  .origin-secondary-button,
+  .origin-danger-button { min-height: 44px; min-width: 44px; }
+}
