@@ -35,6 +35,7 @@ export type OriginFetch = typeof fetch;
 const MAX_COMPLETION_SEGMENTS = 3;
 const SILENT_RETRY_DELAYS_MS = [200, 500, 1000] as const;
 const PROVIDER_ATTEMPT_TIMEOUT_MS = 6000;
+const PROVIDER_COOLDOWN_MS = 15_000;
 
 export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter", "groq", "google-gemini"] as const;
 export type AllowedZeroCostProvider = typeof ALLOWED_ZERO_COST_PROVIDERS[number];
@@ -46,6 +47,20 @@ export const ALLOWED_ZERO_COST_MODELS = {
 const PROVIDER_ID_BY_LABEL: Record<string, AllowedZeroCostProvider> = {
   OpenRouter: "openrouter", Groq: "groq", "Google AI Studio": "google-gemini",
 };
+const providerCooldownUntil: Partial<Record<AllowedZeroCostProvider, number>> = {};
+
+function nowMs(): number { return Date.now(); }
+function markProviderCooldown(provider: AllowedZeroCostProvider): void {
+  providerCooldownUntil[provider] = nowMs() + PROVIDER_COOLDOWN_MS;
+}
+function isProviderCoolingDown(provider: AllowedZeroCostProvider): boolean {
+  const until = providerCooldownUntil[provider] ?? 0;
+  if (until <= nowMs()) {
+    delete providerCooldownUntil[provider];
+    return false;
+  }
+  return true;
+}
 function rejectZeroCost(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
 function assertFiniteZeroCost(value: unknown, field: string): asserts value is 0 {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || Math.abs(value) > Number.EPSILON) rejectZeroCost(`${field} が厳格な$0ポリシーを満たさないため、回答を破棄しました。`);
@@ -133,8 +148,6 @@ async function fetchWithSilentRetry(fetchImpl: OriginFetch, input: RequestInfo |
     const timeout = setTimeout(() => controller.abort(), PROVIDER_ATTEMPT_TIMEOUT_MS);
     try {
       const response = await fetchImpl(input, { ...init, signal: controller.signal });
-      // A 429 is a provider-quota signal: do not spend more retry budget on the same provider.
-      // Throw immediately so executeOriginProvider can move to the next $0 provider.
       if (response.status === 429) throw mapHttpFailure(429, parseRetryAfterSeconds(response.headers.get("Retry-After")));
       if (!isRetryableHttpStatus(response.status) || attempt === SILENT_RETRY_DELAYS_MS.length) return response;
       lastError = mapHttpFailure(response.status, parseRetryAfterSeconds(response.headers.get("Retry-After")));
@@ -189,11 +202,44 @@ async function executeGroq(request: OriginProviderExecutionRequest, apiKey: stri
   const result: OriginProviderExecutionResult = { text, actualCostUsd: 0, providerDataPolicy: request.plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_GROQ_FREE_MODEL, strategy: "zero-cost-failover", provider: "Groq", attempt: 1, fallbackUsed: true }, usage: { promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens, totalTokens: data.usage?.total_tokens, costUsd: 0 } }; assertOriginZeroCostExecutionResult(result); return result;
 }
 function shouldFailover(error: unknown): boolean { return error instanceof OriginProviderError && error.retryable && (error.code === "PROVIDER_RATE_LIMITED" || error.code === "PROVIDER_UNAVAILABLE" || error.code === "PROVIDER_TIMEOUT" || error.code === "PROVIDER_INTERNAL_ERROR"); }
+function providerForOpenRouter(): AllowedZeroCostProvider { return "openrouter"; }
+async function tryProvider(provider: AllowedZeroCostProvider, request: OriginProviderExecutionRequest, keys: { openRouterKey?: string; geminiKey?: string; groqKey?: string }, fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult | null> {
+  if (isProviderCoolingDown(provider)) return null;
+  try {
+    if (provider === "openrouter" && keys.openRouterKey) return await executeOpenRouter(request, keys.openRouterKey, fetchImpl);
+    if (provider === "google-gemini" && keys.geminiKey) return await executeGemini(request, keys.geminiKey, fetchImpl);
+    if (provider === "groq" && keys.groqKey) return await executeGroq(request, keys.groqKey, fetchImpl);
+    return null;
+  } catch (e) {
+    if (e instanceof OriginProviderError && e.retryable) markProviderCooldown(provider);
+    throw e;
+  }
+}
 export async function executeOriginProvider(request: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv = process.env, fetchImpl: OriginFetch = fetch): Promise<OriginProviderExecutionResult> {
-  validatePlan(request.plan); const failures: OriginProviderError[] = []; const openRouterKey = env.OPENROUTER_API_KEY; const geminiKey = env.GEMINI_API_KEY ?? env.GOOGLE_AI_STUDIO_API_KEY; const groqKey = env.GROQ_API_KEY;
+  validatePlan(request.plan);
+  const failures: OriginProviderError[] = [];
+  const openRouterKey = env.OPENROUTER_API_KEY;
+  const geminiKey = env.GEMINI_API_KEY ?? env.GOOGLE_AI_STUDIO_API_KEY;
+  const groqKey = env.GROQ_API_KEY;
   if (!openRouterKey && !geminiKey && !groqKey) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "無料AIプロバイダーが設定されていません。", 503, false);
-  if (openRouterKey) { try { return await executeOpenRouter(request, openRouterKey, fetchImpl); } catch (e) { if (!shouldFailover(e)) throw e; failures.push(e as OriginProviderError); } }
-  if (geminiKey) { try { return await executeGemini(request, geminiKey, fetchImpl); } catch (e) { if (!shouldFailover(e)) throw e; failures.push(e as OriginProviderError); } }
-  if (groqKey) { try { return await executeGroq(request, groqKey, fetchImpl); } catch (e) { if (!shouldFailover(e)) throw e; failures.push(e as OriginProviderError); } }
-  const last = failures.at(-1); throw last ?? new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true);
+
+  // Pre-flight bypass: a provider that recently returned 429/5xx/timeout is skipped
+  // for 15 seconds. This state is intentionally in-memory: it is a best-effort
+  // warm-instance circuit breaker and never introduces storage or paid infrastructure.
+  const routeOrder: AllowedZeroCostProvider[] = ["openrouter", "google-gemini", "groq"];
+  for (const provider of routeOrder) {
+    if (isProviderCoolingDown(provider)) continue;
+    try {
+      const result = await tryProvider(provider, request, { openRouterKey, geminiKey, groqKey }, fetchImpl);
+      if (result) return result;
+    } catch (e) {
+      if (!shouldFailover(e)) throw e;
+      failures.push(e as OriginProviderError);
+    }
+  }
+
+  // If every configured provider is cooling down, do not create a hot loop.
+  // Fail closed and let the router surface the provider-failure envelope.
+  const last = failures.at(-1);
+  throw last ?? new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIプロバイダーがクールダウン中です。", 503, true);
 }
