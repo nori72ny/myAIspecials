@@ -1,0 +1,83 @@
+export type ToolName =
+  | 'code_interpreter'
+  | 'document_generator'
+  | 'web_search_grounding'
+  | 'image_prompt_compiler';
+
+export type ToolParams = Record<string, unknown>;
+
+export type ToolResult = {
+  ok: boolean;
+  tool: ToolName;
+  artifact?: string;
+  message: string;
+};
+
+type ToolDefinition = {
+  name: ToolName;
+  description: string;
+  sideEffects: 'none';
+  requiresApproval: true;
+  execute: (params: ToolParams) => Promise<ToolResult>;
+};
+
+const MAX_TEXT = 12000;
+const textParam = (params: ToolParams, key: string) =>
+  typeof params[key] === 'string' ? String(params[key]).slice(0, MAX_TEXT) : '';
+
+const registry: Record<ToolName, ToolDefinition> = {
+  code_interpreter: {
+    name: 'code_interpreter',
+    description: 'Deterministic local code analysis/formatting without external execution.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async (params) => {
+      const code = textParam(params, 'code');
+      return { ok: true, tool: 'code_interpreter', artifact: code ? `// Sandboxed analysis\n${code}` : '// No code supplied.', message: 'Local code operation completed.' };
+    },
+  },
+  document_generator: {
+    name: 'document_generator',
+    description: 'Creates a text artifact locally; no external write occurs.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async (params) => {
+      const content = textParam(params, 'content');
+      return { ok: true, tool: 'document_generator', artifact: content || '# Document\n\nNo content supplied.', message: 'Document artifact generated locally.' };
+    },
+  },
+  web_search_grounding: {
+    name: 'web_search_grounding',
+    description: 'Grounding adapter; external network access is intentionally disabled at the tool boundary.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async () => ({ ok: false, tool: 'web_search_grounding', message: 'Web grounding is unavailable in the zero-cost local execution kernel; no network request was made.' }),
+  },
+  image_prompt_compiler: {
+    name: 'image_prompt_compiler',
+    description: 'Compiles an image brief into a provider-neutral prompt locally.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async (params) => {
+      const input = textParam(params, 'prompt');
+      return { ok: true, tool: 'image_prompt_compiler', artifact: input ? `Subject: ${input}\n\nCapture: natural light, coherent composition, physically plausible materials.\nQuality: fine detail, clean edges, accurate anatomy.` : 'No image brief supplied.', message: 'Image prompt compiled locally.' };
+    },
+  },
+};
+
+export const toolRegistry = Object.freeze(registry);
+
+export async function executeToolWithPermission(
+  toolName: ToolName,
+  params: ToolParams,
+  approval: { approved: boolean; costInUSD?: number; safetyPolicyPassed?: boolean } = { approved: false },
+): Promise<ToolResult> {
+  const tool = toolRegistry[toolName];
+  if (!tool) throw new Error('TOOL_NOT_REGISTERED');
+  if (!approval.approved) throw new Error('HUMAN_APPROVAL_REQUIRED');
+  if (approval.safetyPolicyPassed === false) throw new Error('SAFETY_POLICY_BLOCKED');
+  if (approval.costInUSD !== undefined && approval.costInUSD !== 0) throw new Error('ZERO_COST_BOUNDARY_BLOCKED');
+  // The registry itself only exposes side-effect-free handlers. This is the final fail-closed boundary.
+  if (tool.sideEffects !== 'none' || !tool.requiresApproval) throw new Error('TOOL_POLICY_BLOCKED');
+  return tool.execute(params);
+}
