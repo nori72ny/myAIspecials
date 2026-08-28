@@ -38,9 +38,7 @@ function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE_NAME)) {
-        request.result.createObjectStore(STORE_NAME);
-      }
+      if (!request.result.objectStoreNames.contains(STORE_NAME)) request.result.createObjectStore(STORE_NAME);
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('CHECKPOINT_DB_OPEN_FAILED'));
@@ -57,11 +55,7 @@ async function loadOrCreateLocalKey(): Promise<CryptoKey> {
   });
   if (existing) return existing;
 
-  const key = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     tx.objectStore(STORE_NAME).put(key, KEY_NAME);
@@ -85,22 +79,13 @@ async function encrypt(checkpoints: CheckpointState[], key: CryptoKey): Promise<
 
 async function decrypt(record: EncryptedRecord, key: CryptoKey): Promise<CheckpointState[]> {
   if (record.version !== 1) throw new Error('CHECKPOINT_VERSION_UNSUPPORTED');
-  const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: fromBase64(record.iv) },
-    key,
-    fromBase64(record.ciphertext),
-  );
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(record.iv) }, key, fromBase64(record.ciphertext));
   const parsed: unknown = JSON.parse(new TextDecoder().decode(plaintext));
   if (!Array.isArray(parsed)) throw new Error('CHECKPOINT_PAYLOAD_INVALID');
   return parsed.filter((value): value is CheckpointState => {
     if (!value || typeof value !== 'object') return false;
     const item = value as Partial<CheckpointState>;
-    return typeof item.checkpointId === 'string' &&
-      typeof item.taskId === 'string' &&
-      typeof item.version === 'number' &&
-      typeof item.status === 'string' &&
-      typeof item.artifact === 'string' &&
-      typeof item.createdAt === 'number';
+    return typeof item.checkpointId === 'string' && typeof item.taskId === 'string' && typeof item.version === 'number' && typeof item.status === 'string' && typeof item.artifact === 'string' && typeof item.createdAt === 'number';
   });
 }
 
@@ -146,7 +131,6 @@ async function decryptWithKeyFallback(record: EncryptedRecord): Promise<Checkpoi
   return decrypt(record, await loadOrCreateLocalKey());
 }
 
-/** Persists checkpoint history using the unlocked passkey key when available, otherwise the local non-extractable key. */
 export async function saveCheckpointToIndexedDB(checkpoint: CheckpointState): Promise<void> {
   if (!isBrowser()) return;
   const current = await loadCheckpointsFromIndexedDB();
@@ -157,7 +141,6 @@ export async function saveCheckpointToIndexedDB(checkpoint: CheckpointState): Pr
   await writeRecord(await encrypt(next, key));
 }
 
-/** Restores checkpoint history; corrupted/undecryptable state fails closed to an empty history. */
 export async function loadCheckpointsFromIndexedDB(): Promise<CheckpointState[]> {
   if (!isBrowser()) return [];
   try {
@@ -169,12 +152,7 @@ export async function loadCheckpointsFromIndexedDB(): Promise<CheckpointState[]>
   }
 }
 
-/**
- * Re-encrypts the current checkpoint history with a passkey-derived key.
- * The legacy ciphertext is retained as a recovery backup and the new ciphertext
- * is staged + verified before replacing the active record. Any failure leaves
- * the pre-migration record decryptable with the original local key.
- */
+/** Re-encrypts checkpoints with the passkey key after staging and verification. */
 export async function migrateCheckpointsToEncryptionKey(targetKey: CryptoKey): Promise<{ migrated: boolean }> {
   if (!isBrowser()) throw new Error('CHECKPOINT_BROWSER_REQUIRED');
   const current = await readRecord(RECORD_KEY);
@@ -183,14 +161,13 @@ export async function migrateCheckpointsToEncryptionKey(targetKey: CryptoKey): P
   const localKey = await loadOrCreateLocalKey();
   const checkpoints = await decrypt(current, localKey);
   const migratedRecord = await encrypt(checkpoints, targetKey);
-
   await writeRecord(migratedRecord, MIGRATION_KEY);
+
   try {
     const staged = await readRecord(MIGRATION_KEY);
     if (!staged) throw new Error('CHECKPOINT_MIGRATION_STAGE_MISSING');
     const verified = await decrypt(staged, targetKey);
     if (verified.length !== checkpoints.length) throw new Error('CHECKPOINT_MIGRATION_VERIFY_FAILED');
-
     await writeRecord(current, LEGACY_BACKUP_KEY);
     await writeRecord(staged, RECORD_KEY);
     await deleteRecord(MIGRATION_KEY);
@@ -199,6 +176,14 @@ export async function migrateCheckpointsToEncryptionKey(targetKey: CryptoKey): P
     await deleteRecord(MIGRATION_KEY).catch(() => undefined);
     throw error;
   }
+}
+
+/** Restores the exact pre-migration checkpoint ciphertext, if one was staged. */
+export async function rollbackCheckpointKeyMigration(): Promise<void> {
+  if (!isBrowser()) return;
+  const legacy = await readRecord(LEGACY_BACKUP_KEY);
+  if (!legacy) return;
+  await writeRecord(legacy, RECORD_KEY);
 }
 
 export async function clearCheckpointsFromIndexedDB(): Promise<void> {
