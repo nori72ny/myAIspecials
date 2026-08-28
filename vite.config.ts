@@ -23,10 +23,7 @@ export default defineConfig(() => {
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
     test: {
@@ -43,24 +40,18 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           manualChunks(id) {
+            if (!id.includes('node_modules') && (id.includes('/src/security/') || id.includes('/src/agent/'))) {
+              return 'vendor-crypto';
+            }
             if (id.includes('node_modules')) {
-              if (id.includes('react-dom')) {
-                return 'vendor-react-dom';
+              if (id.includes('react-dom') || id.includes('/react/') || id.includes('react@') || id.includes('/scheduler/')) {
+                return 'vendor-core';
               }
-              if (id.includes('lucide-react') || id.includes('@lucide')) {
-                return 'vendor-lucide';
-              }
-              if (id.includes('react/') || id.includes('react@') || id.includes('/react/')) {
-                return 'vendor-react';
-              }
-              if (id.includes('scheduler')) {
-                return 'vendor-react';
-              }
-              if (id.includes('motion') || id.includes('framer-motion')) {
-                return 'vendor-motion';
+              if (id.includes('react-markdown') || id.includes('remark') || id.includes('rehype') || id.includes('unified') || id.includes('micromark') || id.includes('mdast') || id.includes('hast')) {
+                return 'vendor-markdown';
               }
               if (id.includes('dompurify')) {
-                return 'vendor-dompurify';
+                return 'vendor-markdown';
               }
               return 'vendor-libs';
             }
