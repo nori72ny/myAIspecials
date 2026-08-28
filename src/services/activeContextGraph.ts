@@ -134,7 +134,6 @@ async function readNodes(userId: string): Promise<StoredDecisionNode[]> {
   try {
     return await decrypt(parsePayload(raw));
   } catch {
-    // Fail closed: corrupted or undecryptable memory is ignored rather than exposed or guessed.
     return [];
   }
 }
@@ -200,11 +199,7 @@ export async function retrieveRelevantContext(currentPrompt: string): Promise<st
     .slice(0, MAX_CONTEXT_NODES);
   if (!ranked.length) return "";
 
-  const context = ranked.map(({ node }) => JSON.stringify({
-    createdAt: node.createdAt,
-    decision: node.data,
-  })).join("\n");
-
+  const context = ranked.map(({ node }) => JSON.stringify({ createdAt: node.createdAt, decision: node.data })).join("\n");
   return context.slice(0, MAX_CONTEXT_CHARS);
 }
 
@@ -221,11 +216,6 @@ export function buildActiveContextInstruction(context: string): string {
   ].join("\n");
 }
 
-/**
- * Re-encrypts every currently stored Active Context Graph record with a passkey-derived key.
- * The previous ciphertext remains in a legacy backup key until migration succeeds completely,
- * so a failed migration never destroys the pre-migration data.
- */
 export async function migrateActiveContextToEncryptionKey(targetKey: CryptoKey): Promise<{ migrated: number }> {
   ensureBrowser();
   const localKey = await loadOrCreateKey();
@@ -243,14 +233,8 @@ export async function migrateActiveContextToEncryptionKey(targetKey: CryptoKey):
       if (!raw) continue;
       const nodes = await decryptWithKey(parsePayload(raw), localKey);
       const encrypted = JSON.stringify(await encryptWithKey(nodes, targetKey));
-      // Verify the new ciphertext before touching the active record.
       await decryptWithKey(parsePayload(encrypted), targetKey);
-      staged.push({
-        key: candidate.key,
-        userId: candidate.userId,
-        encrypted,
-        legacy: `${LEGACY_BACKUP_PREFIX}${encodeURIComponent(candidate.userId)}`,
-      });
+      staged.push({ key: candidate.key, userId: candidate.userId, encrypted, legacy: `${LEGACY_BACKUP_PREFIX}${encodeURIComponent(candidate.userId)}` });
     }
 
     for (const item of staged) {
@@ -258,15 +242,28 @@ export async function migrateActiveContextToEncryptionKey(targetKey: CryptoKey):
       if (original) window.localStorage.setItem(item.legacy, original);
       window.localStorage.setItem(item.key, item.encrypted);
     }
-
-    cachedKey = localKey;
     return { migrated: staged.length };
   } catch (error) {
-    // Restore all records touched by this migration attempt from their backups.
     for (const item of staged) {
       const legacy = window.localStorage.getItem(item.legacy);
       if (legacy) window.localStorage.setItem(item.key, legacy);
     }
     throw error;
+  }
+}
+
+/** Restores every Active Context record touched by the most recent migration attempt. */
+export async function rollbackActiveContextKeyMigration(): Promise<void> {
+  ensureBrowser();
+  const backups: Array<{ active: string; legacy: string }> = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key || !key.startsWith(LEGACY_BACKUP_PREFIX)) continue;
+    const userPart = key.slice(LEGACY_BACKUP_PREFIX.length);
+    backups.push({ active: `${STORAGE_PREFIX}${userPart}`, legacy: key });
+  }
+  for (const item of backups) {
+    const legacy = window.localStorage.getItem(item.legacy);
+    if (legacy) window.localStorage.setItem(item.active, legacy);
   }
 }
