@@ -452,3 +452,173 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .origin-primary-button:hover:not(:disabled) { transform: none; }
 }
+
+/* ================================================================
+   UI 2.0 Phase 2 — Floating Composer / Bottom Sheet / States / DAG
+   ================================================================ */
+.origin-composer {
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: min(100%, 768px);
+  margin: 0 auto;
+  padding: 8px;
+  background: rgba(24, 24, 27, 0.85);
+  backdrop-filter: blur(20px) saturate(120%);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transition: border-color .2s var(--origin-ultra-ease), box-shadow .2s var(--origin-ultra-ease), transform .2s var(--origin-ultra-ease);
+}
+
+.origin-composer.is-focused {
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 24px rgba(99, 102, 241, 0.2), 0 12px 32px -8px rgba(0,0,0,.5);
+}
+
+.origin-composer__input {
+  min-height: 48px;
+  max-height: 176px;
+  flex: 1;
+  resize: none;
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #f4f4f5;
+  padding: 10px 12px;
+  line-height: 1.6;
+}
+
+.origin-composer__input::placeholder { color: #a1a1aa; }
+.origin-composer__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255,255,255,.08);
+  color: #71717a;
+  cursor: pointer;
+  transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.origin-composer__action.is-ready {
+  background: #6366f1;
+  color: white;
+  box-shadow: 0 8px 20px rgba(99,102,241,.25);
+}
+.origin-composer__action:hover:not(:disabled) { transform: scale(1.04); }
+.origin-composer__action:active:not(:disabled) { transform: scale(.94); }
+.origin-composer__action.is-generating { background: rgba(244,63,94,.14); color: #fb7185; }
+.origin-composer__action:disabled { cursor: not-allowed; opacity: .6; }
+
+/* Existing production chat composer gets the same Phase 2 visual treatment. */
+.origin-chat > div:last-child {
+  position: relative;
+  z-index: 20;
+  border-top: 0 !important;
+  background: transparent !important;
+}
+.origin-chat > div:last-child > div {
+  width: min(100%, 768px) !important;
+  margin: 0 auto;
+  padding: 8px !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 20px !important;
+  background: rgba(24,24,27,.85) !important;
+  box-shadow: 0 12px 32px -8px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.05);
+  backdrop-filter: blur(20px) saturate(120%);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+}
+.origin-chat > div:last-child > div:focus-within {
+  border-color: rgba(99,102,241,.5) !important;
+  box-shadow: 0 0 24px rgba(99,102,241,.2), 0 12px 32px -8px rgba(0,0,0,.5) !important;
+}
+
+.origin-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--bg-surface-muted) 85%, transparent);
+}
+.origin-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent);
+  animation: origin-skeleton-shimmer 1.4s linear infinite;
+}
+@keyframes origin-skeleton-shimmer { to { transform: translateX(100%); } }
+
+.origin-zero-state {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 28px;
+  border: 1px dashed var(--glass-border);
+  border-radius: 18px;
+  background: color-mix(in oklch, var(--bg-surface) 72%, transparent);
+  text-align: center;
+}
+
+.origin-dag {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  padding: 8px 0;
+}
+.origin-dag__edge {
+  position: absolute;
+  left: 20px;
+  top: 28px;
+  bottom: 28px;
+  width: 1px;
+  background: linear-gradient(var(--accent-primary-v2), transparent);
+  opacity: .35;
+}
+.origin-dag__node {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 40px minmax(0,1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 64px;
+  padding: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  background: color-mix(in oklch, var(--bg-surface) 90%, transparent);
+}
+.origin-dag__dot {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(99,102,241,.12);
+  color: #818cf8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+@media (max-width: 640px) {
+  .origin-composer { bottom: max(10px, env(safe-area-inset-bottom)); width: calc(100% - 16px); }
+  .origin-composer__input { font-size: 16px; }
+  .origin-chat > div:last-child > div { width: calc(100% - 16px) !important; margin-bottom: max(4px, env(safe-area-inset-bottom)); }
+  .origin-dag__node { grid-template-columns: 36px minmax(0,1fr); }
+  .origin-dag__node > :last-child { grid-column: 2; justify-self: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .origin-composer,
+  .origin-composer__action { transition: none; }
+  .origin-skeleton::after { animation: none; }
+}
