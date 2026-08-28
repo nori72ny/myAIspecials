@@ -1,3 +1,5 @@
+import { getUnlockedPasskeyKey } from '../security/passkeyKeyDerivation';
+
 const STORAGE_PREFIX = "origin-active-context:v1:";
 const KEY_DB_NAME = "origin-active-context-key";
 const KEY_STORE_NAME = "keys";
@@ -105,7 +107,7 @@ async function encryptWithKey(value: StoredDecisionNode[], key: CryptoKey): Prom
 }
 
 async function encrypt(value: StoredDecisionNode[]): Promise<EncryptedPayload> {
-  return encryptWithKey(value, await loadOrCreateKey());
+  return encryptWithKey(value, getUnlockedPasskeyKey() ?? await loadOrCreateKey());
 }
 
 async function decryptWithKey(payload: EncryptedPayload, key: CryptoKey): Promise<StoredDecisionNode[]> {
@@ -116,6 +118,14 @@ async function decryptWithKey(payload: EncryptedPayload, key: CryptoKey): Promis
 }
 
 async function decrypt(payload: EncryptedPayload): Promise<StoredDecisionNode[]> {
+  const preferred = getUnlockedPasskeyKey();
+  if (preferred) {
+    try {
+      return await decryptWithKey(payload, preferred);
+    } catch {
+      // Legacy local-key records remain readable during and after migration.
+    }
+  }
   return decryptWithKey(payload, await loadOrCreateKey());
 }
 
@@ -198,7 +208,6 @@ export async function retrieveRelevantContext(currentPrompt: string): Promise<st
     .sort((a, b) => b.score - a.score || b.node.createdAt.localeCompare(a.node.createdAt))
     .slice(0, MAX_CONTEXT_NODES);
   if (!ranked.length) return "";
-
   const context = ranked.map(({ node }) => JSON.stringify({ createdAt: node.createdAt, decision: node.data })).join("\n");
   return context.slice(0, MAX_CONTEXT_CHARS);
 }
@@ -252,7 +261,6 @@ export async function migrateActiveContextToEncryptionKey(targetKey: CryptoKey):
   }
 }
 
-/** Restores every Active Context record touched by the most recent migration attempt. */
 export async function rollbackActiveContextKeyMigration(): Promise<void> {
   ensureBrowser();
   const backups: Array<{ active: string; legacy: string }> = [];
