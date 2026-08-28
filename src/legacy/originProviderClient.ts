@@ -5,6 +5,7 @@ import {
   type OriginExecutionPlan,
   type OriginProviderDataPolicy,
 } from "../lib/orchestration/OriginExecutionPolicy.js";
+import { sanitizePreEgress, sanitizePreEgressPayload } from "../services/securitySanitizer.js";
 
 export interface OriginChatMessage { role: "user" | "ai" | "assistant" | "model"; content: string; }
 export interface OriginProviderExecutionRequest { plan: OriginExecutionPlan; messages: OriginChatMessage[]; systemInstruction: string; }
@@ -83,7 +84,15 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
 export function originCompletionTokenBudget(taskType: OriginExecutionPlan["taskType"]): number {
   switch (taskType) { case "implementation": case "documentation": return 2400; case "research": case "review": case "architecture": case "security": case "current-information": return 1800; default: return 1200; }
 }
-function normalizeMessages(messages: OriginChatMessage[], systemInstruction: string) { return [{ role: "system", content: systemInstruction }, ...messages.map((m) => ({ role: m.role === "ai" || m.role === "assistant" || m.role === "model" ? "assistant" : "user", content: m.content }))]; }
+function normalizeMessages(messages: OriginChatMessage[], systemInstruction: string) {
+  return [
+    { role: "system", content: sanitizePreEgress(systemInstruction) },
+    ...messages.map((m) => ({
+      role: m.role === "ai" || m.role === "assistant" || m.role === "model" ? "assistant" : "user",
+      content: sanitizePreEgress(m.content),
+    })),
+  ];
+}
 function extractText(content: unknown): string {
   if (typeof content === "string") return content.trim(); if (!Array.isArray(content)) return "";
   return content.filter((p): p is { type?: string; text?: string } => typeof p === "object" && p !== null).filter((p) => p.type === "text" && typeof p.text === "string").map((p) => p.text!.trim()).filter(Boolean).join("\n\n").trim();
@@ -140,7 +149,7 @@ async function executeOpenRouter(request: OriginProviderExecutionRequest, apiKey
   let messages = normalizeMessages(request.messages, request.systemInstruction); let text = ""; let pt = 0; let ct = 0; let tt = 0;
   for (let segment = 0; segment < MAX_COMPLETION_SEGMENTS; segment += 1) {
     try {
-      const response = await fetchWithSilentRetry(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" }, body: JSON.stringify({ model: ORIGIN_OPENROUTER_FREE_MODEL, messages, max_tokens: originCompletionTokenBudget(request.plan.taskType), reasoning: { effort: "medium", exclude: true }, temperature: 0.2, top_p: 0.9, provider: { sort: "throughput", allow_fallbacks: true, data_collection: "deny" } }) });
+      const response = await fetchWithSilentRetry(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" }, body: JSON.stringify(sanitizePreEgressPayload({ model: ORIGIN_OPENROUTER_FREE_MODEL, messages, max_tokens: originCompletionTokenBudget(request.plan.taskType), reasoning: { effort: "medium", exclude: true }, temperature: 0.2, top_p: 0.9, provider: { sort: "throughput", allow_fallbacks: true, data_collection: "deny" } })) });
       const data = await readJson(response); const errType = data.choices?.[0]?.error?.metadata?.error_type ?? data.error?.metadata?.error_type;
       if (errType === "rate_limit_exceeded") throw mapHttpFailure(429); if (errType === "timeout") throw mapHttpFailure(504); if (errType === "provider_overloaded" || errType === "provider_unavailable") throw mapHttpFailure(503);
       const model = data.model; if (!isAllowedModel("openrouter", model)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouterの許可済み無料モデル利用を確認できませんでした。", 502, false);
@@ -151,7 +160,7 @@ async function executeOpenRouter(request: OriginProviderExecutionRequest, apiKey
         const result: OriginProviderExecutionResult = { text, actualCostUsd: cost, providerDataPolicy: request.plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: model, strategy: "fixed-free-model", provider: "OpenRouter", attempt: 1, fallbackUsed: false }, usage: { promptTokens: pt, completionTokens: ct, totalTokens: tt, costUsd: cost } }; assertOriginZeroCostExecutionResult(result); return result;
       }
       if (segment === MAX_COMPLETION_SEGMENTS - 1) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答が長く、完了を確認できませんでした。依頼を分けて再実行してください。", 502, true);
-      messages = [...normalizeMessages(request.messages, request.systemInstruction), { role: "assistant", content: text }, { role: "user", content: "直前の回答が出力上限で途切れました。途切れた箇所から最後まで不足部分だけを続けてください。" }];
+      messages = [...normalizeMessages(request.messages, request.systemInstruction), { role: "assistant", content: sanitizePreEgress(text) }, { role: "user", content: sanitizePreEgress("直前の回答が出力上限で途切れました。途切れた箇所から最後まで不足部分だけを続けてください。") }];
     } catch (e) {
       if (e instanceof OriginProviderError) throw e;
       if (e instanceof Error && e.name === "AbortError") throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIの応答が時間内に完了しませんでした。", 504, true, undefined, { transportFailure: "timeout" });
@@ -162,14 +171,16 @@ async function executeOpenRouter(request: OriginProviderExecutionRequest, apiKey
 }
 async function executeGemini(request: OriginProviderExecutionRequest, apiKey: string, fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const contents = request.messages.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.content }] }));
-  const response = await fetchWithSilentRetry(fetchImpl, url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: request.systemInstruction }] }, contents, generationConfig: { maxOutputTokens: originCompletionTokenBudget(request.plan.taskType), temperature: 0.2, topP: 0.9 } }) });
+  const contents = request.messages.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: sanitizePreEgress(m.content) }] }));
+  const payload = sanitizePreEgressPayload({ systemInstruction: { parts: [{ text: request.systemInstruction }] }, contents, generationConfig: { maxOutputTokens: originCompletionTokenBudget(request.plan.taskType), temperature: 0.2, topP: 0.9 } });
+  const response = await fetchWithSilentRetry(fetchImpl, url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   const data = await readJson(response); const text = extractText(data.candidates?.[0]?.content?.parts?.map((p: any) => ({ type: "text", text: p.text })));
   if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "Geminiから有効な応答を受け取れませんでした。", 502, true);
   const result: OriginProviderExecutionResult = { text, actualCostUsd: 0, providerDataPolicy: request.plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL, strategy: "zero-cost-failover", provider: "Google AI Studio", attempt: 1, fallbackUsed: true }, usage: { costUsd: 0 } }; assertOriginZeroCostExecutionResult(result); return result;
 }
 async function executeGroq(request: OriginProviderExecutionRequest, apiKey: string, fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult> {
-  const response = await fetchWithSilentRetry(fetchImpl, "https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: ORIGIN_GROQ_FREE_MODEL, messages: normalizeMessages(request.messages, request.systemInstruction).filter((m) => m.role !== "system"), max_tokens: originCompletionTokenBudget(request.plan.taskType), temperature: 0.2, top_p: 0.9 }) });
+  const payload = sanitizePreEgressPayload({ model: ORIGIN_GROQ_FREE_MODEL, messages: normalizeMessages(request.messages, request.systemInstruction).filter((m) => m.role !== "system"), max_tokens: originCompletionTokenBudget(request.plan.taskType), temperature: 0.2, top_p: 0.9 });
+  const response = await fetchWithSilentRetry(fetchImpl, "https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
   const data = await readJson(response); const text = extractText(data.choices?.[0]?.message?.content); if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "Groqから有効な応答を受け取れませんでした。", 502, true);
   const result: OriginProviderExecutionResult = { text, actualCostUsd: 0, providerDataPolicy: request.plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_GROQ_FREE_MODEL, strategy: "zero-cost-failover", provider: "Groq", attempt: 1, fallbackUsed: true }, usage: { promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens, totalTokens: data.usage?.total_tokens, costUsd: 0 } }; assertOriginZeroCostExecutionResult(result); return result;
 }
