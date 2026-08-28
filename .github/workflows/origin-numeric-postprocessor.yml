@@ -2,14 +2,14 @@ name: ORIGIN numeric postprocessor
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   patch-build-deploy:
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore: apply context-aware numeric postprocessor') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,7 +31,8 @@ jobs:
           p = Path('src/components/personal/UnifiedChat.tsx')
           s = p.read_text(encoding='utf-8')
           if 'function applyEstimateMarkers' in s:
-              raise SystemExit('postprocessor already present')
+              print('Postprocessor already present; nothing to patch.')
+              raise SystemExit(0)
           anchor = 'function SafeMarkdown({'
           if anchor not in s:
               raise SystemExit('SafeMarkdown not found')
@@ -107,16 +108,20 @@ function renderEstimateText(value: string, isEn: boolean): React.ReactNode[] {
       - name: Typecheck and build
         run: npm run lint && npm run build
 
-      - name: Commit and push
+      - name: Commit and push implementation
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/components/personal/UnifiedChat.tsx
+          if git diff --cached --quiet; then
+            echo 'No implementation changes to commit.'
+            exit 0
+          fi
           git commit -m "chore: apply context-aware numeric postprocessor"
           git push origin HEAD:main
 
       - name: Remove temporary workflow
         run: |
           git rm .github/workflows/origin-numeric-postprocessor.yml
-          git commit -m "chore: remove temporary deployment workflow"
+          git commit -m "chore: remove temporary numeric postprocessor workflow"
           git push origin HEAD:main
