@@ -133,9 +133,13 @@ async function fetchWithSilentRetry(fetchImpl: OriginFetch, input: RequestInfo |
     const timeout = setTimeout(() => controller.abort(), PROVIDER_ATTEMPT_TIMEOUT_MS);
     try {
       const response = await fetchImpl(input, { ...init, signal: controller.signal });
+      // A 429 is a provider-quota signal: do not spend more retry budget on the same provider.
+      // Throw immediately so executeOriginProvider can move to the next $0 provider.
+      if (response.status === 429) throw mapHttpFailure(429, parseRetryAfterSeconds(response.headers.get("Retry-After")));
       if (!isRetryableHttpStatus(response.status) || attempt === SILENT_RETRY_DELAYS_MS.length) return response;
       lastError = mapHttpFailure(response.status, parseRetryAfterSeconds(response.headers.get("Retry-After")));
     } catch (error) {
+      if (error instanceof OriginProviderError) throw error;
       lastError = error;
       if (attempt === SILENT_RETRY_DELAYS_MS.length) break;
     } finally { clearTimeout(timeout); }
@@ -181,7 +185,7 @@ async function executeGemini(request: OriginProviderExecutionRequest, apiKey: st
 async function executeGroq(request: OriginProviderExecutionRequest, apiKey: string, fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult> {
   const payload = sanitizePreEgressPayload({ model: ORIGIN_GROQ_FREE_MODEL, messages: normalizeMessages(request.messages, request.systemInstruction).filter((m) => m.role !== "system"), max_tokens: originCompletionTokenBudget(request.plan.taskType), temperature: 0.2, top_p: 0.9 });
   const response = await fetchWithSilentRetry(fetchImpl, "https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
-  const data = await readJson(response); const text = extractText(data.choices?.[0]?.message?.content); if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "Groqから有効な応答を受け取れませんでした。", 502, true);
+  const data = await readJson(response); const text = extractText(data.choices?.[0]?.message?.content); if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "Groqから有効な回答を受け取れませんでした。", 502, true);
   const result: OriginProviderExecutionResult = { text, actualCostUsd: 0, providerDataPolicy: request.plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_GROQ_FREE_MODEL, strategy: "zero-cost-failover", provider: "Groq", attempt: 1, fallbackUsed: true }, usage: { promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens, totalTokens: data.usage?.total_tokens, costUsd: 0 } }; assertOriginZeroCostExecutionResult(result); return result;
 }
 function shouldFailover(error: unknown): boolean { return error instanceof OriginProviderError && error.retryable && (error.code === "PROVIDER_RATE_LIMITED" || error.code === "PROVIDER_UNAVAILABLE" || error.code === "PROVIDER_TIMEOUT" || error.code === "PROVIDER_INTERNAL_ERROR"); }
