@@ -1,4 +1,5 @@
 import type { CheckpointState } from './checkpointManager';
+import { getUnlockedPasskeyKey } from '../security/passkeyKeyDerivation';
 
 const DB_NAME = 'origin-agent-checkpoints-v1';
 const STORE_NAME = 'checkpoints';
@@ -44,7 +45,7 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-async function loadOrCreateKey(): Promise<CryptoKey> {
+async function loadOrCreateLocalKey(): Promise<CryptoKey> {
   const db = await openDb();
   const existing = await new Promise<CryptoKey | undefined>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -68,23 +69,23 @@ async function loadOrCreateKey(): Promise<CryptoKey> {
   return key;
 }
 
-async function encrypt(checkpoints: CheckpointState[]): Promise<EncryptedRecord> {
+function getPreferredKey(): CryptoKey | null {
+  return getUnlockedPasskeyKey();
+}
+
+async function encrypt(checkpoints: CheckpointState[], key: CryptoKey): Promise<EncryptedRecord> {
   const encoded = new TextEncoder().encode(JSON.stringify(checkpoints.slice(-MAX_CHECKPOINTS)));
   if (encoded.byteLength > MAX_PAYLOAD_BYTES) throw new Error('CHECKPOINT_PAYLOAD_TOO_LARGE');
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    await loadOrCreateKey(),
-    encoded,
-  );
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
   return { version: 1, iv: toBase64(iv), ciphertext: toBase64(new Uint8Array(ciphertext)) };
 }
 
-async function decrypt(record: EncryptedRecord): Promise<CheckpointState[]> {
+async function decrypt(record: EncryptedRecord, key: CryptoKey): Promise<CheckpointState[]> {
   if (record.version !== 1) throw new Error('CHECKPOINT_VERSION_UNSUPPORTED');
   const plaintext = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: fromBase64(record.iv) },
-    await loadOrCreateKey(),
+    key,
     fromBase64(record.ciphertext),
   );
   const parsed: unknown = JSON.parse(new TextDecoder().decode(plaintext));
@@ -121,14 +122,27 @@ async function writeRecord(record: EncryptedRecord): Promise<void> {
   });
 }
 
-/** Persists checkpoint history locally. Encryption failures are surfaced to the caller. */
+async function decryptWithKeyFallback(record: EncryptedRecord): Promise<CheckpointState[]> {
+  const preferred = getPreferredKey();
+  if (preferred) {
+    try {
+      return await decrypt(record, preferred);
+    } catch {
+      // A legacy local-key record may exist; do not discard it merely because a passkey is locked.
+    }
+  }
+  return decrypt(record, await loadOrCreateLocalKey());
+}
+
+/** Persists checkpoint history using the unlocked passkey key when available, otherwise the local non-extractable key. */
 export async function saveCheckpointToIndexedDB(checkpoint: CheckpointState): Promise<void> {
   if (!isBrowser()) return;
   const current = await loadCheckpointsFromIndexedDB();
   const next = [...current.filter((item) => item.checkpointId !== checkpoint.checkpointId), checkpoint]
     .sort((a, b) => a.createdAt - b.createdAt)
     .slice(-MAX_CHECKPOINTS);
-  await writeRecord(await encrypt(next));
+  const key = getPreferredKey() ?? await loadOrCreateLocalKey();
+  await writeRecord(await encrypt(next, key));
 }
 
 /** Restores checkpoint history; corrupted/undecryptable state fails closed to an empty history. */
@@ -137,7 +151,7 @@ export async function loadCheckpointsFromIndexedDB(): Promise<CheckpointState[]>
   try {
     const record = await readRecord();
     if (!record) return [];
-    return await decrypt(record);
+    return await decryptWithKeyFallback(record);
   } catch {
     return [];
   }
