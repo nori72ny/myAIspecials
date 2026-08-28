@@ -34,7 +34,7 @@ export class OriginProviderError extends Error {
 export type OriginFetch = typeof fetch;
 const MAX_COMPLETION_SEGMENTS = 3;
 const SILENT_RETRY_DELAYS_MS = [200, 500, 1000] as const;
-const PROVIDER_ATTEMPT_TIMEOUT_MS = 3000;
+const PROVIDER_ATTEMPT_TIMEOUT_MS = 6000;
 
 export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter", "groq", "google-gemini"] as const;
 export type AllowedZeroCostProvider = typeof ALLOWED_ZERO_COST_PROVIDERS[number];
