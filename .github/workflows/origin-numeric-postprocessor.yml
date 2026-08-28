@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   patch-build-deploy:
-    if: !startsWith(github.event.head_commit.message, 'chore: apply context-aware numeric postprocessor')
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore: apply context-aware numeric postprocessor') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,13 +32,10 @@ jobs:
           s = p.read_text(encoding='utf-8')
           if 'function applyEstimateMarkers' in s:
               raise SystemExit('postprocessor already present')
-
           anchor = 'function SafeMarkdown({'
           if anchor not in s:
               raise SystemExit('SafeMarkdown not found')
-
-          helper = r'''\
-          
+          helper = r'''
 const ESTIMATE_MARKER = 'origin-estimate-';
 
 function isLikelyDateOrYear(source: string, start: number, end: number): boolean {
@@ -96,14 +93,11 @@ function renderEstimateText(value: string, isEn: boolean): React.ReactNode[] {
 }
 
 '''
-          helper = helper.lstrip()
           s = s.replace(anchor, helper + anchor, 1)
-
           components = 'components={{\n'
           if components not in s:
               raise SystemExit('ReactMarkdown components anchor not found')
           s = s.replace(components, 'components={{\n        text: ({ children: text }) => <>{renderEstimateText(String(text ?? \'\'), isEn)}</>,\n', 1)
-
           child = '      {mobileFriendlyMarkdown(children)}\n'
           if child not in s:
               raise SystemExit('SafeMarkdown children anchor not found')
@@ -114,8 +108,6 @@ function renderEstimateText(value: string, isEn: boolean): React.ReactNode[] {
         run: npm run lint && npm run build
 
       - name: Commit and push
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -124,8 +116,6 @@ function renderEstimateText(value: string, isEn: boolean): React.ReactNode[] {
           git push origin HEAD:main
 
       - name: Remove temporary workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           git rm .github/workflows/origin-numeric-postprocessor.yml
           git commit -m "chore: remove temporary deployment workflow"
