@@ -4,7 +4,7 @@ const PBKDF2_ITERATIONS = 600_000;
 const RP_NAME = 'ORIGIN Private Intelligence Workspace';
 
 type PrfExtensionResults = {
-  prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } };
+  prf?: { enabled?: boolean; results?: { first?: BufferSource } };
 };
 
 type PublicKeyCredentialWithPrf = PublicKeyCredential & {
@@ -46,7 +46,7 @@ function getOrCreateSalt(): Uint8Array {
   return salt;
 }
 
-async function deriveAesKey(prfOutput: ArrayBuffer, salt: Uint8Array): Promise<CryptoKey> {
+async function deriveAesKey(prfOutput: BufferSource, salt: BufferSource): Promise<CryptoKey> {
   const baseKey = await crypto.subtle.importKey('raw', prfOutput, 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
     { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PBKDF2_ITERATIONS },
@@ -125,7 +125,7 @@ export async function unlockPasskeyKey(): Promise<CryptoKey> {
 
   const prfOutput = credential.getClientExtensionResults().prf?.results?.first;
   if (!prfOutput || prfOutput.byteLength < 32) throw new Error('PASSKEY_PRF_UNAVAILABLE');
-  return deriveAesKey(prfOutput.slice(0), salt);
+  return deriveAesKey(prfOutput, salt);
 }
 
 /**
