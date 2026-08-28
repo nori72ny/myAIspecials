@@ -1,5 +1,7 @@
-import { type ComponentProps, useEffect, useRef } from 'react';
+import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import UnifiedChatCore from './UnifiedChatCore';
+import HeaderModeSwitcher, { type OriginWorkspaceMode } from '../HeaderModeSwitcher';
+import AgentWorkspaceView from '../AgentWorkspaceView';
 
 type UnifiedChatProps = ComponentProps<typeof UnifiedChatCore>;
 type Range = [number, number];
@@ -7,7 +9,7 @@ type Range = [number, number];
 const EXCLUDED_TAGS = new Set([
   'A', 'BUTTON', 'CODE', 'INPUT', 'NAV', 'OPTION', 'PRE', 'SCRIPT', 'SELECT', 'STYLE', 'TEXTAREA',
 ]);
-const CONTENT_TAGS = new Set(['BLOCKQUOTE', 'H1', 'H2', 'H3', 'LI', 'P', 'TD', 'TH']);
+const CONTENT_TAGS = new Set(['BLOCKQUOTE', 'H1', 'H2', 'LI', 'P', 'TD', 'TH']);
 
 function isDateLike(value: string): boolean {
   return /^(?:19|20)\d{2}(?:年|[-/.]\d{1,2}(?:月|[-/.]\d{1,2}(?:日)?)?)?$/.test(value)
@@ -39,7 +41,6 @@ function processTextNode(node: Text): void {
   if (!parent || !CONTENT_TAGS.has(parent.tagName)) return;
   if (parent.closest('[data-origin-estimate-unverified="true"]')) return;
   if (EXCLUDED_TAGS.has(parent.tagName) || parent.closest('a,button,code,pre,input,textarea,select,option,nav,script,style')) return;
-
   const text = node.data;
   if (!/\d/.test(text)) return;
   const ranges = protectedRanges(text);
@@ -47,66 +48,53 @@ function processTextNode(node: Text): void {
   const matches: Array<{ start: number; end: number; value: string }> = [];
   let match: RegExpExecArray | null;
   while ((match = numberRe.exec(text)) !== null) {
-    const value = match[0];
-    const start = match.index;
-    const end = start + value.length;
+    const value = match[0]; const start = match.index; const end = start + value.length;
     if (isProtected(start, ranges) || isDateLike(value)) continue;
     const following = text.slice(end);
     if (/^\s*\./.test(following) && !/[$€£¥￥%円万億]/.test(value)) continue;
     matches.push({ start, end, value });
   }
   if (matches.length === 0) return;
-
-  const fragment = document.createDocumentFragment();
-  let cursor = 0;
+  const fragment = document.createDocumentFragment(); let cursor = 0;
   for (const item of matches) {
     if (item.start > cursor) fragment.appendChild(document.createTextNode(text.slice(cursor, item.start)));
     const badge = document.createElement('span');
-    badge.dataset.originEstimateUnverified = 'true';
-    badge.setAttribute('role', 'note');
+    badge.dataset.originEstimateUnverified = 'true'; badge.setAttribute('role', 'note');
     badge.setAttribute('aria-label', `AI推定値：${item.value}`);
     badge.title = '⚠️ AI推定値 — 確定事実として扱う前に根拠を確認してください。';
     badge.className = 'mx-0.5 inline-flex items-center rounded-md bg-yellow-100 px-1.5 py-0.5 font-medium text-yellow-900 ring-1 ring-yellow-300/80 dark:bg-yellow-400/15 dark:text-yellow-100 dark:ring-yellow-300/30';
-    badge.textContent = `⚠️ ${item.value}`;
-    fragment.appendChild(badge);
-    cursor = item.end;
+    badge.textContent = `⚠️ ${item.value}`; fragment.appendChild(badge); cursor = item.end;
   }
   if (cursor < text.length) fragment.appendChild(document.createTextNode(text.slice(cursor)));
   node.parentNode?.replaceChild(fragment, node);
 }
 
 function postProcessRenderedNumbers(root: HTMLElement): void {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const nodes: Text[] = [];
-  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
-  nodes.forEach(processTextNode);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); const nodes: Text[] = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode as Text); nodes.forEach(processTextNode);
 }
 
 export default function UnifiedChat(props: UnifiedChatProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const [mode, setMode] = useState<OriginWorkspaceMode>('chat');
   useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    let frame = 0;
-    const schedule = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(() => {
-        frame = 0;
-        postProcessRenderedNumbers(root);
-      });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey && event.key.toLowerCase() === 'a') { event.preventDefault(); setMode((current) => current === 'chat' ? 'agent' : 'chat'); }
     };
-    schedule();
-    const observer = new MutationObserver(schedule);
-    observer.observe(root, { childList: true, subtree: true, characterData: true });
-    return () => {
-      observer.disconnect();
-      if (frame) window.cancelAnimationFrame(frame);
-    };
+    window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+  useEffect(() => {
+    const root = rootRef.current; if (!root || mode !== 'chat') return;
+    let frame = 0;
+    const schedule = () => { if (frame) return; frame = window.requestAnimationFrame(() => { frame = 0; postProcessRenderedNumbers(root); }); };
+    schedule(); const observer = new MutationObserver(schedule); observer.observe(root, { childList: true, subtree: true, characterData: true });
+    return () => { observer.disconnect(); if (frame) window.cancelAnimationFrame(frame); };
+  }, [mode]);
 
   return (
-    <div ref={rootRef} data-origin-context-aware-numeric-postprocessor="v1" className="contents">
-      <UnifiedChatCore {...props} />
+    <div ref={rootRef} data-origin-context-aware-numeric-postprocessor="v1" className="min-h-full w-full">
+      <HeaderModeSwitcher currentMode={mode} onModeChange={setMode} />
+      {mode === 'chat' ? <UnifiedChatCore {...props} /> : <AgentWorkspaceView />}
     </div>
   );
 }
