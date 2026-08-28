@@ -12,6 +12,7 @@ import {
 } from './passkeyKeyDerivation';
 
 export const PASSKEY_MIGRATION_STATUS_KEY = 'origin-passkey-migration-v1';
+export const PASSKEY_MIGRATION_STATUS_EVENT = 'origin:passkey-migration-status';
 
 type MigrationStatus = 'pending' | 'complete';
 
@@ -22,7 +23,9 @@ export function isPasskeyMigrationComplete(): boolean {
 }
 
 function setMigrationStatus(status: MigrationStatus): void {
-  if (isBrowser()) window.localStorage.setItem(PASSKEY_MIGRATION_STATUS_KEY, status);
+  if (!isBrowser()) return;
+  window.localStorage.setItem(PASSKEY_MIGRATION_STATUS_KEY, status);
+  window.dispatchEvent(new CustomEvent(PASSKEY_MIGRATION_STATUS_EVENT, { detail: status }));
 }
 
 /**
