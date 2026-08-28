@@ -4,6 +4,11 @@ import {
   registerPasskeyKey,
   unlockAndSetPasskeyKey,
 } from '../security/passkeyKeyDerivation';
+import {
+  isPasskeyMigrationComplete,
+  migrateToPasskeyEncryption,
+  PASSKEY_MIGRATION_STATUS_EVENT,
+} from '../security/passkeyKeyMigration';
 
 export type OriginWorkspaceMode = 'chat' | 'agent';
 
@@ -14,11 +19,19 @@ interface HeaderModeSwitcherProps {
 
 export default function HeaderModeSwitcher({ currentMode, onModeChange }: HeaderModeSwitcherProps) {
   const [passkeyConfigured, setPasskeyConfigured] = useState(false);
+  const [migrationComplete, setMigrationComplete] = useState(false);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [passkeyError, setPasskeyError] = useState(false);
 
   useEffect(() => {
-    setPasskeyConfigured(isPasskeyConfigured());
+    const refresh = () => {
+      setPasskeyConfigured(isPasskeyConfigured());
+      setMigrationComplete(isPasskeyMigrationComplete());
+    };
+    refresh();
+    const onMigrationStatus = () => refresh();
+    window.addEventListener(PASSKEY_MIGRATION_STATUS_EVENT, onMigrationStatus);
+    return () => window.removeEventListener(PASSKEY_MIGRATION_STATUS_EVENT, onMigrationStatus);
   }, []);
 
   const handlePasskey = async () => {
@@ -32,8 +45,11 @@ export default function HeaderModeSwitcher({ currentMode, onModeChange }: Header
         await registerPasskeyKey();
       }
       setPasskeyConfigured(true);
+      await migrateToPasskeyEncryption();
+      setMigrationComplete(true);
     } catch {
-      // Biometric cancellation/unsupported hardware must never break the workspace.
+      // Biometric cancellation, unsupported hardware, or migration failure must never break the workspace.
+      setMigrationComplete(isPasskeyMigrationComplete());
       setPasskeyError(true);
     } finally {
       setPasskeyBusy(false);
@@ -55,11 +71,11 @@ export default function HeaderModeSwitcher({ currentMode, onModeChange }: Header
         onClick={() => void handlePasskey()}
         disabled={passkeyBusy}
         className="min-h-11 rounded-full border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-100 disabled:opacity-60 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200"
-        title={passkeyConfigured ? 'Passkeyで暗号化キーをアンロック' : 'Passkey保護を有効化'}
+        title={migrationComplete ? 'Passkeyで暗号化データを保護中' : 'Passkey保護を有効化し、既存データを移行'}
       >
-        🛡️ {passkeyBusy ? 'Passkey...' : passkeyConfigured ? 'Passkey Protected' : 'Enable Passkey'}
+        🛡️ {passkeyBusy ? 'Passkey...' : migrationComplete ? 'Hardware Locked (Passkey Active)' : 'Enable Passkey'}
       </button>
-      {passkeyError && <span role="status" className="text-xs font-medium text-amber-700 dark:text-amber-300">Passkeyは変更されていません。</span>}
+      {passkeyError && <span role="status" className="text-xs font-medium text-amber-700 dark:text-amber-300">Passkeyまたは暗号鍵の移行は完了していません。</span>}
       <span className="sr-only">Option+A switches Chat Mode and Agent Workspace Mode.</span>
     </div>
   );
