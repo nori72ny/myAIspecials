@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import SettingsModal from './components/SettingsModal';
+import SettingsErrorBoundary from './components/SettingsErrorBoundary';
 import SplashScreen from './components/SplashScreen';
 import FocusModeController from './components/FocusModeController';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
@@ -26,17 +27,7 @@ type ArtifactRevision = { id: string; content: string; createdAt: number; source
 type PersistedArtifact = { id: string; type: 'code' | 'markdown' | 'mermaid' | 'html'; title: string; language: string; content: string; isComplete: boolean; revision?: number; revisions?: readonly ArtifactRevision[] };
 type StorageHealth = 'loading' | 'ready' | Exclude<OriginStorageWriteResult, 'saved'>;
 
-function parseImportedHistory(value: unknown): ConversationMessage[] {
-  if (!value || typeof value !== 'object' || !Array.isArray((value as { messages?: unknown }).messages)) throw new Error('invalid-history');
-  const messages = (value as { messages: unknown[] }).messages;
-  if (messages.length > 500) throw new Error('history-too-large');
-  return messages.map((message, index) => {
-    if (!message || typeof message !== 'object') throw new Error(`invalid-history-${index}`);
-    const candidate = message as Partial<ConversationMessage>;
-    if ((candidate.role !== 'user' && candidate.role !== 'assistant') || typeof candidate.content !== 'string') throw new Error(`invalid-history-${index}`);
-    return { id: typeof candidate.id === 'string' && candidate.id.length <= 128 ? candidate.id : `import-${index}-${Date.now()}`, role: candidate.role, content: candidate.content.slice(0, 50_000), deliveryState: candidate.deliveryState === 'verified' || candidate.deliveryState === 'error' ? candidate.deliveryState : undefined };
-  });
-}
+function parseImportedHistory(value: unknown): ConversationMessage[] { if (!value || typeof value !== 'object' || !Array.isArray((value as { messages?: unknown }).messages)) throw new Error('invalid-history'); const messages = (value as { messages: unknown[] }).messages; if (messages.length > 500) throw new Error('history-too-large'); return messages.map((message, index) => { if (!message || typeof message !== 'object') throw new Error(`invalid-history-${index}`); const candidate = message as Partial<ConversationMessage>; if ((candidate.role !== 'user' && candidate.role !== 'assistant') || typeof candidate.content !== 'string') throw new Error(`invalid-history-${index}`); return { id: typeof candidate.id === 'string' && candidate.id.length <= 128 ? candidate.id : `import-${index}-${Date.now()}`, role: candidate.role, content: candidate.content.slice(0, 50_000), deliveryState: candidate.deliveryState === 'verified' || candidate.deliveryState === 'error' ? candidate.deliveryState : undefined }; }); }
 function loadStoredHistory(): ConversationMessage[] { try { const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY); return raw ? parseImportedHistory(JSON.parse(raw)) : []; } catch { return []; } }
 function loadStoredSessions(): ConversationSession[] { try { const raw = window.localStorage.getItem(SESSION_STORAGE_KEY); if (!raw) return []; const parsed = JSON.parse(raw) as unknown; if (!Array.isArray(parsed)) return []; return parsed.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); } catch { return []; } }
 function loadSessionsFromSnapshot(value: unknown): ConversationSession[] { if (!Array.isArray(value)) return []; return value.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); }
@@ -74,7 +65,9 @@ function PersonalReleaseRoot() {
     <UniversalMasterEnginePanel onContextReady={(context) => { setKnowledgeContext(context); window.dispatchEvent(new CustomEvent('origin:knowledge-context', { detail: { context } })); }} />
     {knowledgeContext && <p role="status" className="sr-only">ナレッジグラフからチャット文脈を選択しました。</p>}
     <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => setMessages(session.messages.map((message) => ({ ...message })))} onMessagesChange={setMessages} onArtifactsChange={setArtifacts} resetSignal={resetSignal} />
-    <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} messageCount={messages.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} />
+    <SettingsErrorBoundary>
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} messageCount={messages.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} />
+    </SettingsErrorBoundary>
     {updateReady && <p role="status" className="origin-pwa-update-notice">{t.pwaUpdateNotice}</p>}
     {storageHealth !== 'ready' && <p data-testid="origin-storage-status" role="status" className="sr-only">{storageHealth === 'loading' ? '端末内ストレージを準備しています。' : '端末内ストレージへ保存できないため、このセッションはメモリ上で継続しています。'}</p>}
   </>;
