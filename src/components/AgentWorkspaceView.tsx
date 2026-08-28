@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } from '../agent/indexedDbCheckpointStore';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
 type Checkpoint = { checkpointId: string; taskId: string; version: number; status: string; artifact: string; createdAt: number };
@@ -16,17 +17,35 @@ export default function AgentWorkspaceView() {
   const [log, setLog] = useState<string[]>([]);
   const [artifact, setArtifact] = useState('// Live Artifact Sandbox\n// Agent output will appear here after planning.');
   const [running, setRunning] = useState(false);
+  const [autoFixing, setAutoFixing] = useState(false);
   const [selectedTool, setSelectedTool] = useState<(typeof tools)[number]>('document_generator');
   const [checkpoint, setCheckpoint] = useState<Checkpoint | null>(null);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const abortRef = useRef<AbortController | null>(null);
-  useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    let mounted = true;
+    void loadCheckpointsFromIndexedDB().then((restored) => {
+      if (mounted) {
+        setCheckpoints(restored);
+        if (restored.length) setCheckpoint(restored[restored.length - 1]);
+      }
+    });
+    return () => { mounted = false; abortRef.current?.abort(); };
+  }, []);
+
+  const persistCheckpoint = useCallback(async (next: Checkpoint) => {
+    setCheckpoint(next);
+    setCheckpoints((current) => [...current.filter((item) => item.checkpointId !== next.checkpointId), next].sort((a, b) => a.createdAt - b.createdAt));
+    try { await saveCheckpointToIndexedDB(next); } catch { setLog((current) => [...current, 'Checkpoint persistence unavailable; session state remains active.']); }
+  }, []);
 
   const runAgent = useCallback(async () => {
     const trimmed = goal.trim();
     if (!trimmed || running) return;
     abortRef.current?.abort();
     const controller = new AbortController(); abortRef.current = controller;
-    setRunning(true); setLog(['Agent session started.']); setArtifact('// Planning…'); setCheckpoint(null);
+    setRunning(true); setLog(['Agent session started.']); setArtifact('// Planning…'); setAutoFixing(false);
     setSteps(initialSteps);
     try {
       const response = await fetch('/api/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: trimmed }), signal: controller.signal });
@@ -50,34 +69,45 @@ export default function AgentWorkspaceView() {
 
   const approve = useCallback(async () => {
     if (!goal.trim() || running) return;
-    setRunning(true); setLog((current) => [...current, `Approve: ${selectedTool}`]);
+    setRunning(true); setAutoFixing(false); setLog((current) => [...current, `Approve: ${selectedTool}`]);
     try {
-      const response = await fetch('/api/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'execute', toolName: selectedTool, taskId: `goal-${goal.trim().slice(0, 40)}`, params: selectedTool === 'code_interpreter' ? { code: artifact } : selectedTool === 'image_prompt_compiler' ? { prompt: goal.trim() } : { content: artifact } });
-      const result = await response.json() as { ok?: boolean; artifact?: string; message?: string; checkpoint?: Checkpoint; code?: string };
+      const response = await fetch('/api/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'execute', toolName: selectedTool, taskId: `goal-${goal.trim().slice(0, 40)}`, params: selectedTool === 'code_interpreter' ? { code: artifact } : selectedTool === 'image_prompt_compiler' ? { prompt: goal.trim() } : { content: artifact } }) });
+      const result = await response.json() as { ok?: boolean; artifact?: string; message?: string; checkpoint?: Checkpoint; code?: string; verification?: { attempts?: number; selfFixed?: boolean; diagnosis?: string } };
+      if (result.verification?.selfFixed) {
+        setAutoFixing(true);
+        setLog((current) => [...current, `⚙️ Auto-Fixing Artifact… ${result.verification?.diagnosis ?? ''}`]);
+      }
       if (!response.ok || !result.ok) { setLog((current) => [...current, `Execution blocked: ${result.code ?? 'policy'}`]); return; }
-      if (result.artifact) setArtifact(result.artifact); if (result.checkpoint) setCheckpoint(result.checkpoint); setLog((current) => [...current, result.message ?? 'Execution completed.']);
+      if (result.artifact) setArtifact(result.artifact);
+      if (result.checkpoint) await persistCheckpoint(result.checkpoint);
+      setLog((current) => [...current, result.message ?? 'Execution completed.']);
+      if (result.verification?.selfFixed) setLog((current) => [...current, `Self-fix completed after ${result.verification?.attempts ?? 0} repair pass(es).`]);
     } catch { setLog((current) => [...current, 'Execution failed safely; no external side effect was performed.']); }
     finally { setRunning(false); }
-  }, [artifact, goal, running, selectedTool]);
+  }, [artifact, goal, persistCheckpoint, running, selectedTool]);
 
-  const rollback = useCallback(async () => {
-    if (!checkpoint) return;
+  const rollback = useCallback(async (target: Checkpoint) => {
     try {
-      const response = await fetch('/api/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rollback', checkpointId: checkpoint.checkpointId }) });
+      const response = await fetch('/api/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rollback', checkpointId: target.checkpointId }) });
       const result = await response.json() as { ok?: boolean; checkpoint?: Checkpoint };
-      if (response.ok && result.ok && result.checkpoint) { setArtifact(result.checkpoint.artifact); setCheckpoint(result.checkpoint); setLog((current) => [...current, `Rolled back to ${result.checkpoint!.checkpointId}.`]); }
-      else setLog((current) => [...current, 'Rollback unavailable; current artifact was preserved.']);
-    } catch { setLog((current) => [...current, 'Rollback failed safely; current artifact was preserved.']); }
-  }, [checkpoint]);
+      if (response.ok && result.ok && result.checkpoint) {
+        setArtifact(result.checkpoint.artifact); await persistCheckpoint(result.checkpoint); setLog((current) => [...current, `Rolled back to ${target.checkpointId}.`]); return;
+      }
+    } catch { /* use local encrypted history as a safe fallback */ }
+    setArtifact(target.artifact);
+    setCheckpoint(target);
+    setLog((current) => [...current, `Restored local checkpoint ${target.checkpointId}.`]);
+  }, [persistCheckpoint]);
 
   const abort = () => { abortRef.current?.abort(); setSteps((current) => current.map((step) => step.status === 'running' || step.status === 'awaiting_approval' ? { ...step, status: 'aborted' } : step)); setLog((current) => [...current, 'Execution aborted by human.']); };
 
   return <section className="grid min-h-[calc(100vh-5rem)] grid-cols-1 gap-4 bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.4fr)] md:p-5" aria-label="Agent Workspace">
     <aside className="flex min-h-0 flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Task Control</p><h1 className="mt-1 text-xl font-bold">Agent Workspace</h1></div>
+      {autoFixing && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">⚙️ Auto-Fixing Artifact...</div>}
       <textarea value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="達成したい目標を入力…" aria-label="Agent goal" className="min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 p-3 outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950" />
       <button type="button" disabled={!goal.trim() || running} onClick={runAgent} className="min-h-11 rounded-xl bg-slate-950 px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950">{running ? 'Working…' : 'Start Agent'}</button>
-      <div className="min-h-0 flex-1 overflow-auto"><p className="mb-2 text-sm font-bold">DAG / Steps</p><ol className="space-y-2">{steps.map((step) => <li key={step.id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700"><div className="flex items-center justify-between gap-2"><span className="font-semibold">{step.title}</span><span className="text-xs font-bold uppercase text-slate-500">{step.status}</span></div><p className="mt-1 text-xs text-slate-500">{step.detail}</p>{step.id === 'execute' && checkpoint && <div className="mt-2 flex items-center justify-between"><span className="rounded-full bg-cyan-100 px-2 py-1 text-xs font-bold text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300">v{checkpoint.version}</span><button type="button" onClick={rollback} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold dark:border-slate-600">↺ Rollback</button></div>}</li>)}</ol></div>
+      <div className="min-h-0 flex-1 overflow-auto"><p className="mb-2 text-sm font-bold">DAG / Steps</p><ol className="space-y-2">{steps.map((step) => <li key={step.id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700"><div className="flex items-center justify-between gap-2"><span className="font-semibold">{step.title}</span><span className="text-xs font-bold uppercase text-slate-500">{step.status}</span></div><p className="mt-1 text-xs text-slate-500">{step.detail}</p>{step.id === 'execute' && checkpoints.length > 0 && <div className="mt-2 space-y-2">{checkpoints.slice().reverse().map((item) => <div key={item.checkpointId} className="flex items-center justify-between gap-2"><span className="rounded-full bg-cyan-100 px-2 py-1 text-xs font-bold text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300">v{item.version}{item.status === 'self_fixed' ? ' · Self-Fixed' : ''}</span><button type="button" onClick={() => void rollback(item)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold dark:border-slate-600">↺ Rollback</button></div>)}</div>}</li>)}</ol></div>
       <label className="text-xs font-bold text-slate-500">Tool Registry</label><select value={selectedTool} onChange={(e) => setSelectedTool(e.target.value as (typeof tools)[number])} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950">{tools.map((tool) => <option key={tool}>{tool}</option>)}</select>
       <div className="grid grid-cols-2 gap-2"><button type="button" onClick={approve} disabled={running || !goal.trim()} className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 font-bold text-emerald-800 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-300">Approve</button><button type="button" onClick={abort} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 font-bold text-rose-800 dark:bg-rose-950/30 dark:text-rose-300">Abort</button></div>
       <div className="max-h-32 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-xs text-slate-300">{log.length ? log.map((line, i) => <div key={`${i}-${line}`}>{line}</div>) : 'Thinking log will appear here.'}</div>
