@@ -2,12 +2,12 @@ import { type ComponentProps, useEffect, useRef } from 'react';
 import UnifiedChatCore from './UnifiedChatCore';
 
 type UnifiedChatProps = ComponentProps<typeof UnifiedChatCore>;
-
 type Range = [number, number];
 
 const EXCLUDED_TAGS = new Set([
   'A', 'BUTTON', 'CODE', 'INPUT', 'NAV', 'OPTION', 'PRE', 'SCRIPT', 'SELECT', 'STYLE', 'TEXTAREA',
 ]);
+const CONTENT_TAGS = new Set(['BLOCKQUOTE', 'H1', 'H2', 'H3', 'LI', 'P', 'TD', 'TH']);
 
 function isDateLike(value: string): boolean {
   return /^(?:19|20)\d{2}(?:年|[-/.]\d{1,2}(?:月|[-/.]\d{1,2}(?:日)?)?)?$/.test(value)
@@ -36,12 +36,12 @@ function isProtected(index: number, ranges: Range[]): boolean {
 
 function processTextNode(node: Text): void {
   const parent = node.parentElement;
-  if (!parent || parent.closest('[data-origin-estimate-unverified="true"]')) return;
+  if (!parent || !CONTENT_TAGS.has(parent.tagName)) return;
+  if (parent.closest('[data-origin-estimate-unverified="true"]')) return;
   if (EXCLUDED_TAGS.has(parent.tagName) || parent.closest('a,button,code,pre,input,textarea,select,option,nav,script,style')) return;
 
   const text = node.data;
   if (!/\d/.test(text)) return;
-
   const ranges = protectedRanges(text);
   const numberRe = /(?<![\w])(?:[$€£¥￥]\s?)?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:\s?(?:%|万円|億円|円|USD|EUR|GBP|JPY|ドル))?(?![\w])/g;
   const matches: Array<{ start: number; end: number; value: string }> = [];
@@ -55,7 +55,6 @@ function processTextNode(node: Text): void {
     if (/^\s*\./.test(following) && !/[$€£¥￥%円万億]/.test(value)) continue;
     matches.push({ start, end, value });
   }
-
   if (matches.length === 0) return;
 
   const fragment = document.createDocumentFragment();
@@ -85,11 +84,9 @@ function postProcessRenderedNumbers(root: HTMLElement): void {
 
 export default function UnifiedChat(props: UnifiedChatProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-
     let frame = 0;
     const schedule = () => {
       if (frame) return;
@@ -98,11 +95,9 @@ export default function UnifiedChat(props: UnifiedChatProps) {
         postProcessRenderedNumbers(root);
       });
     };
-
     schedule();
     const observer = new MutationObserver(schedule);
     observer.observe(root, { childList: true, subtree: true, characterData: true });
-
     return () => {
       observer.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
