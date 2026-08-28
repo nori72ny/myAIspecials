@@ -287,3 +287,168 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   .origin-secondary-button,
   .origin-danger-button { min-height: 44px; min-width: 44px; }
 }
+
+/* ================================================================
+   ORIGIN UI 2.0 — Linear × Claude × Apple Native
+   ================================================================ */
+
+:root {
+  --bg-base: #09090b;
+  --bg-surface-v2: #18181b;
+  --bg-overlay: #27272a;
+  --glass-bg: rgba(24, 24, 27, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: blur(16px);
+  --accent-primary-v2: #6366f1;
+  --accent-glow-v2: rgba(99, 102, 241, 0.25);
+  --text-main-v2: #f4f4f5;
+  --text-muted-v2: #a1a1aa;
+  --text-subtle-v2: #71717a;
+  --border-subtle-v2: rgba(255, 255, 255, 0.08);
+  --border-strong-v2: rgba(255, 255, 255, 0.15);
+  --shadow-elevation-v2: 0 20px 30px -10px rgba(0, 0, 0, 0.5), 0 0 15px rgba(0, 0, 0, 0.3);
+  --ui2-radius-sm: 10px;
+  --ui2-radius-md: 14px;
+  --ui2-radius-lg: 18px;
+  --ui2-content-width: 1120px;
+}
+
+:root[data-theme="dark"],
+.dark {
+  color-scheme: dark;
+  --bg-primary: var(--bg-base);
+  --bg-surface: var(--bg-surface-v2);
+  --bg-surface-muted: var(--bg-overlay);
+  --bg-elevated: #202023;
+  --text-primary: var(--text-main-v2);
+  --text-secondary: var(--text-muted-v2);
+  --text-placeholder: var(--text-subtle-v2);
+  --border-default: var(--border-subtle-v2);
+  --border-strong: var(--border-strong-v2);
+  --accent-primary: var(--accent-primary-v2);
+  --accent-hover: #818cf8;
+  --accent-soft: rgba(99, 102, 241, 0.14);
+  --accent-border: rgba(129, 140, 248, 0.35);
+  --accent-glow: var(--accent-glow-v2);
+  --shadow-color: rgba(0, 0, 0, 0.42);
+}
+
+/* Deliberately avoid pure-black panels: depth comes from layered surfaces. */
+.origin-app {
+  background:
+    radial-gradient(circle at 50% -20%, rgba(99, 102, 241, 0.08), transparent 36%),
+    var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.header-glass,
+.origin-header {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur) saturate(120%);
+  -webkit-backdrop-filter: var(--glass-blur) saturate(120%);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16);
+}
+
+.origin-surface,
+.origin-card,
+.origin-workspace,
+.origin-ultra-panel,
+.origin-glass-control {
+  border: 1px solid var(--glass-border);
+  background: color-mix(in oklch, var(--bg-surface) 84%, transparent);
+  box-shadow: var(--shadow-elevation-v2);
+  backdrop-filter: var(--glass-blur) saturate(115%);
+  -webkit-backdrop-filter: var(--glass-blur) saturate(115%);
+}
+
+.origin-card:hover,
+.origin-secondary-button:hover:not(:disabled) {
+  border-color: var(--border-strong-v2);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.26), 0 0 0 1px rgba(255,255,255,0.025);
+}
+
+.origin-primary-button {
+  background: linear-gradient(180deg, #7073f5 0%, #6366f1 100%);
+  box-shadow: 0 8px 24px var(--accent-glow-v2), inset 0 1px 0 rgba(255,255,255,0.18);
+}
+
+.origin-primary-button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #818cf8 0%, #6366f1 100%);
+  transform: translateY(-1px);
+}
+
+/* Typography: compact UI, generous reading measure, native-feeling controls. */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Noto Sans JP", system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.origin-chat [role="log"],
+.markdown-body {
+  max-width: var(--ui2-content-width);
+  margin-inline: auto;
+}
+
+.markdown-body {
+  color: var(--text-primary);
+  font-size: 15.5px;
+  line-height: 1.82;
+  letter-spacing: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+}
+
+.origin-input,
+.origin-thinking-input,
+#origin-chat-input {
+  border: 1px solid var(--glass-border);
+  background: color-mix(in oklch, var(--bg-surface) 82%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: var(--ui2-radius-lg);
+}
+
+/* Mobile: dialogs become bottom sheets, preserving safe-area and scroll containment. */
+@media (max-width: 640px) {
+  .origin-dialog-overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .origin-dialog-overlay > [role="dialog"] {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: min(88dvh, 760px) !important;
+    border-radius: 22px 22px 0 0 !important;
+    padding: 20px 16px max(20px, env(safe-area-inset-bottom)) !important;
+    border-bottom: 0 !important;
+    box-shadow: 0 -18px 50px rgba(0,0,0,0.34) !important;
+  }
+
+  .origin-chat [role="log"] {
+    width: 100%;
+    padding-inline: 12px;
+  }
+
+  .origin-header {
+    padding-inline: 10px;
+  }
+}
+
+/* Generic opt-in bottom sheet primitive for new mobile surfaces. */
+.origin-mobile-sheet {
+  border-radius: 22px 22px 0 0;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+  overscroll-behavior: contain;
+  box-shadow: 0 -18px 50px rgba(0,0,0,0.34);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .origin-primary-button:hover:not(:disabled) { transform: none; }
+}
