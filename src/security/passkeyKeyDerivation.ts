@@ -85,7 +85,7 @@ export async function registerPasskeyKey(): Promise<CryptoKey> {
   const challenge = crypto.getRandomValues(new Uint8Array(32));
   const userId = crypto.getRandomValues(new Uint8Array(16));
   const salt = getOrCreateSalt();
-  const credential = await navigator.credentials.create({
+  const credential = await window.navigator.credentials.create({
     publicKey: {
       challenge,
       rp: { name: RP_NAME },
@@ -112,7 +112,7 @@ export async function unlockPasskeyKey(): Promise<CryptoKey> {
   if (!credentialId) throw new Error('PASSKEY_NOT_CONFIGURED');
   const salt = getOrCreateSalt();
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const credential = await navigator.credentials.get({
+  const credential = await window.navigator.credentials.get({
     publicKey: {
       challenge,
       allowCredentials: [{ type: 'public-key', id: credentialId }],
@@ -125,7 +125,7 @@ export async function unlockPasskeyKey(): Promise<CryptoKey> {
 
   const prfOutput = credential.getClientExtensionResults().prf?.results?.first;
   if (!prfOutput || prfOutput.byteLength < 32) throw new Error('PASSKEY_PRF_UNAVAILABLE');
-  return deriveAesKey(prfOutput, salt);
+  return deriveAesKey(prfOutput.slice(0), salt);
 }
 
 /**
@@ -142,10 +142,4 @@ export function setUnlockedPasskeyKey(key: CryptoKey | null): void {
 
 export function getUnlockedPasskeyKey(): CryptoKey | null {
   return unlockedPasskeyKey;
-}
-
-export async function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
-  const key = await unlockPasskeyKey();
-  setUnlockedPasskeyKey(key);
-  return key;
 }
