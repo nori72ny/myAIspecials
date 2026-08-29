@@ -31,13 +31,15 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   onOpenSettings,
   artifacts: parentArtifacts,
   onArtifactsChange: parentOnArtifactsChange,
+  onMessagesChange: parentOnMessagesChange,
 }: PersonalEditionAppProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactBlock[]>([]);
 
   const handleMessagesChange = useCallback((nextMessages: ConversationMessage[]) => {
     setMessages(nextMessages);
-  }, []);
+    parentOnMessagesChange?.(nextMessages);
+  }, [parentOnMessagesChange]);
 
   const handleArtifactsChange = useCallback((nextArtifacts: ArtifactBlock[]) => {
     setArtifacts(nextArtifacts);
@@ -52,22 +54,10 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     // Historical sessions are not auto-restored from the Personal shell.
   }, []);
 
-  const handleShellClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    const target = event.target instanceof Element ? event.target.closest('button') : null;
-    if (!(target instanceof HTMLButtonElement)) return;
-    const label = target.getAttribute('aria-label') ?? '';
-    if (!/設定|settings?/i.test(label)) return;
-
-    // Handle the settings control exactly once at the shell boundary. App does
-    // not receive the callback below, avoiding duplicate invocation on bubble.
-    event.preventDefault();
-    event.stopPropagation();
-    onOpenSettings?.();
-  }, [onOpenSettings]);
-
   return (
-    <div onClick={handleShellClick} className="origin-chatgpt-refresh h-full min-h-0 w-full">
+    <div className="origin-chatgpt-refresh h-full min-h-0 w-full">
       <App
+        onOpenSettings={onOpenSettings}
         messages={messages}
         sessions={[]}
         artifacts={artifacts.length ? artifacts : parentArtifacts ?? []}
