@@ -128,6 +128,13 @@ export async function unlockPasskeyKey(): Promise<CryptoKey> {
   return deriveAesKey(prfOutput, salt);
 }
 
+/** Unlocks the existing passkey and stores the derived key for subsequent encrypted-store operations. */
+export async function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
+  const key = await unlockPasskeyKey();
+  setUnlockedPasskeyKey(key);
+  return key;
+}
+
 /**
  * Passkey-first key selection. This intentionally does not silently prompt for
  * biometric authentication: callers can unlock explicitly, after which this
