@@ -1,4 +1,4 @@
-import type { ToolName, ToolParams, ToolResult } from './toolRegistry';
+import type { ToolName, ToolParams, ToolResult } from './toolRegistry.js';
 
 export type VerificationIssue = 'empty' | 'malformed' | 'syntax';
 

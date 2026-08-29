@@ -1,0 +1,163 @@
+/* ORIGIN ChatGPT / Claude / Perplexity-inspired visual refinement.
+ * Scope is intentionally limited to the existing shell/composer/logo surfaces.
+ */
+
+.origin-chatgpt-refresh {
+  --origin-refresh-surface: color-mix(in oklch, var(--bg-surface) 96%, transparent);
+  --origin-refresh-surface-muted: color-mix(in oklch, var(--bg-surface-muted) 72%, transparent);
+  --origin-refresh-shadow: 0 12px 34px color-mix(in oklch, var(--shadow-color) 72%, transparent);
+}
+
+/* Home logo: give the identity enough visual weight without competing with the heading. */
+[data-testid="origin-core-logo"] {
+  width: 5.5rem !important;
+  height: 5.5rem !important;
+  margin-bottom: 1.25rem !important;
+}
+
+[data-testid="origin-core-logo"] .origin-logo-glow {
+  inset: -0.35rem !important;
+  border-radius: 1.75rem !important;
+  filter: blur(0.9rem) !important;
+  opacity: .9;
+}
+
+[data-testid="origin-core-logo"] .origin-logo-core {
+  width: 4.75rem !important;
+  height: 4.75rem !important;
+  border: 0 !important;
+  border-radius: 1.45rem !important;
+  background: linear-gradient(145deg,
+    color-mix(in oklch, var(--bg-surface) 99%, transparent),
+    color-mix(in oklch, var(--bg-surface-muted) 82%, transparent)) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white 72%, transparent),
+    0 14px 32px color-mix(in oklch, var(--shadow-color) 62%, transparent) !important;
+  font-size: 2.15rem !important;
+}
+
+/* Single-card composer: no divider, no internal border, compact vertical rhythm. */
+.origin-composer {
+  min-height: 68px !important;
+  height: auto !important;
+  padding: 0.5rem !important;
+  gap: 0.35rem !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  outline: 0 !important;
+  background: var(--origin-refresh-surface) !important;
+  box-shadow: var(--origin-refresh-shadow) !important;
+  align-items: flex-end !important;
+}
+
+.origin-composer--compact {
+  min-height: 64px !important;
+  padding: 0.45rem !important;
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 58%, transparent) !important;
+}
+
+.origin-composer textarea,
+.origin-composer__input {
+  min-height: 44px !important;
+  height: auto !important;
+  max-height: 160px !important;
+  margin: 0 !important;
+  padding: 0.55rem 0.75rem !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  resize: none !important;
+}
+
+.origin-composer textarea:focus,
+.origin-composer textarea:focus-visible,
+.origin-composer textarea:focus-within,
+.origin-composer__input:focus,
+.origin-composer__input:focus-visible,
+.origin-composer__input:focus-within {
+  border: 0 !important;
+  border-color: transparent !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.origin-composer__action,
+.origin-composer > button,
+.origin-composer > .origin-primary-button,
+.origin-composer > .origin-secondary-button,
+.origin-composer > .origin-danger-button {
+  flex: 0 0 auto;
+  min-width: 44px !important;
+  width: 44px !important;
+  min-height: 44px !important;
+  height: 44px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  border-radius: 14px !important;
+  box-shadow: none !important;
+}
+
+.origin-composer > .origin-secondary-button {
+  background: transparent !important;
+  color: var(--text-secondary) !important;
+}
+
+.origin-composer > .origin-secondary-button:hover:not(:disabled) {
+  background: var(--origin-refresh-surface-muted) !important;
+  color: var(--text-primary) !important;
+  border: 0 !important;
+}
+
+.origin-composer > .origin-primary-button {
+  background: var(--accent-primary) !important;
+  color: var(--text-on-accent) !important;
+}
+
+.origin-composer > .origin-primary-button:hover:not(:disabled) {
+  background: var(--accent-hover) !important;
+}
+
+.origin-composer > .origin-primary-button:disabled,
+.origin-composer > .origin-secondary-button:disabled,
+.origin-composer > .origin-danger-button:disabled {
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--text-placeholder) !important;
+  opacity: .72;
+}
+
+/* Prevent the parent shell's legacy focus border from reappearing around the card. */
+.origin-composer:focus-within {
+  border: 0 !important;
+  border-color: transparent !important;
+  outline: 0 !important;
+  box-shadow: var(--origin-refresh-shadow) !important;
+}
+
+@media (max-width: 639px) {
+  [data-testid="origin-core-logo"] {
+    width: 5rem !important;
+    height: 5rem !important;
+  }
+
+  [data-testid="origin-core-logo"] .origin-logo-core {
+    width: 4.35rem !important;
+    height: 4.35rem !important;
+    border-radius: 1.3rem !important;
+    font-size: 2rem !important;
+  }
+
+  .origin-composer {
+    min-height: 64px !important;
+    padding: 0.4rem !important;
+  }
+
+  .origin-composer textarea,
+  .origin-composer__input {
+    min-height: 44px !important;
+    padding-inline: 0.65rem !important;
+  }
+}
