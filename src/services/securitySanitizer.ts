@@ -51,7 +51,13 @@ const SECRET_PATTERNS: readonly RegExp[] = [
 function maskHighEntropyTokens(value: string): string {
   return value.replace(/\S+/g, (token) => {
     const candidate = token.replace(/^[({[<]+|[\])}>.,;:]+$/g, "");
-    if (candidate.length < MIN_ENTROPY_LENGTH || shannonEntropy(candidate) <= MIN_SHANNON_ENTROPY) return token;
+    if (
+      candidate.length < MIN_ENTROPY_LENGTH ||
+      !/^[\x00-\x7F]+$/.test(candidate) ||
+      shannonEntropy(candidate) <= MIN_SHANNON_ENTROPY
+    ) {
+      return token;
+    }
     return token.replace(candidate, REDACTION);
   });
 }
