@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import App from '../../App';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
 import type { Settings } from '../../types';
+import '../../origin-ui-refresh.css';
 
 type PersonalEditionAppProps = {
   onSwitchToEnterprise?: () => void;
@@ -51,20 +52,35 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     // Historical sessions are not auto-restored from the Personal shell.
   }, []);
 
+  const handleShellClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target.closest('button') : null;
+    if (!(target instanceof HTMLButtonElement)) return;
+    const label = target.getAttribute('aria-label') ?? '';
+    if (!/設定|settings?/i.test(label)) return;
+
+    // App's legacy header wrapper navigates on bubble. Stop only this control,
+    // while explicitly invoking the intended settings state transition.
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenSettings?.();
+  }, [onOpenSettings]);
+
   return (
-    <App
-      onOpenSettings={onOpenSettings}
-      messages={messages}
-      sessions={[]}
-      artifacts={artifacts.length ? artifacts : parentArtifacts ?? []}
-      onArchiveSession={handleArchiveSession}
-      onRestoreSession={handleRestoreSession}
-      onMessagesChange={handleMessagesChange}
-      onArtifactsChange={handleArtifactsChange}
-      resetSignal={0}
-      language={settings?.language ?? 'ja'}
-      designTheme={settings?.designTheme ?? 'minimal'}
-    />
+    <div onClickCapture={handleShellClickCapture} className="origin-chatgpt-refresh h-full min-h-0 w-full">
+      <App
+        onOpenSettings={onOpenSettings}
+        messages={messages}
+        sessions={[]}
+        artifacts={artifacts.length ? artifacts : parentArtifacts ?? []}
+        onArchiveSession={handleArchiveSession}
+        onRestoreSession={handleRestoreSession}
+        onMessagesChange={handleMessagesChange}
+        onArtifactsChange={handleArtifactsChange}
+        resetSignal={0}
+        language={settings?.language ?? 'ja'}
+        designTheme={settings?.designTheme ?? 'minimal'}
+      />
+    </div>
   );
 });
 
