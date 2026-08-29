@@ -40,7 +40,8 @@ export interface OriginExecutionPolicy {
 }
 
 export interface OriginProviderDataPolicy {
-  allowProviderFallbacks: false;
+  /** Legacy callers may still construct true, but production execution rejects it. */
+  allowProviderFallbacks: boolean;
   dataCollection: "deny";
   requireZeroDataRetention: false;
 }
