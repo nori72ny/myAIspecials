@@ -129,6 +129,16 @@ export async function unlockPasskeyKey(): Promise<CryptoKey> {
 }
 
 /**
+ * Unlocks the enrolled passkey and records the derived key for the existing
+ * encrypted-store migration flow. The derived key remains memory-only.
+ */
+export async function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
+  const key = await unlockPasskeyKey();
+  setUnlockedPasskeyKey(key);
+  return key;
+}
+
+/**
  * Passkey-first key selection. This intentionally does not silently prompt for
  * biometric authentication: callers can unlock explicitly, after which this
  * in-memory key is preferred by the encrypted stores. Without PRF support or

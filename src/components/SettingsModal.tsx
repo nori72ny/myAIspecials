@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import SettingsModalLegacy from './SettingsModalLegacy';
 import type { Settings } from '../types';
@@ -12,21 +12,8 @@ interface Props {
   onExportHistory?: () => void;
   onImportHistory?: (file: File) => Promise<void>;
   onResetHistory?: () => void;
-  /** Pointer id captured by the settings opener, when available. */
+  /** Retained for compatibility with existing callers. */
   openingPointerId?: number;
-}
-
-let lastPointerDownId: number | null = null;
-
-// Capture pointerdown before React parent handlers can stop propagation.
-if (typeof window !== 'undefined') {
-  window.addEventListener(
-    'pointerdown',
-    (event) => {
-      lastPointerDownId = event.pointerId;
-    },
-    true,
-  );
 }
 
 export default function SettingsModal({
@@ -38,38 +25,17 @@ export default function SettingsModal({
   onExportHistory,
   onImportHistory,
   onResetHistory,
-  openingPointerId,
 }: Props) {
-  const openingPointerIdRef = useRef<number | null>(null);
-  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    setPortalHost(document.body);
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) {
-      openingPointerIdRef.current = null;
-      return;
-    }
-    openingPointerIdRef.current =
-      typeof openingPointerId === 'number' ? openingPointerId : lastPointerDownId;
-  }, [isOpen, openingPointerId]);
+  // Resolve the host synchronously so opening the modal never depends on a
+  // post-render effect or a second state transition.
+  const [portalHost] = useState<HTMLElement | null>(() =>
+    typeof document !== 'undefined' ? document.body : null,
+  );
 
   if (!isOpen || !portalHost) return null;
 
-  const handlePortalPointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.pointerId !== openingPointerIdRef.current) return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
   return createPortal(
-    <div
-      data-origin-settings-portal="true"
-      onPointerDownCapture={handlePortalPointerDownCapture}
-    >
+    <div data-origin-settings-portal="true">
       <SettingsModalLegacy
         isOpen={isOpen}
         onClose={onClose}

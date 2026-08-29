@@ -8,20 +8,9 @@ import {
   createOriginChatRateLimiter,
   requireSafeOriginChatRequest,
 } from "./originSecurity.js";
-import { detectImageStyle, enhanceImagePrompt, type ImageStyle } from "../services/imagePromptEngine.js";
 import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
-const IMAGE_STYLES: readonly ImageStyle[] = ["photorealistic", "manga", "cel_anime", "stylized_3d", "fine_art", "ghibli", "disney", "scenery"];
-
-function isImageStyle(value: unknown): value is ImageStyle {
-  return typeof value === "string" && IMAGE_STYLES.includes(value as ImageStyle);
-}
-
-function looksLikeImageGenerationRequest(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  return /(?:generate|create|make|render|draw|image|photo|photograph|picture|画像|写真|描いて|生成)/i.test(value);
-}
 
 export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): string {
   const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA;
@@ -49,14 +38,15 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   };
   app.use(invalidJsonHandler);
 
-  app.post("/api/generate-image", (req, res) => {
-    const prompt = req.body?.prompt;
-    const requestedStyle = req.body?.style;
-    if (typeof prompt !== "string" || prompt.trim().length === 0) return res.status(400).json({ code: "INVALID_IMAGE_PROMPT", message: "画像生成プロンプトを指定してください。", retryable: false });
-    if (requestedStyle !== undefined && !isImageStyle(requestedStyle)) return res.status(400).json({ code: "INVALID_IMAGE_STYLE", message: "対応していない画像スタイルです。", styles: IMAGE_STYLES, retryable: false });
-    const style = isImageStyle(requestedStyle) ? requestedStyle : detectImageStyle(prompt);
-    const enhanced = enhanceImagePrompt(prompt, style);
-    return res.status(200).json({ status: "ok", provider: "local-zero-cost", generated: false, prompt: enhanced.prompt, positivePrompt: enhanced.positivePrompt, negativePrompt: enhanced.negativePrompt, style: enhanced.style, styleDetected: requestedStyle === undefined, note: looksLikeImageGenerationRequest(prompt) ? "プロンプトを$0のローカル最適化のみ実施しました。外部画像生成APIは呼び出していません。" : "画像生成APIは呼び出さず、指定されたプロンプトのみ最適化しました。" });
+  // Image generation is intentionally outside the production release boundary.
+  // Do not return 200 or perform prompt/provider work: the endpoint is disabled.
+  app.all("/api/generate-image", (_req, res) => {
+    return res.status(503).json({
+      code: "IMAGE_GENERATION_DISABLED",
+      message: "画像生成機能は現在利用できません。",
+      retryable: false,
+      generated: false,
+    });
   });
 
   // Agent planning is isolated from chat/provider routes and has an explicit human approval gate.
