@@ -1,6 +1,4 @@
 import {
-  ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL,
-  ORIGIN_GROQ_FREE_MODEL,
   ORIGIN_OPENROUTER_FREE_MODEL,
   type OriginExecutionPlan,
   type OriginProviderDataPolicy,
@@ -37,15 +35,13 @@ const SILENT_RETRY_DELAYS_MS = [200, 500, 1000] as const;
 const PROVIDER_ATTEMPT_TIMEOUT_MS = 6000;
 const PROVIDER_COOLDOWN_MS = 15_000;
 
-export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter", "groq", "google-gemini"] as const;
+export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;
 export type AllowedZeroCostProvider = typeof ALLOWED_ZERO_COST_PROVIDERS[number];
 export const ALLOWED_ZERO_COST_MODELS = {
   openrouter: [ORIGIN_OPENROUTER_FREE_MODEL] as const,
-  groq: [ORIGIN_GROQ_FREE_MODEL] as const,
-  "google-gemini": [ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL] as const,
 } as const;
 const PROVIDER_ID_BY_LABEL: Record<string, AllowedZeroCostProvider> = {
-  OpenRouter: "openrouter", Groq: "groq", "Google AI Studio": "google-gemini",
+  OpenRouter: "openrouter",
 };
 const providerCooldownUntil: Partial<Record<AllowedZeroCostProvider, number>> = {};
 
@@ -67,11 +63,10 @@ function assertFiniteZeroCost(value: unknown, field: string): asserts value is 0
 }
 function resolveAllowedProvider(provider: unknown): AllowedZeroCostProvider | null {
   if (typeof provider !== "string") return null;
-  return PROVIDER_ID_BY_LABEL[provider] ?? (ALLOWED_ZERO_COST_PROVIDERS.includes(provider as AllowedZeroCostProvider) ? provider as AllowedZeroCostProvider : null);
+  return PROVIDER_ID_BY_LABEL[provider] ?? null;
 }
 function isAllowedModel(provider: AllowedZeroCostProvider, model: unknown): model is string {
   if (typeof model !== "string") return false;
-  if (provider === "openrouter" && !model.endsWith(":free")) return false;
   return (ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model);
 }
 export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel: string = ORIGIN_OPENROUTER_FREE_MODEL): void {
@@ -181,23 +176,12 @@ async function executeOpenRouter(request: OriginProviderExecutionRequest, apiKey
   }
   throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答の完了を確認できませんでした。", 502, true);
 }
-async function executeGemini(_request: OriginProviderExecutionRequest, _apiKey: string, _fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult> {
-  throw new OriginProviderError("PROVIDER_COST_UNVERIFIED", "Google AI Studioはupstreamの厳格な$0利用額を検証できないため、ORIGIN Personalの本番経路では使用しません。", 502, false);
-}
-async function executeGroq(_request: OriginProviderExecutionRequest, _apiKey: string, _fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult> {
-  throw new OriginProviderError("PROVIDER_COST_UNVERIFIED", "Groqはupstreamの厳格な$0利用額を検証できないため、ORIGIN Personalの本番経路では使用しません。", 502, false);
-}
-function shouldFailover(error: unknown): boolean { return error instanceof OriginProviderError && error.retryable && (error.code === "PROVIDER_RATE_LIMITED" || error.code === "PROVIDER_UNAVAILABLE" || error.code === "PROVIDER_TIMEOUT" || error.code === "PROVIDER_INTERNAL_ERROR"); }
-function providerForOpenRouter(): AllowedZeroCostProvider { return "openrouter"; }
-async function tryProvider(provider: AllowedZeroCostProvider, request: OriginProviderExecutionRequest, keys: { openRouterKey?: string; geminiKey?: string; groqKey?: string }, fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult | null> {
-  if (isProviderCoolingDown(provider)) return null;
+async function tryOpenRouter(request: OriginProviderExecutionRequest, apiKey: string, fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult | null> {
+  if (isProviderCoolingDown("openrouter")) return null;
   try {
-    if (provider === "openrouter" && keys.openRouterKey) return await executeOpenRouter(request, keys.openRouterKey, fetchImpl);
-    if (provider === "google-gemini" && keys.geminiKey) return await executeGemini(request, keys.geminiKey, fetchImpl);
-    if (provider === "groq" && keys.groqKey) return await executeGroq(request, keys.groqKey, fetchImpl);
-    return null;
+    return await executeOpenRouter(request, apiKey, fetchImpl);
   } catch (e) {
-    if (e instanceof OriginProviderError && e.retryable) markProviderCooldown(provider);
+    if (e instanceof OriginProviderError && e.retryable) markProviderCooldown("openrouter");
     throw e;
   }
 }
@@ -208,7 +192,7 @@ export async function executeOriginProvider(request: OriginProviderExecutionRequ
 
   // Zero-Cost invariant: exactly one provider route is permitted. Provider-level
   // fallback and cross-provider failover are intentionally disabled.
-  const result = await tryProvider("openrouter", request, { openRouterKey }, fetchImpl);
+  const result = await tryOpenRouter(request, openRouterKey, fetchImpl);
   if (result) return result;
 
   throw new OriginProviderError("PROVIDER_UNAVAILABLE", "OpenRouterの固定無料経路を利用できません。", 503, true);
