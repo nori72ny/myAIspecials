@@ -20,10 +20,10 @@ export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-08-22T12:28:35.312Z",
-    reviewAfter: "2026-09-01T12:28:35.311Z",
+    verifiedAt: "2026-08-29T16:44:45.601Z",
+    reviewAfter: "2026-09-08T16:44:45.600Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter's official /api/v1/models response reported pricing.prompt and pricing.completion as exactly zero for this model ID at verification time. This evidence expires on 2026-09-01T12:28:35.311Z. Runtime still requires exact served-model identity, fixed-route evidence, denied data collection, and reported usage cost of zero before returning an answer.",
+    sourceDescription: "OpenRouter's official /api/v1/models response reported pricing.prompt and pricing.completion as exactly zero for this model ID at verification time. This evidence expires on 2026-09-08T16:44:45.600Z. Runtime still requires exact served-model identity, fixed-route evidence, denied data collection, and reported usage cost of zero before returning an answer.",
   },
 ] as const;
 
