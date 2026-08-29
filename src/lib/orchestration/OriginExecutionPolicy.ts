@@ -18,10 +18,13 @@ export type OriginExecutionProviderId =
   | typeof ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID
   | typeof ORIGIN_GROQ_FREE_PROVIDER_ID;
 
+/**
+ * ORIGIN Personal's production zero-cost route is intentionally single-provider.
+ * Other provider IDs remain exported for compatibility with legacy callers/tests,
+ * but the execution planner never selects them as an automatic fallback.
+ */
 export const ORIGIN_ZERO_COST_PROVIDER_IDS: readonly OriginExecutionProviderId[] = [
   ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
-  ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID,
-  ORIGIN_GROQ_FREE_PROVIDER_ID,
 ];
 
 export interface OriginExecutionAvailability {
@@ -37,7 +40,8 @@ export interface OriginExecutionPolicy {
 }
 
 export interface OriginProviderDataPolicy {
-  allowProviderFallbacks: true;
+  /** Legacy callers may still construct true, but production execution rejects it. */
+  allowProviderFallbacks: boolean;
   dataCollection: "deny";
   requireZeroDataRetention: false;
 }
@@ -78,7 +82,7 @@ export const DEFAULT_ORIGIN_EXECUTION_POLICY: OriginExecutionPolicy = {
 };
 
 export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = {
-  allowProviderFallbacks: true,
+  allowProviderFallbacks: false,
   dataCollection: "deny",
   requireZeroDataRetention: false,
 };
@@ -99,8 +103,8 @@ export function buildOriginExecutionPlan(
 ): OriginExecutionPlanResult {
   const policy = normalizePolicy(policyInput);
   if (!policy) return { ok: false, code: "INVALID_EXECUTION_POLICY", message: "実行ポリシーの値が正しくありません。" };
-  if (!availability.openRouterConfigured && !availability.googleAiStudioConfigured && !availability.groqConfigured) {
-    return { ok: false, code: "FREE_PROVIDER_NOT_CONFIGURED", message: "明示的に無料と確認できるAIプロバイダーが設定されていません。" };
+  if (!availability.openRouterConfigured) {
+    return { ok: false, code: "FREE_PROVIDER_NOT_CONFIGURED", message: "ORIGINの固定無料実行に必要なOpenRouterが設定されていません。" };
   }
   const freeModelResult = selectCurrentOriginFreeModel(
     planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
@@ -109,6 +113,9 @@ export function buildOriginExecutionPlan(
   if (freeModelResult.ok === false) return freeModelResult;
   const taskType = classifyTask(request);
   const model = freeModelResult.model;
+  if (model.providerId !== ORIGIN_OPENROUTER_FREE_PROVIDER_ID) {
+    return { ok: false, code: "FREE_MODEL_CATALOG_INVALID", message: "ORIGINの固定無料経路はOpenRouterモデルのみを許可します。" };
+  }
   return {
     ok: true,
     plan: {
@@ -120,7 +127,7 @@ export function buildOriginExecutionPlan(
       estimatedCostUsd: 0,
       timeoutMs: policy.timeoutMs,
       requiresOwnerApproval: false,
-      reason: `依頼を「${taskType}」として分類し、0ドル固定ポリシーで実行します。一次経路が利用できない場合は許可リスト内の無料プロバイダーへ自動フォールバックし、有料モデルには切り替えません。`,
+      reason: `依頼を「${taskType}」として分類し、OpenRouterの許可済み無料モデル1経路だけで0ドル固定ポリシーで実行します。プロバイダー間フォールバックは行いません。`,
       providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
       modelEvidence: { verifiedAt: model.verifiedAt, reviewAfter: model.reviewAfter, sourceUrl: model.sourceUrl },
     },
