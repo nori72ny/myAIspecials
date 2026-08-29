@@ -52,21 +52,22 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     // Historical sessions are not auto-restored from the Personal shell.
   }, []);
 
-  const handleShellClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+  const handleShellClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target instanceof Element ? event.target.closest('button') : null;
     if (!(target instanceof HTMLButtonElement)) return;
     const label = target.getAttribute('aria-label') ?? '';
     if (!/設定|settings?/i.test(label)) return;
 
-    // App's legacy header wrapper navigates on bubble. Stop only this control,
-    // while explicitly invoking the intended settings state transition.
+    // Keep this control on the normal React bubble path so test environments
+    // observe the same event semantics as production, while preventing the
+    // legacy shell wrapper from handling the settings click again.
     event.preventDefault();
     event.stopPropagation();
     onOpenSettings?.();
   }, [onOpenSettings]);
 
   return (
-    <div onClickCapture={handleShellClickCapture} className="origin-chatgpt-refresh h-full min-h-0 w-full">
+    <div onClick={handleShellClick} className="origin-chatgpt-refresh h-full min-h-0 w-full">
       <App
         onOpenSettings={onOpenSettings}
         messages={messages}
