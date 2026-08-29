@@ -58,9 +58,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     const label = target.getAttribute('aria-label') ?? '';
     if (!/設定|settings?/i.test(label)) return;
 
-    // Keep this control on the normal React bubble path so test environments
-    // observe the same event semantics as production, while preventing the
-    // legacy shell wrapper from handling the settings click again.
+    // Handle the settings control exactly once at the shell boundary. App does
+    // not receive the callback below, avoiding duplicate invocation on bubble.
     event.preventDefault();
     event.stopPropagation();
     onOpenSettings?.();
@@ -69,7 +68,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   return (
     <div onClick={handleShellClick} className="origin-chatgpt-refresh h-full min-h-0 w-full">
       <App
-        onOpenSettings={onOpenSettings}
         messages={messages}
         sessions={[]}
         artifacts={artifacts.length ? artifacts : parentArtifacts ?? []}
