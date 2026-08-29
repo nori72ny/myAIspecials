@@ -1,7 +1,7 @@
 import express, { type Router } from 'express';
-import { executeToolWithPermission, type ToolName, type ToolParams } from './toolRegistry';
-import { verifyAndSelfFixArtifact } from './autoVerificationEngine';
-import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpointManager';
+import { executeToolWithPermission, type ToolName, type ToolParams } from './toolRegistry.js';
+import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
+import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpointManager.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
 const sse = (res: express.Response, payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
