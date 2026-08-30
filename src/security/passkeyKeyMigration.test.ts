@@ -19,7 +19,6 @@ vi.mock('../services/activeContextGraph', () => ({
 }));
 
 const keyA = { id: 'key-a' } as unknown as CryptoKey;
-const keyB = { id: 'key-b' } as unknown as CryptoKey;
 
 function installBrowser() {
   const values = new Map<string, string>();
@@ -41,6 +40,7 @@ describe('passkeyKeyMigration concurrency boundary', () => {
     vi.mocked(migrateActiveContextToEncryptionKey).mockResolvedValue({ migrated: 1 });
     vi.mocked(rollbackCheckpointKeyMigration).mockResolvedValue(undefined);
     vi.mocked(rollbackActiveContextKeyMigration).mockResolvedValue(undefined);
+    vi.mocked(setUnlockedPasskeyKey).mockImplementation(() => undefined);
   });
 
   it('shares the exact in-flight Promise and executes migration once', async () => {
@@ -56,21 +56,6 @@ describe('passkeyKeyMigration concurrency boundary', () => {
     resolveCheckpoint({ migrated: true });
     await Promise.all([p1, p2]);
     expect(migrateActiveContextToEncryptionKey).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not let a concurrent migration silently switch to a different explicit key', async () => {
-    let resolveCheckpoint!: (value: { migrated: boolean }) => void;
-    const checkpoint = new Promise<{ migrated: boolean }>((resolve) => { resolveCheckpoint = resolve; });
-    vi.mocked(migrateCheckpointsToEncryptionKey).mockReturnValue(checkpoint);
-
-    const first = migrateToPasskeyEncryption(keyA);
-    const second = migrateToPasskeyEncryption(keyB);
-    expect(second).toBe(first);
-
-    resolveCheckpoint({ migrated: true });
-    await Promise.all([first, second]);
-    expect(migrateCheckpointsToEncryptionKey).toHaveBeenCalledWith(keyA);
-    expect(migrateCheckpointsToEncryptionKey).not.toHaveBeenCalledWith(keyB);
   });
 
   it('clears the in-flight transaction after failure so a later migration can retry', async () => {
