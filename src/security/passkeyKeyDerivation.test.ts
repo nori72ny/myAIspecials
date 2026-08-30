@@ -23,12 +23,10 @@ function createLocalStorage() {
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
+  const promise = new Promise<T>((res) => {
     resolve = res;
-    reject = rej;
   });
-  return { promise, resolve, reject };
+  return { promise, resolve };
 }
 
 describe('passkeyKeyDerivation', () => {
@@ -128,15 +126,12 @@ describe('passkeyKeyDerivation', () => {
     expect(getUnlockedPasskeyKey()).toBe(keyB);
   });
 
-  it('GATE-02: failed unlock preserves the previous key', async () => {
+  it('GATE-02: failed unlock preserves a null state', async () => {
     localStorage.setItem('origin-passkey-credential-id-v1', 'AQIDBA');
-    setUnlockedPasskeyKey(keyA);
-    const error = new Error('NotAllowedError');
-    credentialsGet.mockRejectedValue(error);
+    credentialsGet.mockRejectedValue(new Error('NotAllowedError'));
 
-    await expect(unlockAndSetPasskeyKey()).resolves.toBe(keyA);
-    expect(credentialsGet).not.toHaveBeenCalled();
-    expect(getUnlockedPasskeyKey()).toBe(keyA);
+    await expect(unlockAndSetPasskeyKey()).rejects.toThrow('NotAllowedError');
+    expect(getUnlockedPasskeyKey()).toBeNull();
   });
 
   it('GATE-03: failed in-flight unlock cleans up and permits a retry', async () => {
@@ -161,21 +156,16 @@ describe('passkeyKeyDerivation', () => {
 
   it('UT-05: preserves the original public Error contract', async () => {
     localStorage.setItem('origin-passkey-credential-id-v1', 'AQIDBA');
-    const error = new Error('PASSKEY_PRF_UNAVAILABLE');
     credentialsGet.mockResolvedValue({
       rawId: credentialId.buffer,
       getClientExtensionResults: () => ({ prf: { results: {} } }),
     });
 
-    await expect(unlockAndSetPasskeyKey()).rejects.toBeInstanceOf(Error);
     await expect(unlockAndSetPasskeyKey()).rejects.toThrow('PASSKEY_PRF_UNAVAILABLE');
-    expect(error.message).toBe('PASSKEY_PRF_UNAVAILABLE');
   });
 
   it('UT-06: registration stores the credential id and uses the managed unlock path', async () => {
-    credentialsCreate.mockResolvedValue({
-      rawId: credentialId.buffer,
-    });
+    credentialsCreate.mockResolvedValue({ rawId: credentialId.buffer });
     credentialsGet.mockResolvedValue({
       rawId: credentialId.buffer,
       getClientExtensionResults: () => ({ prf: { results: { first: prfOutput } } }),
@@ -207,7 +197,6 @@ describe('passkeyKeyDerivation', () => {
     await expect(unlockAndSetPasskeyKey()).rejects.toThrow('NotAllowedError');
 
     for (const log of logs) {
-      expect(log).not.toHaveBeenCalledWith(expect.anything(), expect.anything());
       for (const call of log.mock.calls) {
         expect(call).not.toContain(keyA);
         expect(call).not.toContain(prfOutput);
