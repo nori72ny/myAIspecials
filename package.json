@@ -28,6 +28,8 @@
     
     "test:node-production": "npm run build && node scripts/verify-node-production-runtime.mjs",
     
+    "test:api-node-esm": "node scripts/verify-api-serverless-runtime.mjs",
+    
     "eval:prepare": "tsx scripts/evaluate-codebase.ts",
 
     "verify:free-model": "node --import tsx scripts/verify-free-model.ts",
@@ -121,8 +123,6 @@
     "tsx": "^4.21.0",
     
     "typescript": "~5.8.2",
-    
-    "vite": "^6.2.3",
     
     "vitest": "^4.1.9"
     
