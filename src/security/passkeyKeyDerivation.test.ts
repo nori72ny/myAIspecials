@@ -183,6 +183,25 @@ describe('passkeyKeyDerivation', () => {
     expect(isPasskeyConfigured()).toBe(true);
   });
 
+  it('UT-06b: registration verifies a newly created credential even when an old key is cached', async () => {
+    localStorage.setItem('origin-passkey-credential-id-v1', 'OLD-ID');
+    setUnlockedPasskeyKey(keyA);
+    credentialsCreate.mockResolvedValue({ rawId: credentialId.buffer });
+    credentialsGet.mockResolvedValue({
+      rawId: credentialId.buffer,
+      getClientExtensionResults: () => ({ prf: { results: { first: prfOutput } } }),
+    });
+    deriveKey.mockResolvedValue(keyB);
+
+    const result = await registerPasskeyKey();
+
+    expect(result).toBe(keyB);
+    expect(credentialsGet).toHaveBeenCalledTimes(1);
+    expect(deriveKey).toHaveBeenCalledTimes(1);
+    expect(getUnlockedPasskeyKey()).toBe(keyB);
+    expect(localStorage.getItem('origin-passkey-credential-id-v1')).toBe('AQIDBA');
+  });
+
   it('registration rolls back the new credential id when verification fails', async () => {
     credentialsCreate.mockResolvedValue({ rawId: credentialId.buffer });
     credentialsGet.mockRejectedValue(new Error('NotAllowedError'));
