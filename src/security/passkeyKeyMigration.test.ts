@@ -16,7 +16,7 @@ vi.mock('../agent/indexedDbCheckpointStore', () => ({
 vi.mock('../services/activeContextGraph', () => ({
   migrateActiveContextToEncryptionKey: vi.fn(),
   rollbackActiveContextKeyMigration: vi.fn(),
-}));
+});
 
 const keyA = { id: 'key-a' } as unknown as CryptoKey;
 
@@ -56,6 +56,22 @@ describe('passkeyKeyMigration concurrency boundary', () => {
     resolveCheckpoint({ migrated: true });
     await Promise.all([p1, p2]);
     expect(migrateActiveContextToEncryptionKey).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the migration complete only after both stores succeed', async () => {
+    await expect(migrateToPasskeyEncryption()).resolves.toEqual({ checkpoints: true, activeContext: 1 });
+    expect(window.localStorage.getItem('origin-passkey-migration-v1')).toBe('complete');
+    expect(rollbackCheckpointKeyMigration).not.toHaveBeenCalled();
+    expect(rollbackActiveContextKeyMigration).not.toHaveBeenCalled();
+  });
+
+  it('rolls back completed checkpoint migration when Active Context migration fails', async () => {
+    vi.mocked(migrateActiveContextToEncryptionKey).mockRejectedValue(new Error('active-context-failed'));
+
+    await expect(migrateToPasskeyEncryption()).rejects.toThrow('active-context-failed');
+    expect(rollbackCheckpointKeyMigration).toHaveBeenCalledTimes(1);
+    expect(rollbackActiveContextKeyMigration).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem('origin-passkey-migration-v1')).toBe('pending');
   });
 
   it('clears the in-flight transaction after failure so a later migration can retry', async () => {
