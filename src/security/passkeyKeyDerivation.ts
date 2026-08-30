@@ -137,12 +137,16 @@ export async function unlockPasskeyKey(): Promise<CryptoKey> {
  * Unlocks the existing passkey and atomically stores the derived key for subsequent
  * encrypted-store operations. Concurrent callers share one in-flight operation,
  * and a failed unlock never replaces an already-unlocked key.
+ *
+ * This function intentionally is not declared `async`: returning the exact
+ * in-flight Promise is part of the concurrency contract and must preserve Promise
+ * reference identity for callers that coalesce concurrent unlock attempts.
  */
 let unlockedPasskeyKey: CryptoKey | null = null;
 let activeUnlockPromise: Promise<CryptoKey> | null = null;
 
-export async function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
-  if (unlockedPasskeyKey !== null) return unlockedPasskeyKey;
+export function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
+  if (unlockedPasskeyKey !== null) return Promise.resolve(unlockedPasskeyKey);
   if (activeUnlockPromise !== null) return activeUnlockPromise;
 
   activeUnlockPromise = (async () => {
