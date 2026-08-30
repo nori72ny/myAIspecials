@@ -134,6 +134,16 @@ describe('passkeyKeyDerivation', () => {
     expect(getUnlockedPasskeyKey()).toBeNull();
   });
 
+  it('GATE-02: failed unlock preserves an already-unlocked key', async () => {
+    setUnlockedPasskeyKey(keyA);
+
+    const result = await unlockAndSetPasskeyKey();
+
+    expect(result).toBe(keyA);
+    expect(getUnlockedPasskeyKey()).toBe(keyA);
+    expect(credentialsGet).not.toHaveBeenCalled();
+  });
+
   it('GATE-03: failed in-flight unlock cleans up and permits a retry', async () => {
     localStorage.setItem('origin-passkey-credential-id-v1', 'AQIDBA');
     credentialsGet
