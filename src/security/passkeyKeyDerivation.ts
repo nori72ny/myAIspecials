@@ -148,13 +148,13 @@ export async function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
   activeUnlockPromise = (async () => {
     try {
       const key = await unlockPasskeyKey();
-      if (!key) throw new Error('PASSKEY_UNLOCK_FAILED');
       unlockedPasskeyKey = key;
       return key;
-    } catch {
+    } catch (error: unknown) {
       // Never log authentication payloads, CryptoKey instances, or derivation data.
-      // Preserve any previously-unlocked state because the assignment occurs only
-      // after complete success.
+      // Preserve the existing public error codes while guaranteeing that state is
+      // unchanged because assignment occurs only after complete success.
+      if (error instanceof Error) throw error;
       throw new Error('PASSKEY_UNLOCK_FAILED');
     } finally {
       activeUnlockPromise = null;
