@@ -104,7 +104,12 @@ export async function registerPasskeyKey(): Promise<CryptoKey> {
 
   window.localStorage.setItem(PASSKEY_STORAGE_KEY, base64UrlEncode(new Uint8Array(credential.rawId)));
   try {
-    return await unlockAndSetPasskeyKey();
+    // Registration must verify the newly-created credential even when an older
+    // unlocked key is cached; otherwise the new credential ID could be persisted
+    // without ever proving that it derives a usable key.
+    const key = await unlockPasskeyKey();
+    unlockedPasskeyKey = key;
+    return key;
   } catch (error: unknown) {
     if (previousCredentialId === null) {
       window.localStorage.removeItem(PASSKEY_STORAGE_KEY);
