@@ -45,12 +45,16 @@ export function migrateToPasskeyEncryption(passkeyKey?: CryptoKey): Promise<{ ch
   if (activeMigrationPromise !== null) return activeMigrationPromise;
 
   activeMigrationPromise = (async () => {
-    const key = passkeyKey ?? getUnlockedPasskeyKey() ?? await unlockAndSetPasskeyKey();
-    setMigrationStatus('pending');
-
     let checkpointsMigrated = false;
     let activeContextMigrated = 0;
+
     try {
+      // Mark the migration as pending before any asynchronous prerequisite, including
+      // passkey unlock. This makes every failed migration attempt observable as pending
+      // and keeps the retry/cleanup contract inside the same finally boundary.
+      setMigrationStatus('pending');
+      const key = passkeyKey ?? getUnlockedPasskeyKey() ?? await unlockAndSetPasskeyKey();
+
       const checkpointResult = await migrateCheckpointsToEncryptionKey(key);
       checkpointsMigrated = checkpointResult.migrated;
 
