@@ -5,6 +5,7 @@ import {
   registerPasskeyKey,
   setUnlockedPasskeyKey,
   unlockAndSetPasskeyKey,
+  unlockPasskeyKey,
 } from './passkeyKeyDerivation';
 
 const credentialId = new Uint8Array([1, 2, 3, 4]);
@@ -134,6 +135,15 @@ describe('passkeyKeyDerivation', () => {
 
     await expect(unlockAndSetPasskeyKey()).rejects.toThrow('NotAllowedError');
     expect(getUnlockedPasskeyKey()).toBeNull();
+  });
+
+  it('GATE-02b: low-level unlock failure never clears an already-unlocked key', async () => {
+    setUnlockedPasskeyKey(keyA);
+    localStorage.setItem('origin-passkey-credential-id-v1', 'AQIDBA');
+    credentialsGet.mockRejectedValue(new Error('NotAllowedError'));
+
+    await expect(unlockPasskeyKey()).rejects.toThrow('NotAllowedError');
+    expect(getUnlockedPasskeyKey()).toBe(keyA);
   });
 
   it('GATE-03: failed in-flight unlock cleans up and permits a retry', async () => {
