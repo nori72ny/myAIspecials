@@ -85,6 +85,7 @@ export async function registerPasskeyKey(): Promise<CryptoKey> {
   const challenge = crypto.getRandomValues(new Uint8Array(32));
   const userId = crypto.getRandomValues(new Uint8Array(16));
   const salt = getOrCreateSalt();
+  const previousCredentialId = window.localStorage.getItem(PASSKEY_STORAGE_KEY);
   const credential = await window.navigator.credentials.create({
     publicKey: {
       challenge,
@@ -102,7 +103,16 @@ export async function registerPasskeyKey(): Promise<CryptoKey> {
   if (!credential) throw new Error('PASSKEY_REGISTRATION_CANCELLED');
 
   window.localStorage.setItem(PASSKEY_STORAGE_KEY, base64UrlEncode(new Uint8Array(credential.rawId)));
-  return unlockAndSetPasskeyKey();
+  try {
+    return await unlockAndSetPasskeyKey();
+  } catch (error: unknown) {
+    if (previousCredentialId === null) {
+      window.localStorage.removeItem(PASSKEY_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(PASSKEY_STORAGE_KEY, previousCredentialId);
+    }
+    throw error;
+  }
 }
 
 /**
