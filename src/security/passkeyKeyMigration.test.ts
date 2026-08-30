@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getUnlockedPasskeyKey, setUnlockedPasskeyKey } from './passkeyKeyDerivation';
+import { getUnlockedPasskeyKey, setUnlockedPasskeyKey, unlockAndSetPasskeyKey } from './passkeyKeyDerivation';
 import { migrateToPasskeyEncryption } from './passkeyKeyMigration';
 import { migrateCheckpointsToEncryptionKey, rollbackCheckpointKeyMigration } from '../agent/indexedDbCheckpointStore';
 import { migrateActiveContextToEncryptionKey, rollbackActiveContextKeyMigration } from '../services/activeContextGraph';
@@ -88,6 +88,21 @@ describe('passkeyKeyMigration concurrency boundary', () => {
     vi.mocked(migrateCheckpointsToEncryptionKey).mockRejectedValue(new Error('checkpoint-failed'));
     await expect(migrateToPasskeyEncryption()).rejects.toThrow('checkpoint-failed');
     expect(window.localStorage.getItem('origin-passkey-migration-v1')).toBe('pending');
+  });
+
+  it('cleans up and permits retry when the passkey unlock prerequisite fails', async () => {
+    vi.mocked(getUnlockedPasskeyKey).mockReturnValue(null);
+    vi.mocked(unlockAndSetPasskeyKey)
+      .mockRejectedValueOnce(new Error('NotAllowedError'))
+      .mockResolvedValueOnce(keyA);
+
+    await expect(migrateToPasskeyEncryption()).rejects.toThrow('NotAllowedError');
+    expect(window.localStorage.getItem('origin-passkey-migration-v1')).toBe('pending');
+    expect(migrateCheckpointsToEncryptionKey).not.toHaveBeenCalled();
+
+    await expect(migrateToPasskeyEncryption()).resolves.toEqual({ checkpoints: true, activeContext: 1 });
+    expect(unlockAndSetPasskeyKey).toHaveBeenCalledTimes(2);
+    expect(migrateCheckpointsToEncryptionKey).toHaveBeenCalledTimes(1);
   });
 
   it('uses the unlocked key when no explicit key is supplied', async () => {
