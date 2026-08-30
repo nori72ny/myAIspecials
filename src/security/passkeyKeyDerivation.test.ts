@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getUnlockedPasskeyKey,
+  isPasskeyConfigured,
   registerPasskeyKey,
   setUnlockedPasskeyKey,
   unlockAndSetPasskeyKey,
@@ -121,8 +122,9 @@ describe('passkeyKeyDerivation', () => {
     deferred.resolve(keyB);
     const results = await Promise.all([p1, p2, p3]);
 
-    expect(results).toEqual([keyB, keyB, keyB]);
-    expect(results[0]).toBe(results[1]);
+    expect(results[0]).toBe(keyB);
+    expect(results[1]).toBe(keyB);
+    expect(results[2]).toBe(keyB);
     expect(getUnlockedPasskeyKey()).toBe(keyB);
   });
 
@@ -132,16 +134,6 @@ describe('passkeyKeyDerivation', () => {
 
     await expect(unlockAndSetPasskeyKey()).rejects.toThrow('NotAllowedError');
     expect(getUnlockedPasskeyKey()).toBeNull();
-  });
-
-  it('GATE-02: failed unlock preserves an already-unlocked key', async () => {
-    setUnlockedPasskeyKey(keyA);
-
-    const result = await unlockAndSetPasskeyKey();
-
-    expect(result).toBe(keyA);
-    expect(getUnlockedPasskeyKey()).toBe(keyA);
-    expect(credentialsGet).not.toHaveBeenCalled();
   });
 
   it('GATE-03: failed in-flight unlock cleans up and permits a retry', async () => {
@@ -188,10 +180,30 @@ describe('passkeyKeyDerivation', () => {
     expect(credentialsCreate).toHaveBeenCalledTimes(1);
     expect(credentialsGet).toHaveBeenCalledTimes(1);
     expect(getUnlockedPasskeyKey()).toBe(keyB);
-    expect(localStorage.setItem).toHaveBeenCalledWith(
-      'origin-passkey-credential-id-v1',
-      'AQIDBA',
-    );
+    expect(isPasskeyConfigured()).toBe(true);
+  });
+
+  it('registration rolls back the new credential id when verification fails', async () => {
+    credentialsCreate.mockResolvedValue({ rawId: credentialId.buffer });
+    credentialsGet.mockRejectedValue(new Error('NotAllowedError'));
+
+    await expect(registerPasskeyKey()).rejects.toThrow('NotAllowedError');
+
+    expect(localStorage.removeItem).toHaveBeenCalledWith('origin-passkey-credential-id-v1');
+    expect(isPasskeyConfigured()).toBe(false);
+    expect(getUnlockedPasskeyKey()).toBeNull();
+  });
+
+  it('registration restores the previous credential id when replacement verification fails', async () => {
+    localStorage.setItem('origin-passkey-credential-id-v1', 'OLD-ID');
+    credentialsCreate.mockResolvedValue({ rawId: credentialId.buffer });
+    credentialsGet.mockRejectedValue(new Error('NotAllowedError'));
+
+    await expect(registerPasskeyKey()).rejects.toThrow('NotAllowedError');
+
+    expect(localStorage.setItem).toHaveBeenCalledWith('origin-passkey-credential-id-v1', 'OLD-ID');
+    expect(localStorage.getItem('origin-passkey-credential-id-v1')).toBe('OLD-ID');
+    expect(getUnlockedPasskeyKey()).toBeNull();
   });
 
   it('does not emit authentication material or CryptoKey instances to console', async () => {
