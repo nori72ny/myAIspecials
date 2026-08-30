@@ -102,10 +102,15 @@ export async function registerPasskeyKey(): Promise<CryptoKey> {
   if (!credential) throw new Error('PASSKEY_REGISTRATION_CANCELLED');
 
   window.localStorage.setItem(PASSKEY_STORAGE_KEY, base64UrlEncode(new Uint8Array(credential.rawId)));
-  return unlockPasskeyKey();
+  return unlockAndSetPasskeyKey();
 }
 
-/** Unlocks the existing passkey using WebAuthn PRF and derives a non-extractable AES-GCM-256 key. */
+/**
+ * Unlocks the existing passkey using WebAuthn PRF and derives a non-extractable
+ * AES-GCM-256 key. This is the low-level derivation primitive and does not mutate
+ * the module's unlocked-key state; callers that need shared state should use
+ * unlockAndSetPasskeyKey().
+ */
 export async function unlockPasskeyKey(): Promise<CryptoKey> {
   if (!isBrowser()) throw new Error('PASSKEY_BROWSER_REQUIRED');
   const credentialId = getStoredCredentialId();
@@ -128,25 +133,43 @@ export async function unlockPasskeyKey(): Promise<CryptoKey> {
   return deriveAesKey(prfOutput, salt);
 }
 
-/** Unlocks the existing passkey and stores the derived key for subsequent encrypted-store operations. */
-export async function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
-  const key = await unlockPasskeyKey();
-  setUnlockedPasskeyKey(key);
-  return key;
-}
-
 /**
- * Passkey-first key selection. This intentionally does not silently prompt for
- * biometric authentication: callers can unlock explicitly, after which this
- * in-memory key is preferred by the encrypted stores. Without PRF support or
- * unlock, callers should retain their existing local-key fallback.
+ * Unlocks the existing passkey and atomically stores the derived key for subsequent
+ * encrypted-store operations. Concurrent callers share one in-flight operation,
+ * and a failed unlock never replaces an already-unlocked key.
  */
 let unlockedPasskeyKey: CryptoKey | null = null;
+let activeUnlockPromise: Promise<CryptoKey> | null = null;
 
+export async function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
+  if (unlockedPasskeyKey !== null) return unlockedPasskeyKey;
+  if (activeUnlockPromise !== null) return activeUnlockPromise;
+
+  activeUnlockPromise = (async () => {
+    try {
+      const key = await unlockPasskeyKey();
+      if (!key) throw new Error('PASSKEY_UNLOCK_FAILED');
+      unlockedPasskeyKey = key;
+      return key;
+    } catch {
+      // Never log authentication payloads, CryptoKey instances, or derivation data.
+      // Preserve any previously-unlocked state because the assignment occurs only
+      // after complete success.
+      throw new Error('PASSKEY_UNLOCK_FAILED');
+    } finally {
+      activeUnlockPromise = null;
+    }
+  })();
+
+  return activeUnlockPromise;
+}
+
+/** Sets or clears the in-memory passkey key. The CryptoKey remains non-extractable. */
 export function setUnlockedPasskeyKey(key: CryptoKey | null): void {
   unlockedPasskeyKey = key;
 }
 
+/** Returns the currently unlocked in-memory passkey key, if any. */
 export function getUnlockedPasskeyKey(): CryptoKey | null {
   return unlockedPasskeyKey;
 }
