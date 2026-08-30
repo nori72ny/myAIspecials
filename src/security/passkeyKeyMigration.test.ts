@@ -16,7 +16,7 @@ vi.mock('../agent/indexedDbCheckpointStore', () => ({
 vi.mock('../services/activeContextGraph', () => ({
   migrateActiveContextToEncryptionKey: vi.fn(),
   rollbackActiveContextKeyMigration: vi.fn(),
-});
+}));
 
 const keyA = { id: 'key-a' } as unknown as CryptoKey;
 
