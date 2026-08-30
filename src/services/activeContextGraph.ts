@@ -1,4 +1,4 @@
-import { getUnlockedPasskeyKey } from '../security/passkeyKeyDerivation';
+import { getUnlockedPasskeyKey } from '../security/passkeyKeyDerivation.js';
 
 const STORAGE_PREFIX = "origin-active-context:v1:";
 const KEY_DB_NAME = "origin-active-context-key";
