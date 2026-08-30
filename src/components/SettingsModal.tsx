@@ -61,6 +61,7 @@ export default function SettingsModal({
 
   const handlePortalPointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerId !== openingPointerIdRef.current) return;
+    openingPointerIdRef.current = null;
     event.preventDefault();
     event.stopPropagation();
   };
