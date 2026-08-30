@@ -18,6 +18,8 @@ type MigrationStatus = 'pending' | 'complete';
 
 const isBrowser = (): boolean => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 
+let activeMigrationPromise: Promise<{ checkpoints: boolean; activeContext: number }> | null = null;
+
 export function isPasskeyMigrationComplete(): boolean {
   return isBrowser() && window.localStorage.getItem(PASSKEY_MIGRATION_STATUS_KEY) === 'complete';
 }
@@ -33,29 +35,41 @@ function setMigrationStatus(status: MigrationStatus): void {
  * currently unlocked WebAuthn-PRF-derived AES-GCM key. Both stores stage and verify
  * their new ciphertext before replacing the active record; a cross-store failure
  * triggers best-effort restoration of the legacy ciphertexts.
+ *
+ * Concurrent migration callers share one in-flight transaction. This prevents one
+ * caller from observing or modifying the stores while another caller is between the
+ * checkpoint and Active Context migration stages.
  */
-export async function migrateToPasskeyEncryption(passkeyKey?: CryptoKey): Promise<{ checkpoints: boolean; activeContext: number }> {
-  if (!isBrowser()) throw new Error('PASSKEY_MIGRATION_BROWSER_REQUIRED');
-  const key = passkeyKey ?? getUnlockedPasskeyKey() ?? await unlockAndSetPasskeyKey();
-  setMigrationStatus('pending');
+export function migrateToPasskeyEncryption(passkeyKey?: CryptoKey): Promise<{ checkpoints: boolean; activeContext: number }> {
+  if (!isBrowser()) return Promise.reject(new Error('PASSKEY_MIGRATION_BROWSER_REQUIRED'));
+  if (activeMigrationPromise !== null) return activeMigrationPromise;
 
-  let checkpointsMigrated = false;
-  let activeContextMigrated = 0;
-  try {
-    const checkpointResult = await migrateCheckpointsToEncryptionKey(key);
-    checkpointsMigrated = checkpointResult.migrated;
-
-    const activeContextResult = await migrateActiveContextToEncryptionKey(key);
-    activeContextMigrated = activeContextResult.migrated;
-
-    setMigrationStatus('complete');
-    return { checkpoints: checkpointsMigrated, activeContext: activeContextMigrated };
-  } catch (error) {
-    await Promise.allSettled([
-      checkpointsMigrated ? rollbackCheckpointKeyMigration() : Promise.resolve(),
-      activeContextMigrated > 0 ? rollbackActiveContextKeyMigration() : Promise.resolve(),
-    ]);
+  activeMigrationPromise = (async () => {
+    const key = passkeyKey ?? getUnlockedPasskeyKey() ?? await unlockAndSetPasskeyKey();
     setMigrationStatus('pending');
-    throw error;
-  }
+
+    let checkpointsMigrated = false;
+    let activeContextMigrated = 0;
+    try {
+      const checkpointResult = await migrateCheckpointsToEncryptionKey(key);
+      checkpointsMigrated = checkpointResult.migrated;
+
+      const activeContextResult = await migrateActiveContextToEncryptionKey(key);
+      activeContextMigrated = activeContextResult.migrated;
+
+      setMigrationStatus('complete');
+      return { checkpoints: checkpointsMigrated, activeContext: activeContextMigrated };
+    } catch (error) {
+      await Promise.allSettled([
+        checkpointsMigrated ? rollbackCheckpointKeyMigration() : Promise.resolve(),
+        activeContextMigrated > 0 ? rollbackActiveContextKeyMigration() : Promise.resolve(),
+      ]);
+      setMigrationStatus('pending');
+      throw error;
+    } finally {
+      activeMigrationPromise = null;
+    }
+  })();
+
+  return activeMigrationPromise;
 }
