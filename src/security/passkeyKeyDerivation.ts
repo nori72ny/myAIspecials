@@ -171,10 +171,9 @@ export function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
       return key;
     } catch (error: unknown) {
       // Never log authentication payloads, CryptoKey instances, or derivation data.
-      // Preserve the existing public error codes while guaranteeing that state is
-      // unchanged because assignment occurs only after complete success.
-      if (error instanceof Error) throw error;
-      throw new Error('PASSKEY_UNLOCK_FAILED');
+      // Preserve the original public error contract and keep state unchanged because
+      // assignment occurs only after complete success.
+      throw error;
     } finally {
       activeUnlockPromise = null;
     }
