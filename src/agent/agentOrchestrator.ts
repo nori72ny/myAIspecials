@@ -2,6 +2,7 @@ import express, { type Router } from 'express';
 import { executeToolWithPermission, type ToolName, type ToolParams } from './toolRegistry.js';
 import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
 import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpointManager.js';
+import { compactAgentContext } from './contextCompaction.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
 const sse = (res: express.Response, payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -60,7 +61,8 @@ export function createAgentOrchestratorRouter(): Router {
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
-    const steps = buildPlan(goal.trim());
+    const normalizedGoal = goal.trim();
+    const steps = buildPlan(normalizedGoal);
     let closed = false;
     req.on('close', () => { closed = true; });
     const emit = (payload: unknown) => { if (!closed) sse(res, payload); };
@@ -71,7 +73,13 @@ export function createAgentOrchestratorRouter(): Router {
         steps[i] = { ...steps[i], status: i === steps.length - 1 ? 'awaiting_approval' : 'running' };
         emit({ type: 'step', step: steps[i] });
         emit({ type: 'log', message: `[${steps[i].title}] ${steps[i].detail}` });
-        if (i === 1) emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${goal.trim()}\n\nExecution Gate\n- Human approval required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Checkpoint created after successful execution\n` });
+        if (i === 1) {
+          const context = compactAgentContext(normalizedGoal, [
+            { stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' },
+          ], 'critique assumptions and define executable steps');
+          emit({ type: 'context', context });
+          emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nExecution Gate\n- Human approval required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Checkpoint created after successful execution\n` });
+        }
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
       if (!closed) { emit({ type: 'done', message: 'Plan ready. Select an approved tool to execute.' }); res.end(); }
