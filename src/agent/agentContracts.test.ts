@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateAgentOperation, isRepeatedFailure, MAX_REPAIR_ATTEMPTS } from './agentContracts';
+import {
+  evaluateAgentOperation,
+  isRepeatedFailure,
+  MAX_AGENT_TASK_STEPS,
+  MAX_IDENTICAL_FAILURES,
+  MAX_REPAIR_ATTEMPTS,
+} from './agentContracts';
 
 describe('Agentic Coding OS safety contract', () => {
   it('allows read-only exploration without approval', () => {
@@ -23,9 +29,11 @@ describe('Agentic Coding OS safety contract', () => {
   it('detects repeated identical failures at the loop boundary', () => {
     expect(isRepeatedFailure(['TYPE_ERROR', 'TYPE_ERROR'], 'TYPE_ERROR')).toBe(true);
     expect(isRepeatedFailure(['TYPE_ERROR', 'BUILD_ERROR'], 'TYPE_ERROR')).toBe(false);
+    expect(MAX_IDENTICAL_FAILURES).toBe(3);
   });
 
-  it('keeps repair attempts bounded', () => {
+  it('keeps agent work and repair bounded', () => {
     expect(MAX_REPAIR_ATTEMPTS).toBe(3);
+    expect(MAX_AGENT_TASK_STEPS).toBe(20);
   });
 });
