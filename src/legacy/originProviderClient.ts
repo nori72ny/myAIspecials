@@ -223,10 +223,10 @@ export async function executeOriginProvider(request: OriginProviderExecutionRequ
   const groqKey = env.GROQ_API_KEY;
   if (!openRouterKey && !geminiKey && !groqKey) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "無料AIプロバイダーが設定されていません。", 503, false);
 
-  // Pre-flight bypass: a provider that recently returned 429/5xx/timeout is skipped
-  // for 15 seconds. This state is intentionally in-memory: it is a best-effort
-  // warm-instance circuit breaker and never introduces storage or paid infrastructure.
-  const routeOrder: AllowedZeroCostProvider[] = ["openrouter", "google-gemini", "groq"];
+  // Prefer the owner's directly configured Gemini free API key when available.
+  // This avoids consuming OpenRouter free capacity first while preserving
+  // zero-cost failover to OpenRouter and Groq when Gemini is unavailable.
+  const routeOrder: AllowedZeroCostProvider[] = ["google-gemini", "openrouter", "groq"];
   for (const provider of routeOrder) {
     if (isProviderCoolingDown(provider)) continue;
     try {
