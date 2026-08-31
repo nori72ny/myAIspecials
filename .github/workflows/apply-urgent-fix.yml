@@ -1,154 +1,39 @@
-name: Apply Urgent Fixes
+name: Emergency Diagnostics
 
 on:
   workflow_dispatch:
 
+# Emergency workflows must be read-only. Any source change must go through
+# a reviewed pull request rather than allowing Actions to mutate main.
+permissions:
+  contents: read
+
 jobs:
-  fix-and-commit:
+  diagnostics:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
-      - name: Apply Clean Initial State and Exact Diagnostics
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate production build
+        run: npm run build
+
+      - name: Verify working tree is clean
+        run: git diff --check
+
+      - name: Report emergency workflow policy
         run: |
-          node - <<'NODE'
-          const fs = require('fs');
-
-          const replaceRequired = (path, source, pattern, replacement, label) => {
-            if (!fs.existsSync(path)) throw new Error(`${label}: file not found: ${path}`);
-            const before = source;
-            const after = before.replace(pattern, replacement);
-            if (after === before) throw new Error(`${label}: expected pattern was not found`);
-            return after;
-          };
-
-          // 1. App.tsx: title is always ORIGIN Personal.
-          const appPath = 'src/App.tsx';
-          let app = fs.readFileSync(appPath, 'utf8');
-          app = app.replace(/ORIGIN Personal 2\.0/g, 'ORIGIN Personal');
-          app = app.replace(/Personal 2\.0/g, 'Personal');
-          fs.writeFileSync(appPath, app);
-
-          // 2. UnifiedChat: do not restore a previous session on initial mount.
-          //    A clean screen means no history messages, no error messages, and an empty input.
-          const chatPath = 'src/components/personal/UnifiedChat.tsx';
-          let chat = fs.readFileSync(chatPath, 'utf8');
-
-          chat = replaceRequired(
-            chatPath,
-            chat,
-            /const initialSessionsRef = useRef<ChatSession\[\]>\(readChatSessions\(\)\);\n\s*const \[sessions, setSessions\] = useState<ChatSession\[\]>\(initialSessionsRef\.current\);/,
-            "const initialSessionsRef = useRef<ChatSession[]>([]);\n  const [sessions, setSessions] = useState<ChatSession[]>([]);",
-            'UnifiedChat initial history state',
-          );
-
-          chat = replaceRequired(
-            chatPath,
-            chat,
-            /const \[activeSessionId, setActiveSessionId\] = useState<string>\(\(\) => \(\n\s*initialPrompt\?\.trim\(\) \? newSessionId\(\) : initialSessionsRef\.current\[0\]\?\.id \?\? newSessionId\(\)\n\s*\)\);/,
-            "const [activeSessionId, setActiveSessionId] = useState<string>(() => newSessionId());",
-            'UnifiedChat initial active session',
-          );
-
-          chat = replaceRequired(
-            chatPath,
-            chat,
-            /const \[messages, setMessages\] = useState<Message\[\]>\(\(\) => \{\n\s*if \(initialPrompt\?\.trim\(\)\) return \[\];\n\s*return initialSessionsRef\.current\[0\]\?\.messages \?\? \[\{[\s\S]*?\n\s*\}\];\n\s*\}\);/,
-            "const [messages, setMessages] = useState<Message[]>([]);",
-            'UnifiedChat clean message state',
-          );
-
-          // Replace the existing new-conversation behavior with a truly empty state.
-          chat = replaceRequired(
-            chatPath,
-            chat,
-            /const createNewConversation = \(\) => \{[\s\S]*?\n\s*\};\n\n\s*const openSession =/,
-            "const createNewConversation = () => {\n    if (inFlightRef.current) return;\n    const id = newSessionId();\n    setActiveSessionId(id);\n    setMessages([]);\n    setInput('');\n    setCompletionAnnouncement('');\n    setRetrySecondsRemaining(0);\n    setIsTyping(false);\n    setShowHistory(false);\n  };\n\n  const openSession =",
-            'UnifiedChat new conversation reset',
-          );
-
-          // Add a single global reset path so the ORIGIN header/logo can reset the live chat.
-          const resetListener = `
-  useEffect(() => {
-    const resetToCleanInitialState = () => {
-      if (inFlightRef.current) return;
-      const id = newSessionId();
-      setActiveSessionId(id);
-      setMessages([]);
-      setInput('');
-      setCompletionAnnouncement('');
-      setRetrySecondsRemaining(0);
-      setIsTyping(false);
-      setShowHistory(false);
-      dispatchAiCoreState('UNKNOWN');
-    };
-    const onOriginReset = () => resetToCleanInitialState();
-    window.addEventListener('originResetConversation', onOriginReset);
-    return () => window.removeEventListener('originResetConversation', onOriginReset);
-  }, []);
-
-  useEffect(() => {
-    const onHeaderClick = (event) => {
-      const element = event.target instanceof Element ? event.target.closest('button, a') : null;
-      if (!element) return;
-      const label = (element.textContent || '').replace(/\\s+/g, ' ').trim();
-      if (!label || (!/\\bORIGIN\\b/i.test(label) && !/新規対話|新しい依頼/.test(label))) return;
-      if (inFlightRef.current) return;
-      const id = newSessionId();
-      setActiveSessionId(id);
-      setMessages([]);
-      setInput('');
-      setCompletionAnnouncement('');
-      setRetrySecondsRemaining(0);
-      setIsTyping(false);
-      setShowHistory(false);
-      dispatchAiCoreState('UNKNOWN');
-    };
-    document.addEventListener('click', onHeaderClick, true);
-    return () => document.removeEventListener('click', onHeaderClick, true);
-  }, []);
-`;
-
-          if (!chat.includes("window.addEventListener('originResetConversation'")) {
-            chat = chat.replace(/\n\s*const dispatchAiCoreState = \(state: AiCoreState\) => \{/, `${resetListener}\n  const dispatchAiCoreState = (state: AiCoreState) => {`);
-          }
-
-          // 3. Always expose the actual HTTP status alongside the server error code.
-          chat = chat.replace(
-            /type ChatApiError = \{\n/,
-            "type ChatApiError = {\n  status?: number;\n",
-          );
-          chat = chat.replace(
-            /throw data;\n/,
-            "throw { ...data, status: response.status };\n",
-          );
-          chat = chat.replace(
-            /throw \{\n\s*code: 'ORIGIN_API_NON_JSON',/,
-            "throw {\n          status: response.status,\n          code: 'ORIGIN_API_NON_JSON',",
-          );
-          chat = chat.replace(
-            /description = error\.message \|\| \(isEn \?\n\s*'The request failed\. Please try again later\.' :\n\s*'処理に失敗しました。しばらくしてから再試行してください。'\);/,
-            "description = error.message || (isEn ?\n        'The request failed. Please try again later.' :\n        '処理に失敗しました。しばらくしてから再試行してください。');\n      description = `${description} (code: ${error.code || 'UNKNOWN'}, status: ${error.status ?? 0})`;",
-          );
-
-          fs.writeFileSync(chatPath, chat);
-          console.log('Clean initial state and exact diagnostics applied.');
-          NODE
-
-          npm ci
-          npm run build
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add src/App.tsx src/components/personal/UnifiedChat.tsx
-          git diff --cached --check
-          git commit -m "fix: clean initial state and expose exact API error diagnostics" || echo "No changes"
-          git push origin main
+          echo "Emergency workflow is diagnostics-only."
+          echo "No source files are modified and no commits are pushed by GitHub Actions."
+          echo "Production changes must be delivered through a reviewed pull request."
