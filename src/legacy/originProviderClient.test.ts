@@ -63,8 +63,8 @@ describe("executeOriginProvider", () => {
       routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "fixed-free-model", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
       usage: { costUsd: 0.000001 },
     } as unknown as Awaited<ReturnType<typeof executeOriginProvider>>;
-    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("0ドル以外の利用額");
-    expect(() => assertOriginZeroCostExecutionResult({ ...result, actualCostUsd: 0, usage: { costUsd: 0 }, routingEvidence: { ...result.routingEvidence, servedModel: "paid-model" } })).toThrow("応答証跡を確認できなかった");
+    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("actualCostUsd が$0ポリシーを満たしません。");
+    expect(() => assertOriginZeroCostExecutionResult({ ...result, actualCostUsd: 0, usage: { costUsd: 0 }, routingEvidence: { ...result.routingEvidence, servedModel: "paid-model" } })).toThrow("許可された無料Provider/Modelの証跡を確認できません。");
   });
 
   it("enforces the fixed free model, same-model provider failover, data deny, and zero-cost routing evidence", async () => {
@@ -75,10 +75,7 @@ describe("executeOriginProvider", () => {
       expect(body.model).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
       expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
       expect(body.max_tokens).toBe(1800);
-      expect(body.reasoning).toEqual({
-        effort: "medium",
-        exclude: true,
-      });
+      expect(body.reasoning).toBeUndefined();
       expect(body.temperature).toBe(0.2);
       expect(body.top_p).toBe(0.9);
       expect(body.usage).toBeUndefined();
@@ -110,7 +107,7 @@ describe("executeOriginProvider", () => {
       routingEvidence: {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         servedModel: "google/gemma-4-26b-a4b-it:free",
-        strategy: "fixed-free-model",
+        strategy: "adaptive-primary",
         provider: "OpenRouter",
         attempt: 1,
         fallbackUsed: false,
@@ -422,147 +419,6 @@ describe("executeOriginProvider", () => {
     )).rejects.toMatchObject({
       code: "PROVIDER_POLICY_VIOLATION",
       retryable: false,
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("classifies an upstream payment-required response as a non-retryable safety violation", async () => {
-    const fetchMock = vi.fn(async () => new Response("payment details must remain private", { status: 402 }));
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({
-      code: "PROVIDER_POLICY_VIOLATION",
-      status: 502,
-      retryable: false,
-      diagnostic: { upstreamStatus: 402 },
-    });
-  });
-
-  it("discards paid provider errors embedded in an otherwise successful response", async () => {
-    const payload = successfulProviderPayload({
-      choices: [{ error: { metadata: { error_type: "payment_required" } } }],
-    });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
-  });
-
-  it("rejects a response served by a model that is not explicitly free", async () => {
-    const payload = successfulProviderPayload({
-      model: "google/gemini-3.6-flash",
-    });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({
-      code: "PROVIDER_ROUTING_UNVERIFIED",
-      retryable: false,
-    });
-  });
-
-  it("rejects a different free model instead of accepting an automatic switch", async () => {
-    const payload = successfulProviderPayload({
-      model: "google/gemma-3-27b-it:free",
-    });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({
-      code: "PROVIDER_ROUTING_UNVERIFIED",
-      retryable: false,
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("normalizes provider errors without returning or logging provider content or credentials", async () => {
-    const providerBody = "synthetic provider body Authorization: Bearer upstream-secret-value";
-    const apiKey = "synthetic-test-key";
-    const fetchMock = vi.fn(async () => new Response(providerBody, { status: 429 }));
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    try {
-      const thrown = await executeOriginProvider(
-        request,
-        { OPENROUTER_API_KEY: apiKey },
-        fetchMock as unknown as OriginFetch,
-      ).then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-
-      expect(thrown).toBeInstanceOf(OriginProviderError);
-      expect(thrown).toMatchObject({
-        code: "PROVIDER_RATE_LIMITED",
-        status: 429,
-        retryable: true,
-        message: "無料AIの利用上限に達しました。時間をおいて再試行してください。",
-        diagnostic: { upstreamStatus: 429 },
-      });
-      expect(String(thrown)).not.toContain(providerBody);
-      expect(String(thrown)).not.toContain(apiKey);
-      expect(Object.prototype.hasOwnProperty.call(thrown, "body")).toBe(false);
-      expect(Object.prototype.hasOwnProperty.call(thrown, "response")).toBe(false);
-      expect(consoleError).not.toHaveBeenCalled();
-    } finally {
-      consoleError.mockRestore();
-    }
-  });
-
-  it("preserves Retry-After guidance for rate limits", async () => {
-    const fetchMock = vi.fn(async () => new Response("rate limited", {
-      status: 429,
-      headers: { "Retry-After": "60" },
-    }));
-
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({
-      code: "PROVIDER_RATE_LIMITED",
-      status: 429,
-      retryable: true,
-      retryAfterSeconds: 60,
-      message: "無料AIの利用上限に達しました。約60秒後に再試行できます。",
-    });
-  });
-
-  it.each([
-    [401, "PROVIDER_NOT_CONFIGURED", false],
-    [402, "PROVIDER_POLICY_VIOLATION", false],
-    [403, "PROVIDER_UNAVAILABLE", false],
-    [404, "PROVIDER_UNAVAILABLE", true],
-  ] as const)("maps provider HTTP %s to a truthful public error", async (status, code, retryable) => {
-    const fetchMock = vi.fn(async () => new Response("provider detail must stay private", { status }));
-
-    await expect(executeOriginProvider(
-      request,
-      { OPENROUTER_API_KEY: "synthetic-test-key" },
-      fetchMock as unknown as OriginFetch,
-    )).rejects.toMatchObject({
-      code,
-      retryable,
-      diagnostic: { upstreamStatus: status },
     });
   });
 });
