@@ -1,5 +1,5 @@
 export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL =
-  "google/gemma-4-26b-a4b-it:free" as const;
+  "z-ai/glm-5.2:free" as const;
 export type OriginFreeModelId = typeof ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
 
 export interface OriginFreeModelEvidence {
@@ -13,17 +13,17 @@ export interface OriginFreeModelEvidence {
 }
 
 const ORIGIN_OPENROUTER_FREE_MODEL_SOURCE =
-  "https://openrouter.ai/google/gemma-4-26b-a4b-it:free" as const;
+  "https://openrouter.ai/z-ai/glm-5.2:free" as const;
 
 export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence[] = [
   {
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-08-22T12:28:35.312Z",
-    reviewAfter: "2026-09-01T12:28:35.311Z",
+    verifiedAt: "2026-08-31T12:54:00.000Z",
+    reviewAfter: "2026-09-07T12:54:00.000Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter's official /api/v1/models response reported pricing.prompt and pricing.completion as exactly zero for this model ID at verification time. This evidence expires on 2026-09-01T12:28:35.311Z. Runtime still requires exact served-model identity, fixed-route evidence, denied data collection, and reported usage cost of zero before returning an answer.",
+    sourceDescription: "OpenRouter's official model page reports this exact model variant as Free with zero prompt and completion pricing. Evidence was re-checked on 2026-08-31 and is intentionally re-reviewed within seven days. Runtime still requires exact served-model identity, fixed-route evidence, denied data collection, and reported usage cost of zero before returning an answer.",
   },
 ] as const;
 
