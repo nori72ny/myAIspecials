@@ -3,6 +3,7 @@ import { executeToolWithPermission, type ToolName, type ToolParams } from './too
 import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
 import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpointManager.js';
 import { compactAgentContext } from './contextCompaction.js';
+import { evaluateAgentOperation, MAX_AGENT_TASK_STEPS } from './agentContracts.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
 const sse = (res: express.Response, payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -11,7 +12,8 @@ const buildPlan = (goal: string): AgentStep[] => [
   { id: 'goal', title: 'Goal analysis', status: 'running', detail: `目標: ${goal.slice(0, 180)}` },
   { id: 'plan', title: 'Task decomposition', status: 'queued', detail: '成果条件・依存関係・実行順序を分解' },
   { id: 'critique', title: 'Self-critique', status: 'queued', detail: '抜け漏れ、リスク、前提を再点検' },
-  { id: 'execute', title: 'Execution', status: 'queued', detail: 'Human approval後に登録済みツールだけを実行' },
+  { id: 'execute', title: 'Execution', status: 'queued', detail: '安全契約を通過した登録済みツールだけを実行' },
+  { id: 'verify', title: 'Verification', status: 'queued', detail: '成果物を機械的に検証し、失敗時はbounded repair' },
 ];
 
 const isToolName = (value: unknown): value is ToolName =>
@@ -28,6 +30,9 @@ export function createAgentOrchestratorRouter(): Router {
     }
     if (action === 'execute') {
       if (!isToolName(toolName)) return res.status(400).json({ code: 'INVALID_TOOL' });
+      const intentExplicit = req.body?.intentExplicit === true;
+      const decision = evaluateAgentOperation('execute', intentExplicit);
+      if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
       const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.slice(0, 120) : 'agent-task';
       const toolParams = (params ?? {}) as ToolParams;
       void (async () => {
@@ -62,7 +67,7 @@ export function createAgentOrchestratorRouter(): Router {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
     const normalizedGoal = goal.trim();
-    const steps = buildPlan(normalizedGoal);
+    const steps = buildPlan(normalizedGoal).slice(0, MAX_AGENT_TASK_STEPS);
     let closed = false;
     req.on('close', () => { closed = true; });
     const emit = (payload: unknown) => { if (!closed) sse(res, payload); };
@@ -78,7 +83,7 @@ export function createAgentOrchestratorRouter(): Router {
             { stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' },
           ], 'critique assumptions and define executable steps');
           emit({ type: 'context', context });
-          emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nExecution Gate\n- Human approval required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Checkpoint created after successful execution\n` });
+          emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nExecution Gate\n- Explicit execution intent required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Checkpoint created after successful execution\n` });
         }
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
