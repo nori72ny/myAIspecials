@@ -22,7 +22,7 @@ const PROVIDER_COOLDOWN_MS = 15_000;
 export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter", "groq", "google-gemini"] as const;
 export type AllowedZeroCostProvider = typeof ALLOWED_ZERO_COST_PROVIDERS[number];
 export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL] as const, groq: [ORIGIN_GROQ_FREE_MODEL] as const, "google-gemini": [ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL] as const } as const;
-const PROVIDER_ID_BY_LABEL: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", Groq: "groq", "Google AI Studio": "google-gemini", "google-ai-studio-free": "google-gemini", "openrouter-free": "openrouter", "groq-free": "groq" };
+const PROVIDER_ID_BY_LABEL: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", Groq: "groq", "Google AI Studio": "google-gemini", "google-ai-studio-free": "google-gemini", "openrouter-free": "openrouter", "groq-free": "groq", "google-gemini": "google-gemini" };
 const providerCooldownUntil: Partial<Record<AllowedZeroCostProvider, number>> = {};
 function nowMs(): number { return Date.now(); }
 function markProviderCooldown(provider: AllowedZeroCostProvider): void { providerCooldownUntil[provider] = nowMs() + PROVIDER_COOLDOWN_MS; }
