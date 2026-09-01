@@ -53,11 +53,17 @@ jobs:
     - name: Run linter
       run: npm run lint
 
+    - name: Run explicit typecheck
+      run: npm run typecheck
+
     - name: Build the app
       run: npm run build
 
     - name: Run unit tests
       run: npm run test
+
+    - name: Run real repository repair E2E
+      run: npm run test:repair-e2e
 
     - name: Cache Playwright Browsers
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
