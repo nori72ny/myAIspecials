@@ -14,6 +14,7 @@ const PLAN_TITLES = ['Goal analysis', 'Task decomposition', 'Self-critique', 'Ex
 const buildPlan = (goal: string): AgentStep[] => PLAN_TITLES.map((title, index) => ({ id: title.toLowerCase().replaceAll(' ', '-'), title, status: index === 0 ? 'running' : 'queued', detail: index === 0 ? `目標: ${goal.slice(0, 180)}` : index === 1 ? '成果条件・依存関係・実行順序を分解' : index === 2 ? '抜け漏れ、リスク、前提を再点検' : index === 3 ? '安全契約を通過した登録済みツールだけを実行' : '成果物を機械的に検証し、失敗時はbounded repair' }));
 const isToolName = (value: unknown): value is ToolName => ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader'].includes(value as string);
 const toTaskGraph = (goal: string): AgentTaskGraph => createAgentTaskGraph(goal, PLAN_TITLES);
+const createExecutionId = () => `exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 export function createAgentOrchestratorRouter(): Router {
   const router = express.Router();
@@ -29,8 +30,9 @@ export function createAgentOrchestratorRouter(): Router {
       const decision = evaluateAgentOperation('execute', intentExplicit);
       if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
       const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.slice(0, 120) : `agent-task:${toolName}`;
+      const executionId = typeof req.body?.executionId === 'string' && req.body.executionId.length <= 120 ? req.body.executionId : createExecutionId();
       const toolParams = (params ?? {}) as ToolParams;
-      const executionApproval = { approved: true, costInUSD: 0, safetyPolicyPassed: true };
+      const executionApproval = { approved: intentExplicit, costInUSD: 0, safetyPolicyPassed: true };
       void (async () => {
         try {
           const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
@@ -49,7 +51,7 @@ export function createAgentOrchestratorRouter(): Router {
             return;
           }
           assertCanReportCompleted({ state: finalTask.status, verified: record.verified, toolExecuted: record.toolExecuted, repairAttempts: record.verificationAttempts });
-          const checkpoint = saveCheckpoint({ taskId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact });
+          const checkpoint = saveCheckpoint({ taskId, executionId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact });
           if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: record.artifact, checkpoint, execution: record, task: finalTask });
         } catch (error) {
           const code = error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED';
