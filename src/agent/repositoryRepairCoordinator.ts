@@ -1,4 +1,5 @@
-import type { RepairFailure, RepairPlan } from './codingRepairContract.js';
+import type { RepairFailure } from './repositoryRepairPolicy.js';
+import type { RepairPlan } from './codingRepairContract.js';
 import { createRepairPlan } from './codingRepairContract.js';
 
 export type RepairCoordinatorState = {
