@@ -42,7 +42,7 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.modelEvidence.sourceUrl).toContain("openrouter.ai");
   });
 
-  it("falls back to Groq when it is the only configured provider and its own evidence is supplied", () => {
+  it("selects Groq when it is the only configured provider and its own evidence is supplied", () => {
     const result = buildOriginExecutionPlan({ goal: "短い回答をお願いします" }, { openRouterConfigured: false, googleAiStudioConfigured: false, groqConfigured: true }, undefined, { nowMs: verifiedNow, providerEvidence });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -91,6 +91,6 @@ describe("buildOriginExecutionPlan", () => {
     for (const maxEstimatedCostUsd of [-1, 0.01, 1]) {
       expect(buildOriginExecutionPlan(request, { openRouterConfigured: true }, { maxEstimatedCostUsd }, { nowMs: verifiedNow })).toEqual(expect.objectContaining({ ok: false, code: "INVALID_EXECUTION_POLICY" }));
     }
-    expect(buildOriginExecutionPlan(request, { openRouterConfigured: true }, { maxEstimatedCostUsd: 0, timeoutMs: 0 }, undefined, )).toEqual(expect.objectContaining({ ok: false, code: "INVALID_EXECUTION_POLICY" }));
+    expect(buildOriginExecutionPlan(request, { openRouterConfigured: true }, { maxEstimatedCostUsd: 0, timeoutMs: 0 }, undefined)).toEqual(expect.objectContaining({ ok: false, code: "INVALID_EXECUTION_POLICY" }));
   });
 });
