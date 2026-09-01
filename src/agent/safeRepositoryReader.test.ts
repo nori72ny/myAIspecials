@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { listRepository, readRepositoryFile } from './safeRepositoryReader';
@@ -24,5 +24,16 @@ describe('safeRepositoryReader', () => {
     await writeFile(path.join(root, '.env.local'), 'SECRET=value');
     await expect(readRepositoryFile(root, '.env.local')).rejects.toThrow('PROTECTED_PATH');
     await expect(readRepositoryFile(root, 'app.ts')).resolves.toBe('ok');
+  });
+
+  it('rejects intermediate directory symlink escapes', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-'));
+    const outside = await mkdtemp(path.join(tmpdir(), 'origin-agent-outside-'));
+    await writeFile(path.join(outside, 'secret.txt'), 'outside');
+    await symlink(outside, path.join(root, 'link'), 'dir');
+
+    await expect(readRepositoryFile(root, 'link/secret.txt')).rejects.toThrow('SYMLINK_PATH_BLOCKED');
+    const entries = await listRepository(root);
+    expect(entries.some((entry) => entry.path.startsWith('link'))).toBe(false);
   });
 });
