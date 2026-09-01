@@ -29,8 +29,9 @@ export async function executeToolWithPermission(toolName: ToolName, params: Tool
   const tool = toolRegistry[toolName];
   if (!tool) throw new Error('TOOL_NOT_REGISTERED');
   if (!approval.approved) throw new Error('HUMAN_APPROVAL_REQUIRED');
-  if (approval.safetyPolicyPassed === false) throw new Error('SAFETY_POLICY_BLOCKED');
+  const securityPolicyPassed = approval.safetyPolicyPassed ?? true;
+  if (!securityPolicyPassed) throw new Error('SAFETY_POLICY_BLOCKED');
   if (approval.costInUSD !== undefined && approval.costInUSD !== 0) throw new Error('ZERO_COST_BOUNDARY_BLOCKED');
-  if (!isCapabilityAllowed({ capability: tool.capability, explicitIntent: approval.approved, securityPolicyPassed: approval.safetyPolicyPassed !== false })) throw new Error('AGENT_CAPABILITY_DENIED');
+  if (!isCapabilityAllowed({ capability: tool.capability, explicitIntent: approval.approved, securityPolicyPassed })) throw new Error('AGENT_CAPABILITY_DENIED');
   return tool.execute(params);
 }
