@@ -96,7 +96,7 @@ function resolveProviderEvidence(
 ): OriginProviderFreeEvidence | OriginExecutionPlanResult {
   if (providerId === ORIGIN_OPENROUTER_FREE_PROVIDER_ID) {
     const result = selectCurrentOriginFreeModel(planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG, nowMs);
-    if (!result.ok) return result;
+    if (!result.ok) return { ok: false, code: result.code, message: result.message };
     return result.model;
   }
   const evidence = planningOptions.providerEvidence?.[providerId];
