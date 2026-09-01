@@ -13,6 +13,8 @@ export type AgentContextSummary = {
 };
 
 const MAX_FIELD = 1000;
+const MAX_COMPLETED_STEPS = 20;
+const MAX_FAILURES = 5;
 const clean = (value: string) => value.trim().slice(0, MAX_FIELD);
 
 /** Keep only decision-relevant state between agent steps. Full tool output must not
@@ -25,11 +27,11 @@ export function compactAgentContext(
   const completedSteps = records
     .filter((record) => record.outcome === 'success')
     .map((record) => `${clean(record.stepId)}: ${clean(record.summary)}`)
-    .slice(-20);
+    .slice(-MAX_COMPLETED_STEPS);
   const failures = records
     .filter((record) => record.outcome !== 'success')
     .map((record) => `${clean(record.stepId)}: ${clean(record.summary)}`)
-    .slice(-5);
+    .slice(-MAX_FAILURES);
 
   return {
     goal: clean(goal),
