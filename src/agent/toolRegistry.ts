@@ -38,7 +38,21 @@ const registry: Record<ToolName, ToolDefinition> = {
   image_prompt_compiler: { name: 'image_prompt_compiler', description: 'Compiles an image brief locally.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const input = textParam(params, 'prompt'); return { ok: true, tool: 'image_prompt_compiler', artifact: input ? `Subject: ${input}` : 'No image brief supplied.', message: 'Image prompt compiled locally.' }; } },
   repository_explorer: { name: 'repository_explorer', description: 'Repository exploration is intentionally delegated to the existing reader boundary.', sideEffects: 'none', requiresApproval: true, execute: async () => ({ ok: false, tool: 'repository_explorer', message: 'Repository explorer requires the repository reader adapter.' }) },
   file_reader: { name: 'file_reader', description: 'File reading requires the existing repository reader adapter.', sideEffects: 'none', requiresApproval: true, execute: async () => ({ ok: false, tool: 'file_reader', message: 'File reader requires the repository reader adapter.' }) },
-  file_writer: { name: 'file_writer', description: 'Writes a repository file through the bounded safe writer.', sideEffects: 'write', requiresApproval: true, execute: async (params) => { const result = await safeWriteRepositoryFile(textParam(params, 'path'), textParam(params, 'content')); return { ok: true, tool: 'file_writer', artifact: result.path, message: `Wrote ${result.path} (${result.bytes} bytes).` }; } },
+  file_writer: {
+    name: 'file_writer',
+    description: 'Writes a repository file through the bounded safe writer.',
+    sideEffects: 'write',
+    requiresApproval: true,
+    execute: async (params) => {
+      try {
+        const result = await safeWriteRepositoryFile(textParam(params, 'path'), textParam(params, 'content'));
+        return { ok: true, tool: 'file_writer', artifact: result.path, message: `Wrote ${result.path} (${result.bytes} bytes).` };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'REPOSITORY_WRITE_FAILED';
+        return { ok: false, tool: 'file_writer', message };
+      }
+    },
+  },
   verification_runner: { name: 'verification_runner', description: 'Runs only allowlisted local test, typecheck, or build verification.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const kind = textParam(params, 'kind') as VerificationKind; if (!['test', 'typecheck', 'build'].includes(kind)) return { ok: false, tool: 'verification_runner', message: 'Verification kind is not allowed.' }; const result = await runVerification(kind); return { ok: result.ok, tool: 'verification_runner', artifact: JSON.stringify(result), message: result.ok ? `${kind} verification passed.` : `${kind} verification failed.` }; } },
 };
 
