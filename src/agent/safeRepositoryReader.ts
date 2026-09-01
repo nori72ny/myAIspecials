@@ -47,8 +47,13 @@ export async function readRepositoryFile(root: string, requestedPath: string): P
   const relative = requestedPath.replace(/\\/g, '/').replace(/^\/+/, '');
   if (blocked(relative)) throw new Error('PROTECTED_PATH');
   const absolute = safeRelative(root, relative);
-  const stat = await fs.stat(absolute);
-  if (!stat.isFile()) throw new Error('NOT_A_FILE');
-  if (stat.size > MAX_FILE_BYTES) throw new Error('FILE_TOO_LARGE');
-  return fs.readFile(absolute, 'utf8');
+  const handle = await fs.open(absolute, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error('NOT_A_FILE');
+    if (stat.size > MAX_FILE_BYTES) throw new Error('FILE_TOO_LARGE');
+    return await handle.readFile({ encoding: 'utf8' });
+  } finally {
+    await handle.close();
+  }
 }

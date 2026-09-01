@@ -20,23 +20,37 @@ function resolveSafe(root: string, relativePath: string): string {
 export type FileEditProposal = { path: string; content: string };
 export type FileEditResult = { ok: true; path: string; previous: string; next: string };
 
+async function openTarget(target: string, flags: number) {
+  return fs.open(target, flags | fs.constants.O_NOFOLLOW);
+}
+
 export async function validateFileEdit(root: string, proposal: FileEditProposal): Promise<FileEditResult> {
   if (!proposal.path.trim()) throw new Error('FILE_PATH_REQUIRED');
   const target = resolveSafe(root, proposal.path);
-  const stat = await fs.stat(target);
-  if (!stat.isFile()) throw new Error('NOT_A_FILE');
-  if (stat.size > MAX_FILE_BYTES) throw new Error('FILE_TOO_LARGE');
-  const previous = await fs.readFile(target, 'utf8');
-  const next = proposal.content;
-  const changeBytes = Buffer.byteLength(next, 'utf8');
-  if (changeBytes > MAX_CHANGE_BYTES) throw new Error('CHANGE_BUDGET_EXCEEDED');
-  if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|api[_-]?key\s*[:=]|password\s*[:=]/i.test(next)) throw new Error('SECRET_CONTENT_BLOCKED');
-  return { ok: true, path: proposal.path, previous, next };
+  const handle = await openTarget(target, fs.constants.O_RDONLY);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error('NOT_A_FILE');
+    if (stat.size > MAX_FILE_BYTES) throw new Error('FILE_TOO_LARGE');
+    const previous = await handle.readFile({ encoding: 'utf8' });
+    const next = proposal.content;
+    if (Buffer.byteLength(next, 'utf8') > MAX_CHANGE_BYTES) throw new Error('CHANGE_BUDGET_EXCEEDED');
+    if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|api[_-]?key\s*[:=]|password\s*[:=]/i.test(next)) throw new Error('SECRET_CONTENT_BLOCKED');
+    return { ok: true, path: proposal.path, previous, next };
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function applyValidatedFileEdit(root: string, edit: FileEditResult): Promise<void> {
   const target = resolveSafe(root, edit.path);
-  const current = await fs.readFile(target, 'utf8');
-  if (current !== edit.previous) throw new Error('FILE_CHANGED_SINCE_VALIDATION');
-  await fs.writeFile(target, edit.next, 'utf8');
+  const handle = await openTarget(target, fs.constants.O_RDWR);
+  try {
+    const current = await handle.readFile({ encoding: 'utf8' });
+    if (current !== edit.previous) throw new Error('FILE_CHANGED_SINCE_VALIDATION');
+    await handle.truncate(0);
+    await handle.write(edit.next, 0, 'utf8');
+  } finally {
+    await handle.close();
+  }
 }
