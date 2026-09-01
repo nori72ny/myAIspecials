@@ -14,7 +14,7 @@ export const ORIGIN_ZERO_COST_PROVIDER_IDS: readonly OriginExecutionProviderId[]
 export interface OriginExecutionAvailability { openRouterConfigured: boolean; googleAiStudioConfigured?: boolean; groqConfigured?: boolean; }
 export interface OriginExecutionPolicy { freeOnly: true; maxEstimatedCostUsd: number; timeoutMs: number; }
 export interface OriginProviderDataPolicy { allowProviderFallbacks: true; dataCollection: "deny"; requireZeroDataRetention: false; }
-export interface OriginProviderFreeEvidence { verifiedAt: string; reviewAfter: string; sourceUrl: string; }
+export interface OriginProviderFreeEvidence { providerId: OriginExecutionProviderId; verifiedAt: string; reviewAfter: string; sourceUrl: string; }
 export interface OriginExecutionPlan {
   providerId: OriginExecutionProviderId;
   providerLabel: string;
@@ -77,11 +77,11 @@ function chooseProvider(taskType: AITaskType, availability: OriginExecutionAvail
   return configured[0] ?? ORIGIN_OPENROUTER_FREE_PROVIDER_ID;
 }
 
-function parseEvidence(evidence: OriginProviderFreeEvidence, nowMs: number): OriginExecutionPlanResult | null {
+function parseEvidence(evidence: OriginProviderFreeEvidence, providerId: OriginExecutionProviderId, nowMs: number): OriginExecutionPlanResult | null {
   const verifiedAt = Date.parse(evidence.verifiedAt);
   const reviewAfter = Date.parse(evidence.reviewAfter);
-  if (!Number.isFinite(verifiedAt) || !Number.isFinite(reviewAfter) || reviewAfter <= verifiedAt || !evidence.sourceUrl.startsWith("https://")) {
-    return { ok: false, code: "FREE_MODEL_CATALOG_INVALID", message: "無料Providerの証拠が不正です。" };
+  if (evidence.providerId !== providerId || !Number.isFinite(verifiedAt) || !Number.isFinite(reviewAfter) || reviewAfter <= verifiedAt || !evidence.sourceUrl.startsWith("https://")) {
+    return { ok: false, code: "FREE_MODEL_CATALOG_INVALID", message: "無料Providerの証拠が選択Providerと一致しないか、不正です。" };
   }
   if (nowMs < verifiedAt || nowMs > reviewAfter) {
     return { ok: false, code: "FREE_MODEL_EVIDENCE_STALE", message: "選択Providerの無料利用証拠が期限切れです。再確認まで実行を停止します。" };
@@ -96,12 +96,12 @@ function resolveProviderEvidence(
 ): OriginProviderFreeEvidence | OriginExecutionPlanResult {
   if (providerId === ORIGIN_OPENROUTER_FREE_PROVIDER_ID) {
     const result = selectCurrentOriginFreeModel(planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG, nowMs);
-    if ("model" in result) return result.model;
+    if ("model" in result) return { ...result.model, providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID };
     return { ok: false, code: result.code, message: result.message };
   }
   const evidence = planningOptions.providerEvidence?.[providerId];
   if (!evidence) return { ok: false, code: "FREE_MODEL_EVIDENCE_STALE", message: "選択Providerの無料利用証拠が未設定です。証拠を確認するまで実行を停止します。" };
-  return parseEvidence(evidence, nowMs) ?? evidence;
+  return parseEvidence(evidence, providerId, nowMs) ?? evidence;
 }
 
 export function buildOriginExecutionPlan(request: AITaskRequest, availability: OriginExecutionAvailability, policyInput?: Partial<OriginExecutionPolicy>, planningOptions: OriginExecutionPlanningOptions = {}): OriginExecutionPlanResult {
