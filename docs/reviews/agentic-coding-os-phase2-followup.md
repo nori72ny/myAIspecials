@@ -11,14 +11,23 @@
 - The current default OpenRouter evidence remains expired and therefore continues to fail closed rather than being silently refreshed.
 - Production runtime error logs for the last 24 hours were empty at the time of this audit.
 
-## Remaining P1
+## P1 remediation applied
 
-`services/mission-engine/src/application/agent/ToolExecutor.ts` still contains a legacy `FileTool` write implementation using direct `fs.mkdir` + `fs.writeFile`. This is outside the hardened `src/agent/safeRepositoryWriter.ts` boundary.
+The legacy `services/mission-engine/src/application/agent/ToolExecutor.ts` `FileTool` is now **read-only**. Its previous direct `fs.mkdir` + `fs.writeFile` write primitive has been removed and replaced with an explicit `LEGACY_FILE_WRITE_DISABLED` fail-closed result. Repository writes remain centralized in the hardened `src/agent/safeRepositoryWriter.ts` boundary.
 
-Required remediation before Phase 2 can be considered merge-ready:
+The legacy read path was also hardened with protected-path filtering, repository-root resolution, intermediate symlink rejection, `O_NOFOLLOW`, and a bounded 2 MiB read limit.
 
-1. Route legacy `FileTool` writes through the hardened repository writer, or disable legacy writes entirely.
-2. Add a regression test proving traversal, protected-path, and intermediate-symlink writes cannot escape the repository boundary.
-3. Re-run typecheck, unit tests, production build, and deployment smoke tests on the final HEAD.
+Regression coverage was added in `services/mission-engine/src/__tests__/ToolExecutorSecurity.test.ts` for:
 
-This finding is intentionally unresolved. No claim of complete Agentic Coding OS safety or production readiness is made until the direct-write path is removed or safely contained.
+1. legacy writes being blocked without filesystem mutation;
+2. traversal/protected-path reads being blocked;
+3. intermediate-symlink escape attempts being rejected.
+
+## Final gates still required
+
+- Re-run typecheck and the complete unit suite on the new HEAD.
+- Re-run production build and serverless/runtime smoke tests.
+- Obtain a successful Vercel deployment for the final HEAD after the current build-rate-limit window clears.
+- Re-run the final free-provider evidence/security audit.
+
+No production merge or readiness claim is made until those gates pass on the same final commit.
