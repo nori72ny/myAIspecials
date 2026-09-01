@@ -28,9 +28,9 @@ export function createAgentOrchestratorRouter(): Router {
       const intentExplicit = req.body?.intentExplicit === true;
       const decision = evaluateAgentOperation('execute', intentExplicit);
       if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
-      const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.slice(0, 120) : 'agent-task';
+      const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.slice(0, 120) : `agent-task:${toolName}`;
       const toolParams = (params ?? {}) as ToolParams;
-      const executionApproval = { approved: intentExplicit, costInUSD: 0, safetyPolicyPassed: true };
+      const executionApproval = { approved: true, costInUSD: 0, safetyPolicyPassed: true };
       void (async () => {
         try {
           const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
@@ -43,13 +43,14 @@ export function createAgentOrchestratorRouter(): Router {
               : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' },
           );
           const record = execution.record;
-          if (!record?.toolExecuted || !record.verified) {
+          const finalTask = execution.graph.tasks[0];
+          if (!record?.toolExecuted || !record.verified || record.status !== 'completed' || finalTask.status !== 'completed') {
             if (!res.headersSent) return res.status(422).json({ ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', execution });
             return;
           }
-          assertCanReportCompleted({ state: 'completed', verified: true, toolExecuted: true, repairAttempts: record.verificationAttempts });
+          assertCanReportCompleted({ state: finalTask.status, verified: record.verified, toolExecuted: record.toolExecuted, repairAttempts: record.verificationAttempts });
           const checkpoint = saveCheckpoint({ taskId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact });
-          if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: record.artifact, checkpoint, execution: record, task: execution.graph.tasks[0] });
+          if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: record.artifact, checkpoint, execution: record, task: finalTask });
         } catch (error) {
           const code = error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED';
           if (!res.headersSent) return res.status(403).json({ ok: false, code, message: 'Tool execution was blocked by the permission gate.' });
