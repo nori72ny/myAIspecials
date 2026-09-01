@@ -14,7 +14,7 @@ const buildPlan = (goal: string): AgentStep[] => [
 ];
 
 const isToolName = (value: unknown): value is ToolName =>
-  value === 'code_interpreter' || value === 'document_generator' || value === 'web_search_grounding' || value === 'image_prompt_compiler';
+  value === 'code_interpreter' || value === 'document_generator' || value === 'web_search_grounding' || value === 'image_prompt_compiler' || value === 'repository_explorer' || value === 'file_reader' || value === 'file_writer' || value === 'verification_runner';
 
 export function createAgentOrchestratorRouter(): Router {
   const router = express.Router();
@@ -27,6 +27,7 @@ export function createAgentOrchestratorRouter(): Router {
     }
     if (action === 'execute') {
       if (!isToolName(toolName)) return res.status(400).json({ code: 'INVALID_TOOL' });
+      if (req.body?.intentExplicit !== true) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: 'Explicit execution intent is required.' });
       const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.slice(0, 120) : 'agent-task';
       const toolParams = (params ?? {}) as ToolParams;
       void (async () => {
