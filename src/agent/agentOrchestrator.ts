@@ -12,7 +12,8 @@ type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'aw
 const sse = (res: express.Response, payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
 const PLAN_TITLES = ['Goal analysis', 'Task decomposition', 'Self-critique', 'Execution', 'Verification'];
 const buildPlan = (goal: string): AgentStep[] => PLAN_TITLES.map((title, index) => ({ id: title.toLowerCase().replaceAll(' ', '-'), title, status: index === 0 ? 'running' : 'queued', detail: index === 0 ? `目標: ${goal.slice(0, 180)}` : index === 1 ? '成果条件・依存関係・実行順序を分解' : index === 2 ? '抜け漏れ、リスク、前提を再点検' : index === 3 ? '安全契約を通過した登録済みツールだけを実行' : '成果物を機械的に検証し、失敗時はbounded repair' }));
-const isToolName = (value: unknown): value is ToolName => ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader'].includes(value as string);
+const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
+const isToolName = (value: unknown): value is ToolName => typeof value === 'string' && TOOL_NAMES.includes(value as ToolName);
 const toTaskGraph = (goal: string): AgentTaskGraph => createAgentTaskGraph(goal, PLAN_TITLES);
 const createExecutionId = () => `exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
