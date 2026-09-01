@@ -17,17 +17,37 @@ function resolveSafe(root: string, relativePath: string): string {
   return target;
 }
 
+async function assertNoSymlinkComponents(rootReal: string, target: string): Promise<void> {
+  const relative = path.relative(rootReal, target);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
+  let current = rootReal;
+  for (const segment of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    try {
+      const stat = await fs.lstat(current);
+      if (stat.isSymbolicLink()) throw new Error('SYMLINK_PATH_BLOCKED');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'SYMLINK_PATH_BLOCKED') throw error;
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+  }
+}
+
 export type FileEditProposal = { path: string; content: string };
 export type FileEditResult = { ok: true; path: string; previous: string; next: string };
 
-async function openTarget(target: string, flags: number) {
+async function openTarget(root: string, target: string, flags: number) {
+  const rootReal = await fs.realpath(root);
+  await assertNoSymlinkComponents(rootReal, target);
   return fs.open(target, flags | fs.constants.O_NOFOLLOW);
 }
 
 export async function validateFileEdit(root: string, proposal: FileEditProposal): Promise<FileEditResult> {
   if (!proposal.path.trim()) throw new Error('FILE_PATH_REQUIRED');
-  const target = resolveSafe(root, proposal.path);
-  const handle = await openTarget(target, fs.constants.O_RDONLY);
+  const rootReal = await fs.realpath(root);
+  const target = resolveSafe(rootReal, proposal.path);
+  const handle = await openTarget(rootReal, target, fs.constants.O_RDONLY);
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error('NOT_A_FILE');
@@ -43,8 +63,9 @@ export async function validateFileEdit(root: string, proposal: FileEditProposal)
 }
 
 export async function applyValidatedFileEdit(root: string, edit: FileEditResult): Promise<void> {
-  const target = resolveSafe(root, edit.path);
-  const handle = await openTarget(target, fs.constants.O_RDWR);
+  const rootReal = await fs.realpath(root);
+  const target = resolveSafe(rootReal, edit.path);
+  const handle = await openTarget(rootReal, target, fs.constants.O_RDWR);
   try {
     const current = await handle.readFile({ encoding: 'utf8' });
     if (current !== edit.previous) throw new Error('FILE_CHANGED_SINCE_VALIDATION');
