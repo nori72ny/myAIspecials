@@ -1,197 +1,69 @@
 {
-  
   "name": "react-example",
-  
   "private": true,
-  
   "version": "0.0.0",
-  
   "type": "module",
-  
   "scripts": {
-    
     "dev": "tsx server.ts",
-    
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    
     "start": "NODE_ENV=production node dist/server.cjs",
-    
     "clean": "rm -rf dist server.js",
-    
     "lint": "mkdir -p test-results && (tsc --noEmit > test-results/lint.log 2>&1 || (cat test-results/lint.log && exit 1)) && node scripts/design-token-lock.js",
-    
+    "typecheck": "tsc --noEmit",
     "test": "FREE_ONLY=false vitest run --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default --reporter=junit --outputFile.junit=test-results/vitest-junit.xml",
-    
     "test:api": "FREE_ONLY=false node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
-    
     "test:e2e": "npm run build && npm run test:api && npx playwright test",
-    
     "test:node-production": "npm run build && node scripts/verify-node-production-runtime.mjs",
-    
     "test:api-node-esm": "node scripts/verify-api-serverless-runtime.mjs",
-    
     "eval:prepare": "tsx scripts/evaluate-codebase.ts",
-
     "verify:free-model": "node --import tsx scripts/verify-free-model.ts",
-    
     "deliver": "node scripts/auto-deliver.mjs",
-    
     "check:worker": "npm run build && npx --yes wrangler@4.120.0 deploy --dry-run --config wrangler.jsonc --outdir dist-worker"
-    
   },
-  
   "dependencies": {
-    
     "@google/genai": "^2.4.0",
-    
     "@tailwindcss/vite": "^4.1.14",
-    
     "@types/dompurify": "^3.0.5",
-    
     "@vitejs/plugin-react": "^5.0.4",
-    
     "clsx": "^2.1.1",
-    
     "dompurify": "^3.4.13",
-    
     "dotenv": "^17.2.3",
-    
     "express": "5.2.1",
-    
     "lucide-react": "^0.546.0",
-    
     "motion": "^12.23.24",
-    
     "pg": "^8.22.0",
-    
     "react": "^19.0.1",
-    
     "react-dom": "^19.0.1",
-    
     "react-markdown": "^10.1.0",
-    
     "recharts": "^3.8.1",
-    
     "redis": "^6.1.0",
-    
-    "tailwind-merge": "^3.6.0",
-    
-    "vite": "^6.2.3"
-    
-  },
-  
-  "devDependencies": {
-    
-    "@axe-core/playwright": "^4.12.1",
-    
-    "@playwright/test": "^1.61.1",
-    
-    "@testing-library/react": "^16.3.2",
-    
-    "@types/express": "5.0.6",
-    
-    "@types/jest": "^30.0.0",
-    
-    "@types/node": "^22.14.0",
-    
-    "@types/pg": "^8.20.0",
-    
-    "@types/supertest": "^7.2.0",
-    
-    "autoprefixer": "^10.4.21",
-    
-    "c8": "^11.0.0",
-    
-    "esbuild": "^0.25.0",
-    
-    "jest": "^30.4.2",
-    
-    "jest-html-reporter": "^4.4.0",
-    
-    "jest-junit": "^17.0.0",
-    
-    "jsdom": "^29.1.1",
-    
-    "playwright": "^1.61.1",
-    
-    "supertest": "^7.2.2",
-    
+    "tailwind-merge": "^3.6.1",
     "tailwindcss": "^4.1.14",
-    
-    "ts-jest": "^29.4.11",
-    
+    "vite": "^6.2.3"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/express": "5.0.6",
+    "@types/jest": "^30.0.2",
+    "@types/node": "^22.14.0",
+    "@types/pg": "^8.20.0",
+    "@types/supertest": "^7.2.2",
+    "autoprefixer": "10.4.21",
+    "c8": "^11.0.0",
+    "esbuild": "^0.25.0",
+    "jest": "^30.4.2",
+    "jest-html-reporter": "^4.4.1",
+    "jest-junit": "^17.0.0",
+    "jsdom": "^29.1.1",
+    "playwright": "^1.61.1",
+    "supertest": "^7.2.2",
+    "tailwindcss": "^4.1.14",
+    "ts-jest": "^29.4.5",
     "tsx": "^4.21.0",
-    
     "typescript": "~5.8.2",
-    
     "vite": "^6.2.3",
-    
     "vitest": "^4.1.9"
-    
   }
-  
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
