@@ -4,20 +4,24 @@ import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
 import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpointManager.js';
 import { compactAgentContext } from './contextCompaction.js';
 import { evaluateAgentOperation, MAX_AGENT_TASK_STEPS } from './agentContracts.js';
+import { createAgentTaskGraph, getNextRunnableTask, markTaskResult, markTaskRunning, type AgentTaskGraph } from './agentTaskGraph.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
 const sse = (res: express.Response, payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
-const buildPlan = (goal: string): AgentStep[] => [
-  { id: 'goal', title: 'Goal analysis', status: 'running', detail: `目標: ${goal.slice(0, 180)}` },
-  { id: 'plan', title: 'Task decomposition', status: 'queued', detail: '成果条件・依存関係・実行順序を分解' },
-  { id: 'critique', title: 'Self-critique', status: 'queued', detail: '抜け漏れ、リスク、前提を再点検' },
-  { id: 'execute', title: 'Execution', status: 'queued', detail: '安全契約を通過した登録済みツールだけを実行' },
-  { id: 'verify', title: 'Verification', status: 'queued', detail: '成果物を機械的に検証し、失敗時はbounded repair' },
-];
+const PLAN_TITLES = ['Goal analysis', 'Task decomposition', 'Self-critique', 'Execution', 'Verification'];
+
+const buildPlan = (goal: string): AgentStep[] => PLAN_TITLES.map((title, index) => ({
+  id: title.toLowerCase().replaceAll(' ', '-'),
+  title,
+  status: index === 0 ? 'running' : 'queued',
+  detail: index === 0 ? `目標: ${goal.slice(0, 180)}` : index === 1 ? '成果条件・依存関係・実行順序を分解' : index === 2 ? '抜け漏れ、リスク、前提を再点検' : index === 3 ? '安全契約を通過した登録済みツールだけを実行' : '成果物を機械的に検証し、失敗時はbounded repair',
+}));
 
 const isToolName = (value: unknown): value is ToolName =>
   value === 'code_interpreter' || value === 'document_generator' || value === 'web_search_grounding' || value === 'image_prompt_compiler';
+
+const toTaskGraph = (goal: string): AgentTaskGraph => createAgentTaskGraph(goal, PLAN_TITLES);
 
 export function createAgentOrchestratorRouter(): Router {
   const router = express.Router();
@@ -68,14 +72,22 @@ export function createAgentOrchestratorRouter(): Router {
     res.flushHeaders?.();
     const normalizedGoal = goal.trim();
     const steps = buildPlan(normalizedGoal).slice(0, MAX_AGENT_TASK_STEPS);
+    let graph = toTaskGraph(normalizedGoal);
     let closed = false;
     req.on('close', () => { closed = true; });
     const emit = (payload: unknown) => { if (!closed) sse(res, payload); };
     const run = async () => {
       for (let i = 0; i < steps.length; i += 1) {
         if (closed) return;
-        if (i > 0) { steps[i - 1] = { ...steps[i - 1], status: 'completed' }; emit({ type: 'step', step: steps[i - 1] }); }
+        const runnable = getNextRunnableTask(graph);
+        if (!runnable) {
+          emit({ type: 'blocked', message: 'No dependency-ready task remains.' });
+          res.end();
+          return;
+        }
+        graph = markTaskRunning(graph, runnable.id);
         steps[i] = { ...steps[i], status: i === steps.length - 1 ? 'awaiting_approval' : 'running' };
+        emit({ type: 'task', task: runnable });
         emit({ type: 'step', step: steps[i] });
         emit({ type: 'log', message: `[${steps[i].title}] ${steps[i].detail}` });
         if (i === 1) {
@@ -83,11 +95,13 @@ export function createAgentOrchestratorRouter(): Router {
             { stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' },
           ], 'critique assumptions and define executable steps');
           emit({ type: 'context', context });
-          emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nExecution Gate\n- Explicit execution intent required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Checkpoint created after successful execution\n` });
+          emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nTask Graph\n- ${graph.tasks.map((task) => `${task.id}: ${task.title}`).join('\n- ')}\n\nExecution Gate\n- Explicit execution intent required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Checkpoint created after successful execution\n` });
         }
+        graph = markTaskResult(graph, runnable.id, true);
+        emit({ type: 'task_result', taskId: runnable.id, status: 'completed' });
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
-      if (!closed) { emit({ type: 'done', message: 'Plan ready. Select an approved tool to execute.' }); res.end(); }
+      if (!closed) { emit({ type: 'done', message: 'Plan ready. Select an approved tool to execute.', graph }); res.end(); }
     };
     void run();
     return undefined;
