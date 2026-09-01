@@ -7,11 +7,13 @@ const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
 const verifiedNow = Date.parse(verifiedEvidence.verifiedAt) + 1;
 const providerEvidence = {
   "google-ai-studio-free": {
+    providerId: "google-ai-studio-free" as const,
     verifiedAt: verifiedEvidence.verifiedAt,
     reviewAfter: verifiedEvidence.reviewAfter,
     sourceUrl: "https://ai.google.dev/gemini-api/docs/pricing",
   },
   "groq-free": {
+    providerId: "groq-free" as const,
     verifiedAt: verifiedEvidence.verifiedAt,
     reviewAfter: verifiedEvidence.reviewAfter,
     sourceUrl: "https://console.groq.com/docs/your-data",
@@ -55,6 +57,19 @@ describe("buildOriginExecutionPlan", () => {
     expect(result).toEqual(expect.objectContaining({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" }));
   });
 
+  it("fails closed when provider evidence is from a different provider", () => {
+    const mismatched = {
+      "groq-free": {
+        providerId: "google-ai-studio-free" as const,
+        verifiedAt: verifiedEvidence.verifiedAt,
+        reviewAfter: verifiedEvidence.reviewAfter,
+        sourceUrl: "https://ai.google.dev/gemini-api/docs/pricing",
+      },
+    } as const;
+    const result = buildOriginExecutionPlan({ goal: "短い回答をお願いします" }, { openRouterConfigured: false, googleAiStudioConfigured: false, groqConfigured: true }, undefined, { nowMs: verifiedNow, providerEvidence: mismatched });
+    expect(result).toEqual(expect.objectContaining({ ok: false, code: "FREE_MODEL_CATALOG_INVALID" }));
+  });
+
   it("fails closed when no explicitly free provider is configured", () => {
     expect(buildOriginExecutionPlan(request, { openRouterConfigured: false }, undefined, { nowMs: verifiedNow })).toEqual({ ok: false, code: "FREE_PROVIDER_NOT_CONFIGURED", message: "明示的に無料と確認できるAIプロバイダーが設定されていません。" });
   });
@@ -76,6 +91,6 @@ describe("buildOriginExecutionPlan", () => {
     for (const maxEstimatedCostUsd of [-1, 0.01, 1]) {
       expect(buildOriginExecutionPlan(request, { openRouterConfigured: true }, { maxEstimatedCostUsd }, { nowMs: verifiedNow })).toEqual(expect.objectContaining({ ok: false, code: "INVALID_EXECUTION_POLICY" }));
     }
-    expect(buildOriginExecutionPlan(request, { openRouterConfigured: true }, { maxEstimatedCostUsd: 0, timeoutMs: 0 }, { nowMs: verifiedNow })).toEqual(expect.objectContaining({ ok: false, code: "INVALID_EXECUTION_POLICY" }));
+    expect(buildOriginExecutionPlan(request, { openRouterConfigured: true }, { maxEstimatedCostUsd: 0, timeoutMs: 0 }, undefined, )).toEqual(expect.objectContaining({ ok: false, code: "INVALID_EXECUTION_POLICY" }));
   });
 });
