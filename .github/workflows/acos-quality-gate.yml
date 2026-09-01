@@ -35,6 +35,9 @@ jobs:
       - name: Run TypeScript & Design Token Lock Linter
         run: npm run lint
 
+      - name: Run Explicit Typecheck Gate
+        run: npm run typecheck
+
       - name: Run Core Unit Tests
         run: npm run test
 
