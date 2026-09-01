@@ -11,6 +11,7 @@
     "lint": "mkdir -p test-results && (tsc --noEmit > test-results/lint.log 2>&1 || (cat test-results/lint.log && exit 1)) && node scripts/design-token-lock.js",
     "typecheck": "tsc --noEmit",
     "test": "FREE_ONLY=false vitest run --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default --reporter=junit --outputFile.junit=test-results/vitest-junit.xml",
+    "test:repair-e2e": "FREE_ONLY=false vitest run tests/agent/realRepositoryRepairLoop.e2e.test.ts --reporter=default",
     "test:api": "FREE_ONLY=false node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
     "test:e2e": "npm run build && npm run test:api && npx playwright test",
     "test:node-production": "npm run build && node scripts/verify-node-production-runtime.mjs",
