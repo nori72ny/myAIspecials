@@ -4,7 +4,7 @@ import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
 import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpointManager.js';
 import { compactAgentContext } from './contextCompaction.js';
 import { evaluateAgentOperation, MAX_AGENT_TASK_STEPS } from './agentContracts.js';
-import { createAgentTaskGraph, getNextRunnableTask, markTaskResult, markTaskRunning, type AgentTaskGraph } from './agentTaskGraph.js';
+import { createAgentTaskGraph, type AgentTaskGraph } from './agentTaskGraph.js';
 import { assertCanReportCompleted } from './taskExecutionGate.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
@@ -44,18 +44,17 @@ export function createAgentOrchestratorRouter(): Router {
     }
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000) return res.status(400).json({ code: 'INVALID_AGENT_GOAL', message: 'Agent goal is required and must be 1-4000 characters.' });
     res.status(200); res.setHeader('Content-Type', 'text/event-stream; charset=utf-8'); res.setHeader('Cache-Control', 'no-cache, no-transform'); res.setHeader('Connection', 'keep-alive'); res.flushHeaders?.();
-    const normalizedGoal = goal.trim(); const steps = buildPlan(normalizedGoal).slice(0, MAX_AGENT_TASK_STEPS); let graph = toTaskGraph(normalizedGoal); let closed = false;
+    const normalizedGoal = goal.trim(); const steps = buildPlan(normalizedGoal).slice(0, MAX_AGENT_TASK_STEPS); const graph = toTaskGraph(normalizedGoal); let closed = false;
     req.on('close', () => { closed = true; }); const emit = (payload: unknown) => { if (!closed) sse(res, payload); };
     const run = async () => {
       for (let i = 0; i < steps.length; i += 1) {
-        if (closed) return; const runnable = getNextRunnableTask(graph);
-        if (!runnable) { emit({ type: 'blocked', message: 'No dependency-ready task remains.' }); res.end(); return; }
-        graph = markTaskRunning(graph, runnable.id); steps[i] = { ...steps[i], status: i === steps.length - 1 ? 'awaiting_approval' : 'running' };
-        emit({ type: 'task', task: runnable }); emit({ type: 'step', step: steps[i] }); emit({ type: 'log', message: `[${steps[i].title}] ${steps[i].detail}` });
+        if (closed) return;
+        steps[i] = { ...steps[i], status: i === steps.length - 1 ? 'awaiting_approval' : 'running' };
+        emit({ type: 'plan_step', step: steps[i] }); emit({ type: 'log', message: `[${steps[i].title}] ${steps[i].detail}` });
         if (i === 1) { const context = compactAgentContext(normalizedGoal, [{ stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' }], 'critique assumptions and define executable steps'); emit({ type: 'context', context }); emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nTask Graph\n- ${graph.tasks.map((task) => `${task.id}: ${task.title}`).join('\n- ')}\n\nExecution Gate\n- Explicit execution intent required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Checkpoint created after successful execution\n` }); }
-        graph = markTaskResult(graph, runnable.id, true); emit({ type: 'task_result', taskId: runnable.id, status: 'completed' }); await new Promise((resolve) => setTimeout(resolve, 120));
+        await new Promise((resolve) => setTimeout(resolve, 120));
       }
-      if (!closed) { emit({ type: 'done', message: 'Plan ready. Select an approved tool to execute.', graph }); res.end(); }
+      if (!closed) { emit({ type: 'done', message: 'Plan ready. No task is marked completed until an approved tool executes and verification succeeds.', graph }); res.end(); }
     };
     void run(); return undefined;
   });
