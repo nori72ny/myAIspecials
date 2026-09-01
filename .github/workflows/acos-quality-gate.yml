@@ -1,6 +1,8 @@
 name: ACOS 2.0 Quality Gate
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
