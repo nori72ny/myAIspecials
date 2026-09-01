@@ -1,6 +1,7 @@
 export type CheckpointState = {
   checkpointId: string;
   taskId: string;
+  executionId: string;
   version: number;
   status: string;
   artifact: string;
@@ -14,7 +15,7 @@ export function saveCheckpoint(input: Omit<CheckpointState, 'checkpointId' | 've
   const version = (taskVersions.get(input.taskId) ?? 0) + 1;
   const checkpoint: CheckpointState = {
     ...input,
-    checkpointId: `${input.taskId}-v${version}`,
+    checkpointId: `${input.taskId}-${input.executionId}-v${version}`,
     version,
     createdAt: Date.now(),
   };
@@ -34,9 +35,9 @@ export function listCheckpoints(taskId: string): CheckpointState[] {
 export function rollbackToCheckpoint(checkpointId: string): CheckpointState {
   const checkpoint = checkpoints.get(checkpointId);
   if (!checkpoint) throw new Error('CHECKPOINT_NOT_FOUND');
-  // Rollback is represented as a new immutable checkpoint so history is never destroyed.
   return saveCheckpoint({
     taskId: checkpoint.taskId,
+    executionId: checkpoint.executionId,
     status: 'rolled_back',
     artifact: checkpoint.artifact,
   });
