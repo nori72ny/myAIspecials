@@ -26,4 +26,13 @@ describe('safeFileEditor', () => {
     await expect(validateFileEdit(root, { path: 'a.ts', content: 'password=secret' })).rejects.toThrow('SECRET_CONTENT_BLOCKED');
     await expect(validateFileEdit(root, { path: 'a.ts', content: 'x'.repeat(256 * 1024 + 1) })).rejects.toThrow('CHANGE_BUDGET_EXCEEDED');
   });
+
+  it('blocks intermediate symlink escapes', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-editor-'));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-editor-outside-'));
+    await fs.writeFile(path.join(outside, 'secret.ts'), 'outside-secret');
+    await fs.symlink(outside, path.join(root, 'link'), 'dir');
+    await expect(validateFileEdit(root, { path: 'link/secret.ts', content: 'blocked' })).rejects.toThrow('SYMLINK_PATH_BLOCKED');
+    expect(await fs.readFile(path.join(outside, 'secret.ts'), 'utf8')).toBe('outside-secret');
+  });
 });
