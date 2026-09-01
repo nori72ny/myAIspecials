@@ -5,7 +5,7 @@ import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpoin
 import { compactAgentContext } from './contextCompaction.js';
 import { evaluateAgentOperation, MAX_AGENT_TASK_STEPS } from './agentContracts.js';
 import { createAgentTaskGraph, type AgentTaskGraph } from './agentTaskGraph.js';
-import { executeNextTask } from './taskGraphExecutor.js';
+import { executeNextTask, resumeTaskGraph } from './taskGraphExecutor.js';
 import { assertCanReportCompleted } from './taskExecutionGate.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
@@ -24,12 +24,36 @@ export function createAgentOrchestratorRouter(): Router {
       if (typeof checkpointId !== 'string' || !checkpointId) return res.status(400).json({ code: 'INVALID_CHECKPOINT' });
       try { return res.status(200).json({ ok: true, checkpoint: rollbackToCheckpoint(checkpointId) }); } catch { return res.status(404).json({ code: 'CHECKPOINT_NOT_FOUND' }); }
     }
+    if (action === 'resume') {
+      if (typeof checkpointId !== 'string' || !checkpointId) return res.status(400).json({ code: 'INVALID_CHECKPOINT' });
+      const checkpoint = getCheckpoint(checkpointId);
+      if (!checkpoint) return res.status(404).json({ code: 'CHECKPOINT_NOT_FOUND' });
+      if (checkpoint.status !== 'completed' && checkpoint.status !== 'self_fixed') return res.status(409).json({ code: 'CHECKPOINT_NOT_RESUMABLE' });
+      if (!isToolName(toolName)) return res.status(400).json({ code: 'INVALID_TOOL' });
+      const intentExplicit = req.body?.intentExplicit === true;
+      const decision = evaluateAgentOperation('execute', intentExplicit);
+      if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
+      const executionApproval = { approved: intentExplicit, costInUSD: 0, safetyPolicyPassed: true };
+      void (async () => {
+        try {
+          const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
+          const graph = createAgentTaskGraph(`resume ${toolName}`, [toolName]);
+          const execution = await resumeTaskGraph(graph, checkpoint.executionId, async () => runTool(toolName, (params ?? {}) as ToolParams), async (result) => result.artifact
+            ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, (params ?? {}) as ToolParams)
+            : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' });
+          if (!res.headersSent) return res.status(200).json({ ok: true, resumed: true, checkpoint, execution });
+        } catch (error) {
+          const code = error instanceof Error ? error.message : 'RESUME_FAILED';
+          if (!res.headersSent) return res.status(403).json({ ok: false, code, message: 'Resume was blocked by the permission or execution gate.' });
+        }
+      })();
+      return undefined;
+    }
     if (action === 'execute') {
       if (!isToolName(toolName)) return res.status(400).json({ code: 'INVALID_TOOL' });
       const intentExplicit = req.body?.intentExplicit === true;
       const decision = evaluateAgentOperation('execute', intentExplicit);
       if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
-      const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.slice(0, 120) : `agent-task:${toolName}`;
       const executionId = typeof req.body?.executionId === 'string' && req.body.executionId.length <= 120 ? req.body.executionId : createExecutionId();
       const toolParams = (params ?? {}) as ToolParams;
       const executionApproval = { approved: intentExplicit, costInUSD: 0, safetyPolicyPassed: true };
@@ -37,13 +61,9 @@ export function createAgentOrchestratorRouter(): Router {
         try {
           const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
           const graph = createAgentTaskGraph(`execute ${toolName}`, [toolName]);
-          const execution = await executeNextTask(
-            graph,
-            async () => runTool(toolName, toolParams),
-            async (result) => result.artifact
-              ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams)
-              : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' },
-          );
+          const execution = await executeNextTask(graph, async () => runTool(toolName, toolParams), async (result) => result.artifact
+            ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams)
+            : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' });
           const record = execution.record;
           const finalTask = execution.graph.tasks[0];
           if (!record?.toolExecuted || !record.verified || record.status !== 'completed' || finalTask.status !== 'completed') {
@@ -51,7 +71,7 @@ export function createAgentOrchestratorRouter(): Router {
             return;
           }
           assertCanReportCompleted({ state: finalTask.status, verified: record.verified, toolExecuted: record.toolExecuted, repairAttempts: record.verificationAttempts });
-          const checkpoint = saveCheckpoint({ taskId, executionId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact });
+          const checkpoint = saveCheckpoint({ taskId: finalTask.id, executionId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact });
           if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: record.artifact, checkpoint, execution: record, task: finalTask });
         } catch (error) {
           const code = error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED';
