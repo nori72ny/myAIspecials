@@ -2,7 +2,7 @@ import { createAgentTaskGraph, getNextRunnableTask, markTaskResult, markTaskRunn
 
 export type ExecutorToolResult = { ok: boolean; artifact?: string; message?: string };
 export type ExecutorTool = (task: { id: string; title: string }) => Promise<ExecutorToolResult>;
-export type ExecutorVerification = (result: ExecutorToolResult) => Promise<{ ok: boolean; artifact?: string; reason?: string }>;
+export type ExecutorVerification = (result: ExecutorToolResult) => Promise<{ ok: boolean; artifact?: string; reason?: string; attempts?: number }>;
 
 export type TaskExecutionRecord = {
   taskId: string;
@@ -10,6 +10,8 @@ export type TaskExecutionRecord = {
   toolExecuted: boolean;
   verified: boolean;
   status: 'completed' | 'failed' | 'blocked';
+  artifact: string;
+  verificationAttempts: number;
 };
 
 export async function executeNextTask(
@@ -24,7 +26,7 @@ export async function executeNextTask(
   const result = await tool(task);
   if (!result.ok) {
     running = markTaskResult(running, task.id, false);
-    return { graph: running, record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: false, status: running.tasks.find((candidate) => candidate.id === task.id)?.status === 'blocked' ? 'blocked' : 'failed' } };
+    return { graph: running, record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: false, status: running.tasks.find((candidate) => candidate.id === task.id)?.status === 'blocked' ? 'blocked' : 'failed', artifact: '', verificationAttempts: 0 } };
   }
 
   const verification = await verify(result);
@@ -32,7 +34,7 @@ export async function executeNextTask(
   const finalTask = running.tasks.find((candidate) => candidate.id === task.id)!;
   return {
     graph: running,
-    record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: verification.ok, status: finalTask.status === 'completed' ? 'completed' : finalTask.status === 'blocked' ? 'blocked' : 'failed' },
+    record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: verification.ok, status: finalTask.status === 'completed' ? 'completed' : finalTask.status === 'blocked' ? 'blocked' : 'failed', artifact: verification.artifact ?? result.artifact ?? '', verificationAttempts: verification.attempts ?? 0 },
   };
 }
 
