@@ -7,10 +7,12 @@ import { URL } from "url";
 import fs from "fs/promises";
 import nodePath from "path";
 
-// Legacy mission-engine tool boundary. FileTool is intentionally read-only.
-// All repository writes must use src/agent/safeRepositoryWriter.ts through the
-// current Agent tool registry. Keeping a second write primitive here would
-// bypass the hardened symlink/path/size controls.
+const MAX_LEGACY_READ_BYTES = 2 * 1024 * 1024;
+const BLOCKED_SEGMENTS = new Set([".git", "node_modules", "dist", "build", "coverage", ".next", ".vercel"]);
+const SECRET_NAME = /(^|[\\/])(\.env(?:\..*)?|.*\.(pem|key|p12|pfx))$/i;
+
+// Legacy mission-engine FileTool is intentionally read-only. All repository
+// writes must use the hardened file_writer/safeRepositoryWriter boundary.
 
 export function isSafeIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
@@ -53,18 +55,15 @@ export async function secureFetch(urlStr: string): Promise<string> {
     const hostname = parsedUrl.hostname;
     if (hostname.toLowerCase() === "localhost") return reject(new Error("Access denied: Localhost domain is prohibited."));
     if (!isWhitelistedDomain(hostname)) return reject(new Error(`Access denied: Domain "${hostname}" is not whitelisted.`));
-
     dns.lookup(hostname, { all: true }, (dnsErr, addresses) => {
       if (dnsErr) return reject(new Error(`DNS lookup failed: ${dnsErr.message}`));
       if (!addresses?.length) return reject(new Error("DNS resolution returned no addresses."));
       if (addresses.some((entry) => !isSafeIp(entry.address))) return reject(new Error("Access denied: Unsafe IP address resolved."));
-      const secureLookup = (lookupHost: string, options: any, callback: any) => {
-        dns.lookup(lookupHost, options, (err, address, family) => {
-          if (err) return callback(err);
-          if (!isSafeIp(address)) return callback(new Error("Access denied: Unsafe IP address resolved at connection."));
-          callback(null, address, family);
-        });
-      };
+      const secureLookup = (lookupHost: string, options: any, callback: any) => dns.lookup(lookupHost, options, (err, address, family) => {
+        if (err) return callback(err);
+        if (!isSafeIp(address)) return callback(new Error("Access denied: Unsafe IP address resolved at connection."));
+        callback(null, address, family);
+      });
       const isHttps = parsedUrl.protocol === "https:";
       const agent = isHttps ? new https.Agent({ lookup: secureLookup, keepAlive: false }) : new http.Agent({ lookup: secureLookup, keepAlive: false });
       const requestModule = isHttps ? https : http;
@@ -73,10 +72,7 @@ export async function secureFetch(urlStr: string): Promise<string> {
         if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`Fetch error: HTTP status ${res.statusCode ?? "unknown"}`));
         let body = "";
         res.setEncoding("utf-8");
-        res.on("data", (chunk) => {
-          body += chunk;
-          if (body.length > 1_000_000) { req.destroy(); reject(new Error("Access denied: Response payload size exceeds limit.")); }
-        });
+        res.on("data", (chunk) => { body += chunk; if (body.length > 1_000_000) { req.destroy(); reject(new Error("Access denied: Response payload size exceeds limit.")); } });
         res.on("end", () => resolve(body));
       });
       req.on("error", (err) => reject(new Error(`Secure fetch failed: ${err.message}`)));
@@ -86,14 +82,39 @@ export async function secureFetch(urlStr: string): Promise<string> {
   });
 }
 
+function blockedLegacyPath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, "/");
+  if (SECRET_NAME.test(normalized)) return true;
+  return normalized.split("/").some((segment) => BLOCKED_SEGMENTS.has(segment));
+}
+
+async function assertNoSymlinkComponents(rootReal: string, target: string): Promise<void> {
+  const relative = nodePath.relative(rootReal, target);
+  if (!relative || relative.startsWith("..") || nodePath.isAbsolute(relative)) throw new Error("PATH_OUTSIDE_WORKSPACE");
+  let current = rootReal;
+  for (const segment of relative.split(nodePath.sep).filter(Boolean)) {
+    current = nodePath.join(current, segment);
+    try {
+      const stat = await fs.lstat(current);
+      if (stat.isSymbolicLink()) throw new Error("SYMLINK_PATH_BLOCKED");
+    } catch (error) {
+      if (error instanceof Error && error.message === "SYMLINK_PATH_BLOCKED") throw error;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+  }
+}
+
 export async function validateSafePath(relativePath: string): Promise<string> {
   let decodedPath: string;
   try { decodedPath = decodeURIComponent(relativePath).normalize("NFC"); } catch { throw new Error("Invalid URL/character encoding in path."); }
-  const sandboxRoot = nodePath.resolve(process.cwd());
-  const normalizedRelative = decodedPath.replace(/\\/g, "/");
+  const normalizedRelative = decodedPath.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!normalizedRelative || blockedLegacyPath(normalizedRelative)) throw new Error("PROTECTED_PATH");
+  const sandboxRoot = await fs.realpath(process.cwd());
   const targetPath = nodePath.resolve(sandboxRoot, normalizedRelative);
-  const isInside = targetPath === sandboxRoot || targetPath.startsWith(`${sandboxRoot}${nodePath.sep}`);
-  if (!isInside) throw new Error("Access denied: Path escapes the secure workspace sandbox.");
+  const relative = nodePath.relative(sandboxRoot, targetPath);
+  if (!relative || relative.startsWith("..") || nodePath.isAbsolute(relative)) throw new Error("PATH_OUTSIDE_WORKSPACE");
+  await assertNoSymlinkComponents(sandboxRoot, targetPath);
   return targetPath;
 }
 
@@ -104,7 +125,6 @@ export interface IAgentTool { name: string; description: string; execute(input: 
 export class FileTool implements IAgentTool {
   public name = "FileTool";
   public description = "Reads files in the workspace. Legacy writes are disabled; use the hardened file_writer tool for repository changes.";
-
   public async execute(input: ToolInput): Promise<ToolResult> {
     const { action, path, content } = input;
     if (!path) return { success: false, output: "", error: "Missing required 'path' parameter." };
@@ -115,8 +135,13 @@ export class FileTool implements IAgentTool {
     if (action !== "read") return { success: false, output: "", error: `Unsupported action: '${action}'. Use 'read'.` };
     try {
       const fullPath = await validateSafePath(path);
-      const fileContent = await fs.readFile(fullPath, "utf-8");
-      return { success: true, output: fileContent };
+      const handle = await fs.open(fullPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile()) return { success: false, output: "", error: "NOT_A_FILE" };
+        if (stat.size > MAX_LEGACY_READ_BYTES) return { success: false, output: "", error: "FILE_TOO_LARGE" };
+        return { success: true, output: await handle.readFile({ encoding: "utf8" }) };
+      } finally { await handle.close(); }
     } catch (err) {
       return { success: false, output: "", error: `File execution failed: ${(err as Error).message}` };
     }
@@ -126,23 +151,19 @@ export class FileTool implements IAgentTool {
 export class WebTool implements IAgentTool {
   public name = "WebTool";
   public description = "Fetches resources or searches information from the web. Input format: { url?: string, query?: string }";
-
   public async execute(input: ToolInput): Promise<ToolResult> {
     const { url, query } = input;
     if (!url && !query) return { success: false, output: "", error: "Missing both 'url' and 'query' parameters. Specify at least one." };
     try {
       if (url) return { success: true, output: (await secureFetch(url)).substring(0, 1500) };
       return { success: true, output: `Search result summary for query "${query}":\n- Standard Clean Architecture systems emphasize decoupling presentation, application, domain, and infrastructure.\n- Verified pattern checks and unit testing suites ensure system state consistency.\n- Decoupled designs are highly maintainable and scalable without introducing external workflow microservices.` };
-    } catch (err) {
-      return { success: false, output: "", error: `Web request failed: ${(err as Error).message}` };
-    }
+    } catch (err) { return { success: false, output: "", error: `Web request failed: ${(err as Error).message}` }; }
   }
 }
 
 export class CalculatorTool implements IAgentTool {
   public name = "CalculatorTool";
   public description = "Evaluates basic mathematical expressions. Input format: { expression: string }";
-
   public async execute(input: ToolInput): Promise<ToolResult> {
     const { expression } = input;
     if (!expression || typeof expression !== "string") return { success: false, output: "", error: "Missing or invalid 'expression' parameter." };
@@ -151,9 +172,7 @@ export class CalculatorTool implements IAgentTool {
       const result = new Function(`return (${expression});`)();
       if (typeof result !== "number" || Number.isNaN(result)) return { success: false, output: "", error: "Evaluated output is not a valid number." };
       return { success: true, output: result.toString() };
-    } catch (err) {
-      return { success: false, output: "", error: `Calculator execution failed: ${(err as Error).message}` };
-    }
+    } catch (err) { return { success: false, output: "", error: `Calculator execution failed: ${(err as Error).message}` }; }
   }
 }
 
