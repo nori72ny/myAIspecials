@@ -37,9 +37,9 @@ describe('ORIGIN adversarial repair benchmark v1 — 20 bounded cases', () => {
   it('05 undefined symbol is repairable', async () => expect(decideRepair(failure({ stdout: 'Cannot find name foo' }), 0).action).toBe('repair'));
   it('06 test failure is repairable', async () => expect(decideRepair(failure({ kind: 'test', stdout: 'AssertionError: expected 1 to be 2' }), 0).action).toBe('repair'));
   it('07 build failure is repairable', async () => expect(decideRepair(failure({ kind: 'build', stdout: 'vite build failed' }), 0).action).toBe('repair'));
-  it('08 protected-path style writer failure fails closed', async () => expect((await run([result('verification_runner', true, 'passed')], [result('file_writer', false, 'protected path')])).result.stopReason).toBe('REPAIR_WRITE_FAILED'));
-  it('09 traversal-style writer failure fails closed', async () => expect((await run([result('verification_runner', true, 'passed')], [result('file_writer', false, 'PATH_TRAVERSAL_BLOCKED')])).result.stopReason).toBe('REPAIR_WRITE_FAILED'));
-  it('10 generic writer failure fails closed', async () => expect((await run([result('verification_runner', true, 'passed')], [result('file_writer', false, 'write failed')])).result.stopReason).toBe('REPAIR_WRITE_FAILED'));
+  it('08 initial protected-path writer failure fails closed', async () => expect((await run([result('verification_runner', true, 'passed')], [result('file_writer', false, 'protected path')])).result.stopReason).toBe('INITIAL_WRITE_FAILED'));
+  it('09 initial traversal-style writer failure fails closed', async () => expect((await run([result('verification_runner', true, 'passed')], [result('file_writer', false, 'PATH_TRAVERSAL_BLOCKED')])).result.stopReason).toBe('INITIAL_WRITE_FAILED'));
+  it('10 initial generic writer failure fails closed', async () => expect((await run([result('verification_runner', true, 'passed')], [result('file_writer', false, 'write failed')])).result.stopReason).toBe('INITIAL_WRITE_FAILED'));
   it('11 verification timeout stops', () => expect(decideRepair(failure({ timedOut: true }), 0).action).toBe('stop'));
   it('12 repeated fingerprint stops', () => { const f = failure(); const fp = fingerprintRepairFailure(f); expect(decideRepair(f, 1, [fp]).action).toBe('stop'); });
   it('13 attempt limit stops', () => expect(decideRepair(failure(), 3).action).toBe('stop'));
