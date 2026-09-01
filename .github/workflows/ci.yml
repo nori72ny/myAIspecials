@@ -65,6 +65,9 @@ jobs:
     - name: Run real repository repair E2E
       run: npm run test:repair-e2e
 
+    - name: Run adversarial repair benchmark
+      run: npm run test:repair-benchmark
+
     - name: Cache Playwright Browsers
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
       with:
@@ -159,6 +162,8 @@ jobs:
     steps:
       - name: Checkout exact main commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
       - name: Setup Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
