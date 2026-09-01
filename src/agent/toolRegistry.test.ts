@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { executeToolWithPermission } from './toolRegistry';
 
 describe('toolRegistry safety boundary', () => {
+  const approved = { approved: true, costInUSD: 0, safetyPolicyPassed: true };
+
   it('fails closed without approval', async () => {
     await expect(executeToolWithPermission('code_interpreter', { code: 'const x = 1' })).rejects.toThrow('HUMAN_APPROVAL_REQUIRED');
   });
@@ -15,7 +17,17 @@ describe('toolRegistry safety boundary', () => {
   });
 
   it('permits an approved zero-cost side-effect-free operation', async () => {
-    const result = await executeToolWithPermission('code_interpreter', { code: 'const x = 1' }, { approved: true, costInUSD: 0, safetyPolicyPassed: true });
+    const result = await executeToolWithPermission('code_interpreter', { code: 'const x = 1' }, approved);
     expect(result.ok).toBe(true);
+  });
+
+  it('exposes repository exploration and protected file reading through the same gate', async () => {
+    const tree = await executeToolWithPermission('repository_explorer', { root: process.cwd() }, approved);
+    expect(tree.ok).toBe(true);
+    expect(tree.tool).toBe('repository_explorer');
+    const packageFile = await executeToolWithPermission('file_reader', { root: process.cwd(), path: 'package.json' }, approved);
+    expect(packageFile.ok).toBe(true);
+    expect(packageFile.artifact).toContain('"scripts"');
+    await expect(executeToolWithPermission('file_reader', { root: process.cwd(), path: '.env' }, approved)).rejects.toThrow('PROTECTED_PATH');
   });
 });
