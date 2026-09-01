@@ -37,7 +37,10 @@ export function createAgentOrchestratorRouter(): Router {
       void (async () => {
         try {
           const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
-          const graph = createAgentTaskGraph(`resume ${toolName}`, [toolName]);
+          const graph: AgentTaskGraph = {
+            goal: `resume ${toolName}`,
+            tasks: [{ id: checkpoint.taskId, title: toolName, dependsOn: [], status: 'queued', attempts: 0, maxAttempts: 3 }],
+          };
           const execution = await resumeTaskGraph(graph, checkpoint.executionId, async () => runTool(toolName, (params ?? {}) as ToolParams), async (result) => result.artifact
             ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, (params ?? {}) as ToolParams)
             : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' });
