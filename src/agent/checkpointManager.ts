@@ -42,3 +42,9 @@ export function rollbackToCheckpoint(checkpointId: string): CheckpointState {
     artifact: checkpoint.artifact,
   });
 }
+
+export function hasSuccessfulCheckpoint(taskId: string, executionId: string): boolean {
+  return [...checkpoints.values()].some(
+    (checkpoint) => checkpoint.taskId === taskId && checkpoint.executionId === executionId && checkpoint.status === 'completed',
+  );
+}
