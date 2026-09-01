@@ -47,11 +47,9 @@ export function createAgentOrchestratorRouter(): Router {
             if (!res.headersSent) return res.status(422).json({ ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', execution });
             return;
           }
-          assertCanReportCompleted({ state: 'completed', verified: true, toolExecuted: true, repairAttempts: 0 });
-          const task = execution.graph.tasks[0];
-          const artifact = (await runTool(toolName, toolParams)).artifact;
-          const checkpoint = saveCheckpoint({ taskId, status: 'completed', artifact: artifact ?? '' });
-          if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: artifact ?? '', checkpoint, execution: record, task });
+          assertCanReportCompleted({ state: 'completed', verified: true, toolExecuted: true, repairAttempts: record.verificationAttempts });
+          const checkpoint = saveCheckpoint({ taskId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact });
+          if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: record.artifact, checkpoint, execution: record, task: execution.graph.tasks[0] });
         } catch (error) {
           const code = error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED';
           if (!res.headersSent) return res.status(403).json({ ok: false, code, message: 'Tool execution was blocked by the permission gate.' });
