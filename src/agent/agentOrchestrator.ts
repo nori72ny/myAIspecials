@@ -29,9 +29,10 @@ export function createAgentOrchestratorRouter(): Router {
       if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
       const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.slice(0, 120) : 'agent-task';
       const toolParams = (params ?? {}) as ToolParams;
+      const executionApproval = { approved: intentExplicit, costInUSD: 0, safetyPolicyPassed: true };
       void (async () => {
         try {
-          const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, { approved: true, costInUSD: 0, safetyPolicyPassed: true });
+          const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
           const result = await runTool(toolName, toolParams);
           const verification = result.artifact ? await verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams) : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' };
           if (!verification.ok) { if (!res.headersSent) return res.status(422).json({ ...result, ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', verification }); return; }
