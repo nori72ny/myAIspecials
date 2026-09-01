@@ -1,4 +1,5 @@
 import { createAgentTaskGraph, getNextRunnableTask, markTaskResult, markTaskRunning, type AgentTaskGraph } from './agentTaskGraph.js';
+import { hasSuccessfulCheckpoint } from './checkpointManager.js';
 
 export type ExecutorToolResult = { ok: boolean; artifact?: string; message?: string };
 export type ExecutorTool = (task: { id: string; title: string }) => Promise<ExecutorToolResult>;
@@ -12,7 +13,15 @@ export type TaskExecutionRecord = {
   status: 'completed' | 'failed' | 'blocked';
   artifact: string;
   verificationAttempts: number;
+  resumedFromCheckpoint?: boolean;
 };
+
+function markCheckpointedTasksCompleted(graph: AgentTaskGraph, executionId: string): AgentTaskGraph {
+  return {
+    ...graph,
+    tasks: graph.tasks.map((task) => hasSuccessfulCheckpoint(task.id, executionId) ? { ...task, status: 'completed' as const } : task),
+  };
+}
 
 export async function executeNextTask(
   graph: AgentTaskGraph,
@@ -54,4 +63,24 @@ export async function executeTaskGraph(
     if (next.record.status === 'blocked') break;
   }
   return { graph, records };
+}
+
+export async function resumeTaskGraph(
+  graph: AgentTaskGraph,
+  executionId: string,
+  tool: ExecutorTool,
+  verify: ExecutorVerification,
+): Promise<{ graph: AgentTaskGraph; records: TaskExecutionRecord[] }> {
+  let resumedGraph = markCheckpointedTasksCompleted(graph, executionId);
+  const records: TaskExecutionRecord[] = [];
+  while (records.length < 20) {
+    const next = getNextRunnableTask(resumedGraph);
+    if (!next) break;
+    const result = await executeNextTask(resumedGraph, tool, verify);
+    resumedGraph = result.graph;
+    if (!result.record) break;
+    records.push(result.record);
+    if (result.record.status === 'blocked') break;
+  }
+  return { graph: resumedGraph, records };
 }
