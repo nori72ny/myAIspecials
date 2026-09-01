@@ -96,7 +96,8 @@ function resolveProviderEvidence(
 ): OriginProviderFreeEvidence | OriginExecutionPlanResult {
   if (providerId === ORIGIN_OPENROUTER_FREE_PROVIDER_ID) {
     const result = selectCurrentOriginFreeModel(planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG, nowMs);
-    return result.ok ? result.model : result;
+    if (!result.ok) return result;
+    return result.model;
   }
   const evidence = planningOptions.providerEvidence?.[providerId];
   if (!evidence) return { ok: false, code: "FREE_MODEL_EVIDENCE_STALE", message: "選択Providerの無料利用証拠が未設定です。証拠を確認するまで実行を停止します。" };
