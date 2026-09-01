@@ -40,6 +40,7 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.providerId).toBe("openrouter-free");
     expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
     expect(result.plan.modelEvidence.sourceUrl).toContain("openrouter.ai");
+    expect(result.plan.modelEvidence.providerId).toBe("openrouter-free");
   });
 
   it("selects Groq when it is the only configured provider and its own evidence is supplied", () => {
@@ -50,6 +51,7 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.modelId).toBe(ORIGIN_GROQ_FREE_MODEL);
     expect(result.plan.estimatedCostUsd).toBe(0);
     expect(result.plan.modelEvidence.sourceUrl).toContain("groq.com");
+    expect(result.plan.modelEvidence.providerId).toBe("groq-free");
   });
 
   it("fails closed when a non-OpenRouter provider has no provider-specific evidence", () => {
