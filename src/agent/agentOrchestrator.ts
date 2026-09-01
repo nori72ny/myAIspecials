@@ -16,6 +16,9 @@ const buildPlan = (goal: string): AgentStep[] => [
 const isToolName = (value: unknown): value is ToolName =>
   value === 'code_interpreter' || value === 'document_generator' || value === 'web_search_grounding' || value === 'image_prompt_compiler' || value === 'repository_explorer' || value === 'file_reader' || value === 'file_writer' || value === 'verification_runner';
 
+const isVerificationKind = (value: unknown): value is 'test' | 'typecheck' | 'build' =>
+  value === 'test' || value === 'typecheck' || value === 'build';
+
 export function createAgentOrchestratorRouter(): Router {
   const router = express.Router();
   router.post('/api/agent', (req, res) => {
@@ -28,13 +31,30 @@ export function createAgentOrchestratorRouter(): Router {
     if (action === 'execute') {
       if (!isToolName(toolName)) return res.status(400).json({ code: 'INVALID_TOOL' });
       if (req.body?.intentExplicit !== true) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: 'Explicit execution intent is required.' });
-      const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.slice(0, 120) : 'agent-task';
       const toolParams = (params ?? {}) as ToolParams;
+      if (toolName === 'file_writer' && !isVerificationKind(toolParams.verificationKind)) {
+        return res.status(400).json({ ok: false, code: 'VERIFICATION_REQUIRED_AFTER_WRITE', message: 'file_writer requires verificationKind: test, typecheck, or build.' });
+      }
+      const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.slice(0, 120) : 'agent-task';
       void (async () => {
         try {
           const runTool = async (name: ToolName, input: ToolParams) =>
             executeToolWithPermission(name, input, { approved: true, costInUSD: 0, safetyPolicyPassed: true });
           const result = await runTool(toolName, toolParams);
+
+          if (toolName === 'file_writer') {
+            const verificationKind = toolParams.verificationKind as 'test' | 'typecheck' | 'build';
+            const verificationRun = await runTool('verification_runner', { kind: verificationKind });
+            const verification = { ok: verificationRun.ok, attempts: 1, selfFixed: false, diagnosis: verificationRun.message };
+            if (!verificationRun.ok) {
+              if (!res.headersSent) return res.status(422).json({ ...result, ok: false, code: 'POST_WRITE_VERIFICATION_FAILED', verification, verificationRun });
+              return;
+            }
+            const checkpoint = saveCheckpoint({ taskId, status: 'completed', artifact: result.artifact ?? '' });
+            if (!res.headersSent) return res.status(200).json({ ...result, ok: true, checkpoint, verification, verificationRun });
+            return;
+          }
+
           const verification = result.artifact
             ? await verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams)
             : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' };
@@ -72,7 +92,7 @@ export function createAgentOrchestratorRouter(): Router {
         steps[i] = { ...steps[i], status: i === steps.length - 1 ? 'awaiting_approval' : 'running' };
         emit({ type: 'step', step: steps[i] });
         emit({ type: 'log', message: `[${steps[i].title}] ${steps[i].detail}` });
-        if (i === 1) emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${goal.trim()}\n\nExecution Gate\n- Human approval required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Checkpoint created after successful execution\n` });
+        if (i === 1) emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${goal.trim()}\n\nExecution Gate\n- Human approval required\n- Tool Registry + Permission Gate required\n- File writes require post-write test/typecheck/build verification\n- Local artifact verification + bounded self-fix for non-write tools\n- Checkpoint created after successful execution\n` });
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
       if (!closed) { emit({ type: 'done', message: 'Plan ready. Select an approved tool to execute.' }); res.end(); }
