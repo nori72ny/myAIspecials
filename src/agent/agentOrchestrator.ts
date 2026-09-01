@@ -5,6 +5,7 @@ import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpoin
 import { compactAgentContext } from './contextCompaction.js';
 import { evaluateAgentOperation, MAX_AGENT_TASK_STEPS } from './agentContracts.js';
 import { createAgentTaskGraph, type AgentTaskGraph } from './agentTaskGraph.js';
+import { executeNextTask } from './taskGraphExecutor.js';
 import { assertCanReportCompleted } from './taskExecutionGate.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
@@ -33,13 +34,28 @@ export function createAgentOrchestratorRouter(): Router {
       void (async () => {
         try {
           const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
-          const result = await runTool(toolName, toolParams);
-          const verification = result.artifact ? await verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams) : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' };
-          if (!verification.ok) { if (!res.headersSent) return res.status(422).json({ ...result, ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', verification }); return; }
-          assertCanReportCompleted({ state: 'completed', verified: true, toolExecuted: true, repairAttempts: verification.attempts });
-          const checkpoint = saveCheckpoint({ taskId, status: verification.selfFixed ? 'self_fixed' : 'completed', artifact: verification.artifact });
-          if (!res.headersSent) return res.status(200).json({ ...result, ok: true, artifact: verification.artifact, checkpoint, verification: { attempts: verification.attempts, selfFixed: verification.selfFixed, diagnosis: verification.diagnosis } });
-        } catch (error) { const code = error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED'; if (!res.headersSent) return res.status(403).json({ ok: false, code, message: 'Tool execution was blocked by the permission gate.' }); }
+          const graph = createAgentTaskGraph(`execute ${toolName}`, [toolName]);
+          const execution = await executeNextTask(
+            graph,
+            async () => runTool(toolName, toolParams),
+            async (result) => result.artifact
+              ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams)
+              : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' },
+          );
+          const record = execution.record;
+          if (!record?.toolExecuted || !record.verified) {
+            if (!res.headersSent) return res.status(422).json({ ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', execution });
+            return;
+          }
+          assertCanReportCompleted({ state: 'completed', verified: true, toolExecuted: true, repairAttempts: 0 });
+          const task = execution.graph.tasks[0];
+          const artifact = (await runTool(toolName, toolParams)).artifact;
+          const checkpoint = saveCheckpoint({ taskId, status: 'completed', artifact: artifact ?? '' });
+          if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: artifact ?? '', checkpoint, execution: record, task });
+        } catch (error) {
+          const code = error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED';
+          if (!res.headersSent) return res.status(403).json({ ok: false, code, message: 'Tool execution was blocked by the permission gate.' });
+        }
       })();
       return undefined;
     }
