@@ -1,5 +1,4 @@
 import { runBoundedSelfHealing } from './selfHealingLoop.js';
-import { assertVerificationSuccess } from './verificationPolicy.js';
 
 export type AgentLoopDeps = {
   apply: () => Promise<void>;
