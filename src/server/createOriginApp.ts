@@ -1,8 +1,8 @@
 import express, { type ErrorRequestHandler, type Express } from "express";
 
-import { originChatBoundaryGuard } from "../legacy/originChatBoundaryGuard.js";
-import { createOriginChatRouter } from "../legacy/originChatRouter.js";
-import { createOriginLegacyProviderBoundaryRouter } from "../legacy/originLegacyProviderBoundaryGuard.js";
+import { originChatBoundaryGuard } from "./chat/originChatBoundaryGuard.js";
+import { createOriginChatRouter } from "./chat/originChatRouter.js";
+import { createOriginLegacyProviderBoundaryRouter } from "./chat/originLegacyProviderBoundaryGuard.js";
 import {
   applyOriginSecurityHeaders,
   createOriginChatRateLimiter,
