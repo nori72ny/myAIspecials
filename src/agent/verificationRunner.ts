@@ -18,11 +18,11 @@ const COMMANDS: Record<VerificationKind, { command: string; args: string[] }> = 
 const TIMEOUT_MS = 120_000;
 const MAX_OUTPUT = 64 * 1024;
 
-export function runVerification(kind: VerificationKind): Promise<VerificationResult> {
+export function runVerification(kind: VerificationKind, cwd = process.cwd()): Promise<VerificationResult> {
   const spec = COMMANDS[kind];
   return new Promise((resolve) => {
     const child = spawn(spec.command, spec.args, {
-      cwd: process.cwd(),
+      cwd,
       shell: false,
       env: { PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV ?? 'test' },
       stdio: ['ignore', 'pipe', 'pipe'],
