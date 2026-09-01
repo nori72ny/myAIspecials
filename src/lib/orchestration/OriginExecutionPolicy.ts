@@ -89,11 +89,7 @@ function parseEvidence(evidence: OriginProviderFreeEvidence, providerId: OriginE
   return null;
 }
 
-function resolveProviderEvidence(
-  providerId: OriginExecutionProviderId,
-  planningOptions: OriginExecutionPlanningOptions,
-  nowMs: number,
-): OriginProviderFreeEvidence | OriginExecutionPlanResult {
+function resolveProviderEvidence(providerId: OriginExecutionProviderId, planningOptions: OriginExecutionPlanningOptions, nowMs: number): OriginProviderFreeEvidence | OriginExecutionPlanResult {
   if (providerId === ORIGIN_OPENROUTER_FREE_PROVIDER_ID) {
     const result = selectCurrentOriginFreeModel(planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG, nowMs);
     if ("model" in result) return { ...result.model, providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID };
