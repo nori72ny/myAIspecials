@@ -17,7 +17,7 @@ function isProtected(relativePath: string): boolean {
   return parts.some((part) => PROTECTED.includes(part)) || PROTECTED.includes(base) || SECRET_EXTENSIONS.some((ext) => base.endsWith(ext));
 }
 
-export async function safeWriteRepositoryFile(relativePath: string, content: string): Promise<SafeWriteResult> {
+export async function safeWriteRepositoryFile(relativePath: string, content: string, rootDir = process.cwd()): Promise<SafeWriteResult> {
   if (!relativePath || path.isAbsolute(relativePath)) throw new Error('INVALID_REPOSITORY_PATH');
   if (typeof content !== 'string') throw new Error('INVALID_FILE_CONTENT');
   const bytes = Buffer.byteLength(content, 'utf8');
@@ -25,7 +25,7 @@ export async function safeWriteRepositoryFile(relativePath: string, content: str
   const normalized = path.normalize(relativePath);
   if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || isProtected(normalized)) throw new Error('PROTECTED_REPOSITORY_PATH');
 
-  const root = path.resolve(process.cwd());
+  const root = path.resolve(rootDir);
   const target = path.resolve(root, normalized);
   if (target !== root && !target.startsWith(`${root}${path.sep}`)) throw new Error('REPOSITORY_BOUNDARY_VIOLATION');
 
