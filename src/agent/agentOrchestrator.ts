@@ -1,6 +1,7 @@
 import express, { type Router } from 'express';
 import { executeToolWithPermission, type ToolName, type ToolParams } from './toolRegistry.js';
 import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
+import { runVerifiedRepositoryRepairLoop, type RepairProposal } from './verifiedRepositoryRepairLoop.js';
 import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpointManager.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
@@ -18,6 +19,17 @@ const isToolName = (value: unknown): value is ToolName =>
 
 const isVerificationKind = (value: unknown): value is 'test' | 'typecheck' | 'build' =>
   value === 'test' || value === 'typecheck' || value === 'build';
+
+const parseRepairProposals = (value: unknown): RepairProposal[] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const candidate = item as Record<string, unknown>;
+    if (typeof candidate.path !== 'string' || typeof candidate.content !== 'string') return [];
+    if (candidate.path.length === 0 || candidate.path.length > 240 || candidate.content.length > 12000) return [];
+    return [{ path: candidate.path, content: candidate.content }];
+  }).slice(0, 3);
+};
 
 export function createAgentOrchestratorRouter(): Router {
   const router = express.Router();
@@ -40,10 +52,27 @@ export function createAgentOrchestratorRouter(): Router {
         try {
           const runTool = async (name: ToolName, input: ToolParams) =>
             executeToolWithPermission(name, input, { approved: true, costInUSD: 0, safetyPolicyPassed: true });
-          const result = await runTool(toolName, toolParams);
 
           if (toolName === 'file_writer') {
             const verificationKind = toolParams.verificationKind as 'test' | 'typecheck' | 'build';
+            const repairProposals = parseRepairProposals(toolParams.repairProposals);
+            const initialWrite: RepairProposal = {
+              path: typeof toolParams.path === 'string' ? toolParams.path : '',
+              content: typeof toolParams.content === 'string' ? toolParams.content : '',
+            };
+
+            if (repairProposals.length > 0) {
+              const repairLoop = await runVerifiedRepositoryRepairLoop(initialWrite, verificationKind, repairProposals, runTool);
+              if (!repairLoop.ok) {
+                if (!res.headersSent) return res.status(422).json({ ok: false, code: 'REPOSITORY_REPAIR_FAILED', repairLoop });
+                return;
+              }
+              const checkpoint = saveCheckpoint({ taskId, status: repairLoop.repaired ? 'self_fixed' : 'completed', artifact: repairLoop.lastWrite?.artifact ?? '' });
+              if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, checkpoint, repairLoop });
+              return;
+            }
+
+            const result = await runTool(toolName, toolParams);
             const verificationRun = await runTool('verification_runner', { kind: verificationKind });
             const verification = { ok: verificationRun.ok, attempts: 1, selfFixed: false, diagnosis: verificationRun.message };
             if (!verificationRun.ok) {
@@ -55,6 +84,7 @@ export function createAgentOrchestratorRouter(): Router {
             return;
           }
 
+          const result = await runTool(toolName, toolParams);
           const verification = result.artifact
             ? await verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams)
             : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' };
@@ -92,7 +122,7 @@ export function createAgentOrchestratorRouter(): Router {
         steps[i] = { ...steps[i], status: i === steps.length - 1 ? 'awaiting_approval' : 'running' };
         emit({ type: 'step', step: steps[i] });
         emit({ type: 'log', message: `[${steps[i].title}] ${steps[i].detail}` });
-        if (i === 1) emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${goal.trim()}\n\nExecution Gate\n- Human approval required\n- Tool Registry + Permission Gate required\n- File writes require post-write test/typecheck/build verification\n- Local artifact verification + bounded self-fix for non-write tools\n- Checkpoint created after successful execution\n` });
+        if (i === 1) emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${goal.trim()}\n\nExecution Gate\n- Human approval required\n- Tool Registry + Permission Gate required\n- File writes require post-write test/typecheck/build verification\n- Bounded repository repair may retry only supplied repair proposals\n- Checkpoint created after successful execution\n` });
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
       if (!closed) { emit({ type: 'done', message: 'Plan ready. Select an approved tool to execute.' }); res.end(); }
