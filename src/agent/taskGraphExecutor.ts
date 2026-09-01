@@ -1,0 +1,55 @@
+import { createAgentTaskGraph, getNextRunnableTask, markTaskResult, markTaskRunning, type AgentTaskGraph } from './agentTaskGraph.js';
+
+export type ExecutorToolResult = { ok: boolean; artifact?: string; message?: string };
+export type ExecutorTool = (task: { id: string; title: string }) => Promise<ExecutorToolResult>;
+export type ExecutorVerification = (result: ExecutorToolResult) => Promise<{ ok: boolean; artifact?: string; reason?: string }>;
+
+export type TaskExecutionRecord = {
+  taskId: string;
+  attempt: number;
+  toolExecuted: boolean;
+  verified: boolean;
+  status: 'completed' | 'failed' | 'blocked';
+};
+
+export async function executeNextTask(
+  graph: AgentTaskGraph,
+  tool: ExecutorTool,
+  verify: ExecutorVerification,
+): Promise<{ graph: AgentTaskGraph; record?: TaskExecutionRecord }> {
+  const task = getNextRunnableTask(graph);
+  if (!task) return { graph };
+
+  let running = markTaskRunning(graph, task.id);
+  const result = await tool(task);
+  if (!result.ok) {
+    running = markTaskResult(running, task.id, false);
+    return { graph: running, record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: false, status: running.tasks.find((candidate) => candidate.id === task.id)?.status === 'blocked' ? 'blocked' : 'failed' } };
+  }
+
+  const verification = await verify(result);
+  running = markTaskResult(running, task.id, verification.ok);
+  const finalTask = running.tasks.find((candidate) => candidate.id === task.id)!;
+  return {
+    graph: running,
+    record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: verification.ok, status: finalTask.status === 'completed' ? 'completed' : finalTask.status === 'blocked' ? 'blocked' : 'failed' },
+  };
+}
+
+export async function executeTaskGraph(
+  goal: string,
+  titles: string[],
+  tool: ExecutorTool,
+  verify: ExecutorVerification,
+): Promise<{ graph: AgentTaskGraph; records: TaskExecutionRecord[] }> {
+  let graph = createAgentTaskGraph(goal, titles);
+  const records: TaskExecutionRecord[] = [];
+  while (records.length < 20) {
+    const next = await executeNextTask(graph, tool, verify);
+    graph = next.graph;
+    if (!next.record) break;
+    records.push(next.record);
+    if (next.record.status === 'blocked') break;
+  }
+  return { graph, records };
+}
