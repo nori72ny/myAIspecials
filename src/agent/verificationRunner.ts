@@ -11,8 +11,8 @@ export type VerificationResult = {
 };
 
 const COMMANDS: Record<VerificationKind, { command: string; args: string[] }> = {
-  test: { command: 'npm', args: ['test', '--', '--runInBand'] },
-  typecheck: { command: 'npx', args: ['tsc', '--noEmit'] },
+  test: { command: 'npm', args: ['test'] },
+  typecheck: { command: 'npm', args: ['run', 'typecheck'] },
   build: { command: 'npm', args: ['run', 'build'] },
 };
 const TIMEOUT_MS = 120_000;
@@ -30,6 +30,12 @@ export function runVerification(kind: VerificationKind): Promise<VerificationRes
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let settled = false;
+    const finish = (result: VerificationResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
     const append = (target: 'stdout' | 'stderr', chunk: Buffer) => {
       const text = chunk.toString('utf8');
       if (target === 'stdout') stdout = (stdout + text).slice(-MAX_OUTPUT);
@@ -37,14 +43,17 @@ export function runVerification(kind: VerificationKind): Promise<VerificationRes
     };
     child.stdout.on('data', (chunk) => append('stdout', chunk));
     child.stderr.on('data', (chunk) => append('stderr', chunk));
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, TIMEOUT_MS);
     child.on('error', (error) => {
       clearTimeout(timer);
-      resolve({ ok: false, kind, exitCode: null, timedOut, stdout, stderr: `${stderr}${error.message}`.slice(-MAX_OUTPUT) });
+      finish({ ok: false, kind, exitCode: null, timedOut, stdout, stderr: `${stderr}${error.message}`.slice(-MAX_OUTPUT) });
     });
     child.on('close', (exitCode) => {
       clearTimeout(timer);
-      resolve({ ok: !timedOut && exitCode === 0, kind, exitCode, timedOut, stdout, stderr });
+      finish({ ok: !timedOut && exitCode === 0, kind, exitCode, timedOut, stdout, stderr });
     });
   });
 }
