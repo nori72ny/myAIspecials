@@ -24,6 +24,8 @@ const isVerificationFailure = (result: ToolResult, kind: 'test' | 'typecheck' | 
   };
 };
 
+const isSuccessfulWrite = (result: ToolResult): boolean => result.ok === true;
+
 /** Bounded repository write -> verification -> repair loop. */
 export async function runVerifiedRepositoryRepairLoop(
   initialWrite: RepairProposal,
@@ -33,8 +35,19 @@ export async function runVerifiedRepositoryRepairLoop(
 ): Promise<VerifiedRepositoryRepairResult> {
   let state: RepairCoordinatorState = { attempt: 0, fingerprints: [] };
   let lastWrite = await runTool('file_writer', { path: initialWrite.path, content: initialWrite.content, verificationKind });
-  let verification = await runTool('verification_runner', { kind: verificationKind });
 
+  // Never allow a pre-existing green repository to mask a failed write.
+  if (!isSuccessfulWrite(lastWrite)) {
+    return {
+      ok: false,
+      attempts: 0,
+      repaired: false,
+      stopReason: 'INITIAL_WRITE_FAILED',
+      lastWrite,
+    };
+  }
+
+  let verification = await runTool('verification_runner', { kind: verificationKind });
   if (verification.ok) return { ok: true, attempts: 1, repaired: false, verification, lastWrite };
 
   for (const proposal of repairProposals) {
@@ -45,6 +58,17 @@ export async function runVerifiedRepositoryRepairLoop(
     }
 
     lastWrite = await runTool('file_writer', { path: proposal.path, content: proposal.content, verificationKind });
+    if (!isSuccessfulWrite(lastWrite)) {
+      return {
+        ok: false,
+        attempts: state.attempt,
+        repaired: state.attempt > 1,
+        stopReason: 'REPAIR_WRITE_FAILED',
+        verification,
+        lastWrite,
+      };
+    }
+
     verification = await runTool('verification_runner', { kind: verificationKind });
     if (verification.ok) return { ok: true, attempts: state.attempt + 1, repaired: true, verification, lastWrite };
   }
