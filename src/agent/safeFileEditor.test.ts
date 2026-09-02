@@ -30,6 +30,18 @@ describe('safeFileEditor', () => {
     expect(await fs.readFile(path.join(root, 'a.ts'), 'utf8')).toBe('changed by another process');
   });
 
+  it('rejects a final-component symlink at the stable write boundary', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-editor-'));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-editor-outside-'));
+    await fs.writeFile(path.join(root, 'a.ts'), 'export const a = 1;');
+    await fs.writeFile(path.join(outside, 'target.ts'), 'outside-secret');
+    const edit = await validateFileEdit(root, { path: 'a.ts', content: 'safe' });
+    await fs.rm(path.join(root, 'a.ts'));
+    await fs.symlink(path.join(outside, 'target.ts'), path.join(root, 'a.ts'));
+    await expect(applyValidatedFileEdit(root, edit)).rejects.toThrow('SYMLINK_PATH_BLOCKED');
+    expect(await fs.readFile(path.join(outside, 'target.ts'), 'utf8')).toBe('outside-secret');
+  });
+
   it('blocks traversal and protected paths', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-editor-'));
     await fs.writeFile(path.join(root, 'a.ts'), 'x');
