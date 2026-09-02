@@ -21,13 +21,13 @@ describe('toolRegistry safety boundary', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('exposes repository exploration and protected file reading through the same gate', async () => {
-    const tree = await executeToolWithPermission('repository_explorer', { root: process.cwd() }, approved);
+  it('keeps repository tools pinned to the server-owned repository root', async () => {
+    const tree = await executeToolWithPermission('repository_explorer', { root: '/tmp' }, approved);
     expect(tree.ok).toBe(true);
     expect(tree.tool).toBe('repository_explorer');
-    const packageFile = await executeToolWithPermission('file_reader', { root: process.cwd(), path: 'package.json' }, approved);
+    const packageFile = await executeToolWithPermission('file_reader', { root: '/tmp', path: 'package.json' }, approved);
     expect(packageFile.ok).toBe(true);
     expect(packageFile.artifact).toContain('"scripts"');
-    await expect(executeToolWithPermission('file_reader', { root: process.cwd(), path: '.env' }, approved)).rejects.toThrow('PROTECTED_PATH');
+    await expect(executeToolWithPermission('file_reader', { root: '/tmp', path: '.env' }, approved)).rejects.toThrow('PROTECTED_PATH');
   });
 });
