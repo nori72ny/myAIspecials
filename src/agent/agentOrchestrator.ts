@@ -23,6 +23,9 @@ export function createAgentOrchestratorRouter(): Router {
     const { goal, action, toolName, params, checkpointId } = req.body ?? {};
     if (action === 'rollback') {
       if (typeof checkpointId !== 'string' || !checkpointId) return res.status(400).json({ code: 'INVALID_CHECKPOINT' });
+      const intentExplicit = req.body?.intentExplicit === true;
+      const decision = evaluateAgentOperation('execute', intentExplicit);
+      if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
       void rollbackToCheckpoint(checkpointId).then((checkpoint) => {
         if (!res.headersSent) return res.status(200).json({ ok: true, checkpoint });
         return undefined;
