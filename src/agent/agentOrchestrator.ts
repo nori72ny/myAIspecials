@@ -7,6 +7,7 @@ import { evaluateAgentOperation, MAX_AGENT_TASK_STEPS } from './agentContracts.j
 import { createAgentTaskGraph, type AgentTaskGraph } from './agentTaskGraph.js';
 import { executeNextTask, resumeTaskGraph } from './taskGraphExecutor.js';
 import { assertCanReportCompleted } from './taskExecutionGate.js';
+import { agentApprovalConfigured, authenticateAgentRequest, consumeApproval, issueApproval, type AgentApprovalOperation } from './agentApproval.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
 const sse = (res: express.Response, payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -17,14 +18,43 @@ const isToolName = (value: unknown): value is ToolName => typeof value === 'stri
 const toTaskGraph = (goal: string): AgentTaskGraph => createAgentTaskGraph(goal, PLAN_TITLES);
 const createExecutionId = () => `exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+function operationFromRequest(body: Record<string, unknown>): AgentApprovalOperation | null {
+  const action = body.action;
+  if (action !== 'execute' && action !== 'resume' && action !== 'rollback') return null;
+  if ((action === 'execute' || action === 'resume') && !isToolName(body.toolName)) return null;
+  if ((action === 'rollback' || action === 'resume') && (typeof body.checkpointId !== 'string' || !body.checkpointId)) return null;
+  return {
+    action,
+    ...(action === 'execute' || action === 'resume' ? { toolName: body.toolName as string, params: body.params ?? {} } : {}),
+    ...(action === 'rollback' || action === 'resume' ? { checkpointId: body.checkpointId as string } : {}),
+  };
+}
+
+function requireAuthenticatedApproval(req: express.Request, operation: AgentApprovalOperation): boolean {
+  const token = req.body?.approvalToken;
+  return typeof token === 'string' && token.length <= 200 && authenticateAgentRequest(req) && consumeApproval(token, operation);
+}
+
 export function createAgentOrchestratorRouter(): Router {
   const router = express.Router();
+
+  router.post('/api/agent/approval', (req, res) => {
+    if (!agentApprovalConfigured()) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
+    if (!authenticateAgentRequest(req)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
+    const operation = operationFromRequest((req.body ?? {}) as Record<string, unknown>);
+    if (!operation) return res.status(400).json({ ok: false, code: 'INVALID_APPROVAL_OPERATION' });
+    const decision = evaluateAgentOperation(operation.action === 'rollback' ? 'execute' : operation.action, true);
+    if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_APPROVAL_POLICY_BLOCKED', message: decision.reason });
+    return res.status(201).json({ ok: true, approvalToken: issueApproval(operation), expiresInMs: 120000 });
+  });
+
   router.post('/api/agent', (req, res) => {
     const { goal, action, toolName, params, checkpointId } = req.body ?? {};
     if (action === 'rollback') {
       if (typeof checkpointId !== 'string' || !checkpointId) return res.status(400).json({ code: 'INVALID_CHECKPOINT' });
-      const intentExplicit = req.body?.intentExplicit === true;
-      const decision = evaluateAgentOperation('execute', intentExplicit);
+      const operation: AgentApprovalOperation = { action: 'rollback', checkpointId };
+      if (!requireAuthenticatedApproval(req, operation)) return res.status(403).json({ ok: false, code: 'AGENT_AUTHENTICATED_APPROVAL_REQUIRED' });
+      const decision = evaluateAgentOperation('execute', true);
       if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
       void rollbackToCheckpoint(checkpointId).then((checkpoint) => {
         if (!res.headersSent) return res.status(200).json({ ok: true, checkpoint });
@@ -43,17 +73,15 @@ export function createAgentOrchestratorRouter(): Router {
       if (!checkpoint) return res.status(404).json({ code: 'CHECKPOINT_NOT_FOUND' });
       if (checkpoint.status !== 'completed' && checkpoint.status !== 'self_fixed') return res.status(409).json({ code: 'CHECKPOINT_NOT_RESUMABLE' });
       if (!isToolName(toolName)) return res.status(400).json({ code: 'INVALID_TOOL' });
-      const intentExplicit = req.body?.intentExplicit === true;
-      const decision = evaluateAgentOperation('execute', intentExplicit);
+      const operation: AgentApprovalOperation = { action: 'resume', toolName, params: params ?? {}, checkpointId };
+      if (!requireAuthenticatedApproval(req, operation)) return res.status(403).json({ ok: false, code: 'AGENT_AUTHENTICATED_APPROVAL_REQUIRED' });
+      const decision = evaluateAgentOperation('execute', true);
       if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
-      const executionApproval = { approved: intentExplicit, costInUSD: 0, safetyPolicyPassed: true };
+      const executionApproval = { approved: true, costInUSD: 0, safetyPolicyPassed: true };
       void (async () => {
         try {
           const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
-          const graph: AgentTaskGraph = {
-            goal: `resume ${toolName}`,
-            tasks: [{ id: checkpoint.taskId, title: toolName, dependsOn: [], status: 'queued', attempts: 0, maxAttempts: 3 }],
-          };
+          const graph: AgentTaskGraph = { goal: `resume ${toolName}`, tasks: [{ id: checkpoint.taskId, title: toolName, dependsOn: [], status: 'queued', attempts: 0, maxAttempts: 3 }] };
           const execution = await resumeTaskGraph(graph, checkpoint.executionId, async () => runTool(toolName, (params ?? {}) as ToolParams), async (result) => result.artifact
             ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, (params ?? {}) as ToolParams)
             : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' });
@@ -67,12 +95,13 @@ export function createAgentOrchestratorRouter(): Router {
     }
     if (action === 'execute') {
       if (!isToolName(toolName)) return res.status(400).json({ code: 'INVALID_TOOL' });
-      const intentExplicit = req.body?.intentExplicit === true;
-      const decision = evaluateAgentOperation('execute', intentExplicit);
+      const operation: AgentApprovalOperation = { action: 'execute', toolName, params: params ?? {} };
+      if (!requireAuthenticatedApproval(req, operation)) return res.status(403).json({ ok: false, code: 'AGENT_AUTHENTICATED_APPROVAL_REQUIRED' });
+      const decision = evaluateAgentOperation('execute', true);
       if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_EXECUTION_APPROVAL_REQUIRED', message: decision.reason });
       const executionId = typeof req.body?.executionId === 'string' && req.body.executionId.length <= 120 ? req.body.executionId : createExecutionId();
       const toolParams = (params ?? {}) as ToolParams;
-      const executionApproval = { approved: intentExplicit, costInUSD: 0, safetyPolicyPassed: true };
+      const executionApproval = { approved: true, costInUSD: 0, safetyPolicyPassed: true };
       void (async () => {
         try {
           const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
@@ -87,13 +116,7 @@ export function createAgentOrchestratorRouter(): Router {
             return;
           }
           assertCanReportCompleted({ state: finalTask.status, verified: record.verified, toolExecuted: record.toolExecuted, repairAttempts: record.verificationAttempts });
-          const checkpoint = saveCheckpoint({
-            taskId: finalTask.id,
-            executionId,
-            status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed',
-            artifact: record.artifact,
-            mutation: record.mutation,
-          });
+          const checkpoint = saveCheckpoint({ taskId: finalTask.id, executionId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact, mutation: record.mutation });
           if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: record.artifact, checkpoint, execution: record, task: finalTask });
         } catch (error) {
           const code = error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED';
@@ -111,10 +134,10 @@ export function createAgentOrchestratorRouter(): Router {
         if (closed) return;
         steps[i] = { ...steps[i], status: i === steps.length - 1 ? 'awaiting_approval' : 'running' };
         emit({ type: 'plan_step', step: steps[i] }); emit({ type: 'log', message: `[${steps[i].title}] ${steps[i].detail}` });
-        if (i === 1) { const context = compactAgentContext(normalizedGoal, [{ stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' }], 'critique assumptions and define executable steps'); emit({ type: 'context', context }); emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nTask Graph\n- ${graph.tasks.map((task) => `${task.id}: ${task.title}`).join('\n- ')}\n\nExecution Gate\n- Explicit execution intent required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Checkpoint created after successful execution\n` }); }
+        if (i === 1) { const context = compactAgentContext(normalizedGoal, [{ stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' }], 'critique assumptions and define executable steps'); emit({ type: 'context', context }); emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nTask Graph\n- ${graph.tasks.map((task) => `${task.id}: ${task.title}`).join('\n- ')}\n\nExecution Gate\n- Authenticated one-time approval token required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Checkpoint created after successful execution\n` }); }
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
-      if (!closed) { emit({ type: 'done', message: 'Plan ready. No task is marked completed until an approved tool executes and verification succeeds.', graph }); res.end(); }
+      if (!closed) { emit({ type: 'done', message: 'Plan ready. No task is marked completed until an authenticated one-time approval is consumed, an approved tool executes, and verification succeeds.', graph }); res.end(); }
     };
     void run(); return undefined;
   });
