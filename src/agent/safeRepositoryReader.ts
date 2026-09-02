@@ -55,13 +55,23 @@ async function openStableFile(rootReal: string, absolute: string) {
     for (const segment of segments) {
       const childPath = path.join(`/proc/self/fd/${directoryHandle.fd}`, segment);
       const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
-      await directoryHandle.close();
-      directoryHandle = nextHandle;
+      try {
+        await directoryHandle.close();
+        directoryHandle = nextHandle;
+      } catch (error) {
+        await nextHandle.close().catch(() => undefined);
+        throw error;
+      }
     }
     const stableFile = path.join(`/proc/self/fd/${directoryHandle.fd}`, fileName);
     const fileHandle = await fs.open(stableFile, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-    await directoryHandle.close();
-    return fileHandle;
+    try {
+      await directoryHandle.close();
+      return fileHandle;
+    } catch (error) {
+      await fileHandle.close().catch(() => undefined);
+      throw error;
+    }
   } catch (error) {
     await directoryHandle.close().catch(() => undefined);
     throw error;
