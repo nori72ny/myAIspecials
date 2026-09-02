@@ -37,18 +37,13 @@ async function assertNoSymlinkComponents(rootReal: string, target: string): Prom
 async function openStableParent(rootReal: string, parent: string) {
   if (process.platform !== 'linux') throw new Error('RACE_SAFE_WRITE_UNSUPPORTED');
   const relativeParent = path.relative(rootReal, parent);
-  if (!relativeParent || relativeParent.startsWith('..') || path.isAbsolute(relativeParent)) {
-    throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
-  }
+  if (!relativeParent || relativeParent.startsWith('..') || path.isAbsolute(relativeParent)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
   let currentHandle = await fs.open(rootReal, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
   try {
     for (const segment of relativeParent.split(path.sep).filter(Boolean)) {
       const childPath = path.join(`/proc/self/fd/${currentHandle.fd}`, segment);
-      try {
-        await fs.mkdir(childPath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      }
+      try { await fs.mkdir(childPath); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
       const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
       await currentHandle.close();
       currentHandle = nextHandle;
@@ -60,18 +55,12 @@ async function openStableParent(rootReal: string, parent: string) {
   }
 }
 
-async function writeThroughStableParent(
-  rootReal: string,
-  target: string,
-  content: string,
-  expectedPrevious?: string,
-): Promise<void> {
+async function writeThroughStableParent(rootReal: string, target: string, content: string, expectedPrevious?: string): Promise<void> {
   const parent = path.dirname(target);
   const parentHandle = await openStableParent(rootReal, parent);
   try {
     const stableParent = `/proc/self/fd/${parentHandle.fd}`;
     const stableTarget = path.join(stableParent, path.basename(target));
-
     if (expectedPrevious !== undefined) {
       let targetHandle;
       try {
@@ -80,29 +69,18 @@ async function writeThroughStableParent(
         if (current !== expectedPrevious) throw new Error('FILE_CHANGED_SINCE_VALIDATION');
       } catch (error) {
         if (error instanceof Error && error.message === 'FILE_CHANGED_SINCE_VALIDATION') throw error;
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          if (expectedPrevious !== '') throw new Error('FILE_CHANGED_SINCE_VALIDATION');
-        } else if ((error as NodeJS.ErrnoException).code === 'ELOOP') {
-          throw new Error('SYMLINK_PATH_BLOCKED');
-        } else {
-          throw error;
-        }
-      } finally {
-        await targetHandle?.close().catch(() => undefined);
-      }
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') { if (expectedPrevious !== '') throw new Error('FILE_CHANGED_SINCE_VALIDATION'); }
+        else if ((error as NodeJS.ErrnoException).code === 'ELOOP') throw new Error('SYMLINK_PATH_BLOCKED');
+        else throw error;
+      } finally { await targetHandle?.close().catch(() => undefined); }
     }
-
     const tempName = `.${path.basename(target)}.origin-tmp-${process.pid}-${Date.now()}`;
     const temp = path.join(stableParent, tempName);
     try {
       await fs.writeFile(temp, content, { encoding: 'utf8', flag: 'wx' });
       await fs.rename(temp, stableTarget);
-    } finally {
-      await fs.rm(temp, { force: true }).catch(() => undefined);
-    }
-  } finally {
-    await parentHandle.close();
-  }
+    } finally { await fs.rm(temp, { force: true }).catch(() => undefined); }
+  } finally { await parentHandle.close(); }
 }
 
 async function prepareWrite(root: string, filePath: string, content: string): Promise<{ rootReal: string; target: string; relative: string; bytes: number }> {
@@ -124,12 +102,7 @@ export async function writeRepositoryFile(root: string, filePath: string, conten
   return { bytes: prepared.bytes, path: prepared.relative };
 }
 
-export async function writeRepositoryFileIfUnchanged(
-  root: string,
-  filePath: string,
-  expectedPrevious: string,
-  content: string,
-): Promise<{ bytes: number; path: string }> {
+export async function writeRepositoryFileIfUnchanged(root: string, filePath: string, expectedPrevious: string, content: string): Promise<{ bytes: number; path: string }> {
   const prepared = await prepareWrite(root, filePath, content);
   await writeThroughStableParent(prepared.rootReal, prepared.target, content, expectedPrevious);
   return { bytes: prepared.bytes, path: prepared.relative };
