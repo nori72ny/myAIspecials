@@ -1,6 +1,7 @@
 import express, { type Router } from 'express';
 import { executeToolWithPermission, type ToolName, type ToolParams } from './toolRegistry.js';
 import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
+import { verifyBeforeReportingCompletion } from './completionVerificationGate.js';
 import { getCheckpoint, rollbackToCheckpoint, saveCheckpoint } from './checkpointManager.js';
 import { compactAgentContext } from './contextCompaction.js';
 import { evaluateAgentOperation, MAX_AGENT_TASK_STEPS } from './agentContracts.js';
@@ -115,12 +116,24 @@ export function createAgentOrchestratorRouter(): Router {
             if (!res.headersSent) return res.status(422).json({ ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', execution });
             return;
           }
+
+          // Repository mutation gets a second, independent completion gate. The
+          // local artifact check above is not enough to claim a coding change is
+          // correct: typecheck, full unit tests, and production build must pass.
+          if (toolName === 'file_writer') {
+            const completionVerification = await verifyBeforeReportingCompletion(process.cwd());
+            if (!completionVerification.ok) {
+              if (!res.headersSent) return res.status(422).json({ ok: false, code: 'COMPLETION_VERIFICATION_FAILED', completionVerification, execution });
+              return;
+            }
+          }
+
           assertCanReportCompleted({ state: finalTask.status, verified: record.verified, toolExecuted: record.toolExecuted, repairAttempts: record.verificationAttempts });
           const checkpoint = saveCheckpoint({ taskId: finalTask.id, executionId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact, mutation: record.mutation });
           if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: record.artifact, checkpoint, execution: record, task: finalTask });
         } catch (error) {
           const code = error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED';
-          if (!res.headersSent) return res.status(403).json({ ok: false, code, message: 'Tool execution was blocked by the permission gate.' });
+          if (!res.headersSent) return res.status(403).json({ ok: false, code, message: 'Tool execution was blocked by the permission or execution gate.' });
         }
       })();
       return undefined;
@@ -134,7 +147,7 @@ export function createAgentOrchestratorRouter(): Router {
         if (closed) return;
         steps[i] = { ...steps[i], status: i === steps.length - 1 ? 'awaiting_approval' : 'running' };
         emit({ type: 'plan_step', step: steps[i] }); emit({ type: 'log', message: `[${steps[i].title}] ${steps[i].detail}` });
-        if (i === 1) { const context = compactAgentContext(normalizedGoal, [{ stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' }], 'critique assumptions and define executable steps'); emit({ type: 'context', context }); emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nTask Graph\n- ${graph.tasks.map((task) => `${task.id}: ${task.title}`).join('\n- ')}\n\nExecution Gate\n- Authenticated one-time approval token required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Checkpoint created after successful execution\n` }); }
+        if (i === 1) { const context = compactAgentContext(normalizedGoal, [{ stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' }], 'critique assumptions and define executable steps'); emit({ type: 'context', context }); emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nTask Graph\n- ${graph.tasks.map((task) => `${task.id}: ${task.title}`).join('\n- ')}\n\nExecution Gate\n- Authenticated one-time approval token required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Repository mutations require typecheck + test + build before completion is reported\n- Checkpoint created after successful execution\n` }); }
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
       if (!closed) { emit({ type: 'done', message: 'Plan ready. No task is marked completed until an authenticated one-time approval is consumed, an approved tool executes, and verification succeeds.', graph }); res.end(); }
