@@ -10,7 +10,8 @@ const SECRET_NAME = /(^|\/)(\.env(?:\..*)?|.*\.(pem|key|p12|pfx))$/i;
 export type RepositoryEntry = { path: string; type: 'file' | 'directory' };
 
 function safeRelative(root: string, requested: string): string {
-  const relative = requested.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!requested || path.isAbsolute(requested)) throw new Error('PATH_OUTSIDE_REPOSITORY');
+  const relative = requested.replace(/\\/g, '/');
   const absolute = path.resolve(root, relative);
   const rootResolved = path.resolve(root);
   const relativeToRoot = path.relative(rootResolved, absolute);
@@ -46,6 +47,8 @@ export async function listRepository(root: string): Promise<RepositoryEntry[]> {
   const rootReal = await fs.realpath(root);
   async function walk(current: string, depth: number): Promise<void> {
     if (depth > MAX_DEPTH || entries.length >= MAX_ENTRIES) return;
+    const currentStat = await fs.lstat(current);
+    if (currentStat.isSymbolicLink() || !currentStat.isDirectory()) return;
     const children = await fs.readdir(current, { withFileTypes: true });
     for (const child of children) {
       if (entries.length >= MAX_ENTRIES) return;
@@ -63,7 +66,8 @@ export async function listRepository(root: string): Promise<RepositoryEntry[]> {
 }
 
 export async function readRepositoryFile(root: string, requestedPath: string): Promise<string> {
-  const relative = requestedPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const relative = requestedPath.replace(/\\/g, '/');
+  if (!relative || path.posix.isAbsolute(relative)) throw new Error('PATH_OUTSIDE_REPOSITORY');
   if (blocked(relative)) throw new Error('PROTECTED_PATH');
   const rootReal = await fs.realpath(root);
   const absolute = safeRelative(rootReal, relative);
