@@ -31,7 +31,10 @@ export function createAgentTaskGraph(goal: string, titles: string[]): AgentTaskG
 }
 
 export function getNextRunnableTask(graph: AgentTaskGraph): AgentTask | undefined {
-  return graph.tasks.find((task) => task.status === 'queued' && task.dependsOn.every((id) => graph.tasks.find((candidate) => candidate.id === id)?.status === 'completed'));
+  return graph.tasks.find((task) =>
+    (task.status === 'queued' || (task.status === 'failed' && task.attempts < task.maxAttempts))
+      && task.dependsOn.every((id) => graph.tasks.find((candidate) => candidate.id === id)?.status === 'completed'),
+  );
 }
 
 export function markTaskRunning(graph: AgentTaskGraph, taskId: string): AgentTaskGraph {
