@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 
 const MAX_WRITE_BYTES = 128 * 1024;
@@ -44,7 +44,7 @@ async function assertNoSymlinkComponents(rootReal: string, target: string): Prom
  */
 async function openStableParent(parent: string) {
   if (process.platform !== 'linux') throw new Error('RACE_SAFE_WRITE_UNSUPPORTED');
-  return fs.open(parent, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+  return fs.open(parent, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
 }
 
 export async function writeRepositoryFile(root: string, filePath: string, content: string): Promise<{ bytes: number; path: string }> {
