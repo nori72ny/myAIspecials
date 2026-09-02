@@ -1,4 +1,5 @@
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const SAFE_APPLY_RETRY_INTERVAL_MS = 5000;
 const UPDATE_RELOAD_GUARD_KEY = 'origin:pwa-update-reload';
 const SAFE_APPLY_DELAY_MS = 1500;
 
@@ -94,6 +95,7 @@ export function registerOriginServiceWorker(): void {
       window.addEventListener('origin:pwa-safe-apply', retrySafeApply);
 
       window.setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
+      window.setInterval(retrySafeApply, SAFE_APPLY_RETRY_INTERVAL_MS);
       checkForUpdate();
     }).catch(() => {
       // PWA registration failure must not interrupt the application UI.
