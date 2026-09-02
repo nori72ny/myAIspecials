@@ -2,7 +2,7 @@ import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { containsLikelySecret } from './safeFilePolicy.js';
 
-const MAX_WRITE_BYTES = 128 * 1024;
+const MAX_WRITE_BYTES = 256 * 1024;
 const PROTECTED_SEGMENTS = new Set(['.git', 'node_modules', 'dist', 'build', '.next']);
 const PROTECTED_FILES = new Set(['.env', '.env.local', '.env.production', '.env.development']);
 const PROTECTED_EXTENSIONS = new Set(['.pem', '.key', '.p12', '.pfx']);
@@ -34,19 +34,12 @@ async function assertNoSymlinkComponents(rootReal: string, target: string): Prom
   }
 }
 
-/**
- * Create/open each parent component relative to an already-open directory.
- * This avoids recursive path-based mkdir, which could otherwise traverse an
- * attacker-created symlink between validation and directory creation.
- */
 async function openStableParent(rootReal: string, parent: string) {
   if (process.platform !== 'linux') throw new Error('RACE_SAFE_WRITE_UNSUPPORTED');
-
   const relativeParent = path.relative(rootReal, parent);
   if (!relativeParent || relativeParent.startsWith('..') || path.isAbsolute(relativeParent)) {
     throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
   }
-
   let currentHandle = await fs.open(rootReal, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
   try {
     for (const segment of relativeParent.split(path.sep).filter(Boolean)) {
@@ -56,7 +49,6 @@ async function openStableParent(rootReal: string, parent: string) {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       }
-
       const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
       await currentHandle.close();
       currentHandle = nextHandle;
@@ -71,16 +63,13 @@ async function openStableParent(rootReal: string, parent: string) {
 export async function writeRepositoryFile(root: string, filePath: string, content: string): Promise<{ bytes: number; path: string }> {
   assertSafeRelativePath(filePath);
   if (containsLikelySecret(content)) throw new Error('SECRET_CONTENT_BLOCKED');
-
   const rootReal = await fs.realpath(root);
   const target = path.resolve(rootReal, filePath);
   const parent = path.dirname(target);
   const relative = path.relative(rootReal, target);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
-
   const bytes = Buffer.byteLength(content, 'utf8');
   if (bytes > MAX_WRITE_BYTES) throw new Error('WRITE_SIZE_LIMIT_EXCEEDED');
-
   await assertNoSymlinkComponents(rootReal, parent);
   const parentHandle = await openStableParent(rootReal, parent);
   try {
@@ -88,7 +77,6 @@ export async function writeRepositoryFile(root: string, filePath: string, conten
     const tempName = `.${path.basename(target)}.origin-tmp-${process.pid}-${Date.now()}`;
     const temp = path.join(stableParent, tempName);
     const stableTarget = path.join(stableParent, path.basename(target));
-
     try {
       await fs.writeFile(temp, content, { encoding: 'utf8', flag: 'wx' });
       await fs.rename(temp, stableTarget);
@@ -98,6 +86,5 @@ export async function writeRepositoryFile(root: string, filePath: string, conten
   } finally {
     await parentHandle.close();
   }
-
   return { bytes, path: relative };
 }
