@@ -9,24 +9,19 @@ export type CompletionVerificationResult = {
 
 /**
  * Final engineering gate: a coding operation cannot be reported complete until
- * the repository passes deterministic typecheck, test, and build verification
- * in that order. Any failure fails closed and prevents a success claim.
+ * the repository passes deterministic typecheck, lint, tests, and build in
+ * that order. Any failure fails closed and prevents a success claim.
  */
 export async function verifyBeforeReportingCompletion(root: string): Promise<CompletionVerificationResult> {
   const checks: VerificationResult[] = [];
-  const required: VerificationKind[] = ['typecheck', 'test', 'build'];
+  const required: VerificationKind[] = ['typecheck', 'lint', 'test', 'build'];
 
   for (const kind of required) {
     try {
       const result = await runVerification(root, kind);
       checks.push(result);
       if (!result.ok) {
-        return {
-          ok: false,
-          checks,
-          failedKind: kind,
-          diagnosis: `Completion blocked: ${kind} verification failed (exit=${result.exitCode}, timeout=${result.timedOut}).`,
-        };
+        return { ok: false, checks, failedKind: kind, diagnosis: `Completion blocked: ${kind} verification failed (exit=${result.exitCode}, timeout=${result.timedOut}).` };
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'UNKNOWN_VERIFICATION_ERROR';
@@ -34,5 +29,5 @@ export async function verifyBeforeReportingCompletion(root: string): Promise<Com
     }
   }
 
-  return { ok: true, checks, diagnosis: 'Typecheck, tests, and build all passed; completion may be reported.' };
+  return { ok: true, checks, diagnosis: 'Typecheck, lint, tests, and build all passed; completion may be reported.' };
 }
