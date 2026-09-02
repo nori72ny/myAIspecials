@@ -31,18 +31,25 @@ export async function exploreRepository(root: string): Promise<RepositoryEntry[]
   async function walk(current: string, depth: number): Promise<void> {
     if (depth > MAX_DEPTH || result.length >= MAX_FILES) return;
     const entries = await fs.readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      if (result.length >= MAX_FILES || DEFAULT_IGNORED.has(entry.name)) break;
-      if (entry.isSymbolicLink()) continue;
+    const safeEntries = entries.filter((entry) => !DEFAULT_IGNORED.has(entry.name) && !entry.isSymbolicLink());
+
+    // Visit files before directories so important root metadata such as package.json
+    // is not starved by a bounded directory walk.
+    for (const entry of safeEntries.filter((candidate) => candidate.isFile())) {
+      if (result.length >= MAX_FILES) return;
       const absolute = path.join(current, entry.name);
       const relative = safeRelative(resolvedRoot, absolute);
       if (!relative || isProtected(relative)) continue;
-      if (entry.isDirectory()) {
-        result.push({ path: relative, kind: 'directory' });
-        await walk(absolute, depth + 1);
-      } else if (entry.isFile()) {
-        result.push({ path: relative, kind: 'file' });
-      }
+      result.push({ path: relative, kind: 'file' });
+    }
+
+    for (const entry of safeEntries.filter((candidate) => candidate.isDirectory())) {
+      if (result.length >= MAX_FILES) return;
+      const absolute = path.join(current, entry.name);
+      const relative = safeRelative(resolvedRoot, absolute);
+      if (!relative || isProtected(relative)) continue;
+      result.push({ path: relative, kind: 'directory' });
+      await walk(absolute, depth + 1);
     }
   }
 
