@@ -19,7 +19,7 @@ function safeRelative(root: string, candidate: string): string | undefined {
 }
 
 export async function exploreRepository(root: string): Promise<RepositoryEntry[]> {
-  const resolvedRoot = path.resolve(root);
+  const resolvedRoot = await fs.realpath(root);
   const result: RepositoryEntry[] = [];
 
   async function walk(current: string, depth: number): Promise<void> {
@@ -27,6 +27,7 @@ export async function exploreRepository(root: string): Promise<RepositoryEntry[]
     const entries = await fs.readdir(current, { withFileTypes: true });
     for (const entry of entries) {
       if (result.length >= MAX_FILES || DEFAULT_IGNORED.has(entry.name)) break;
+      if (entry.isSymbolicLink()) continue;
       const absolute = path.join(current, entry.name);
       const relative = safeRelative(resolvedRoot, absolute);
       if (!relative) continue;
@@ -34,8 +35,7 @@ export async function exploreRepository(root: string): Promise<RepositoryEntry[]
         result.push({ path: relative, kind: 'directory' });
         await walk(absolute, depth + 1);
       } else if (entry.isFile()) {
-        const stat = await fs.stat(absolute);
-        result.push({ path: relative, kind: 'file', size: stat.size });
+        result.push({ path: relative, kind: 'file' });
       }
     }
   }
@@ -45,11 +45,26 @@ export async function exploreRepository(root: string): Promise<RepositoryEntry[]
 }
 
 export async function readRepositoryFile(root: string, relativePath: string): Promise<string> {
-  const resolvedRoot = path.resolve(root);
-  const candidate = path.resolve(resolvedRoot, relativePath);
+  const resolvedRoot = await fs.realpath(root);
+  const candidate = path.resolve(resolvedRoot, relativePath.replace(/\\/g, '/'));
   if (!safeRelative(resolvedRoot, candidate)) throw new Error('Path escapes repository root');
-  const stat = await fs.stat(candidate);
-  if (!stat.isFile()) throw new Error('Target is not a file');
-  if (stat.size > MAX_BYTES) throw new Error('File exceeds read size limit');
-  return fs.readFile(candidate, 'utf8');
+
+  const relative = path.relative(resolvedRoot, candidate);
+  let current = resolvedRoot;
+  for (const segment of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    const handle = await fs.open(current, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const stat = await handle.stat();
+      if (current !== candidate && !stat.isDirectory()) throw new Error('Path component is not a directory');
+      if (current === candidate) {
+        if (!stat.isFile()) throw new Error('Target is not a file');
+        if (stat.size > MAX_BYTES) throw new Error('File exceeds read size limit');
+        return await handle.readFile({ encoding: 'utf8' });
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+  throw new Error('Target path is empty');
 }
