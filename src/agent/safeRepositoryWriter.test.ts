@@ -13,10 +13,12 @@ describe('safeRepositoryWriter', () => {
     expect(await readFile(path.join(root, 'src/app.ts'), 'utf8')).toBe('export const ok = true;');
   });
 
-  it('rejects protected paths and oversized writes', async () => {
+  it('rejects protected paths, secret-like content, and oversized writes', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-'));
     await expect(writeRepositoryFile(root, '.env', 'SECRET=value')).rejects.toThrow('SECRET_PATH_BLOCKED');
     await expect(writeRepositoryFile(root, 'node_modules/x.ts', 'blocked')).rejects.toThrow('PROTECTED_PATH_BLOCKED');
+    await expect(writeRepositoryFile(root, 'config.ts', 'const apiKey = "real-secret-value";')).rejects.toThrow('SECRET_CONTENT_BLOCKED');
+    await expect(readFile(path.join(root, 'config.ts'), 'utf8')).rejects.toThrow();
     await expect(writeRepositoryFile(root, 'large.txt', 'x'.repeat(128 * 1024 + 1))).rejects.toThrow('WRITE_SIZE_LIMIT_EXCEEDED');
   });
 
