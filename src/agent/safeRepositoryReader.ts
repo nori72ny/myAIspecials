@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 
 const MAX_DEPTH = 8;
@@ -42,6 +42,32 @@ function blocked(relativePath: string): boolean {
   return normalized.split('/').some((part) => BLOCKED_NAMES.has(part));
 }
 
+async function openStableFile(rootReal: string, absolute: string) {
+  if (process.platform !== 'linux') throw new Error('RACE_SAFE_READ_UNSUPPORTED');
+  const relative = path.relative(rootReal, absolute);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('PATH_OUTSIDE_REPOSITORY');
+  const segments = relative.split(path.sep).filter(Boolean);
+  const fileName = segments.pop();
+  if (!fileName) throw new Error('NOT_A_FILE');
+
+  let directoryHandle = await fs.open(rootReal, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  try {
+    for (const segment of segments) {
+      const childPath = path.join(`/proc/self/fd/${directoryHandle.fd}`, segment);
+      const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+      await directoryHandle.close();
+      directoryHandle = nextHandle;
+    }
+    const stableFile = path.join(`/proc/self/fd/${directoryHandle.fd}`, fileName);
+    const fileHandle = await fs.open(stableFile, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    await directoryHandle.close();
+    return fileHandle;
+  } catch (error) {
+    await directoryHandle.close().catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function listRepository(root: string): Promise<RepositoryEntry[]> {
   const entries: RepositoryEntry[] = [];
   const rootReal = await fs.realpath(root);
@@ -72,7 +98,7 @@ export async function readRepositoryFile(root: string, requestedPath: string): P
   const rootReal = await fs.realpath(root);
   const absolute = safeRelative(rootReal, relative);
   await assertNoSymlinkComponents(rootReal, absolute);
-  const handle = await fs.open(absolute, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  const handle = await openStableFile(rootReal, absolute);
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error('NOT_A_FILE');
