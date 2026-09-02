@@ -3,7 +3,7 @@ import { mkdtemp, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { writeRepositoryFile } from './safeRepositoryWriter';
+import { writeRepositoryFile, writeRepositoryFileIfUnchanged } from './safeRepositoryWriter';
 
 describe('safeRepositoryWriter', () => {
   it('writes bounded content inside the repository', async () => {
@@ -63,5 +63,23 @@ describe('safeRepositoryWriter', () => {
     } finally {
       renameSpy.mockRestore();
     }
+  });
+
+  it('rejects a target that changed after validation', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-'));
+    await fs.mkdir(path.join(root, 'src'), { recursive: true });
+    await fs.writeFile(path.join(root, 'src/app.ts'), 'before');
+    await expect(writeRepositoryFileIfUnchanged(root, 'src/app.ts', 'after-validation', 'new-content'))
+      .rejects.toThrow('FILE_CHANGED_SINCE_VALIDATION');
+    expect(await readFile(path.join(root, 'src/app.ts'), 'utf8')).toBe('before');
+  });
+
+  it('rejects a final target symlink during the stable compare step', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-'));
+    const outside = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-outside-'));
+    await fs.writeFile(path.join(outside, 'target.ts'), 'outside');
+    await symlink(path.join(outside, 'target.ts'), path.join(root, 'target.ts'));
+    await expect(writeRepositoryFileIfUnchanged(root, 'target.ts', '', 'safe')).rejects.toThrow('SYMLINK_PATH_BLOCKED');
+    expect(await readFile(path.join(outside, 'target.ts'), 'utf8')).toBe('outside');
   });
 });
