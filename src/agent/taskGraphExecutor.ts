@@ -1,7 +1,8 @@
 import { createAgentTaskGraph, getNextRunnableTask, markTaskResult, markTaskRunning, type AgentTaskGraph } from './agentTaskGraph.js';
 import { hasSuccessfulCheckpoint } from './checkpointManager.js';
+import type { FileMutationCheckpoint } from './checkpointManager.js';
 
-export type ExecutorToolResult = { ok: boolean; artifact?: string; message?: string };
+export type ExecutorToolResult = { ok: boolean; artifact?: string; message?: string; mutation?: FileMutationCheckpoint };
 export type ExecutorTool = (task: { id: string; title: string }) => Promise<ExecutorToolResult>;
 export type ExecutorVerification = (result: ExecutorToolResult) => Promise<{ ok: boolean; artifact?: string; reason?: string; attempts?: number }>;
 
@@ -14,6 +15,7 @@ export type TaskExecutionRecord = {
   artifact: string;
   verificationAttempts: number;
   resumedFromCheckpoint?: boolean;
+  mutation?: FileMutationCheckpoint;
 };
 
 function markCheckpointedTasksCompleted(graph: AgentTaskGraph, executionId: string): AgentTaskGraph {
@@ -35,7 +37,7 @@ export async function executeNextTask(
   const result = await tool(task);
   if (!result.ok) {
     running = markTaskResult(running, task.id, false);
-    return { graph: running, record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: false, status: running.tasks.find((candidate) => candidate.id === task.id)?.status === 'blocked' ? 'blocked' : 'failed', artifact: '', verificationAttempts: 0 } };
+    return { graph: running, record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: false, status: running.tasks.find((candidate) => candidate.id === task.id)?.status === 'blocked' ? 'blocked' : 'failed', artifact: '', verificationAttempts: 0, mutation: result.mutation } };
   }
 
   const verification = await verify(result);
@@ -43,7 +45,7 @@ export async function executeNextTask(
   const finalTask = running.tasks.find((candidate) => candidate.id === task.id)!;
   return {
     graph: running,
-    record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: verification.ok, status: finalTask.status === 'completed' ? 'completed' : finalTask.status === 'blocked' ? 'blocked' : 'failed', artifact: verification.artifact ?? result.artifact ?? '', verificationAttempts: verification.attempts ?? 0 },
+    record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: verification.ok, status: finalTask.status === 'completed' ? 'completed' : finalTask.status === 'blocked' ? 'blocked' : 'failed', artifact: verification.artifact ?? result.artifact ?? '', verificationAttempts: verification.attempts ?? 0, mutation: result.mutation },
   };
 }
 
