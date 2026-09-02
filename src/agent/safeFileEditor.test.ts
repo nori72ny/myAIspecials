@@ -37,10 +37,16 @@ describe('safeFileEditor', () => {
     await expect(validateFileEdit(root, { path: '.env', content: 'x' })).rejects.toThrow('PROTECTED_PATH');
   });
 
-  it('blocks secret-like content and oversized changes', async () => {
+  it('uses the centralized secret policy for credentials and private keys', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-editor-'));
     await fs.writeFile(path.join(root, 'a.ts'), 'x');
-    await expect(validateFileEdit(root, { path: 'a.ts', content: 'password=secret' })).rejects.toThrow('SECRET_CONTENT_BLOCKED');
+    await expect(validateFileEdit(root, { path: 'a.ts', content: 'token = "secret-value"' })).rejects.toThrow('SECRET_CONTENT_BLOCKED');
+    await expect(validateFileEdit(root, { path: 'a.ts', content: '-----BEGIN PRIVATE KEY-----' })).rejects.toThrow('SECRET_CONTENT_BLOCKED');
+  });
+
+  it('blocks oversized changes', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-editor-'));
+    await fs.writeFile(path.join(root, 'a.ts'), 'x');
     await expect(validateFileEdit(root, { path: 'a.ts', content: 'x'.repeat(256 * 1024 + 1) })).rejects.toThrow('CHANGE_BUDGET_EXCEEDED');
   });
 
