@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { executeOriginProvider, type OriginFetch } from "./originProviderClient";
 import {
   ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL,
+  ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID,
   type OriginExecutionPlan,
 } from "../lib/orchestration/OriginExecutionPolicy";
 
 const plan: OriginExecutionPlan = {
-  providerId: "google-gemini",
+  providerId: ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID,
   providerLabel: "Google AI Studio",
   modelId: ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL,
   taskType: "review",
@@ -21,7 +22,7 @@ const plan: OriginExecutionPlan = {
     requireZeroDataRetention: false,
   },
   modelEvidence: {
-    providerId: "google-gemini",
+    providerId: ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID,
     verifiedAt: "2026-08-11T00:00:00.000Z",
     reviewAfter: "2026-08-18T23:59:59.999Z",
     sourceUrl: "https://ai.google.dev/gemini-api/docs",
