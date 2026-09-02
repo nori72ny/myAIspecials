@@ -3,14 +3,18 @@ const SECRET_PATTERNS = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
 ];
 
-const PROTECTED_PREFIXES = ['.env', '.git/', 'node_modules/', 'dist/', 'build/'];
+const PROTECTED_SEGMENTS = new Set(['.git', 'node_modules', 'dist', 'build']);
+const isProtectedPath = (normalized: string): boolean => {
+  const segments = normalized.split('/').filter(Boolean);
+  return segments.some((segment, index) => PROTECTED_SEGMENTS.has(segment) || (index === 0 && segment.startsWith('.env')));
+};
 
 export function assertReadableAgentPath(relativePath: string): void {
   const normalized = relativePath.replaceAll('\\', '/');
   if (!normalized || normalized.startsWith('/') || normalized.split('/').includes('..')) {
     throw new Error('Unsafe repository path');
   }
-  if (PROTECTED_PREFIXES.some((prefix) => normalized === prefix || normalized.startsWith(prefix))) {
+  if (isProtectedPath(normalized)) {
     throw new Error('Protected repository path');
   }
 }
