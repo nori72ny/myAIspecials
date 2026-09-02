@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export type VerificationKind = 'test' | 'typecheck' | 'build';
+export type VerificationKind = 'test' | 'typecheck' | 'lint' | 'build';
 
 export type VerificationResult = {
   ok: boolean;
@@ -20,16 +20,18 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 const ALLOWED_SCRIPTS: Record<VerificationKind, string> = {
   test: 'test',
   typecheck: 'typecheck',
+  lint: 'lint',
   build: 'build',
 };
 
-// The command executed by verification is an ORIGIN-owned constant, never a
-// repository-controlled shell string. We still require package.json to expose
-// the expected script as an integrity signal, but we do not execute npm run:
-// npm lifecycle hooks (pre*/post*) are repository-controlled code execution.
+// Commands are ORIGIN-owned constants. package.json is checked for an exact
+// match before execution, so changing a verification command is itself a
+// reviewable policy change. We never execute `npm run`, avoiding pre/post
+// lifecycle hooks that would otherwise be repository-controlled code execution.
 const APPROVED_SCRIPT_COMMANDS: Record<VerificationKind, string> = {
   test: "FREE_ONLY=false vitest run --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default --reporter=junit --outputFile.junit=test-results/vitest-junit.xml",
   typecheck: 'tsc --noEmit',
+  lint: 'tsc --noEmit && node scripts/design-token-lock.js',
   build: 'vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs',
 };
 
@@ -53,9 +55,7 @@ export async function runVerification(root: string, kind: VerificationKind): Pro
   const scriptName = ALLOWED_SCRIPTS[kind];
   const configured = packageJson.scripts?.[scriptName];
   if (typeof configured !== 'string') throw new Error(`VERIFICATION_SCRIPT_MISSING:${scriptName}`);
-  if (configured !== APPROVED_SCRIPT_COMMANDS[kind]) {
-    throw new Error(`VERIFICATION_COMMAND_NOT_APPROVED:${kind}`);
-  }
+  if (configured !== APPROVED_SCRIPT_COMMANDS[kind]) throw new Error(`VERIFICATION_COMMAND_NOT_APPROVED:${kind}`);
 
   const sandboxHome = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-verification-home-'));
   try {
@@ -95,15 +95,7 @@ export async function runVerification(root: string, kind: VerificationKind): Pro
       child.once('close', resolve);
     }).finally(() => clearTimeout(timeout));
 
-    return {
-      ok: !timedOut && exitCode === 0,
-      kind,
-      exitCode,
-      timedOut,
-      stdout,
-      stderr,
-      durationMs: Date.now() - startedAt,
-    };
+    return { ok: !timedOut && exitCode === 0, kind, exitCode, timedOut, stdout, stderr, durationMs: Date.now() - startedAt };
   } finally {
     await fs.rm(sandboxHome, { recursive: true, force: true });
   }
