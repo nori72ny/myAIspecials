@@ -13,6 +13,7 @@ import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import './index.css';
 import './ultra-optics.css';
+import './origin-top-ui.css';
 
 registerOriginServiceWorker();
 installActiveContextChatBridge();
@@ -26,7 +27,6 @@ type ConversationSession = { id: string; title: string; createdAt: number; messa
 type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' | 'restore' };
 type PersistedArtifact = { id: string; type: 'code' | 'markdown' | 'mermaid' | 'html'; title: string; language: string; content: string; isComplete: boolean; revision?: number; revisions?: readonly ArtifactRevision[] };
 type StorageHealth = 'loading' | 'ready' | Exclude<OriginStorageWriteResult, 'saved'>;
-
 type IdleWindow = Window & typeof globalThis & { requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number; cancelIdleCallback?: (handle: number) => void };
 
 function scheduleIdle(task: () => void): () => void {
@@ -65,6 +65,24 @@ function PersonalReleaseRoot() {
   useEffect(() => { const root = document.documentElement; root.lang = settings.language; root.dataset.theme = resolvedTheme; root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal'; root.classList.toggle('light', resolvedTheme === 'light'); root.classList.toggle('dark', resolvedTheme === 'dark'); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#030712' : '#f7f6f2'); }, [settings.language, settings.designTheme, resolvedTheme]);
   useEffect(() => { let active = true; const legacy = snapshotFromState(messages, sessions, []); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.source === 'indexeddb' && result.snapshot) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); }); }); return () => { active = false; cancelIdle(); }; }, []);
   useEffect(() => { if (storageHealth === 'loading') return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, messages, sessions, storageHealth]);
+
+  /* The legacy App header contains an accidental ancestor click handler that clears local state and reloads /.
+     Capture the settings trigger before React's delegated click handler so Settings is deterministic on touch and desktop. */
+  useEffect(() => {
+    const handleSettingsTrigger = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target.closest('button') : null;
+      if (!target) return;
+      const label = target.getAttribute('aria-label') ?? '';
+      const text = target.textContent?.trim() ?? '';
+      if (label !== t.openSettings && !text.includes(t.settings)) return;
+      if (!target.closest('.origin-header')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setIsSettingsOpen(true);
+    };
+    document.addEventListener('click', handleSettingsTrigger, true);
+    return () => document.removeEventListener('click', handleSettingsTrigger, true);
+  }, [t.openSettings, t.settings]);
 
   const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション'; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: source.map((message) => ({ ...message })) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };
   const exportHistory = () => { const payload = JSON.stringify({ version: HISTORY_EXPORT_VERSION, exportedAt: new Date().toISOString(), messages }, null, 2); const anchor = document.createElement('a'); const url = URL.createObjectURL(new Blob([payload], { type: 'application/json;charset=utf-8' })); anchor.href = url; anchor.download = `origin-personal-history-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); };
