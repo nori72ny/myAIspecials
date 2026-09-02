@@ -1,10 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import { assertOriginZeroCostExecutionResult, executeOriginProvider, OriginProviderError, type OriginFetch } from "./originProviderClient";
-import { buildOriginExecutionPlan, ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL, ORIGIN_OPENROUTER_FREE_MODEL } from "../lib/orchestration/OriginExecutionPolicy";
+import { buildOriginExecutionPlan, ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL, ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID, ORIGIN_OPENROUTER_FREE_MODEL, ORIGIN_OPENROUTER_FREE_PROVIDER_ID } from "../lib/orchestration/OriginExecutionPolicy";
 
+const FIXTURE_NOW_MS = Date.parse("2026-08-30T00:00:00.000Z");
 const planResult = buildOriginExecutionPlan(
   { goal: "最新の安全な実装方針を確認してください", requiresFreshResearch: true },
   { openRouterConfigured: true, googleAiStudioConfigured: true, groqConfigured: true },
+  undefined,
+  {
+    nowMs: FIXTURE_NOW_MS,
+    providerEvidence: {
+      [ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID]: {
+        providerId: ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID,
+        verifiedAt: "2026-08-20T00:00:00.000Z",
+        reviewAfter: "2026-09-30T00:00:00.000Z",
+        sourceUrl: "https://ai.google.dev/gemini-api/docs",
+      },
+    },
+  },
 );
 if (!planResult.ok) throw new Error("security regression fixture could not build an execution plan");
 
