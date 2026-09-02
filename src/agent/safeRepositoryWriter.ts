@@ -1,5 +1,6 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
+import { containsLikelySecret } from './safeFilePolicy.js';
 
 const MAX_WRITE_BYTES = 128 * 1024;
 const PROTECTED_SEGMENTS = new Set(['.git', 'node_modules', 'dist', 'build', '.next']);
@@ -69,6 +70,8 @@ async function openStableParent(rootReal: string, parent: string) {
 
 export async function writeRepositoryFile(root: string, filePath: string, content: string): Promise<{ bytes: number; path: string }> {
   assertSafeRelativePath(filePath);
+  if (containsLikelySecret(content)) throw new Error('SECRET_CONTENT_BLOCKED');
+
   const rootReal = await fs.realpath(root);
   const target = path.resolve(rootReal, filePath);
   const parent = path.dirname(target);
