@@ -60,23 +60,40 @@ async function openStableParent(rootReal: string, parent: string) {
   }
 }
 
-export async function writeRepositoryFile(root: string, filePath: string, content: string): Promise<{ bytes: number; path: string }> {
-  assertSafeRelativePath(filePath);
-  if (containsLikelySecret(content)) throw new Error('SECRET_CONTENT_BLOCKED');
-  const rootReal = await fs.realpath(root);
-  const target = path.resolve(rootReal, filePath);
+async function writeThroughStableParent(
+  rootReal: string,
+  target: string,
+  content: string,
+  expectedPrevious?: string,
+): Promise<void> {
   const parent = path.dirname(target);
-  const relative = path.relative(rootReal, target);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
-  const bytes = Buffer.byteLength(content, 'utf8');
-  if (bytes > MAX_WRITE_BYTES) throw new Error('WRITE_SIZE_LIMIT_EXCEEDED');
-  await assertNoSymlinkComponents(rootReal, parent);
   const parentHandle = await openStableParent(rootReal, parent);
   try {
     const stableParent = `/proc/self/fd/${parentHandle.fd}`;
+    const stableTarget = path.join(stableParent, path.basename(target));
+
+    if (expectedPrevious !== undefined) {
+      let targetHandle;
+      try {
+        targetHandle = await fs.open(stableTarget, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+        const current = await targetHandle.readFile({ encoding: 'utf8' });
+        if (current !== expectedPrevious) throw new Error('FILE_CHANGED_SINCE_VALIDATION');
+      } catch (error) {
+        if (error instanceof Error && error.message === 'FILE_CHANGED_SINCE_VALIDATION') throw error;
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          if (expectedPrevious !== '') throw new Error('FILE_CHANGED_SINCE_VALIDATION');
+        } else if ((error as NodeJS.ErrnoException).code === 'ELOOP') {
+          throw new Error('SYMLINK_PATH_BLOCKED');
+        } else {
+          throw error;
+        }
+      } finally {
+        await targetHandle?.close().catch(() => undefined);
+      }
+    }
+
     const tempName = `.${path.basename(target)}.origin-tmp-${process.pid}-${Date.now()}`;
     const temp = path.join(stableParent, tempName);
-    const stableTarget = path.join(stableParent, path.basename(target));
     try {
       await fs.writeFile(temp, content, { encoding: 'utf8', flag: 'wx' });
       await fs.rename(temp, stableTarget);
@@ -86,5 +103,34 @@ export async function writeRepositoryFile(root: string, filePath: string, conten
   } finally {
     await parentHandle.close();
   }
-  return { bytes, path: relative };
+}
+
+async function prepareWrite(root: string, filePath: string, content: string): Promise<{ rootReal: string; target: string; relative: string; bytes: number }> {
+  assertSafeRelativePath(filePath);
+  if (containsLikelySecret(content)) throw new Error('SECRET_CONTENT_BLOCKED');
+  const rootReal = await fs.realpath(root);
+  const target = path.resolve(rootReal, filePath);
+  const relative = path.relative(rootReal, target);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
+  const bytes = Buffer.byteLength(content, 'utf8');
+  if (bytes > MAX_WRITE_BYTES) throw new Error('WRITE_SIZE_LIMIT_EXCEEDED');
+  await assertNoSymlinkComponents(rootReal, path.dirname(target));
+  return { rootReal, target, relative, bytes };
+}
+
+export async function writeRepositoryFile(root: string, filePath: string, content: string): Promise<{ bytes: number; path: string }> {
+  const prepared = await prepareWrite(root, filePath, content);
+  await writeThroughStableParent(prepared.rootReal, prepared.target, content);
+  return { bytes: prepared.bytes, path: prepared.relative };
+}
+
+export async function writeRepositoryFileIfUnchanged(
+  root: string,
+  filePath: string,
+  expectedPrevious: string,
+  content: string,
+): Promise<{ bytes: number; path: string }> {
+  const prepared = await prepareWrite(root, filePath, content);
+  await writeThroughStableParent(prepared.rootReal, prepared.target, content, expectedPrevious);
+  return { bytes: prepared.bytes, path: prepared.relative };
 }
