@@ -34,17 +34,37 @@ async function assertNoSymlinkComponents(rootReal: string, target: string): Prom
 }
 
 /**
- * Open the final parent directory and keep that descriptor alive through the
- * temp-file write and rename. On Linux, /proc/self/fd/<fd> resolves to the
- * already-open directory, so replacing the path name after this point cannot
- * redirect the write/rename into an attacker-controlled directory.
- *
- * The production Agent runtime is Linux (Vercel). We fail closed elsewhere
- * rather than silently falling back to a path-based TOCTOU primitive.
+ * Create/open each parent component relative to an already-open directory.
+ * This avoids recursive path-based mkdir, which could otherwise traverse an
+ * attacker-created symlink between validation and directory creation.
  */
-async function openStableParent(parent: string) {
+async function openStableParent(rootReal: string, parent: string) {
   if (process.platform !== 'linux') throw new Error('RACE_SAFE_WRITE_UNSUPPORTED');
-  return fs.open(parent, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+
+  const relativeParent = path.relative(rootReal, parent);
+  if (!relativeParent || relativeParent.startsWith('..') || path.isAbsolute(relativeParent)) {
+    throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
+  }
+
+  let currentHandle = await fs.open(rootReal, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  try {
+    for (const segment of relativeParent.split(path.sep).filter(Boolean)) {
+      const childPath = path.join(`/proc/self/fd/${currentHandle.fd}`, segment);
+      try {
+        await fs.mkdir(childPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+
+      const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+      await currentHandle.close();
+      currentHandle = nextHandle;
+    }
+    return currentHandle;
+  } catch (error) {
+    await currentHandle.close().catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function writeRepositoryFile(root: string, filePath: string, content: string): Promise<{ bytes: number; path: string }> {
@@ -59,10 +79,7 @@ export async function writeRepositoryFile(root: string, filePath: string, conten
   if (bytes > MAX_WRITE_BYTES) throw new Error('WRITE_SIZE_LIMIT_EXCEEDED');
 
   await assertNoSymlinkComponents(rootReal, parent);
-  await fs.mkdir(parent, { recursive: true });
-  await assertNoSymlinkComponents(rootReal, parent);
-
-  const parentHandle = await openStableParent(parent);
+  const parentHandle = await openStableParent(rootReal, parent);
   try {
     const stableParent = `/proc/self/fd/${parentHandle.fd}`;
     const tempName = `.${path.basename(target)}.origin-tmp-${process.pid}-${Date.now()}`;
