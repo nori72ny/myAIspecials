@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { readRepositoryFile } from './safeRepositoryReader.js';
 import { writeRepositoryFile } from './safeRepositoryWriter.js';
+import { containsLikelySecret } from './safeFilePolicy.js';
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_CHANGE_BYTES = 256 * 1024;
@@ -35,9 +36,7 @@ export async function validateFileEdit(root: string, proposal: FileEditProposal)
   if (statBytes > MAX_FILE_BYTES) throw new Error('FILE_TOO_LARGE');
   const next = proposal.content;
   if (Buffer.byteLength(next, 'utf8') > MAX_CHANGE_BYTES) throw new Error('CHANGE_BUDGET_EXCEEDED');
-  if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:api[_-]?key|password|secret|token)\s*[:=]/i.test(next)) {
-    throw new Error('SECRET_CONTENT_BLOCKED');
-  }
+  if (containsLikelySecret(next)) throw new Error('SECRET_CONTENT_BLOCKED');
   return { ok: true, path: path.relative(rootReal, target), previous, next };
 }
 
