@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } from '../agent/indexedDbCheckpointStore';
+import type { CheckpointState } from '../agent/checkpointManager';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string; dependsOn?: string[] };
-type Checkpoint = { checkpointId: string; taskId: string; version: number; status: string; artifact: string; createdAt: number };
+type Checkpoint = CheckpointState;
 
 const initialSteps: AgentStep[] = [
   { id: 'goal', title: 'Goal analysis', status: 'queued', detail: '目標と成功条件を整理' },

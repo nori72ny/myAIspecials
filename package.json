@@ -41,6 +41,7 @@
     "recharts": "^3.8.1",
     "redis": "^6.1.0",
     "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.1.14",
     "vite": "^6.2.3"
   },
   "devDependencies": {
@@ -51,7 +52,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.20.0",
-    "@types/supertest": "7.2.1",
+    "@types/supertest": "^7.2.0",
     "autoprefixer": "^10.4.21",
     "c8": "^11.0.0",
     "esbuild": "^0.25.0",
@@ -62,8 +63,10 @@
     "playwright": "^1.61.1",
     "supertest": "^7.2.2",
     "tailwindcss": "^4.1.14",
-    "typescript": "~5.8.2",
+    "ts-jest": "^29.4.11",
     "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
     "vitest": "^4.1.9"
   }
 }

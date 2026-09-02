@@ -39,16 +39,20 @@ describe('ORIGIN PWA boundary', () => {
     expect(registration).toContain("updateViaCache: 'none'");
   });
 
-  it('checks for updates and applies a waiting worker only at a fresh launch', () => {
+  it('checks, safely applies, and reloads for a waiting worker without risking unsaved work', () => {
     const registration = read('src/pwa/registerServiceWorker.ts');
     const worker = read('public/sw.js');
 
     expect(registration).toContain('registration.update()');
     expect(registration).toContain('if (registration.waiting)');
     expect(registration).toContain("postMessage({ type: 'SKIP_WAITING' })");
-    expect(registration).not.toContain("navigator.serviceWorker.addEventListener('controllerchange'");
-    expect(registration).not.toContain('window.location.reload()');
-    expect(registration).not.toContain("document.addEventListener('visibilitychange'");
+    expect(registration).toContain('hasUnsavedUserWork');
+    expect(registration).toContain("[data-testid=\"origin-thinking\"], [aria-busy=\"true\"]");
+    expect(registration).toContain("navigator.serviceWorker.addEventListener('controllerchange'");
+    expect(registration).toContain('window.location.reload()');
+    expect(registration).toContain('UPDATE_RELOAD_GUARD_KEY');
+    expect(registration).toContain("window.addEventListener('origin:pwa-safe-apply'");
+    expect(registration).toContain('SAFE_APPLY_DELAY_MS');
     expect(worker).toContain("self.addEventListener('message'");
     expect(worker).toContain('event.origin === self.location.origin');
     expect(worker).toContain("event.data?.type === 'SKIP_WAITING'");

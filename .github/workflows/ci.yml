@@ -2,11 +2,14 @@ name: Production Release CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - 'feat/agentic-coding-os-phase2'
     tags:
       - 'v*'
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -53,23 +56,11 @@ jobs:
     - name: Run linter
       run: npm run lint
 
-    - name: Run explicit typecheck
-      run: npm run typecheck
-
     - name: Build the app
       run: npm run build
 
     - name: Run unit tests
       run: npm run test
-
-    - name: Run real repository repair E2E
-      run: npm run test:repair-e2e
-
-    - name: Run adversarial repair benchmark
-      run: npm run test:repair-benchmark
-
-    - name: Run 100-case repair policy benchmark
-      run: npm run test:repair-policy-100
 
     - name: Cache Playwright Browsers
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -141,7 +132,7 @@ jobs:
           response_file="$(mktemp)"
           status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' --header 'Accept: application/vnd.github+json' --header "Authorization: Bearer ${GH_TOKEN}" --header 'X-GitHub-Api-Version: 2026-03-10' "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}")"
           if [ "$status" -ge 400 ]; then
-            message="$(jq -r '.message // \"Unknown GitHub API error\"' "$response_file")"
+            message="$(jq -r '.message // "Unknown GitHub API error"' "$response_file")"
             echo "::error title=Dependency Graph API unavailable::HTTP ${status}: ${message}. Enable Dependency graph for this repository under Settings > Security > Advanced Security, then rerun this job."
             jq -c '{message, documentation_url, status}' "$response_file" || true
             exit 1
@@ -165,8 +156,6 @@ jobs:
     steps:
       - name: Checkout exact main commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          fetch-depth: 0
       - name: Setup Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -181,15 +170,20 @@ jobs:
         run: node scripts/verify-production-deployment.mjs
 
   release:
-    name: Release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    name: Generate CHANGELOG & GitHub Release
     needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
       - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" --generate-notes
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false

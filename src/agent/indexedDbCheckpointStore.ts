@@ -85,7 +85,13 @@ async function decrypt(record: EncryptedRecord, key: CryptoKey): Promise<Checkpo
   return parsed.filter((value): value is CheckpointState => {
     if (!value || typeof value !== 'object') return false;
     const item = value as Partial<CheckpointState>;
-    return typeof item.checkpointId === 'string' && typeof item.taskId === 'string' && typeof item.version === 'number' && typeof item.status === 'string' && typeof item.artifact === 'string' && typeof item.createdAt === 'number';
+    return typeof item.checkpointId === 'string'
+      && typeof item.taskId === 'string'
+      && typeof item.executionId === 'string'
+      && typeof item.version === 'number'
+      && typeof item.status === 'string'
+      && typeof item.artifact === 'string'
+      && typeof item.createdAt === 'number';
   });
 }
 

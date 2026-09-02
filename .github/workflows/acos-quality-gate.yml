@@ -1,10 +1,10 @@
 name: ACOS 2.0 Quality Gate
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
+  push:
+    branches: [ feat/agentic-coding-os-phase2 ]
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ jobs:
   quality-gate:
     name: Verify Quality & Code Guidelines
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Codebase
@@ -46,3 +46,9 @@ jobs:
 
       - name: Validate Production Build
         run: npm run build
+
+      - name: Verify Production Node Runtime
+        run: npm run test:node-production
+
+      - name: Verify Serverless API Runtime
+        run: npm run test:api-node-esm

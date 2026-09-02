@@ -41,12 +41,9 @@ export default function SettingsModal({
   openingPointerId,
 }: Props) {
   const openingPointerIdRef = useRef<number | null>(null);
-  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    setPortalHost(document.body);
-  }, []);
+  const [portalHost] = useState<HTMLElement | null>(() =>
+    typeof document !== 'undefined' ? document.body : null,
+  );
 
   useEffect(() => {
     if (!isOpen) {
