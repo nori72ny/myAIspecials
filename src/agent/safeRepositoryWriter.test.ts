@@ -19,7 +19,14 @@ describe('safeRepositoryWriter', () => {
     await expect(writeRepositoryFile(root, 'node_modules/x.ts', 'blocked')).rejects.toThrow('PROTECTED_PATH_BLOCKED');
     await expect(writeRepositoryFile(root, 'config.ts', 'const apiKey = "real-secret-value";')).rejects.toThrow('SECRET_CONTENT_BLOCKED');
     await expect(readFile(path.join(root, 'config.ts'), 'utf8')).rejects.toThrow();
-    await expect(writeRepositoryFile(root, 'large.txt', 'x'.repeat(128 * 1024 + 1))).rejects.toThrow('WRITE_SIZE_LIMIT_EXCEEDED');
+    await expect(writeRepositoryFile(root, 'large.txt', 'x'.repeat(256 * 1024 + 1))).rejects.toThrow('WRITE_SIZE_LIMIT_EXCEEDED');
+  });
+
+  it('allows a 256 KiB boundary write and rejects the first byte above it', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-'));
+    const content = 'x'.repeat(256 * 1024);
+    await expect(writeRepositoryFile(root, 'boundary.txt', content)).resolves.toMatchObject({ bytes: 256 * 1024 });
+    await expect(writeRepositoryFile(root, 'over.txt', `${content}x`)).rejects.toThrow('WRITE_SIZE_LIMIT_EXCEEDED');
   });
 
   it('rejects intermediate directory symlink escapes', async () => {
