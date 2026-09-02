@@ -15,7 +15,15 @@ export function withActiveContext<T>(value: unknown, callback: () => T): T {
 }
 
 export function enterActiveContext(value: unknown): void {
-  storage.enterWith(sanitizeActiveContext(value));
+  const sanitized = sanitizeActiveContext(value);
+  try {
+    storage.enterWith(sanitized);
+  } catch {
+    // Cloudflare workerd may expose node:async_hooks without supporting
+    // AsyncLocalStorage.enterWith(). Active context is optional metadata, so
+    // unsupported runtimes must continue safely without turning /api/chat into
+    // a 500. Node runtimes retain the normal request-scoped behavior above.
+  }
 }
 
 export function getActiveContext(): string {
