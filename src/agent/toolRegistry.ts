@@ -1,15 +1,26 @@
+import { createHash } from 'node:crypto';
 import { listRepository, readRepositoryFile } from './safeRepositoryReader.js';
 import { writeRepositoryFile } from './safeRepositoryWriter.js';
 import { runVerification, type VerificationKind } from './verificationRunner.js';
 import { isCapabilityAllowed, type AgentCapability } from './agentExecutionPolicy.js';
+import { containsLikelySecret } from './safeFilePolicy.js';
+import type { FileMutationCheckpoint } from './checkpointManager.js';
 
 export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner';
 export type ToolParams = Record<string, unknown>;
-export type ToolResult = { ok: boolean; tool: ToolName; artifact?: string; message: string };
+export type ToolResult = { ok: boolean; tool: ToolName; artifact?: string; message: string; mutation?: FileMutationCheckpoint };
 
 type ToolDefinition = { name: ToolName; capability: AgentCapability; description: string; sideEffects: 'none' | 'write'; requiresApproval: true; execute: (params: ToolParams) => Promise<ToolResult> };
 const MAX_TEXT = 12000;
 const textParam = (params: ToolParams, key: string) => typeof params[key] === 'string' ? String(params[key]).slice(0, MAX_TEXT) : '';
+const sha256 = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
+const readExisting = async (filePath: string): Promise<string | undefined> => {
+  try { return await readRepositoryFile(repositoryRoot(), filePath); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+};
 
 // Repository scope is a server-owned invariant. A caller must never be able
 // to replace it with an arbitrary filesystem root through tool parameters.
@@ -22,7 +33,21 @@ const registry: Record<ToolName, ToolDefinition> = {
   image_prompt_compiler: { name: 'image_prompt_compiler', capability: 'read_repository', description: 'Compiles an image brief into a provider-neutral prompt locally.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const input = textParam(params, 'prompt'); return { ok: true, tool: 'image_prompt_compiler', artifact: input ? `Subject: ${input}\n\nCapture: natural light, coherent composition, physically plausible materials.\nQuality: fine detail, clean edges, accurate anatomy.` : 'No image brief supplied.', message: 'Image prompt compiled locally.' }; } },
   repository_explorer: { name: 'repository_explorer', capability: 'read_repository', description: 'Read-only bounded repository tree exploration with protected-path filtering.', sideEffects: 'none', requiresApproval: true, execute: async () => { const entries = await listRepository(repositoryRoot()); return { ok: true, tool: 'repository_explorer', artifact: JSON.stringify(entries), message: `Repository exploration completed (${entries.length} entries).` }; } },
   file_reader: { name: 'file_reader', capability: 'read_repository', description: 'Read-only bounded file access with traversal, secret-path, and size protections.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const filePath = textParam(params, 'path'); if (!filePath) return { ok: false, tool: 'file_reader', message: 'A file path is required.' }; const content = await readRepositoryFile(repositoryRoot(), filePath); return { ok: true, tool: 'file_reader', artifact: content.slice(0, MAX_TEXT), message: 'Repository file read completed.' }; } },
-  file_writer: { name: 'file_writer', capability: 'write_repository', description: 'Writes repository files through the bounded Safe Repository Writer with protected-path, secret-path, traversal, size, and atomic-write safeguards.', sideEffects: 'write', requiresApproval: true, execute: async (params) => { const filePath = textParam(params, 'path'); if (!filePath) return { ok: false, tool: 'file_writer', message: 'A file path is required.' }; const content = typeof params.content === 'string' ? params.content : ''; const result = await writeRepositoryFile(repositoryRoot(), filePath, content); return { ok: true, tool: 'file_writer', artifact: result.path, message: `Repository file written atomically (${result.bytes} bytes).` }; } },
+  file_writer: { name: 'file_writer', capability: 'write_repository', description: 'Writes repository files through the bounded Safe Repository Writer with protected-path, secret-path, traversal, size, atomic-write, and rollback safeguards.', sideEffects: 'write', requiresApproval: true, execute: async (params) => {
+    const filePath = textParam(params, 'path');
+    if (!filePath) return { ok: false, tool: 'file_writer', message: 'A file path is required.' };
+    const content = typeof params.content === 'string' ? params.content : '';
+    const beforeContent = await readExisting(filePath);
+    if (beforeContent !== undefined && containsLikelySecret(beforeContent)) throw new Error('CHECKPOINT_SECRET_SNAPSHOT_BLOCKED');
+    const result = await writeRepositoryFile(repositoryRoot(), filePath, content);
+    return {
+      ok: true,
+      tool: 'file_writer',
+      artifact: result.path,
+      message: `Repository file written atomically (${result.bytes} bytes).`,
+      mutation: { path: result.path, beforeExists: beforeContent !== undefined, ...(beforeContent !== undefined ? { beforeContent } : {}), afterSha256: sha256(content) },
+    };
+  } },
   verification_runner: { name: 'verification_runner', capability: 'run_tests', description: 'Runs only the repository allowlisted test, typecheck, or build command with bounded output, timeout, no repository-controlled npm lifecycle execution, and a sanitized environment.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const kind = textParam(params, 'kind') as VerificationKind; if (kind !== 'test' && kind !== 'typecheck' && kind !== 'build') return { ok: false, tool: 'verification_runner', message: 'Verification kind must be test, typecheck, or build.' }; const result = await runVerification(repositoryRoot(), kind); return { ok: result.ok, tool: 'verification_runner', artifact: JSON.stringify(result), message: result.ok ? `${kind} verification passed.` : `${kind} verification failed (exit=${result.exitCode}, timeout=${result.timedOut}).` }; } },
 };
 
