@@ -58,51 +58,53 @@ export async function runVerification(root: string, kind: VerificationKind): Pro
   }
 
   const sandboxHome = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-verification-home-'));
-  const nodeBin = path.join(cwd, 'node_modules', '.bin');
-  const envPath = [nodeBin, process.env.PATH ?? ''].filter(Boolean).join(path.delimiter);
-  const startedAt = Date.now();
-  const child = spawn('/bin/sh', ['-c', APPROVED_SCRIPT_COMMANDS[kind]], {
-    cwd,
-    shell: false,
-    windowsHide: true,
-    env: {
-      PATH: envPath,
-      HOME: sandboxHome,
-      TMPDIR: sandboxHome,
-      CI: '1',
-      NODE_ENV: 'test',
-      FREE_ONLY: 'false',
-      npm_config_ignore_scripts: 'true',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  try {
+    const nodeBin = path.join(cwd, 'node_modules', '.bin');
+    const envPath = [nodeBin, process.env.PATH ?? ''].filter(Boolean).join(path.delimiter);
+    const startedAt = Date.now();
+    const child = spawn('/bin/sh', ['-c', APPROVED_SCRIPT_COMMANDS[kind]], {
+      cwd,
+      shell: false,
+      windowsHide: true,
+      env: {
+        PATH: envPath,
+        HOME: sandboxHome,
+        TMPDIR: sandboxHome,
+        CI: '1',
+        NODE_ENV: 'test',
+        FREE_ONLY: 'false',
+        npm_config_ignore_scripts: 'true',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
-  let stdout = '';
-  let stderr = '';
-  let timedOut = false;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    child.kill('SIGTERM');
-    setTimeout(() => child.kill('SIGKILL'), 5_000).unref();
-  }, TIMEOUT_MS);
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), 5_000).unref();
+    }, TIMEOUT_MS);
 
-  child.stdout.on('data', (chunk: Buffer) => { stdout = appendBounded(stdout, chunk); });
-  child.stderr.on('data', (chunk: Buffer) => { stderr = appendBounded(stderr, chunk); });
+    child.stdout.on('data', (chunk: Buffer) => { stdout = appendBounded(stdout, chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr = appendBounded(stderr, chunk); });
 
-  const exitCode = await new Promise<number | null>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', resolve);
-  }).finally(() => clearTimeout(timeout));
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', resolve);
+    }).finally(() => clearTimeout(timeout));
 
-  await fs.rm(sandboxHome, { recursive: true, force: true });
-
-  return {
-    ok: !timedOut && exitCode === 0,
-    kind,
-    exitCode,
-    timedOut,
-    stdout,
-    stderr,
-    durationMs: Date.now() - startedAt,
-  };
+    return {
+      ok: !timedOut && exitCode === 0,
+      kind,
+      exitCode,
+      timedOut,
+      stdout,
+      stderr,
+      durationMs: Date.now() - startedAt,
+    };
+  } finally {
+    await fs.rm(sandboxHome, { recursive: true, force: true });
+  }
 }
