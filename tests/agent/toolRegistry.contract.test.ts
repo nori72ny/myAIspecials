@@ -38,9 +38,9 @@ describe('Agent tool registry security contract', () => {
     await expect(executeToolWithPermission('file_reader', { path: 'README.md' }, { approved: true, costInUSD: 0.000001 })).rejects.toThrow('ZERO_COST_BOUNDARY_BLOCKED');
   });
 
-  it('fails closed for the disabled network tool', async () => {
-    const result = await executeToolWithPermission('web_search_grounding', {}, { approved: true, costInUSD: 0 });
-    expect(result.ok).toBe(false);
-    expect(result.message).toContain('Network capability is disabled');
+  it('fails closed for the disabled network capability', async () => {
+    await expect(
+      executeToolWithPermission('web_search_grounding', {}, { approved: true, costInUSD: 0 }),
+    ).rejects.toThrow('AGENT_CAPABILITY_DENIED');
   });
 });
