@@ -3,6 +3,8 @@ name: ACOS 2.0 Quality Gate
 on:
   pull_request:
     branches: [ main ]
+  push:
+    branches: [ feat/agentic-coding-os-phase2 ]
   workflow_dispatch:
 
 permissions:
