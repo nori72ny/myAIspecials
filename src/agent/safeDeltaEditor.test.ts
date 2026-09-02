@@ -18,7 +18,7 @@ describe('safeDeltaEditor', () => {
       const edit = await validateDeltaEdit(root, { path: 'src/sample.ts', search: 'const value = 1;', replacement: 'const value = 2;' });
       expect(edit.matchedOccurrences).toBe(1);
       await applyDeltaEdit(root, edit);
-      await expect(readFile(path.join(root, 'src/sample.ts'), 'utf8')).resolves.toBe('const value = 2;\n');
+      await expect(readFile(path.join(root, 'src', 'sample.ts'), 'utf8')).resolves.toBe('const value = 2;\n');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -38,7 +38,7 @@ describe('safeDeltaEditor', () => {
     const root = await fixture();
     try {
       await expect(validateDeltaEdit(root, { path: '../outside.ts', search: '1', replacement: '2' })).rejects.toThrow('PATH_TRAVERSAL_BLOCKED');
-      await expect(validateDeltaEdit(root, { path: 'src/sample.ts', search: '1', replacement: 'sk-ant-api-key-1234567890' })).rejects.toThrow('SECRET_CONTENT_BLOCKED');
+      await expect(validateDeltaEdit(root, { path: 'src/sample.ts', search: '1', replacement: 'api_key="blocked-secret"' })).rejects.toThrow('SECRET_CONTENT_BLOCKED');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
