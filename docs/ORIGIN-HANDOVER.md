@@ -36,7 +36,9 @@ At the time of this update, PR #124 remains open, draft, unmerged. Always re-fet
 Key Phase 2 modules:
 
 - `src/agent/agentExecutionPolicy.ts`: capability allowlist and explicit-intent/security gates. Current default allowed capabilities are repository read/write and tests; network and shell are not allowed by default.
-- `src/agent/agentOrchestrator.ts`: HTTP/SSE orchestration, task execution, approval flow, verification/self-healing/checkpoint routes. File rollback is asynchronous, state-checked, verified, and requires explicit execution intent.
+- `src/agent/agentOrchestrator.ts`: HTTP/SSE orchestration, task execution, authenticated approval flow, verification/self-healing/checkpoint routes. Mutating actions require a server-authenticated, one-time approval token bound to the exact action/tool/params/checkpoint operation.
+- `src/agent/agentApproval.ts`: deployment-level authentication and one-time approval state. `ORIGIN_AGENT_APPROVAL_SECRET` must be at least 32 characters. Approval tokens expire after 2 minutes, are single-use, and are bound to a canonical operation digest. Missing/invalid credentials fail closed.
+- `src/agent/agentApproval.test.ts`: regression coverage for missing/short secrets, credential rejection, exact operation binding, expiry, cross-action rejection, and replay prevention.
 - `src/agent/toolRegistry.ts`: central tool contract and execution boundary. Eight registered tools currently include code_interpreter, document_generator, web_search_grounding, image_prompt_compiler, repository_explorer, file_reader, file_writer, verification_runner. `file_writer` captures a bounded, secret-safe pre-edit snapshot for verified rollback and fails before mutation if the snapshot itself cannot be safely retained.
 - `src/agent/safeRepositoryReader.ts`: hardened repository reader. Linux uses stable directory descriptors and `O_NOFOLLOW`; intermediate symlink replacement is defended; non-Linux fails closed.
 - `src/agent/safeRepositoryWriter.ts`: hardened atomic writer. Linux uses stable directory descriptors, `O_NOFOLLOW`, `/proc/self/fd/<fd>` traversal, bounded temp writes, and atomic rename; non-Linux fails closed.
@@ -54,6 +56,11 @@ Key Phase 2 modules:
 - `services/mission-engine/src/application/agent/security/SafetyPolicyEngine.ts`: returns BLOCK/REVIEW. AgentRuntime blocks BLOCK for tool inputs; current tool-input checks do not use REVIEW. MessageValidator blocks both REVIEW and BLOCK for messages. Revisit REVIEW semantics before expanding legacy engine exposure.
 
 ## 4. Security model
+
+### Approval authenticity
+Mutating agent actions no longer trust `intentExplicit` / `approved` request-body claims. A caller must authenticate with the deployment secret `ORIGIN_AGENT_APPROVAL_SECRET` through the `Authorization: Bearer ...` header and obtain a short-lived approval token from `/api/agent/approval`. The token is server-side, single-use, expires after 2 minutes, and is cryptographically bound to the exact normalized action/tool/params/checkpoint. Reusing a token, changing operation parameters, changing action, or using an expired token fails closed.
+
+This is deployment-level authentication, not per-human identity. If ORIGIN later supports multiple users, replace/augment the shared deployment secret with authenticated user sessions and bind approval records to the authenticated principal. Never expose the deployment secret to untrusted frontend code or logs.
 
 ### Repository scope
 Caller-supplied filesystem roots are ignored. Repository root is server-owned (`process.cwd()`). Never reintroduce a client-provided root.
@@ -97,7 +104,7 @@ Before changing verification, add regression tests for:
 
 P0/P1 candidates to resolve before broad Phase 2 completion:
 
-1. **Approval authenticity**: `approval.approved` / `intentExplicit` are request-level claims, not strong user authentication. If ORIGIN is remotely exposed, introduce authenticated sessions and server-side approval state/nonces before treating a write approval as authoritative.
+1. **Per-user approval identity**: deployment-level authentication is now enforced for mutating agent operations. If ORIGIN becomes multi-user, bind approvals to authenticated user/session identities instead of a shared deployment secret.
 2. **Safety REVIEW semantics**: determine whether tool-input REVIEW must pause for human approval. If yes, enforce it in AgentRuntime rather than only in messaging. Legacy Mission Engine remains isolated from Personal production meanwhile.
 3. **Verification direct-exec portability**: current hardening is intentionally strict. Preserve fail-closed behavior on unsupported platforms; do not silently fall back to unsafe path traversal.
 4. **Capability semantics audit**: every tool's declared capability and sideEffects must match its real behavior. Document generation should remain modeled as in-memory artifact generation, not repository write.
@@ -158,12 +165,13 @@ Step 10: Only after exact-HEAD evidence is complete, consider merge/deploy. If a
 - Do not expose secrets in diagnostics.
 - Do not treat a logical checkpoint marker as a successful repository rollback.
 - Do not remount the legacy Mission Engine into Personal production without a new security/release review.
+- Do not restore request-body `intentExplicit` / `approved` as authoritative authentication.
 
 ## 11. Product direction after Phase 2
 
 Once the safety foundation is proven, continue in separate controlled lanes:
 
-A. Agentic Coding OS: planning -> repository exploration -> diff -> approval -> edit -> verification -> repair -> checkpoint/rollback -> completion.
+A. Agentic Coding OS: planning -> repository exploration -> diff -> authenticated approval -> edit -> verification -> repair -> checkpoint/rollback -> completion.
 B. Intelligence Engine: provider mesh, routing, structured reasoning, reliability and zero-cost enforcement.
 C. Research Engine: grounded search/retrieval, source quality, citation integrity, stale-data handling.
 D. Artifact Engine: documents, slides, spreadsheets, code artifacts, validation and downloadable outputs.
@@ -175,7 +183,7 @@ Keep these lanes independently testable. Avoid one giant rewrite.
 
 ## 12. Definition of done
 
-ORIGIN is not "done" because a UI renders or a build is green. For a production-ready release, a task must be reproducible, secure, bounded, verified, observable, and actually useful to the end user. For agentic code changes, the minimum successful path is: explicit user intent -> authorized tool -> safe bounded change -> verification -> successful completion, with honest failure otherwise.
+ORIGIN is not "done" because a UI renders or a build is green. For a production-ready release, a task must be reproducible, secure, bounded, verified, observable, and actually useful to the end user. For agentic code changes, the minimum successful path is: authenticated user intent -> authorized tool -> safe bounded change -> verification -> successful completion, with honest failure otherwise.
 
 ## 13. Handover rule
 
