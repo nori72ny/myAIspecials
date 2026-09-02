@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { listRepository, readRepositoryFile } from './safeRepositoryReader.js';
 import { writeRepositoryFile } from './safeRepositoryWriter.js';
+import { validateDeltaEdit, applyDeltaEdit } from './safeDeltaEditor.js';
 import { runVerification, type VerificationKind } from './verificationRunner.js';
 import { isCapabilityAllowed, type AgentCapability } from './agentExecutionPolicy.js';
 import { containsLikelySecret } from './safeFilePolicy.js';
@@ -34,9 +35,28 @@ const registry: Record<ToolName, ToolDefinition> = {
   image_prompt_compiler: { name: 'image_prompt_compiler', capability: 'read_repository', description: 'Compiles an image brief into a provider-neutral prompt locally.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const input = textParam(params, 'prompt'); return { ok: true, tool: 'image_prompt_compiler', artifact: input ? `Subject: ${input}\n\nCapture: natural light, coherent composition, physically plausible materials.\nQuality: fine detail, clean edges, accurate anatomy.` : 'No image brief supplied.', message: 'Image prompt compiled locally.' }; } },
   repository_explorer: { name: 'repository_explorer', capability: 'read_repository', description: 'Read-only bounded repository tree exploration with protected-path filtering.', sideEffects: 'none', requiresApproval: true, execute: async () => { const entries = await listRepository(repositoryRoot()); return { ok: true, tool: 'repository_explorer', artifact: JSON.stringify(entries), message: `Repository exploration completed (${entries.length} entries).` }; } },
   file_reader: { name: 'file_reader', capability: 'read_repository', description: 'Read-only bounded file access with traversal, secret-path, and size protections.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const filePath = textParam(params, 'path'); if (!filePath) return { ok: false, tool: 'file_reader', message: 'A file path is required.' }; const content = await readRepositoryFile(repositoryRoot(), filePath); return { ok: true, tool: 'file_reader', artifact: content.slice(0, MAX_TEXT), message: 'Repository file read completed.' }; } },
-  file_writer: { name: 'file_writer', capability: 'write_repository', description: 'Writes repository files through the bounded Safe Repository Writer with protected-path, secret-path, traversal, size, atomic-write, and rollback safeguards.', sideEffects: 'write', requiresApproval: true, execute: async (params) => {
+  file_writer: { name: 'file_writer', capability: 'write_repository', description: 'Writes repository files through bounded atomic replacement. Existing files should use exact-one-match search/replacement editing; whole-file writes remain available for new files.', sideEffects: 'write', requiresApproval: true, execute: async (params) => {
     const filePath = textParam(params, 'path');
     if (!filePath) return { ok: false, tool: 'file_writer', message: 'A file path is required.' };
+    const search = typeof params.search === 'string' ? params.search : undefined;
+    const replacement = typeof params.replacement === 'string' ? params.replacement : undefined;
+    const isDelta = search !== undefined || replacement !== undefined;
+
+    if (isDelta) {
+      if (search === undefined || replacement === undefined) return { ok: false, tool: 'file_writer', message: 'Delta edits require both search and replacement.' };
+      const edit = await validateDeltaEdit(repositoryRoot(), { path: filePath, search, replacement });
+      if (Buffer.byteLength(edit.previous, 'utf8') > MAX_CHECKPOINT_SNAPSHOT_BYTES) throw new Error('CHECKPOINT_SNAPSHOT_TOO_LARGE');
+      if (containsLikelySecret(edit.previous)) throw new Error('CHECKPOINT_SECRET_SNAPSHOT_BLOCKED');
+      await applyDeltaEdit(repositoryRoot(), edit);
+      return {
+        ok: true,
+        tool: 'file_writer',
+        artifact: edit.path,
+        message: 'Repository delta applied atomically (exactly one match).',
+        mutation: { path: edit.path, beforeExists: true, beforeContent: edit.previous, afterSha256: sha256(edit.next) },
+      };
+    }
+
     const content = typeof params.content === 'string' ? params.content : '';
     const beforeContent = await readExisting(filePath);
     if (beforeContent !== undefined) {
