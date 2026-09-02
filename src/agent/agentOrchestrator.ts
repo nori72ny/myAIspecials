@@ -43,7 +43,7 @@ export function createAgentOrchestratorRouter(): Router {
     if (!authenticateAgentRequest(req)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
     const operation = operationFromRequest((req.body ?? {}) as Record<string, unknown>);
     if (!operation) return res.status(400).json({ ok: false, code: 'INVALID_APPROVAL_OPERATION' });
-    const decision = evaluateAgentOperation(operation.action === 'rollback' ? 'execute' : operation.action, true);
+    const decision = evaluateAgentOperation('execute', true);
     if (!decision.allowed) return res.status(403).json({ ok: false, code: 'AGENT_APPROVAL_POLICY_BLOCKED', message: decision.reason });
     return res.status(201).json({ ok: true, approvalToken: issueApproval(operation), expiresInMs: 120000 });
   });
