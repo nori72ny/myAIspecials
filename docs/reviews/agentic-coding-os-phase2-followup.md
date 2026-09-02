@@ -27,7 +27,9 @@ Regression coverage was added in `services/mission-engine/src/__tests__/ToolExec
 
 - Re-run typecheck and the complete unit suite on the new HEAD.
 - Re-run production build and serverless/runtime smoke tests.
-- Obtain a successful Vercel deployment for the final HEAD after the current build-rate-limit window clears.
+- Obtain a successful Vercel deployment for the final HEAD after the previous build-rate-limit window clears.
 - Re-run the final free-provider evidence/security audit.
 
-No production merge or readiness claim is made until those gates pass on the same final commit.
+The previous deployment attempt was blocked by Vercel's `api-deployments-free-per-day` limit. The documented 24-hour window has now elapsed; a fresh final-HEAD deployment is the next verification gate. A prior READY preview is not reused as evidence for the final commit.
+
+No production merge or readiness claim is made until all final gates pass on the same final commit.
