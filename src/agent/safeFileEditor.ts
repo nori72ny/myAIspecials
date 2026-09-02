@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { readRepositoryFile } from './safeRepositoryReader.js';
 import { writeRepositoryFile } from './safeRepositoryWriter.js';
@@ -27,7 +28,7 @@ export type FileEditResult = { ok: true; path: string; previous: string; next: s
 
 export async function validateFileEdit(root: string, proposal: FileEditProposal): Promise<FileEditResult> {
   if (!proposal.path.trim()) throw new Error('FILE_PATH_REQUIRED');
-  const rootReal = await import('node:fs/promises').then(({ realpath }) => realpath(root));
+  const rootReal = await fs.realpath(root);
   const target = resolveSafe(rootReal, proposal.path);
   const previous = await readRepositoryFile(rootReal, proposal.path);
   const statBytes = Buffer.byteLength(previous, 'utf8');
