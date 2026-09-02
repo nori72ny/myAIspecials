@@ -22,6 +22,15 @@ const ALLOWED_SCRIPTS: Record<VerificationKind, string> = {
   build: 'build',
 };
 
+// npm executes package scripts through a shell. Verification therefore only
+// accepts the exact command contracts owned by ORIGIN; repository authorship
+// of package.json cannot silently turn verification into arbitrary execution.
+const APPROVED_SCRIPT_COMMANDS: Record<VerificationKind, string> = {
+  test: "FREE_ONLY=false vitest run --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default --reporter=junit --outputFile.junit=test-results/vitest-junit.xml",
+  typecheck: 'tsc --noEmit',
+  build: 'vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs',
+};
+
 function appendBounded(current: string, chunk: Buffer | string): string {
   const next = current + chunk.toString();
   if (Buffer.byteLength(next, 'utf8') <= MAX_OUTPUT_BYTES) return next;
@@ -40,7 +49,11 @@ export async function runVerification(root: string, kind: VerificationKind): Pro
   const cwd = await assertRepositoryRoot(root);
   const packageJson = JSON.parse(await fs.readFile(path.join(cwd, 'package.json'), 'utf8')) as { scripts?: Record<string, unknown> };
   const scriptName = ALLOWED_SCRIPTS[kind];
-  if (typeof packageJson.scripts?.[scriptName] !== 'string') throw new Error(`VERIFICATION_SCRIPT_MISSING:${scriptName}`);
+  const configured = packageJson.scripts?.[scriptName];
+  if (typeof configured !== 'string') throw new Error(`VERIFICATION_SCRIPT_MISSING:${scriptName}`);
+  if (configured !== APPROVED_SCRIPT_COMMANDS[kind]) {
+    throw new Error(`VERIFICATION_COMMAND_NOT_APPROVED:${kind}`);
+  }
 
   const startedAt = Date.now();
   const child = spawn('npm', ['run', scriptName], {
@@ -52,6 +65,7 @@ export async function runVerification(root: string, kind: VerificationKind): Pro
       HOME: process.env.HOME ?? '',
       CI: '1',
       NODE_ENV: 'test',
+      FREE_ONLY: 'false',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
