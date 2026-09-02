@@ -5,6 +5,7 @@ const DEFAULT_IGNORED = new Set(['.git', 'node_modules', '.next', 'dist', 'build
 const MAX_FILES = 200;
 const MAX_DEPTH = 8;
 const MAX_BYTES = 2_000_000;
+const SECRET_NAME = /(^|\/)(\.env(?:\..*)?|.*\.(pem|key|p12|pfx))$/i;
 
 export type RepositoryEntry = {
   path: string;
@@ -16,6 +17,11 @@ function safeRelative(root: string, candidate: string): string | undefined {
   const relative = path.relative(root, candidate);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return undefined;
   return relative;
+}
+
+function isProtected(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, '/');
+  return SECRET_NAME.test(normalized) || normalized.split('/').some((segment) => DEFAULT_IGNORED.has(segment));
 }
 
 export async function exploreRepository(root: string): Promise<RepositoryEntry[]> {
@@ -30,7 +36,7 @@ export async function exploreRepository(root: string): Promise<RepositoryEntry[]
       if (entry.isSymbolicLink()) continue;
       const absolute = path.join(current, entry.name);
       const relative = safeRelative(resolvedRoot, absolute);
-      if (!relative) continue;
+      if (!relative || isProtected(relative)) continue;
       if (entry.isDirectory()) {
         result.push({ path: relative, kind: 'directory' });
         await walk(absolute, depth + 1);
@@ -46,7 +52,9 @@ export async function exploreRepository(root: string): Promise<RepositoryEntry[]
 
 export async function readRepositoryFile(root: string, relativePath: string): Promise<string> {
   const resolvedRoot = await fs.realpath(root);
-  const candidate = path.resolve(resolvedRoot, relativePath.replace(/\\/g, '/'));
+  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (isProtected(normalized)) throw new Error('Protected repository path');
+  const candidate = path.resolve(resolvedRoot, normalized);
   if (!safeRelative(resolvedRoot, candidate)) throw new Error('Path escapes repository root');
 
   const relative = path.relative(resolvedRoot, candidate);
