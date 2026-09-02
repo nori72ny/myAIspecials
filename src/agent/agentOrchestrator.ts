@@ -141,6 +141,10 @@ export function createAgentOrchestratorRouter(): Router {
     };
     void run(); return undefined;
   });
-  router.get('/api/agent/checkpoint/:checkpointId', (req, res) => { const checkpoint = getCheckpoint(req.params.checkpointId); return checkpoint ? res.status(200).json({ ok: true, checkpoint }) : res.status(404).json({ code: 'CHECKPOINT_NOT_FOUND' }); });
+  router.get('/api/agent/checkpoint/:checkpointId', (req, res) => {
+    if (!authenticateAgentRequest(req)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
+    const checkpoint = getCheckpoint(req.params.checkpointId);
+    return checkpoint ? res.status(200).json({ ok: true, checkpoint }) : res.status(404).json({ code: 'CHECKPOINT_NOT_FOUND' });
+  });
   return router;
 }
