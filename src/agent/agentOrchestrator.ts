@@ -116,10 +116,6 @@ export function createAgentOrchestratorRouter(): Router {
             if (!res.headersSent) return res.status(422).json({ ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', execution });
             return;
           }
-
-          // Repository mutation gets a second, independent completion gate. The
-          // local artifact check above is not enough to claim a coding change is
-          // correct: typecheck, full unit tests, and production build must pass.
           if (toolName === 'file_writer') {
             const completionVerification = await verifyBeforeReportingCompletion(process.cwd());
             if (!completionVerification.ok) {
@@ -127,7 +123,6 @@ export function createAgentOrchestratorRouter(): Router {
               return;
             }
           }
-
           assertCanReportCompleted({ state: finalTask.status, verified: record.verified, toolExecuted: record.toolExecuted, repairAttempts: record.verificationAttempts });
           const checkpoint = saveCheckpoint({ taskId: finalTask.id, executionId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact, mutation: record.mutation });
           if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: record.artifact, checkpoint, execution: record, task: finalTask });
