@@ -42,6 +42,28 @@ function blocked(relativePath: string): boolean {
   return normalized.split('/').some((part) => BLOCKED_NAMES.has(part));
 }
 
+async function openStableDirectory(rootReal: string, relativePath: string) {
+  if (process.platform !== 'linux') throw new Error('RACE_SAFE_READ_UNSUPPORTED');
+  let directoryHandle = await fs.open(rootReal, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  try {
+    for (const segment of relativePath.split(path.sep).filter(Boolean)) {
+      const childPath = path.join(`/proc/self/fd/${directoryHandle.fd}`, segment);
+      const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+      try {
+        await directoryHandle.close();
+        directoryHandle = nextHandle;
+      } catch (error) {
+        await nextHandle.close().catch(() => undefined);
+        throw error;
+      }
+    }
+    return directoryHandle;
+  } catch (error) {
+    await directoryHandle.close().catch(() => undefined);
+    throw error;
+  }
+}
+
 async function openStableFile(rootReal: string, absolute: string) {
   if (process.platform !== 'linux') throw new Error('RACE_SAFE_READ_UNSUPPORTED');
   const relative = path.relative(rootReal, absolute);
@@ -79,25 +101,48 @@ async function openStableFile(rootReal: string, absolute: string) {
 }
 
 export async function listRepository(root: string): Promise<RepositoryEntry[]> {
+  if (process.platform !== 'linux') throw new Error('RACE_SAFE_READ_UNSUPPORTED');
   const entries: RepositoryEntry[] = [];
   const rootReal = await fs.realpath(root);
-  async function walk(current: string, depth: number): Promise<void> {
+
+  async function walk(directoryHandle: Awaited<ReturnType<typeof fs.open>>, relativeDirectory: string, depth: number): Promise<void> {
     if (depth > MAX_DEPTH || entries.length >= MAX_ENTRIES) return;
-    const currentStat = await fs.lstat(current);
-    if (currentStat.isSymbolicLink() || !currentStat.isDirectory()) return;
-    const children = await fs.readdir(current, { withFileTypes: true });
+    const stableDirectory = `/proc/self/fd/${directoryHandle.fd}`;
+    const children = await fs.readdir(stableDirectory, { withFileTypes: true });
+
     for (const child of children) {
       if (entries.length >= MAX_ENTRIES) return;
       if (child.isSymbolicLink()) continue;
-      const absolute = path.join(current, child.name);
-      const relative = path.relative(rootReal, absolute).replace(/\\/g, '/');
+
+      const relative = relativeDirectory ? `${relativeDirectory}/${child.name}` : child.name;
       if (blocked(relative)) continue;
-      const type = child.isDirectory() ? 'directory' : 'file';
-      entries.push({ path: relative, type });
-      if (child.isDirectory()) await walk(absolute, depth + 1);
+      const isDirectory = child.isDirectory();
+      entries.push({ path: relative, type: isDirectory ? 'directory' : 'file' });
+      if (!isDirectory || depth >= MAX_DEPTH) continue;
+
+      const childPath = path.join(stableDirectory, child.name);
+      let childHandle;
+      try {
+        childHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP') continue;
+        throw error;
+      }
+      try {
+        await walk(childHandle, relative, depth + 1);
+      } finally {
+        await childHandle.close();
+      }
     }
   }
-  await walk(rootReal, 0);
+
+  const rootHandle = await openStableDirectory(rootReal, '');
+  try {
+    await walk(rootHandle, '', 0);
+  } finally {
+    await rootHandle.close();
+  }
   return entries;
 }
 
