@@ -2,11 +2,14 @@ name: Production Release CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - 'feat/agentic-coding-os-phase2'
     tags:
       - 'v*'
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
