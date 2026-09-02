@@ -33,6 +33,20 @@ async function assertNoSymlinkComponents(rootReal: string, target: string): Prom
   }
 }
 
+/**
+ * Open the final parent directory and keep that descriptor alive through the
+ * temp-file write and rename. On Linux, /proc/self/fd/<fd> resolves to the
+ * already-open directory, so replacing the path name after this point cannot
+ * redirect the write/rename into an attacker-controlled directory.
+ *
+ * The production Agent runtime is Linux (Vercel). We fail closed elsewhere
+ * rather than silently falling back to a path-based TOCTOU primitive.
+ */
+async function openStableParent(parent: string) {
+  if (process.platform !== 'linux') throw new Error('RACE_SAFE_WRITE_UNSUPPORTED');
+  return fs.open(parent, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+}
+
 export async function writeRepositoryFile(root: string, filePath: string, content: string): Promise<{ bytes: number; path: string }> {
   assertSafeRelativePath(filePath);
   const rootReal = await fs.realpath(root);
@@ -44,21 +58,26 @@ export async function writeRepositoryFile(root: string, filePath: string, conten
   const bytes = Buffer.byteLength(content, 'utf8');
   if (bytes > MAX_WRITE_BYTES) throw new Error('WRITE_SIZE_LIMIT_EXCEEDED');
 
-  // Create only within a path whose existing components are known not to be symlinks.
   await assertNoSymlinkComponents(rootReal, parent);
   await fs.mkdir(parent, { recursive: true });
-  // Re-check immediately before the write/rename boundary. This closes the deterministic
-  // intermediate-symlink escape class, but portable Node fs APIs do not provide dirfd-relative
-  // renameat semantics, so this is not claimed to be an adversarial race-proof primitive.
   await assertNoSymlinkComponents(rootReal, parent);
 
-  const temp = path.join(parent, `.${path.basename(target)}.origin-tmp-${process.pid}-${Date.now()}`);
+  const parentHandle = await openStableParent(parent);
   try {
-    await fs.writeFile(temp, content, { encoding: 'utf8', flag: 'wx' });
-    await assertNoSymlinkComponents(rootReal, parent);
-    await fs.rename(temp, target);
+    const stableParent = `/proc/self/fd/${parentHandle.fd}`;
+    const tempName = `.${path.basename(target)}.origin-tmp-${process.pid}-${Date.now()}`;
+    const temp = path.join(stableParent, tempName);
+    const stableTarget = path.join(stableParent, path.basename(target));
+
+    try {
+      await fs.writeFile(temp, content, { encoding: 'utf8', flag: 'wx' });
+      await fs.rename(temp, stableTarget);
+    } finally {
+      await fs.rm(temp, { force: true }).catch(() => undefined);
+    }
   } finally {
-    await fs.rm(temp, { force: true }).catch(() => undefined);
+    await parentHandle.close();
   }
+
   return { bytes, path: relative };
 }
