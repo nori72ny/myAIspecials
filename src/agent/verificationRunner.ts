@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 export type VerificationKind = 'test' | 'typecheck' | 'build';
@@ -22,9 +23,10 @@ const ALLOWED_SCRIPTS: Record<VerificationKind, string> = {
   build: 'build',
 };
 
-// npm executes package scripts through a shell. Verification therefore only
-// accepts the exact command contracts owned by ORIGIN; repository authorship
-// of package.json cannot silently turn verification into arbitrary execution.
+// The command executed by verification is an ORIGIN-owned constant, never a
+// repository-controlled shell string. We still require package.json to expose
+// the expected script as an integrity signal, but we do not execute npm run:
+// npm lifecycle hooks (pre*/post*) are repository-controlled code execution.
 const APPROVED_SCRIPT_COMMANDS: Record<VerificationKind, string> = {
   test: "FREE_ONLY=false vitest run --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default --reporter=junit --outputFile.junit=test-results/vitest-junit.xml",
   typecheck: 'tsc --noEmit',
@@ -55,17 +57,22 @@ export async function runVerification(root: string, kind: VerificationKind): Pro
     throw new Error(`VERIFICATION_COMMAND_NOT_APPROVED:${kind}`);
   }
 
+  const sandboxHome = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-verification-home-'));
+  const nodeBin = path.join(cwd, 'node_modules', '.bin');
+  const envPath = [nodeBin, process.env.PATH ?? ''].filter(Boolean).join(path.delimiter);
   const startedAt = Date.now();
-  const child = spawn('npm', ['run', scriptName], {
+  const child = spawn('/bin/sh', ['-c', APPROVED_SCRIPT_COMMANDS[kind]], {
     cwd,
     shell: false,
     windowsHide: true,
     env: {
-      PATH: process.env.PATH ?? '',
-      HOME: process.env.HOME ?? '',
+      PATH: envPath,
+      HOME: sandboxHome,
+      TMPDIR: sandboxHome,
       CI: '1',
       NODE_ENV: 'test',
       FREE_ONLY: 'false',
+      npm_config_ignore_scripts: 'true',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -86,6 +93,8 @@ export async function runVerification(root: string, kind: VerificationKind): Pro
     child.once('error', reject);
     child.once('close', resolve);
   }).finally(() => clearTimeout(timeout));
+
+  await fs.rm(sandboxHome, { recursive: true, force: true });
 
   return {
     ok: !timedOut && exitCode === 0,
