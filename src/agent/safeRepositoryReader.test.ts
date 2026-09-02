@@ -17,10 +17,11 @@ describe('safeRepositoryReader', () => {
     expect(entries.some((entry) => entry.path.startsWith('node_modules'))).toBe(false);
   });
 
-  it('rejects traversal and protected files', async () => {
+  it('rejects traversal, absolute paths, and protected files', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-'));
     await writeFile(path.join(root, 'app.ts'), 'ok');
     await expect(readRepositoryFile(root, '../outside.txt')).rejects.toThrow('PATH_OUTSIDE_REPOSITORY');
+    await expect(readRepositoryFile(root, path.join(root, 'app.ts'))).rejects.toThrow('PATH_OUTSIDE_REPOSITORY');
     await writeFile(path.join(root, '.env.local'), 'SECRET=value');
     await expect(readRepositoryFile(root, '.env.local')).rejects.toThrow('PROTECTED_PATH');
     await expect(readRepositoryFile(root, 'app.ts')).resolves.toBe('ok');
