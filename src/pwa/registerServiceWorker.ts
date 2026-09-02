@@ -29,6 +29,8 @@ export function registerOriginServiceWorker(): void {
     return;
   }
 
+  sessionStorage.removeItem(UPDATE_RELOAD_GUARD_KEY);
+
   window.addEventListener('load', () => {
     void navigator.serviceWorker.register('/sw.js', {
       scope: '/',
@@ -58,6 +60,12 @@ export function registerOriginServiceWorker(): void {
         });
       };
 
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (sessionStorage.getItem(UPDATE_RELOAD_GUARD_KEY) === '1') return;
+        sessionStorage.setItem(UPDATE_RELOAD_GUARD_KEY, '1');
+        window.location.reload();
+      }, { once: true });
+
       const waitingAtLaunch = Boolean(registration.waiting);
       if (waitingAtLaunch && canAutoApplyUpdate()) {
         activateWaitingWorker(registration);
@@ -73,12 +81,6 @@ export function registerOriginServiceWorker(): void {
           }
         });
       });
-
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (sessionStorage.getItem(UPDATE_RELOAD_GUARD_KEY) === '1') return;
-        sessionStorage.setItem(UPDATE_RELOAD_GUARD_KEY, '1');
-        window.location.reload();
-      }, { once: true });
 
       const retrySafeApply = () => {
         if (registration.waiting) {
