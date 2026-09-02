@@ -7,9 +7,10 @@ describe('ORIGIN top experience regression boundary', () => {
   const main = readFileSync(resolve(root, 'main.tsx'), 'utf8');
   const topUi = readFileSync(resolve(root, 'origin-top-ui.css'), 'utf8');
 
-  it('keeps the settings trigger from being nested under a destructive navigation wrapper', () => {
+  it('guards the settings trigger against the legacy destructive ancestor handler', () => {
     expect(app).toContain('window.location.href = "/"');
-    expect(main).toContain('document.addEventListener(\'click\', handleSettingsTrigger, true)');
+    expect(main).toContain("document.addEventListener('click', handleSettingsTrigger, true)");
+    expect(main).toContain('event.stopPropagation()');
     expect(main).toContain('setIsSettingsOpen(true)');
   });
 
