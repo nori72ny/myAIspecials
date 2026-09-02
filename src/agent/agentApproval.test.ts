@@ -18,7 +18,7 @@ describe('agent approval security boundary', () => {
     const env = { ORIGIN_AGENT_APPROVAL_SECRET: secret };
     expect(authenticateAgentRequest(requestWithAuth(secret), env)).toBe(true);
     expect(authenticateAgentRequest(requestWithAuth('wrong-secret-with-at-least-32-bytes'), env)).toBe(false);
-    expect(authenticateAgentRequest(requestWithAuth('', env.ORIGIN_AGENT_APPROVAL_SECRET) as never, env)).toBe(false);
+    expect(authenticateAgentRequest(requestWithAuth(''), env)).toBe(false);
   });
 
   it('binds approval to the exact normalized operation', () => {
