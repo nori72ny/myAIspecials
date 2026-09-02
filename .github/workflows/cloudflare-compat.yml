@@ -8,6 +8,7 @@ on:
       - "wrangler.jsonc"
       - "public/_headers"
       - "src/server/originWorkerBoundary.test.ts"
+      - "src/lib/orchestration/activeContextRequestStore.ts"
       - "scripts/verify-cloudflare-runtime.mjs"
       - "package.json"
       - ".github/workflows/cloudflare-compat.yml"
