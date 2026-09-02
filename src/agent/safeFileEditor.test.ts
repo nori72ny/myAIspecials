@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateFileEdit } from './safeFileEditor';
+import { validateFileEdit, applyValidatedFileEdit } from './safeFileEditor';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,6 +11,23 @@ describe('safeFileEditor', () => {
     const result = await validateFileEdit(root, { path: 'a.ts', content: 'export const a = 2;' });
     expect(result.ok).toBe(true);
     expect(result.previous).toContain('a = 1');
+  });
+
+  it('applies a validated edit through the hardened repository writer', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-editor-'));
+    await fs.writeFile(path.join(root, 'a.ts'), 'export const a = 1;');
+    const edit = await validateFileEdit(root, { path: 'a.ts', content: 'export const a = 2;' });
+    await applyValidatedFileEdit(root, edit);
+    expect(await fs.readFile(path.join(root, 'a.ts'), 'utf8')).toBe('export const a = 2;');
+  });
+
+  it('rejects stale validated edits before writing', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-editor-'));
+    await fs.writeFile(path.join(root, 'a.ts'), 'export const a = 1;');
+    const edit = await validateFileEdit(root, { path: 'a.ts', content: 'export const a = 2;' });
+    await fs.writeFile(path.join(root, 'a.ts'), 'changed by another process');
+    await expect(applyValidatedFileEdit(root, edit)).rejects.toThrow('FILE_CHANGED_SINCE_VALIDATION');
+    expect(await fs.readFile(path.join(root, 'a.ts'), 'utf8')).toBe('changed by another process');
   });
 
   it('blocks traversal and protected paths', async () => {
