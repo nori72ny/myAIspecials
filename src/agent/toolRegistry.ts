@@ -16,17 +16,11 @@ const MAX_TEXT = 12000;
 const MAX_CHECKPOINT_SNAPSHOT_BYTES = 256 * 1024;
 const textParam = (params: ToolParams, key: string) => typeof params[key] === 'string' ? String(params[key]).slice(0, MAX_TEXT) : '';
 const sha256 = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
+const repositoryRoot = () => process.cwd();
 const readExisting = async (filePath: string): Promise<string | undefined> => {
   try { return await readRepositoryFile(repositoryRoot(), filePath); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
-  }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
 };
-
-// Repository scope is a server-owned invariant. A caller must never be able
-// to replace it with an arbitrary filesystem root through tool parameters.
-const repositoryRoot = () => process.cwd();
 
 const registry: Record<ToolName, ToolDefinition> = {
   code_interpreter: { name: 'code_interpreter', capability: 'read_repository', description: 'Deterministic local code analysis/formatting without external execution.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const code = textParam(params, 'code'); return { ok: true, tool: 'code_interpreter', artifact: code ? `// Sandboxed analysis\n${code}` : '// No code supplied.', message: 'Local code operation completed.' }; } },
@@ -35,44 +29,27 @@ const registry: Record<ToolName, ToolDefinition> = {
   image_prompt_compiler: { name: 'image_prompt_compiler', capability: 'read_repository', description: 'Compiles an image brief into a provider-neutral prompt locally.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const input = textParam(params, 'prompt'); return { ok: true, tool: 'image_prompt_compiler', artifact: input ? `Subject: ${input}\n\nCapture: natural light, coherent composition, physically plausible materials.\nQuality: fine detail, clean edges, accurate anatomy.` : 'No image brief supplied.', message: 'Image prompt compiled locally.' }; } },
   repository_explorer: { name: 'repository_explorer', capability: 'read_repository', description: 'Read-only bounded repository tree exploration with protected-path filtering.', sideEffects: 'none', requiresApproval: true, execute: async () => { const entries = await listRepository(repositoryRoot()); return { ok: true, tool: 'repository_explorer', artifact: JSON.stringify(entries), message: `Repository exploration completed (${entries.length} entries).` }; } },
   file_reader: { name: 'file_reader', capability: 'read_repository', description: 'Read-only bounded file access with traversal, secret-path, and size protections.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const filePath = textParam(params, 'path'); if (!filePath) return { ok: false, tool: 'file_reader', message: 'A file path is required.' }; const content = await readRepositoryFile(repositoryRoot(), filePath); return { ok: true, tool: 'file_reader', artifact: content.slice(0, MAX_TEXT), message: 'Repository file read completed.' }; } },
-  file_writer: { name: 'file_writer', capability: 'write_repository', description: 'Writes repository files through bounded atomic replacement. Existing files should use exact-one-match search/replacement editing; whole-file writes remain available for new files.', sideEffects: 'write', requiresApproval: true, execute: async (params) => {
+  file_writer: { name: 'file_writer', capability: 'write_repository', description: 'Writes repository files through bounded atomic replacement. Existing files require exact-one-match search/replacement editing; whole-file writes are restricted to genuinely new files.', sideEffects: 'write', requiresApproval: true, execute: async (params) => {
     const filePath = textParam(params, 'path');
     if (!filePath) return { ok: false, tool: 'file_writer', message: 'A file path is required.' };
     const search = typeof params.search === 'string' ? params.search : undefined;
     const replacement = typeof params.replacement === 'string' ? params.replacement : undefined;
     const isDelta = search !== undefined || replacement !== undefined;
-
     if (isDelta) {
       if (search === undefined || replacement === undefined) return { ok: false, tool: 'file_writer', message: 'Delta edits require both search and replacement.' };
       const edit = await validateDeltaEdit(repositoryRoot(), { path: filePath, search, replacement });
       if (Buffer.byteLength(edit.previous, 'utf8') > MAX_CHECKPOINT_SNAPSHOT_BYTES) throw new Error('CHECKPOINT_SNAPSHOT_TOO_LARGE');
       if (containsLikelySecret(edit.previous)) throw new Error('CHECKPOINT_SECRET_SNAPSHOT_BLOCKED');
       await applyDeltaEdit(repositoryRoot(), edit);
-      return {
-        ok: true,
-        tool: 'file_writer',
-        artifact: edit.path,
-        message: 'Repository delta applied atomically (exactly one match).',
-        mutation: { path: edit.path, beforeExists: true, beforeContent: edit.previous, afterSha256: sha256(edit.next) },
-      };
+      return { ok: true, tool: 'file_writer', artifact: edit.path, message: 'Repository delta applied atomically (exactly one match).', mutation: { path: edit.path, beforeExists: true, beforeContent: edit.previous, afterSha256: sha256(edit.next) } };
     }
-
     const content = typeof params.content === 'string' ? params.content : '';
     const beforeContent = await readExisting(filePath);
-    if (beforeContent !== undefined) {
-      if (Buffer.byteLength(beforeContent, 'utf8') > MAX_CHECKPOINT_SNAPSHOT_BYTES) throw new Error('CHECKPOINT_SNAPSHOT_TOO_LARGE');
-      if (containsLikelySecret(beforeContent)) throw new Error('CHECKPOINT_SECRET_SNAPSHOT_BLOCKED');
-    }
+    if (beforeContent !== undefined) return { ok: false, tool: 'file_writer', message: 'Existing files must be edited with exact-one-match search/replacement; whole-file replacement is blocked.' };
     const result = await writeRepositoryFile(repositoryRoot(), filePath, content);
-    return {
-      ok: true,
-      tool: 'file_writer',
-      artifact: result.path,
-      message: `Repository file written atomically (${result.bytes} bytes).`,
-      mutation: { path: result.path, beforeExists: beforeContent !== undefined, ...(beforeContent !== undefined ? { beforeContent } : {}), afterSha256: sha256(content) },
-    };
+    return { ok: true, tool: 'file_writer', artifact: result.path, message: `New repository file written atomically (${result.bytes} bytes).`, mutation: { path: result.path, beforeExists: false, afterSha256: sha256(content) } };
   } },
-  verification_runner: { name: 'verification_runner', capability: 'run_tests', description: 'Runs only the repository allowlisted test, typecheck, or build command with bounded output, timeout, no repository-controlled npm lifecycle execution, and a sanitized environment.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const kind = textParam(params, 'kind') as VerificationKind; if (kind !== 'test' && kind !== 'typecheck' && kind !== 'build') return { ok: false, tool: 'verification_runner', message: 'Verification kind must be test, typecheck, or build.' }; const result = await runVerification(repositoryRoot(), kind); return { ok: result.ok, tool: 'verification_runner', artifact: JSON.stringify(result), message: result.ok ? `${kind} verification passed.` : `${kind} verification failed (exit=${result.exitCode}, timeout=${result.timedOut}).` }; } },
+  verification_runner: { name: 'verification_runner', capability: 'run_tests', description: 'Runs only the repository allowlisted test, typecheck, lint, or build command with bounded output, timeout, no repository-controlled npm lifecycle execution, and a sanitized environment.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const kind = textParam(params, 'kind') as VerificationKind; if (kind !== 'test' && kind !== 'typecheck' && kind !== 'lint' && kind !== 'build') return { ok: false, tool: 'verification_runner', message: 'Verification kind must be test, typecheck, lint, or build.' }; const result = await runVerification(repositoryRoot(), kind); return { ok: result.ok, tool: 'verification_runner', artifact: JSON.stringify(result), message: result.ok ? `${kind} verification passed.` : `${kind} verification failed (exit=${result.exitCode}, timeout=${result.timedOut}).` }; } },
 };
 
 export const toolRegistry = Object.freeze(registry);
