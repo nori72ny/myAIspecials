@@ -27,6 +27,7 @@ const plan: OriginExecutionPlan = {
     requireZeroDataRetention: false,
   },
   modelEvidence: {
+    providerId: "openrouter-free",
     verifiedAt: "2026-08-11T00:00:00.000Z",
     reviewAfter: "2026-08-18T23:59:59.999Z",
     sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free",
