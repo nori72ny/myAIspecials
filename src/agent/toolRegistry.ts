@@ -12,6 +12,7 @@ export type ToolResult = { ok: boolean; tool: ToolName; artifact?: string; messa
 
 type ToolDefinition = { name: ToolName; capability: AgentCapability; description: string; sideEffects: 'none' | 'write'; requiresApproval: true; execute: (params: ToolParams) => Promise<ToolResult> };
 const MAX_TEXT = 12000;
+const MAX_CHECKPOINT_SNAPSHOT_BYTES = 256 * 1024;
 const textParam = (params: ToolParams, key: string) => typeof params[key] === 'string' ? String(params[key]).slice(0, MAX_TEXT) : '';
 const sha256 = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
 const readExisting = async (filePath: string): Promise<string | undefined> => {
@@ -38,7 +39,10 @@ const registry: Record<ToolName, ToolDefinition> = {
     if (!filePath) return { ok: false, tool: 'file_writer', message: 'A file path is required.' };
     const content = typeof params.content === 'string' ? params.content : '';
     const beforeContent = await readExisting(filePath);
-    if (beforeContent !== undefined && containsLikelySecret(beforeContent)) throw new Error('CHECKPOINT_SECRET_SNAPSHOT_BLOCKED');
+    if (beforeContent !== undefined) {
+      if (Buffer.byteLength(beforeContent, 'utf8') > MAX_CHECKPOINT_SNAPSHOT_BYTES) throw new Error('CHECKPOINT_SNAPSHOT_TOO_LARGE');
+      if (containsLikelySecret(beforeContent)) throw new Error('CHECKPOINT_SECRET_SNAPSHOT_BLOCKED');
+    }
     const result = await writeRepositoryFile(repositoryRoot(), filePath, content);
     return {
       ok: true,
