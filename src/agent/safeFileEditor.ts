@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { readRepositoryFile } from './safeRepositoryReader.js';
-import { writeRepositoryFile } from './safeRepositoryWriter.js';
+import { writeRepositoryFileIfUnchanged } from './safeRepositoryWriter.js';
 import { containsLikelySecret } from './safeFilePolicy.js';
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -30,8 +30,7 @@ export async function validateFileEdit(root: string, proposal: FileEditProposal)
 }
 
 export async function applyValidatedFileEdit(root: string, edit: FileEditResult): Promise<void> {
-  const current = await readRepositoryFile(root, edit.path);
-  if (current !== edit.previous) throw new Error('FILE_CHANGED_SINCE_VALIDATION');
+  if (containsLikelySecret(edit.next)) throw new Error('SECRET_CONTENT_BLOCKED');
   if (Buffer.byteLength(edit.next, 'utf8') > MAX_CHANGE_BYTES) throw new Error('CHANGE_BUDGET_EXCEEDED');
-  await writeRepositoryFile(root, edit.path, edit.next);
+  await writeRepositoryFileIfUnchanged(root, edit.path, edit.previous, edit.next);
 }
