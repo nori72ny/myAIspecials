@@ -23,7 +23,16 @@ export function createAgentOrchestratorRouter(): Router {
     const { goal, action, toolName, params, checkpointId } = req.body ?? {};
     if (action === 'rollback') {
       if (typeof checkpointId !== 'string' || !checkpointId) return res.status(400).json({ code: 'INVALID_CHECKPOINT' });
-      try { return res.status(200).json({ ok: true, checkpoint: rollbackToCheckpoint(checkpointId) }); } catch { return res.status(404).json({ code: 'CHECKPOINT_NOT_FOUND' }); }
+      void rollbackToCheckpoint(checkpointId).then((checkpoint) => {
+        if (!res.headersSent) return res.status(200).json({ ok: true, checkpoint });
+        return undefined;
+      }).catch((error) => {
+        const code = error instanceof Error ? error.message : 'CHECKPOINT_ROLLBACK_FAILED';
+        const status = code === 'CHECKPOINT_NOT_FOUND' ? 404 : code === 'CHECKPOINT_ROLLBACK_UNSUPPORTED' || code === 'CHECKPOINT_STATE_CHANGED' ? 409 : 422;
+        if (!res.headersSent) return res.status(status).json({ ok: false, code });
+        return undefined;
+      });
+      return undefined;
     }
     if (action === 'resume') {
       if (typeof checkpointId !== 'string' || !checkpointId) return res.status(400).json({ code: 'INVALID_CHECKPOINT' });
@@ -75,7 +84,13 @@ export function createAgentOrchestratorRouter(): Router {
             return;
           }
           assertCanReportCompleted({ state: finalTask.status, verified: record.verified, toolExecuted: record.toolExecuted, repairAttempts: record.verificationAttempts });
-          const checkpoint = saveCheckpoint({ taskId: finalTask.id, executionId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact });
+          const checkpoint = saveCheckpoint({
+            taskId: finalTask.id,
+            executionId,
+            status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed',
+            artifact: record.artifact,
+            mutation: record.mutation,
+          });
           if (!res.headersSent) return res.status(200).json({ ok: true, tool: toolName, artifact: record.artifact, checkpoint, execution: record, task: finalTask });
         } catch (error) {
           const code = error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED';
