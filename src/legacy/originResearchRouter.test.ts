@@ -2,7 +2,7 @@ import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const researchMock = vi.fn();
+const { researchMock } = vi.hoisted(() => ({ researchMock: vi.fn() }));
 vi.mock("./originResearchSource.js", () => ({ researchCurrentInformation: researchMock }));
 
 import { createOriginResearchRouter } from "./originResearchRouter.js";
