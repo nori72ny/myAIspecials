@@ -14,6 +14,7 @@ export type AllowedZeroCostProvider=typeof ALLOWED_ZERO_COST_PROVIDERS[number];
 export const ALLOWED_ZERO_COST_MODELS={openrouter:[ORIGIN_OPENROUTER_FREE_MODEL] as const} as const;
 const IDS:Record<string,AllowedZeroCostProvider>={OpenRouter:"openrouter","openrouter-free":"openrouter"};
 const cooldown:Partial<Record<AllowedZeroCostProvider,number>>={};
+export function resetOriginProviderCooldownForTests():void{for(const provider of ALLOWED_ZERO_COST_PROVIDERS)delete cooldown[provider];}
 const pid=(v:unknown):AllowedZeroCostProvider|null=>typeof v==="string"?(IDS[v]??(ALLOWED_ZERO_COST_PROVIDERS.includes(v as AllowedZeroCostProvider)?v as AllowedZeroCostProvider:null)):null;
 const allowed=(p:AllowedZeroCostProvider,m:unknown):m is string=>typeof m==="string"&&(ALLOWED_ZERO_COST_MODELS[p] as readonly string[]).includes(m);
 const mark=(p:AllowedZeroCostProvider)=>{cooldown[p]=Date.now()+COOLDOWN;};
