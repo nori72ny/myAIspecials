@@ -13,7 +13,7 @@ const plan: OriginExecutionPlan = {
   requiresOwnerApproval: false,
   reason: "test",
   providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false },
-  modelEvidence: { providerId: "openrouter-free", verifiedAt: "2026-08-11T00:00:00.000Z", reviewAfter: "2026-08-18T23:59:59.999Z", sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free" },
+  modelEvidence: { providerId: "openrouter-free", verifiedAt: "2026-09-02T08:00:17.472Z", reviewAfter: "2026-09-12T08:00:17.471Z", sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free" },
 };
 const request = { plan, messages: [{ role: "user" as const, content: "確認してください" }], systemInstruction: "安全に回答してください。" };
 function successfulProviderPayload(overrides: Record<string, unknown> = {}) { return { model: "google/gemma-4-26b-a4b-it:free", choices: [{ message: { content: "確認結果です。" } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0 }, ...overrides }; }
