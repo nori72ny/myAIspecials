@@ -14,7 +14,8 @@ export const ORIGIN_ZERO_COST_PROVIDER_IDS: readonly OriginExecutionProviderId[]
 
 export interface OriginExecutionAvailability { openRouterConfigured: boolean; googleAiStudioConfigured?: boolean; groqConfigured?: boolean; }
 export interface OriginExecutionPolicy { freeOnly: true; maxEstimatedCostUsd: number; timeoutMs: number; }
-export interface OriginProviderDataPolicy { allowProviderFallbacks: true; dataCollection: "deny"; requireZeroDataRetention: false; }
+/** Provider fallback is retained as a legacy type for compatibility, but production plans must set it to false. */
+export interface OriginProviderDataPolicy { allowProviderFallbacks: boolean; dataCollection: "deny"; requireZeroDataRetention: false; }
 export interface OriginProviderFreeEvidence { providerId: OriginExecutionProviderId; verifiedAt: string; reviewAfter: string; sourceUrl: string; }
 export interface OriginExecutionPlan {
   providerId: OriginExecutionProviderId;
@@ -37,7 +38,7 @@ export interface OriginExecutionPlanningOptions {
 export type OriginExecutionPlanFailureCode = "FREE_PROVIDER_NOT_CONFIGURED" | "FREE_MODEL_CATALOG_INVALID" | "FREE_MODEL_EVIDENCE_STALE" | "INVALID_EXECUTION_POLICY";
 export type OriginExecutionPlanResult = { ok: true; plan: OriginExecutionPlan } | { ok: false; code: OriginExecutionPlanFailureCode; message: string };
 export const DEFAULT_ORIGIN_EXECUTION_POLICY: OriginExecutionPolicy = { freeOnly: true, maxEstimatedCostUsd: 0, timeoutMs: 20_000 };
-export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = { allowProviderFallbacks: true, dataCollection: "deny", requireZeroDataRetention: false };
+export const DEFAULT_ORIGIN_PROVIDER_DATA_POLICY: OriginProviderDataPolicy = { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false };
 
 function normalizePolicy(policy?: Partial<OriginExecutionPolicy>): OriginExecutionPolicy | null {
   const maxEstimatedCostUsd = policy?.maxEstimatedCostUsd ?? 0;
