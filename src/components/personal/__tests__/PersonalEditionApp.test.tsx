@@ -45,6 +45,6 @@ describe('PersonalEditionApp production wrapper', () => {
 
   it('renders the shared ORIGIN application surface', () => {
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} />);
-    expect(document.querySelector('[data-testid="mock-origin-app"]')).toHaveTextContent('ORIGIN');
+    expect(document.querySelector('[data-testid="mock-origin-app"]')?.textContent).toBe('ORIGIN');
   });
 });
