@@ -39,7 +39,6 @@ describe('safeRepositoryWriter', () => {
     const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-'));
     const outside = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-outside-'));
     await symlink(outside, path.join(root, 'link'), 'dir');
-
     await expect(writeRepositoryFile(root, 'link/pwned.txt', 'outside')).rejects.toThrow('SYMLINK_PATH_BLOCKED');
     await expect(readFile(path.join(outside, 'pwned.txt'), 'utf8')).rejects.toThrow();
   });
@@ -52,12 +51,13 @@ describe('safeRepositoryWriter', () => {
     await fs.mkdir(parent, { recursive: true });
     await fs.mkdir(outside, { recursive: true });
 
-    const originalRename = fs.rename;
+    const actualFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    const originalRename = actualFs.rename;
     const renameSpy = vi.mocked(fs.rename);
     renameSpy.mockImplementation(async (from, to) => {
       if (String(from).includes('.origin-tmp-')) {
         await originalRename(parent, movedParent);
-        await symlink(outside, parent, 'dir');
+        await actualFs.symlink(outside, parent, 'dir');
       }
       return originalRename(from, to);
     });
@@ -77,8 +77,7 @@ describe('safeRepositoryWriter', () => {
     const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-'));
     await fs.mkdir(path.join(root, 'src'), { recursive: true });
     await fs.writeFile(path.join(root, 'src/app.ts'), 'before');
-    await expect(writeRepositoryFileIfUnchanged(root, 'src/app.ts', 'after-validation', 'new-content'))
-      .rejects.toThrow('FILE_CHANGED_SINCE_VALIDATION');
+    await expect(writeRepositoryFileIfUnchanged(root, 'src/app.ts', 'after-validation', 'new-content')).rejects.toThrow('FILE_CHANGED_SINCE_VALIDATION');
     expect(await readFile(path.join(root, 'src/app.ts'), 'utf8')).toBe('before');
   });
 
