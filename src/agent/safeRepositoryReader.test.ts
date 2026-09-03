@@ -3,8 +3,11 @@ import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-vi.mock('node:fs/promises', async () => { const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises'); return { ...actual, readdir: vi.fn(actual.readdir) }; });
-import * as fs from 'node:fs/promises';
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  return { ...actual, promises: { ...actual.promises, readdir: vi.fn(actual.promises.readdir) } };
+});
+import * as fs from 'node:fs';
 import { listRepository, readRepositoryFile } from './safeRepositoryReader';
 
 describe('safeRepositoryReader', () => {
@@ -14,14 +17,13 @@ describe('safeRepositoryReader', () => {
   it('keeps repository listing inside the originally opened directory when a child is replaced by a symlink', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-')); const outside = await mkdtemp(path.join(tmpdir(), 'origin-agent-outside-')); const source = path.join(root, 'src'); const movedSource = path.join(root, 'src-original');
     await mkdir(source, { recursive: true }); await writeFile(path.join(source, 'app.ts'), 'inside'); await writeFile(path.join(outside, 'app.ts'), 'outside');
-    const actualFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises'); const originalReaddir = actualFs.readdir; const readdirSpy = vi.mocked(fs.readdir); let replaced = false;
+    const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs'); const readdirSpy = vi.mocked(fs.promises.readdir); const originalReaddir = actualFs.promises.readdir; let replaced = false;
     readdirSpy.mockImplementation(async (directory, options) => {
       const result = await originalReaddir(directory as string, options as never);
-      if (!replaced) {
-        try {
-          const target = await actualFs.readlink(String(directory));
-          if (target === source) { replaced = true; await actualFs.rename(source, movedSource); await actualFs.symlink(outside, source, 'dir'); }
-        } catch { /* not a proc fd for this read */ }
+      if (!replaced && String(directory) === root) {
+        replaced = true;
+        await actualFs.promises.rename(source, movedSource);
+        await actualFs.promises.symlink(outside, source, 'dir');
       }
       return result as never;
     });
