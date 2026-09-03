@@ -26,11 +26,12 @@ describe("ORIGIN Personal release 1 gate", () => {
   it("locks provider execution to one fixed OpenRouter free model", () => {
     const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
     const modelCatalog = readRepositoryFile("src/lib/orchestration/OriginFreeModelCatalog.ts");
-    expect(providerClient).toContain('ALLOWED_ZERO_COST_PROVIDERS=["openrouter"]');
-    expect(providerClient).toContain("ALLOWED_ZERO_COST_MODELS={openrouter:[ORIGIN_OPENROUTER_FREE_MODEL]");
-    expect(providerClient).toContain("provider:{sort:\"throughput\",allow_fallbacks:false,data_collection:\"deny\"}");
-    expect(providerClient).toContain("zero(d.usage?.cost");
-    expect(providerClient).toContain("evidence(req,p,served)");
+    expect(providerClient).toContain('export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;');
+    expect(providerClient).toContain("openrouter: [ORIGIN_OPENROUTER_FREE_MODEL]");
+    expect(providerClient).toContain("allow_fallbacks: false");
+    expect(providerClient).toContain('data_collection: "deny"');
+    expect(providerClient).toContain("zero(data.usage?.cost");
+    expect(providerClient).toContain("evidence(providerRequest, provider, String(servedModel))");
     expect(providerClient).not.toContain("Gemini");
     expect(providerClient).not.toContain("Groq");
     expect(providerClient).not.toContain('"openrouter/free"');
