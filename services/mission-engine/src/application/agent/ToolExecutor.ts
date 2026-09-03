@@ -11,9 +11,6 @@ const MAX_LEGACY_READ_BYTES = 2 * 1024 * 1024;
 const BLOCKED_SEGMENTS = new Set([".git", "node_modules", "dist", "build", "coverage", ".next", ".vercel"]);
 const SECRET_NAME = /(^|[\\/])(\.env(?:\..*)?|.*\.(pem|key|p12|pfx))$/i;
 
-// Legacy mission-engine FileTool is intentionally read-only. All repository
-// writes must use the hardened file_writer/safeRepositoryWriter boundary.
-
 export function isSafeIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
     const parts = ip.split(".").map(Number);
@@ -143,31 +140,15 @@ export class FileTool implements IAgentTool {
   }
 }
 
-async function searchWikipedia(query: string): Promise<string> {
-  const isJapanese = /[ぁ-んァ-ヶ一-龠]/.test(query);
-  const origin = isJapanese ? "https://ja.wikipedia.org" : "https://en.wikipedia.org";
-  const url = `${origin}/w/rest.php/v1/search/page?q=${encodeURIComponent(query.slice(0, 200))}&limit=3`;
-  const payload = JSON.parse(await secureFetch(url)) as { pages?: Array<{ key?: string; title?: string; excerpt?: string; description?: string }> };
-  const pages = Array.isArray(payload.pages) ? payload.pages.slice(0, 3) : [];
-  if (pages.length === 0) throw new Error("NO_SEARCH_RESULTS");
-  return pages.map((page) => {
-    const title = typeof page.title === "string" ? page.title : page.key ?? "";
-    const excerpt = typeof page.excerpt === "string" ? page.excerpt.replace(/<[^>]+>/g, " ").trim() : typeof page.description === "string" ? page.description : "";
-    const key = typeof page.key === "string" ? page.key : "";
-    return `- ${title}: ${excerpt.slice(0, 700)}\n  Source: ${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
-  }).join("\n");
-}
-
 export class WebTool implements IAgentTool {
   public name = "WebTool";
-  public description = "Fetches resources or searches information from an allowlisted public source. Input format: { url?: string, query?: string }";
+  public description = "Fetches a specific URL through the allowlisted secure-fetch boundary. Query-only search is disabled until a real search connector is integrated.";
   public async execute(input: ToolInput): Promise<ToolResult> {
     const { url, query } = input;
     if (!url && !query) return { success: false, output: "", error: "Missing both 'url' and 'query' parameters. Specify at least one." };
-    try {
-      if (url) return { success: true, output: (await secureFetch(url)).substring(0, 1500) };
-      return { success: true, output: `Live public-source search results for query \"${String(query).slice(0, 200)}\":\n${await searchWikipedia(String(query))}` };
-    } catch (err) { return { success: false, output: "", error: `Web request failed: ${(err as Error).message}` }; }
+    if (query && !url) return { success: false, output: "", error: "WEB_SEARCH_UNAVAILABLE" };
+    try { return { success: true, output: (await secureFetch(url)).substring(0, 1500) }; }
+    catch (err) { return { success: false, output: "", error: `Web request failed: ${(err as Error).message}` }; }
   }
 }
 
@@ -178,11 +159,8 @@ export class CalculatorTool implements IAgentTool {
     const { expression } = input;
     if (!expression || typeof expression !== "string") return { success: false, output: "", error: "Missing or invalid 'expression' parameter." };
     if (!/^[0-9+\-*/().\s]+$/.test(expression)) return { success: false, output: "", error: "Security restriction: expression contains prohibited characters." };
-    try {
-      const result = new Function(`return (${expression});`)();
-      if (typeof result !== "number" || Number.isNaN(result)) return { success: false, output: "", error: "Evaluated output is not a valid number." };
-      return { success: true, output: result.toString() };
-    } catch (err) { return { success: false, output: "", error: `Calculator execution failed: ${(err as Error).message}` }; }
+    try { const result = new Function(`return (${expression});`)(); if (typeof result !== "number" || Number.isNaN(result)) return { success: false, output: "", error: "Evaluated output is not a valid number." }; return { success: true, output: result.toString() }; }
+    catch (err) { return { success: false, output: "", error: `Calculator execution failed: ${(err as Error).message}` }; }
   }
 }
 
