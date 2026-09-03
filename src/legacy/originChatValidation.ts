@@ -60,6 +60,7 @@ export function isOriginWeatherRequest(message: string): boolean {
 }
 
 export function hasOriginWeatherLocation(message: string, userLocation: unknown): boolean {
+  const commonJapaneseLocation = /(?:東京|大阪|札幌|福岡|名古屋|横浜|京都|渋谷(?:区)?|新宿(?:区)?|品川(?:区)?|世田谷(?:区)?)/.test(message);
   const commonInternationalLocation = /\b(?:london|new york|los angeles|san francisco|seattle|boston|chicago|paris|berlin|seoul|singapore|sydney|toronto|vancouver|melbourne|bangkok|taipei|hong kong)\b/i.test(message);
-  return message.includes("東京") || message.includes("大阪") || message.includes("札幌") || message.includes("福岡") || message.includes("名古屋") || message.includes("横浜") || message.includes("京都") || commonInternationalLocation || (typeof userLocation === "string" && userLocation.trim().length > 0);
+  return commonJapaneseLocation || commonInternationalLocation || (typeof userLocation === "string" && userLocation.trim().length > 0);
 }
