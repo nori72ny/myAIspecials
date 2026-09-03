@@ -6,7 +6,7 @@ import {
   type OriginExecutionPlan,
 } from "../lib/orchestration/OriginExecutionPolicy";
 
-const groqPlan: OriginExecutionPlan = {
+const groqPlan = {
   providerId: ORIGIN_GROQ_FREE_PROVIDER_ID,
   providerLabel: "Groq",
   modelId: ORIGIN_GROQ_FREE_MODEL,
@@ -27,7 +27,7 @@ const groqPlan: OriginExecutionPlan = {
     reviewAfter: "2026-09-30T23:59:59.999Z",
     sourceUrl: "https://console.groq.com/docs/models",
   },
-};
+} as unknown as OriginExecutionPlan;
 
 describe("Groq zero-cost boundary", () => {
   it("fails closed before network execution because the current model has no verified public $0 contract", async () => {
