@@ -31,7 +31,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).toContain("allow_fallbacks: false");
     expect(providerClient).toContain('data_collection: "deny"');
     expect(providerClient).toContain("zero(data.usage?.cost");
-    expect(providerClient).toContain("evidence(providerRequest, provider, String(servedModel))");
+    expect(providerClient).toContain("evidence(request, provider, String(servedModel))");
     expect(providerClient).not.toContain("Gemini");
     expect(providerClient).not.toContain("Groq");
     expect(providerClient).not.toContain('"openrouter/free"');
