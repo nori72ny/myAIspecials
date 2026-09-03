@@ -59,8 +59,7 @@ describe('safeRepositoryReader', () => {
     const readdirSpy = vi.mocked(fs.readdir);
     readdirSpy.mockImplementation(async (directory, options) => {
       const result = await originalReaddir(directory as string, options as never);
-      // Trigger the race only after the stable src directory has been opened.
-      if (!replaced && String(directory).includes('/proc/self/fd/')) {
+      if (!replaced && /\/proc\/self\/fd\/\d+\/src$/.test(String(directory))) {
         replaced = true;
         await actualFs.rename(source, movedSource);
         await actualFs.symlink(outside, source, 'dir');
