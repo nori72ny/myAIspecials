@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { assertOriginZeroCostExecutionResult, executeOriginProvider, originCompletionTokenBudget, OriginProviderError, type OriginFetch } from "./originProviderClient";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assertOriginZeroCostExecutionResult, executeOriginProvider, originCompletionTokenBudget, OriginProviderError, resetOriginProviderCooldownForTests, type OriginFetch } from "./originProviderClient";
 import { ORIGIN_OPENROUTER_FREE_MODEL, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 
 const plan: OriginExecutionPlan = {
@@ -19,6 +19,7 @@ const request = { plan, messages: [{ role: "user" as const, content: "確認し�
 function successfulProviderPayload(overrides: Record<string, unknown> = {}) { return { model: "google/gemma-4-26b-a4b-it:free", choices: [{ message: { content: "確認結果です。" } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0 }, ...overrides }; }
 
 describe("executeOriginProvider", () => {
+  beforeEach(() => resetOriginProviderCooldownForTests());
   it("rejects a paid or substituted executor result before a router can render its text", () => {
     const result = { text: "表示してはいけない応答", actualCostUsd: 0.000001, providerDataPolicy: plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const }, usage: { costUsd: 0.000001 } } as unknown as Awaited<ReturnType<typeof executeOriginProvider>>;
     expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("actualCostUsd が$0ポリシーを満たしません。");
