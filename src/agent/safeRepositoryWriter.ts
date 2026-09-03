@@ -37,8 +37,9 @@ async function assertNoSymlinkComponents(rootReal: string, target: string): Prom
 async function openStableParent(rootReal: string, parent: string) {
   if (process.platform !== 'linux') throw new Error('RACE_SAFE_WRITE_UNSUPPORTED');
   const relativeParent = path.relative(rootReal, parent);
-  if (!relativeParent || relativeParent.startsWith('..') || path.isAbsolute(relativeParent)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
+  if (relativeParent.startsWith('..') || path.isAbsolute(relativeParent)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
   let currentHandle = await fs.open(rootReal, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  if (!relativeParent) return currentHandle;
   try {
     for (const segment of relativeParent.split(path.sep).filter(Boolean)) {
       const childPath = path.join(`/proc/self/fd/${currentHandle.fd}`, segment);
