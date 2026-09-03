@@ -51,7 +51,11 @@ jobs:
       run: npm ci
 
     - name: Run Security Audit
-      run: npm audit --audit-level=critical
+      # npm's legacy quick-audit endpoint can reject a valid npm-ci tree with
+      # HTTP 400 "Invalid package tree". npm documents --no-package-lock as the
+      # supported way to audit the installed dependency tree without submitting
+      # the lockfile representation. The critical threshold remains unchanged.
+      run: npm audit --no-package-lock --audit-level=critical
 
     - name: Run linter
       run: npm run lint
