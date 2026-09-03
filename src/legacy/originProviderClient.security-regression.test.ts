@@ -1,28 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 import { assertOriginZeroCostExecutionResult, executeOriginProvider, OriginProviderError, type OriginFetch } from "./originProviderClient";
-import { buildOriginExecutionPlan, ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL, ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID, ORIGIN_OPENROUTER_FREE_MODEL, ORIGIN_OPENROUTER_FREE_PROVIDER_ID } from "../lib/orchestration/OriginExecutionPolicy";
+import { ORIGIN_OPENROUTER_FREE_MODEL, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 
-const FIXTURE_NOW_MS = Date.parse("2026-08-30T00:00:00.000Z");
-const planResult = buildOriginExecutionPlan(
-  { goal: "最新の安全な実装方針を確認してください", requiresFreshResearch: true },
-  { openRouterConfigured: true, googleAiStudioConfigured: true, groqConfigured: true },
-  undefined,
-  {
-    nowMs: FIXTURE_NOW_MS,
-    providerEvidence: {
-      [ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID]: {
-        providerId: ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID,
-        verifiedAt: "2026-08-20T00:00:00.000Z",
-        reviewAfter: "2026-09-30T00:00:00.000Z",
-        sourceUrl: "https://ai.google.dev/gemini-api/docs",
-      },
-    },
+const plan: OriginExecutionPlan = {
+  providerId: "openrouter-free",
+  providerLabel: "ORIGIN 無料AI",
+  modelId: ORIGIN_OPENROUTER_FREE_MODEL,
+  taskType: "review",
+  freeOnly: true,
+  estimatedCostUsd: 0,
+  timeoutMs: 30_000,
+  requiresOwnerApproval: false,
+  reason: "security regression fixture",
+  providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false },
+  modelEvidence: {
+    providerId: "openrouter-free",
+    verifiedAt: "2026-09-02T08:00:17.472Z",
+    reviewAfter: "2026-09-12T08:00:17.471Z",
+    sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free",
   },
-);
-if (!planResult.ok) throw new Error("security regression fixture could not build an execution plan");
+};
 
 const request = {
-  plan: planResult.plan,
+  plan,
   messages: [{ role: "user" as const, content: "安全な実装方針を説明してください" }],
   systemInstruction: "安全に回答してください。",
 };
@@ -38,7 +38,7 @@ const openRouterPayload = (overrides: Record<string, unknown> = {}) => ({
 describe("originProviderClient security regressions", () => {
   it("fails closed on upstream 402 and never falls through", async () => {
     const fetchMock = vi.fn(async () => new Response("payment required: secret", { status: 402 }));
-    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key", GEMINI_API_KEY: "synthetic-gemini-key" }, fetchMock as unknown as OriginFetch))
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
       .rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -59,15 +59,11 @@ describe("originProviderClient security regressions", () => {
     expect(error).toMatchObject({ code: "PROVIDER_RATE_LIMITED", retryAfterSeconds: 60 });
   });
 
-  it("falls back from 429 to Gemini's approved free model", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "gemini safe response" }] } }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key", GEMINI_API_KEY: "synthetic-gemini-key" }, fetchMock as unknown as OriginFetch);
-    expect(result.text).toBe("gemini safe response");
-    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL);
-    expect(result.routingEvidence.fallbackUsed).toBe(true);
-    expect(result.actualCostUsd).toBe(0);
+  it("does not fall back to Gemini or another provider after a rate limit", async () => {
+    const fetchMock = vi.fn(async () => new Response("rate limited", { status: 429 }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key", GEMINI_API_KEY: "synthetic-gemini-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED", retryable: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects non-zero cost evidence even with valid routing evidence", () => {
