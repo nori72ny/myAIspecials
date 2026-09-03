@@ -105,7 +105,10 @@ async function assertNoSymlinkComponents(rootReal: string, target: string): Prom
 export async function validateSafePath(relativePath: string): Promise<string> {
   let decodedPath: string;
   try { decodedPath = decodeURIComponent(relativePath).normalize("NFC"); } catch { throw new Error("Invalid URL/character encoding in path."); }
-  const normalizedRelative = decodedPath.replace(/\\/g, "/").replace(/^\/+/, "");
+  const slashPath = decodedPath.replace(/\\/g, "/");
+  // Never strip a leading slash or Windows drive prefix: absolute paths must fail closed.
+  if (slashPath.startsWith("/") || /^[A-Za-z]:\//.test(slashPath)) throw new Error("PATH_OUTSIDE_WORKSPACE");
+  const normalizedRelative = slashPath;
   if (!normalizedRelative || blockedLegacyPath(normalizedRelative)) throw new Error("PROTECTED_PATH");
   const sandboxRoot = await fs.realpath(process.cwd());
   const targetPath = nodePath.resolve(sandboxRoot, normalizedRelative);
