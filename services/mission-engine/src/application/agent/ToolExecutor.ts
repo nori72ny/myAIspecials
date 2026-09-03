@@ -128,10 +128,7 @@ export class FileTool implements IAgentTool {
   public async execute(input: ToolInput): Promise<ToolResult> {
     const { action, path, content } = input;
     if (!path) return { success: false, output: "", error: "Missing required 'path' parameter." };
-    if (action === "write") {
-      void content;
-      return { success: false, output: "", error: "LEGACY_FILE_WRITE_DISABLED" };
-    }
+    if (action === "write") { void content; return { success: false, output: "", error: "LEGACY_FILE_WRITE_DISABLED" }; }
     if (action !== "read") return { success: false, output: "", error: `Unsupported action: '${action}'. Use 'read'.` };
     try {
       const fullPath = await validateSafePath(path);
@@ -142,21 +139,34 @@ export class FileTool implements IAgentTool {
         if (stat.size > MAX_LEGACY_READ_BYTES) return { success: false, output: "", error: "FILE_TOO_LARGE" };
         return { success: true, output: await handle.readFile({ encoding: "utf8" }) };
       } finally { await handle.close(); }
-    } catch (err) {
-      return { success: false, output: "", error: `File execution failed: ${(err as Error).message}` };
-    }
+    } catch (err) { return { success: false, output: "", error: `File execution failed: ${(err as Error).message}` }; }
   }
+}
+
+async function searchWikipedia(query: string): Promise<string> {
+  const isJapanese = /[ぁ-んァ-ヶ一-龠]/.test(query);
+  const origin = isJapanese ? "https://ja.wikipedia.org" : "https://en.wikipedia.org";
+  const url = `${origin}/w/rest.php/v1/search/page?q=${encodeURIComponent(query.slice(0, 200))}&limit=3`;
+  const payload = JSON.parse(await secureFetch(url)) as { pages?: Array<{ key?: string; title?: string; excerpt?: string; description?: string }> };
+  const pages = Array.isArray(payload.pages) ? payload.pages.slice(0, 3) : [];
+  if (pages.length === 0) throw new Error("NO_SEARCH_RESULTS");
+  return pages.map((page) => {
+    const title = typeof page.title === "string" ? page.title : page.key ?? "";
+    const excerpt = typeof page.excerpt === "string" ? page.excerpt.replace(/<[^>]+>/g, " ").trim() : typeof page.description === "string" ? page.description : "";
+    const key = typeof page.key === "string" ? page.key : "";
+    return `- ${title}: ${excerpt.slice(0, 700)}\n  Source: ${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
+  }).join("\n");
 }
 
 export class WebTool implements IAgentTool {
   public name = "WebTool";
-  public description = "Fetches resources or searches information from the web. Input format: { url?: string, query?: string }";
+  public description = "Fetches resources or searches information from an allowlisted public source. Input format: { url?: string, query?: string }";
   public async execute(input: ToolInput): Promise<ToolResult> {
     const { url, query } = input;
     if (!url && !query) return { success: false, output: "", error: "Missing both 'url' and 'query' parameters. Specify at least one." };
     try {
       if (url) return { success: true, output: (await secureFetch(url)).substring(0, 1500) };
-      return { success: true, output: `Search result summary for query "${query}":\n- Standard Clean Architecture systems emphasize decoupling presentation, application, domain, and infrastructure.\n- Verified pattern checks and unit testing suites ensure system state consistency.\n- Decoupled designs are highly maintainable and scalable without introducing external workflow microservices.` };
+      return { success: true, output: `Live public-source search results for query \"${String(query).slice(0, 200)}\":\n${await searchWikipedia(String(query))}` };
     } catch (err) { return { success: false, output: "", error: `Web request failed: ${(err as Error).message}` }; }
   }
 }
