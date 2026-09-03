@@ -1,10 +1,5 @@
-import {
-  ORIGIN_OPENROUTER_FREE_MODEL,
-  type OriginExecutionPlan,
-  type OriginProviderDataPolicy,
-} from "../lib/orchestration/OriginExecutionPolicy.js";
+import { ORIGIN_OPENROUTER_FREE_MODEL, type OriginExecutionPlan, type OriginProviderDataPolicy } from "../lib/orchestration/OriginExecutionPolicy.js";
 import { sanitizePreEgress, sanitizePreEgressPayload } from "../services/securitySanitizer.js";
-
 export interface OriginChatMessage { role: "user" | "ai" | "assistant" | "model"; content: string; }
 export interface OriginProviderExecutionRequest { plan: OriginExecutionPlan; messages: OriginChatMessage[]; systemInstruction: string; }
 export interface OriginProviderRoutingEvidence { requestedModel: string; servedModel: string; strategy: string; provider: string; region?: string; attempt: 1; fallbackUsed: boolean; }
@@ -14,7 +9,6 @@ export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErr
 export class OriginProviderError extends Error { constructor(public readonly code: OriginProviderErrorCode,message:string,public readonly status:number,public readonly retryable:boolean,public readonly retryAfterSeconds?:number,public readonly diagnostic?:OriginProviderDiagnostic){super(message);this.name="OriginProviderError";} }
 export type OriginFetch = typeof fetch;
 const RETRY=[200,500,1000] as const, TIMEOUT=6000, COOLDOWN=15000, MAX_SEGMENTS=3;
-/** Production zero-cost execution is intentionally single-provider. */
 export const ALLOWED_ZERO_COST_PROVIDERS=["openrouter"] as const;
 export type AllowedZeroCostProvider=typeof ALLOWED_ZERO_COST_PROVIDERS[number];
 export const ALLOWED_ZERO_COST_MODELS={openrouter:[ORIGIN_OPENROUTER_FREE_MODEL] as const} as const;
@@ -25,8 +19,8 @@ const allowed=(p:AllowedZeroCostProvider,m:unknown):m is string=>typeof m==="str
 const mark=(p:AllowedZeroCostProvider)=>{cooldown[p]=Date.now()+COOLDOWN;};
 const isCooling=(p:AllowedZeroCostProvider)=>{const t=cooldown[p]??0;if(t<=Date.now()){delete cooldown[p];return false;}return true;};
 function fail(m:string,c:OriginProviderErrorCode="PROVIDER_POLICY_VIOLATION"):never{throw new OriginProviderError(c,m,502,false);}
-function zero(v:unknown,f:string):asserts v is 0{if(typeof v!=="number"||!Number.isFinite(v)||v<0)fail(`${f} を検証できません。`,"PROVIDER_COST_UNVERIFIED");if(Math.abs(v)>Number.EPSILON)fail(`${f} が$0ポリシーを満たしません。","PROVIDER_POLICY_VIOLATION");}
-function nonzeroIfPresent(v:unknown,f:string):void{if(v===undefined||v===null)return;const n=typeof v==="number"?v:Number(v);if(!Number.isFinite(n)||n<0)fail(`${f} を検証できません。`,"PROVIDER_COST_UNVERIFIED");if(n>Number.EPSILON)fail(`${f} が$0ポリシーを満たしません。","PROVIDER_POLICY_VIOLATION");}
+function zero(v:unknown,f:string):asserts v is 0{if(typeof v!=="number"||!Number.isFinite(v)||v<0)fail(`${f} を検証できません。`,"PROVIDER_COST_UNVERIFIED");if(Math.abs(v)>Number.EPSILON)fail(`${f} が$0ポリシーを満たしません。`,"PROVIDER_POLICY_VIOLATION");}
+function nonzeroIfPresent(v:unknown,f:string):void{if(v===undefined||v===null)return;const n=typeof v==="number"?v:Number(v);if(!Number.isFinite(n)||n<0)fail(`${f} を検証できません。`,"PROVIDER_COST_UNVERIFIED");if(n>Number.EPSILON)fail(`${f} が$0ポリシーを満たしません。`,"PROVIDER_POLICY_VIOLATION");}
 function assertBillingMetadata(payload:any):void{
   if(payload?.billing_tier!==undefined&&String(payload.billing_tier).toLowerCase()!=="free")fail("有料の課金ティアが検出されました。","PROVIDER_POLICY_VIOLATION");
   if(payload?.is_free===false)fail("無料モデルではない証跡が検出されました。","PROVIDER_POLICY_VIOLATION");
