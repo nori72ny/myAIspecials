@@ -9,7 +9,7 @@ describe('toolRegistry safety boundary', () => {
   });
 
   it('blocks non-zero cost evidence even when approved', async () => {
-    await expect(executeToolWithPermission('code_interpreter', { code: 'const x = 1' }, { approved: true, costInUSD: 0.01 })).rejects.toThrow('ZERO_COST_BOUNDARY_BLOCKED');
+    await expect(executeToolWithPermission('code_interpreter', { code: 'const x = 1' }, { approved: true, costInUSD: 0.01 })).rejects.toThrow('SAFETY_POLICY_BLOCKED');
   });
 
   it('blocks an explicit safety-policy failure', async () => {
@@ -21,9 +21,7 @@ describe('toolRegistry safety boundary', () => {
   });
 
   it('keeps the network capability fail-closed', async () => {
-    const result = await executeToolWithPermission('web_search_grounding', {}, approved);
-    expect(result.ok).toBe(false);
-    expect(result.message).toContain('Network capability is disabled');
+    await expect(executeToolWithPermission('web_search_grounding', {}, approved)).rejects.toThrow('AGENT_CAPABILITY_DENIED');
   });
 
   it('permits an approved zero-cost side-effect-free operation without executing supplied code', async () => {
