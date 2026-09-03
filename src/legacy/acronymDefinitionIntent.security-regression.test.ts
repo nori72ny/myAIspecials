@@ -18,7 +18,7 @@ const executionResult = {
   routingEvidence: {
     requestedModel: "google/gemma-4-26b-a4b-it:free",
     servedModel: "google/gemma-4-26b-a4b-it:free",
-    strategy: "fixed-free-model" as const,
+    strategy: "adaptive-primary" as const,
     provider: "OpenRouter",
     region: "iad",
     attempt: 1,
