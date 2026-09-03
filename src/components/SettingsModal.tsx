@@ -16,18 +16,6 @@ interface Props {
   openingPointerId?: number;
 }
 
-let lastPointerDownId: number | null = null;
-
-if (typeof window !== 'undefined') {
-  window.addEventListener(
-    'pointerdown',
-    (event) => {
-      lastPointerDownId = event.pointerId;
-    },
-    true,
-  );
-}
-
 export default function SettingsModal({
   isOpen,
   onClose,
@@ -45,15 +33,7 @@ export default function SettingsModal({
   );
 
   useEffect(() => {
-    if (!isOpen) {
-      openingPointerIdRef.current = null;
-      return;
-    }
-    openingPointerIdRef.current =
-      typeof openingPointerId === 'number' ? openingPointerId : lastPointerDownId;
-    // Consume the opener's pointer id so later pointer events using the same
-    // browser pointer id are not accidentally swallowed by the portal guard.
-    lastPointerDownId = null;
+    openingPointerIdRef.current = isOpen && typeof openingPointerId === 'number' ? openingPointerId : null;
   }, [isOpen, openingPointerId]);
 
   if (!isOpen || !portalHost) return null;
