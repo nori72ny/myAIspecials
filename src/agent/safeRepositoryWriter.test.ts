@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  return { ...actual, rename: vi.fn(actual.rename) };
+});
+
 import * as fs from 'node:fs/promises';
 import { writeRepositoryFile, writeRepositoryFileIfUnchanged } from './safeRepositoryWriter';
 
@@ -47,7 +53,8 @@ describe('safeRepositoryWriter', () => {
     await fs.mkdir(outside, { recursive: true });
 
     const originalRename = fs.rename;
-    const renameSpy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+    const renameSpy = vi.mocked(fs.rename);
+    renameSpy.mockImplementation(async (from, to) => {
       if (String(from).includes('.origin-tmp-')) {
         await originalRename(parent, movedParent);
         await symlink(outside, parent, 'dir');
@@ -61,7 +68,8 @@ describe('safeRepositoryWriter', () => {
       await expect(readFile(path.join(outside, 'app.ts'), 'utf8')).rejects.toThrow();
       expect(renameSpy).toHaveBeenCalled();
     } finally {
-      renameSpy.mockRestore();
+      renameSpy.mockReset();
+      renameSpy.mockImplementation(originalRename);
     }
   });
 

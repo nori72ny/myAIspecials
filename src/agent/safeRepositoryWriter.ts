@@ -19,7 +19,8 @@ function assertSafeRelativePath(filePath: string): void {
 
 async function assertNoSymlinkComponents(rootReal: string, target: string): Promise<void> {
   const relative = path.relative(rootReal, target);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
+  if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
+  if (!relative) return;
   let current = rootReal;
   for (const segment of relative.split(path.sep).filter(Boolean)) {
     current = path.join(current, segment);
@@ -37,7 +38,7 @@ async function assertNoSymlinkComponents(rootReal: string, target: string): Prom
 async function openStableParent(rootReal: string, parent: string) {
   if (process.platform !== 'linux') throw new Error('RACE_SAFE_WRITE_UNSUPPORTED');
   const relativeParent = path.relative(rootReal, parent);
-  if (!relativeParent || relativeParent.startsWith('..') || path.isAbsolute(relativeParent)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
+  if (relativeParent.startsWith('..') || path.isAbsolute(relativeParent)) throw new Error('REPOSITORY_BOUNDARY_BLOCKED');
   let currentHandle = await fs.open(rootReal, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
   try {
     for (const segment of relativeParent.split(path.sep).filter(Boolean)) {
@@ -61,19 +62,28 @@ async function writeThroughStableParent(rootReal: string, target: string, conten
   try {
     const stableParent = `/proc/self/fd/${parentHandle.fd}`;
     const stableTarget = path.join(stableParent, path.basename(target));
-    if (expectedPrevious !== undefined) {
-      let targetHandle;
-      try {
-        targetHandle = await fs.open(stableTarget, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+
+    let targetHandle;
+    try {
+      targetHandle = await fs.open(stableTarget, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      if (expectedPrevious !== undefined) {
         const current = await targetHandle.readFile({ encoding: 'utf8' });
         if (current !== expectedPrevious) throw new Error('FILE_CHANGED_SINCE_VALIDATION');
-      } catch (error) {
-        if (error instanceof Error && error.message === 'FILE_CHANGED_SINCE_VALIDATION') throw error;
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') { if (expectedPrevious !== '') throw new Error('FILE_CHANGED_SINCE_VALIDATION'); }
-        else if ((error as NodeJS.ErrnoException).code === 'ELOOP') throw new Error('SYMLINK_PATH_BLOCKED');
-        else throw error;
-      } finally { await targetHandle?.close().catch(() => undefined); }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'FILE_CHANGED_SINCE_VALIDATION') throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        if (expectedPrevious !== undefined && expectedPrevious !== '') throw new Error('FILE_CHANGED_SINCE_VALIDATION');
+      } else if (code === 'ELOOP') {
+        throw new Error('SYMLINK_PATH_BLOCKED');
+      } else {
+        throw error;
+      }
+    } finally {
+      await targetHandle?.close().catch(() => undefined);
     }
+
     const tempName = `.${path.basename(target)}.origin-tmp-${process.pid}-${Date.now()}`;
     const temp = path.join(stableParent, tempName);
     try {

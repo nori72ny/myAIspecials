@@ -39,7 +39,16 @@ jobs:
         run: npm run typecheck
 
       - name: Run Core Unit Tests
-        run: npm run test
+        run: npm run test -- --reporter=junit --outputFile=vitest-junit.xml
+
+      - name: Preserve Core Test Diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: origin-core-test-results
+          path: vitest-junit.xml
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Run Integration API Tests
         run: npm run test:api

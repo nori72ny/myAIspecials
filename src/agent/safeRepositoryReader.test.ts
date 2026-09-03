@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  return { ...actual, readdir: vi.fn(actual.readdir) };
+});
+
 import * as fs from 'node:fs/promises';
 import { listRepository, readRepositoryFile } from './safeRepositoryReader';
 
@@ -33,7 +39,6 @@ describe('safeRepositoryReader', () => {
     const outside = await mkdtemp(path.join(tmpdir(), 'origin-agent-outside-'));
     await writeFile(path.join(outside, 'secret.txt'), 'outside');
     await symlink(outside, path.join(root, 'link'), 'dir');
-
     await expect(readRepositoryFile(root, 'link/secret.txt')).rejects.toThrow('SYMLINK_PATH_BLOCKED');
     const entries = await listRepository(root);
     expect(entries.some((entry) => entry.path.startsWith('link'))).toBe(false);
@@ -50,12 +55,11 @@ describe('safeRepositoryReader', () => {
 
     const originalReaddir = fs.readdir;
     let replaced = false;
-    const readdirSpy = vi.spyOn(fs, 'readdir').mockImplementation(async (directory, options) => {
+    const readdirSpy = vi.mocked(fs.readdir);
+    readdirSpy.mockImplementation(async (directory, options) => {
       const result = await originalReaddir(directory as string, options as never);
       if (!replaced && String(directory).startsWith('/proc/self/fd/')) {
         replaced = true;
-        // The stable root descriptor has already been opened. Replace the
-        // pathname after enumeration; child traversal must follow the stable fd.
         await fs.rename(source, movedSource);
         await symlink(outside, source, 'dir');
       }
@@ -69,7 +73,8 @@ describe('safeRepositoryReader', () => {
       expect(await readFile(path.join(movedSource, 'app.ts'), 'utf8')).toBe('inside');
       expect(await readFile(path.join(source, 'app.ts'), 'utf8')).toBe('outside');
     } finally {
-      readdirSpy.mockRestore();
+      readdirSpy.mockReset();
+      readdirSpy.mockImplementation(originalReaddir);
     }
   });
 });
