@@ -23,8 +23,8 @@ const plan: OriginExecutionPlan = {
   },
   modelEvidence: {
     providerId: ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID,
-    verifiedAt: "2026-08-11T00:00:00.000Z",
-    reviewAfter: "2026-08-18T23:59:59.999Z",
+    verifiedAt: "2026-09-03T00:00:00.000Z",
+    reviewAfter: "2026-09-30T23:59:59.999Z",
     sourceUrl: "https://ai.google.dev/gemini-api/docs",
   },
 };
