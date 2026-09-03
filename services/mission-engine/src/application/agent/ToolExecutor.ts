@@ -1,4 +1,4 @@
-import { RuntimeMetrics } from "./RuntimeMetrics";
+import { RuntimeMetrics } from "./RuntimeMetrics.js";
 import https from "https";
 import http from "http";
 import dns from "dns";
