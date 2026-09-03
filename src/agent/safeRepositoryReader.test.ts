@@ -53,15 +53,17 @@ describe('safeRepositoryReader', () => {
     await writeFile(path.join(source, 'app.ts'), 'inside');
     await writeFile(path.join(outside, 'app.ts'), 'outside');
 
-    const originalReaddir = fs.readdir;
+    const actualFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    const originalReaddir = actualFs.readdir;
     let replaced = false;
     const readdirSpy = vi.mocked(fs.readdir);
     readdirSpy.mockImplementation(async (directory, options) => {
       const result = await originalReaddir(directory as string, options as never);
-      if (!replaced && String(directory).startsWith('/proc/self/fd/')) {
+      // Trigger the race only after the stable src directory has been opened.
+      if (!replaced && String(directory).includes('/proc/self/fd/')) {
         replaced = true;
-        await fs.rename(source, movedSource);
-        await symlink(outside, source, 'dir');
+        await actualFs.rename(source, movedSource);
+        await actualFs.symlink(outside, source, 'dir');
       }
       return result as never;
     });
