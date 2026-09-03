@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const secureFetch = vi.fn();
+const { secureFetch } = vi.hoisted(() => ({ secureFetch: vi.fn() }));
 vi.mock("../../services/mission-engine/src/application/agent/ToolExecutor.js", () => ({ secureFetch }));
 
 import { researchCurrentInformation } from "./originResearchSource.js";
