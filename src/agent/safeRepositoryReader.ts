@@ -117,8 +117,12 @@ export async function listRepository(root: string): Promise<RepositoryEntry[]> {
       const relative = relativeDirectory ? `${relativeDirectory}/${child.name}` : child.name;
       if (blocked(relative)) continue;
       const isDirectory = child.isDirectory();
-      entries.push({ path: relative, type: isDirectory ? 'directory' : 'file' });
-      if (!isDirectory || depth >= MAX_DEPTH) continue;
+
+      if (!isDirectory) {
+        entries.push({ path: relative, type: 'file' });
+        continue;
+      }
+      if (depth >= MAX_DEPTH) continue;
 
       const childPath = path.join(stableDirectory, child.name);
       let childHandle;
@@ -130,6 +134,7 @@ export async function listRepository(root: string): Promise<RepositoryEntry[]> {
         throw error;
       }
       try {
+        entries.push({ path: relative, type: 'directory' });
         await walk(childHandle, relative, depth + 1);
       } finally {
         await childHandle.close();
