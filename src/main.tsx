@@ -13,6 +13,7 @@ import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import './index.css';
 import './ultra-optics.css';
+import './audit-2026-priority.css';
 import './origin-top-ui.css';
 
 registerOriginServiceWorker();
