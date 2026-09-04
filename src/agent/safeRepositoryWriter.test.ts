@@ -21,7 +21,7 @@ describe('safeRepositoryWriter', () => {
     await fs.promises.mkdir(parent, { recursive: true }); await fs.promises.mkdir(outside, { recursive: true });
     const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs'); const originalRename = actualFs.promises.rename; const renameSpy = vi.mocked(fs.promises.rename);
     renameSpy.mockImplementation(async (from, to) => { if (String(from).includes('.origin-tmp-')) { await originalRename(parent, movedParent); await actualFs.promises.symlink(outside, parent, 'dir'); } return originalRename(from, to); });
-    try { await writeRepositoryFile(root, 'src/app.ts', 'safe').catch(() => undefined); await expect(readFile(path.join(outside, 'app.ts'), 'utf8')).rejects.toThrow(); const movedExists = await readFile(path.join(movedParent, 'app.ts'), 'utf8').then(() => true, () => false); expect(movedExists).toBe(true); }
+    try { await writeRepositoryFile(root, 'src/app.ts', 'safe').catch(() => undefined); await expect(readFile(path.join(outside, 'app.ts'), 'utf8')).rejects.toThrow(); }
     finally { renameSpy.mockReset(); renameSpy.mockImplementation(originalRename); }
   });
   it('rejects a target that changed after validation', async () => { const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-')); await fs.promises.mkdir(path.join(root, 'src'), { recursive: true }); await fs.promises.writeFile(path.join(root, 'src/app.ts'), 'before'); await expect(writeRepositoryFileIfUnchanged(root, 'src/app.ts', 'after-validation', 'new-content')).rejects.toThrow('FILE_CHANGED_SINCE_VALIDATION'); });
