@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { assertOriginZeroCostExecutionResult, executeOriginProvider, OriginProviderError, type OriginFetch } from "./originProviderClient";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assertOriginZeroCostExecutionResult, executeOriginProvider, OriginProviderError, resetOriginProviderCooldownForTests, type OriginFetch } from "./originProviderClient";
 import { ORIGIN_OPENROUTER_FREE_MODEL, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 
 const plan: OriginExecutionPlan = {
@@ -36,6 +36,8 @@ const openRouterPayload = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("originProviderClient security regressions", () => {
+  beforeEach(() => resetOriginProviderCooldownForTests());
+
   it("fails closed on upstream 402 and never falls through", async () => {
     const fetchMock = vi.fn(async () => new Response("payment required: secret", { status: 402 }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
