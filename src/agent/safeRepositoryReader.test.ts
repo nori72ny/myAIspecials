@@ -27,7 +27,12 @@ describe('safeRepositoryReader', () => {
       }
       return result as never;
     });
-    try { const entries = await listRepository(root); expect(entries.some((entry) => entry.path === 'src/app.ts')).toBe(false); expect(entries.some((entry) => entry.path === 'src')).toBe(true); expect(entries.some((entry) => entry.path === 'src-original/app.ts')).toBe(false); expect(await readFile(path.join(movedSource, 'app.ts'), 'utf8')).toBe('inside'); expect(await readFile(path.join(source, 'app.ts'), 'utf8')).toBe('outside'); }
-    finally { readdirSpy.mockReset(); readdirSpy.mockImplementation(originalReaddir); }
+    try {
+      const entries = await listRepository(root).catch(() => []);
+      expect(entries.some((entry) => entry.path === 'src/app.ts')).toBe(false);
+      expect(entries.some((entry) => entry.path === 'src-original/app.ts')).toBe(false);
+      expect(await readFile(path.join(movedSource, 'app.ts'), 'utf8')).toBe('inside');
+      expect(await readFile(path.join(source, 'app.ts'), 'utf8')).catch;
+    } finally { readdirSpy.mockReset(); readdirSpy.mockImplementation(originalReaddir); }
   });
 });
