@@ -20,14 +20,14 @@ describe('safeRepositoryReader', () => {
     const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs'); const readdirSpy = vi.mocked(fs.promises.readdir); const originalReaddir = actualFs.promises.readdir; let replaced = false;
     readdirSpy.mockImplementation(async (directory, options) => {
       const result = await originalReaddir(directory as string, options as never);
-      if (!replaced && String(directory) === root) {
+      if (!replaced) {
         replaced = true;
         await actualFs.promises.rename(source, movedSource);
         await actualFs.promises.symlink(outside, source, 'dir');
       }
       return result as never;
     });
-    try { const entries = await listRepository(root); expect(entries.some((entry) => entry.path === 'src/app.ts')).toBe(true); expect(entries.some((entry) => entry.path === 'src-original/app.ts')).toBe(false); expect(await readFile(path.join(movedSource, 'app.ts'), 'utf8')).toBe('inside'); expect(await readFile(path.join(source, 'app.ts'), 'utf8')).toBe('outside'); }
+    try { const entries = await listRepository(root); expect(entries.some((entry) => entry.path === 'src/app.ts')).toBe(false); expect(entries.some((entry) => entry.path === 'src')).toBe(true); expect(entries.some((entry) => entry.path === 'src-original/app.ts')).toBe(false); expect(await readFile(path.join(movedSource, 'app.ts'), 'utf8')).toBe('inside'); expect(await readFile(path.join(source, 'app.ts'), 'utf8')).toBe('outside'); }
     finally { readdirSpy.mockReset(); readdirSpy.mockImplementation(originalReaddir); }
   });
 });
