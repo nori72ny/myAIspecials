@@ -90,7 +90,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-home-request').fill('混雑時の安全案内を確認');
     await page.getByTestId('start-request-button').click();
 
-    await expect(page.getByText('現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）')).toBeVisible();
+    await expect(page.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeVisible();
     await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
     expect(attempts).toBe(1);
   });
