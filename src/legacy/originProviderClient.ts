@@ -14,14 +14,14 @@ export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErr
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
   switch (code) {
-    case "PROVIDER_NOT_CONFIGURED": return "利用可能な無料AIを設定できません。";
+    case "PROVIDER_NOT_CONFIGURED": return "利用可能な無料AIが設定されていません。";
     case "PROVIDER_RATE_LIMITED": return "無料AIの利用上限に達しました。";
-    case "PROVIDER_TIMEOUT": return "無料AIの応答に時間がかかっています。";
+    case "PROVIDER_TIMEOUT": return "無料AIがタイムアウトしました。";
     case "PROVIDER_UNAVAILABLE": return "無料AIを現在利用できません。";
     case "PROVIDER_INVALID_RESPONSE": return "無料AIから有効な応答を取得できません。";
     case "PROVIDER_COST_UNVERIFIED": return "無料実行の費用を確認できません。";
-    case "PROVIDER_ROUTING_UNVERIFIED": return "許可された無料AI経路を確認できません。";
-    case "PROVIDER_POLICY_VIOLATION": return "無料実行ポリシーを満たさないため処理を停止しました。";
+    case "PROVIDER_ROUTING_UNVERIFIED": return "許可された無料Provider/Modelの証跡を確認できません。";
+    case "PROVIDER_POLICY_VIOLATION": return "0ドル固定ポリシーに適合しない実行計画です。";
     case "PROVIDER_INTERNAL_ERROR": return "無料AIとの通信に失敗しました。";
     default: return "無料AIを現在利用できません。";
   }
