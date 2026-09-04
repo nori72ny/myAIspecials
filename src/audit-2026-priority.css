@@ -1,0 +1,27 @@
+/* 2026-09 audit: keep the active dark accent within WCAG AA for normal text. */
+:root[data-theme="dark"],
+.dark {
+  --accent-primary-v2: #4f46e5;
+  --accent-hover: #3730a3;
+  --accent-glow-v2: rgba(79, 70, 229, 0.25);
+  --accent-soft: rgba(79, 70, 229, 0.14);
+  --accent-border: rgba(55, 48, 163, 0.35);
+  --text-accent-v2: #4f46e5;
+  --text-placeholder: #a1a1aa;
+}
+
+:root[data-theme="dark"] .origin-primary-button,
+.dark .origin-primary-button {
+  background: linear-gradient(180deg, #4f46e5 0%, #4338ca 100%);
+}
+
+:root[data-theme="dark"] .origin-primary-button:hover:not(:disabled),
+.dark .origin-primary-button:hover:not(:disabled) {
+  background: #3730a3;
+}
+
+:root[data-theme="dark"] .origin-input::placeholder,
+.dark .origin-input::placeholder {
+  color: #a1a1aa;
+  opacity: 1;
+}
