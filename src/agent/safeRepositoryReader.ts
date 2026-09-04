@@ -53,6 +53,8 @@ async function openStableDirectory(rootReal: string, relativePath: string) {
   try {
     for (const segment of relativePath.split(path.sep).filter(Boolean)) {
       const childPath = path.join(`/proc/self/fd/${directoryHandle.fd}`, segment);
+      const candidateReal = await fs.realpath(childPath);
+      if (!isInside(rootReal, candidateReal)) throw new Error('PATH_OUTSIDE_REPOSITORY');
       const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
       const resolved = await fs.realpath(`/proc/self/fd/${nextHandle.fd}`);
       if (!isInside(rootReal, resolved)) {
@@ -86,6 +88,8 @@ async function openStableFile(rootReal: string, absolute: string) {
   try {
     for (const segment of segments) {
       const childPath = path.join(`/proc/self/fd/${directoryHandle.fd}`, segment);
+      const candidateReal = await fs.realpath(childPath);
+      if (!isInside(rootReal, candidateReal)) throw new Error('PATH_OUTSIDE_REPOSITORY');
       const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
       const resolved = await fs.realpath(`/proc/self/fd/${nextHandle.fd}`);
       if (!isInside(rootReal, resolved)) {
@@ -101,6 +105,8 @@ async function openStableFile(rootReal: string, absolute: string) {
       }
     }
     const stableFile = path.join(`/proc/self/fd/${directoryHandle.fd}`, fileName);
+    const candidateFileReal = await fs.realpath(stableFile);
+    if (!isInside(rootReal, candidateFileReal)) throw new Error('PATH_OUTSIDE_REPOSITORY');
     const fileHandle = await fs.open(stableFile, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     const resolvedFile = await fs.realpath(`/proc/self/fd/${fileHandle.fd}`);
     if (!isInside(rootReal, resolvedFile)) {
@@ -147,6 +153,8 @@ export async function listRepository(root: string): Promise<RepositoryEntry[]> {
       const childPath = path.join(stableDirectory, child.name);
       let childHandle;
       try {
+        const candidateReal = await fs.realpath(childPath);
+        if (!isInside(rootReal, candidateReal)) continue;
         childHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
         const resolvedChild = await fs.realpath(`/proc/self/fd/${childHandle.fd}`);
         if (!isInside(rootReal, resolvedChild)) {
