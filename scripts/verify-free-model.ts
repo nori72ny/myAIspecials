@@ -2,7 +2,7 @@ import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const ORIGIN_VERIFIED_FREE_MODEL = 'google/gemma-4-26b-a4b-it:free' as const;
+export const ORIGIN_VERIFIED_FREE_MODEL = 'google/gemma-4-31b-it:free' as const;
 export const OPENROUTER_MODELS_API = 'https://openrouter.ai/api/v1/models' as const;
 const DEFAULT_REVIEW_DAYS = 10;
 const DEFAULT_REFRESH_THRESHOLD_DAYS = 3;

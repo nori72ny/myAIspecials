@@ -11,7 +11,7 @@ describe('verify-free-model', () => {
   it('accepts only the exact fixed model with zero prompt and completion pricing', () => {
     expect(verifyFreeModelPayload(zeroCostPayload)).toEqual(zeroCostPayload.data[0]);
     expect(() => verifyFreeModelPayload({ data: [{ id: ORIGIN_VERIFIED_FREE_MODEL, pricing: { prompt: '0.000001', completion: '0' } }] })).toThrow('$0.00');
-    expect(() => verifyFreeModelPayload({ data: [{ id: 'google/gemma-4-26b-a4b-it', pricing: { prompt: '0', completion: '0' } }] })).toThrow('exactly one');
+    expect(() => verifyFreeModelPayload({ data: [{ id: 'google/gemma-4-31b-it', pricing: { prompt: '0', completion: '0' } }] })).toThrow('exactly one');
     expect(() => verifyFreeModelPayload({ data: [{ id: ORIGIN_VERIFIED_FREE_MODEL, pricing: { prompt: '', completion: '0' } }] })).toThrow('$0.00');
   });
 
