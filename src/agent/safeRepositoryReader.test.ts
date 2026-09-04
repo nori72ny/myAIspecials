@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, symlink, writeFile, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -32,7 +32,7 @@ describe('safeRepositoryReader', () => {
       expect(entries.some((entry) => entry.path === 'src/app.ts')).toBe(false);
       expect(entries.some((entry) => entry.path === 'src-original/app.ts')).toBe(false);
       expect(await readFile(path.join(movedSource, 'app.ts'), 'utf8')).toBe('inside');
-      expect(await readFile(path.join(source, 'app.ts'), 'utf8')).catch;
+      expect((await lstat(source)).isSymbolicLink()).toBe(true);
     } finally { readdirSpy.mockReset(); readdirSpy.mockImplementation(originalReaddir); }
   });
 });
