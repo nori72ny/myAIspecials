@@ -1,0 +1,55 @@
+name: one-time-v1-message-fix
+
+on:
+  push:
+    branches: [fix/e2e-zero-cost-message-and-v1-smoke]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/e2e-zero-cost-message-and-v1-smoke
+          fetch-depth: 0
+      - name: Align zero-cost busy message
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          replacements = {
+              'src/App.tsx': [
+                  ('const MODEL_BUSY_MESSAGE = "現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）";', 'const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";'),
+                  ("const MODEL_BUSY_MESSAGE_EN = 'The model is currently busy. Please try again in a few dozen seconds (the $0.00 cost is still maintained).';", "const MODEL_BUSY_MESSAGE_EN = 'Free AI capacity is temporarily busy. ORIGIN is retrying within the $0 policy, but it could not safely return an answer this time. Please try again in a little while.';"),
+              ],
+              'src/App.test.tsx': [
+                  ("content: '現在モデルが混雑しています。',", "content: '現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。',"),
+                  ("expect(screen.getByText('現在モデルが混雑しています。')).toBeTruthy();", "expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy();"),
+              ],
+              'tests/e2e/origin-personal-navigation.spec.ts': [
+                  ("await expect(page.getByText('現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）')).toBeVisible();", "await expect(page.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeVisible();"),
+              ],
+          }
+          for name, pairs in replacements.items():
+              p = Path(name)
+              s = p.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  if old not in s:
+                      raise SystemExit(f'missing expected text in {name}: {old}')
+                  s = s.replace(old, new)
+              p.write_text(s, encoding='utf-8')
+          PY
+          grep -R "現在モデルが混雑しています" src/App.tsx src/App.test.tsx tests/e2e/origin-personal-navigation.spec.ts && exit 1 || true
+      - name: Remove one-time workflow
+        run: rm .github/workflows/one-time-v1-message-fix.yml
+      - name: Commit consistency fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/App.tsx src/App.test.tsx tests/e2e/origin-personal-navigation.spec.ts .github/workflows/one-time-v1-message-fix.yml
+          git commit -m 'fix: align V1 busy message with zero-cost backend' || exit 0
+          git push origin HEAD:fix/e2e-zero-cost-message-and-v1-smoke
