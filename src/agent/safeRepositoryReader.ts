@@ -19,6 +19,11 @@ function safeRelative(root: string, requested: string): string {
   return absolute;
 }
 
+function isInside(rootReal: string, candidate: string): boolean {
+  const relative = path.relative(rootReal, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
 async function assertNoSymlinkComponents(rootReal: string, target: string): Promise<void> {
   const relative = path.relative(rootReal, target);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('PATH_OUTSIDE_REPOSITORY');
@@ -49,6 +54,11 @@ async function openStableDirectory(rootReal: string, relativePath: string) {
     for (const segment of relativePath.split(path.sep).filter(Boolean)) {
       const childPath = path.join(`/proc/self/fd/${directoryHandle.fd}`, segment);
       const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+      const resolved = await fs.realpath(`/proc/self/fd/${nextHandle.fd}`);
+      if (!isInside(rootReal, resolved)) {
+        await nextHandle.close();
+        throw new Error('PATH_OUTSIDE_REPOSITORY');
+      }
       try {
         await directoryHandle.close();
         directoryHandle = nextHandle;
@@ -77,6 +87,11 @@ async function openStableFile(rootReal: string, absolute: string) {
     for (const segment of segments) {
       const childPath = path.join(`/proc/self/fd/${directoryHandle.fd}`, segment);
       const nextHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+      const resolved = await fs.realpath(`/proc/self/fd/${nextHandle.fd}`);
+      if (!isInside(rootReal, resolved)) {
+        await nextHandle.close();
+        throw new Error('PATH_OUTSIDE_REPOSITORY');
+      }
       try {
         await directoryHandle.close();
         directoryHandle = nextHandle;
@@ -87,6 +102,11 @@ async function openStableFile(rootReal: string, absolute: string) {
     }
     const stableFile = path.join(`/proc/self/fd/${directoryHandle.fd}`, fileName);
     const fileHandle = await fs.open(stableFile, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    const resolvedFile = await fs.realpath(`/proc/self/fd/${fileHandle.fd}`);
+    if (!isInside(rootReal, resolvedFile)) {
+      await fileHandle.close();
+      throw new Error('PATH_OUTSIDE_REPOSITORY');
+    }
     try {
       await directoryHandle.close();
       return fileHandle;
@@ -128,6 +148,11 @@ export async function listRepository(root: string): Promise<RepositoryEntry[]> {
       let childHandle;
       try {
         childHandle = await fs.open(childPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+        const resolvedChild = await fs.realpath(`/proc/self/fd/${childHandle.fd}`);
+        if (!isInside(rootReal, resolvedChild)) {
+          await childHandle.close();
+          continue;
+        }
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
         if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP') continue;
