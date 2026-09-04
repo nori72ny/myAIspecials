@@ -2,13 +2,14 @@ import { createHash } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 
 const CHAT_WINDOW_MS = 60_000;
-const CHAT_REQUEST_LIMIT = 10;
+const CHAT_REQUEST_LIMIT = 60;
+const CHAT_BURST_CAPACITY = 8;
 const CHAT_CONCURRENCY_LIMIT = 2;
 const MAX_RATE_BUCKETS = 10_000;
 
 interface RateBucket {
-  count: number;
-  resetAt: number;
+  tokens: number;
+  lastRefillAt: number;
   active: number;
 }
 
@@ -135,19 +136,27 @@ export function createOriginChatRateLimiter(now: () => number = Date.now) {
     const currentTime = now();
     let bucket = buckets.get(key);
 
-    if (!bucket || currentTime >= bucket.resetAt) {
-      bucket = { count: 0, resetAt: currentTime + CHAT_WINDOW_MS, active: 0 };
+    if (!bucket) {
+      bucket = { tokens: CHAT_BURST_CAPACITY, lastRefillAt: currentTime, active: 0 };
       buckets.set(key, bucket);
     }
 
-    if (bucket.count >= CHAT_REQUEST_LIMIT) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - currentTime) / 1_000));
+    const elapsedMs = Math.max(0, currentTime - bucket.lastRefillAt);
+    const refill = (elapsedMs / CHAT_WINDOW_MS) * CHAT_REQUEST_LIMIT;
+    bucket.tokens = Math.min(CHAT_BURST_CAPACITY, bucket.tokens + refill);
+    bucket.lastRefillAt = currentTime;
+
+    if (bucket.tokens < 1) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil(((1 - bucket.tokens) / CHAT_REQUEST_LIMIT) * CHAT_WINDOW_MS / 1_000),
+      );
       res.setHeader("Retry-After", String(retryAfterSeconds));
       jsonError(
         res,
         429,
         "CHAT_RATE_LIMITED",
-        "短時間の依頼回数が上限に達しました。少し待ってから再度お試しください。",
+        "短時間の依頼が集中しています。少し待ってから再度お試しください。",
         true,
       );
       return;
@@ -165,7 +174,7 @@ export function createOriginChatRateLimiter(now: () => number = Date.now) {
       return;
     }
 
-    bucket.count += 1;
+    bucket.tokens -= 1;
     bucket.active += 1;
 
     let released = false;
