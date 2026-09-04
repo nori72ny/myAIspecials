@@ -127,8 +127,14 @@ async function openrouter(request: OriginProviderExecutionRequest, key: string, 
   }
   throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答を完了できませんでした。", 502, true);
 }
-async function requestFetch(fetchImpl: OriginFetch, request: OriginProviderExecutionRequest, key: string, messages: ReturnType<typeof msgs>): Promise<Response> { return requestWithRetry(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" }, body: JSON.stringify(sanitizePreEgressPayload({ model: request.plan.modelId, messages, max_tokens: originCompletionTokenBudget(request.plan.taskType), temperature: 0.2, top_p: 0.9, usage: { include: true }, provider: { sort: "throughput", allow_fallbacks: false, data_collection: "deny" } })) }); }
-async function requestWithRetry(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit): Promise<Response> { return request(fetchImpl, input, init); }
+async function requestFetch(fetchImpl: OriginFetch, request: OriginProviderExecutionRequest, key: string, messages: ReturnType<typeof msgs>): Promise<Response> { return requestWithRetry(fetchImpl, request, key, messages); }
+async function requestWithRetry(fetchImpl: OriginFetch, request: OriginProviderExecutionRequest, key: string, messages: ReturnType<typeof msgs>): Promise<Response> {
+  return request(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" },
+    body: JSON.stringify(sanitizePreEgressPayload({ model: request.plan.modelId, messages, max_tokens: originCompletionTokenBudget(request.plan.taskType), temperature: 0.2, top_p: 0.9, usage: { include: true }, provider: { allow_fallbacks: false, data_collection: "deny" } })),
+  });
+}
 export async function executeOriginProvider(providerRequest: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv = process.env, fetchImpl: OriginFetch = fetch): Promise<OriginProviderExecutionResult> {
   validate(providerRequest.plan); const primary = pid(providerRequest.plan.providerId); if (!primary) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "許可されていないProviderです。", 400, false);
   if (isCooling(primary)) throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true);
