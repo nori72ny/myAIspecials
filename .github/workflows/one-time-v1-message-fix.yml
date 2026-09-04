@@ -21,29 +21,28 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          replacements = {
-              'src/App.tsx': [
-                  ('const MODEL_BUSY_MESSAGE = "現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）";', 'const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";'),
-                  ("const MODEL_BUSY_MESSAGE_EN = 'The model is currently busy. Please try again in a few dozen seconds (the $0.00 cost is still maintained).';", "const MODEL_BUSY_MESSAGE_EN = 'Free AI capacity is temporarily busy. ORIGIN is retrying within the $0 policy, but it could not safely return an answer this time. Please try again in a little while.';"),
-              ],
-              'src/App.test.tsx': [
-                  ("content: '現在モデルが混雑しています。',", "content: '現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。',"),
-                  ("expect(screen.getByText('現在モデルが混雑しています。')).toBeTruthy();", "expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy();"),
-              ],
-              'tests/e2e/origin-personal-navigation.spec.ts': [
-                  ("await expect(page.getByText('現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）')).toBeVisible();", "await expect(page.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeVisible();"),
-              ],
-          }
-          for name, pairs in replacements.items():
-              p = Path(name)
+          files = [Path('src/App.tsx'), Path('src/App.test.tsx'), Path('tests/e2e/origin-personal-navigation.spec.ts')]
+          old_long = '現在モデルが混雑しています。数十秒後に再試行してください（費用 $0.00 は維持されています）'
+          old_short = '現在モデルが混雑しています。'
+          new_ja = '現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。'
+          old_en = 'The model is currently busy. Please try again in a few dozen seconds (the $0.00 cost is still maintained).'
+          new_en = 'Free AI capacity is temporarily busy. ORIGIN is retrying within the $0 policy, but it could not safely return an answer this time. Please try again in a little while.'
+          for p in files:
               s = p.read_text(encoding='utf-8')
-              for old, new in pairs:
-                  if old not in s:
-                      raise SystemExit(f'missing expected text in {name}: {old}')
-                  s = s.replace(old, new)
+              s = s.replace(old_long, new_ja).replace(old_en, new_en)
+              if p.name != 'App.tsx':
+                  s = s.replace(old_short, new_ja)
               p.write_text(s, encoding='utf-8')
           PY
-          grep -R "現在モデルが混雑しています" src/App.tsx src/App.test.tsx tests/e2e/origin-personal-navigation.spec.ts && exit 1 || true
+          if grep -R "現在モデルが混雑しています\|The model is currently busy" src/App.tsx src/App.test.tsx tests/e2e/origin-personal-navigation.spec.ts; then
+            echo 'stale busy message remains' >&2
+            exit 1
+          fi
+      - name: Run focused regression tests
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm exec vitest run src/App.test.tsx tests/e2e/origin-personal-navigation.spec.ts
       - name: Remove one-time workflow
         run: rm .github/workflows/one-time-v1-message-fix.yml
       - name: Commit consistency fix
@@ -51,5 +50,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/App.tsx src/App.test.tsx tests/e2e/origin-personal-navigation.spec.ts .github/workflows/one-time-v1-message-fix.yml
-          git commit -m 'fix: align V1 busy message with zero-cost backend' || exit 0
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'fix: align V1 busy message with zero-cost backend'
           git push origin HEAD:fix/e2e-zero-cost-message-and-v1-smoke
