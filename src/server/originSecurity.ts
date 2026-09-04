@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 
 const CHAT_WINDOW_MS = 60_000;
 const CHAT_REQUEST_LIMIT = 60;
-const CHAT_BURST_CAPACITY = 8;
+const CHAT_BURST_CAPACITY = 10;
 const CHAT_CONCURRENCY_LIMIT = 2;
 const MAX_RATE_BUCKETS = 10_000;
 
