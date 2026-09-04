@@ -114,17 +114,19 @@ describe("createOriginChatRouter", () => {
       { role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" },
     ] });
     expect(response.status).toBe(200);
-    expect(executeMock).toHaveBeenCalledWith(expect.objectContaining({ messages: [
+    const call = executeMock.mock.calls[0]?.[0];
+    expect(call?.messages).toEqual([
       { role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" },
-    ] }));
+    ]);
   });
 
   it("sanitizes non-retryable provider failures", async () => {
-    executeMock.mockRejectedValueOnce(new OriginProviderError("PROVIDER_UNAVAILABLE", "内部詳細", 503, false, undefined, { upstreamStatus: 403 }));
+    executeMock.mockRejectedValueOnce(new OriginProviderError("PROVIDER_POLICY_VIOLATION", "内部詳細", 400, false, undefined, { upstreamStatus: 402 }));
     const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "文章を作ってください" }] });
-    expect(response.status).toBe(503);
-    expect(response.body).toEqual(expect.objectContaining({ code: "PROVIDER_UNAVAILABLE", retryable: false, requestId: "origin-test-trace", diagnostic: { upstreamStatus: 403 } }));
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual(expect.objectContaining({ code: "PROVIDER_POLICY_VIOLATION", retryable: false, requestId: "origin-test-trace", diagnostic: { upstreamStatus: 402 } }));
     expect(response.body.message).not.toContain("内部詳細");
+    expect(executeMock).toHaveBeenCalledTimes(1);
   });
 
   it("retries one transient provider failure", async () => {
@@ -134,12 +136,13 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).toHaveBeenCalledTimes(2);
   });
 
-  it("fails closed after transient retries are exhausted", async () => {
+  it("fails closed into the safe waiting response after transient retries are exhausted", async () => {
     executeMock.mockRejectedValue(new OriginProviderError("PROVIDER_TIMEOUT", "upstream timeout", 504, true, undefined, { transportFailure: "timeout" }));
     const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "短い案内文を整えてください" }] });
-    expect(response.status).toBe(504);
-    expect(response.body.retryable).toBe(true);
-    expect(executeMock).toHaveBeenCalledTimes(2);
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("現在無料APIの利用が一時的に集中しています");
+    expect(response.body.routing.verificationStatus).toBe("not-required");
+    expect(executeMock).toHaveBeenCalledTimes(4);
   });
 
   it("does not use Gemini when no explicitly free provider is configured", async () => {
