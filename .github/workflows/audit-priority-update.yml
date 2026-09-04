@@ -1,0 +1,103 @@
+name: audit-priority-update
+
+on:
+  push:
+    branches:
+      - fix/audit-2026-09-priority
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply audit priority changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # 1) User-level token bucket: 8-request burst, refills at 60 requests/min.
+          p = Path('src/server/originSecurity.ts')
+          s = p.read_text()
+          s = s.replace('const CHAT_WINDOW_MS = 60_000;\nconst CHAT_REQUEST_LIMIT = 10;', 'const CHAT_WINDOW_MS = 60_000;\nconst CHAT_REQUEST_LIMIT = 60;\nconst CHAT_BURST_CAPACITY = 8;')
+          s = s.replace('interface RateBucket {\n  count: number;\n  resetAt: number;\n  active: number;\n}', 'interface RateBucket {\n  tokens: number;\n  lastRefillAt: number;\n  active: number;\n}')
+          s = s.replace('bucket = { count: 0, resetAt: currentTime + CHAT_WINDOW_MS, active: 0 };', 'bucket = { tokens: CHAT_BURST_CAPACITY, lastRefillAt: currentTime, active: 0 };')
+          old = '''    if (bucket.count >= CHAT_REQUEST_LIMIT) {\n      const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - currentTime) / 1_000));\n      res.setHeader("Retry-After", String(retryAfterSeconds));\n      jsonError(\n        res,\n        429,\n        "CHAT_RATE_LIMITED",\n        "短時間の依頼回数が上限に達しました。少し待ってから再度お試しください。",\n        true,\n      );\n      return;\n    }\n'''
+          new = '''    const elapsedMs = Math.max(0, currentTime - bucket.lastRefillAt);\n    const refill = (elapsedMs / CHAT_WINDOW_MS) * CHAT_REQUEST_LIMIT;\n    bucket.tokens = Math.min(CHAT_BURST_CAPACITY, bucket.tokens + refill);\n    bucket.lastRefillAt = currentTime;\n\n    if (bucket.tokens < 1) {\n      const retryAfterSeconds = Math.max(1, Math.ceil(((1 - bucket.tokens) / CHAT_REQUEST_LIMIT) * CHAT_WINDOW_MS / 1_000));\n      res.setHeader("Retry-After", String(retryAfterSeconds));\n      jsonError(\n        res,\n        429,\n        "CHAT_RATE_LIMITED",\n        "短時間の依頼が集中しています。少し待ってから再度お試しください。",\n        true,\n      );\n      return;\n    }\n'''
+          if old not in s:
+              raise SystemExit('rate limiter block not found')
+          s = s.replace(old, new)
+          s = s.replace('    bucket.count += 1;\n    bucket.active += 1;', '    bucket.tokens -= 1;\n    bucket.active += 1;')
+          p.write_text(s)
+
+          # 2) Align the regression with the new burst semantics.
+          p = Path('src/server/createOriginApp.test.ts')
+          s = p.read_text()
+          s = s.replace('for (let attempt = 0; attempt < 10; attempt += 1)', 'for (let attempt = 0; attempt < 8; attempt += 1)')
+          s = s.replace('"短時間の依頼回数が上限に達しました。少し待ってから再度お試しください。"', '"短時間の依頼が集中しています。少し待ってから再度お試しください。"')
+          p.write_text(s)
+
+          # 3) Bring the active dark accent into WCAG-AA-safe territory.
+          p = Path('src/ultra-optics.css')
+          s = p.read_text()
+          replacements = {
+              '#6366f1': '#4f46e5',
+              '#818cf8': '#3730a3',
+              '#7073f5': '#4f46e5',
+              'rgba(99, 102, 241, 0.25)': 'rgba(79, 70, 229, 0.25)',
+              'rgba(99, 102, 241, 0.14)': 'rgba(79, 70, 229, 0.14)',
+              'rgba(129, 140, 248, 0.35)': 'rgba(55, 48, 163, 0.35)',
+              'rgba(99, 102, 241, 0.08)': 'rgba(79, 70, 229, 0.08)',
+              'rgba(99, 102, 241, 0.10)': 'rgba(79, 70, 229, 0.10)',
+          }
+          for a, b in replacements.items():
+              s = s.replace(a, b)
+          # Keep an explicit text-only token so future UI work does not reuse a light hover color for body text.
+          marker = '--accent-glow-v2: rgba(79, 70, 229, 0.25);'
+          if marker in s and '--text-accent-v2:' not in s:
+              s = s.replace(marker, marker + '\n  --text-accent-v2: #4f46e5;')
+          p.write_text(s)
+
+          # 4) Give first-run users concrete starting points without changing the composer contract.
+          p = Path('src/App.tsx')
+          s = p.read_text()
+          needle = '<div className="mt-8 w-full max-w-2xl">{composer}</div>'
+          insert = '''<div className="mt-7 grid w-full max-w-2xl grid-cols-2 gap-2 sm:grid-cols-4" aria-label={language === 'ja' ? 'ORIGINの使い方の例' : 'ORIGIN examples'}>{(language === 'ja' ? ['競合比較をして', '提案書の初稿を書く', '文章を要約して', 'アイデアを整理して'] : ['Compare competitors', 'Draft a proposal', 'Summarize this', 'Organize my ideas']).map((example) => <button key={example} type="button" onClick={() => { setInputText(example); requestAnimationFrame(() => textareaRef.current?.focus()); }} className="origin-example-chip" aria-label={example}>{example}</button>)}</div><div className="mt-3 w-full max-w-2xl">{composer}</div>'''
+          if needle not in s:
+              raise SystemExit('home composer anchor not found')
+          s = s.replace(needle, insert, 1)
+          p.write_text(s)
+
+          # 5) Small, tokenized chip treatment. No arbitrary color literals are introduced.
+          p = Path('src/ultra-optics.css')
+          s = p.read_text()
+          css = '''\n.origin-example-chip {\n  min-height: 44px;\n  padding: 9px 12px;\n  border: 1px solid var(--border-default);\n  border-radius: 12px;\n  background: color-mix(in oklch, var(--bg-surface) 92%, transparent);\n  color: var(--text-secondary);\n  font-size: 12px;\n  font-weight: 650;\n  line-height: 1.35;\n  text-align: center;\n  transition: transform 160ms var(--origin-ultra-ease), border-color 160ms var(--origin-ultra-ease), color 160ms var(--origin-ultra-ease), background 160ms var(--origin-ultra-ease);\n}\n\n.origin-example-chip:hover {\n  border-color: var(--accent-border);\n  color: var(--text-primary);\n  background: color-mix(in oklch, var(--accent-soft) 70%, var(--bg-surface));\n  transform: translateY(-1px);\n}\n\n.origin-example-chip:focus-visible {\n  outline: 2px solid var(--accent-primary);\n  outline-offset: 2px;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .origin-example-chip { transition: none; }\n}\n'''
+          if '.origin-example-chip {' not in s:
+              s += css
+          p.write_text(s)
+          PY
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Verify typecheck, targeted tests, build, and design lock
+        run: |
+          npm run typecheck
+          npx vitest run src/server/createOriginApp.test.ts src/App.test.tsx --reporter=dot
+          node scripts/design-token-lock.js
+          npm run build
+      - name: Commit changes and remove workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/audit-priority-update.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/server/originSecurity.ts src/server/createOriginApp.test.ts src/ultra-optics.css src/App.tsx .github/workflows/audit-priority-update.yml
+          git commit -m 'fix: apply 2026-09 audit priority improvements'
+          git push origin HEAD
