@@ -262,21 +262,23 @@ function mergeContinuation(previous: string, continuation: string): string {
   const continuationLines = right.split("\n");
   while (continuationLines[0]?.trim() === "") continuationLines.shift();
 
-  if (
-    continuationLines[0] &&
-    /^#{1,6}\s+/.test(continuationLines[0]) &&
-    previousLines.some(
-      (line) =>
-        line
-          .replace(/^(?:#{1,6}\s+|[-*+]\s+)/, "")
-          .toLocaleLowerCase() ===
-        continuationLines[0]
-          .replace(/^#{1,6}\s+/, "")
-          .replace(/[（(]\s*(?:続き|continued)\s*[）)]/i, "")
-          .toLocaleLowerCase(),
-    )
-  ) {
-    continuationLines.shift();
+  if (continuationLines[0] && /^#{1,6}\s+/.test(continuationLines[0])) {
+    const normalizeHeading = (line: string): string =>
+      line
+        .replace(/^#{1,6}\s+/, "")
+        .replace(/[（(]\s*(?:続き|continued)\s*[）)]/i, "")
+        .trim()
+        .toLocaleLowerCase();
+    const continuationHeading = normalizeHeading(continuationLines[0]);
+    if (
+      previousLines.some(
+        (line) =>
+          /^#{1,6}\s+/.test(line) &&
+          normalizeHeading(line) === continuationHeading,
+      )
+    ) {
+      continuationLines.shift();
+    }
   }
 
   for (let length = Math.min(previousLines.length, continuationLines.length, 20); length >= 1; length -= 1) {
@@ -376,8 +378,8 @@ async function request(
     const timer = setTimeout(() => controller.abort(), TIMEOUT);
     try {
       const response = await fetchImpl(input, { ...init, signal: controller.signal });
-      if (response.status === 429) {
-        throw http(429, retryAfter(response.headers.get("Retry-After")));
+      if ([401, 402, 429].includes(response.status)) {
+        throw http(response.status, retryAfter(response.headers.get("Retry-After")));
       }
       if (![408, 500, 502, 503, 504].includes(response.status) || index === RETRY.length) {
         return response;
