@@ -12,4 +12,4 @@ jobs:
           node-version: 20
       - run: npm install --ignore-scripts
       - run: npm run build
-      - run: npm test -- --runInBand
+      - run: npm test
