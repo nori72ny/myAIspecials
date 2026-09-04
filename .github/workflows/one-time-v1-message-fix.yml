@@ -40,9 +40,8 @@ jobs:
           fi
       - name: Run focused regression tests
         run: |
-          corepack enable
-          pnpm install --frozen-lockfile
-          pnpm exec vitest run src/App.test.tsx tests/e2e/origin-personal-navigation.spec.ts
+          npm install --no-audit --no-fund
+          npx vitest run src/App.test.tsx tests/e2e/origin-personal-navigation.spec.ts
       - name: Remove one-time workflow
         run: rm .github/workflows/one-time-v1-message-fix.yml
       - name: Commit consistency fix
