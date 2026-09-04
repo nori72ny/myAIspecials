@@ -1,4 +1,4 @@
-import { RuntimeMetrics } from "./RuntimeMetrics";
+import { RuntimeMetrics } from "./RuntimeMetrics.js";
 import https from "https";
 import http from "http";
 import dns from "dns";
@@ -10,9 +10,6 @@ import nodePath from "path";
 const MAX_LEGACY_READ_BYTES = 2 * 1024 * 1024;
 const BLOCKED_SEGMENTS = new Set([".git", "node_modules", "dist", "build", "coverage", ".next", ".vercel"]);
 const SECRET_NAME = /(^|[\\/])(\.env(?:\..*)?|.*\.(pem|key|p12|pfx))$/i;
-
-// Legacy mission-engine FileTool is intentionally read-only. All repository
-// writes must use the hardened file_writer/safeRepositoryWriter boundary.
 
 export function isSafeIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
@@ -108,7 +105,10 @@ async function assertNoSymlinkComponents(rootReal: string, target: string): Prom
 export async function validateSafePath(relativePath: string): Promise<string> {
   let decodedPath: string;
   try { decodedPath = decodeURIComponent(relativePath).normalize("NFC"); } catch { throw new Error("Invalid URL/character encoding in path."); }
-  const normalizedRelative = decodedPath.replace(/\\/g, "/").replace(/^\/+/, "");
+  const slashPath = decodedPath.replace(/\\/g, "/");
+  // Never strip a leading slash or Windows drive prefix: absolute paths must fail closed.
+  if (slashPath.startsWith("/") || /^[A-Za-z]:\//.test(slashPath)) throw new Error("PATH_OUTSIDE_WORKSPACE");
+  const normalizedRelative = slashPath;
   if (!normalizedRelative || blockedLegacyPath(normalizedRelative)) throw new Error("PROTECTED_PATH");
   const sandboxRoot = await fs.realpath(process.cwd());
   const targetPath = nodePath.resolve(sandboxRoot, normalizedRelative);
@@ -128,10 +128,7 @@ export class FileTool implements IAgentTool {
   public async execute(input: ToolInput): Promise<ToolResult> {
     const { action, path, content } = input;
     if (!path) return { success: false, output: "", error: "Missing required 'path' parameter." };
-    if (action === "write") {
-      void content;
-      return { success: false, output: "", error: "LEGACY_FILE_WRITE_DISABLED" };
-    }
+    if (action === "write") { void content; return { success: false, output: "", error: "LEGACY_FILE_WRITE_DISABLED" }; }
     if (action !== "read") return { success: false, output: "", error: `Unsupported action: '${action}'. Use 'read'.` };
     try {
       const fullPath = await validateSafePath(path);
@@ -142,22 +139,19 @@ export class FileTool implements IAgentTool {
         if (stat.size > MAX_LEGACY_READ_BYTES) return { success: false, output: "", error: "FILE_TOO_LARGE" };
         return { success: true, output: await handle.readFile({ encoding: "utf8" }) };
       } finally { await handle.close(); }
-    } catch (err) {
-      return { success: false, output: "", error: `File execution failed: ${(err as Error).message}` };
-    }
+    } catch (err) { return { success: false, output: "", error: `File execution failed: ${(err as Error).message}` }; }
   }
 }
 
 export class WebTool implements IAgentTool {
   public name = "WebTool";
-  public description = "Fetches resources or searches information from the web. Input format: { url?: string, query?: string }";
+  public description = "Fetches a specific URL through the allowlisted secure-fetch boundary. Query-only search is disabled until a real search connector is integrated.";
   public async execute(input: ToolInput): Promise<ToolResult> {
     const { url, query } = input;
     if (!url && !query) return { success: false, output: "", error: "Missing both 'url' and 'query' parameters. Specify at least one." };
-    try {
-      if (url) return { success: true, output: (await secureFetch(url)).substring(0, 1500) };
-      return { success: true, output: `Search result summary for query "${query}":\n- Standard Clean Architecture systems emphasize decoupling presentation, application, domain, and infrastructure.\n- Verified pattern checks and unit testing suites ensure system state consistency.\n- Decoupled designs are highly maintainable and scalable without introducing external workflow microservices.` };
-    } catch (err) { return { success: false, output: "", error: `Web request failed: ${(err as Error).message}` }; }
+    if (query && !url) return { success: false, output: "", error: "WEB_SEARCH_UNAVAILABLE" };
+    try { return { success: true, output: (await secureFetch(url)).substring(0, 1500) }; }
+    catch (err) { return { success: false, output: "", error: `Web request failed: ${(err as Error).message}` }; }
   }
 }
 
@@ -168,11 +162,8 @@ export class CalculatorTool implements IAgentTool {
     const { expression } = input;
     if (!expression || typeof expression !== "string") return { success: false, output: "", error: "Missing or invalid 'expression' parameter." };
     if (!/^[0-9+\-*/().\s]+$/.test(expression)) return { success: false, output: "", error: "Security restriction: expression contains prohibited characters." };
-    try {
-      const result = new Function(`return (${expression});`)();
-      if (typeof result !== "number" || Number.isNaN(result)) return { success: false, output: "", error: "Evaluated output is not a valid number." };
-      return { success: true, output: result.toString() };
-    } catch (err) { return { success: false, output: "", error: `Calculator execution failed: ${(err as Error).message}` }; }
+    try { const result = new Function(`return (${expression});`)(); if (typeof result !== "number" || Number.isNaN(result)) return { success: false, output: "", error: "Evaluated output is not a valid number." }; return { success: true, output: result.toString() }; }
+    catch (err) { return { success: false, output: "", error: `Calculator execution failed: ${(err as Error).message}` }; }
   }
 }
 

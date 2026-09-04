@@ -52,6 +52,10 @@ function maskHighEntropyTokens(value: string): string {
   return value.replace(/\S+/g, (token) => {
     const candidate = token.replace(/^[({[<]+|[\])}>.,;:]+$/g, "");
     if (candidate.length < MIN_ENTROPY_LENGTH || shannonEntropy(candidate) <= MIN_SHANNON_ENTROPY) return token;
+    // Natural-language CJK tokens are high-entropy under character-frequency
+    // heuristics but are not useful secret candidates. Explicit secret patterns
+    // above still redact credential-shaped CJK-adjacent values before this pass.
+    if ((candidate.match(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/g) ?? []).length >= 2) return token;
     return token.replace(candidate, REDACTION);
   });
 }

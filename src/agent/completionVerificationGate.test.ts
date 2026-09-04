@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runVerification } from './verificationRunner.js';
 import { verifyBeforeReportingCompletion } from './completionVerificationGate.js';
 
 vi.mock('./verificationRunner.js', () => ({ runVerification: vi.fn() }));
 
 describe('completionVerificationGate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('requires typecheck, lint, test, and build before success', async () => {
     vi.mocked(runVerification)
       .mockResolvedValueOnce({ ok: true, kind: 'typecheck', exitCode: 0, timedOut: false, stdout: '', stderr: '', durationMs: 1 })

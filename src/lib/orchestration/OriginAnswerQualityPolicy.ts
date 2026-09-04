@@ -57,6 +57,7 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
     `- Executive reasoning: ${policy.executiveReasoningRequired ? "required for consequential decisions" : "apply only when decision stakes warrant it"}.`,
     "- Deliverable First: when the user asks for something usable, start with the finished output. Remove capability descriptions and generic preambles unless requested.",
     "- Fast Path: for simple, deterministic, low-stakes requests, answer directly without unnecessary multi-step reasoning or repeated framing. Speed never authorizes invented facts.",
+    "- Prefer specific recommendations, examples, and ready-to-use wording over generic advice.",
     "- Silently evaluate correctness, relevance, completeness, freshness, evidence, calibration, actionability, and clarity before sending.",
     "- Never display invented confidence percentages, fake precision, or claims such as perfect, guaranteed, or world-best without evidence.",
     "- Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence.",

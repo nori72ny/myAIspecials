@@ -16,19 +16,6 @@ interface Props {
   openingPointerId?: number;
 }
 
-let lastPointerDownId: number | null = null;
-
-// Capture pointerdown before React parent handlers can stop propagation.
-if (typeof window !== 'undefined') {
-  window.addEventListener(
-    'pointerdown',
-    (event) => {
-      lastPointerDownId = event.pointerId;
-    },
-    true,
-  );
-}
-
 export default function SettingsModal({
   isOpen,
   onClose,
@@ -46,12 +33,7 @@ export default function SettingsModal({
   );
 
   useEffect(() => {
-    if (!isOpen) {
-      openingPointerIdRef.current = null;
-      return;
-    }
-    openingPointerIdRef.current =
-      typeof openingPointerId === 'number' ? openingPointerId : lastPointerDownId;
+    openingPointerIdRef.current = isOpen && typeof openingPointerId === 'number' ? openingPointerId : null;
   }, [isOpen, openingPointerId]);
 
   if (!isOpen || !portalHost) return null;
@@ -60,6 +42,7 @@ export default function SettingsModal({
     if (event.pointerId !== openingPointerIdRef.current) return;
     event.preventDefault();
     event.stopPropagation();
+    openingPointerIdRef.current = null;
   };
 
   return createPortal(
