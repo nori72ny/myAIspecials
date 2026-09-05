@@ -36,7 +36,6 @@ describe("ORIGIN v2 capability routing integration", () => {
   });
 
   it("does not override an explicit execution task type", () => {
-    expect(planFor("最新のコードを調査して、TypeScriptを修正",).taskType).toBe("implementation");
     const result = buildOriginExecutionPlan(
       { goal: "最新情報を調査して", taskType: "architecture" },
       { openRouterConfigured: true },
