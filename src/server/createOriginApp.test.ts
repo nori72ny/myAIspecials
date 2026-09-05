@@ -238,7 +238,7 @@ describe("createOriginApp provider isolation", () => {
 
   it("rate limits repeated chat requests before provider execution", async () => {
     const app = createOriginApp();
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
       const response = await request(app).post("/api/chat").send({
         messages: [{ role: "user", content: `安全な確認 ${attempt}` }],
       });
@@ -251,6 +251,9 @@ describe("createOriginApp provider isolation", () => {
 
     expect(limited.status).toBe(429);
     expect(limited.body.code).toBe("CHAT_RATE_LIMITED");
+    expect(limited.body.requestId).toMatch(/^origin-/);
+    expect(limited.body.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(limited.body.retryAfterMs).toBeGreaterThanOrEqual(1000);
     expect(limited.headers["retry-after"]).toBeDefined();
     expect(fetchSpy).not.toHaveBeenCalled();
   });

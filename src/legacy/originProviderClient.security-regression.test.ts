@@ -74,6 +74,6 @@ describe("originProviderClient security regressions", () => {
       routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
       usage: { costUsd: 0.000001 },
     } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0];
-    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("usage.costUsd が$0ポリシーを満たしません。");
+    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("0ドル固定ポリシーに適合しない実行計画です。");
   });
 });

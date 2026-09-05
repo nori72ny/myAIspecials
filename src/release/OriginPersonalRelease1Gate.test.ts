@@ -35,7 +35,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).not.toContain("Gemini");
     expect(providerClient).not.toContain("Groq");
     expect(providerClient).not.toContain('"openrouter/free"');
-    expect(modelCatalog).toContain('"google/gemma-4-26b-a4b-it:free"');
+    expect(modelCatalog).toContain('"google/gemma-4-31b-it:free"');
     expect(modelCatalog).not.toContain('"openrouter/free"');
   });
 
