@@ -4,7 +4,7 @@ import { createCsvExport, createDocxExport, createPdfExport, createXlsxExport } 
 describe("ArtifactOfficeExport", () => {
   it("creates UTF-8 CSV with Excel-friendly BOM", async () => {
     const result = createCsvExport("売上表", "商品,数量\nA,10");
-    expect(result.fileName).toBe("_.csv");
+    expect(result.fileName).toBe("origin-artifact.csv");
     expect(result.type).toContain("text/csv");
     expect(await result.blob.text()).toContain("商品");
   });
