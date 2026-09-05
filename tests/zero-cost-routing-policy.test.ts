@@ -6,6 +6,6 @@ describe("zero-cost OpenRouter routing policy", () => {
     expect(ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY.allow_fallbacks).toBe(true);
     expect(ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY.data_collection).toBe("deny");
     expect(ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY.zdr).toBe(true);
-    expect(ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY.max_price).toEqual({ prompt: 0, completion: 0 });
+    expect(ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY.max_price).toEqual({ prompt: 0, completion: 0, request: 0 });
   });
 });
