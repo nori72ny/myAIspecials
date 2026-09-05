@@ -21,6 +21,7 @@ const request: OriginProviderExecutionRequest = {
 };
 
 const openRouterRateLimited = () => new Response(JSON.stringify({ error: { metadata: { error_type: "rate_limit_exceeded" } } }), { status: 429 });
+const openRouterUnavailable = (status: number) => new Response(JSON.stringify({ error: { message: `upstream ${status}` } }), { status });
 const geminiOk = () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "Geminiからの回答です。" }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8, totalTokenCount: 18 } }), { status: 200, headers: { "Content-Type": "application/json" } });
 
 function fetchSequence(...responses: Response[]) {
@@ -35,6 +36,18 @@ describe("bounded Gemini secondary route", () => {
     expect(result.text).toBe("Geminiからの回答です。");
     expect(result.actualCostUsd).toBe(0);
     expect(result.routingEvidence).toMatchObject({ provider: "Gemini", servedModel: "gemini-2.5-flash", strategy: "bounded-secondary", attempt: 1, fallbackUsed: true });
+  });
+
+  it.each([408, 500, 502, 503, 504])("routes retryable upstream HTTP %s to Gemini exactly once", async (status) => {
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return calls === 1 ? openRouterUnavailable(status) : geminiOk();
+    };
+    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "test-openrouter", GEMINI_API_KEY: "test-gemini", ORIGIN_GEMINI_FREE_ONLY: "true" }, fetchImpl as typeof fetch);
+    expect(result.routingEvidence.provider).toBe("Gemini");
+    expect(result.routingEvidence.fallbackUsed).toBe(true);
+    expect(calls).toBe(2);
   });
 
   it("does not send sensitive prompts to Gemini after an OpenRouter failure", async () => {
