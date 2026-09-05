@@ -1,6 +1,6 @@
 const TOTAL_BUDGET_MS = 100_000;
 const DEFAULT_RETRY_DELAYS_MS = [200, 500, 1000];
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 0;
 
 async function executeWithRetry(executeFn, request) {
   const startTime = Date.now();
