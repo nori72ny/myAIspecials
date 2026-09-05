@@ -27,7 +27,7 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 
 - Personal版は旧ダッシュボードの状態管理を読み込まない。
 - 端末に保存する設定は表示言語と明暗テーマだけとし、AI選択、費用上限、再試行回数をブラウザ設定から変更できない。
-- 実行ポリシーは費用上限`$0.00`、自動有料fallbackなし、回答経路を確認できない場合はfail-closedとする。
+- 実行ポリシーは費用上限`$0.00`、ORIGIN自身による別provider・別modelへの自動fallbackなし、回答経路を確認できない場合はfail-closedとする。OpenRouterのprovider層では、同一固定model内に限り、`data_collection: deny`、`zdr: true`、全価格0の制約を満たす候補へのbounded failoverを許可する。
 - 日本語を初期表示とし、英語を明示的に選択した場合だけ英語へ切り替える。
 - AI回答内の外部画像URLは自動読込せず、一次公開で未対応であることを表示する。
 - スマートフォン、タブレット、PCを正式な対象端末とする。390×844を含むモバイルでは動的viewportとsafe areaを考慮し、タブレットとPCでは画面を単純に引き伸ばさず、回答本文、入力欄、ナビゲーションの幅と密度を最適化する。
@@ -52,20 +52,20 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 2. PRをReadyへ変更する承認と、mainへマージする承認がある。
 3. デプロイについて、マージとは別の明示承認がある。
 4. 公開環境のサーバー側に既存の`OPENROUTER_API_KEY`が安全に設定されている。値をチャット、ログ、コード、PRへ入力・表示しない。
-5. 実行モデルIDが`:free`で終わり、provider fallbackが無効、最大価格がすべて`0`である。
-6. 公開環境のsmoke testで、秘密情報を含まない入力に対する成功、実費`$0.00`、要求モデルと提供モデルの一致、fallback未使用を確認する。
+5. 実行モデルIDが`:free`で終わり、ORIGINのmodel fallbackが無効、provider層は同一固定model内の候補だけに限定され、最大価格がすべて`0`である。
+6. 公開環境のsmoke testで、秘密情報を含まない入力に対する成功、実費`$0.00`、要求モデルと提供モデルの一致、model fallback未使用、provider routing policyの適合を確認する。
 7. APIキー未設定、無料証拠欠落、routing証拠不一致、provider不通の場合に回答を表示せず停止することを確認する。
 8. ノリさんがモバイルまたは日常利用端末で、入力、回答の読みやすさ、エラー表示を最終確認する。
 9. Vercel公開直後の`/api/health`が40桁の16進数SHAを返し、デプロイ対象のExact SHAと完全一致する。不一致または`unknown`の場合は公開成功と扱わない。
 
 ## 停止条件
 
-次のいずれかに該当する場合、公開またはAI回答を停止する。別モデルや別providerへ自動で切り替えない。
+次のいずれかに該当する場合、公開またはAI回答を停止する。ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない。OpenRouter内部のprovider-layer failoverは、固定model、`data_collection: deny`、`zdr: true`、全価格0という制約から外れた場合は停止する。
 
 - 無料であることを実行前に確認できない
 - 実費`$0.00`を実行後に確認できない
 - 要求した`:free`モデルと実際のroutingが一致しない
-- provider fallbackが発生した、またはfallback無効を証明できない
+- OpenRouterが固定model外へfallbackした、またはprovider routing policyへの適合を証明できない
 - 認証情報が未設定、無効、または露出した疑いがある
 - 本番環境だけで発生するP0/P1、秘密情報漏えい、誤表示が見つかった
 - デプロイ承認の範囲を超える設定変更が必要になった
@@ -86,7 +86,7 @@ AI Studio direct runtimeは一次公開の期限を遅らせる条件にしな�
 - `/api/health`のリリースIDがデプロイ対象のExact SHAと一致する
 - `/api/chat`が正式ORIGIN境界を通る
 - 秘密情報を使わないsmoke inputへ回答できる
-- 実費`$0.00`とfallback未使用を確認できる
+- 実費`$0.00`、model fallback未使用、provider routing policy適合を確認できる
 - 表示した検証範囲が実行記録と一致する
 - 未実装機能やfake dataが正式画面に現れない
 
