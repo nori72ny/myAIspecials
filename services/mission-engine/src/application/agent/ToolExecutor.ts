@@ -39,7 +39,7 @@ export function isSafeIp(ip: string): boolean {
 }
 
 export function isWhitelistedDomain(hostname: string): boolean {
-  const whitelist = ["wikipedia.org", "api.github.com", "raw.githubusercontent.com", "httpbin.org", "api.stackexchange.com", "api.coindesk.com"];
+  const whitelist = ["wikipedia.org", "duckduckgo.com", "api.github.com", "raw.githubusercontent.com", "httpbin.org", "api.stackexchange.com", "api.coindesk.com"];
   const lower = hostname.toLowerCase();
   return whitelist.some((domain) => lower === domain || lower.endsWith(`.${domain}`));
 }
@@ -64,7 +64,7 @@ export async function secureFetch(urlStr: string): Promise<string> {
       const isHttps = parsedUrl.protocol === "https:";
       const agent = isHttps ? new https.Agent({ lookup: secureLookup, keepAlive: false }) : new http.Agent({ lookup: secureLookup, keepAlive: false });
       const requestModule = isHttps ? https : http;
-      const req = requestModule.request(urlStr, { method: "GET", agent, headers: { "User-Agent": "MissionEngineSecureFetch/1.1", Host: hostname }, timeout: 5000 }, (res) => {
+      const req = requestModule.request(urlStr, { method: "GET", agent, headers: { "User-Agent": "MissionEngineSecureFetch/1.2", Host: hostname }, timeout: 5000 }, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400) return reject(new Error(`Access denied: Redirects are prohibited (HTTP ${res.statusCode}).`));
         if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`Fetch error: HTTP status ${res.statusCode ?? "unknown"}`));
         let body = "";
@@ -106,7 +106,6 @@ export async function validateSafePath(relativePath: string): Promise<string> {
   let decodedPath: string;
   try { decodedPath = decodeURIComponent(relativePath).normalize("NFC"); } catch { throw new Error("Invalid URL/character encoding in path."); }
   const slashPath = decodedPath.replace(/\\/g, "/");
-  // Never strip a leading slash or Windows drive prefix: absolute paths must fail closed.
   if (slashPath.startsWith("/") || /^[A-Za-z]:\//.test(slashPath)) throw new Error("PATH_OUTSIDE_WORKSPACE");
   const normalizedRelative = slashPath;
   if (!normalizedRelative || blockedLegacyPath(normalizedRelative)) throw new Error("PROTECTED_PATH");
@@ -145,11 +144,16 @@ export class FileTool implements IAgentTool {
 
 export class WebTool implements IAgentTool {
   public name = "WebTool";
-  public description = "Fetches a specific URL through the allowlisted secure-fetch boundary. Query-only search is disabled until a real search connector is integrated.";
+  public description = "Searches free public web results or fetches a specific allowlisted URL. Query-only search uses the keyless DuckDuckGo HTML endpoint.";
   public async execute(input: ToolInput): Promise<ToolResult> {
     const { url, query } = input;
     if (!url && !query) return { success: false, output: "", error: "Missing both 'url' and 'query' parameters. Specify at least one." };
-    if (query && !url) return { success: false, output: "", error: "WEB_SEARCH_UNAVAILABLE" };
+    if (query && !url) {
+      try {
+        const endpoint = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(String(query))}`;
+        return { success: true, output: (await secureFetch(endpoint)).substring(0, 15000) };
+      } catch (err) { return { success: false, output: "", error: `Web search failed: ${(err as Error).message}` }; }
+    }
     try { return { success: true, output: (await secureFetch(url)).substring(0, 1500) }; }
     catch (err) { return { success: false, output: "", error: `Web request failed: ${(err as Error).message}` }; }
   }

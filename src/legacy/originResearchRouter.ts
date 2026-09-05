@@ -16,6 +16,11 @@ function isWeatherRequest(message: string): boolean {
 
 function languageOf(message: string): "ja" | "en" { return /[ぁ-んァ-ヶ一-龠]/.test(message) ? "ja" : "en"; }
 
+function sourceLabel(source: { domain?: string; sourceType?: string; url: string }): string {
+  if (source.domain) return source.domain;
+  try { return new URL(source.url).hostname; } catch { return source.sourceType === "encyclopedia" ? "Wikipedia" : "Web search"; }
+}
+
 function envelope(content: string, language: "ja" | "en", status: "passed" | "not-run", summary: string, evidence: ReturnType<typeof extractProvidedOriginEvidence>): OriginAnswerEnvelope {
   const result = createOriginAnswerEnvelope({
     language,
@@ -23,8 +28,8 @@ function envelope(content: string, language: "ja" | "en", status: "passed" | "no
     answer: content,
     evidence,
     verification: { status, independentReviewPerformed: status === "passed", summary },
-    limitations: [language === "ja" ? "この研究経路は現在、無料の公開Wikipedia情報源のみを使用します。一次情報ではないため、価格・契約・公式発表などの最終確認には公式情報源が必要です。" : "This research path currently uses only the free public Wikipedia source. It is not a primary source, so prices, contracts, and official announcements require confirmation from the official source."],
-    nextActions: [language === "ja" ? "公式情報源を貼り付ければ、その内容との照合・整理を続けられます。" : "If you provide an official source, ORIGIN can continue by comparing and organizing that supplied material."],
+    limitations: [language === "ja" ? "検索結果は無料の公開Web検索から取得したスニペットです。検索結果の掲載順・内容は変動するため、重要な価格・契約・公式発表などは原典を開いて最終確認してください。" : "Results are snippets from a free public web search. Rankings and content can change, so verify important prices, contracts, and official announcements against the original source."],
+    nextActions: [language === "ja" ? "必要なら取得した出典を基に、複数ソースの一致点・相違点を整理できます。" : "If needed, the retrieved sources can be compared for agreement and disagreement."],
   });
   if (result.ok === false) throw new Error(result.code);
   return result.value;
@@ -46,11 +51,11 @@ export function createOriginResearchRouter() {
     if (!result.ok) return next();
 
     const content = language === "ja"
-      ? `無料の公開情報源を検索しました。以下は取得できた内容です。\n\n${result.sources.map((source) => `### ${source.title}\n${source.excerpt}\n\n〔出典: [Wikipedia](https://${new URL(source.url).hostname}${new URL(source.url).pathname})〕${source.revisionTimestamp ? `\n最終更新: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`
-      : `I searched a free public source. Here is the retrieved material.\n\n${result.sources.map((source) => `### ${source.title}\n${source.excerpt}\n\n〔Source: [Wikipedia](https://${new URL(source.url).hostname}${new URL(source.url).pathname})〕${source.revisionTimestamp ? `\nLatest revision: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`;
+      ? `無料の公開Web検索を実行しました。検索結果は複数の公開Webソースから取得しています。\n\n${result.sources.map((source) => `### ${source.title}\n${source.excerpt}\n\n〔出典: [${sourceLabel(source)}](${source.url})〕${source.rank ? `\n検索順位: ${source.rank}` : ""}${source.revisionTimestamp ? `\n最終更新: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`
+      : `I ran a free public web search and retrieved multiple public web sources.\n\n${result.sources.map((source) => `### ${source.title}\n${source.excerpt}\n\n〔Source: [${sourceLabel(source)}](${source.url})〕${source.rank ? `\nSearch rank: ${source.rank}` : ""}${source.revisionTimestamp ? `\nLatest revision: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`;
     const evidence = extractProvidedOriginEvidence(content);
-    const reason = language === "ja" ? "無料公開情報源の研究コネクタが実行され、取得した出典を回答に添付しました。独立AIレビューは実行していません。" : "The free public research connector executed and attached the retrieved sources. No independent AI review was performed.";
-    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開情報源", provider: "Wikipedia", cost: 0, actualCostUsd: 0, freeOnly: true, verificationStatus: "not-run" }, research: { source: "Wikipedia", sources: result.sources } });
+    const reason = language === "ja" ? "無料公開Web検索が実行され、取得した複数ソースを回答に添付しました。独立AIレビューは実行していません。" : "The free public web search executed and attached multiple retrieved sources. No independent AI review was performed.";
+    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, freeOnly: true, verificationStatus: "not-run" }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, limitation: result.limitation } });
   });
   return router;
 }
