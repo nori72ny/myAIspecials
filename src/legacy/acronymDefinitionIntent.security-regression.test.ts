@@ -16,8 +16,8 @@ const executionResult = {
     requireZeroDataRetention: false as const,
   },
   routingEvidence: {
-    requestedModel: "google/gemma-4-26b-a4b-it:free",
-    servedModel: "google/gemma-4-26b-a4b-it:free",
+    requestedModel: "google/gemma-4-31b-it:free",
+    servedModel: "google/gemma-4-31b-it:free",
     strategy: "adaptive-primary" as const,
     provider: "OpenRouter",
     region: "iad",
