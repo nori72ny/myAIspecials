@@ -50,6 +50,7 @@ export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;
 export type AllowedZeroCostProvider = (typeof ALLOWED_ZERO_COST_PROVIDERS)[number];
 export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL] } as const;
 const IDS: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", "openrouter-free": "openrouter" };
+export function resetOriginProviderCooldownForTests(): void { /* retained for test compatibility; cooldown circuit was removed */ }
 const pid = (value: unknown): AllowedZeroCostProvider | null => { if (typeof value !== "string") return null; return IDS[value] ?? (ALLOWED_ZERO_COST_PROVIDERS.includes(value as AllowedZeroCostProvider) ? value as AllowedZeroCostProvider : null); };
 const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && (ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model);
 function fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
