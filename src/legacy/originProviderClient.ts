@@ -1,4 +1,5 @@
 import {
+  ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL,
   ORIGIN_OPENROUTER_FREE_MODEL,
   type OriginExecutionPlan,
   type OriginProviderDataPolicy,
@@ -29,27 +30,17 @@ function safeProviderMessage(code: OriginProviderErrorCode): string {
 }
 
 export class OriginProviderError extends Error {
-  constructor(
-    public readonly code: OriginProviderErrorCode,
-    _message: string,
-    public readonly status: number,
-    public readonly retryable: boolean,
-    public readonly retryAfterSeconds?: number,
-    public readonly diagnostic?: OriginProviderDiagnostic,
-  ) {
-    super(safeProviderMessage(code));
-    this.name = "OriginProviderError";
-  }
+  constructor(public readonly code: OriginProviderErrorCode, _message: string, public readonly status: number, public readonly retryable: boolean, public readonly retryAfterSeconds?: number, public readonly diagnostic?: OriginProviderDiagnostic) { super(safeProviderMessage(code)); this.name = "OriginProviderError"; }
 }
 
 export type OriginFetch = typeof fetch;
 const RETRY: readonly number[] = [];
 const TIMEOUT = 6000;
 const MAX_SEGMENTS = 3;
-export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;
+export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter", "gemini"] as const;
 export type AllowedZeroCostProvider = (typeof ALLOWED_ZERO_COST_PROVIDERS)[number];
-export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL] } as const;
-const IDS: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", "openrouter-free": "openrouter" };
+export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL], gemini: [ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL] } as const;
+const IDS: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", "openrouter-free": "openrouter", Gemini: "gemini", "google-ai-studio-free": "gemini" };
 export function resetOriginProviderCooldownForTests(): void { /* retained for test compatibility; cooldown circuit was removed */ }
 const pid = (value: unknown): AllowedZeroCostProvider | null => { if (typeof value !== "string") return null; return IDS[value] ?? (ALLOWED_ZERO_COST_PROVIDERS.includes(value as AllowedZeroCostProvider) ? value as AllowedZeroCostProvider : null); };
 const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && (ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model);
@@ -71,44 +62,21 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   if (!evidence || !provider || !allowed(provider, evidence.servedModel)) fail("許可された無料Provider/Modelの証跡を確認できません。", "PROVIDER_ROUTING_UNVERIFIED");
   if (expectedModel && evidence.requestedModel !== expectedModel) fail("要求モデルが一致しません。", "PROVIDER_ROUTING_UNVERIFIED");
   if (evidence.attempt !== 1) fail("不正な試行番号です。", "PROVIDER_ROUTING_UNVERIFIED");
-  if (evidence.fallbackUsed || evidence.strategy !== "adaptive-primary" || evidence.requestedModel !== evidence.servedModel) fail("Provider fallback またはPrimary証跡が不正です。", "PROVIDER_ROUTING_UNVERIFIED");
+  const validStrategy = evidence.strategy === "adaptive-primary" || (provider === "gemini" && evidence.strategy === "bounded-secondary");
+  const validFallback = !evidence.fallbackUsed || (provider === "gemini" && evidence.fallbackUsed && evidence.strategy === "bounded-secondary");
+  if (!validStrategy || !validFallback || (provider === "openrouter" && evidence.requestedModel !== evidence.servedModel)) fail("Provider fallback またはPrimary証跡が不正です。", "PROVIDER_ROUTING_UNVERIFIED");
   if (expectedProvider && pid(expectedProvider) !== provider) fail("Providerが一致しません。", "PROVIDER_ROUTING_UNVERIFIED");
 }
 export function originCompletionTokenBudget(taskType: OriginExecutionPlan["taskType"]): number { switch (taskType) { case "implementation": case "documentation": return 2400; case "research": case "review": case "architecture": case "security": case "current-information": return 1800; default: return 1200; } }
 const msgs = (messages: OriginChatMessage[], systemInstruction: string) => [{ role: "system", content: sanitizePreEgress(systemInstruction) }, ...messages.map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: sanitizePreEgress(message.content) }))];
 const text = (content: unknown): string => { if (typeof content === "string") return content.trim(); if (!Array.isArray(content)) return ""; return content.filter((part) => part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string").map((part) => String((part as { text: string }).text).trim()).filter(Boolean).join("\n\n").trim(); };
-function mergeContinuation(previous: string, continuation: string): string {
-  const left = previous.trimEnd(); const right = continuation.trimStart();
-  for (let length = Math.min(left.length, right.length, 500); length >= 20; length -= 1) if (left.slice(-length) === right.slice(0, length)) return `${left}${right.slice(length)}`.trim();
-  const previousLines = left.split("\n"); const continuationLines = right.split("\n"); while (continuationLines[0]?.trim() === "") continuationLines.shift();
-  if (continuationLines[0] && /^#{1,6}\s+/.test(continuationLines[0])) { const normalizeHeading = (line: string): string => line.replace(/^#{1,6}\s+/, "").replace(/[（(]\s*(?:続き|continued)\s*[）)]/i, "").trim().toLocaleLowerCase(); const continuationHeading = normalizeHeading(continuationLines[0]); if (previousLines.some((line) => /^#{1,6}\s+/.test(line) && normalizeHeading(line) === continuationHeading)) continuationLines.shift(); }
-  for (let length = Math.min(previousLines.length, continuationLines.length, 20); length >= 1; length -= 1) { const a = previousLines.slice(-length).map((line) => line.trim().toLocaleLowerCase()); const b = continuationLines.slice(0, length).map((line) => line.trim().toLocaleLowerCase()); if (a.every(Boolean) && a.every((value, index) => value === b[index])) return [...previousLines, ...continuationLines.slice(length)].join("\n").trim(); }
-  return `${left}\n\n${right}`.trim();
-}
+function mergeContinuation(previous: string, continuation: string): string { const left = previous.trimEnd(); const right = continuation.trimStart(); for (let length = Math.min(left.length, right.length, 500); length >= 20; length -= 1) if (left.slice(-length) === right.slice(0, length)) return `${left}${right.slice(length)}`.trim(); return `${left}\n\n${right}`.trim(); }
 const retryAfter = (value: string | null): number | undefined => { if (!value) return undefined; const numeric = Number(value); if (Number.isFinite(numeric) && numeric > 0) return Math.ceil(numeric); const timestamp = Date.parse(value); return Number.isFinite(timestamp) ? Math.max(1, Math.ceil((timestamp - Date.now()) / 1000)) : undefined; };
-function http(status: number, retryAfterSeconds?: number): OriginProviderError {
-  const diagnostic = { upstreamStatus: status };
-  if (status === 401) return new OriginProviderError("PROVIDER_NOT_CONFIGURED", "Provider認証情報を確認できません。", 401, false, undefined, diagnostic);
-  if (status === 402) return new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料実行として確認できない課金状態です。", 502, false, undefined, diagnostic);
-  if (status === 429) return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, true, retryAfterSeconds, diagnostic);
-  if (status === 408 || status === 504) return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic);
-  return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, diagnostic);
-}
+function http(status: number, retryAfterSeconds?: number): OriginProviderError { const diagnostic = { upstreamStatus: status }; if (status === 401) return new OriginProviderError("PROVIDER_NOT_CONFIGURED", "Provider認証情報を確認できません。", 401, false, undefined, diagnostic); if (status === 402) return new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料実行として確認できない課金状態です。", 502, false, undefined, diagnostic); if (status === 429) return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, true, retryAfterSeconds, diagnostic); if (status === 408 || status === 504) return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic); return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, diagnostic); }
 async function json(response: Response): Promise<unknown> { try { return await response.json(); } catch { throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true); } }
-async function request(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit): Promise<Response> {
-  let last: unknown;
-  for (let index = 0; index <= RETRY.length; index += 1) {
-    if (index) await new Promise((resolve) => setTimeout(resolve, RETRY[index - 1])); const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), TIMEOUT);
-    try { const response = await fetchImpl(input, { ...init, signal: controller.signal }); if ([401, 402, 429].includes(response.status)) throw http(response.status, retryAfter(response.headers.get("Retry-After"))); if (![408, 500, 502, 503, 504].includes(response.status) || index === RETRY.length) return response; last = http(response.status, retryAfter(response.headers.get("Retry-After"))); }
-    catch (error) { if (error instanceof OriginProviderError) throw error; last = error; if (index === RETRY.length) break; } finally { clearTimeout(timer); }
-  }
-  if (last instanceof OriginProviderError) throw last; throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIとの通信に失敗しました。", 504, true);
-}
-function validate(plan: OriginExecutionPlan): void {
-  const provider = pid(plan.providerId);
-  if (!plan.freeOnly || plan.estimatedCostUsd !== 0 || plan.providerDataPolicy.allowProviderFallbacks !== false || plan.providerDataPolicy.dataCollection !== "deny" || !provider || !allowed(provider, plan.modelId)) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "0ドル固定ポリシーに適合しない実行計画です。", 400, false);
-}
-function evidence(request: OriginProviderExecutionRequest, _provider: AllowedZeroCostProvider, servedModel: string): OriginProviderRoutingEvidence { return { requestedModel: request.plan.modelId, servedModel, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1, fallbackUsed: false }; }
+async function request(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit): Promise<Response> { let last: unknown; for (let index = 0; index <= RETRY.length; index += 1) { if (index) await new Promise((resolve) => setTimeout(resolve, RETRY[index - 1])); const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), TIMEOUT); try { const response = await fetchImpl(input, { ...init, signal: controller.signal }); if ([401, 402, 429].includes(response.status)) throw http(response.status, retryAfter(response.headers.get("Retry-After"))); if (![408, 500, 502, 503, 504].includes(response.status) || index === RETRY.length) return response; last = http(response.status, retryAfter(response.headers.get("Retry-After"))); } catch (error) { if (error instanceof OriginProviderError) throw error; last = error; if (index === RETRY.length) break; } finally { clearTimeout(timer); } } if (last instanceof OriginProviderError) throw last; throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIとの通信に失敗しました。", 504, true); }
+function validate(plan: OriginExecutionPlan): void { const provider = pid(plan.providerId); if (!plan.freeOnly || plan.estimatedCostUsd !== 0 || plan.providerDataPolicy.allowProviderFallbacks !== false || !provider || !allowed(provider, plan.modelId)) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "0ドル固定ポリシーに適合しない実行計画です。", 400, false); }
+function evidence(request: OriginProviderExecutionRequest, provider: AllowedZeroCostProvider, servedModel: string, fallbackUsed = false): OriginProviderRoutingEvidence { return { requestedModel: provider === "gemini" ? ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL : request.plan.modelId, servedModel, strategy: fallbackUsed ? "bounded-secondary" : "adaptive-primary", provider: provider === "gemini" ? "Gemini" : "OpenRouter", attempt: 1, fallbackUsed }; }
 async function openrouter(request: OriginProviderExecutionRequest, key: string, fetchImpl: OriginFetch, provider: AllowedZeroCostProvider): Promise<OriginProviderExecutionResult> {
   let messages = msgs(request.messages, request.systemInstruction); let output = ""; let promptTokens = 0; let completionTokens = 0; let totalTokens = 0;
   for (let index = 0; index < MAX_SEGMENTS; index += 1) {
@@ -124,25 +92,8 @@ async function openrouter(request: OriginProviderExecutionRequest, key: string, 
   }
   throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答を完了できませんでした。", 502, true);
 }
-async function requestFetch(fetchImpl: OriginFetch, request: OriginProviderExecutionRequest, key: string, messages: ReturnType<typeof msgs>): Promise<Response> {
-  const body = {
-    model: request.plan.modelId,
-    messages,
-    max_tokens: originCompletionTokenBudget(request.plan.taskType),
-    temperature: 0.2,
-    top_p: 0.9,
-    usage: { include: true },
-    provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY,
-  };
-  return requestWithRetry(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" },
-    body: JSON.stringify(sanitizePreEgressPayload(body)),
-  });
-}
-async function requestWithRetry(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit): Promise<Response> { return request(fetchImpl, input, init); }
-export async function executeOriginProvider(providerRequest: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv = process.env, fetchImpl: OriginFetch = fetch): Promise<OriginProviderExecutionResult> {
-  validate(providerRequest.plan); const primary = pid(providerRequest.plan.providerId); if (!primary) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "許可されていないProviderです。", 400, false);
-  const key = env.OPENROUTER_API_KEY; if (!key) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
-  try { return await openrouter(providerRequest, key, fetchImpl, primary); } catch (error) { if (error instanceof OriginProviderError) throw error; throw new OriginProviderError("PROVIDER_INTERNAL_ERROR", "無料AIとの通信に失敗しました。", 503, true); }
-}
+async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderExecutionRequest, key: string, messages: ReturnType<typeof msgs>): Promise<Response> { const body = { model: requestData.plan.modelId, messages, max_tokens: originCompletionTokenBudget(requestData.plan.taskType), temperature: 0.2, top_p: 0.9, usage: { include: true }, provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY }; return request(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" }, body: JSON.stringify(sanitizePreEgressPayload(body)) }); }
+function geminiEligible(env: NodeJS.ProcessEnv, messages: OriginChatMessage[]): boolean { if (env.ORIGIN_GEMINI_FREE_ONLY !== "true" || !env.GEMINI_API_KEY) return false; const combined = messages.map((message) => message.content).join("\n"); return !/(password|passcode|secret|api[ -]?key|private[ -]?key|credit[ -]?card|confidential|パスワード|暗証番号|秘密鍵|APIキー|クレジットカード|機密|個人情報|マイナンバー|口座|病歴|診断)/i.test(combined); }
+async function gemini(requestData: OriginProviderExecutionRequest, key: string, fetchImpl: OriginFetch): Promise<OriginProviderExecutionResult> { const contents = requestData.messages.map((message) => ({ role: message.role === "user" ? "user" : "model", parts: [{ text: sanitizePreEgress(message.content) }] })); const body = { systemInstruction: { parts: [{ text: sanitizePreEgress(requestData.systemInstruction) }] }, contents, generationConfig: { temperature: 0.2, maxOutputTokens: originCompletionTokenBudget(requestData.plan.taskType) } }; const response = await request(fetchImpl, `https://generativelanguage.googleapis.com/v1beta/models/${ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL}:generateContent?key=${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sanitizePreEgressPayload(body)) }); if (!response.ok) throw http(response.status, retryAfter(response.headers.get("Retry-After"))); const data = await json(response) as { candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number }; modelVersion?: unknown }; const servedModel = String(data.modelVersion ?? ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL).trim(); if (!allowed("gemini", servedModel) && servedModel !== ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "Gemini無料モデルを確認できません。", 502, false); const answer = text(data.candidates?.[0]?.content?.parts); if (!answer) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "Geminiから回答を取得できません。", 502, true); const result: OriginProviderExecutionResult = { text: answer, actualCostUsd: 0, providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "provider-free-tier", requireZeroDataRetention: false }, routingEvidence: evidence(requestData, "gemini", ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL, true), usage: { promptTokens: data.usageMetadata?.promptTokenCount, completionTokens: data.usageMetadata?.candidatesTokenCount, totalTokens: data.usageMetadata?.totalTokenCount, costUsd: 0 } }; assertOriginZeroCostExecutionResult(result, ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL, "google-ai-studio-free"); return result; }
+
+export async function executeOriginProvider(providerRequest: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv = process.env, fetchImpl: OriginFetch = fetch): Promise<OriginProviderExecutionResult> { validate(providerRequest.plan); const primary = pid(providerRequest.plan.providerId); if (!primary) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "許可されていないProviderです。", 400, false); const openRouterKey = env.OPENROUTER_API_KEY; if (!openRouterKey) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false); try { return await openrouter(providerRequest, openRouterKey, fetchImpl, "openrouter"); } catch (error) { if (!(error instanceof OriginProviderError)) error = new OriginProviderError("PROVIDER_INTERNAL_ERROR", "無料AIとの通信に失敗しました。", 503, true); if (!geminiEligible(env, providerRequest.messages) || !(error as OriginProviderError).retryable) throw error; const geminiKey = env.GEMINI_API_KEY; if (!geminiKey) throw error; try { return await gemini(providerRequest, geminiKey, fetchImpl); } catch { throw error; } } }
