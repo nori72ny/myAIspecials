@@ -23,13 +23,18 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(worker).toContain("return json(DISABLED_AI_RESPONSE, 503, headers)");
   });
 
-  it("locks provider execution to one fixed OpenRouter free model", () => {
+  it("locks provider execution to one fixed OpenRouter free model and bounded provider-layer failover", () => {
     const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
+    const providerPolicy = readRepositoryFile("src/legacy/zeroCostRoutingPolicy.ts");
     const modelCatalog = readRepositoryFile("src/lib/orchestration/OriginFreeModelCatalog.ts");
     expect(providerClient).toContain('export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;');
     expect(providerClient).toContain("openrouter: [ORIGIN_OPENROUTER_FREE_MODEL]");
-    expect(providerClient).toContain("allow_fallbacks: false");
-    expect(providerClient).toContain('data_collection: "deny"');
+    expect(providerPolicy).toContain("allow_fallbacks: true");
+    expect(providerPolicy).toContain('data_collection: "deny"');
+    expect(providerPolicy).toContain("zdr: true");
+    expect(providerPolicy).toContain("prompt: 0");
+    expect(providerPolicy).toContain("completion: 0");
+    expect(providerPolicy).toContain("request: 0");
     expect(providerClient).toContain("zero(data.usage?.cost");
     expect(providerClient).toContain("evidence(request, provider, String(servedModel))");
     expect(providerClient).not.toContain("Gemini");
