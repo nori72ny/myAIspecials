@@ -15,6 +15,7 @@ import './index.css';
 import './ultra-optics.css';
 import './audit-2026-priority.css';
 import './origin-top-ui.css';
+import './origin-flagship-ui.css';
 
 registerOriginServiceWorker();
 installActiveContextChatBridge();
@@ -67,8 +68,6 @@ function PersonalReleaseRoot() {
   useEffect(() => { let active = true; const legacy = snapshotFromState(messages, sessions, []); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.source === 'indexeddb' && result.snapshot) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); }); }); return () => { active = false; cancelIdle(); }; }, []);
   useEffect(() => { if (storageHealth === 'loading') return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, messages, sessions, storageHealth]);
 
-  /* The legacy App header contains an accidental ancestor click handler that clears local state and reloads /.
-     Capture the settings trigger before React's delegated click handler so Settings is deterministic on touch and desktop. */
   useEffect(() => {
     const handleSettingsTrigger = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target.closest('button') : null;
