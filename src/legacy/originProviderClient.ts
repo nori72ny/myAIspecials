@@ -43,20 +43,15 @@ export class OriginProviderError extends Error {
 }
 
 export type OriginFetch = typeof fetch;
-const RETRY = [200, 500, 1000] as const;
+const RETRY: readonly number[] = [];
 const TIMEOUT = 6000;
-const COOLDOWN = 15000;
 const MAX_SEGMENTS = 3;
 export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;
 export type AllowedZeroCostProvider = (typeof ALLOWED_ZERO_COST_PROVIDERS)[number];
 export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL] } as const;
 const IDS: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", "openrouter-free": "openrouter" };
-const cooldown: Partial<Record<AllowedZeroCostProvider, number>> = {};
-export function resetOriginProviderCooldownForTests(): void { for (const provider of ALLOWED_ZERO_COST_PROVIDERS) delete cooldown[provider]; }
 const pid = (value: unknown): AllowedZeroCostProvider | null => { if (typeof value !== "string") return null; return IDS[value] ?? (ALLOWED_ZERO_COST_PROVIDERS.includes(value as AllowedZeroCostProvider) ? value as AllowedZeroCostProvider : null); };
 const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && (ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model);
-const mark = (provider: AllowedZeroCostProvider): void => { cooldown[provider] = Date.now() + COOLDOWN; };
-const isCooling = (provider: AllowedZeroCostProvider): boolean => { const until = cooldown[provider] ?? 0; if (until <= Date.now()) { delete cooldown[provider]; return false; } return true; };
 function fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
 function zero(value: unknown, field: string): asserts value is 0 { if (typeof value !== "number" || !Number.isFinite(value) || value < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED"); if (Math.abs(value) > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION"); }
 function nonzeroIfPresent(value: unknown, field: string): void { if (value === undefined || value === null) return; const numeric = typeof value === "number" ? value : Number(value); if (!Number.isFinite(numeric) || numeric < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED"); if (numeric > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION"); }
@@ -147,7 +142,6 @@ async function requestFetch(fetchImpl: OriginFetch, request: OriginProviderExecu
 async function requestWithRetry(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit): Promise<Response> { return request(fetchImpl, input, init); }
 export async function executeOriginProvider(providerRequest: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv = process.env, fetchImpl: OriginFetch = fetch): Promise<OriginProviderExecutionResult> {
   validate(providerRequest.plan); const primary = pid(providerRequest.plan.providerId); if (!primary) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "許可されていないProviderです。", 400, false);
-  if (isCooling(primary)) throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true);
   const key = env.OPENROUTER_API_KEY; if (!key) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
-  try { return await openrouter(providerRequest, key, fetchImpl, primary); } catch (error) { if (error instanceof OriginProviderError && error.retryable) mark(primary); if (error instanceof OriginProviderError) throw error; throw new OriginProviderError("PROVIDER_INTERNAL_ERROR", "無料AIとの通信に失敗しました。", 503, true); }
+  try { return await openrouter(providerRequest, key, fetchImpl, primary); } catch (error) { if (error instanceof OriginProviderError) throw error; throw new OriginProviderError("PROVIDER_INTERNAL_ERROR", "無料AIとの通信に失敗しました。", 503, true); }
 }
