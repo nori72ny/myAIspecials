@@ -4,7 +4,9 @@ on:
   pull_request:
     branches: [ main ]
   push:
-    branches: [ feat/agentic-coding-os-phase2 ]
+    branches:
+      - main
+      - feat/agentic-coding-os-phase2
   workflow_dispatch:
 
 permissions:
