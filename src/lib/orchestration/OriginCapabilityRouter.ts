@@ -21,7 +21,8 @@ type Signal = { capability: OriginCapability; pattern: RegExp; weight: number };
 
 const SIGNALS: readonly Signal[] = [
   { capability: "research", pattern: /\b(research|source|sources|verify|citation|latest|compare|調査|情報源|出典|最新|比較|検証)\b/i, weight: 3 },
-  { capability: "coding", pattern: /\b(code|coding|bug|debug|typescript|javascript|python|api|github|commit|test|build|deploy|コード|修正|バグ|実装|テスト|デプロイ)\b/i, weight: 3 },
+  { capability: "coding", pattern: /\b(code|coding|bug|debug)\b/i, weight: 3 },
+  { capability: "coding", pattern: /\b(typescript|javascript|python|api|github|commit|test|build|deploy|コード|修正|バグ|実装|テスト|デプロイ)\b/i, weight: 3 },
   { capability: "writing", pattern: /\b(write|rewrite|draft|email|message|caption|文章|書いて|添削|メール|文章作成|投稿)\b/i, weight: 3 },
   { capability: "analysis", pattern: /\b(analyze|analysis|audit|review|architecture|risk|分析|監査|レビュー|設計|評価|リスク)\b/i, weight: 3 },
 ];
