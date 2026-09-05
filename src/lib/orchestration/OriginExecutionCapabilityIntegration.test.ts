@@ -9,7 +9,7 @@ function planFor(goal: string) {
     { nowMs: Date.now() },
   );
   expect(result.ok).toBe(true);
-  if (!result.ok) throw new Error(result.message);
+  if (!result.ok) throw new Error("message" in result ? result.message : "execution plan failed");
   return result.plan;
 }
 
@@ -43,7 +43,7 @@ describe("ORIGIN v2 capability routing integration", () => {
       { nowMs: Date.now() },
     );
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error(result.message);
+    if (!result.ok) throw new Error("message" in result ? result.message : "execution plan failed");
     expect(result.plan.taskType).toBe("architecture");
   });
 });
