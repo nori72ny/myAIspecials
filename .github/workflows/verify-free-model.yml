@@ -56,7 +56,7 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const evidence = JSON.parse(fs.readFileSync(process.env.ORIGIN_FREE_MODEL_EVIDENCE_PATH, 'utf8'));
-          if (evidence.modelId !== 'google/gemma-4-26b-a4b-it:free'
+          if (evidence.modelId !== 'google/gemma-4-31b-it:free'
             || evidence.pricing.prompt !== '0'
             || evidence.pricing.completion !== '0'
             || Date.parse(evidence.reviewAfter) <= Date.now()) {
