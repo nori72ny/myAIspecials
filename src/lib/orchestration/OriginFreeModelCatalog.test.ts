@@ -16,7 +16,7 @@ describe("selectCurrentOriginFreeModel", () => {
       model: expect.objectContaining({
         modelId: "google/gemma-4-31b-it:free",
         providerId: "openrouter-free",
-        sourceUrl: "https://openrouter.ai/api/v1/models",
+        sourceUrl: "https://openrouter.ai/google/gemma-4-31b-it:free",
       }),
     });
   });
