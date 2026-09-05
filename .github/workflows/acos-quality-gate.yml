@@ -53,6 +53,17 @@ jobs:
       - name: Run Integration API Tests
         run: npm run test:api
 
+      - name: Preserve API Test Diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: origin-api-test-results
+          path: |
+            results/**
+            coverage/jest/**
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Validate Production Build
         run: npm run build
 
