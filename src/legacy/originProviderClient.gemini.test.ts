@@ -7,7 +7,7 @@ const request: OriginProviderExecutionRequest = {
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_OPENROUTER_FREE_MODEL,
-    taskType: "answer",
+    taskType: "research",
     freeOnly: true,
     estimatedCostUsd: 0,
     timeoutMs: 20_000,
