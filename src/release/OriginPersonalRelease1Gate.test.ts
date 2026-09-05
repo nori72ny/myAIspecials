@@ -60,7 +60,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(gate).toContain("AI Studio direct runtimeは一次公開に含めない");
     expect(gate).toContain("デプロイについて、マージとは別の明示承認");
     expect(gate).toContain("実費`$0.00`");
-    expect(gate).toContain("別モデルや別providerへ自動で切り替えない");
+    expect(gate).toContain("ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない");
     expect(gate).toContain("Vercel serverless `api/index.ts` | SELECTED");
     expect(gate).toContain("Node/Docker `server.ts` | NOT SELECTED");
     expect(gate).toContain("リリースIDがデプロイ対象のExact SHAと一致する");
