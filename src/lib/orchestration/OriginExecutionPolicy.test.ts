@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL } from "./OriginExecutionPolicy";
+import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL, resolveOriginCapabilityTaskType } from "./OriginExecutionPolicy";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "./OriginFreeModelCatalog";
 
 const request = { goal: "認証処理の安全性を確認してください" };
@@ -25,7 +25,18 @@ describe("buildOriginExecutionPlan", () => {
     if (!result.ok) return;
     expect(result.plan.providerId).toBe("openrouter-free");
     expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
-    expect(result.plan.taskType).toBe("current-information");
+    expect(result.plan.taskType).toBe("research");
+  });
+
+  it("routes V2 capabilities deterministically before legacy task classification", () => {
+    expect(resolveOriginCapabilityTaskType({ goal: "最新情報を調査して出典を確認" })).toEqual({ capability: "research", taskType: "research" });
+    expect(resolveOriginCapabilityTaskType({ goal: "このバグを修正してテストしてください" })).toEqual({ capability: "coding", taskType: "implementation" });
+    expect(resolveOriginCapabilityTaskType({ goal: "営業メールを書いてください" })).toEqual({ capability: "writing", taskType: "documentation" });
+    expect(resolveOriginCapabilityTaskType({ goal: "この設計のリスクを分析してください" })).toEqual({ capability: "analysis", taskType: "review" });
+  });
+
+  it("preserves explicit task type over automatic capability routing", () => {
+    expect(resolveOriginCapabilityTaskType({ goal: "文章を分析してください", taskType: "research" })).toEqual({ capability: "research", taskType: "research" });
   });
 
   it("fails closed when OpenRouter is not configured even if legacy providers are configured", () => {
