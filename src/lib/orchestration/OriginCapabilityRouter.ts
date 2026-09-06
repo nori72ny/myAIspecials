@@ -4,12 +4,7 @@
  * This layer selects the work capability before provider selection. It never
  * selects a paid provider/model and it never performs network I/O.
  */
-export type OriginCapability =
-  | "answer"
-  | "research"
-  | "coding"
-  | "writing"
-  | "analysis";
+export type OriginCapability = "answer" | "research" | "coding" | "writing" | "analysis";
 
 export interface OriginCapabilityDecision {
   capability: OriginCapability;
@@ -17,45 +12,37 @@ export interface OriginCapabilityDecision {
   confidence: "high" | "medium" | "low";
 }
 
-// ASCII terms use word boundaries; Japanese terms intentionally do not because
-// Japanese text has no whitespace-delimited word boundaries.
-const RESEARCH = /(?:\b(research|source|sources|verify|citation|latest|compare)\b|調査|情報源|出典|最新|比較|検証)/i;
-const CODING = /(?:\b(code|coding|bug|debug|typescript|javascript|python|api|github|commit|test|build|deploy)\b|コード|修正|バグ|実装|テスト|デプロイ)/i;
-const WRITING = /(?:\b(write|rewrite|draft|email|message|caption)\b|文章|書いて|添削|メール|文章作成|投稿)/i;
-const ANALYSIS = /(?:\b(analyze|analysis|audit|review|architecture|risk)\b|分析|監査|レビュー|設計|評価|リスク)/i;
+type Signal = { capability: OriginCapability; pattern: RegExp; weight: number };
 
-export function selectOriginCapability(
-  input: string,
-  explicit?: OriginCapability,
-): OriginCapabilityDecision {
-  if (explicit) {
-    return { capability: explicit, reason: "explicit", confidence: "high" };
-  }
+const SIGNALS: readonly Signal[] = [
+  { capability: "research", pattern: /(?:\b(research|source|sources|verify|citation|latest|compare)\b|調査|情報源|出典|最新|比較|検証)/i, weight: 3 },
+  { capability: "coding", pattern: /(?:\b(code|coding|bug|debug|typescript|javascript|python|api|github|commit|test|build|deploy)\b|コード|修正|バグ|実装|テスト|デプロイ)/i, weight: 3 },
+  { capability: "writing", pattern: /(?:\b(write|rewrite|draft|email|message|caption)\b|文章|書いて|添削|メール|文章作成|投稿)/i, weight: 3 },
+  { capability: "analysis", pattern: /(?:\b(analyze|analysis|audit|review|architecture|risk)\b|分析|監査|レビュー|設計|評価|リスク)/i, weight: 3 },
+];
 
+const CAPABILITIES: readonly OriginCapability[] = ["answer", "research", "coding", "writing", "analysis"];
+
+export function selectOriginCapability(input: string, explicit?: OriginCapability): OriginCapabilityDecision {
+  if (explicit) return { capability: explicit, reason: "explicit", confidence: "high" };
   const text = input.trim();
-  if (RESEARCH.test(text)) {
-    return { capability: "research", reason: "keyword", confidence: "high" };
-  }
-  if (CODING.test(text)) {
-    return { capability: "coding", reason: "keyword", confidence: "high" };
-  }
-  if (WRITING.test(text)) {
-    return { capability: "writing", reason: "keyword", confidence: "high" };
-  }
-  if (ANALYSIS.test(text)) {
-    return { capability: "analysis", reason: "keyword", confidence: "medium" };
+  if (!text) return { capability: "answer", reason: "default", confidence: "low" };
+
+  const scores = new Map<OriginCapability, number>(CAPABILITIES.map((capability) => [capability, 0]));
+  for (const signal of SIGNALS) {
+    if (signal.pattern.test(text)) scores.set(signal.capability, (scores.get(signal.capability) ?? 0) + signal.weight);
   }
 
-  return { capability: "answer", reason: "default", confidence: "low" };
+  const ranked = CAPABILITIES
+    .map((capability, order) => ({ capability, score: scores.get(capability) ?? 0, order }))
+    .sort((left, right) => right.score - left.score || left.order - right.order);
+  const winner = ranked[0];
+  if (!winner || winner.score === 0) return { capability: "answer", reason: "default", confidence: "low" };
+
+  const tied = ranked.filter((item) => item.score === winner.score).length > 1;
+  return { capability: winner.capability, reason: "keyword", confidence: tied ? "medium" : "high" };
 }
 
-/**
- * Deterministic, zero-cost-safe execution order for v2.
- * Provider choice remains owned by the existing zero-cost policy layer.
- */
-export function capabilityExecutionOrder(
-  decision: OriginCapabilityDecision,
-): readonly OriginCapability[] {
-  const rest: OriginCapability[] = ["answer", "research", "coding", "writing", "analysis"];
-  return [decision.capability, ...rest.filter((item) => item !== decision.capability)];
+export function capabilityExecutionOrder(decision: OriginCapabilityDecision): readonly OriginCapability[] {
+  return [decision.capability, ...CAPABILITIES.filter((item) => item !== decision.capability)];
 }
