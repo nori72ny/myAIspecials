@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -29,6 +29,13 @@ async function request(port, method, path, body) {
 }
 
 try {
+  // tsc emits NodeNext ESM based on the repository's root package.json. The
+  // temporary output directory is outside that package scope, so Node would
+  // otherwise reinterpret the emitted .js files as CommonJS at runtime.
+  // Mirror the production module boundary explicitly so this smoke test
+  // validates the compiled ESM handler rather than the temp directory layout.
+  writeFileSync(join(outputDir, 'package.json'), '{"type":"module"}\n', 'utf8');
+
   const tscArgs = [
     'api/index.ts',
     '--outDir', outputDir,
