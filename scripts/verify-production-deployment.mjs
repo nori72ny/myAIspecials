@@ -20,43 +20,49 @@ function normalizedBaseUrl(value) {
   return url.toString().replace(/\/$/, "");
 }
 
-async function fetchWithTimeout(url, timeoutMs) {
+async function fetchWithTimeout(url, timeoutMs, options = {}) {
   return fetch(url, {
+    ...options,
     headers: {
-      accept: "application/json, text/html;q=0.9",
+      accept: "application/json, text/html;q=0.9, text/event-stream;q=0.9",
       "cache-control": "no-cache",
-      "user-agent": "origin-production-smoke/1.0",
+      "user-agent": "origin-production-smoke/1.1",
+      ...(options.headers ?? {}),
     },
     signal: AbortSignal.timeout(timeoutMs),
   });
 }
 
-export async function verifyProductionDeployment(env = process.env) {
-  const baseUrl = normalizedBaseUrl(
-    env.ORIGIN_PRODUCTION_URL ?? "https://origin-personal.vercel.app",
-  );
-  const expectedSha = env.ORIGIN_EXPECTED_SHA?.toLowerCase();
-  assert.match(
-    expectedSha ?? "",
-    FULL_GIT_SHA,
-    "ORIGIN_EXPECTED_SHA must be the exact 40-character main commit SHA.",
-  );
+async function verifyLiveChat(baseUrl, requestTimeoutMs) {
+  const response = await fetchWithTimeout(`${baseUrl}/api/chat`, requestTimeoutMs, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: baseUrl,
+    },
+    body: JSON.stringify({
+      messages: [{ role: "user", content: "日本語で一文だけ、OKと返してください。" }],
+      executionPolicy: { maxEstimatedCostUsd: 0 },
+    }),
+  });
 
-  const timeoutMs = positiveInteger(
-    env.ORIGIN_DEPLOY_TIMEOUT_MS,
-    600_000,
-    "ORIGIN_DEPLOY_TIMEOUT_MS",
-  );
-  const pollIntervalMs = positiveInteger(
-    env.ORIGIN_DEPLOY_POLL_INTERVAL_MS,
-    10_000,
-    "ORIGIN_DEPLOY_POLL_INTERVAL_MS",
-  );
-  const requestTimeoutMs = positiveInteger(
-    env.ORIGIN_REQUEST_TIMEOUT_MS,
-    15_000,
-    "ORIGIN_REQUEST_TIMEOUT_MS",
-  );
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = await response.text();
+  assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}: ${body.slice(0, 500)}`);
+  assert.ok(body.trim().length > 0, "Production /api/chat must return a non-empty response.");
+  assert.match(contentType, /json|event-stream/i, `Production /api/chat returned unexpected content type: ${contentType || "missing"}`);
+
+  return { status: response.status, contentType, bytes: Buffer.byteLength(body) };
+}
+
+export async function verifyProductionDeployment(env = process.env) {
+  const baseUrl = normalizedBaseUrl(env.ORIGIN_PRODUCTION_URL ?? "https://origin-personal.vercel.app");
+  const expectedSha = env.ORIGIN_EXPECTED_SHA?.toLowerCase();
+  assert.match(expectedSha ?? "", FULL_GIT_SHA, "ORIGIN_EXPECTED_SHA must be the exact 40-character main commit SHA.");
+
+  const timeoutMs = positiveInteger(env.ORIGIN_DEPLOY_TIMEOUT_MS, 600_000, "ORIGIN_DEPLOY_TIMEOUT_MS");
+  const pollIntervalMs = positiveInteger(env.ORIGIN_DEPLOY_POLL_INTERVAL_MS, 10_000, "ORIGIN_DEPLOY_POLL_INTERVAL_MS");
+  const requestTimeoutMs = positiveInteger(env.ORIGIN_REQUEST_TIMEOUT_MS, 15_000, "ORIGIN_REQUEST_TIMEOUT_MS");
 
   const deadline = Date.now() + timeoutMs;
   let attempt = 0;
@@ -65,43 +71,20 @@ export async function verifyProductionDeployment(env = process.env) {
   while (Date.now() < deadline) {
     attempt += 1;
     try {
-      const response = await fetchWithTimeout(
-        `${baseUrl}/api/health?expected=${expectedSha}&attempt=${attempt}`,
-        requestTimeoutMs,
-      );
+      const response = await fetchWithTimeout(`${baseUrl}/api/health?expected=${expectedSha}&attempt=${attempt}`, requestTimeoutMs);
       const contentType = response.headers.get("content-type") ?? "";
       if (!response.ok || !/application\/json/i.test(contentType)) {
         lastObservation = `health returned HTTP ${response.status} (${contentType || "unknown content type"})`;
       } else {
         const health = await response.json();
         lastObservation = `releaseSha=${String(health.releaseSha ?? "missing")}`;
-        if (
-          health.status === "ok"
-          && health.service === "acos-2"
-          && String(health.releaseSha).toLowerCase() === expectedSha
-        ) {
-          const pageResponse = await fetchWithTimeout(
-            `${baseUrl}/?release=${expectedSha}`,
-            requestTimeoutMs,
-          );
+        if (health.status === "ok" && health.service === "acos-2" && String(health.releaseSha).toLowerCase() === expectedSha) {
+          const pageResponse = await fetchWithTimeout(`${baseUrl}/?release=${expectedSha}`, requestTimeoutMs);
           assert.equal(pageResponse.status, 200, "Production page must return HTTP 200.");
-          assert.match(
-            pageResponse.headers.get("content-type") ?? "",
-            /text\/html/i,
-            "Production page must return HTML.",
-          );
-          assert.match(
-            await pageResponse.text(),
-            /<title>ORIGIN Personal<\/title>/i,
-            "Production page must identify ORIGIN Personal.",
-          );
-
-          return {
-            baseUrl,
-            expectedSha,
-            observedSha: String(health.releaseSha).toLowerCase(),
-            attempts: attempt,
-          };
+          assert.match(pageResponse.headers.get("content-type") ?? "", /text\/html/i, "Production page must return HTML.");
+          assert.match(await pageResponse.text(), /<title>ORIGIN Personal<\/title>/i, "Production page must identify ORIGIN Personal.");
+          const chat = await verifyLiveChat(baseUrl, requestTimeoutMs);
+          return { baseUrl, expectedSha, observedSha: String(health.releaseSha).toLowerCase(), attempts: attempt, chat };
         }
       }
     } catch (error) {
@@ -110,24 +93,16 @@ export async function verifyProductionDeployment(env = process.env) {
 
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
-    await new Promise((resolve) => {
-      setTimeout(resolve, Math.min(pollIntervalMs, remainingMs));
-    });
+    await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, remainingMs)));
   }
 
-  throw new Error(
-    `Production did not expose expected main SHA ${expectedSha} within ${timeoutMs}ms. Last observation: ${lastObservation}`,
-  );
+  throw new Error(`Production did not expose expected main SHA ${expectedSha} within ${timeoutMs}ms. Last observation: ${lastObservation}`);
 }
 
 if (process.argv[1]?.endsWith("verify-production-deployment.mjs")) {
   try {
     const result = await verifyProductionDeployment();
-    console.log(JSON.stringify({
-      status: "passed",
-      check: "origin-production-deployment",
-      ...result,
-    }));
+    console.log(JSON.stringify({ status: "passed", check: "origin-production-deployment-and-live-chat", ...result }));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
