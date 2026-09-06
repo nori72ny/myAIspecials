@@ -40,6 +40,8 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).toContain("evidence(request, provider, String(servedModel))");
     expect(providerClient).toContain('strategy === "bounded-secondary"');
     expect(providerClient).not.toContain('"openrouter/free"');
+    expect(providerClient).not.toContain("?key=");
+    expect(providerClient).toContain('"x-goog-api-key": key');
     expect(modelCatalog).toContain('"google/gemma-4-31b-it:free"');
     expect(modelCatalog).not.toContain('"openrouter/free"');
   });
