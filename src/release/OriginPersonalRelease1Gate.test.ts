@@ -55,7 +55,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(app).not.toContain("legacyRoutes");
     expect(app).not.toContain("MissionEngine");
     expect(gate).toContain("AI Studio direct runtimeは一次公開に含めない");
-    expect(gate).toContain("OpenRouterのprovider層では、同一固定modelに限り");
+    expect(gate).toContain("provider層は同一固定model内の候補だけに限定され");
     expect(gate).toContain("実費`$0.00`");
     expect(gate).toContain("ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない");
   });
