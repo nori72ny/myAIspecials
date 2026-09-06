@@ -7,7 +7,6 @@ module.exports = {
   coverageReporters: ['json', 'lcov', 'text', 'clover', 'html'],
   reporters: [
     'default',
-    ['jest-junit', { outputDirectory: 'results', outputName: 'jest-results.xml' }],
     ['jest-html-reporter', { pageTitle: 'ACOS 2.0 API Test Report', outputPath: 'results/jest-report.html' }]
   ],
   testTimeout: 120000
