@@ -13,7 +13,7 @@ describe("originResearchSource", () => {
 
     const result = await researchCurrentInformation("AIO");
     expect(result.ok).toBe(true);
-    expect(result.sources[0]).toMatchObject({ title: "AI optimization", url: "https://example.com/ai-optimization", sourceType: "web-search", domain: "example.com", rank: 1 });
+    expect(result.sources[0]).toMatchObject({ title: "AI optimization", url: "https://example.com/ai-optimization", sourceType: "web-search", domain: "example.com", rank: 1, evidenceLevel: "snippet" });
     expect(secureFetch.mock.calls[0][0]).toContain("https://html.duckduckgo.com/html/?q=AIO");
     expect(secureFetch.mock.calls[0][0]).toContain("kl=us-en");
   });
@@ -22,9 +22,20 @@ describe("originResearchSource", () => {
     secureFetch.mockResolvedValueOnce('<a class="result__a" href="https://example.com/ai">人工知能</a><div class="result__snippet">人工知能に関する説明</div>');
     const result = await researchCurrentInformation("人工知能");
     expect(result.ok).toBe(true);
-    expect(result.sources[0]).toMatchObject({ title: "人工知能", domain: "example.com", sourceType: "web-search" });
+    expect(result.sources[0]).toMatchObject({ title: "人工知能", domain: "example.com", sourceType: "web-search", evidenceLevel: "snippet" });
     expect(secureFetch.mock.calls[0][0]).toContain("https://html.duckduckgo.com/html/");
     expect(secureFetch.mock.calls[0][0]).toContain("kl=jp-jp");
+  });
+
+  it("marks Wikipedia evidence as page-verified only after page metadata is fetched", async () => {
+    secureFetch
+      .mockRejectedValueOnce(new Error("search unavailable"))
+      .mockResolvedValueOnce(JSON.stringify({ pages: [{ key: "AI", title: "AI", excerpt: "Artificial intelligence." }] }))
+      .mockResolvedValueOnce(JSON.stringify({ html_url: "https://en.wikipedia.org/wiki/AI", latest: { timestamp: "2026-09-06T00:00:00Z" } }));
+
+    const result = await researchCurrentInformation("latest AI news");
+    expect(result.ok).toBe(true);
+    expect(result.sources[0]).toMatchObject({ evidenceLevel: "page-verified", revisionTimestamp: "2026-09-06T00:00:00Z" });
   });
 
   it("fails closed when the source cannot be reached", async () => {
