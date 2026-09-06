@@ -38,6 +38,20 @@ describe("bounded Gemini secondary route", () => {
     expect(result.routingEvidence).toMatchObject({ provider: "Gemini", servedModel: "gemini-2.5-flash", strategy: "bounded-secondary", attempt: 1, fallbackUsed: true });
   });
 
+  it("passes the Gemini API key only in the x-goog-api-key header", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return calls.length === 1 ? openRouterRateLimited() : geminiOk();
+    };
+    await executeOriginProvider(request, { OPENROUTER_API_KEY: "test-openrouter", GEMINI_API_KEY: "test-gemini", ORIGIN_GEMINI_FREE_ONLY: "true" }, fetchImpl as typeof fetch);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].url).not.toContain("test-gemini");
+    expect(calls[1].url).not.toContain("?key=");
+    const headers = new Headers(calls[1].init?.headers);
+    expect(headers.get("x-goog-api-key")).toBe("test-gemini");
+  });
+
   it.each([408, 500, 502, 503, 504])("routes retryable upstream HTTP %s to Gemini exactly once", async (status) => {
     let calls = 0;
     const fetchImpl = async () => {
