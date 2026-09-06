@@ -1,5 +1,6 @@
 import { classifyTask, type AITaskRequest, type AITaskType } from "./MultiAIOrchestrator.js";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG, ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, selectCurrentOriginFreeModel, type OriginFreeModelEvidence } from "./OriginFreeModelCatalog.js";
+import { selectOriginCapability, type OriginCapability } from "./OriginCapabilityRouter.js";
 
 export const ORIGIN_OPENROUTER_FREE_PROVIDER_ID = "openrouter-free" as const;
 export const ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID = "google-ai-studio-free" as const;
@@ -49,6 +50,43 @@ function chooseProvider(_taskType: AITaskType, _availability: OriginExecutionAva
   return ORIGIN_OPENROUTER_FREE_PROVIDER_ID;
 }
 
+/**
+ * V2 capability routing is deliberately downstream of explicit taskType.
+ * Existing callers that already provide a task type keep full control; otherwise
+ * the deterministic capability router selects the work mode before legacy task
+ * classification. It never selects a provider, model, or paid path.
+ */
+export function resolveOriginCapabilityTaskType(request: AITaskRequest): { capability: OriginCapability; taskType: AITaskType } {
+  if (request.taskType) {
+    const capabilityByTask: Partial<Record<AITaskType, OriginCapability>> = {
+      research: "research",
+      current-information: "research",
+      implementation: "coding",
+      test: "coding",
+      operations: "coding",
+      documentation: "writing",
+      review: "analysis",
+      security: "analysis",
+      ux: "analysis",
+      architecture: "analysis",
+    };
+    return { capability: capabilityByTask[request.taskType] ?? "answer", taskType: request.taskType };
+  }
+
+  const decision = selectOriginCapability(request.goal);
+  const taskTypeByCapability: Record<OriginCapability, AITaskType | null> = {
+    answer: null,
+    research: "research",
+    coding: "implementation",
+    writing: "documentation",
+    analysis: "review",
+  };
+  return {
+    capability: decision.capability,
+    taskType: taskTypeByCapability[decision.capability] ?? classifyTask(request),
+  };
+}
+
 function parseEvidence(evidence: OriginProviderFreeEvidence, providerId: OriginExecutionProviderId, nowMs: number): OriginExecutionPlanResult | null {
   const verifiedAt = Date.parse(evidence.verifiedAt);
   const reviewAfter = Date.parse(evidence.reviewAfter);
@@ -79,12 +117,13 @@ export function buildOriginExecutionPlan(request: AITaskRequest, availability: O
   if (!availability.openRouterConfigured) return { ok: false, code: "FREE_PROVIDER_NOT_CONFIGURED", message: "明示的に無料と確認できるOpenRouter無料モデルが設定されていません。" };
   const nowMs = planningOptions.nowMs ?? Date.now();
   if (!Number.isFinite(nowMs)) return { ok: false, code: "FREE_MODEL_CATALOG_INVALID", message: "無料Provider証拠の基準時刻が不正です。" };
-  const taskType = classifyTask(request);
+  const resolved = resolveOriginCapabilityTaskType(request);
+  const taskType = resolved.taskType;
   const providerId = chooseProvider(taskType, availability);
   const evidence = resolveProviderEvidence(providerId, planningOptions, nowMs);
   if ("ok" in evidence && evidence.ok === false) return evidence;
   const modelEvidence = evidence as OriginProviderFreeEvidence;
   const modelId = ORIGIN_OPENROUTER_FREE_MODEL;
   const providerDataPolicy = DEFAULT_ORIGIN_PROVIDER_DATA_POLICY;
-  return { ok: true, plan: { providerId, providerLabel: "ORIGIN 無料AI", modelId, taskType, freeOnly: true, estimatedCostUsd: 0, timeoutMs: policy.timeoutMs, requiresOwnerApproval: false, reason: `依頼を「${taskType}」として分類し、検証済みのOpenRouter無料モデルのみを選択します。Provider自身の無料利用証拠が期限内である場合のみ実行します。`, providerDataPolicy, modelEvidence } };
+  return { ok: true, plan: { providerId, providerLabel: "ORIGIN 無料AI", modelId, taskType, freeOnly: true, estimatedCostUsd: 0, timeoutMs: policy.timeoutMs, requiresOwnerApproval: false, reason: `依頼を「${taskType}」として分類し、検証済みのOpenRouter無料モデルのみを選択します。V2能力ルーティング: ${resolved.capability}。Provider自身の無料利用証拠が期限内である場合のみ実行します。`, providerDataPolicy, modelEvidence } };
 }
