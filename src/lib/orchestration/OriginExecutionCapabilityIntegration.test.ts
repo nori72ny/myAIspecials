@@ -4,7 +4,7 @@ import { buildOriginExecutionPlan } from "./OriginExecutionPolicy.js";
 function planFor(goal: string) {
   const result = buildOriginExecutionPlan({ goal }, { openRouterConfigured: true }, undefined, { nowMs: Date.now() });
   expect(result.ok).toBe(true);
-  if (!result.ok) throw new Error(result.message);
+  if (!result.ok) throw new Error(JSON.stringify(result));
   return result.plan;
 }
 
@@ -33,7 +33,7 @@ describe("ORIGIN v2 capability routing integration", () => {
   it("does not override an explicit execution task type", () => {
     const result = buildOriginExecutionPlan({ goal: "最新情報を調査して", taskType: "architecture" }, { openRouterConfigured: true }, undefined, { nowMs: Date.now() });
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error(result.message);
+    if (!result.ok) throw new Error(JSON.stringify(result));
     expect(result.plan.taskType).toBe("architecture");
   });
 });
