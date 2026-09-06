@@ -23,12 +23,13 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(worker).toContain("return json(DISABLED_AI_RESPONSE, 503, headers)");
   });
 
-  it("locks provider execution to one fixed OpenRouter free model and bounded provider-layer failover", () => {
+  it("locks execution to approved free providers/models with bounded secondary routing", () => {
     const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
     const providerPolicy = readRepositoryFile("src/legacy/zeroCostRoutingPolicy.ts");
     const modelCatalog = readRepositoryFile("src/lib/orchestration/OriginFreeModelCatalog.ts");
-    expect(providerClient).toContain('export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;');
+    expect(providerClient).toContain('export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter", "gemini"] as const;');
     expect(providerClient).toContain("openrouter: [ORIGIN_OPENROUTER_FREE_MODEL]");
+    expect(providerClient).toContain("gemini: [ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL]");
     expect(providerPolicy).toContain("allow_fallbacks: true");
     expect(providerPolicy).toContain('data_collection: "deny"');
     expect(providerPolicy).toContain("zdr: true");
@@ -37,30 +38,31 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerPolicy).toContain("request: 0");
     expect(providerClient).toContain("zero(data.usage?.cost");
     expect(providerClient).toContain("evidence(request, provider, String(servedModel))");
-    expect(providerClient).not.toContain("Gemini");
-    expect(providerClient).not.toContain("Groq");
+    expect(providerClient).toContain('strategy === "bounded-secondary"');
     expect(providerClient).not.toContain('"openrouter/free"');
     expect(modelCatalog).toContain('"google/gemma-4-31b-it:free"');
     expect(modelCatalog).not.toContain('"openrouter/free"');
   });
 
-  it("removes the Gemini capability declaration and exposes the release SHA", () => {
+  it("keeps AI Studio direct runtime out of the release while allowing only the bounded secondary adapter", () => {
     const metadata = JSON.parse(readRepositoryFile("metadata.json")) as { majorCapabilities?: string[] };
     const app = readRepositoryFile("src/server/createOriginApp.ts");
+    const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
     expect(metadata.majorCapabilities).toBeUndefined();
     expect(app).toContain("releaseSha: resolveOriginReleaseSha(env)");
     expect(app).toContain("env.VERCEL_GIT_COMMIT_SHA");
     expect(app).toContain('["/health", "/api/health"]');
     expect(app).not.toContain("legacyRoutes");
     expect(app).not.toContain("MissionEngine");
-  });
-
-  it("states that AI Studio direct runtime is outside the first release", () => {
-    const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
     expect(gate).toContain("AI Studio direct runtimeは一次公開に含めない");
-    expect(gate).toContain("デプロイについて、マージとは別の明示承認");
+    expect(gate).toContain("OpenRouterのprovider層では、同一固定modelに限り");
     expect(gate).toContain("実費`$0.00`");
     expect(gate).toContain("ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない");
+  });
+
+  it("states the selected serverless route and explicit deployment approval boundary", () => {
+    const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
+    expect(gate).toContain("デプロイについて、マージとは別の明示承認");
     expect(gate).toContain("Vercel serverless `api/index.ts` | SELECTED");
     expect(gate).toContain("Node/Docker `server.ts` | NOT SELECTED");
     expect(gate).toContain("リリースIDがデプロイ対象のExact SHAと一致する");
