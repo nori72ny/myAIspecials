@@ -17,10 +17,12 @@ export interface OriginCapabilityDecision {
   confidence: "high" | "medium" | "low";
 }
 
-const RESEARCH = /\b(research|source|sources|verify|citation|latest|compare|調査|情報源|出典|最新|比較|検証)\b/i;
-const CODING = /\b(code|coding|bug|debug|typescript|javascript|python|api|github|commit|test|build|deploy|コード|修正|バグ|実装|テスト|デプロイ)\b/i;
-const WRITING = /\b(write|rewrite|draft|email|message|caption|文章|書いて|添削|メール|文章作成|投稿)\b/i;
-const ANALYSIS = /\b(analyze|analysis|audit|review|architecture|risk|audit|分析|監査|レビュー|設計|評価|リスク)\b/i;
+// ASCII terms use word boundaries; Japanese terms intentionally do not because
+// Japanese text has no whitespace-delimited word boundaries.
+const RESEARCH = /(?:\b(research|source|sources|verify|citation|latest|compare)\b|調査|情報源|出典|最新|比較|検証)/i;
+const CODING = /(?:\b(code|coding|bug|debug|typescript|javascript|python|api|github|commit|test|build|deploy)\b|コード|修正|バグ|実装|テスト|デプロイ)/i;
+const WRITING = /(?:\b(write|rewrite|draft|email|message|caption)\b|文章|書いて|添削|メール|文章作成|投稿)/i;
+const ANALYSIS = /(?:\b(analyze|analysis|audit|review|architecture|risk)\b|分析|監査|レビュー|設計|評価|リスク)/i;
 
 export function selectOriginCapability(
   input: string,
