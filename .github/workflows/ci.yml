@@ -15,7 +15,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Default to read-only. Write access is granted only to jobs that explicitly need it.
 permissions:
   contents: read
 
@@ -30,61 +29,44 @@ jobs:
     permissions:
       contents: read
       security-events: write
-
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       with:
         fetch-depth: 0
-
     - name: Run Secret Scanning (Gitleaks)
       uses: gitleaks/gitleaks-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
-
     - name: Install dependencies (Clean Install)
       run: npm ci
-
     - name: Run Security Audit
-      # npm's legacy quick-audit endpoint can reject a valid npm-ci tree with
-      # HTTP 400 "Invalid package tree". Use the current npm client and audit
-      # the installed tree without submitting the lockfile representation.
-      # The critical threshold remains unchanged; no advisories are suppressed.
       run: npx --yes npm@latest audit --no-package-lock --audit-level=critical
-
     - name: Run linter
       run: npm run lint
-
     - name: Build the app
       run: npm run build
-
     - name: Run unit tests
       run: npm run test
-
     - name: Cache Playwright Browsers
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
       with:
         path: ~/.cache/ms-playwright
-        key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+        key: ${{ runner.os }}-node-${{ matrix.node-version }}-playwright-${{ hashFiles('package-lock.json') }}
         restore-keys: |
-          ${{ runner.os }}-playwright-
-
+          ${{ runner.os }}-node-${{ matrix.node-version }}-playwright-
     - name: Install Playwright Browsers
-      run: npx playwright install chromium
-
+      run: npx playwright install --force chromium
     - name: Run E2E tests
       run: npm run test:e2e
-
     - name: Run Lighthouse Audit
       run: |
         npm install -g @lhci/cli
         lhci autorun
-
     - name: Upload Playwright Report
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -92,16 +74,14 @@ jobs:
         name: playwright-report-node-${{ matrix.node-version }}
         path: playwright-report/
         retention-days: 30
-
     - name: Upload Test Results
       if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92acb1c17e648066571572b38
       with:
         name: test-results-node-${{ matrix.node-version }}
         path: test-results/
         retention-days: 30
         if-no-files-found: ignore
-
     - name: Generate SBOM (Software Bill of Materials)
       if: always()
       uses: anchore/sbom-action@v0
@@ -109,7 +89,6 @@ jobs:
         format: 'spdx-json'
         output-file: 'sbom.spdx.json'
       continue-on-error: true
-
     - name: Upload SBOM Artifact
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
