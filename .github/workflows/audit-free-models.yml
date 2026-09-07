@@ -9,7 +9,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - name: Query official OpenRouter model and endpoint catalogs
+      - name: Query official OpenRouter model and provider privacy pages
         shell: bash
         run: |
           set -euo pipefail
@@ -25,12 +25,22 @@ jobs:
             'nvidia/nemotron-3-super-120b-a12b:free' \
             'nvidia/nemotron-3-ultra-550b-a55b:free' \
             'nvidia/nemotron-3.5-lightning:free' \
-            'cohere/north-mini-code:free' \
-            'inclusionai/ling-3.0-flash-sante:free' \
-            'google/gemma-4-26b-a4b-it:free'; do
+            'cohere/north-mini-code:free'; do
             author="${spec%%/*}"
             slug="${spec#*/}"
             echo "ENDPOINTS_FOR=$spec"
-            curl --fail --silent --show-error "https://openrouter.ai/api/v1/models/$author/$slug/endpoints" | head -c 12000 || true
+            curl --fail --silent --show-error "https://openrouter.ai/api/v1/models/$author/$slug/endpoints" | head -c 8000 || true
             echo
+            echo "PRIVACY_PAGE_FOR=$spec"
+            curl --fail --silent --show-error "https://openrouter.ai/$author/$slug/providers" -o /tmp/page.html || true
+            python3 - "$spec" <<'PY'
+          import re,sys
+          from pathlib import Path
+          text=Path('/tmp/page.html').read_text(errors='ignore') if Path('/tmp/page.html').exists() else ''
+          for pat in ['Zero retention','zero retention','Prompt Logging','Training','training','ZDR','data_collection','retention']:
+              hits=[m.start() for m in re.finditer(re.escape(pat),text)]
+              for p in hits[:6]:
+                  s=max(0,p-240); e=min(len(text),p+480)
+                  print('MATCH',pat, re.sub(r'\\s+',' ',text[s:e])[:800])
+          PY
           done
