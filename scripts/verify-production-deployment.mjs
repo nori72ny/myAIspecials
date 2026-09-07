@@ -33,7 +33,7 @@ async function fetchWithTimeout(url, timeoutMs, options = {}) {
   });
 }
 
-async function verifyLiveChat(baseUrl, requestTimeoutMs) {
+export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   const response = await fetchWithTimeout(`${baseUrl}/api/chat`, requestTimeoutMs, {
     method: "POST",
     headers: {
@@ -64,9 +64,10 @@ async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   } else {
     body = await response.text();
   }
-  assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}: ${body.slice(0, 500)}`);
+  assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}: [response body withheld]`);
   assert.ok(body.trim().length > 0, "Production /api/chat must return a non-empty response.");
-  assert.match(contentType, /text\/plain|text\/event-stream/i, `Production /api/chat returned an unexpected streaming content type: ${contentType || "missing"}; status=${response.status}; x-vercel-id=${vercelId}; body=${body.slice(0, 500)}`);
+  assert.match(body.trim(), /^(?:OK|ＯＫ)[。.!！]?$/i, "Production /api/chat must answer the requested OK probe, not return a busy/error envelope.");
+  assert.match(contentType, /text\/plain|text\/event-stream/i, `Production /api/chat returned an unexpected streaming content type: ${contentType || "missing"}; status=${response.status}; x-vercel-id=${vercelId}; body=[response body withheld]`);
   // HTTP proxies may coalesce application writes into one network chunk. The runtime
   // streaming implementation is verified by the streaming reader path, successful
   // completion, and an explicit streaming-capable response content type; chunk count
@@ -86,6 +87,7 @@ export async function verifyProductionDeployment(env = process.env) {
 
   const deadline = Date.now() + timeoutMs;
   let attempt = 0;
+  let chatAttempted = false;
   let lastObservation = "No response received.";
 
   while (Date.now() < deadline) {
@@ -103,11 +105,13 @@ export async function verifyProductionDeployment(env = process.env) {
           assert.equal(pageResponse.status, 200, "Production page must return HTTP 200.");
           assert.match(pageResponse.headers.get("content-type") ?? "", /text\/html/i, "Production page must return HTML.");
           assert.match(await pageResponse.text(), /<title>ORIGIN Personal<\/title>/i, "Production page must identify ORIGIN Personal.");
+          chatAttempted = true;
           const chat = await verifyLiveChat(baseUrl, requestTimeoutMs);
           return { baseUrl, expectedSha, observedSha: String(health.releaseSha).toLowerCase(), attempts: attempt, chat };
         }
       }
     } catch (error) {
+      if (chatAttempted) throw error;
       lastObservation = error instanceof Error ? error.message : String(error);
     }
 
