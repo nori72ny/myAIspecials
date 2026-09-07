@@ -5,6 +5,7 @@ on:
       - '.github/workflows/origin-one-time-repair.yml'
 permissions:
   contents: write
+# Idempotent V1 release repair; remove this temporary workflow after the final gate passes.
 jobs:
   repair:
     runs-on: ubuntu-latest
@@ -38,8 +39,8 @@ jobs:
           tests = acos.read_text()
           old_expectation = "expect(await commandBar.evaluate((element) => getComputedStyle(element).minHeight)).toBe('60px');"
           new_expectation = "expect(Number.parseFloat(await commandBar.evaluate((element) => getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(60);"
-          assert old_expectation in tests, 'stale command-bar assertion not found'
-          acos.write_text(tests.replace(old_expectation, new_expectation, 1))
+          if old_expectation in tests:
+              acos.write_text(tests.replace(old_expectation, new_expectation, 1))
           PY
 
           cat > src/components/personal/PersonalEditionApp.tsx <<'EOF2'
