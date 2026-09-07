@@ -1,5 +1,5 @@
 export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL =
-  "google/gemma-4-31b-it:free" as const;
+  "google/gemma-4-26b-a4b-it:free" as const;
 export type OriginFreeModelId = typeof ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
 
 export interface OriginFreeModelEvidence {
@@ -13,17 +13,17 @@ export interface OriginFreeModelEvidence {
 }
 
 const ORIGIN_OPENROUTER_FREE_MODEL_SOURCE =
-  "https://openrouter.ai/google/gemma-4-31b-it:free" as const;
+  "https://openrouter.ai/google/gemma-4-26b-a4b-it:free" as const;
 
 export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence[] = [
   {
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-09-04T11:10:00.000Z",
-    reviewAfter: "2026-09-14T10:59:59.999Z",
+    verifiedAt: "2026-09-07T00:00:00.000Z",
+    reviewAfter: "2026-09-17T00:00:00.000Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter official model page was checked on 2026-09-04 and reports Free pricing for the fixed model ID. Runtime separately requires exact served-model identity, provider data_collection deny, ZDR, and reported usage cost of zero before returning an answer.",
+    sourceDescription: "OpenRouter official model page was checked on 2026-09-07 and reports Free pricing for the fixed model ID. Runtime separately requires exact served-model identity, zero reported usage cost, and the application's zero-cost routing policy before returning an answer.",
   },
 ] as const;
 
