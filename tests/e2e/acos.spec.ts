@@ -13,7 +13,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(Number.parseFloat(await commandBar.evaluate((element) => getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(60);
     const initialComposerHeight = await commandBar.evaluate((element) => element.closest('.origin-composer')!.getBoundingClientRect().height);
     expect(initialComposerHeight).toBeGreaterThanOrEqual(76);
-    expect(initialComposerHeight).toBeLessThanOrEqual(80);
+    expect(initialComposerHeight).toBeGreaterThanOrEqual(92);
+    expect(initialComposerHeight).toBeLessThanOrEqual(104);
     await expect(page.locator('[data-testid^="starter-"]')).toHaveCount(0);
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);

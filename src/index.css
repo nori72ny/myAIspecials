@@ -286,3 +286,12 @@
 body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
   bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 7.5rem);
 }
+
+@media (max-width: 379px) {
+  .origin-header > div { width: 100%; min-width: 0; }
+  .origin-header > div > div { width: 100%; min-width: 0; justify-content: space-between; }
+  .origin-header > div > div > div:first-child { min-width: 0; flex: 1 1 auto; overflow: hidden; }
+  .origin-header > div > div > div:first-child > span:nth-child(2),
+  .origin-header > div > div > div:first-child > span:nth-child(3) { overflow: hidden; text-overflow: ellipsis; }
+  .origin-header > div > div > div:last-child { flex: 0 0 auto; gap: 0.125rem !important; }
+}
