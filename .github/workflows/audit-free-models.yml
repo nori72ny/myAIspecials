@@ -9,7 +9,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - name: Query official OpenRouter model catalog
+      - name: Query official OpenRouter model and endpoint catalogs
         shell: bash
         run: |
           set -euo pipefail
@@ -21,3 +21,16 @@ jobs:
           console.log('FREE_COUNT='+free.length);
           for (const m of free) console.log(JSON.stringify({id:m.id,name:m.name,ctx:m.context_length,params:m.supported_parameters||[]}));
           NODE
+          for spec in \
+            'nvidia/nemotron-3-super-120b-a12b:free' \
+            'nvidia/nemotron-3-ultra-550b-a55b:free' \
+            'nvidia/nemotron-3.5-lightning:free' \
+            'cohere/north-mini-code:free' \
+            'inclusionai/ling-3.0-flash-sante:free' \
+            'google/gemma-4-26b-a4b-it:free'; do
+            author="${spec%%/*}"
+            slug="${spec#*/}"
+            echo "ENDPOINTS_FOR=$spec"
+            curl --fail --silent --show-error "https://openrouter.ai/api/v1/models/$author/$slug/endpoints" | head -c 12000 || true
+            echo
+          done
