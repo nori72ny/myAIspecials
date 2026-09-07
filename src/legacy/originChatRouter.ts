@@ -94,7 +94,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           const content = typeof record.content === "string" ? record.content : answerEnvelope && typeof answerEnvelope.answer === "string" ? answerEnvelope.answer : "";
           if (content) {
             res.status(res.statusCode);
-            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
             res.setHeader("Cache-Control", "no-cache, no-transform");
             res.setHeader("X-Accel-Buffering", "no");
             res.setHeader("X-Origin-Free-Only", "true");
