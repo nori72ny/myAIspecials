@@ -16,8 +16,8 @@ const executionResult = {
     requireZeroDataRetention: false as const,
   },
   routingEvidence: {
-    requestedModel: "nex-agi/nex-n2-pro:free",
-    servedModel: "nex-agi/nex-n2-pro:free",
+    requestedModel: "inclusionai/ling-3.0-flash-sante:free",
+    servedModel: "inclusionai/ling-3.0-flash-sante:free",
     strategy: "adaptive-primary" as const,
     provider: "OpenRouter",
     region: "iad",

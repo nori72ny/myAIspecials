@@ -58,7 +58,7 @@ GitHub Actions名`Production Release CI/CD`は、PR上では検証ワークフ�
 固定モデル:
 
 ```text
-nex-agi/nex-n2-pro:free
+inclusionai/ling-3.0-flash-sante:free
 ```
 
 ## UX / Accessibility Gate

@@ -14,9 +14,9 @@ describe("selectCurrentOriginFreeModel", () => {
     expect(result).toEqual({
       ok: true,
       model: expect.objectContaining({
-        modelId: "nex-agi/nex-n2-pro:free",
+        modelId: "inclusionai/ling-3.0-flash-sante:free",
         providerId: "openrouter-free",
-        sourceUrl: "https://openrouter.ai/nex-agi/nex-n2-pro:free",
+        sourceUrl: "https://openrouter.ai/inclusionai/ling-3.0-flash-sante:free",
       }),
     });
   });
