@@ -6,6 +6,7 @@ on:
 permissions:
   contents: write
 # Idempotent V1 release repair; remove this temporary workflow after the final gate passes.
+# Final-gate rerun marker: 2026-09-07
 jobs:
   repair:
     runs-on: ubuntu-latest
