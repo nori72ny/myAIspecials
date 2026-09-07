@@ -444,9 +444,9 @@ const ORIGIN_FIXED_FREE_MODEL = 'nex-agi/nex-n2-pro:free';
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
 const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
 const SAFE_WAITING_MESSAGE = '無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
-const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";
+const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";
 const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ", status: " + (status ?? "---") + ")";
-const MODEL_BUSY_MESSAGE_EN = 'Free AI capacity is temporarily busy. ORIGIN is retrying within the $0 policy, but it could not safely return an answer this time. Please try again in a little while.';
+const MODEL_BUSY_MESSAGE_EN = 'Free AI capacity is temporarily busy. ORIGIN does not automatically retry inference under the $0 policy, so it could not safely return an answer this time. Please try again in a little while.';
 
 type OriginChatFailurePayload = {
   code?: unknown;
@@ -454,31 +454,13 @@ type OriginChatFailurePayload = {
   retryAttempted?: unknown;
 };
 
-const isTransientHttpStatus = (status: number) => status === 429 || status === 502 || status === 503 || status === 504;
-
-async function fetchOriginChatWithOneRetry(body: string, signal: AbortSignal): Promise<Response> {
-  let lastNetworkError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-        signal,
-        body,
-      });
-      if (response.ok || !isTransientHttpStatus(response.status) || attempt === 1) return response;
-
-      const failure = await response.clone().json().catch(() => null) as OriginChatFailurePayload | null;
-      // The API already performs its one permitted provider retry. Retry here
-      // only for an edge/proxy failure that did not reach that boundary.
-      if (failure?.retryAttempted === true || typeof failure?.code === 'string') return response;
-    } catch (error) {
-      if (signal.aborted) throw error;
-      lastNetworkError = error;
-      if (attempt === 1) throw error;
-    }
-  }
-  throw lastNetworkError instanceof Error ? lastNetworkError : new Error('request-error');
+async function fetchOriginChat(body: string, signal: AbortSignal): Promise<Response> {
+  return fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    signal,
+    body,
+  });
 }
 
 type OriginVerifiedChatPayload = {
@@ -927,7 +909,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
     };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
     try {
-      const response = await fetchOriginChatWithOneRetry(
+      const response = await fetchOriginChat(
         JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages }),
         controller.signal,
       );
