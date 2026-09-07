@@ -84,6 +84,37 @@ function answerEnvelope(content: string, language: "ja" | "en", verificationStat
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
   const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env));
   router.post("/api/chat", async (req, res) => {
+    const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");
+    if (wantsStreaming) {
+      const originalJson = res.json.bind(res);
+      res.json = ((payload: unknown) => {
+        if (res.statusCode >= 200 && res.statusCode < 400 && payload && typeof payload === "object") {
+          const record = payload as Record<string, unknown>;
+          const answerEnvelope = record.answer && typeof record.answer === "object" ? record.answer as Record<string, unknown> : null;
+          const content = typeof record.content === "string" ? record.content : answerEnvelope && typeof answerEnvelope.answer === "string" ? answerEnvelope.answer : "";
+          if (content) {
+            res.status(res.statusCode);
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.setHeader("Cache-Control", "no-cache, no-transform");
+            res.setHeader("X-Accel-Buffering", "no");
+            res.setHeader("X-Origin-Free-Only", "true");
+            res.setHeader("X-Origin-Cost-Usd", "0");
+            res.setHeader("X-Origin-Billing-Tier", "free");
+            res.flushHeaders?.();
+            const chunks = content.match(/.{1,48}(?:\s|$)|.{1,48}/gs) ?? [content];
+            let index = 0;
+            const writeNext = () => {
+              if (index >= chunks.length) { res.end(); return; }
+              res.write(chunks[index++]);
+              setTimeout(writeNext, 0);
+            };
+            writeNext();
+            return res;
+          }
+        }
+        return originalJson(payload);
+      }) as typeof res.json;
+    }
     const requestId = createRequestId(); const body = (req.body ?? {}) as OriginChatBody; const messages = validateOriginChatMessages(body.messages);
     if (!messages) return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "チャットメッセージの形式が正しくありません。", retryable: false, requestId });
     if (messages[messages.length - 1].role !== "user") return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "最後のメッセージはユーザーからのものである必要があります。", retryable: false, requestId });

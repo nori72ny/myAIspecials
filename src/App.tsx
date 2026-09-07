@@ -462,7 +462,7 @@ async function fetchOriginChatWithOneRetry(body: string, signal: AbortSignal): P
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
         signal,
         body,
       });
