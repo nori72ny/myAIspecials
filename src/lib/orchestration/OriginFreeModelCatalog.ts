@@ -23,7 +23,7 @@ export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence
     verifiedAt: "2026-09-08T00:00:00.000Z",
     reviewAfter: "2026-09-18T00:00:00.000Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter official model/provider pages were checked on 2026-09-08 and report Free pricing plus a zero-retention, no-training endpoint for the fixed model ID. Runtime separately requires ZDR/data-collection-deny routing, exact served-model identity, and zero reported usage cost before returning an answer.",
+    sourceDescription: "OpenRouter official model/provider pages were checked on 2026-09-08 and report Free pricing plus a zero-retention, no-training endpoint for the fixed model ID. Runtime separately requires ZDR/data-collection-deny routing, max-price zero, exact served-model identity, and zero reported usage cost; any unverifiable or non-zero condition fails closed before an answer is returned.",
   },
 ] as const;
 
