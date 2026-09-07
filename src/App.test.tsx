@@ -401,11 +401,11 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" messages={[{
       id: 'error-1',
       role: 'assistant',
-      content: '現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。',
+      content: '現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。',
       deliveryState: 'error',
     }]} />);
 
-    expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy();
+    expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
   });
 
@@ -492,7 +492,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '混雑時の動作を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();

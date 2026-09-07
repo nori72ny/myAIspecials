@@ -919,7 +919,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
           enterSafeWaiting();
           return;
         }
-        const isModelBusy = failure?.retryable === true && (failure?.code === "PROVIDER_RATE_LIMITED" || failure?.code === "PROVIDER_TIMEOUT");
+        const isModelBusy = (failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || [429, 500, 502, 503, 504].includes(response.status);
       if (isModelBusy) {
           appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
           return;
