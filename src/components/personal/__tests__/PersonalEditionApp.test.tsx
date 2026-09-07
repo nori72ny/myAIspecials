@@ -29,18 +29,20 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(props.resetSignal).toBe(0);
   });
 
-  it('keeps the production shell independent from parent-controlled initial messages', () => {
+  it('restores parent-controlled messages and sessions into the shared production shell', () => {
+    const messages = [{ id: 'u-1', role: 'user' as const, content: '既存の相談' }];
+    const sessions = [{ id: 's-1', title: '既存', createdAt: 1, messages: [] }];
     render(
       <PersonalEditionApp
         settings={DEFAULT_PERSONAL_SETTINGS}
-        messages={[{ id: 'u-1', role: 'user', content: '既存の相談' }]}
-        sessions={[{ id: 's-1', title: '既存', createdAt: 1, messages: [] }]}
+        messages={messages}
+        sessions={sessions}
       />,
     );
 
     const props = appProps.mock.calls[0][0];
-    expect(props.messages).toEqual([]);
-    expect(props.sessions).toEqual([]);
+    expect(props.messages).toEqual(messages);
+    expect(props.sessions).toEqual(sessions);
   });
 
   it('renders the shared ORIGIN application surface', () => {
