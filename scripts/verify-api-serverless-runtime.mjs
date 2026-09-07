@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -40,6 +40,12 @@ try {
   // Mirror the production module boundary explicitly so this smoke test
   // validates the compiled ESM handler rather than the temp directory layout.
   writeFileSync(join(outputDir, 'package.json'), '{"type":"module"}\n', 'utf8');
+
+  // Node's ESM resolver searches node_modules relative to the compiled file.
+  // Keep the isolated temp build while exposing exactly the repository's
+  // installed dependency tree; this avoids copying packages or changing the
+  // production source tree.
+  symlinkSync(join(repoRoot, 'node_modules'), join(outputDir, 'node_modules'), 'dir');
 
   const tscArgs = [
     'api/index.ts',
