@@ -1,7 +1,8 @@
 export const ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY = Object.freeze({
-  // Keep provider failover bounded to the fixed free model while restricting
-  // execution to the privacy-focused Venice free endpoint.
-  allow_fallbacks: false,
+  // Fallbacks remain bounded to the fixed free model and the privacy-focused
+  // Venice provider. This is failover within the approved zero-cost boundary,
+  // not permission to route to arbitrary providers or paid models.
+  allow_fallbacks: true,
   only: ["venice"],
   data_collection: "deny",
   zdr: true,
