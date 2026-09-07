@@ -139,10 +139,19 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     } catch (error) {
       if (error instanceof OriginProviderError) {
         console.warn("[origin-chat] provider request failed", { requestId, durationMs: Math.max(0, now() - startedAt), code: error.code, status: error.status, retryable: error.retryable, diagnostic: error.diagnostic });
-        if (shouldRetryProvider(error)) { const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage); const content = isEnglish ? "Free AI capacity is temporarily busy. ORIGIN is retrying within the $0 policy, but it could not safely return an answer this time. Please try again in a little while." : MODEL_BUSY_MESSAGE; const reason = isEnglish ? "All currently available zero-cost provider retry paths were exhausted; no paid provider was selected." : "無料プロバイダーの再試行経路を使い切りました。有料プロバイダーへは切り替えず、0円ポリシーを維持しました。"; return res.status(200).json({ status: 200, content, message: content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: { ...applicationRouting(requestId, reason, "not-run"), providerAttempts: MAX_RETRIES + 1, retryAttempted: true, resilience: "zero-cost-graceful-envelope" } }); }
-        const providerError = error as OriginProviderError; return res.status(providerError.status >= 500 ? 200 : providerError.status).json(providerError.status >= 500 ? { status: 200, content: MODEL_BUSY_MESSAGE, message: MODEL_BUSY_MESSAGE, answer: answerEnvelope(MODEL_BUSY_MESSAGE, "ja", "not-run", "無料経路の障害をUIエラーに変換せず、$0ポリシーを維持しました。"), routing: applicationRouting(requestId, "無料経路の障害をUIエラーに変換せず、$0ポリシーを維持しました。", "not-run"), resilience: "zero-cost-graceful-envelope" } : { code: providerError.code, message: providerError.message, retryable: providerError.retryable, retryAfterSeconds: providerError.retryAfterSeconds, diagnostic: providerError.diagnostic, requestId, retryAttempted: providerRetryAttempted });
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(error.status).json({
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          retryAfterSeconds: error.retryAfterSeconds,
+          requestId,
+          retryAttempted: false,
+        });
       }
-      console.error("[origin-chat] unexpected provider failure", { requestId, durationMs: Math.max(0, now() - startedAt), errorName: error instanceof Error ? error.name : "unknown" }); return res.status(200).json({ status: 200, content: MODEL_BUSY_MESSAGE, message: MODEL_BUSY_MESSAGE, answer: answerEnvelope(MODEL_BUSY_MESSAGE, "ja", "not-run", "予期しない無料経路障害をUIエラーに変換せず、$0ポリシーを維持しました。"), routing: applicationRouting(requestId, "予期しない無料経路障害をUIエラーに変換せず、$0ポリシーを維持しました。", "not-run"), resilience: "zero-cost-graceful-envelope" });
+      console.error("[origin-chat] unexpected provider failure", { requestId, durationMs: Math.max(0, now() - startedAt), errorName: "unexpected" });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({ code: "PROVIDER_INTERNAL_ERROR", message: "無料AIとの通信に失敗しました。時間をおいて再度お試しください。", retryable: true, requestId, retryAttempted: false });
     }
   });
   return router;
