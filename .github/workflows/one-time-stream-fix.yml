@@ -3,6 +3,8 @@ name: One-Time Stream Header Repair
 on:
   push:
     branches: [main]
+    paths:
+      - .github/workflows/one-time-stream-fix.yml
 
 permissions:
   contents: write
@@ -11,13 +13,8 @@ jobs:
   repair:
     runs-on: ubuntu-latest
     steps:
-      - name: Skip generated repair commits
-        if: ${{ contains(github.event.head_commit.message, 'fix: use event-stream content type') || contains(github.event.head_commit.message, 'fix: remove one-time stream fix workflow') }}
-        run: echo "Skipping one-time repair workflow for generated commit."
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        if: ${{ !contains(github.event.head_commit.message, 'fix: use event-stream content type') && !contains(github.event.head_commit.message, 'fix: remove one-time stream fix workflow') }}
       - name: Repair production stream content type
-        if: ${{ !contains(github.event.head_commit.message, 'fix: use event-stream content type') && !contains(github.event.head_commit.message, 'fix: remove one-time stream fix workflow') }}
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -31,7 +28,6 @@ jobs:
           PY
           git diff --check
       - name: Commit repair
-        if: ${{ !contains(github.event.head_commit.message, 'fix: use event-stream content type') && !contains(github.event.head_commit.message, 'fix: remove one-time stream fix workflow') }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
