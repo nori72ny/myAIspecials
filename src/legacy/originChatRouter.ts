@@ -106,7 +106,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             const writeNext = () => {
               if (index >= chunks.length) { res.end(); return; }
               res.write(chunks[index++]);
-              setTimeout(writeNext, 0);
+              setTimeout(writeNext, 15);
             };
             writeNext();
             return res;

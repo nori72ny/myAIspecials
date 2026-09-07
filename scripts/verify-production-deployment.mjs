@@ -38,6 +38,7 @@ async function verifyLiveChat(baseUrl, requestTimeoutMs) {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      accept: "text/event-stream",
       origin: baseUrl,
     },
     body: JSON.stringify({
@@ -47,9 +48,24 @@ async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   });
 
   const contentType = response.headers.get("content-type") ?? "";
-  const body = await response.text();
+  let body = "";
+  let streamChunkCount = 0;
+  if (response.body) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value?.byteLength) streamChunkCount += 1;
+      body += decoder.decode(value, { stream: true });
+    }
+    body += decoder.decode();
+  } else {
+    body = await response.text();
+  }
   assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}: ${body.slice(0, 500)}`);
   assert.ok(body.trim().length > 0, "Production /api/chat must return a non-empty response.");
+  assert.ok(streamChunkCount >= 2, "Production /api/chat must arrive in multiple stream chunks.");
   assert.match(contentType, /json|event-stream/i, `Production /api/chat returned unexpected content type: ${contentType || "missing"}`);
 
   return { status: response.status, contentType, bytes: Buffer.byteLength(body) };
