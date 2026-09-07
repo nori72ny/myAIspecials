@@ -1,0 +1,48 @@
+name: ORIGIN current free model refresh
+on:
+  push:
+    branches: [fix/origin-current-zdr-free-model]
+    paths: ['.github/workflows/origin-model-refresh.yml']
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: fix/origin-current-zdr-free-model
+      - name: Replace unavailable fixed model with current ZDR free model
+        shell: python
+        run: |
+          from pathlib import Path
+          old='nex-agi/nex-n2-pro:free'
+          new='inclusionai/ling-3.0-flash-sante:free'
+          changed=[]
+          skip={'.git','node_modules','dist','coverage','playwright-report','test-results'}
+          for p in Path('.').rglob('*'):
+              if not p.is_file() or any(part in skip for part in p.parts):
+                  continue
+              try: text=p.read_text()
+              except UnicodeDecodeError: continue
+              if old in text:
+                  p.write_text(text.replace(old,new))
+                  changed.append(str(p))
+          if not changed:
+              raise SystemExit('old model reference not found')
+          print('changed model refs:', *changed, sep='\n- ')
+          p=Path('src/lib/orchestration/OriginFreeModelCatalog.ts')
+          text=p.read_text()
+          text=text.replace('https://openrouter.ai/nex-agi/nex-n2-pro:free','https://openrouter.ai/inclusionai/ling-3.0-flash-sante:free')
+          text=text.replace('reviewAfter: "2026-09-18T00:00:00.000Z"','reviewAfter: "2026-09-15T00:00:00.000Z"')
+          text=text.replace('OpenRouter official model/provider pages were checked on 2026-09-08 and report Free pricing plus a zero-retention, no-training endpoint for the fixed model ID.', 'OpenRouter official model/provider pages were checked on 2026-09-08: the fixed :free variant is served by NovitaAI at prompt/completion price 0, with training=false, trainingOpenRouter=false, retainsPrompts=false, and no user IDs required.')
+          p.write_text(text)
+      - name: Remove one-time workflow and commit
+        shell: bash
+        run: |
+          rm .github/workflows/origin-model-refresh.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: use current zero-retention free inference model"
+          git push origin HEAD:fix/origin-current-zdr-free-model
