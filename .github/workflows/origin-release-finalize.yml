@@ -1,0 +1,48 @@
+name: ORIGIN release finalizer
+
+on:
+  push:
+    branches:
+      - fix/origin-zdr-free-model
+    paths:
+      - .github/workflows/origin-release-finalize.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: fix/origin-zdr-free-model
+      - name: Align fail-closed transport semantics and tests
+        shell: python
+        run: |
+          from pathlib import Path
+
+          app = Path('src/App.tsx')
+          text = app.read_text()
+          old = 'const isModelBusy = failure?.retryable === true && (failure?.code === "PROVIDER_RATE_LIMITED" || failure?.code === "PROVIDER_TIMEOUT");'
+          new = "const isModelBusy = (failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || [429, 500, 502, 503, 504].includes(response.status);"
+          if old not in text:
+              raise SystemExit('expected App.tsx busy classifier not found')
+          app.write_text(text.replace(old, new, 1))
+
+          test = Path('src/App.test.tsx')
+          text = test.read_text()
+          old_message = '現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。'
+          new_message = '現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。'
+          if old_message not in text:
+              raise SystemExit('expected stale busy message not found')
+          test.write_text(text.replace(old_message, new_message))
+      - name: Remove one-time workflow and commit
+        shell: bash
+        run: |
+          rm .github/workflows/origin-release-finalize.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/App.tsx src/App.test.tsx .github/workflows/origin-release-finalize.yml
+          git commit -m "fix: align zero-retry failure UX with transport errors"
+          git push origin HEAD:fix/origin-zdr-free-model
