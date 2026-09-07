@@ -14,7 +14,7 @@ const request: OriginProviderExecutionRequest = {
     requiresOwnerApproval: false,
     reason: "test",
     providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false },
-    modelEvidence: { providerId: "openrouter-free", verifiedAt: "2026-09-04T00:00:00.000Z", reviewAfter: "2026-09-14T00:00:00.000Z", sourceUrl: "https://openrouter.ai/models/google/gemma-4-31b-it:free" },
+    modelEvidence: { providerId: "openrouter-free", verifiedAt: "2026-09-07T00:00:00.000Z", reviewAfter: "2026-09-17T00:00:00.000Z", sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free" },
   },
   messages: [{ role: "user", content: "日本語で短く答えてください。" }],
   systemInstruction: "You are ORIGIN Personal AI.",
