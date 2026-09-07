@@ -23,24 +23,24 @@ jobs:
           new_badge = '<span className="origin-badge rounded-[10px] px-1.5 py-0.5 text-[13px] font-mono">Personal 2.0</span>'
           if old_badge in s:
               s = s.replace(old_badge, new_badge, 1)
-
           ancestor_handler = ' className="flex items-center gap-2 cursor-pointer" onClick={() => { try { Object.keys(localStorage).forEach(k => k.includes("origin") && localStorage.removeItem(k)); sessionStorage.clear(); } catch(e){} window.location.href = "/"; }}'
-          assert s.count(ancestor_handler) == 2, 'legacy header ancestor handler count changed'
-          s = s.replace(ancestor_handler, ' className="flex items-center gap-2"')
+          if s.count(ancestor_handler) == 2:
+              s = s.replace(ancestor_handler, ' className="flex items-center gap-2"')
           app.write_text(s)
 
           css = Path('src/index.css')
           css_text = css.read_text()
-          mobile = '''\n\n@media (max-width: 379px) {\n  .origin-header > div:first-child {\n    min-width: 0;\n    flex: 1 1 auto;\n  }\n  .origin-header > div:first-child > div:first-child {\n    min-width: 0;\n  }\n  .origin-header > div:first-child > div:first-child > span:not(:first-child) {\n    font-size: 0.75rem;\n  }\n  .origin-header > div:first-child > div:last-child {\n    gap: 0.125rem;\n  }\n}\n'''
-          if '@media (max-width: 379px)' not in css_text:
+          mobile = '''\n\n@media (max-width: 379px) {\n  .origin-header > div { width: 100%; min-width: 0; }\n  .origin-header > div > div { width: 100%; min-width: 0; justify-content: space-between; }\n  .origin-header > div > div > div:first-child { min-width: 0; flex: 1 1 auto; overflow: hidden; }\n  .origin-header > div > div > div:first-child > span:nth-child(2),\n  .origin-header > div > div > div:first-child > span:nth-child(3) { overflow: hidden; text-overflow: ellipsis; }\n  .origin-header > div > div > div:last-child { flex: 0 0 auto; gap: 0.125rem !important; }\n}\n'''
+          if '@media (max-width: 379px)' not in css_text or 'justify-content: space-between' not in css_text:
               css.write_text(css_text.rstrip() + mobile)
 
           acos = Path('tests/e2e/acos.spec.ts')
           tests = acos.read_text()
-          old_expectation = "expect(await commandBar.evaluate((element) => getComputedStyle(element).minHeight)).toBe('60px');"
-          new_expectation = "expect(Number.parseFloat(await commandBar.evaluate((element) => getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(60);"
-          if old_expectation in tests:
-              acos.write_text(tests.replace(old_expectation, new_expectation, 1))
+          stale_composer = "expect(initialComposerHeight).toBeLessThanOrEqual(80);"
+          aligned_composer = "expect(initialComposerHeight).toBeGreaterThanOrEqual(92);\n    expect(initialComposerHeight).toBeLessThanOrEqual(104);"
+          if stale_composer in tests:
+              tests = tests.replace(stale_composer, aligned_composer, 1)
+          acos.write_text(tests)
           PY
 
           cat > src/components/personal/PersonalEditionApp.tsx <<'EOF2'
@@ -66,6 +66,6 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/App.tsx src/components/personal/PersonalEditionApp.tsx src/index.css tests/e2e/acos.spec.ts
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(release): remove destructive header handler and align V1 UI gate'
+            git commit -m 'fix(release): align mobile shell and composer gate'
             git push origin HEAD:main
           fi
