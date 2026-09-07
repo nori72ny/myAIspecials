@@ -40,10 +40,11 @@ const MAX_SEGMENTS = 3;
 export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter", "gemini"] as const;
 export type AllowedZeroCostProvider = (typeof ALLOWED_ZERO_COST_PROVIDERS)[number];
 export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL], gemini: [ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL] } as const;
+const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
 const IDS: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", "openrouter-free": "openrouter", Gemini: "gemini", "google-ai-studio-free": "gemini" };
 export function resetOriginProviderCooldownForTests(): void { /* retained for test compatibility; cooldown circuit was removed */ }
 const pid = (value: unknown): AllowedZeroCostProvider | null => { if (typeof value !== "string") return null; return IDS[value] ?? (ALLOWED_ZERO_COST_PROVIDERS.includes(value as AllowedZeroCostProvider) ? value as AllowedZeroCostProvider : null); };
-const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && (ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model);
+const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && ((ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model) || (provider === "openrouter" && model === OPENROUTER_CANONICAL_SERVED_MODEL));
 function fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
 function zero(value: unknown, field: string): asserts value is 0 { if (typeof value !== "number" || !Number.isFinite(value) || value < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED"); if (Math.abs(value) > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION"); }
 function nonzeroIfPresent(value: unknown, field: string): void { if (value === undefined || value === null) return; const numeric = typeof value === "number" ? value : Number(value); if (!Number.isFinite(numeric) || numeric < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED"); if (numeric > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION"); }
@@ -64,7 +65,8 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   if (evidence.attempt !== 1) fail("不正な試行番号です。", "PROVIDER_ROUTING_UNVERIFIED");
   const validStrategy = evidence.strategy === "adaptive-primary" || (provider === "gemini" && evidence.strategy === "bounded-secondary");
   const validFallback = !evidence.fallbackUsed || (provider === "gemini" && evidence.fallbackUsed && evidence.strategy === "bounded-secondary");
-  if (!validStrategy || !validFallback || (provider === "openrouter" && evidence.requestedModel !== evidence.servedModel)) fail("Provider fallback またはPrimary証跡が不正です。", "PROVIDER_ROUTING_UNVERIFIED");
+  const validOpenRouterServedModel = provider !== "openrouter" || evidence.requestedModel === evidence.servedModel || evidence.servedModel === OPENROUTER_CANONICAL_SERVED_MODEL;
+  if (!validStrategy || !validFallback || !validOpenRouterServedModel) fail("Provider fallback またはPrimary証跡が不正です。", "PROVIDER_ROUTING_UNVERIFIED");
   if (expectedProvider && pid(expectedProvider) !== provider) fail("Providerが一致しません。", "PROVIDER_ROUTING_UNVERIFIED");
 }
 export function originCompletionTokenBudget(taskType: OriginExecutionPlan["taskType"]): number { switch (taskType) { case "implementation": case "documentation": return 2400; case "research": case "review": case "architecture": case "security": case "current-information": return 1800; default: return 1200; } }
@@ -83,7 +85,7 @@ async function openrouter(request: OriginProviderExecutionRequest, key: string, 
     const response = await requestFetch(fetchImpl, request, key, messages); const data = await json(response) as { model?: unknown; choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown; error?: { metadata?: { error_type?: unknown } } }>; error?: { metadata?: { error_type?: unknown } }; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; cost?: number; cost_details?: { upstream_inference_cost?: unknown }; is_byok?: unknown }; billing_tier?: unknown; is_free?: unknown; pricing?: { prompt?: unknown; completion?: unknown } };
     const errorType = data.choices?.[0]?.error?.metadata?.error_type ?? data.error?.metadata?.error_type;
     if (errorType === "rate_limit_exceeded") throw http(429); if (errorType === "timeout") throw http(504); if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { upstreamErrorType: String(errorType) });
-    const servedModel = data.model; if (!allowed(provider, servedModel)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false); assertBillingMetadata(data);
+    const servedModel = data.model; if (!allowed(provider, servedModel)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: typeof servedModel === "string" ? `served-model:${servedModel}` : "served-model:missing" }); assertBillingMetadata(data);
     const part = text(data.choices?.[0]?.message?.content); if (!part) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "OpenRouterから回答を取得できません。", 502, true);
     output = output ? mergeContinuation(output, part) : part; promptTokens += data.usage?.prompt_tokens ?? 0; completionTokens += data.usage?.completion_tokens ?? 0; totalTokens += data.usage?.total_tokens ?? 0; zero(data.usage?.cost, "usage.cost");
     if (data.choices?.[0]?.finish_reason !== "length") { const result: OriginProviderExecutionResult = { text: output, actualCostUsd: 0, providerDataPolicy: request.plan.providerDataPolicy, routingEvidence: evidence(request, provider, String(servedModel)), usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 } }; assertOriginZeroCostExecutionResult(result, request.plan.modelId, request.plan.providerId); return result; }
