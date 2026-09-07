@@ -498,45 +498,47 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
-  it('retries one edge-level transient /api/chat failure before displaying a verified response', async () => {
+  it('does not retry an edge-level transient /api/chat failure or display an unverified response', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response('temporary edge failure', { status: 503 }))
-      .mockResolvedValueOnce(new Response('再試行後の回答', { status: 200 }));
+      .mockResolvedValueOnce(new Response('再試行してはいけない回答', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
-    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '一時エラーを再試行' } });
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '一時エラー時も再試行しない' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('再試行後の回答')).toBeTruthy());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('response-verification-details')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('再試行してはいけない回答')).toBeNull();
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
   });
 
-  it('retries one temporary network timeout before displaying a verified response', async () => {
+  it('does not retry a temporary network timeout or display a verified response', async () => {
     const fetchMock = vi.fn()
       .mockRejectedValueOnce(new TypeError('Network request timed out'))
-      .mockResolvedValueOnce(new Response('タイムアウト後に復旧しました。', { status: 200 }));
+      .mockResolvedValueOnce(new Response('タイムアウト後に表示してはいけない回答', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
-    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信を復旧' } });
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信障害時も再試行しない' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('タイムアウト後に復旧しました。')).toBeTruthy());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('response-verification-details')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('タイムアウト後に表示してはいけない回答')).toBeNull();
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
   });
 
-  it('fails closed with the zero-cost busy notice after two network timeouts', async () => {
+  it('fails closed with the zero-cost busy notice after one network timeout', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('Network request timed out'));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信停止時の案内を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
   });
