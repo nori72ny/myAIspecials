@@ -29,6 +29,11 @@ async function request(port, method, path, body) {
 }
 
 try {
+  // Keep this smoke test deterministic and credential-free. FREE_ONLY must be
+  // set before importing the compiled handler because the production policy is
+  // evaluated during module initialization.
+  process.env.FREE_ONLY = 'true';
+
   // tsc emits NodeNext ESM based on the repository's root package.json. The
   // temporary output directory is outside that package scope, so Node would
   // otherwise reinterpret the emitted .js files as CommonJS at runtime.
@@ -71,6 +76,8 @@ try {
   const handlerModule = await import(join(outputDir, 'api/index.js'));
   if (typeof handlerModule.default !== 'function') fail('Compiled api/index.js did not expose the Vercel handler.');
 
+  // Explicitly remove all provider credentials after import as an additional
+  // guard against accidental credential leakage into this no-provider test.
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.GEMINI_API_KEY;
 
