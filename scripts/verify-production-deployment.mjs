@@ -26,7 +26,7 @@ async function fetchWithTimeout(url, timeoutMs, options = {}) {
     headers: {
       accept: "application/json, text/html;q=0.9, text/event-stream;q=0.9",
       "cache-control": "no-cache",
-      "user-agent": "origin-production-smoke/1.2",
+      "user-agent": "origin-production-smoke/1.3",
       ...(options.headers ?? {}),
     },
     signal: AbortSignal.timeout(timeoutMs),
@@ -66,8 +66,10 @@ async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   }
   assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}: ${body.slice(0, 500)}`);
   assert.ok(body.trim().length > 0, "Production /api/chat must return a non-empty response.");
-  assert.ok(streamChunkCount >= 2, "Production /api/chat must arrive in multiple stream chunks.");
-  assert.match(contentType, /json|event-stream/i, `Production /api/chat returned unexpected content type: ${contentType || "missing"}; status=${response.status}; x-vercel-id=${vercelId}; body=${body.slice(0, 500)}`);
+  assert.match(contentType, /event-stream/i, `Production /api/chat must use text/event-stream for the streaming contract; received ${contentType || "missing"}; status=${response.status}; x-vercel-id=${vercelId}; body=${body.slice(0, 500)}`);
+  // HTTP proxies may coalesce application writes into one network chunk. The production
+  // contract is therefore verified by the event-stream content type plus a complete body,
+  // while the observed network chunk count is retained as evidence rather than a hard gate.
 
   return { status: response.status, contentType, bytes: Buffer.byteLength(body), streamChunkCount, vercelId };
 }
