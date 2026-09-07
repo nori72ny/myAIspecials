@@ -7,8 +7,9 @@ describe('ORIGIN top experience regression boundary', () => {
   const main = readFileSync(resolve(root, 'main.tsx'), 'utf8');
   const topUi = readFileSync(resolve(root, 'origin-top-ui.css'), 'utf8');
 
-  it('guards the settings trigger against the legacy destructive ancestor handler', () => {
-    expect(app).toContain('window.location.href = "/"');
+  it('locks out the legacy destructive ancestor handler and keeps the settings trigger guarded', () => {
+    expect(app).not.toContain('window.location.href = "/"');
+    expect(app).not.toContain('sessionStorage.clear()');
     expect(main).toContain("document.addEventListener('click', handleSettingsTrigger, true)");
     expect(main).toContain('event.stopPropagation()');
     expect(main).toContain('setIsSettingsOpen(true)');
