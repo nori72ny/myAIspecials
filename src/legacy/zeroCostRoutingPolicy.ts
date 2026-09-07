@@ -1,10 +1,9 @@
-// ORIGIN V1: keep zero-cost provider failover explicitly bounded.
+// ORIGIN V1: keep zero-cost routing bounded by explicit privacy and price constraints.
 export const ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY = Object.freeze({
-  // Fallbacks remain bounded to the fixed free model and the privacy-focused
-  // Venice provider. This is failover within the approved zero-cost boundary,
-  // not permission to route to arbitrary providers or paid models.
+  // Do not pin Gemma to a provider that may not serve this model. OpenRouter
+  // must select only endpoints satisfying the explicit ZDR, no-training, and
+  // $0 constraints below; provider failover stays enabled within that boundary.
   allow_fallbacks: true,
-  only: ["venice"],
   data_collection: "deny",
   zdr: true,
   max_price: { prompt: 0, completion: 0, request: 0 },
