@@ -17,7 +17,7 @@ const plan: OriginExecutionPlan = {
     providerId: "openrouter-free",
     verifiedAt: "2026-09-02T08:00:17.472Z",
     reviewAfter: "2026-09-12T08:00:17.471Z",
-    sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free",
+    sourceUrl: "https://openrouter.ai/nex-agi/nex-n2-pro:free",
   },
 };
 

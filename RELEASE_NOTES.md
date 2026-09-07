@@ -34,7 +34,7 @@ ORIGIN Personalの現在の中心は、React / Viteの日本語UIとExpressの�
 ## 固定無料モデル
 
 ```text
-google/gemma-4-26b-a4b-it:free
+nex-agi/nex-n2-pro:free
 ```
 
 無料根拠の記録:

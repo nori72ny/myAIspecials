@@ -30,7 +30,7 @@
 固定モデル:
 
 ```text
-google/gemma-4-26b-a4b-it:free
+nex-agi/nex-n2-pro:free
 ```
 
 無料根拠の再確認期限:
