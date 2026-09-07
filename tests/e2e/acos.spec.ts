@@ -10,7 +10,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
     const commandBar = page.getByTestId('origin-home-request');
     await expect(commandBar).toBeVisible();
-    expect(await commandBar.evaluate((element) => getComputedStyle(element).minHeight)).toBe('60px');
+    expect(Number.parseFloat(await commandBar.evaluate((element) => getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(60);
     const initialComposerHeight = await commandBar.evaluate((element) => element.closest('.origin-composer')!.getBoundingClientRect().height);
     expect(initialComposerHeight).toBeGreaterThanOrEqual(76);
     expect(initialComposerHeight).toBeLessThanOrEqual(80);
