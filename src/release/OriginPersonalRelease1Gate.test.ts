@@ -42,7 +42,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).not.toContain('"openrouter/free"');
     expect(providerClient).not.toContain("?key=");
     expect(providerClient).toContain('"x-goog-api-key": key');
-    expect(modelCatalog).toContain('"google/gemma-4-26b-a4b-it:free"');
+    expect(modelCatalog).toContain('"nex-agi/nex-n2-pro:free"');
     expect(modelCatalog).not.toContain('"openrouter/free"');
   });
 

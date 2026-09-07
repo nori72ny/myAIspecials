@@ -14,9 +14,9 @@ describe("selectCurrentOriginFreeModel", () => {
     expect(result).toEqual({
       ok: true,
       model: expect.objectContaining({
-        modelId: "google/gemma-4-26b-a4b-it:free",
+        modelId: "nex-agi/nex-n2-pro:free",
         providerId: "openrouter-free",
-        sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free",
+        sourceUrl: "https://openrouter.ai/nex-agi/nex-n2-pro:free",
       }),
     });
   });

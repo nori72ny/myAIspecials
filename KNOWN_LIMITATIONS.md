@@ -1,38 +1,37 @@
 # Known Limitations
 
-最終確認日: 2026-08-11
+最終確認日: 2026-09-08
 
 この文書は、ORIGIN Personalの現行範囲と未検証事項を記録します。旧RC番号、未実装のエージェント規模、WebSocket、分散メモリ、enterprise keyを現在の仕様として扱いません。
 
 基準main:
 
 ```text
-36731864fbd4cda3947fc02dbd2e2c43eb3e029b
+08aab7e3bb7c738c70bb69a511e0337d35ad27c7
 ```
 
 ## 公開・運用
 
-- 本番URLは未確認
-- 恒久deployment IDは未確認
-- 配信SHAとGitHub mainの一致は未確認
-- 本番での実AI成功応答は未確認
-- 実行時の実費`$0.00`は本番では未確認
-- 日常利用可能性、SLA、可用性、復旧時間は未確認
+- 本番URLは確認済みだが、このモデル移行の公開判定はmainへのmerge後に再確認する
+- deployment ID、配信SHAとGitHub mainの一致はmerge後に再確認する
+- 本番での実AI成功応答はmerge後に再確認する
+- 実行時の実費`$0.00`はrouting evidenceと本番応答で再確認する
+- 日常利用可能性、SLA、可用性、復旧時間はprovider側の無料枠に依存し保証しない
 
-CI成功やWorkers dry runは、本番デプロイの証明ではありません。
+CI成功やPreview成功は、本番デプロイの証明ではありません。
 
 ## AIモデルと費用
 
 現在の固定無料モデル:
 
 ```text
-google/gemma-4-26b-a4b-it:free
+nex-agi/nex-n2-pro:free
 ```
 
 無料根拠の再確認期限:
 
 ```text
-2026-08-19T23:59:59.999Z
+2026-09-17T00:00:00.000Z
 ```
 
 制約:
@@ -42,7 +41,9 @@ google/gemma-4-26b-a4b-it:free
 - 価格根拠が失効した場合は外部AI実行を停止
 - providerが別モデルを提供した場合は停止
 - provider availability、rate limit、利用条件の変更により利用できなくなる可能性がある
-- 無料であることと、入力が保存・学習されないことは同義ではない
+- 無料であることと、入力が保存・学習されないことは同義ではないため、`data_collection: deny` と `zdr: true` を別途必須とする
+- 推論失敗時はクライアント・providerとも自動retryを行わず、1ユーザー操作につき最大1回の推論要求でfail closedする
+- HTTP 429/500/502/503/504等の一時的transport障害は、未検証応答を表示せず再試行なしの混雑案内として扱う
 
 ## 製品範囲
 
