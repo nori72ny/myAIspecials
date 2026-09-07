@@ -1,0 +1,35 @@
+name: One-Time Stream Header Repair
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ !contains(github.event.head_commit.message, 'fix: use event-stream content type') && !contains(github.event.head_commit.message, 'fix: remove one-time stream fix workflow') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Repair production stream content type
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/legacy/originChatRouter.ts')
+          text = path.read_text()
+          old = 'res.setHeader("Content-Type", "text/plain; charset=utf-8");'
+          new = 'res.setHeader("Content-Type", "text/event-stream; charset=utf-8");'
+          if old not in text:
+              raise SystemExit('expected stream header not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+      - name: Commit repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/legacy/originChatRouter.ts
+          git commit -m "fix: use event-stream content type"
+          git push origin main
