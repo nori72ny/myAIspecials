@@ -1,5 +1,5 @@
 export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL =
-  "nex-agi/nex-n2-pro:free" as const;
+  "inclusionai/ling-3.0-flash-sante:free" as const;
 export type OriginFreeModelId = typeof ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
 
 export interface OriginFreeModelEvidence {
@@ -13,7 +13,7 @@ export interface OriginFreeModelEvidence {
 }
 
 const ORIGIN_OPENROUTER_FREE_MODEL_SOURCE =
-  "https://openrouter.ai/nex-agi/nex-n2-pro:free" as const;
+  "https://openrouter.ai/inclusionai/ling-3.0-flash-sante:free" as const;
 
 export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence[] = [
   {
@@ -21,9 +21,9 @@ export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
     verifiedAt: "2026-09-08T00:00:00.000Z",
-    reviewAfter: "2026-09-18T00:00:00.000Z",
+    reviewAfter: "2026-09-15T00:00:00.000Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter official model/provider pages were checked on 2026-09-08 and report Free pricing plus a zero-retention, no-training endpoint for the fixed model ID. Runtime separately requires ZDR/data-collection-deny routing, max-price zero, exact served-model identity, and zero reported usage cost; any unverifiable or non-zero condition fails closed before an answer is returned.",
+    sourceDescription: "OpenRouter official model/provider pages were checked on 2026-09-08: the fixed :free variant is served by NovitaAI at prompt/completion price 0, with training=false, trainingOpenRouter=false, retainsPrompts=false, and no user IDs required. Runtime separately requires ZDR/data-collection-deny routing, max-price zero, exact served-model identity, and zero reported usage cost; any unverifiable or non-zero condition fails closed before an answer is returned.",
   },
 ] as const;
 

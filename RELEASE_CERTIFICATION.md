@@ -21,7 +21,7 @@
 現在の固定無料モデル:
 
 ```text
-nex-agi/nex-n2-pro:free
+inclusionai/ling-3.0-flash-sante:free
 ```
 
 無料根拠の再確認期限:

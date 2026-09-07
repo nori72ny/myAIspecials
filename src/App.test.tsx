@@ -440,7 +440,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('start-request-button'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { model: string; systemPrompt: string };
-    expect(request.model).toBe('nex-agi/nex-n2-pro:free');
+    expect(request.model).toBe('inclusionai/ling-3.0-flash-sante:free');
     expect(request.systemPrompt).toBe(getOriginSystemPrompt('en'));
     for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'production-ready']) expect(request.systemPrompt).toContain(phrase);
     expect(getOriginSystemPrompt('ja')).toContain('結論を1文で先に');
@@ -544,7 +544,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('rejects paid or substituted successful JSON responses before revealing their content', async () => {
-    const model = 'nex-agi/nex-n2-pro:free';
+    const model = 'inclusionai/ling-3.0-flash-sante:free';
     const payload = {
       content: '表示してはいけない有料応答',
       routing: { modelId: model, freeOnly: true, cost: 0.01, actualCostUsd: 0.01, estimatedCostUsd: 0, usage: { costUsd: 0.01 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
@@ -561,7 +561,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('accepts verified fixed-model JSON responses and rejects paid headers or unverifiable routing', async () => {
-    const model = 'nex-agi/nex-n2-pro:free';
+    const model = 'inclusionai/ling-3.0-flash-sante:free';
     const valid = { content: '検証済みの無料回答', routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } } };
     expect(isVerifiedZeroCostChatPayload(valid)).toBe(true);
     expect(isVerifiedZeroCostChatPayload({ ...valid, routing: { ...valid.routing, freeOnly: false } })).toBe(false);
