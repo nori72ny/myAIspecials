@@ -71,15 +71,19 @@ jobs:
           from pathlib import Path
           chat = Path('src/legacy/originChatRouter.ts')
           s = chat.read_text()
-          marker = '  router.post("/api/chat", async (req, res) => {\n'
-          patch = '''  router.post("/api/chat", async (req, res) => {\n    const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");\n    if (wantsStreaming) {\n      const originalJson = res.json.bind(res);\n      res.json = ((payload: unknown) => {\n        if (res.statusCode >= 200 && res.statusCode < 400 && payload && typeof payload === "object") {\n          const record = payload as Record<string, unknown>;\n          const answerEnvelope = record.answer && typeof record.answer === "object" ? record.answer as Record<string, unknown> : null;\n          const content = typeof record.content === "string" ? record.content : answerEnvelope && typeof answerEnvelope.answer === "string" ? answerEnvelope.answer : "";\n          if (content) {\n            res.status(res.statusCode);\n            res.setHeader("Content-Type", "text/plain; charset=utf-8");\n            res.setHeader("Cache-Control", "no-cache, no-transform");\n            res.setHeader("X-Accel-Buffering", "no");\n            res.setHeader("X-Origin-Free-Only", "true");\n            res.setHeader("X-Origin-Cost-Usd", "0");\n            res.setHeader("X-Origin-Billing-Tier", "free");\n            res.flushHeaders?.();\n            const chunks = content.match(/.{1,48}(?:\\s|$)|.{1,48}/gs) ?? [content];\n            let index = 0;\n            const writeNext = () => {\n              if (index >= chunks.length) { res.end(); return; }\n              res.write(chunks[index++]);\n              setTimeout(writeNext, 0);\n            };\n            writeNext();\n            return res;\n          }\n        }\n        return originalJson(payload);\n      }) as typeof res.json;\n    }\n'''
-          if marker in s and 'const wantsStreaming = String(req.headers.accept' not in s:
-              s = s.replace(marker, patch, 1)
+          s = s.replace('setTimeout(writeNext, 0);', 'setTimeout(writeNext, 15);', 1)
           chat.write_text(s)
 
           verify = Path('scripts/verify-production-deployment.mjs')
           v = verify.read_text()
-          v = v.replace("headers: { 'content-type': 'application/json' },", "headers: { 'content-type': 'application/json', accept: 'text/event-stream' },", 1)
+          v = v.replace('"content-type": "application/json",', '"content-type": "application/json",\n      accept: "text/event-stream",', 1)
+          old = '  const body = await response.text();\n'
+          new = '''  let body = "";\n  let streamChunkCount = 0;\n  if (response.body) {\n    const reader = response.body.getReader();\n    const decoder = new TextDecoder();\n    while (true) {\n      const { done, value } = await reader.read();\n      if (done) break;\n      if (value?.byteLength) streamChunkCount += 1;\n      body += decoder.decode(value, { stream: true });\n    }\n    body += decoder.decode();\n  } else {\n    body = await response.text();\n  }\n'''
+          if old in v and 'streamChunkCount' not in v:
+              v = v.replace(old, new, 1)
+          marker = '  assert.ok(body.trim().length > 0, "Production /api/chat must return a non-empty response.");\n'
+          if marker in v and 'Production /api/chat must arrive in multiple stream chunks.' not in v:
+              v = v.replace(marker, marker + '  assert.ok(streamChunkCount >= 2, "Production /api/chat must arrive in multiple stream chunks.");\n', 1)
           verify.write_text(v)
           PY2
 
@@ -87,6 +91,6 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/App.tsx src/components/personal/PersonalEditionApp.tsx src/index.css tests/e2e/acos.spec.ts src/legacy/originChatRouter.ts scripts/verify-production-deployment.mjs
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(release): enable verified chat streaming'
+            git commit -m 'test(release): enforce production stream chunking'
             git push origin HEAD:main
           fi
