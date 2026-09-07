@@ -1,0 +1,23 @@
+name: Audit current OpenRouter free catalog
+on:
+  push:
+    branches: [audit/free-models-20260908]
+    paths: ['.github/workflows/audit-free-models.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query official OpenRouter model catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error https://openrouter.ai/api/v1/models -o /tmp/models.json
+          node <<'NODE'
+          const fs = require('fs');
+          const j = JSON.parse(fs.readFileSync('/tmp/models.json','utf8'));
+          const free = (j.data || []).filter(m => String(m?.pricing?.prompt) === '0' && String(m?.pricing?.completion) === '0');
+          console.log('FREE_COUNT='+free.length);
+          for (const m of free) console.log(JSON.stringify({id:m.id,name:m.name,ctx:m.context_length,params:m.supported_parameters||[]}));
+          NODE
