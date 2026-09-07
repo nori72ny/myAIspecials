@@ -27,6 +27,11 @@ jobs:
           ancestor_handler = ' className="flex items-center gap-2 cursor-pointer" onClick={() => { try { Object.keys(localStorage).forEach(k => k.includes("origin") && localStorage.removeItem(k)); sessionStorage.clear(); } catch(e){} window.location.href = "/"; }}'
           if s.count(ancestor_handler) == 2:
               s = s.replace(ancestor_handler, ' className="flex items-center gap-2"')
+          chat_headers = "headers: { 'Content-Type': 'application/json' },"
+          chat_fetch = "fetch('/api/chat', {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json' },"
+          chat_fetch_stream = "fetch('/api/chat', {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },"
+          if chat_fetch in s and chat_fetch_stream not in s:
+              s = s.replace(chat_fetch, chat_fetch_stream, 1)
           app.write_text(s)
 
           css = Path('src/index.css')
@@ -63,10 +68,23 @@ jobs:
           export default PersonalEditionApp;
           EOF2
 
+          chat = Path('src/legacy/originChatRouter.ts')
+          s = chat.read_text()
+          marker = '  router.post("/api/chat", async (req, res) => {\n'
+          patch = '''  router.post("/api/chat", async (req, res) => {\n    const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");\n    if (wantsStreaming) {\n      const originalJson = res.json.bind(res);\n      res.json = ((payload: unknown) => {\n        if (res.statusCode >= 200 && res.statusCode < 400 && payload && typeof payload === "object") {\n          const record = payload as Record<string, unknown>;\n          const answerEnvelope = record.answer && typeof record.answer === "object" ? record.answer as Record<string, unknown> : null;\n          const content = typeof record.content === "string" ? record.content : answerEnvelope && typeof answerEnvelope.answer === "string" ? answerEnvelope.answer : "";\n          if (content) {\n            res.status(res.statusCode);\n            res.setHeader("Content-Type", "text/plain; charset=utf-8");\n            res.setHeader("Cache-Control", "no-cache, no-transform");\n            res.setHeader("X-Accel-Buffering", "no");\n            res.setHeader("X-Origin-Free-Only", "true");\n            res.setHeader("X-Origin-Cost-Usd", "0");\n            res.setHeader("X-Origin-Billing-Tier", "free");\n            res.flushHeaders?.();\n            const chunks = content.match(/.{1,48}(?:\\s|$)|.{1,48}/gs) ?? [content];\n            let index = 0;\n            const writeNext = () => {\n              if (index >= chunks.length) { res.end(); return; }\n              res.write(chunks[index++]);\n              setTimeout(writeNext, 0);\n            };\n            writeNext();\n            return res;\n          }\n        }\n        return originalJson(payload);\n      }) as typeof res.json;\n    }\n'''
+          if marker in s and 'const wantsStreaming = String(req.headers.accept' not in s:
+              s = s.replace(marker, patch, 1)
+          chat.write_text(s)
+
+          verify = Path('scripts/verify-production-deployment.mjs')
+          v = verify.read_text()
+          v = v.replace("headers: { 'content-type': 'application/json' },", "headers: { 'content-type': 'application/json', accept: 'text/event-stream' },", 1)
+          verify.write_text(v)
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/App.tsx src/components/personal/PersonalEditionApp.tsx src/index.css tests/e2e/acos.spec.ts
+          git add src/App.tsx src/components/personal/PersonalEditionApp.tsx src/index.css tests/e2e/acos.spec.ts src/legacy/originChatRouter.ts scripts/verify-production-deployment.mjs
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(release): align mobile shell and composer gate'
+            git commit -m 'fix(release): enable verified chat streaming'
             git push origin HEAD:main
           fi
