@@ -9,7 +9,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - name: Query official OpenRouter model and provider privacy pages
+      - name: Query official OpenRouter free model provider privacy
         shell: bash
         run: |
           set -euo pipefail
@@ -19,28 +19,48 @@ jobs:
           const j = JSON.parse(fs.readFileSync('/tmp/models.json','utf8'));
           const free = (j.data || []).filter(m => String(m?.pricing?.prompt) === '0' && String(m?.pricing?.completion) === '0');
           console.log('FREE_COUNT='+free.length);
-          for (const m of free) console.log(JSON.stringify({id:m.id,name:m.name,ctx:m.context_length,params:m.supported_parameters||[]}));
+          for (const m of free) console.log('FREE_MODEL='+m.id);
           NODE
           for spec in \
-            'nvidia/nemotron-3-super-120b-a12b:free' \
-            'nvidia/nemotron-3-ultra-550b-a55b:free' \
-            'nvidia/nemotron-3.5-lightning:free' \
-            'cohere/north-mini-code:free'; do
+            'dots-studio/dots-3-note-preview:free' \
+            'liquid/lfm-2.5-2.6b:free' \
+            'thinkingmachines/inkling-small:free' \
+            'thinkingmachines/inkling:free' \
+            'poolside/laguna-s-2.1:free' \
+            'poolside/laguna-xs-2.1:free' \
+            'inclusionai/ling-3.0-flash-sante:free' \
+            'inclusionai/ling-3.0-flash-fin:free' \
+            'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free' \
+            'google/gemma-4-31b-it:free' \
+            'openrouter/free'; do
             author="${spec%%/*}"
             slug="${spec#*/}"
-            echo "ENDPOINTS_FOR=$spec"
-            curl --fail --silent --show-error "https://openrouter.ai/api/v1/models/$author/$slug/endpoints" | head -c 8000 || true
-            echo
-            echo "PRIVACY_PAGE_FOR=$spec"
-            curl --fail --silent --show-error "https://openrouter.ai/$author/$slug/providers" -o /tmp/page.html || true
-            python3 - "$spec" <<'PY'
-          import re,sys
+            echo "===MODEL=$spec==="
+            curl --fail --silent --show-error "https://openrouter.ai/api/v1/models/$author/$slug/endpoints" -o /tmp/endpoints.json || echo '{}'>/tmp/endpoints.json
+            node - "$spec" <<'NODE'
+          const fs=require('fs');
+          let j={}; try{j=JSON.parse(fs.readFileSync('/tmp/endpoints.json','utf8'));}catch{}
+          for(const e of j?.data?.endpoints||[]) console.log('ENDPOINT='+JSON.stringify({provider:e.provider_name,tag:e.tag,prompt:e.pricing?.prompt,completion:e.pricing?.completion,status:e.status,uptime1d:e.uptime_last_1d,params:e.supported_parameters}));
+          NODE
+            curl --fail --silent --show-error "https://openrouter.ai/$author/$slug/providers" -o /tmp/page.html || :
+            python3 <<'PY'
+          import re,json
           from pathlib import Path
-          text=Path('/tmp/page.html').read_text(errors='ignore') if Path('/tmp/page.html').exists() else ''
-          for pat in ['Zero retention','zero retention','Prompt Logging','Training','training','ZDR','data_collection','retention']:
-              hits=[m.start() for m in re.finditer(re.escape(pat),text)]
-              for p in hits[:6]:
-                  s=max(0,p-240); e=min(len(text),p+480)
-                  print('MATCH',pat, re.sub(r'\\s+',' ',text[s:e])[:800])
+          t=Path('/tmp/page.html').read_text(errors='ignore') if Path('/tmp/page.html').exists() else ''
+          seen=set()
+          patterns=[
+            r'provider_name\\?"?:\\?"([^"\\]+).*?data[_Pp]olicy\\?"?:(\\?\{.*?\\?\})',
+            r'displayName\\?"?:\\?"([^"\\]+).*?dataPolicy\\?"?:(\\?\{.*?\\?\})',
+          ]
+          # Extract compact windows around every dataPolicy/data_policy occurrence; this is audit output only.
+          for key in ['dataPolicy','data_policy']:
+            for m in re.finditer(key,t):
+              s=max(0,m.start()-500); e=min(len(t),m.start()+900)
+              w=re.sub(r'\\s+',' ',t[s:e])
+              sig=w[:1400]
+              if sig in seen: continue
+              seen.add(sig)
+              print('POLICY_SNIPPET='+sig)
+          print('HAS_ZERO_RETENTION_TEXT='+str('Zero retention' in t or 'zero retention' in t))
           PY
           done
