@@ -1,6 +1,8 @@
 name: ORIGIN one-time repair
 on:
-  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/origin-one-time-repair.yml'
 permissions:
   contents: write
 jobs:
