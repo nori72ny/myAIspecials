@@ -26,7 +26,7 @@ async function fetchWithTimeout(url, timeoutMs, options = {}) {
     headers: {
       accept: "application/json, text/html;q=0.9, text/event-stream;q=0.9",
       "cache-control": "no-cache",
-      "user-agent": "origin-production-smoke/1.1",
+      "user-agent": "origin-production-smoke/1.2",
       ...(options.headers ?? {}),
     },
     signal: AbortSignal.timeout(timeoutMs),
@@ -48,6 +48,7 @@ async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   });
 
   const contentType = response.headers.get("content-type") ?? "";
+  const vercelId = response.headers.get("x-vercel-id") ?? "";
   let body = "";
   let streamChunkCount = 0;
   if (response.body) {
@@ -66,9 +67,9 @@ async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}: ${body.slice(0, 500)}`);
   assert.ok(body.trim().length > 0, "Production /api/chat must return a non-empty response.");
   assert.ok(streamChunkCount >= 2, "Production /api/chat must arrive in multiple stream chunks.");
-  assert.match(contentType, /json|event-stream/i, `Production /api/chat returned unexpected content type: ${contentType || "missing"}`);
+  assert.match(contentType, /json|event-stream/i, `Production /api/chat returned unexpected content type: ${contentType || "missing"}; status=${response.status}; x-vercel-id=${vercelId}; body=${body.slice(0, 500)}`);
 
-  return { status: response.status, contentType, bytes: Buffer.byteLength(body) };
+  return { status: response.status, contentType, bytes: Buffer.byteLength(body), streamChunkCount, vercelId };
 }
 
 export async function verifyProductionDeployment(env = process.env) {
