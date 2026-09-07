@@ -27,7 +27,6 @@ jobs:
           ancestor_handler = ' className="flex items-center gap-2 cursor-pointer" onClick={() => { try { Object.keys(localStorage).forEach(k => k.includes("origin") && localStorage.removeItem(k)); sessionStorage.clear(); } catch(e){} window.location.href = "/"; }}'
           if s.count(ancestor_handler) == 2:
               s = s.replace(ancestor_handler, ' className="flex items-center gap-2"')
-          chat_headers = "headers: { 'Content-Type': 'application/json' },"
           chat_fetch = "fetch('/api/chat', {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json' },"
           chat_fetch_stream = "fetch('/api/chat', {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },"
           if chat_fetch in s and chat_fetch_stream not in s:
@@ -68,6 +67,8 @@ jobs:
           export default PersonalEditionApp;
           EOF2
 
+          python - <<'PY2'
+          from pathlib import Path
           chat = Path('src/legacy/originChatRouter.ts')
           s = chat.read_text()
           marker = '  router.post("/api/chat", async (req, res) => {\n'
@@ -80,6 +81,7 @@ jobs:
           v = verify.read_text()
           v = v.replace("headers: { 'content-type': 'application/json' },", "headers: { 'content-type': 'application/json', accept: 'text/event-stream' },", 1)
           verify.write_text(v)
+          PY2
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
