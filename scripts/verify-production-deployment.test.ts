@@ -13,19 +13,31 @@ it('does not repeat inference when health matches but the chat fails', async () 
   const fetchMock = vi.fn()
     .mockResolvedValueOnce(Response.json({ status: 'ok', service: 'acos-2', releaseSha: sha }))
     .mockResolvedValueOnce(new Response('<title>ORIGIN Personal</title>', { headers: { 'content-type': 'text/html' } }))
-    .mockResolvedValueOnce(new Response('private upstream response', { status: 502 }));
+    .mockResolvedValueOnce(Response.json({ code: 'PROVIDER_UNAVAILABLE', message: 'private upstream response' }, { status: 503 }));
   vi.stubGlobal('fetch', fetchMock);
-  await expect(verifyProductionDeployment({ ORIGIN_EXPECTED_SHA: sha })).rejects.toThrow('received 502');
+  await expect(verifyProductionDeployment({ ORIGIN_EXPECTED_SHA: sha })).rejects.toThrow('received 503; code=PROVIDER_UNAVAILABLE');
   expect(fetchMock).toHaveBeenCalledTimes(3);
 });
 
 it('does not expose response bodies in smoke-test failure logs', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('private upstream response', { status: 502 })));
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'PROVIDER_UNAVAILABLE', message: 'private upstream response' }, { status: 503 })));
   try {
     await verifyLiveChat('https://example.com', 1000);
     throw new Error('unexpected success');
   } catch (error) {
     expect(String(error)).not.toContain('private upstream response');
-    expect(String(error)).toContain('received 502');
+    expect(String(error)).toContain('received 503; code=PROVIDER_UNAVAILABLE');
+  }
+});
+
+it('suppresses malformed or untrusted failure codes', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'private secret value', message: 'private upstream response' }, { status: 502 })));
+  try {
+    await verifyLiveChat('https://example.com', 1000);
+    throw new Error('unexpected success');
+  } catch (error) {
+    expect(String(error)).not.toContain('private secret value');
+    expect(String(error)).not.toContain('private upstream response');
+    expect(String(error)).toContain('received 502; code=UNKNOWN');
   }
 });

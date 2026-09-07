@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
+const SAFE_FAILURE_CODE = /^[A-Z0-9_:-]{1,80}$/;
 
 function positiveInteger(value, fallback, name) {
   if (value === undefined || value === "") return fallback;
@@ -26,11 +27,22 @@ async function fetchWithTimeout(url, timeoutMs, options = {}) {
     headers: {
       accept: "application/json, text/html;q=0.9, text/event-stream;q=0.9",
       "cache-control": "no-cache",
-      "user-agent": "origin-production-smoke/1.4",
+      "user-agent": "origin-production-smoke/1.5",
       ...(options.headers ?? {}),
     },
     signal: AbortSignal.timeout(timeoutMs),
   });
+}
+
+function safeFailureCode(body, contentType) {
+  if (!/application\/json/i.test(contentType) || !body.trim()) return "UNKNOWN";
+  try {
+    const parsed = JSON.parse(body);
+    const code = typeof parsed?.code === "string" ? parsed.code.trim() : "";
+    return SAFE_FAILURE_CODE.test(code) ? code : "UNKNOWN";
+  } catch {
+    return "UNKNOWN";
+  }
 }
 
 export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
@@ -64,7 +76,8 @@ export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   } else {
     body = await response.text();
   }
-  assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}: [response body withheld]`);
+  const failureCode = response.status === 200 ? "NONE" : safeFailureCode(body, contentType);
+  assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}; code=${failureCode}; x-vercel-id=${vercelId || "missing"}; body=[response body withheld]`);
   assert.ok(body.trim().length > 0, "Production /api/chat must return a non-empty response.");
   assert.match(body.trim(), /^(?:OK|ＯＫ)[。.!！]?$/i, "Production /api/chat must answer the requested OK probe, not return a busy/error envelope.");
   assert.match(contentType, /text\/plain|text\/event-stream/i, `Production /api/chat returned an unexpected streaming content type: ${contentType || "missing"}; status=${response.status}; x-vercel-id=${vercelId}; body=[response body withheld]`);
