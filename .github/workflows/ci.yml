@@ -76,7 +76,7 @@ jobs:
         retention-days: 30
     - name: Upload Test Results
       if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92acb1c17e648066571572b38
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:
         name: test-results-node-${{ matrix.node-version }}
         path: test-results/
