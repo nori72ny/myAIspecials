@@ -25,6 +25,10 @@ describe("originResearchRouter", () => {
     expect(response.body.research.comparison).toEqual({
       sourceCount: 2,
       distinctDomainCount: 2,
+      encyclopediaReferenceCount: 0,
+      publicWebCount: 2,
+      officialSourceCount: null,
+      officialStatus: "not-assessed",
       pageVerifiedCount: 0,
       snippetCount: 2,
       recentCount: 0,
@@ -34,6 +38,11 @@ describe("originResearchRouter", () => {
       semanticAgreement: "not-assessed",
       semanticConflict: "not-assessed",
     });
+    expect(response.body.research.sourceAssessments).toEqual([
+      { domain: "example.com", publisherKind: "public-web", officialStatus: "not-assessed", independenceBasis: "domain-only" },
+      { domain: "example.org", publisherKind: "public-web", officialStatus: "not-assessed", independenceBasis: "domain-only" },
+    ]);
+    expect(response.body.content).toContain("公式情報源: 未判定");
     expect(response.body.content).toContain("意味上の一致・矛盾: 未判定");
     expect(response.body.content).toContain("Retrieved public material.");
     expect(response.body.content).toContain("https://example.com/ai");
@@ -53,6 +62,10 @@ describe("originResearchRouter", () => {
     expect(response.body.research.comparison).toMatchObject({
       sourceCount: 2,
       distinctDomainCount: 2,
+      encyclopediaReferenceCount: 1,
+      publicWebCount: 1,
+      officialSourceCount: null,
+      officialStatus: "not-assessed",
       pageVerifiedCount: 1,
       snippetCount: 1,
       recentCount: 1,
@@ -61,6 +74,12 @@ describe("originResearchRouter", () => {
       semanticAgreement: "not-assessed",
       semanticConflict: "not-assessed",
     });
+    expect(response.body.research.sourceAssessments).toEqual([
+      { domain: "official.example", publisherKind: "encyclopedia-reference", officialStatus: "not-assessed", independenceBasis: "domain-only" },
+      { domain: "independent.example", publisherKind: "public-web", officialStatus: "not-assessed", independenceBasis: "domain-only" },
+    ]);
+    expect(response.body.content).toContain("媒体区分: 百科事典型の参考情報");
+    expect(response.body.content).toContain("公式性: 未判定");
   });
 
   it("does not intercept stable definition requests", async () => {
