@@ -1,0 +1,43 @@
+name: V2 Capability Routing Patch
+
+on:
+  push:
+    branches:
+      - feat/v2-capability-routing-live
+    paths:
+      - .github/workflows/v2-capability-routing-patch.yml
+      - .github/scripts/v2-capability-routing-patch.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/v2-capability-routing-live
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply V2 capability routing
+        run: python .github/scripts/v2-capability-routing-patch.py
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify V2 routing
+        run: |
+          npm run lint
+          npm run test -- --run src/lib/orchestration/OriginCapabilityRouter.test.ts
+          npm run test
+          npm run build
+          npx --yes npm@latest audit --no-package-lock --audit-level=moderate
+      - name: Commit verified V2 routing
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/orchestration/OriginCapabilityRouter.ts src/lib/orchestration/OriginCapabilityRouter.test.ts src/legacy/originChatValidation.ts src/legacy/originChatRouter.ts src/legacy/originStreamingChatRouter.ts
+          git commit -m "feat(v2): connect capability routing to chat execution"
+          git push origin HEAD:feat/v2-capability-routing-live
