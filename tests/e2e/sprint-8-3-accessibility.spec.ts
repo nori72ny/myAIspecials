@@ -77,6 +77,27 @@ test.describe('ORIGIN Personal 2.0 accessibility', () => {
     await expect(page.getByRole('article', { name: 'あなたの依頼' })).toBeVisible();
   });
 
+  test('personal data is blocked locally and announced without an API request', async ({ page }) => {
+    let requests = 0;
+    await page.route('**/api/chat', async (route) => {
+      requests += 1;
+      await route.abort();
+    });
+    await page.goto('/');
+
+    const privateValue = ['nori', '@', 'example.invalid'].join('');
+    await page.getByTestId('origin-home-request').fill(`連絡先は ${privateValue} です`);
+    await page.getByTestId('start-request-button').click();
+
+    await expect(page.getByText('個人情報を端末内で保護しました')).toBeVisible();
+    await expect(page.getByTestId('response-announcement')).toContainText('送信前に端末内で遮断');
+    await expect(page.getByTestId('origin-home-request')).toHaveValue(`連絡先は ${privateValue} です`);
+    await expect(page.getByRole('article', { name: 'あなたの依頼' })).toHaveCount(0);
+    expect(requests).toBe(0);
+    const stored = await page.evaluate(() => window.localStorage.getItem('origin_chat_sessions_v1') ?? '');
+    expect(stored).not.toContain(privateValue);
+  });
+
   test('language controls have pressed state and update the interface', async ({ page }) => {
     await page.goto('/');
     const { dialog } = await openSettings(page);
