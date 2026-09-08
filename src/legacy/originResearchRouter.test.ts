@@ -12,8 +12,8 @@ describe("originResearchRouter", () => {
 
   it("returns live public-source evidence for explicit freshness requests", async () => {
     researchMock.mockResolvedValue({ ok: true, searchProvider: "DuckDuckGo", sources: [
-      { title: "AI optimization", url: "https://example.com/ai", excerpt: "Retrieved public material.", domain: "example.com", rank: 1, sourceType: "web-search" },
-      { title: "AI overview", url: "https://example.org/ai", excerpt: "Independent public material.", domain: "example.org", rank: 2, sourceType: "web-search" },
+      { title: "AI optimization", url: "https://example.com/ai", excerpt: "Retrieved public material.", domain: "example.com", rank: 1, sourceType: "web-search", evidenceLevel: "snippet", retrievedAt: "2026-09-08T00:00:00.000Z", freshness: "unknown" },
+      { title: "AI overview", url: "https://example.org/ai", excerpt: "Independent public material.", domain: "example.org", rank: 2, sourceType: "web-search", evidenceLevel: "snippet", retrievedAt: "2026-09-08T00:00:00.000Z", freshness: "unknown" },
     ] });
     const app = express();
     app.use(express.json());
@@ -37,14 +37,25 @@ describe("originResearchRouter", () => {
     expect(researchMock).not.toHaveBeenCalled();
   });
 
-  it("fails closed to the existing router when the research source is unavailable", async () => {
-    researchMock.mockResolvedValue({ ok: false, sources: [], limitation: "source unavailable" });
+  it("returns a dedicated zero-cost failure instead of falling through to an unverified model answer", async () => {
+    researchMock.mockResolvedValue({ ok: false, sources: [], limitation: "internal upstream detail" });
     const app = express();
     app.use(express.json());
     app.use(createOriginResearchRouter());
     app.use((_req, res) => res.status(418).json({ passedThrough: true }));
     const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: "AIの最新情報は？" }] });
-    expect(response.status).toBe(418);
+    expect(response.status).toBe(503);
+    expect(response.body).toMatchObject({
+      code: "RESEARCH_SOURCE_UNAVAILABLE",
+      retryable: true,
+      retryAttempted: false,
+      costUsd: 0,
+      freeOnly: true,
+      paidFallbackUsed: false,
+      research: { sources: [], status: "unavailable" },
+    });
+    expect(response.body.message).toContain("通常AIで補完せず");
+    expect(JSON.stringify(response.body)).not.toContain("internal upstream detail");
     expect(researchMock).toHaveBeenCalledTimes(1);
   });
 
