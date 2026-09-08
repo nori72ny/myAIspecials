@@ -1,0 +1,47 @@
+name: Dependency Audit Detail
+
+on:
+  push:
+    branches:
+      - audit/dependency-detail-20260908
+
+permissions:
+  contents: read
+
+jobs:
+  audit-detail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Print concise npm audit findings
+        shell: bash
+        run: |
+          npm audit --json > /tmp/npm-audit.json || true
+          node <<'NODE'
+          const fs = require('fs');
+          const audit = JSON.parse(fs.readFileSync('/tmp/npm-audit.json', 'utf8'));
+          const findings = Object.fromEntries(
+            Object.entries(audit.vulnerabilities || {}).map(([name, v]) => [name, {
+              severity: v.severity,
+              isDirect: v.isDirect,
+              range: v.range,
+              nodes: v.nodes,
+              fixAvailable: v.fixAvailable,
+              via: (v.via || []).map((x) => typeof x === 'string' ? x : ({
+                source: x.source,
+                name: x.name,
+                dependency: x.dependency,
+                title: x.title,
+                url: x.url,
+                severity: x.severity,
+                range: x.range,
+              })),
+            }]),
+          );
+          console.log(JSON.stringify({ findings, totals: audit.metadata?.vulnerabilities }, null, 2));
+          NODE
