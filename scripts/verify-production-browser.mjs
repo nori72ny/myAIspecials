@@ -82,6 +82,13 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     await page.getByTestId("start-request-button").click();
     await page.getByText("セッションを整理しました。").waitFor({ state: "visible", timeout: 15_000 });
 
+    await page.waitForFunction((expected) => {
+      try {
+        const journal = JSON.parse(localStorage.getItem("origin_personal_history") ?? "null");
+        return journal?.messages?.some((message) => message.content === expected);
+      } catch { return false; }
+    }, firstPrompt, { timeout: 10_000 });
+
     await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
     await page.getByText(firstPrompt).waitFor({ state: "visible", timeout: 15_000 });
     await page.getByText("セッションを整理しました。").waitFor({ state: "visible", timeout: 15_000 });

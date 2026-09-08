@@ -86,7 +86,10 @@ export const migrateOriginLegacySnapshot = async (
   removeLegacy: () => void,
 ): Promise<OriginMigrationResult> => {
   const existing = await adapter.load();
-  if (existing) return { snapshot: existing, source: 'indexeddb' };
+  // A synchronous localStorage journal may be newer than the last completed
+  // IndexedDB transaction when a tab is reloaded immediately after a message.
+  // Prefer and durably migrate that newer journal instead of restoring stale data.
+  if (existing && existing.updatedAt >= legacySnapshot.updatedAt) return { snapshot: existing, source: 'indexeddb' };
   const writeResult = await adapter.save(legacySnapshot);
   if (writeResult === 'saved') {
     try { removeLegacy(); } catch { /* Persistence succeeded, so legacy cleanup is best effort only. */ }
