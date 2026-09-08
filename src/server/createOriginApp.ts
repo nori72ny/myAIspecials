@@ -32,7 +32,15 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
 
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
-  app.get(["/health", "/api/health"], (_req, res) => res.status(200).json({ status: "ok", service: "acos-2", releaseSha: resolveOriginReleaseSha(env) }));
+  app.get(["/health", "/api/health"], (_req, res) => res.status(200).json({
+    status: "ok",
+    service: "acos-2",
+    releaseSha: resolveOriginReleaseSha(env),
+    costUsd: 0,
+    freeOnly: true,
+    paidFallbackEnabled: false,
+    secretDelivery: "server-only",
+  }));
   app.use(createOriginResearchRouter());
   // Browser clients request text/event-stream. Handle provider-eligible requests here
   // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router

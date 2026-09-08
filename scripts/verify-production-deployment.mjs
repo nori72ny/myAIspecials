@@ -144,7 +144,11 @@ export async function verifyProductionDeployment(env = process.env) {
       } else {
         const health = await response.json();
         lastObservation = `releaseSha=${String(health.releaseSha ?? "missing")}`;
-        if (health.status === "ok" && health.service === "acos-2" && String(health.releaseSha).toLowerCase() === expectedSha) {
+        const healthPolicyVerified = health.costUsd === 0
+          && health.freeOnly === true
+          && health.paidFallbackEnabled === false
+          && health.secretDelivery === "server-only";
+        if (health.status === "ok" && health.service === "acos-2" && healthPolicyVerified && String(health.releaseSha).toLowerCase() === expectedSha) {
           const pageResponse = await fetchWithTimeout(`${baseUrl}/?release=${expectedSha}`, requestTimeoutMs);
           assert.equal(pageResponse.status, 200, "Production page must return HTTP 200.");
           assert.match(pageResponse.headers.get("content-type") ?? "", /text\/html/i, "Production page must return HTML.");

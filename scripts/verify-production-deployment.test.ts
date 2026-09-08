@@ -49,7 +49,7 @@ it('rejects a post-completion-style response that does not identify genuine upst
 it('does not repeat inference when health matches but the chat fails', async () => {
   const sha = 'a'.repeat(40);
   const fetchMock = vi.fn()
-    .mockResolvedValueOnce(Response.json({ status: 'ok', service: 'acos-2', releaseSha: sha }))
+    .mockResolvedValueOnce(Response.json({ status: 'ok', service: 'acos-2', releaseSha: sha, costUsd: 0, freeOnly: true, paidFallbackEnabled: false, secretDelivery: 'server-only' }))
     .mockResolvedValueOnce(new Response('<title>ORIGIN Personal</title>', { headers: { 'content-type': 'text/html' } }))
     .mockResolvedValueOnce(Response.json({ code: 'PROVIDER_UNAVAILABLE', message: 'private upstream response' }, { status: 503 }));
   vi.stubGlobal('fetch', fetchMock);

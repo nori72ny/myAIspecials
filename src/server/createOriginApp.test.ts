@@ -106,6 +106,10 @@ describe("createOriginApp provider isolation", () => {
       status: "ok",
       service: "acos-2",
       releaseSha: "d128f5dcc826d4dfae83f7b004f38af1dad9bc14",
+      costUsd: 0,
+      freeOnly: true,
+      paidFallbackEnabled: false,
+      secretDelivery: "server-only",
     });
   });
 
