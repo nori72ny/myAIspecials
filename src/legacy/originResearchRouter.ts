@@ -59,7 +59,21 @@ export function createOriginResearchRouter() {
 
     const language = languageOf(query);
     const result = await researchCurrentInformation(query);
-    if (!result.ok) return next();
+    if (!result.ok) {
+      const message = language === "ja"
+        ? "現在、無料の公開情報源から最新情報を取得できませんでした。未確認の内容を通常AIで補完せず、安全に停止しました。時間をおいて手動で再度お試しください。"
+        : "Current information could not be retrieved from the free public sources. ORIGIN stopped safely instead of filling the gap with an unverified model answer. Please try again manually later.";
+      return res.status(503).json({
+        code: "RESEARCH_SOURCE_UNAVAILABLE",
+        message,
+        retryable: true,
+        retryAttempted: false,
+        costUsd: 0,
+        freeOnly: true,
+        paidFallbackUsed: false,
+        research: { sources: [], status: "unavailable" },
+      });
+    }
 
     const content = language === "ja"
       ? `無料の公開Web検索を実行しました。検索結果は複数の公開Webソースから取得しています。\n\n${result.sources.map((source) => `### ${source.title}\n${source.excerpt}\n\n〔出典: [${sourceLabel(source)}](${source.url})〕\n証拠レベル: ${source.evidenceLevel === "page-verified" ? "ページ確認済み" : "検索スニペットのみ"}\n取得日時: ${source.retrievedAt}\n鮮度: ${freshnessLabel(source.freshness, "ja")}${source.rank ? `\n検索順位: ${source.rank}` : ""}${source.revisionTimestamp ? `\n最終更新: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`
