@@ -192,7 +192,7 @@ async function streamOpenRouter(
   const decoder = new TextDecoder();
   let buffer = "";
   let output = "";
-  let servedModel = providerRequest.plan.modelId;
+  let servedModel = "";
   let promptTokens = 0;
   let completionTokens = 0;
   let totalTokens = 0;
@@ -227,6 +227,9 @@ async function streamOpenRouter(
 
     const delta = streamedText(chunk.choices?.[0]?.delta?.content);
     if (delta) {
+      if (!servedModel) {
+        throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false);
+      }
       output += delta;
       handlers.onDelta(delta);
     }

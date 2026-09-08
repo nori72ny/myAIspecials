@@ -5,19 +5,27 @@ afterEach(() => vi.unstubAllGlobals());
 
 const encoder = new TextEncoder();
 function verifiedStreamResponse() {
+  const model = 'inclusionai/ling-3.0-flash-sante:free';
+  const first = `data: ${JSON.stringify({ type: 'delta', text: 'ORIGIN-CONTEXT-42\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n' })}\n\n`;
+  const second = [
+    `data: ${JSON.stringify({ type: 'delta', text: 'STREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n' })}`,
+    `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costUsd: 0, fallbackUsed: false })}`,
+    'data: [DONE]',
+    '',
+  ].join('\n\n');
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(encoder.encode('ORIGIN-CONTEXT-42\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n'));
-      controller.enqueue(encoder.encode('STREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n'));
+      controller.enqueue(encoder.encode(first));
+      controller.enqueue(encoder.encode(second));
       controller.close();
     },
   });
   return new Response(body, {
     status: 200,
     headers: {
-      'content-type': 'text/plain; charset=utf-8',
+      'content-type': 'text/event-stream; charset=utf-8',
       'x-origin-stream-source': 'upstream',
-      'x-origin-stream-protocol': 'origin-text-delta-v1',
+      'x-origin-stream-protocol': 'origin-verified-sse-v1',
       'x-origin-free-only': 'true',
       'x-origin-cost-usd': '0',
       'x-origin-billing-tier': 'free',

@@ -84,16 +84,28 @@ export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
 
   const failureCode = response.status === 200 ? "NONE" : safeFailureCode(body, contentType);
   assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}; code=${failureCode}; x-vercel-id=${vercelId || "missing"}; body=[response body withheld]`);
-  assert.match(contentType, /text\/plain/i, `Production /api/chat returned an unexpected real-stream content type: ${contentType || "missing"}; x-vercel-id=${vercelId || "missing"}; body=[response body withheld]`);
   assert.equal(response.headers.get("x-origin-stream-source"), "upstream", "Production /api/chat must identify the stream source as upstream provider deltas.");
-  assert.equal(response.headers.get("x-origin-stream-protocol"), "origin-text-delta-v1", "Production /api/chat must use the verified upstream delta protocol.");
+  assert.match(contentType, /text\/event-stream/i, `Production /api/chat returned an unexpected real-stream content type: ${contentType || "missing"}; x-vercel-id=${vercelId || "missing"}; body=[response body withheld]`);
+  assert.equal(response.headers.get("x-origin-stream-protocol"), "origin-verified-sse-v1", "Production /api/chat must use the verified upstream delta protocol.");
   assert.equal(response.headers.get("x-origin-free-only"), "true", "Production /api/chat must remain free-only.");
   assert.equal(response.headers.get("x-origin-cost-usd"), "0", "Production /api/chat must report zero cost.");
   assert.equal(response.headers.get("x-origin-billing-tier"), "free", "Production /api/chat must report the free billing tier.");
   assert.equal(response.headers.get("x-origin-model-id"), EXPECTED_FREE_MODEL, "Production /api/chat must use the reviewed fixed free model.");
-  assert.ok(body.trim().length > 0, "Production /api/chat must return a non-empty response.");
-  assert.ok(body.includes(CONTEXT_TOKEN), "Production /api/chat must recover the synthetic token from earlier multi-turn context.");
-  assert.ok((body.match(new RegExp(STREAM_MARKER, "g")) ?? []).length >= 8, "Production /api/chat must return enough requested marker text to exercise progressive delivery.");
+  let generated = ""; let completion; let doneSeen = false;
+  for (const line of body.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue;
+    const raw = line.slice(5).trim();
+    assert.equal(doneSeen, false, "Production stream must not emit data after DONE.");
+    if (raw === "[DONE]") { doneSeen = true; continue; }
+    const event = JSON.parse(raw);
+    if (event.type === "delta") generated += event.text;
+    else if (event.type === "complete") completion = event;
+    else assert.fail("Production stream emitted an unsafe event.");
+  }
+  assert.ok(doneSeen && completion, "Production stream must include a verified completion and DONE.");
+  assert.deepEqual({ modelId: completion.modelId, costUsd: completion.costUsd, fallbackUsed: completion.fallbackUsed }, { modelId: EXPECTED_FREE_MODEL, costUsd: 0, fallbackUsed: false });
+  assert.ok(generated.includes(CONTEXT_TOKEN), "Production /api/chat must recover the synthetic token from earlier multi-turn context.");
+  assert.ok((generated.match(new RegExp(STREAM_MARKER, "g")) ?? []).length >= 8, "Production /api/chat must return enough requested marker text to exercise progressive delivery.");
   assert.ok(streamChunkCount >= 2, `Production /api/chat must deliver more than one network chunk from the upstream stream; observed ${streamChunkCount}.`);
 
   return {

@@ -165,19 +165,19 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           if (!downstreamStarted) {
             downstreamStarted = true;
             res.status(200);
-            res.setHeader("Content-Type", "text/plain; charset=utf-8");
-            res.setHeader("Cache-Control", "no-cache, no-transform");
+            res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+            res.setHeader("Cache-Control", "no-store, no-transform");
             res.setHeader("X-Accel-Buffering", "no");
             res.setHeader("X-Origin-Free-Only", "true");
             res.setHeader("X-Origin-Cost-Usd", "0");
             res.setHeader("X-Origin-Billing-Tier", "free");
             res.setHeader("X-Origin-Model-Id", planningResult.plan.modelId);
             res.setHeader("X-Origin-Stream-Source", "upstream");
-            res.setHeader("X-Origin-Stream-Protocol", "origin-text-delta-v1");
+            res.setHeader("X-Origin-Stream-Protocol", "origin-verified-sse-v1");
             res.flushHeaders?.();
           }
           providerDeltaCount += 1;
-          res.write(delta);
+          res.write(`data: ${JSON.stringify({ type: "delta", text: delta })}\n\n`);
         },
       });
 
@@ -191,7 +191,14 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         costUsd: result.actualCostUsd,
         providerDeltaCount,
       });
-      res.end();
+      res.write(`data: ${JSON.stringify({
+        type: "complete",
+        modelId: planningResult.plan.modelId,
+        servedModel: result.routingEvidence.servedModel,
+        costUsd: result.actualCostUsd,
+        fallbackUsed: result.routingEvidence.fallbackUsed,
+      })}\n\n`);
+      res.end("data: [DONE]\n\n");
       return;
     } catch (error) {
       const safeError = error instanceof OriginProviderError
@@ -208,7 +215,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         providerDeltaCount,
       });
       if (!downstreamStarted && !res.headersSent) return sendSafeProviderFailure(res, safeError, requestId);
-      res.destroy();
+      res.end(`data: ${JSON.stringify({ type: "error" })}\n\n`);
       return;
     }
   });

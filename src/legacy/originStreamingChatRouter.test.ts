@@ -49,14 +49,17 @@ describe("createOriginStreamingChatRouter", () => {
       .send({ messages: [{ role: "user", content: "短い案内文を作ってください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.text).toBe("first second");
-    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.headers["content-type"]).toContain("text/event-stream");
     expect(response.headers["x-origin-stream-source"]).toBe("upstream");
-    expect(response.headers["x-origin-stream-protocol"]).toBe("origin-text-delta-v1");
+    expect(response.headers["x-origin-stream-protocol"]).toBe("origin-verified-sse-v1");
     expect(response.headers["x-origin-free-only"]).toBe("true");
     expect(response.headers["x-origin-cost-usd"]).toBe("0");
     expect(response.headers["x-origin-billing-tier"]).toBe("free");
     expect(response.headers["x-origin-model-id"]).toBe(evidence.modelId);
+    expect(response.text).toContain(`data: {"type":"delta","text":"first"}`);
+    expect(response.text).toContain(`data: {"type":"delta","text":" second"}`);
+    expect(response.text).toContain(`data: {"type":"complete","modelId":"${evidence.modelId}","servedModel":"${evidence.modelId}","costUsd":0,"fallbackUsed":false}`);
+    expect(response.text).toMatch(/data: \[DONE\]\s*$/);
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 
@@ -80,8 +83,26 @@ describe("createOriginStreamingChatRouter", () => {
         { role: "user", content: "さきほどの合言葉を答えてください。" },
       ] });
     expect(response.status).toBe(200);
-    expect(response.text).toBe("ORIGIN-CONTEXT-42");
+    expect(response.text).toContain(`data: {"type":"delta","text":"ORIGIN-CONTEXT-42"}`);
+    expect(response.text).toMatch(/data: \[DONE\]\s*$/);
     expect(streamExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends a failed partial stream without a completion proof or DONE", async () => {
+    const streamExecute = vi.fn(async (_providerRequest, handlers) => {
+      handlers.onDelta("unverified partial");
+      throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "private detail", 502, false);
+    }) as unknown as OriginProviderStreamExecutor;
+
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "文章を作ってください" }] });
+    expect(response.status).toBe(200);
+    expect(response.text).toContain(`data: {"type":"delta","text":"unverified partial"}`);
+    expect(response.text).toContain(`data: {"type":"error"}`);
+    expect(response.text).not.toContain('"type":"complete"');
+    expect(response.text).not.toContain("[DONE]");
   });
 
   it("returns a safe JSON failure when the upstream fails before the first delta", async () => {

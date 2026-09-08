@@ -55,11 +55,22 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(String(error)));
   let requestCount = 0;
+  const verifiedStream = (text) => [
+    `data: ${JSON.stringify({ type: "delta", text })}`,
+    `data: ${JSON.stringify({ type: "complete", modelId: "inclusionai/ling-3.0-flash-sante:free", servedModel: "inclusionai/ling-3.0-flash-sante:free", costUsd: 0, fallbackUsed: false })}`,
+    "data: [DONE]",
+    "",
+  ].join("\n\n");
 
   await page.route("**/api/chat", async (route) => {
     requestCount += 1;
     if (requestCount === 1) {
-      await route.fulfill({ status: 200, contentType: "text/plain; charset=utf-8", body: "セッションを整理しました。" });
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream; charset=utf-8",
+        headers: { "x-origin-stream-source": "upstream", "x-origin-stream-protocol": "origin-verified-sse-v1", "x-origin-free-only": "true", "x-origin-cost-usd": "0", "x-origin-billing-tier": "free", "x-origin-model-id": "inclusionai/ling-3.0-flash-sante:free" },
+        body: verifiedStream("セッションを整理しました。"),
+      });
       return;
     }
     if (requestCount === 2) {
@@ -70,7 +81,12 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
       });
       return;
     }
-    await route.fulfill({ status: 200, contentType: "text/plain; charset=utf-8", body: "回復しました。" });
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream; charset=utf-8",
+      headers: { "x-origin-stream-source": "upstream", "x-origin-stream-protocol": "origin-verified-sse-v1", "x-origin-free-only": "true", "x-origin-cost-usd": "0", "x-origin-billing-tier": "free", "x-origin-model-id": "inclusionai/ling-3.0-flash-sante:free" },
+      body: verifiedStream("回復しました。"),
+    });
   });
 
   try {
