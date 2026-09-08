@@ -63,6 +63,11 @@ jobs:
       run: npx playwright install --force chromium
     - name: Run E2E tests
       run: npm run test:e2e
+    - name: Exercise production browser release gates without live inference
+      if: github.event_name == 'pull_request' && matrix.node-version == '22.x'
+      env:
+        ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+      run: node scripts/verify-production-browser.mjs
     - name: Run Lighthouse Audit
       run: |
         npm install -g @lhci/cli
