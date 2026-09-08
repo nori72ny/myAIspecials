@@ -36,6 +36,7 @@ describe("serverless ORIGIN chat boundary", () => {
     expect(response.status).toBe(200);
     expect(response.body.status).toBe("ok");
     expect(response.body.service).toBe("acos-2");
+    expect(response.body).toMatchObject({ costUsd: 0, freeOnly: true, paidFallbackEnabled: false, secretDelivery: "server-only" });
   });
 
   it("reports only a bounded error class and code when initialization fails", async () => {
