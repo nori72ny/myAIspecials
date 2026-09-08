@@ -59,9 +59,9 @@ s = replace_once(s, old, new, "stream free-tier gate")
 stream.write_text(s)
 
 test = Path("src/legacy/originProviderClient.gemini.test.ts")
-test.write_text('''import { describe, expect, it, vi } from "vitest";
+test.write_text('''import { describe, expect, it } from "vitest";
 import { ORIGIN_OPENROUTER_FREE_MODEL } from "../lib/orchestration/OriginExecutionPolicy.js";
-import { executeOriginProvider, type OriginProviderExecutionRequest } from "./originProviderClient.js";
+import { executeOriginProvider, type OriginFetch, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 
 const request: OriginProviderExecutionRequest = {
   plan: {
@@ -74,7 +74,7 @@ const request: OriginProviderExecutionRequest = {
     timeoutMs: 20_000,
     requiresOwnerApproval: false,
     reason: "test",
-    providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true },
+    providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false },
     modelEvidence: { providerId: "openrouter-free", verifiedAt: "2026-09-08T00:00:00.000Z", reviewAfter: "2026-09-18T00:00:00.000Z", sourceUrl: "https://openrouter.ai/inclusionai/ling-3.0-flash-sante:free" },
   },
   messages: [{ role: "user", content: "日本語で短く答えてください。" }],
@@ -83,17 +83,20 @@ const request: OriginProviderExecutionRequest = {
 
 describe("no secondary inference provider", () => {
   it.each([429, 500, 502, 503, 504])("never falls back to Gemini after OpenRouter HTTP %s", async (status) => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: { message: "upstream unavailable" } }), { status }));
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const fetchMock: OriginFetch = async (input, init) => {
+      calls.push({ input, init });
+      return new Response(JSON.stringify({ error: { message: "upstream unavailable" } }), { status });
+    };
     await expect(executeOriginProvider(request, {
       OPENROUTER_API_KEY: "test-openrouter",
       GEMINI_API_KEY: "must-never-be-used",
       ORIGIN_GEMINI_FREE_ONLY: "true",
-    }, fetchMock as typeof fetch)).rejects.toMatchObject({ retryable: true });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [input, init] = fetchMock.mock.calls[0];
-    expect(String(input)).toContain("openrouter.ai");
-    expect(String(input)).not.toContain("googleapis.com");
-    const headers = new Headers(init?.headers);
+    }, fetchMock)).rejects.toMatchObject({ retryable: true });
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0].input)).toContain("openrouter.ai");
+    expect(String(calls[0].input)).not.toContain("googleapis.com");
+    const headers = new Headers(calls[0].init?.headers);
     expect(headers.get("x-goog-api-key")).toBeNull();
   });
 });
