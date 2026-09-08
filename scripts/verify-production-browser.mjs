@@ -115,7 +115,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     }, firstPrompt, { timeout: 10_000 });
 
     await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
-    await page.getByText(firstPrompt).waitFor({ state: "visible", timeout: 15_000 });
+    await page.locator("p").filter({ hasText: firstPrompt }).first().waitFor({ state: "visible", timeout: 15_000 });
     await page.getByText("セッションを整理しました。").waitFor({ state: "visible", timeout: 15_000 });
 
     await page.getByRole("button", { name: "新規対話を開始" }).click();
@@ -125,7 +125,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     const nodeCount = Number(await page.getByTestId("knowledge-map-node-count").textContent());
     assert.ok(nodeCount >= 1, `Production history must expose at least one saved session; observed ${nodeCount}.`);
     await page.getByTestId("knowledge-map-session-0").click();
-    await page.getByText(firstPrompt).waitFor({ state: "visible", timeout: 10_000 });
+    await page.locator("p").filter({ hasText: firstPrompt }).first().waitFor({ state: "visible", timeout: 10_000 });
 
     await page.getByRole("button", { name: "新規対話を開始" }).click();
     await page.getByTestId("origin-home-request").fill("失敗回復を確認してください");
