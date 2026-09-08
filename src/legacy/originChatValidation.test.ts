@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectSensitiveConversation,
   hasOriginWeatherLocation,
   isOriginWeatherRequest,
 } from "./originChatValidation";
@@ -50,5 +51,22 @@ describe("hasOriginWeatherLocation", () => {
 
   it("requires location clarification when no location evidence is supplied", () => {
     expect(hasOriginWeatherLocation("今日の天気は？", undefined)).toBe(false);
+  });
+});
+
+describe("detectSensitiveConversation", () => {
+  it("blocks personal information anywhere in the outbound conversation", () => {
+    expect(detectSensitiveConversation([
+      { role: "user", content: "この文章を整えてください" },
+      { role: "assistant", content: "連絡先は nori@example.com です" },
+      { role: "user", content: "続けてください" },
+    ])).toContain("email-address");
+  });
+
+  it("does not expose matched personal values in its result", () => {
+    const privateValue = "090-1234-5678";
+    const result = detectSensitiveConversation([{ role: "user", content: `電話番号: ${privateValue}` }]);
+    expect(result).toContain("phone-number");
+    expect(JSON.stringify(result)).not.toContain(privateValue);
   });
 });
