@@ -133,7 +133,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build-and-test
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -143,14 +143,23 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
-      - name: Wait for and verify the matching production deployment
+          cache: 'npm'
+      - name: Install production verification dependencies
+        run: npm ci
+      - name: Install production browser
+        run: npx playwright install --force chromium
+      - name: Wait for and verify matching production, live upstream streaming, and multi-turn context
         env:
           ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
           ORIGIN_EXPECTED_SHA: ${{ github.sha }}
           ORIGIN_DEPLOY_TIMEOUT_MS: "600000"
           ORIGIN_DEPLOY_POLL_INTERVAL_MS: "10000"
-          ORIGIN_REQUEST_TIMEOUT_MS: "15000"
+          ORIGIN_REQUEST_TIMEOUT_MS: "25000"
         run: node scripts/verify-production-deployment.mjs
+      - name: Verify production PWA, History, New Chat, failure UX, and recovery
+        env:
+          ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+        run: node scripts/verify-production-browser.mjs
 
   release:
     name: Generate CHANGELOG & GitHub Release
