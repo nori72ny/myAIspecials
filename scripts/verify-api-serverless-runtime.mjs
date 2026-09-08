@@ -114,13 +114,26 @@ try {
   if (chat.status === 500 && chat.json?.code === 'ORIGIN_FUNCTION_INIT_FAILED') {
     fail('/api/chat still reaches the initialization-failure boundary.');
   }
-  if (chat.status !== 503 || chat.json?.code !== 'FREE_PROVIDER_NOT_CONFIGURED') {
-    fail(`/api/chat expected fail-closed HTTP 503/FREE_PROVIDER_NOT_CONFIGURED in the no-provider smoke environment, got HTTP ${chat.status}: ${chat.text}`);
+
+  // The production chat contract deliberately returns an HTTP 200 honest busy
+  // envelope when no zero-cost provider can safely answer. It must not expose
+  // an upstream error, retry indefinitely, or imply that a paid fallback exists.
+  if (chat.status !== 200) {
+    fail(`/api/chat expected HTTP 200 fail-closed envelope in the no-provider smoke environment, got HTTP ${chat.status}: ${chat.text}`);
+  }
+  if (!chat.json?.content?.includes('無料AIの利用が集中しています') && !chat.json?.content?.includes('free AI')) {
+    fail(`/api/chat did not return the expected honest zero-cost busy message: ${chat.text}`);
+  }
+  if (chat.json?.answer?.verification?.status !== 'not-run') {
+    fail(`/api/chat expected verification.status=not-run, got ${chat.json?.answer?.verification?.status ?? 'missing'}`);
+  }
+  if (chat.json?.routing?.actualCostUsd !== 0 || chat.json?.routing?.estimatedCostUsd !== 0) {
+    fail(`/api/chat expected zero cost evidence, got ${chat.text}`);
   }
 
   console.log('[api-node-esm] PASS');
   console.log(`[api-node-esm] /api/health -> HTTP ${health.status}, status=${health.json.status}`);
-  console.log(`[api-node-esm] /api/chat -> HTTP ${chat.status}, code=${chat.json.code}`);
+  console.log(`[api-node-esm] /api/chat -> HTTP ${chat.status}, verification=${chat.json.answer.verification.status}, actualCostUsd=${chat.json.routing.actualCostUsd}`);
 } finally {
   if (server) {
     await new Promise((resolve) => server.close(resolve));
