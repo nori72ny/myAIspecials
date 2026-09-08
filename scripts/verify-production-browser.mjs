@@ -12,6 +12,17 @@ function productionUrl(value) {
   return url.toString();
 }
 
+async function evaluateAcrossOnePwaClaim(page, operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!String(error).includes("Execution context was destroyed")) throw error;
+    await page.waitForLoadState("domcontentloaded", { timeout: 10_000 });
+    await page.getByTestId("origin-core-logo").waitFor({ state: "visible", timeout: 15_000 });
+    return operation();
+  }
+}
+
 async function verifyPwa(browser, baseUrl) {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -20,16 +31,13 @@ async function verifyPwa(browser, baseUrl) {
     await page.getByTestId("origin-core-logo").waitFor({ state: "visible", timeout: 15_000 });
     const manifestHref = await page.locator('link[rel="manifest"]').getAttribute("href");
     assert.ok(manifestHref, "Production page must expose a web app manifest.");
-    const manifest = await page.evaluate(async (href) => {
-      const response = await fetch(href, { cache: "no-store" });
-      if (!response.ok) throw new Error(`manifest HTTP ${response.status}`);
-      return response.json();
-    }, manifestHref);
+    const manifestResponse = await context.request.get(new URL(manifestHref, baseUrl).toString(), { failOnStatusCode: true });
+    const manifest = await manifestResponse.json();
     assert.equal(manifest.display, "standalone", "Production manifest must be installable in standalone mode.");
     assert.equal(manifest.start_url, "/", "Production manifest must start at the same-origin app root.");
     assert.equal(manifest.scope, "/", "Production manifest scope must remain same-origin root.");
 
-    const worker = await page.evaluate(async () => {
+    const worker = await evaluateAcrossOnePwaClaim(page, () => page.evaluate(async () => {
       if (!("serviceWorker" in navigator)) return { supported: false, controlled: false, scope: "" };
       const registration = await Promise.race([
         navigator.serviceWorker.ready,
@@ -40,7 +48,7 @@ async function verifyPwa(browser, baseUrl) {
         controlled: Boolean(navigator.serviceWorker.controller),
         scope: registration.scope,
       };
-    });
+    }));
     assert.equal(worker.supported, true, "Production browser must support the registered service worker.");
     assert.ok(worker.scope.startsWith(new URL(baseUrl).origin), "Production service worker must remain same-origin.");
     return { manifest: true, serviceWorker: true, controlled: worker.controlled };
