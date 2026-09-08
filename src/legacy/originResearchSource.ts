@@ -8,6 +8,7 @@ export interface OriginResearchSource {
   sourceType?: "web-search" | "encyclopedia";
   domain?: string;
   rank?: number;
+  evidenceLevel: "snippet" | "page-verified";
 }
 
 export interface OriginResearchResult {
@@ -88,7 +89,7 @@ function parseDuckDuckGoResults(html: string, limit = 6): OriginResearchSource[]
     if (!excerpt) continue;
     const domain = new URL(url).hostname.replace(/^www\./i, "");
     if (sources.some((source) => source.url === url)) continue;
-    sources.push({ title, url, excerpt, sourceType: "web-search", domain, rank: sources.length + 1 });
+    sources.push({ title, url, excerpt, sourceType: "web-search", domain, rank: sources.length + 1, evidenceLevel: "snippet" });
   }
   return sources;
 }
@@ -129,10 +130,10 @@ export async function researchCurrentInformation(query: string): Promise<OriginR
           : `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
         const excerpt = cleanExcerpt(page.excerpt) || cleanExcerpt(page.description);
         if (!excerpt) continue;
-        sources.push({ title, url, excerpt, revisionTimestamp: metadata.latest?.timestamp, sourceType: "encyclopedia", domain: new URL(url).hostname, rank: sources.length + 1 });
+        sources.push({ title, url, excerpt, revisionTimestamp: metadata.latest?.timestamp, sourceType: "encyclopedia", domain: new URL(url).hostname, rank: sources.length + 1, evidenceLevel: "page-verified" });
       } catch {
         const excerpt = cleanExcerpt(page.excerpt) || cleanExcerpt(page.description);
-        if (excerpt) sources.push({ title, url: `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`, excerpt, sourceType: "encyclopedia", domain: new URL(origin).hostname, rank: sources.length + 1 });
+        if (excerpt) sources.push({ title, url: `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`, excerpt, sourceType: "encyclopedia", domain: new URL(origin).hostname, rank: sources.length + 1, evidenceLevel: "snippet" });
       }
     }
     if (sources.length === 0) return { ok: false, sources: [], limitation: webResult.limitation ?? "無料公開情報源で該当する情報を取得できませんでした。", searchProvider: "DuckDuckGo" };
