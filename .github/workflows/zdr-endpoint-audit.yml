@@ -1,0 +1,25 @@
+name: ZDR Endpoint Audit
+
+on:
+  push:
+    branches:
+      - audit/free-general-model-20260908
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print matching ZDR endpoint metadata
+        shell: bash
+        run: |
+          node <<'NODE'
+          const r = await fetch('https://openrouter.ai/api/v1/endpoints/zdr', { headers: { accept: 'application/json' } });
+          console.log('status=' + r.status);
+          const j = await r.json();
+          const list = Array.isArray(j?.data) ? j.data : Array.isArray(j?.endpoints) ? j.endpoints : [];
+          const matches = list.filter((e) => JSON.stringify(e).toLowerCase().includes('ling-3.0-flash-sante'));
+          console.log(JSON.stringify({ topKeys: Object.keys(j || {}), count: list.length, matches }, null, 2));
+          NODE
