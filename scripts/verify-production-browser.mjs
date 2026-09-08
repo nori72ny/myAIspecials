@@ -102,7 +102,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     assert.equal(await page.getByTestId("response-verification-details").count(), 0, "Failed responses must not receive a verification badge.");
 
     await page.getByTestId("origin-chat-request").fill("回復後の回答を返してください");
-    await page.getByTestId("send-request-button").click();
+    await page.getByTestId("origin-chat-request").press("Control+Enter");
     await page.getByText("回復しました。").waitFor({ state: "visible", timeout: 10_000 });
     assert.equal(requestCount, 3, "Production browser verification must not retry failed inference requests automatically.");
     assert.equal(pageErrors.length, 0, `Production browser emitted page errors: ${pageErrors.join(" | ")}`);
