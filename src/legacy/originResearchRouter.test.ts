@@ -48,7 +48,7 @@ describe("originResearchRouter", () => {
     const app = express();
     app.use(express.json());
     app.use(createOriginResearchRouter());
-    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: "現在のモデル状況を教えて" }] });
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: "現在のモデルを教えて" }] });
     expect(response.status).toBe(200);
     expect(response.body.research.comparison).toMatchObject({
       sourceCount: 2,
