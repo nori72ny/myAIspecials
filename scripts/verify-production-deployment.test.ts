@@ -3,9 +3,47 @@ import { verifyProductionDeployment, verifyLiveChat } from './verify-production-
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('rejects the production busy message even with HTTP 200 and streaming headers', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('現在、無料AIの利用が集中しています。', { headers: { 'content-type': 'text/event-stream' } })));
-  await expect(verifyLiveChat('https://example.com', 1000)).rejects.toThrow('must answer the requested OK probe');
+const encoder = new TextEncoder();
+function verifiedStreamResponse() {
+  const model = 'inclusionai/ling-3.0-flash-sante:free';
+  const first = `data: ${JSON.stringify({ type: 'delta', text: 'ORIGIN-CONTEXT-42\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n' })}\n\n`;
+  const second = [
+    `data: ${JSON.stringify({ type: 'delta', text: 'STREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n' })}`,
+    `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costUsd: 0, fallbackUsed: false })}`,
+    'data: [DONE]',
+    '',
+  ].join('\n\n');
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(first));
+      controller.enqueue(encoder.encode(second));
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'x-origin-stream-source': 'upstream',
+      'x-origin-stream-protocol': 'origin-verified-sse-v1',
+      'x-origin-free-only': 'true',
+      'x-origin-cost-usd': '0',
+      'x-origin-billing-tier': 'free',
+      'x-origin-model-id': 'inclusionai/ling-3.0-flash-sante:free',
+      'x-vercel-id': 'synthetic-vercel-id',
+    },
+  });
+}
+
+it('accepts a genuine upstream multi-chunk response that proves multi-turn context', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => verifiedStreamResponse()));
+  const result = await verifyLiveChat('https://example.com', 1000);
+  expect(result).toMatchObject({ status: 200, streamSource: 'upstream', contextVerified: true, streamChunkCount: 2 });
+});
+
+it('rejects a post-completion-style response that does not identify genuine upstream streaming', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('ORIGIN-CONTEXT-42\nSTREAM-CHECK\n'.repeat(8), { headers: { 'content-type': 'text/plain' } })));
+  await expect(verifyLiveChat('https://example.com', 1000)).rejects.toThrow('stream source as upstream provider deltas');
 });
 
 it('does not repeat inference when health matches but the chat fails', async () => {

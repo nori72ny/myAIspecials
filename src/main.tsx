@@ -47,6 +47,16 @@ function loadSessionsFromSnapshot(value: unknown): ConversationSession[] { if (!
 function parseStoredArtifacts(value: unknown): PersistedArtifact[] { if (!Array.isArray(value)) return []; return value.slice(0, 500).flatMap((candidate) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<PersistedArtifact>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.language !== 'string' || typeof source.content !== 'string' || typeof source.isComplete !== 'boolean' || !source.type || !['code', 'markdown', 'mermaid', 'html'].includes(source.type)) return []; return [{ id: source.id.slice(0, 160), type: source.type, title: source.title.slice(0, 160), language: source.language.slice(0, 48), content: source.content.slice(0, 1_000_000), isComplete: source.isComplete, revision: typeof source.revision === 'number' ? Math.max(1, Math.floor(source.revision)) : undefined, revisions: undefined }]; }); }
 function snapshotFromState(messages: ConversationMessage[], sessions: ConversationSession[], artifacts: PersistedArtifact[]): OriginPersistedSnapshot { return { version: 1, messages, sessions, artifacts, updatedAt: Date.now() }; }
 
+function journalMessages(messages: ConversationMessage[]): void {
+  try {
+    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({
+      version: HISTORY_EXPORT_VERSION,
+      messages,
+      updatedAt: Date.now(),
+    }));
+  } catch { /* IndexedDB persistence and the visible storage health remain authoritative. */ }
+}
+
 function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
   const t = getTranslations(settings.language);
@@ -95,7 +105,7 @@ function PersonalReleaseRoot() {
     <SplashScreen />
     <UniversalMasterEnginePanel onContextReady={(context) => { setKnowledgeContext(context); window.dispatchEvent(new CustomEvent('origin:knowledge-context', { detail: { context } })); }} />
     {knowledgeContext && <p role="status" className="sr-only">ナレッジグラフからチャット文脈を選択しました。</p>}
-    <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => setMessages(session.messages.map((message) => ({ ...message })))} onMessagesChange={setMessages} onArtifactsChange={setArtifacts} resetSignal={resetSignal} />
+    <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => { const next = session.messages.map((message) => ({ ...message })); journalMessages(next); setMessages(next); }} onMessagesChange={(next) => { journalMessages(next); setMessages(next); }} onArtifactsChange={setArtifacts} resetSignal={resetSignal} />
     <SettingsErrorBoundary>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} messageCount={messages.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} />
     </SettingsErrorBoundary>

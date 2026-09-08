@@ -20,6 +20,17 @@ describe('OriginIndexedDb migration boundary', () => {
     expect(removeLegacy).toHaveBeenCalledOnce();
   });
 
+  it('prefers a newer synchronous journal over a stale IndexedDB snapshot', async () => {
+    const stale = { ...snapshot, messages: [{ id: 'old', role: 'user', content: 'old' }], updatedAt: 1 };
+    const journal = { ...snapshot, messages: [{ id: 'new', role: 'user', content: 'new' }], updatedAt: 2 };
+    const adapter = { load: vi.fn(async () => stale), save: vi.fn(async () => 'saved' as const) };
+    const removeLegacy = vi.fn();
+    const result = await migrateOriginLegacySnapshot(adapter, journal, removeLegacy);
+    expect(result.snapshot).toEqual(journal);
+    expect(adapter.save).toHaveBeenCalledWith(journal);
+    expect(removeLegacy).toHaveBeenCalledOnce();
+  });
+
   it('keeps the legacy source intact and continues in memory when quota prevents persistence', async () => {
     const adapter: OriginStorageAdapter = { load: vi.fn(async () => null), save: vi.fn(async () => 'quota' as const) };
     const removeLegacy = vi.fn();

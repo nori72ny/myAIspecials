@@ -592,6 +592,44 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('verifies and keeps a completed upstream SSE response', async () => {
+    const model = 'inclusionai/ling-3.0-flash-sante:free';
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: '検証済みSSE回答' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costUsd: 0, fallbackUsed: false })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'SSEを検証' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('検証済みSSE回答')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('response-verification-details')).toBeTruthy());
+    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('discards a gracefully truncated upstream SSE response without completion proof', async () => {
+    const body = `data: ${JSON.stringify({ type: 'delta', text: '保存してはいけない途中回答' })}\n\n`;
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '切断を検証' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
+    expect(screen.queryByText('保存してはいけない途中回答')).toBeNull();
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it('stops new AI requests while offline and preserves local-only operations', async () => {
     const online = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });

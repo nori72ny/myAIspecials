@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 const SAFE_FAILURE_CODE = /^[A-Z0-9_:-]{1,80}$/;
+const EXPECTED_FREE_MODEL = "inclusionai/ling-3.0-flash-sante:free";
+const CONTEXT_TOKEN = "ORIGIN-CONTEXT-42";
+const STREAM_MARKER = "STREAM-CHECK";
 
 function positiveInteger(value, fallback, name) {
   if (value === undefined || value === "") return fallback;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer.`);
-  }
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer.`);
   return parsed;
 }
 
@@ -27,7 +28,7 @@ async function fetchWithTimeout(url, timeoutMs, options = {}) {
     headers: {
       accept: "application/json, text/html;q=0.9, text/event-stream;q=0.9",
       "cache-control": "no-cache",
-      "user-agent": "origin-production-smoke/1.5",
+      "user-agent": "origin-production-smoke/1.6",
       ...(options.headers ?? {}),
     },
     signal: AbortSignal.timeout(timeoutMs),
@@ -54,7 +55,11 @@ export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
       origin: baseUrl,
     },
     body: JSON.stringify({
-      messages: [{ role: "user", content: "日本語で一文だけ、OKと返してください。" }],
+      messages: [
+        { role: "user", content: `この会話だけで使う検証用合言葉は ${CONTEXT_TOKEN} です。記憶してください。` },
+        { role: "assistant", content: "記憶しました。" },
+        { role: "user", content: `前のユーザーメッセージで指定された検証用合言葉を1行目にそのまま書き、続けて2行目から25行目まで各行に ${STREAM_MARKER} と書いてください。説明は不要です。` },
+      ],
       executionPolicy: { maxEstimatedCostUsd: 0 },
     }),
   });
@@ -76,17 +81,43 @@ export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   } else {
     body = await response.text();
   }
+
   const failureCode = response.status === 200 ? "NONE" : safeFailureCode(body, contentType);
   assert.equal(response.status, 200, `Production /api/chat must return HTTP 200; received ${response.status}; code=${failureCode}; x-vercel-id=${vercelId || "missing"}; body=[response body withheld]`);
-  assert.ok(body.trim().length > 0, "Production /api/chat must return a non-empty response.");
-  assert.match(body.trim(), /^(?:OK|ＯＫ)[。.!！]?$/i, "Production /api/chat must answer the requested OK probe, not return a busy/error envelope.");
-  assert.match(contentType, /text\/plain|text\/event-stream/i, `Production /api/chat returned an unexpected streaming content type: ${contentType || "missing"}; status=${response.status}; x-vercel-id=${vercelId}; body=[response body withheld]`);
-  // HTTP proxies may coalesce application writes into one network chunk. The runtime
-  // streaming implementation is verified by the streaming reader path, successful
-  // completion, and an explicit streaming-capable response content type; chunk count
-  // remains telemetry rather than a brittle transport-level gate.
+  assert.equal(response.headers.get("x-origin-stream-source"), "upstream", "Production /api/chat must identify the stream source as upstream provider deltas.");
+  assert.match(contentType, /text\/event-stream/i, `Production /api/chat returned an unexpected real-stream content type: ${contentType || "missing"}; x-vercel-id=${vercelId || "missing"}; body=[response body withheld]`);
+  assert.equal(response.headers.get("x-origin-stream-protocol"), "origin-verified-sse-v1", "Production /api/chat must use the verified upstream delta protocol.");
+  assert.equal(response.headers.get("x-origin-free-only"), "true", "Production /api/chat must remain free-only.");
+  assert.equal(response.headers.get("x-origin-cost-usd"), "0", "Production /api/chat must report zero cost.");
+  assert.equal(response.headers.get("x-origin-billing-tier"), "free", "Production /api/chat must report the free billing tier.");
+  assert.equal(response.headers.get("x-origin-model-id"), EXPECTED_FREE_MODEL, "Production /api/chat must use the reviewed fixed free model.");
+  let generated = ""; let completion; let doneSeen = false;
+  for (const line of body.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue;
+    const raw = line.slice(5).trim();
+    assert.equal(doneSeen, false, "Production stream must not emit data after DONE.");
+    if (raw === "[DONE]") { doneSeen = true; continue; }
+    const event = JSON.parse(raw);
+    if (event.type === "delta") generated += event.text;
+    else if (event.type === "complete") completion = event;
+    else assert.fail("Production stream emitted an unsafe event.");
+  }
+  assert.ok(doneSeen && completion, "Production stream must include a verified completion and DONE.");
+  assert.deepEqual({ modelId: completion.modelId, costUsd: completion.costUsd, fallbackUsed: completion.fallbackUsed }, { modelId: EXPECTED_FREE_MODEL, costUsd: 0, fallbackUsed: false });
+  assert.ok(generated.includes(CONTEXT_TOKEN), "Production /api/chat must recover the synthetic token from earlier multi-turn context.");
+  assert.ok((generated.match(new RegExp(STREAM_MARKER, "g")) ?? []).length >= 8, "Production /api/chat must return enough requested marker text to exercise progressive delivery.");
+  assert.ok(streamChunkCount >= 2, `Production /api/chat must deliver more than one network chunk from the upstream stream; observed ${streamChunkCount}.`);
 
-  return { status: response.status, contentType, bytes: Buffer.byteLength(body), streamChunkCount, vercelId };
+  return {
+    status: response.status,
+    contentType,
+    bytes: Buffer.byteLength(body),
+    streamChunkCount,
+    streamSource: "upstream",
+    contextVerified: true,
+    modelId: EXPECTED_FREE_MODEL,
+    vercelId,
+  };
 }
 
 export async function verifyProductionDeployment(env = process.env) {
@@ -96,7 +127,7 @@ export async function verifyProductionDeployment(env = process.env) {
 
   const timeoutMs = positiveInteger(env.ORIGIN_DEPLOY_TIMEOUT_MS, 600_000, "ORIGIN_DEPLOY_TIMEOUT_MS");
   const pollIntervalMs = positiveInteger(env.ORIGIN_DEPLOY_POLL_INTERVAL_MS, 10_000, "ORIGIN_DEPLOY_POLL_INTERVAL_MS");
-  const requestTimeoutMs = positiveInteger(env.ORIGIN_REQUEST_TIMEOUT_MS, 15_000, "ORIGIN_REQUEST_TIMEOUT_MS");
+  const requestTimeoutMs = positiveInteger(env.ORIGIN_REQUEST_TIMEOUT_MS, 25_000, "ORIGIN_REQUEST_TIMEOUT_MS");
 
   const deadline = Date.now() + timeoutMs;
   let attempt = 0;
@@ -139,7 +170,7 @@ export async function verifyProductionDeployment(env = process.env) {
 if (process.argv[1]?.endsWith("verify-production-deployment.mjs")) {
   try {
     const result = await verifyProductionDeployment();
-    console.log(JSON.stringify({ status: "passed", check: "origin-production-deployment-and-live-chat", ...result }));
+    console.log(JSON.stringify({ status: "passed", check: "origin-production-deployment-live-upstream-stream-and-multiturn", ...result }));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

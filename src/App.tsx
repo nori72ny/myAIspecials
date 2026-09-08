@@ -954,13 +954,43 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
       if (verifiedResponseText !== undefined) displayVerifiedText(verifiedResponseText);
       if (reader) {
         streamRenderBatcher = createOriginStreamRenderBatcher(displayVerifiedText);
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          streamRenderBatcher.enqueue(decoder.decode(value, { stream: true }));
+        const protocol = response.headers.get('x-origin-stream-protocol');
+        const source = response.headers.get('x-origin-stream-source');
+        if (source === 'upstream' && protocol !== 'origin-verified-sse-v1') throw new Error('unverified-upstream-stream');
+        if (protocol === 'origin-verified-sse-v1') {
+          let buffer = ''; let complete = false; let doneSeen = false;
+          const consumeLine = (line: string) => {
+            if (!line.startsWith('data:')) return;
+            const raw = line.slice(5).trim();
+            if (doneSeen) throw new Error('event-after-done');
+            if (raw === '[DONE]') { doneSeen = true; return; }
+            const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costUsd?: unknown; fallbackUsed?: unknown };
+            if (event.type === 'delta' && typeof event.text === 'string' && !complete) { streamRenderBatcher?.enqueue(event.text); return; }
+            if (event.type === 'complete' && !complete && event.modelId === ORIGIN_FIXED_FREE_MODEL
+              && (event.servedModel === ORIGIN_FIXED_FREE_MODEL || event.servedModel === ORIGIN_FIXED_FREE_MODEL.replace(/:free$/, ''))
+              && event.costUsd === 0 && event.fallbackUsed === false) { complete = true; return; }
+            throw new Error('invalid-stream-event');
+          };
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            let newline: number;
+            while ((newline = buffer.indexOf('\n')) >= 0) { consumeLine(buffer.slice(0, newline).replace(/\r$/, '')); buffer = buffer.slice(newline + 1); }
+          }
+          buffer += decoder.decode();
+          if (buffer.trim()) consumeLine(buffer.trim());
+          streamRenderBatcher.flush();
+          if (!complete || !doneSeen || !fullText.trim()) throw new Error('incomplete-stream');
+        } else {
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            streamRenderBatcher.enqueue(decoder.decode(chunk.value, { stream: true }));
+          }
+          streamRenderBatcher.enqueue(decoder.decode());
+          streamRenderBatcher.flush();
         }
-        streamRenderBatcher.enqueue(decoder.decode());
-        streamRenderBatcher.flush();
       }
       updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, deliveryState: 'verified' } : message));
     } catch (error) {
