@@ -4,6 +4,29 @@ import path from 'path';
 import {defineConfig, type Plugin} from 'vite';
 import {createOriginApp} from './src/server/createOriginApp';
 
+
+function originPwaReleasePlugin(): Plugin {
+  return {
+    name: 'origin-pwa-release',
+    generateBundle(_options, bundle) {
+      const worker = bundle['sw.js'];
+      if (!worker || worker.type !== 'asset' || typeof worker.source !== 'string') {
+        throw new Error('ORIGIN_PWA_WORKER_MISSING');
+      }
+
+      const candidate = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA ?? '';
+      const releaseSha = /^[a-f0-9]{40}$/i.test(candidate) ? candidate.toLowerCase() : 'development';
+      if (process.env.VERCEL === '1' && releaseSha === 'development') {
+        throw new Error('ORIGIN_PWA_RELEASE_SHA_MISSING');
+      }
+      if (!worker.source.includes('__ORIGIN_RELEASE_SHA__')) {
+        throw new Error('ORIGIN_PWA_RELEASE_PLACEHOLDER_MISSING');
+      }
+      worker.source = worker.source.replaceAll('__ORIGIN_RELEASE_SHA__', releaseSha);
+    },
+  };
+}
+
 function originApiDevPlugin(): Plugin {
   return {
     name: 'origin-api-dev',
@@ -15,7 +38,7 @@ function originApiDevPlugin(): Plugin {
 
 export default defineConfig(() => {
   return {
-    plugins: [originApiDevPlugin(), react(), tailwindcss()],
+    plugins: [originApiDevPlugin(), originPwaReleasePlugin(), react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
