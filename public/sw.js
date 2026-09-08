@@ -1,5 +1,6 @@
 const CACHE_PREFIX = 'origin-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v5`;
+const RELEASE_SHA = '__ORIGIN_RELEASE_SHA__';
+const CACHE_NAME = `${CACHE_PREFIX}${RELEASE_SHA}`;
 const APP_SHELL_KEY = '/__origin-app-shell__';
 const SAFE_STATIC_PATHS = new Set([
   '/offline.html',
