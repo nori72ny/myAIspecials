@@ -1,35 +1,36 @@
-# ORIGIN Free Provider Mesh
+# ORIGIN Free Provider Boundary
 
 ## Purpose
 
-ORIGIN keeps the $0 boundary while reducing avoidable single-provider failures. The primary route remains the audited OpenRouter `:free` model. A Gemini free-tier route is a bounded secondary route, not an unrestricted fallback.
+ORIGIN keeps the $0 boundary without sending a request to a second provider after a failure. The production chat route uses only the exact audited OpenRouter `:free` model and fails closed when that route is unavailable.
 
-## Route order
+## Active route
 
-1. OpenRouter — primary, exact audited free model, ZDR/data-collection-deny policy.
-2. Gemini — secondary, only when `ORIGIN_GEMINI_FREE_ONLY=true` and `GEMINI_API_KEY` is configured.
+1. OpenRouter — exact audited free model.
+2. Provider selection is constrained to endpoints satisfying ZDR, `data_collection:"deny"`, and maximum price $0.
+3. ORIGIN performs no automatic cross-provider fallback and no same-provider retry.
 
-The secondary route is attempted at most once per user request. ORIGIN never retries the same provider in a loop.
+## Privacy boundary
 
-## Gemini privacy boundary
+Before external egress, ORIGIN blocks structured credentials and high-confidence personal information, including email addresses, phone numbers, payment identifiers, government IDs, financial accounts, postal addresses, medical information, and explicitly labelled personal data.
 
-Google's current Gemini pricing documentation lists `gemini-2.5-flash` as free of charge on the Free Tier, while also stating that Free Tier content may be used to improve Google products. Therefore ORIGIN does **not** label Gemini as ZDR or `dataCollection:"deny"`.
+Detection returns category names only. It does not retain or echo matched values. Pattern detection cannot prove that arbitrary natural language contains no personal information, so the UI must continue to instruct users not to submit confidential or personal data.
 
-The secondary route is blocked for prompts containing obvious credentials, secrets, financial identifiers, confidential markers, or similarly sensitive terms. This is a conservative egress guard, not a complete privacy classifier.
+Gemini Free Tier is not an active production fallback. Current Google terms allow unpaid-service content to be used for product improvement and reviewed by humans; therefore the release route does not send production conversations to Gemini.
 
 ## $0 boundary
 
-The route requires an explicit operational flag `ORIGIN_GEMINI_FREE_ONLY=true`. ORIGIN does not select a paid Gemini model, enable Google Search grounding, or use paid-only tools in this route. If the free-tier operational condition cannot be established, Gemini is disabled and ORIGIN fails closed.
+The request plan must be `freeOnly:true`, estimated cost must be exactly `$0`, the model must match the audited allowlist, provider fallback must be disabled in the ORIGIN plan, and returned usage cost must be exactly `$0`. Any missing or conflicting evidence stops the request.
 
-An environment flag cannot cryptographically prove the account's billing state; the production Google AI Studio project must therefore remain on the Free Tier. Paid-tier upgrades must never be made for ORIGIN.
+The OpenRouter provider policy additionally requires ZDR, denial of data collection, and maximum prompt, completion, and request price of zero. OpenRouter may choose among compatible infrastructure endpoints for the same exact model only when every endpoint satisfies these constraints.
 
 ## Failure behavior
 
-- OpenRouter 429/408/5xx/timeout → one Gemini attempt if the privacy and free-tier guards pass.
-- OpenRouter policy/cost/routing violation → no Gemini fallback.
-- Sensitive prompt → no Gemini fallback.
-- Gemini failure → return the existing graceful failure envelope; no retry amplification.
+- 429, timeout, 5xx, invalid response, model mismatch, or non-zero billing evidence → safe failure.
+- No automatic retry.
+- No Gemini or other provider fallback.
+- No provider error body, secret, or personal value is returned to the browser or written to application diagnostics.
 
 ## Evidence
 
-Every successful secondary execution records provider `Gemini`, exact model `gemini-2.5-flash`, `attempt:1`, `fallbackUsed:true`, and strategy `bounded-secondary`. Cost evidence remains `$0`.
+Every successful execution records the requested and served model, provider `OpenRouter`, `attempt:1`, `fallbackUsed:false`, and actual cost `$0`.

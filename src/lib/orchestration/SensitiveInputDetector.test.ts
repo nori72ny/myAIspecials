@@ -99,4 +99,27 @@ describe("SensitiveInputDetector", () => {
       expect(JSON.stringify(detection)).not.toContain(privateValue);
     }
   });
+  it("blocks direct personal and confidential data before provider egress", () => {
+    const inputs = [
+      "連絡先は nori@example.com です",
+      "電話番号は 090-1234-5678 です",
+      "住所: 東京都千代田区丸の内1-1",
+      "マイナンバー: 1234-5678-9012",
+      "銀行口座: 1234567",
+      "病歴: 高血圧",
+      "私の名前は山田太郎です",
+      "my date of birth: 1990-01-02",
+    ];
+
+    for (const input of inputs) {
+      expect(containsSensitiveInput(input)).toBe(true);
+    }
+  });
+
+  it("reports only privacy categories and never retains personal values", () => {
+    const privateValue = "nori@example.com";
+    const detection = detectSensitiveInput(`連絡先は ${privateValue} です`);
+    expect(detection.kinds).toContain("email-address");
+    expect(JSON.stringify(detection)).not.toContain(privateValue);
+  });
 });

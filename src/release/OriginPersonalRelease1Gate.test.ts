@@ -23,13 +23,12 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(worker).toContain("return json(DISABLED_AI_RESPONSE, 503, headers)");
   });
 
-  it("locks execution to approved free providers/models with bounded secondary routing", () => {
+  it("locks execution to one approved free provider/model without cross-provider fallback", () => {
     const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
     const providerPolicy = readRepositoryFile("src/legacy/zeroCostRoutingPolicy.ts");
     const modelCatalog = readRepositoryFile("src/lib/orchestration/OriginFreeModelCatalog.ts");
-    expect(providerClient).toContain('export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter", "gemini"] as const;');
+    expect(providerClient).toContain('export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;');
     expect(providerClient).toContain("openrouter: [ORIGIN_OPENROUTER_FREE_MODEL]");
-    expect(providerClient).toContain("gemini: [ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL]");
     expect(providerPolicy).toContain("allow_fallbacks: true");
     expect(providerPolicy).toContain('data_collection: "deny"');
     expect(providerPolicy).toContain("zdr: true");
@@ -37,16 +36,17 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerPolicy).toContain("completion: 0");
     expect(providerPolicy).toContain("request: 0");
     expect(providerClient).toContain("zero(data.usage?.cost");
-    expect(providerClient).toContain("evidence(request, provider, String(servedModel))");
-    expect(providerClient).toContain('strategy === "bounded-secondary"');
+    expect(providerClient).toContain("evidence(request, String(servedModel))");
+    expect(providerClient).toContain('evidence.fallbackUsed === false');
     expect(providerClient).not.toContain('"openrouter/free"');
     expect(providerClient).not.toContain("?key=");
-    expect(providerClient).toContain('"x-goog-api-key": key');
+    expect(providerClient).not.toContain("generativelanguage.googleapis.com");
+    expect(providerClient).not.toContain("GEMINI_API_KEY");
     expect(modelCatalog).toContain('"inclusionai/ling-3.0-flash-sante:free"');
     expect(modelCatalog).not.toContain('"openrouter/free"');
   });
 
-  it("keeps AI Studio direct runtime out of the release while allowing only the bounded secondary adapter", () => {
+  it("keeps AI Studio direct runtime and fallback out of the release", () => {
     const metadata = JSON.parse(readRepositoryFile("metadata.json")) as { majorCapabilities?: string[] };
     const app = readRepositoryFile("src/server/createOriginApp.ts");
     const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
