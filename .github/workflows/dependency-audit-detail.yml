@@ -4,44 +4,37 @@ on:
   push:
     branches:
       - audit/dependency-detail-20260908
+    paths:
+      - .github/workflows/dependency-audit-detail.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  audit-detail:
+  audit-fix-lock:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: audit/dependency-detail-20260908
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Print concise npm audit findings
+      - name: Apply non-breaking audit lockfile fix
         shell: bash
         run: |
-          npm audit --json > /tmp/npm-audit.json || true
-          node <<'NODE'
-          const fs = require('fs');
-          const audit = JSON.parse(fs.readFileSync('/tmp/npm-audit.json', 'utf8'));
-          const findings = Object.fromEntries(
-            Object.entries(audit.vulnerabilities || {}).map(([name, v]) => [name, {
-              severity: v.severity,
-              isDirect: v.isDirect,
-              range: v.range,
-              nodes: v.nodes,
-              fixAvailable: v.fixAvailable,
-              via: (v.via || []).map((x) => typeof x === 'string' ? x : ({
-                source: x.source,
-                name: x.name,
-                dependency: x.dependency,
-                title: x.title,
-                url: x.url,
-                severity: x.severity,
-                range: x.range,
-              })),
-            }]),
-          );
-          console.log(JSON.stringify({ findings, totals: audit.metadata?.vulnerabilities }, null, 2));
-          NODE
+          npm audit fix --package-lock-only
+          npm audit --audit-level=moderate
+          git diff -- package.json package-lock.json
+          test -z "$(git status --short package.json)"
+          test -n "$(git status --short package-lock.json)"
+      - name: Commit lockfile-only fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "fix: update vulnerable transitive dependencies"
+          git push origin HEAD:audit/dependency-detail-20260908
