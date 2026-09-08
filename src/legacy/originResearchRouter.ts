@@ -21,6 +21,17 @@ function sourceLabel(source: { domain?: string; sourceType?: string; url: string
   try { return new URL(source.url).hostname; } catch { return source.sourceType === "encyclopedia" ? "Wikipedia" : "Web search"; }
 }
 
+function freshnessLabel(freshness: "recent" | "older" | "unknown", language: "ja" | "en"): string {
+  if (language === "ja") {
+    if (freshness === "recent") return "更新確認: 取得時点から30日以内";
+    if (freshness === "older") return "更新確認: 取得時点から30日超";
+    return "更新日時不明";
+  }
+  if (freshness === "recent") return "Update recency: within 30 days of retrieval";
+  if (freshness === "older") return "Update recency: more than 30 days before retrieval";
+  return "Update date unknown";
+}
+
 function envelope(content: string, language: "ja" | "en", status: "passed" | "not-run", summary: string, evidence: ReturnType<typeof extractProvidedOriginEvidence>): OriginAnswerEnvelope {
   const result = createOriginAnswerEnvelope({
     language,
@@ -51,8 +62,8 @@ export function createOriginResearchRouter() {
     if (!result.ok) return next();
 
     const content = language === "ja"
-      ? `無料の公開Web検索を実行しました。検索結果は複数の公開Webソースから取得しています。\n\n${result.sources.map((source) => `### ${source.title}\n${source.excerpt}\n\n〔出典: [${sourceLabel(source)}](${source.url})〕\n証拠レベル: ${source.evidenceLevel === "page-verified" ? "ページ確認済み" : "検索スニペットのみ"}${source.rank ? `\n検索順位: ${source.rank}` : ""}${source.revisionTimestamp ? `\n最終更新: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`
-      : `I ran a free public web search and retrieved multiple public web sources.\n\n${result.sources.map((source) => `### ${source.title}\n${source.excerpt}\n\n〔Source: [${sourceLabel(source)}](${source.url})〕\nEvidence level: ${source.evidenceLevel === "page-verified" ? "Page verified" : "Search snippet only"}${source.rank ? `\nSearch rank: ${source.rank}` : ""}${source.revisionTimestamp ? `\nLatest revision: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`;
+      ? `無料の公開Web検索を実行しました。検索結果は複数の公開Webソースから取得しています。\n\n${result.sources.map((source) => `### ${source.title}\n${source.excerpt}\n\n〔出典: [${sourceLabel(source)}](${source.url})〕\n証拠レベル: ${source.evidenceLevel === "page-verified" ? "ページ確認済み" : "検索スニペットのみ"}\n取得日時: ${source.retrievedAt}\n鮮度: ${freshnessLabel(source.freshness, "ja")}${source.rank ? `\n検索順位: ${source.rank}` : ""}${source.revisionTimestamp ? `\n最終更新: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`
+      : `I ran a free public web search and retrieved multiple public web sources.\n\n${result.sources.map((source) => `### ${source.title}\n${source.excerpt}\n\n〔Source: [${sourceLabel(source)}](${source.url})〕\nEvidence level: ${source.evidenceLevel === "page-verified" ? "Page verified" : "Search snippet only"}\nRetrieved at: ${source.retrievedAt}\nFreshness: ${freshnessLabel(source.freshness, "en")}${source.rank ? `\nSearch rank: ${source.rank}` : ""}${source.revisionTimestamp ? `\nLatest revision: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`;
     const evidence = extractProvidedOriginEvidence(content);
     const reason = language === "ja" ? "無料公開Web検索が実行され、取得した複数ソースを回答に添付しました。証拠レベルを各ソースに明示しています。独立AIレビューは実行していません。" : "The free public web search executed and attached multiple retrieved sources. Evidence level is explicit for each source. No independent AI review was performed.";
     return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, freeOnly: true, verificationStatus: "not-run" }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, limitation: result.limitation } });

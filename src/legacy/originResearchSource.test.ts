@@ -13,7 +13,7 @@ describe("originResearchSource", () => {
 
     const result = await researchCurrentInformation("AIO");
     expect(result.ok).toBe(true);
-    expect(result.sources[0]).toMatchObject({ title: "AI optimization", url: "https://example.com/ai-optimization", sourceType: "web-search", domain: "example.com", rank: 1, evidenceLevel: "snippet" });
+    expect(result.sources[0]).toMatchObject({ title: "AI optimization", url: "https://example.com/ai-optimization", sourceType: "web-search", domain: "example.com", rank: 1, evidenceLevel: "snippet", freshness: "unknown", retrievedAt: expect.any(String) });
     expect(secureFetch.mock.calls[0][0]).toContain("https://html.duckduckgo.com/html/?q=AIO");
     expect(secureFetch.mock.calls[0][0]).toContain("kl=us-en");
   });
@@ -22,7 +22,7 @@ describe("originResearchSource", () => {
     secureFetch.mockResolvedValueOnce('<a class="result__a" href="https://example.com/ai">人工知能</a><div class="result__snippet">人工知能に関する説明</div>');
     const result = await researchCurrentInformation("人工知能");
     expect(result.ok).toBe(true);
-    expect(result.sources[0]).toMatchObject({ title: "人工知能", domain: "example.com", sourceType: "web-search", evidenceLevel: "snippet" });
+    expect(result.sources[0]).toMatchObject({ title: "人工知能", domain: "example.com", sourceType: "web-search", evidenceLevel: "snippet", freshness: "unknown", retrievedAt: expect.any(String) });
     expect(secureFetch.mock.calls[0][0]).toContain("https://html.duckduckgo.com/html/");
     expect(secureFetch.mock.calls[0][0]).toContain("kl=jp-jp");
   });
@@ -33,9 +33,24 @@ describe("originResearchSource", () => {
       .mockResolvedValueOnce(JSON.stringify({ pages: [{ key: "AI", title: "AI", excerpt: "Artificial intelligence." }] }))
       .mockResolvedValueOnce(JSON.stringify({ html_url: "https://en.wikipedia.org/wiki/AI", latest: { timestamp: "2026-09-06T00:00:00Z" } }));
 
-    const result = await researchCurrentInformation("latest AI news");
+    const result = await researchCurrentInformation("latest AI news", new Date("2026-09-08T00:00:00Z"));
     expect(result.ok).toBe(true);
-    expect(result.sources[0]).toMatchObject({ evidenceLevel: "page-verified", revisionTimestamp: "2026-09-06T00:00:00Z" });
+    expect(result.sources[0]).toMatchObject({
+      evidenceLevel: "page-verified",
+      revisionTimestamp: "2026-09-06T00:00:00Z",
+      retrievedAt: "2026-09-08T00:00:00.000Z",
+      freshness: "recent",
+    });
+  });
+
+  it("marks verified pages older than 30 days without claiming current freshness", async () => {
+    secureFetch
+      .mockRejectedValueOnce(new Error("search unavailable"))
+      .mockResolvedValueOnce(JSON.stringify({ pages: [{ key: "AI", title: "AI", excerpt: "Artificial intelligence." }] }))
+      .mockResolvedValueOnce(JSON.stringify({ html_url: "https://en.wikipedia.org/wiki/AI", latest: { timestamp: "2026-07-01T00:00:00Z" } }));
+
+    const result = await researchCurrentInformation("latest AI news", new Date("2026-09-08T00:00:00Z"));
+    expect(result.sources[0]).toMatchObject({ evidenceLevel: "page-verified", freshness: "older" });
   });
 
   it("fails closed when the source cannot be reached", async () => {
