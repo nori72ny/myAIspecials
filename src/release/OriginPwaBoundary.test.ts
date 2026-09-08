@@ -42,7 +42,13 @@ describe('ORIGIN PWA boundary', () => {
   it('checks, safely applies, and reloads for a waiting worker without risking unsaved work', () => {
     const registration = read('src/pwa/registerServiceWorker.ts');
     const worker = read('public/sw.js');
+    const viteConfig = read('vite.config.ts');
 
+    expect(viteConfig).toContain('originPwaReleasePlugin');
+    expect(viteConfig).toContain('VERCEL_GIT_COMMIT_SHA');
+    expect(viteConfig).toContain('ORIGIN_PWA_RELEASE_SHA_MISSING');
+    expect(worker).toContain("const RELEASE_SHA = '__ORIGIN_RELEASE_SHA__'");
+    expect(worker).toContain('const CACHE_NAME = `${CACHE_PREFIX}${RELEASE_SHA}`');
     expect(registration).toContain('registration.update()');
     expect(registration).toContain('if (registration.waiting)');
     expect(registration).toContain("postMessage({ type: 'SKIP_WAITING' })");
