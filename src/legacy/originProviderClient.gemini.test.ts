@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ORIGIN_OPENROUTER_FREE_MODEL } from "../lib/orchestration/OriginExecutionPolicy.js";
-import { executeOriginProvider, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
+import { executeOriginProvider, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 
 const request: OriginProviderExecutionRequest = {
   plan: {
@@ -20,59 +20,38 @@ const request: OriginProviderExecutionRequest = {
   systemInstruction: "You are ORIGIN Personal AI.",
 };
 
-const openRouterRateLimited = () => new Response(JSON.stringify({ error: { metadata: { error_type: "rate_limit_exceeded" } } }), { status: 429 });
-const openRouterUnavailable = (status: number) => new Response(JSON.stringify({ error: { message: `upstream ${status}` } }), { status });
-const geminiOk = () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "Geminiからの回答です。" }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8, totalTokenCount: 18 } }), { status: 200, headers: { "Content-Type": "application/json" } });
-
-function fetchSequence(...responses: Response[]) {
-  let index = 0;
-  return async () => responses[index++] ?? responses[responses.length - 1];
-}
-
-describe("bounded Gemini secondary route", () => {
-  it("falls back once from OpenRouter 429 to Gemini and records the secondary route", async () => {
-    const fetchImpl = fetchSequence(openRouterRateLimited(), geminiOk());
-    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "test-openrouter", GEMINI_API_KEY: "test-gemini", ORIGIN_GEMINI_FREE_ONLY: "true" }, fetchImpl as typeof fetch);
-    expect(result.text).toBe("Geminiからの回答です。");
-    expect(result.actualCostUsd).toBe(0);
-    expect(result.routingEvidence).toMatchObject({ provider: "Gemini", servedModel: "gemini-2.5-flash", strategy: "bounded-secondary", attempt: 1, fallbackUsed: true });
-  });
-
-  it("passes the Gemini API key only in the x-goog-api-key header", async () => {
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
-    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({ url: String(input), init });
-      return calls.length === 1 ? openRouterRateLimited() : geminiOk();
+describe("provider privacy isolation", () => {
+  it.each([408, 429, 500, 502, 503, 504])("never falls back to Gemini after upstream HTTP %s", async (status) => {
+    const calls: string[] = [];
+    const fetchImpl = async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ error: { message: "upstream unavailable" } }), { status });
     };
-    await executeOriginProvider(request, { OPENROUTER_API_KEY: "test-openrouter", GEMINI_API_KEY: "test-gemini", ORIGIN_GEMINI_FREE_ONLY: "true" }, fetchImpl as typeof fetch);
-    expect(calls).toHaveLength(2);
-    expect(calls[1].url).not.toContain("test-gemini");
-    expect(calls[1].url).not.toContain("?key=");
-    const headers = new Headers(calls[1].init?.headers);
-    expect(headers.get("x-goog-api-key")).toBe("test-gemini");
+
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "test-openrouter", GEMINI_API_KEY: "test-gemini", ORIGIN_GEMINI_FREE_ONLY: "true" },
+      fetchImpl as typeof fetch,
+    )).rejects.toMatchObject({ code: expect.stringMatching(/^PROVIDER_/) });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(calls.some((url) => url.includes("generativelanguage.googleapis.com"))).toBe(false);
   });
 
-  it.each([408, 500, 502, 503, 504])("routes retryable upstream HTTP %s to Gemini exactly once", async (status) => {
+  it("rejects a Gemini execution plan before any network request", async () => {
     let calls = 0;
-    const fetchImpl = async () => {
-      calls += 1;
-      return calls === 1 ? openRouterUnavailable(status) : geminiOk();
-    };
-    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "test-openrouter", GEMINI_API_KEY: "test-gemini", ORIGIN_GEMINI_FREE_ONLY: "true" }, fetchImpl as typeof fetch);
-    expect(result.routingEvidence.provider).toBe("Gemini");
-    expect(result.routingEvidence.fallbackUsed).toBe(true);
-    expect(calls).toBe(2);
-  });
+    const fetchImpl = async () => { calls += 1; return new Response("{}", { status: 200 }); };
+    const geminiRequest = {
+      ...request,
+      plan: { ...request.plan, providerId: "google-ai-studio-free", modelId: "gemini-2.5-flash" },
+    } as OriginProviderExecutionRequest;
 
-  it("does not send sensitive prompts to Gemini after an OpenRouter failure", async () => {
-    let calls = 0;
-    const fetchImpl = async () => { calls += 1; return openRouterRateLimited(); };
-    await expect(executeOriginProvider({ ...request, messages: [{ role: "user", content: "APIキーは秘密です。これを要約してください。" }] }, { OPENROUTER_API_KEY: "test-openrouter", GEMINI_API_KEY: "test-gemini", ORIGIN_GEMINI_FREE_ONLY: "true" }, fetchImpl as typeof fetch)).rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED" });
-    expect(calls).toBe(1);
-  });
-
-  it("never retries the same provider before trying the bounded secondary route", async () => {
-    const fetchImpl = fetchSequence(openRouterRateLimited(), new Response(JSON.stringify({ error: { message: "rate limited" } }), { status: 429 }));
-    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "test-openrouter", GEMINI_API_KEY: "test-gemini", ORIGIN_GEMINI_FREE_ONLY: "true" }, fetchImpl as typeof fetch)).rejects.toBeInstanceOf(OriginProviderError);
+    await expect(executeOriginProvider(
+      geminiRequest,
+      { OPENROUTER_API_KEY: "test-openrouter", GEMINI_API_KEY: "test-gemini" },
+      fetchImpl as typeof fetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION" });
+    expect(calls).toBe(0);
   });
 });
