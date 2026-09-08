@@ -9,6 +9,8 @@ export interface OriginResearchSource {
   domain?: string;
   rank?: number;
   evidenceLevel: "snippet" | "page-verified";
+  retrievedAt: string;
+  freshness: "recent" | "older" | "unknown";
 }
 
 export interface OriginResearchResult {
@@ -74,7 +76,15 @@ function safeResultUrl(rawHref: string): string | null {
   return null;
 }
 
-function parseDuckDuckGoResults(html: string, limit = 6): OriginResearchSource[] {
+function freshnessOf(revisionTimestamp: string | undefined, retrievedAt: string): OriginResearchSource["freshness"] {
+  if (!revisionTimestamp) return "unknown";
+  const revisionTime = Date.parse(revisionTimestamp);
+  const retrievalTime = Date.parse(retrievedAt);
+  if (!Number.isFinite(revisionTime) || !Number.isFinite(retrievalTime) || revisionTime > retrievalTime) return "unknown";
+  return retrievalTime - revisionTime <= 30 * 24 * 60 * 60 * 1000 ? "recent" : "older";
+}
+
+function parseDuckDuckGoResults(html: string, retrievedAt: string, limit = 6): OriginResearchSource[] {
   const sources: OriginResearchSource[] = [];
   const resultPattern = /<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let match: RegExpExecArray | null;
@@ -89,16 +99,16 @@ function parseDuckDuckGoResults(html: string, limit = 6): OriginResearchSource[]
     if (!excerpt) continue;
     const domain = new URL(url).hostname.replace(/^www\./i, "");
     if (sources.some((source) => source.url === url)) continue;
-    sources.push({ title, url, excerpt, sourceType: "web-search", domain, rank: sources.length + 1, evidenceLevel: "snippet" });
+    sources.push({ title, url, excerpt, sourceType: "web-search", domain, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: "unknown" });
   }
   return sources;
 }
 
-async function searchWeb(query: string): Promise<OriginResearchResult> {
+async function searchWeb(query: string, retrievedAt: string): Promise<OriginResearchResult> {
   const endpoint = `${SEARCH_ORIGINS.duckduckgo}?q=${encodeURIComponent(query)}&kl=${languageForQuery(query) === "ja" ? "jp-jp" : "us-en"}&num=6`;
   try {
     const html = await secureFetch(endpoint);
-    const sources = parseDuckDuckGoResults(html, 6);
+    const sources = parseDuckDuckGoResults(html, retrievedAt, 6);
     if (sources.length === 0) return { ok: false, sources: [], limitation: "無料公開Web検索で検索結果を取得できませんでした。", searchProvider: "DuckDuckGo" };
     return { ok: true, sources, searchProvider: "DuckDuckGo" };
   } catch (error) {
@@ -106,8 +116,9 @@ async function searchWeb(query: string): Promise<OriginResearchResult> {
   }
 }
 
-export async function researchCurrentInformation(query: string): Promise<OriginResearchResult> {
-  const webResult = await searchWeb(query);
+export async function researchCurrentInformation(query: string, now = new Date()): Promise<OriginResearchResult> {
+  const retrievedAt = now.toISOString();
+  const webResult = await searchWeb(query, retrievedAt);
   if (webResult.ok) return webResult;
 
   // Keep Wikipedia as a bounded secondary public source when search is unavailable.
@@ -130,10 +141,10 @@ export async function researchCurrentInformation(query: string): Promise<OriginR
           : `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
         const excerpt = cleanExcerpt(page.excerpt) || cleanExcerpt(page.description);
         if (!excerpt) continue;
-        sources.push({ title, url, excerpt, revisionTimestamp: metadata.latest?.timestamp, sourceType: "encyclopedia", domain: new URL(url).hostname, rank: sources.length + 1, evidenceLevel: "page-verified" });
+        sources.push({ title, url, excerpt, revisionTimestamp: metadata.latest?.timestamp, sourceType: "encyclopedia", domain: new URL(url).hostname, rank: sources.length + 1, evidenceLevel: "page-verified", retrievedAt, freshness: freshnessOf(metadata.latest?.timestamp, retrievedAt) });
       } catch {
         const excerpt = cleanExcerpt(page.excerpt) || cleanExcerpt(page.description);
-        if (excerpt) sources.push({ title, url: `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`, excerpt, sourceType: "encyclopedia", domain: new URL(origin).hostname, rank: sources.length + 1, evidenceLevel: "snippet" });
+        if (excerpt) sources.push({ title, url: `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`, excerpt, sourceType: "encyclopedia", domain: new URL(origin).hostname, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: "unknown" });
       }
     }
     if (sources.length === 0) return { ok: false, sources: [], limitation: webResult.limitation ?? "無料公開情報源で該当する情報を取得できませんでした。", searchProvider: "DuckDuckGo" };
