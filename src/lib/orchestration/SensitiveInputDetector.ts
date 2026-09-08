@@ -2,6 +2,14 @@ export type SensitiveInputKind =
   | "authorization-header"
   | "pem-private-key"
   | "provider-key"
+  | "email-address"
+  | "phone-number"
+  | "payment-card"
+  | "government-id"
+  | "financial-account"
+  | "postal-address"
+  | "medical-information"
+  | "personal-data-context"
   | "credential-term";
 
 export interface SensitiveInputDetection {
@@ -26,6 +34,13 @@ const STRUCTURED_PATTERNS: readonly SensitivePattern[] = [
   { kind: "provider-key", pattern: /\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b/ },
   { kind: "provider-key", pattern: /\b(?:api[_ -]?key|access[_ -]?key|client[_ -]?secret|private[_ -]?key)\s*[:=]\s*[^\s,;]{6,}/i },
   { kind: "provider-key", pattern: /\b(?:jwt|oauth|bearer)\s*[:=]\s*[^\s,;]{8,}/i },
+  { kind: "email-address", pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,63}\b/i },
+  { kind: "phone-number", pattern: /(?:^|[^\d])(?:\+?81[-\s]?(?:0)?|0)(?:[1-9]\d?[-\s]?\d{2,4}[-\s]?\d{3,4}|[789]0[-\s]?\d{4}[-\s]?\d{4})(?!\d)/ },
+  { kind: "payment-card", pattern: /(?:^|\D)(?:\d[ -]?){13,19}(?!\d)/ },
+  { kind: "government-id", pattern: /(?:マイナンバー|個人番号|運転免許証番号|旅券番号|パスポート番号|social security number|\bSSN\b)\s*[:：=]?\s*[A-Z0-9-]{6,}/i },
+  { kind: "financial-account", pattern: /(?:口座番号|銀行口座|routing number|bank account)\s*[:：=]?\s*[A-Z0-9-]{4,}/i },
+  { kind: "postal-address", pattern: /(?:住所|自宅|所在地|home address|postal address)\s*[:：=]\s*\S.{2,}/i },
+  { kind: "medical-information", pattern: /(?:病歴|診断名|診断結果|服薬情報|カルテ|medical record|medical history|diagnosis)\s*[:：=]\s*\S.{1,}/i },
 ];
 
 const ENGLISH_CREDENTIAL_TERM = String.raw`(?:api key|access key|client secret|private key|ssh key|password|passphrase|credential(?:s)?|bearer token|auth token|refresh token)`;
@@ -42,6 +57,7 @@ const JAPANESE_CREDENTIAL_CONTEXT = new RegExp(
   "i",
 );
 
+const PERSONAL_DATA_CONTEXT = /(?:私|本人|顧客|社員|患者|my|customer|employee|patient)(?:の|\s+)(?:氏名|名前|生年月日|誕生日|住所|電話番号|メールアドレス|口座番号|病歴|診断|full name|name|date of birth|birthday|address|phone(?: number)?|email|bank account|medical history|diagnosis)\s*[:：=]?[\s\S]{0,48}(?:です|は|[A-Z0-9ぁ-んァ-ヶ一-龠])/i;
 const INVISIBLE_FORMAT_CHARACTERS = /[\u200B-\u200D\u2060\uFEFF]/g;
 
 export function canonicalizeSensitiveInput(input: string): string {
@@ -56,17 +72,12 @@ export function detectSensitiveInput(input: string): SensitiveInputDetection {
     if (entry.pattern.test(canonicalInput)) kinds.add(entry.kind);
   }
 
-  if (
-    ENGLISH_CREDENTIAL_CONTEXT.test(canonicalInput)
-    || JAPANESE_CREDENTIAL_CONTEXT.test(canonicalInput)
-  ) {
+  if (ENGLISH_CREDENTIAL_CONTEXT.test(canonicalInput) || JAPANESE_CREDENTIAL_CONTEXT.test(canonicalInput)) {
     kinds.add("credential-term");
   }
+  if (PERSONAL_DATA_CONTEXT.test(canonicalInput)) kinds.add("personal-data-context");
 
-  return {
-    containsSensitiveInput: kinds.size > 0,
-    kinds: Array.from(kinds),
-  };
+  return { containsSensitiveInput: kinds.size > 0, kinds: Array.from(kinds) };
 }
 
 export function containsSensitiveInput(input: string): boolean {
