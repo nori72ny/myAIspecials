@@ -5,7 +5,8 @@ const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています�
 
 function productionUrl(value) {
   const url = new URL(value ?? "https://origin-personal.vercel.app");
-  assert.equal(url.protocol, "https:", "Production browser verification requires HTTPS.");
+  const isLoopback = url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost");
+  assert.ok(url.protocol === "https:" || isLoopback, "Production browser verification requires HTTPS except for an explicit loopback CI target.");
   url.pathname = "/";
   url.search = "";
   url.hash = "";

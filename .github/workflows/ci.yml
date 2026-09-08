@@ -66,8 +66,17 @@ jobs:
     - name: Exercise production browser release gates without live inference
       if: github.event_name == 'pull_request' && matrix.node-version == '22.x'
       env:
-        ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
-      run: node scripts/verify-production-browser.mjs
+        ORIGIN_PRODUCTION_URL: http://127.0.0.1:4173
+      run: |
+        TEST_PORT=4173 ORIGIN_RELEASE_SHA=${{ github.sha }} npm start &
+        app_pid=$!
+        trap 'kill "$app_pid"' EXIT
+        for attempt in {1..30}; do
+          if curl --fail --silent --show-error http://127.0.0.1:4173/api/health >/dev/null; then break; fi
+          if [ "$attempt" -eq 30 ]; then echo "Local release server did not become ready."; exit 1; fi
+          sleep 1
+        done
+        node scripts/verify-production-browser.mjs
     - name: Run Lighthouse Audit
       run: |
         npm install -g @lhci/cli
