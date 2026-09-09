@@ -28,6 +28,23 @@ export interface AgentRunConsumptionStore {
 export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore): Router {
   const router = express.Router();
 
+  router.get('/api/agent/v3/status', (_req, res) => {
+    const approvalSigningConfigured = v3CapabilityConfigured(env);
+    const replayProtectionConfigured = Boolean(consumptionStore);
+    return res.status(200).json({
+      ok: true,
+      protocolVersion: 3,
+      ready: approvalSigningConfigured && replayProtectionConfigured,
+      approvalSigningConfigured,
+      replayProtectionConfigured,
+      replayProtection: replayProtectionConfigured ? 'shared-atomic' : 'unavailable',
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
+    });
+  });
+
   router.post('/api/agent/v3/plan', (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     const goal = req.body?.goal;
