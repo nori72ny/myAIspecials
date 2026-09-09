@@ -32,7 +32,7 @@ export interface OriginResearchResult {
   sources: OriginResearchSource[];
   failure?: OriginResearchFailure;
   fallback?: OriginResearchFailure;
-  searchProvider?: "DuckDuckGo";
+  searchProvider?: "DuckDuckGo" | "Wikipedia";
 }
 
 type WikipediaSearchResponse = {
@@ -172,9 +172,9 @@ export async function researchCurrentInformation(query: string, now = new Date()
         if (excerpt) sources.push({ title, url: `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`, excerpt, sourceType: "encyclopedia", domain: new URL(origin).hostname, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: "unknown" });
       }
     }
-    if (sources.length === 0) return { ok: false, sources: [], failure: { stage: "encyclopedia-search", code: "NO_RESULTS" }, fallback: webResult.failure, searchProvider: "DuckDuckGo" };
-    return { ok: true, sources, fallback: webResult.failure, searchProvider: "DuckDuckGo" };
+    if (sources.length === 0) return { ok: false, sources: [], failure: { stage: "encyclopedia-search", code: "NO_RESULTS" }, fallback: webResult.failure, searchProvider: "Wikipedia" };
+    return { ok: true, sources, fallback: webResult.failure, searchProvider: "Wikipedia" };
   } catch (error) {
-    return { ok: false, sources: [], failure: { stage: "encyclopedia-search", code: classifyFailure(error) }, fallback: webResult.failure, searchProvider: "DuckDuckGo" };
+    return { ok: false, sources: [], failure: { stage: "encyclopedia-search", code: classifyFailure(error) }, fallback: webResult.failure, searchProvider: "Wikipedia" };
   }
 }
