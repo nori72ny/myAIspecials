@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { issueApprovalCapability, issuePlanCapability, verifyApprovalCapability, verifyPlanCapability } from './agentV3Capability.js';
 
-const env = { ORIGIN_AGENT_APPROVAL_SECRET: 'v3-capability-test-secret-at-least-32-characters' };
-const otherEnv = { ORIGIN_AGENT_APPROVAL_SECRET: 'different-v3-capability-secret-at-least-32-chars' };
+const env = { ORIGIN_AGENT_APPROVAL_SECRET: 'x'.repeat(40) };
+const otherEnv = { ORIGIN_AGENT_APPROVAL_SECRET: 'y'.repeat(40) };
 const digestA = 'a'.repeat(64);
 const digestB = 'b'.repeat(64);
 
