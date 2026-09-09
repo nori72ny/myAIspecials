@@ -20,6 +20,33 @@ describe('agent orchestrator v3', () => {
     .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
     .send({ ...operation, approvalToken: issueApprovalCapability(operation.runId, approvalDigest(operation), env).token });
 
+  it('reports readiness only when signing and shared replay protection are configured', async () => {
+    const store: AgentRunConsumptionStore = { consume: async () => true };
+    const ready = await request(appFor(env, store)).get('/api/agent/v3/status');
+    expect(ready.status).toBe(200);
+    expect(ready.body).toEqual({
+      ok: true,
+      protocolVersion: 3,
+      ready: true,
+      approvalSigningConfigured: true,
+      replayProtectionConfigured: true,
+      replayProtection: 'shared-atomic',
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
+    });
+    expect(JSON.stringify(ready.body)).not.toContain(env.ORIGIN_AGENT_APPROVAL_SECRET);
+
+    const unavailable = await request(appFor({})).get('/api/agent/v3/status');
+    expect(unavailable.body).toMatchObject({
+      ready: false,
+      approvalSigningConfigured: false,
+      replayProtectionConfigured: false,
+      replayProtection: 'unavailable',
+    });
+  });
+
   it('blocks execution without shared replay protection', async () => {
     const response = await execute(appFor());
     expect(response.status).toBe(503);
