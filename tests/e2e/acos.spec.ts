@@ -333,6 +333,9 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を保存します。\n```html:persisted.html\n<main>Persisted artifact</main>\n```' }));
     await page.goto('/');
     await expect(page.getByText('IndexedDBへ移行する履歴')).toBeVisible();
+    // Opening version 1 before the app's idle migration creates a schema-less
+    // database. Wait for successful storage initialization before inspecting it.
+    await expect(page.getByTestId('origin-storage-status')).toHaveCount(0);
     await expect.poll(() => page.evaluate(async () => new Promise<{ legacy: string | null; snapshot: unknown }>((resolve) => {
       const request = indexedDB.open('origin-personal-local', 1);
       request.onsuccess = () => {

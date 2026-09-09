@@ -17,7 +17,15 @@ const PLAN_TITLES = ['Goal analysis', 'Task decomposition', 'Self-critique', 'Ex
 const createExecutionId = () => `exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const digestGoal = (goal: string) => createHash('sha256').update(goal).digest('hex');
 
-export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env): Router {
+/** Must atomically reserve a run across all server instances until expiresAt.
+ * Return false for a previously reserved run. Never release after a tool failure.
+ * No process-local default: serverless instances cannot share an in-memory map.
+ */
+export interface AgentRunConsumptionStore {
+  consume(runId: string, expiresAt: number): Promise<boolean>;
+}
+
+export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore): Router {
   const router = express.Router();
 
   router.post('/api/agent/v3/plan', (req, res) => {
@@ -52,6 +60,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!isToolName(toolName)) return res.status(400).json({ ok: false, code: 'INVALID_TOOL' });
     const plan = verifyPlanCapability(planToken, env);
     if (!plan || plan.runId !== runId) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_INVALID' });
+    if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
     const operation: AgentApprovalOperation = { action: 'execute', runId, toolName, params: params ?? {} };
     const capability = issueApprovalCapability(runId, approvalDigest(operation), env);
     return res.status(201).json({
@@ -75,12 +84,23 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!approval || approval.runId !== runId || approval.digest !== approvalDigest(operation)) {
       return res.status(403).json({ ok: false, code: 'AGENT_AUTHENTICATED_APPROVAL_REQUIRED' });
     }
+    if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
 
     const executionId = createExecutionId();
     const toolParams = (params ?? {}) as ToolParams;
     const executionApproval = { approved: true, costInUSD: 0, safetyPolicyPassed: true };
     void (async () => {
       try {
+        // Retain through the entire plan lifetime, including a later approval's TTL.
+        // Reserving before execution also prevents concurrent requests and retries.
+        let consumed: boolean;
+        try {
+          consumed = await consumptionStore.consume(runId, Math.max(approval.exp, Date.now() + 12 * 60 * 1000));
+        } catch {
+          if (!res.headersSent) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE', protocolVersion: 3, runId });
+          return;
+        }
+        if (!consumed) return res.status(409).json({ ok: false, code: 'AGENT_RUN_ALREADY_CONSUMED', protocolVersion: 3, runId });
         const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
         const graph = createAgentTaskGraph(`execute ${toolName}`, [toolName]);
         const execution = await executeNextTask(graph, async () => runTool(toolName, toolParams), async (result) => result.artifact
@@ -102,8 +122,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         assertCanReportCompleted({ state: finalTask.status, verified: record.verified, toolExecuted: record.toolExecuted, repairAttempts: record.verificationAttempts });
         const checkpoint = saveCheckpoint({ taskId: finalTask.id, executionId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact, mutation: record.mutation });
         if (!res.headersSent) return res.status(200).json({ ok: true, protocolVersion: 3, runId, status: 'completed', freeOnly: true, costUsd: 0, paidFallbackUsed: false, tool: toolName, artifact: record.artifact, checkpoint });
-      } catch (error) {
-        if (!res.headersSent) return res.status(403).json({ ok: false, code: error instanceof Error ? error.message : 'TOOL_EXECUTION_BLOCKED', protocolVersion: 3, runId });
+      } catch {
+        if (!res.headersSent) return res.status(403).json({ ok: false, code: 'TOOL_EXECUTION_BLOCKED', protocolVersion: 3, runId });
       }
     })();
     return undefined;
