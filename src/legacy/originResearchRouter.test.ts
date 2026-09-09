@@ -29,6 +29,13 @@ describe("originResearchRouter", () => {
       publicWebCount: 2,
       officialSourceCount: null,
       officialStatus: "not-assessed",
+      distinctSourceCount: 2,
+      repeatedDomainSourceCount: 0,
+      strongEvidenceCount: 0,
+      moderateEvidenceCount: 0,
+      limitedEvidenceCount: 2,
+      confidenceLevel: "limited",
+      confidenceScope: "retrieval-evidence-only",
       pageVerifiedCount: 0,
       snippetCount: 2,
       recentCount: 0,
@@ -39,8 +46,8 @@ describe("originResearchRouter", () => {
       semanticConflict: "not-assessed",
     });
     expect(response.body.research.sourceAssessments).toEqual([
-      { domain: "example.com", publisherKind: "public-web", officialStatus: "not-assessed", independenceBasis: "domain-only" },
-      { domain: "example.org", publisherKind: "public-web", officialStatus: "not-assessed", independenceBasis: "domain-only" },
+      { domain: "example.com", publisherKind: "public-web", officialStatus: "not-assessed", officialityBasis: "none", independenceBasis: "domain-only", domainOccurrenceCount: 1, independenceStatus: "domain-distinct", evidenceStrength: "limited", confidenceBasis: ["snippet", "unknown", "unique-domain"] },
+      { domain: "example.org", publisherKind: "public-web", officialStatus: "not-assessed", officialityBasis: "none", independenceBasis: "domain-only", domainOccurrenceCount: 1, independenceStatus: "domain-distinct", evidenceStrength: "limited", confidenceBasis: ["snippet", "unknown", "unique-domain"] },
     ]);
     expect(response.body.content).toContain("公式情報源: 未判定");
     expect(response.body.content).toContain("意味上の一致・矛盾: 未判定");
@@ -66,6 +73,13 @@ describe("originResearchRouter", () => {
       publicWebCount: 1,
       officialSourceCount: null,
       officialStatus: "not-assessed",
+      distinctSourceCount: 2,
+      repeatedDomainSourceCount: 0,
+      strongEvidenceCount: 1,
+      moderateEvidenceCount: 0,
+      limitedEvidenceCount: 1,
+      confidenceLevel: "moderate",
+      confidenceScope: "retrieval-evidence-only",
       pageVerifiedCount: 1,
       snippetCount: 1,
       recentCount: 1,
@@ -75,11 +89,37 @@ describe("originResearchRouter", () => {
       semanticConflict: "not-assessed",
     });
     expect(response.body.research.sourceAssessments).toEqual([
-      { domain: "official.example", publisherKind: "encyclopedia-reference", officialStatus: "not-assessed", independenceBasis: "domain-only" },
-      { domain: "independent.example", publisherKind: "public-web", officialStatus: "not-assessed", independenceBasis: "domain-only" },
+      { domain: "official.example", publisherKind: "encyclopedia-reference", officialStatus: "not-assessed", officialityBasis: "none", independenceBasis: "domain-only", domainOccurrenceCount: 1, independenceStatus: "domain-distinct", evidenceStrength: "strong", confidenceBasis: ["page-verified", "recent", "unique-domain"] },
+      { domain: "independent.example", publisherKind: "public-web", officialStatus: "not-assessed", officialityBasis: "none", independenceBasis: "domain-only", domainOccurrenceCount: 1, independenceStatus: "domain-distinct", evidenceStrength: "limited", confidenceBasis: ["snippet", "unknown", "unique-domain"] },
     ]);
     expect(response.body.content).toContain("媒体区分: 百科事典型の参考情報");
     expect(response.body.content).toContain("公式性: 未判定");
+    expect(response.body.content).toContain("取得証拠の強さ: moderate");
+  });
+
+  it("marks repeated domains without overstating source independence", async () => {
+    researchMock.mockResolvedValue({ ok: true, searchProvider: "Test", sources: [
+      { title: "One", url: "https://same.example/one", excerpt: "First snippet.", domain: "same.example", sourceType: "web-search", evidenceLevel: "snippet", retrievedAt: "2026-09-09T00:00:00.000Z", freshness: "unknown" },
+      { title: "Two", url: "https://same.example/two", excerpt: "Second snippet.", domain: "same.example", sourceType: "web-search", evidenceLevel: "snippet", retrievedAt: "2026-09-09T00:00:00.000Z", freshness: "unknown" },
+    ] });
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter());
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: "最新情報を教えて" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.research.comparison).toMatchObject({
+      distinctDomainCount: 1,
+      distinctSourceCount: 0,
+      repeatedDomainSourceCount: 2,
+      confidenceLevel: "limited",
+      confidenceScope: "retrieval-evidence-only",
+    });
+    expect(response.body.research.sourceAssessments).toEqual([
+      expect.objectContaining({ domainOccurrenceCount: 2, independenceStatus: "same-domain", evidenceStrength: "limited" }),
+      expect.objectContaining({ domainOccurrenceCount: 2, independenceStatus: "same-domain", evidenceStrength: "limited" }),
+    ]);
+    expect(response.body.content).toContain("同一ドメイン重複 2件");
+    expect(response.body.content).toContain("内容の真偽や媒体の信頼性は未評価");
   });
 
   it("does not intercept stable definition requests", async () => {
