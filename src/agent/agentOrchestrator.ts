@@ -9,6 +9,7 @@ import { createAgentTaskGraph, type AgentTaskGraph } from './agentTaskGraph.js';
 import { executeNextTask, resumeTaskGraph } from './taskGraphExecutor.js';
 import { assertCanReportCompleted } from './taskExecutionGate.js';
 import { agentApprovalConfigured, authenticateAgentRequest, consumeApproval, issueApproval, type AgentApprovalOperation } from './agentApproval.js';
+import { AgentRunSession } from './agentRunContract.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
 const sse = (res: express.Response, payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -134,18 +135,23 @@ export function createAgentOrchestratorRouter(): Router {
       return undefined;
     }
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000) return res.status(400).json({ code: 'INVALID_AGENT_GOAL', message: 'Agent goal is required and must be 1-4000 characters.' });
-    res.status(200); res.setHeader('Content-Type', 'text/event-stream; charset=utf-8'); res.setHeader('Cache-Control', 'no-cache, no-transform'); res.setHeader('Connection', 'keep-alive'); res.flushHeaders?.();
+    const runSession = new AgentRunSession({ timeoutMs: typeof req.body?.timeoutMs === 'number' ? req.body.timeoutMs : undefined });
+    runSession.transition('planning');
+    res.status(200); res.setHeader('Content-Type', 'text/event-stream; charset=utf-8'); res.setHeader('Cache-Control', 'no-store'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Origin-Agent-Run-Id', runSession.runId); res.flushHeaders?.();
     const normalizedGoal = goal.trim(); const steps = buildPlan(normalizedGoal).slice(0, MAX_AGENT_TASK_STEPS); const graph = toTaskGraph(normalizedGoal); let closed = false;
-    req.on('close', () => { closed = true; }); const emit = (payload: unknown) => { if (!closed) sse(res, payload); };
+    res.on('close', () => { if (!res.writableEnded) { closed = true; runSession.cancel(); } });
+    const emit = (type: string, payload: Record<string, unknown>) => { if (!closed) sse(res, runSession.event(type, payload)); };
     const run = async () => {
+      emit('run_started', { deadlineAt: new Date(runSession.deadlineAt).toISOString(), maxSteps: MAX_AGENT_TASK_STEPS });
       for (let i = 0; i < steps.length; i += 1) {
         if (closed) return;
+        if (runSession.isExpired()) { runSession.transition('timed_out'); emit('run_timed_out', { code: 'AGENT_RUN_DEADLINE_EXCEEDED' }); res.end(); return; }
         steps[i] = { ...steps[i], status: i === steps.length - 1 ? 'awaiting_approval' : 'running' };
-        emit({ type: 'plan_step', step: steps[i] }); emit({ type: 'log', message: `[${steps[i].title}] ${steps[i].detail}` });
-        if (i === 1) { const context = compactAgentContext(normalizedGoal, [{ stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' }], 'critique assumptions and define executable steps'); emit({ type: 'context', context }); emit({ type: 'artifact', artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nTask Graph\n- ${graph.tasks.map((task) => `${task.id}: ${task.title}`).join('\n- ')}\n\nExecution Gate\n- Authenticated one-time approval token required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Repository mutations require typecheck + test + build before completion is reported\n- Checkpoint created after successful execution\n` }); }
+        emit('plan_step', { step: steps[i] }); emit('log', { message: `[${steps[i].title}] ${steps[i].detail}` });
+        if (i === 1) { const context = compactAgentContext(normalizedGoal, [{ stepId: 'goal', outcome: 'success', summary: 'Goal normalized and bounded.' }], 'critique assumptions and define executable steps'); emit('context', { context }); emit('artifact', { artifact: `# Agent Plan\n\nGoal\n- ${normalizedGoal}\n\nTask Graph\n- ${graph.tasks.map((task) => `${task.id}: ${task.title}`).join('\n- ')}\n\nExecution Gate\n- Authenticated one-time approval token required\n- Tool Registry + Permission Gate required\n- Local artifact verification + bounded self-fix\n- Context is compacted between steps; raw tool output is not replayed indefinitely\n- Repository mutations require typecheck + test + build before completion is reported\n- Checkpoint created after successful execution\n` }); }
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
-      if (!closed) { emit({ type: 'done', message: 'Plan ready. No task is marked completed until an authenticated one-time approval is consumed, an approved tool executes, and verification succeeds.', graph }); res.end(); }
+      if (!closed) { runSession.transition('awaiting_approval'); emit('done', { message: 'Plan ready. No task is marked completed until an authenticated one-time approval is consumed, an approved tool executes, and verification succeeds.', graph }); res.write('data: [DONE]\n\n'); res.end(); }
     };
     void run(); return undefined;
   });
