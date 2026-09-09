@@ -31,7 +31,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   // had actually been generated.
   app.all("/api/generate-image", (_req, res) => res.status(503).json({ code: "ORIGIN_PROVIDER_PATH_DISABLED", message: "このAI実行経路はORIGINの安全・無料実行ポリシーへ未移行のため停止しています。", retryable: false, requestId: "UNKNOWN" }));
 
-  app.use(createAgentOrchestratorV3Router());
+  app.use(createAgentOrchestratorV3Router(env));
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
   app.get(["/health", "/api/health"], (_req, res) => res.status(200).json({
