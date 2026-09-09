@@ -6,6 +6,7 @@ import { createOriginResearchRouter } from "../legacy/originResearchRouter.js";
 import { createOriginLegacyProviderBoundaryRouter } from "../legacy/originLegacyProviderBoundaryGuard.js";
 import { applyOriginSecurityHeaders, createOriginChatRateLimiter, requireSafeOriginChatRequest } from "./originSecurity.js";
 import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
+import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): string { const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA; return candidate && FULL_GIT_SHA.test(candidate) ? candidate.toLowerCase() : "unknown"; }
@@ -30,12 +31,14 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   // had actually been generated.
   app.all("/api/generate-image", (_req, res) => res.status(503).json({ code: "ORIGIN_PROVIDER_PATH_DISABLED", message: "このAI実行経路はORIGINの安全・無料実行ポリシーへ未移行のため停止しています。", retryable: false, requestId: "UNKNOWN" }));
 
+  app.use(createAgentOrchestratorV3Router());
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
   app.get(["/health", "/api/health"], (_req, res) => res.status(200).json({
     status: "ok",
     service: "acos-2",
     releaseSha: resolveOriginReleaseSha(env),
+    agentProtocolVersion: 3,
     costUsd: 0,
     freeOnly: true,
     paidFallbackEnabled: false,
