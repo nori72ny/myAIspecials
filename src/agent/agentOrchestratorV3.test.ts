@@ -3,7 +3,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createAgentOrchestratorV3Router } from './agentOrchestratorV3.js';
 
-const SECRET = 'v3-test-secret-must-be-at-least-32-characters-long';
+const SECRET = 'x'.repeat(40);
 const env = { ORIGIN_AGENT_APPROVAL_SECRET: SECRET };
 
 function appFor(testEnv: NodeJS.ProcessEnv = env) {
