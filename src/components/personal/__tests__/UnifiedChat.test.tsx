@@ -684,6 +684,25 @@ describe('UnifiedChat', () => {
     expect(screen.queryByTestId('structured-answer')).toBeNull();
   });
 
+  it('blocks detected personal data on-device before fetch or history persistence', async () => {
+    const privateValue = ['nori', '@', 'example.invalid'].join('');
+    render(<UnifiedChat />);
+
+    sendJapaneseMessage(`連絡先は ${privateValue} です。要約してください。`);
+
+    await waitFor(() => {
+      expect(screen.getByText('個人情報を端末内で保護しました')).toBeTruthy();
+      expect(screen.getByText('入力内容は送信せず、会話履歴にも追加していません。個人・金融・医療・認証情報を削除し、必要最小限の要約だけを送信してください。')).toBeTruthy();
+    });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(screen.queryByRole('article', { name: 'あなたの依頼' })).toBeNull();
+    expect((screen.getByPlaceholderText('やりたいことを入力') as HTMLTextAreaElement).value).toContain(privateValue);
+    expect(window.localStorage.getItem('origin_chat_sessions_v1') ?? '').not.toContain(privateValue);
+    expect(screen.getByTestId('response-announcement').textContent).toBe('秘密・個人情報を送信前に端末内で遮断しました。');
+    expect(screen.queryByText('再試行')).toBeNull();
+  });
+
   it('shows a truthful sensitive-input block without retry or settings actions', async () => {
     const description = '秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。';
     (global.fetch as any).mockResolvedValueOnce({

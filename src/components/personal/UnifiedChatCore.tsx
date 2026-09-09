@@ -25,6 +25,7 @@ import {
   type OriginAnswerEvidenceItem,
   type OriginAnswerRichOutput,
 } from '../../lib/orchestration/OriginAnswerEnvelope';
+import { detectSensitiveInput } from '../../lib/orchestration/SensitiveInputDetector';
 import { cn } from '../../utils';
 
 type RoutingMetadata = {
@@ -799,6 +800,33 @@ export default function UnifiedChat({
     if (inFlightRef.current) return;
     const textToSend = (overrideInput ?? input).trim();
     if (!textToSend) return;
+
+    const privacyDetection = detectSensitiveInput(textToSend);
+    if (privacyDetection.containsSensitiveInput) {
+      dispatchAiCoreState('DEGRADED');
+      const localPrivacyError: Message = {
+        id: `privacy-${Date.now()}`,
+        role: 'ai',
+        content: isEn ? 'Personal information was kept on this device' : '個人情報を端末内で保護しました',
+        error: {
+          code: 'LOCAL_SENSITIVE_INPUT_BLOCKED',
+          messageKey: 'errors.sensitiveInputBlocked',
+          retryable: false,
+          requestId: 'LOCAL',
+          description: isEn
+            ? 'Nothing was transmitted or added to conversation history. Remove personal, financial, medical, or credential values, then send only the minimum necessary summary.'
+            : '入力内容は送信せず、会話履歴にも追加していません。個人・金融・医療・認証情報を削除し、必要最小限の要約だけを送信してください。',
+        },
+      };
+      setMessages((previous) => [
+        ...previous.filter((message) => message.error?.code !== 'LOCAL_SENSITIVE_INPUT_BLOCKED'),
+        localPrivacyError,
+      ]);
+      setCompletionAnnouncement(isEn
+        ? 'Sensitive information was blocked on this device before transmission.'
+        : '秘密・個人情報を送信前に端末内で遮断しました。');
+      return;
+    }
 
     inFlightRef.current = true;
     const userMessage: Message = { id: Date.now().toString(), role: 'user', content: textToSend };

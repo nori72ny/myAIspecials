@@ -1,6 +1,7 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
+import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
 
 export interface ArtifactBlock {
   id: string;
@@ -877,6 +878,21 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
       setAttachmentError('オフライン中は新規AI応答を停止しています。端末内の履歴・成果物は閲覧、直接編集、保存、パッケージ化を継続できます。');
       return;
     }
+    const privacyInput = [
+      text,
+      ...attachments.map((attachment) => attachment.name),
+      ...attachments.filter((attachment) => attachment.kind === 'text').map((attachment) => attachment.content),
+    ].join('\n');
+    const containsPrivateText = detectSensitiveInput(privacyInput).containsSensitiveInput;
+    const containsUninspectableImage = attachments.some((attachment) => attachment.kind === 'image');
+    if (containsPrivateText || containsUninspectableImage) {
+      setAttachmentError(language === 'en'
+        ? 'Nothing was transmitted or added to history. Remove personal, financial, medical, or credential values. Image attachments remain local because this version cannot verify that they contain no private information.'
+        : '入力内容は送信せず、履歴にも追加していません。個人・金融・医療・認証情報を削除してください。画像は個人情報が含まれないことを検証できないため、この版では端末外へ送信しません。');
+      setIsSafeWaiting(true);
+      return;
+    }
+
     setAttachmentError('');
     setIsSafeWaiting(false);
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
