@@ -35,6 +35,7 @@ describe("originResearchSource", () => {
 
     const result = await researchCurrentInformation("latest AI news", new Date("2026-09-08T00:00:00Z"));
     expect(result.ok).toBe(true);
+    expect(result.fallback).toEqual({ stage: "web-search", code: "NETWORK_FAILURE" });
     expect(result.sources[0]).toMatchObject({
       evidenceLevel: "page-verified",
       revisionTimestamp: "2026-09-06T00:00:00Z",
@@ -55,10 +56,27 @@ describe("originResearchSource", () => {
 
   it("fails closed when the source cannot be reached", async () => {
     secureFetch.mockRejectedValueOnce(new Error("network blocked"));
-    secureFetch.mockRejectedValueOnce(new Error("network blocked"));
+    secureFetch.mockRejectedValueOnce(new Error("Secure fetch request timed out."));
     const result = await researchCurrentInformation("latest AI news");
     expect(result.ok).toBe(false);
     expect(result.sources).toEqual([]);
-    expect(result.limitation).toContain("network blocked");
+    expect(result.fallback).toEqual({ stage: "web-search", code: "NETWORK_FAILURE" });
+    expect(result.failure).toEqual({ stage: "encyclopedia-search", code: "UPSTREAM_TIMEOUT" });
+    expect(JSON.stringify(result)).not.toContain("network blocked");
+    expect(JSON.stringify(result)).not.toContain("timed out");
+  });
+
+  it("classifies invalid fallback responses without returning parser details", async () => {
+    secureFetch.mockRejectedValueOnce(new Error("Fetch error: HTTP status 403"));
+    secureFetch.mockResolvedValueOnce("not-json");
+    const result = await researchCurrentInformation("latest AI news");
+    expect(result).toMatchObject({
+      ok: false,
+      sources: [],
+      fallback: { stage: "web-search", code: "UPSTREAM_HTTP_ERROR" },
+      failure: { stage: "encyclopedia-search", code: "INVALID_RESPONSE" },
+    });
+    expect(JSON.stringify(result)).not.toContain("403");
+    expect(JSON.stringify(result)).not.toContain("not-json");
   });
 });

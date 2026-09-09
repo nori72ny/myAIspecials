@@ -133,7 +133,13 @@ describe("originResearchRouter", () => {
   });
 
   it("returns a dedicated zero-cost failure instead of falling through to an unverified model answer", async () => {
-    researchMock.mockResolvedValue({ ok: false, sources: [], limitation: "internal upstream detail" });
+    researchMock.mockResolvedValue({
+      ok: false,
+      sources: [],
+      failure: { stage: "encyclopedia-search", code: "UPSTREAM_TIMEOUT" },
+      fallback: { stage: "web-search", code: "UPSTREAM_HTTP_ERROR" },
+      limitation: "internal upstream detail",
+    });
     const app = express();
     app.use(express.json());
     app.use(createOriginResearchRouter());
@@ -147,7 +153,12 @@ describe("originResearchRouter", () => {
       costUsd: 0,
       freeOnly: true,
       paidFallbackUsed: false,
-      research: { sources: [], status: "unavailable" },
+      research: {
+        sources: [],
+        status: "unavailable",
+        failure: { stage: "encyclopedia-search", code: "UPSTREAM_TIMEOUT" },
+        fallback: { stage: "web-search", code: "UPSTREAM_HTTP_ERROR" },
+      },
     });
     expect(response.body.message).toContain("通常AIで補完せず");
     expect(JSON.stringify(response.body)).not.toContain("internal upstream detail");
