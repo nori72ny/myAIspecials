@@ -38,6 +38,10 @@ export function isSafeIp(ip: string): boolean {
   return false;
 }
 
+export function areSafeLookupAddresses(addresses: ReadonlyArray<{ address: string }>): boolean {
+  return addresses.length > 0 && addresses.every((entry) => isSafeIp(entry.address));
+}
+
 export function isWhitelistedDomain(hostname: string): boolean {
   const whitelist = ["wikipedia.org", "duckduckgo.com", "api.github.com", "raw.githubusercontent.com", "httpbin.org", "api.stackexchange.com", "api.coindesk.com"];
   const lower = hostname.toLowerCase();
@@ -54,10 +58,13 @@ export async function secureFetch(urlStr: string): Promise<string> {
     if (!isWhitelistedDomain(hostname)) return reject(new Error(`Access denied: Domain "${hostname}" is not whitelisted.`));
     dns.lookup(hostname, { all: true }, (dnsErr, addresses) => {
       if (dnsErr) return reject(new Error(`DNS lookup failed: ${dnsErr.message}`));
-      if (!addresses?.length) return reject(new Error("DNS resolution returned no addresses."));
-      if (addresses.some((entry) => !isSafeIp(entry.address))) return reject(new Error("Access denied: Unsafe IP address resolved."));
+      if (!areSafeLookupAddresses(addresses)) return reject(new Error("Access denied: Unsafe or empty IP address resolution."));
       const secureLookup = (lookupHost: string, options: any, callback: any) => dns.lookup(lookupHost, options, (err, address, family) => {
         if (err) return callback(err);
+        if (Array.isArray(address)) {
+          if (!areSafeLookupAddresses(address)) return callback(new Error("Access denied: Unsafe or empty IP address resolved at connection."));
+          return callback(null, address);
+        }
         if (!isSafeIp(address)) return callback(new Error("Access denied: Unsafe IP address resolved at connection."));
         callback(null, address, family);
       });

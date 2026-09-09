@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { isSafeIp, isWhitelistedDomain, secureFetch, validateSafePath } from "../application/agent/ToolExecutor";
+import { areSafeLookupAddresses, isSafeIp, isWhitelistedDomain, secureFetch, validateSafePath } from "../application/agent/ToolExecutor";
 import { AgentRuntime } from "../application/agent/AgentRuntime";
 import { Mission, Task, Agent } from "@origin/domain";
 import { ILLMClient } from "../infrastructure/ai/ILLMClient";
@@ -13,6 +13,11 @@ describe("=== Version 1.1 Safety and Hardening Policies ===", () => {
     it("rejects metadata and link-local ranges", () => { expect(isSafeIp("169.254.169.254")).toBe(false); expect(isSafeIp("169.254.0.1")).toBe(false); expect(isSafeIp("fe80::1")).toBe(false); });
     it("rejects reserved and multicast ranges", () => { expect(isSafeIp("0.0.0.0")).toBe(false); expect(isSafeIp("224.0.0.1")).toBe(false); expect(isSafeIp("255.255.255.255")).toBe(false); });
     it("rejects private IPv6 unique local ranges", () => { expect(isSafeIp("fc00::1")).toBe(false); expect(isSafeIp("fdff:ffff::ffff")).toBe(false); });
+    it("accepts a non-empty multi-address DNS result only when every address is public", () => {
+      expect(areSafeLookupAddresses([{ address: "8.8.8.8" }, { address: "2606:4700:4700::1111" }])).toBe(true);
+      expect(areSafeLookupAddresses([{ address: "8.8.8.8" }, { address: "127.0.0.1" }])).toBe(false);
+      expect(areSafeLookupAddresses([])).toBe(false);
+    });
   });
 
   describe("2. URL Scheme & Domain Whitelisting", () => {
