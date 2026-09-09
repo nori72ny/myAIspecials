@@ -13,10 +13,25 @@ export interface OriginResearchSource {
   freshness: "recent" | "older" | "unknown";
 }
 
+export type OriginResearchFailureCode =
+  | "NO_RESULTS"
+  | "UPSTREAM_TIMEOUT"
+  | "UPSTREAM_HTTP_ERROR"
+  | "DNS_FAILURE"
+  | "RESPONSE_REJECTED"
+  | "INVALID_RESPONSE"
+  | "NETWORK_FAILURE";
+
+export type OriginResearchFailure = {
+  stage: "web-search" | "encyclopedia-search";
+  code: OriginResearchFailureCode;
+};
+
 export interface OriginResearchResult {
   ok: boolean;
   sources: OriginResearchSource[];
-  limitation?: string;
+  failure?: OriginResearchFailure;
+  fallback?: OriginResearchFailure;
   searchProvider?: "DuckDuckGo";
 }
 
@@ -84,6 +99,16 @@ function freshnessOf(revisionTimestamp: string | undefined, retrievedAt: string)
   return retrievalTime - revisionTime <= 30 * 24 * 60 * 60 * 1000 ? "recent" : "older";
 }
 
+function classifyFailure(error: unknown): OriginResearchFailureCode {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("timed out") || message.includes("timeout")) return "UPSTREAM_TIMEOUT";
+  if (message.includes("dns lookup") || message.includes("dns resolution")) return "DNS_FAILURE";
+  if (message.includes("http status")) return "UPSTREAM_HTTP_ERROR";
+  if (message.includes("redirects are prohibited") || message.includes("payload size exceeds")) return "RESPONSE_REJECTED";
+  if (error instanceof SyntaxError) return "INVALID_RESPONSE";
+  return "NETWORK_FAILURE";
+}
+
 function parseDuckDuckGoResults(html: string, retrievedAt: string, limit = 6): OriginResearchSource[] {
   const sources: OriginResearchSource[] = [];
   const resultPattern = /<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -109,10 +134,10 @@ async function searchWeb(query: string, retrievedAt: string): Promise<OriginRese
   try {
     const html = await secureFetch(endpoint);
     const sources = parseDuckDuckGoResults(html, retrievedAt, 6);
-    if (sources.length === 0) return { ok: false, sources: [], limitation: "無料公開Web検索で検索結果を取得できませんでした。", searchProvider: "DuckDuckGo" };
+    if (sources.length === 0) return { ok: false, sources: [], failure: { stage: "web-search", code: "NO_RESULTS" }, searchProvider: "DuckDuckGo" };
     return { ok: true, sources, searchProvider: "DuckDuckGo" };
   } catch (error) {
-    return { ok: false, sources: [], limitation: error instanceof Error ? `無料公開Web検索への接続に失敗しました: ${error.message}` : "無料公開Web検索への接続に失敗しました。", searchProvider: "DuckDuckGo" };
+    return { ok: false, sources: [], failure: { stage: "web-search", code: classifyFailure(error) }, searchProvider: "DuckDuckGo" };
   }
 }
 
@@ -147,9 +172,9 @@ export async function researchCurrentInformation(query: string, now = new Date()
         if (excerpt) sources.push({ title, url: `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`, excerpt, sourceType: "encyclopedia", domain: new URL(origin).hostname, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: "unknown" });
       }
     }
-    if (sources.length === 0) return { ok: false, sources: [], limitation: webResult.limitation ?? "無料公開情報源で該当する情報を取得できませんでした。", searchProvider: "DuckDuckGo" };
-    return { ok: true, sources, limitation: webResult.limitation, searchProvider: "DuckDuckGo" };
-  } catch {
-    return { ok: false, sources: [], limitation: webResult.limitation ?? "無料公開情報源で該当する情報を取得できませんでした。", searchProvider: "DuckDuckGo" };
+    if (sources.length === 0) return { ok: false, sources: [], failure: { stage: "encyclopedia-search", code: "NO_RESULTS" }, fallback: webResult.failure, searchProvider: "DuckDuckGo" };
+    return { ok: true, sources, fallback: webResult.failure, searchProvider: "DuckDuckGo" };
+  } catch (error) {
+    return { ok: false, sources: [], failure: { stage: "encyclopedia-search", code: classifyFailure(error) }, fallback: webResult.failure, searchProvider: "DuckDuckGo" };
   }
 }
