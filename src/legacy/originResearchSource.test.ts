@@ -13,6 +13,7 @@ describe("originResearchSource", () => {
 
     const result = await researchCurrentInformation("AIO");
     expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("DuckDuckGo");
     expect(result.sources[0]).toMatchObject({ title: "AI optimization", url: "https://example.com/ai-optimization", sourceType: "web-search", domain: "example.com", rank: 1, evidenceLevel: "snippet", freshness: "unknown", retrievedAt: expect.any(String) });
     expect(secureFetch.mock.calls[0][0]).toContain("https://html.duckduckgo.com/html/?q=AIO");
     expect(secureFetch.mock.calls[0][0]).toContain("kl=us-en");
@@ -36,6 +37,7 @@ describe("originResearchSource", () => {
     const result = await researchCurrentInformation("latest AI news", new Date("2026-09-08T00:00:00Z"));
     expect(result.ok).toBe(true);
     expect(result.fallback).toEqual({ stage: "web-search", code: "NETWORK_FAILURE" });
+    expect(result.searchProvider).toBe("Wikipedia");
     expect(result.sources[0]).toMatchObject({
       evidenceLevel: "page-verified",
       revisionTimestamp: "2026-09-06T00:00:00Z",
@@ -62,6 +64,7 @@ describe("originResearchSource", () => {
     expect(result.sources).toEqual([]);
     expect(result.fallback).toEqual({ stage: "web-search", code: "NETWORK_FAILURE" });
     expect(result.failure).toEqual({ stage: "encyclopedia-search", code: "UPSTREAM_TIMEOUT" });
+    expect(result.searchProvider).toBe("Wikipedia");
     expect(JSON.stringify(result)).not.toContain("network blocked");
     expect(JSON.stringify(result)).not.toContain("timed out");
   });
@@ -75,6 +78,7 @@ describe("originResearchSource", () => {
       sources: [],
       fallback: { stage: "web-search", code: "UPSTREAM_HTTP_ERROR" },
       failure: { stage: "encyclopedia-search", code: "INVALID_RESPONSE" },
+      searchProvider: "Wikipedia",
     });
     expect(JSON.stringify(result)).not.toContain("403");
     expect(JSON.stringify(result)).not.toContain("not-json");
