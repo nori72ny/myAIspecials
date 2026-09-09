@@ -34,7 +34,12 @@ type SourceAssessment = {
   domain: string;
   publisherKind: "encyclopedia-reference" | "public-web";
   officialStatus: "not-assessed";
+  officialityBasis: "none";
   independenceBasis: "domain-only";
+  domainOccurrenceCount: number;
+  independenceStatus: "domain-distinct" | "same-domain";
+  evidenceStrength: "strong" | "moderate" | "limited";
+  confidenceBasis: string[];
 };
 
 type EvidenceComparison = {
@@ -44,6 +49,13 @@ type EvidenceComparison = {
   publicWebCount: number;
   officialSourceCount: null;
   officialStatus: "not-assessed";
+  distinctSourceCount: number;
+  repeatedDomainSourceCount: number;
+  strongEvidenceCount: number;
+  moderateEvidenceCount: number;
+  limitedEvidenceCount: number;
+  confidenceLevel: "strong" | "moderate" | "limited";
+  confidenceScope: "retrieval-evidence-only";
   pageVerifiedCount: number;
   snippetCount: number;
   recentCount: number;
@@ -54,20 +66,34 @@ type EvidenceComparison = {
   semanticConflict: "not-assessed";
 };
 
-function assessSource(source: ResearchEvidenceSource): SourceAssessment {
-  return {
-    domain: sourceLabel(source).toLocaleLowerCase(),
-    publisherKind: source.sourceType === "encyclopedia" ? "encyclopedia-reference" : "public-web",
-    officialStatus: "not-assessed",
-    independenceBasis: "domain-only",
-  };
+function assessSources(sources: ResearchEvidenceSource[]): SourceAssessment[] {
+  const domains = sources.map((source) => sourceLabel(source).toLocaleLowerCase());
+  const domainCounts = new Map<string, number>();
+  for (const domain of domains) domainCounts.set(domain, (domainCounts.get(domain) ?? 0) + 1);
+  return sources.map((source, index) => {
+    const domainOccurrenceCount = domainCounts.get(domains[index]) ?? 1;
+    const evidenceStrength = source.evidenceLevel === "page-verified"
+      ? source.freshness === "recent" ? "strong" : "moderate"
+      : source.freshness === "recent" ? "moderate" : "limited";
+    return {
+      domain: domains[index],
+      publisherKind: source.sourceType === "encyclopedia" ? "encyclopedia-reference" : "public-web",
+      officialStatus: "not-assessed",
+      officialityBasis: "none",
+      independenceBasis: "domain-only",
+      domainOccurrenceCount,
+      independenceStatus: domainOccurrenceCount === 1 ? "domain-distinct" : "same-domain",
+      evidenceStrength,
+      confidenceBasis: [source.evidenceLevel, source.freshness, domainOccurrenceCount === 1 ? "unique-domain" : "repeated-domain"],
+    };
+  });
 }
 
 function sourceNatureLabel(assessment: SourceAssessment, language: "ja" | "en"): string {
   if (language === "ja") {
-    return `媒体区分: ${assessment.publisherKind === "encyclopedia-reference" ? "百科事典型の参考情報" : "公開Web"}\n公式性: 未判定\n独立性の判定単位: ドメインのみ`;
+    return `媒体区分: ${assessment.publisherKind === "encyclopedia-reference" ? "百科事典型の参考情報" : "公開Web"}\n公式性: 未判定（確認根拠なし）\n独立性: ${assessment.independenceStatus === "domain-distinct" ? "他ソースと異なるドメイン" : "同一ドメインの別ソースあり"}（ドメイン単位のみ）\n取得証拠の強さ: ${assessment.evidenceStrength}`;
   }
-  return `Publisher type: ${assessment.publisherKind === "encyclopedia-reference" ? "Encyclopedia reference" : "Public web"}\nOfficial status: not assessed\nIndependence basis: domain only`;
+  return `Publisher type: ${assessment.publisherKind === "encyclopedia-reference" ? "Encyclopedia reference" : "Public web"}\nOfficial status: not assessed (no verification basis)\nIndependence: ${assessment.independenceStatus === "domain-distinct" ? "distinct domain" : "same domain as another source"} (domain-level only)\nRetrieval evidence strength: ${assessment.evidenceStrength}`;
 }
 
 function normalizeEvidenceText(value: string): string {
@@ -76,21 +102,36 @@ function normalizeEvidenceText(value: string): string {
 
 function buildEvidenceComparison(sources: ResearchEvidenceSource[]): EvidenceComparison {
   const normalizedTextCounts = new Map<string, number>();
-  const assessments = sources.map(assessSource);
+  const assessments = assessSources(sources);
+  const distinctDomainCount = new Set(assessments.map((assessment) => assessment.domain)).size;
+  const pageVerifiedCount = sources.filter((source) => source.evidenceLevel === "page-verified").length;
+  const recentCount = sources.filter((source) => source.freshness === "recent").length;
+  const confidenceLevel = distinctDomainCount >= 2 && pageVerifiedCount >= 2 && recentCount >= 1
+    ? "strong"
+    : distinctDomainCount >= 2 && (pageVerifiedCount >= 1 || recentCount >= 1)
+      ? "moderate"
+      : "limited";
   for (const source of sources) {
     const normalized = normalizeEvidenceText(source.excerpt);
     if (normalized) normalizedTextCounts.set(normalized, (normalizedTextCounts.get(normalized) ?? 0) + 1);
   }
   return {
     sourceCount: sources.length,
-    distinctDomainCount: new Set(assessments.map((assessment) => assessment.domain)).size,
+    distinctDomainCount,
     encyclopediaReferenceCount: assessments.filter((assessment) => assessment.publisherKind === "encyclopedia-reference").length,
     publicWebCount: assessments.filter((assessment) => assessment.publisherKind === "public-web").length,
     officialSourceCount: null,
     officialStatus: "not-assessed",
-    pageVerifiedCount: sources.filter((source) => source.evidenceLevel === "page-verified").length,
+    distinctSourceCount: assessments.filter((assessment) => assessment.independenceStatus === "domain-distinct").length,
+    repeatedDomainSourceCount: assessments.filter((assessment) => assessment.independenceStatus === "same-domain").length,
+    strongEvidenceCount: assessments.filter((assessment) => assessment.evidenceStrength === "strong").length,
+    moderateEvidenceCount: assessments.filter((assessment) => assessment.evidenceStrength === "moderate").length,
+    limitedEvidenceCount: assessments.filter((assessment) => assessment.evidenceStrength === "limited").length,
+    confidenceLevel,
+    confidenceScope: "retrieval-evidence-only",
+    pageVerifiedCount,
     snippetCount: sources.filter((source) => source.evidenceLevel === "snippet").length,
-    recentCount: sources.filter((source) => source.freshness === "recent").length,
+    recentCount,
     olderCount: sources.filter((source) => source.freshness === "older").length,
     unknownFreshnessCount: sources.filter((source) => source.freshness === "unknown").length,
     duplicateTextGroupCount: [...normalizedTextCounts.values()].filter((count) => count > 1).length,
@@ -104,7 +145,9 @@ function comparisonContent(comparison: EvidenceComparison, language: "ja" | "en"
     return `## 証拠比較
 - 情報源: ${comparison.sourceCount}件（独立ドメイン ${comparison.distinctDomainCount}、ドメイン単位のみ）
 - 媒体区分: 百科事典型 ${comparison.encyclopediaReferenceCount}件 / 公開Web ${comparison.publicWebCount}件
-- 公式情報源: 未判定（URLだけでは公式性を推測しません）
+- 公式情報源: 未判定（確認根拠がない限り推測しません）
+- 独立性: 異なるドメインのソース ${comparison.distinctSourceCount}件 / 同一ドメイン重複 ${comparison.repeatedDomainSourceCount}件
+- 取得証拠の強さ: ${comparison.confidenceLevel}（取得証拠のみ。内容の真偽や媒体の信頼性は未評価）
 - 証拠: ページ確認済み ${comparison.pageVerifiedCount}件 / 検索スニペット ${comparison.snippetCount}件
 - 鮮度: 30日以内 ${comparison.recentCount}件 / 30日超 ${comparison.olderCount}件 / 不明 ${comparison.unknownFreshnessCount}件
 - 重複テキスト: ${comparison.duplicateTextGroupCount}グループ
@@ -113,7 +156,9 @@ function comparisonContent(comparison: EvidenceComparison, language: "ja" | "en"
   return `## Evidence comparison
 - Sources: ${comparison.sourceCount} (distinct domains: ${comparison.distinctDomainCount}; domain-level only)
 - Publisher types: ${comparison.encyclopediaReferenceCount} encyclopedia reference / ${comparison.publicWebCount} public web
-- Official sources: not assessed (ORIGIN does not infer official status from a URL alone)
+- Official sources: not assessed (ORIGIN requires explicit verification evidence)
+- Independence: ${comparison.distinctSourceCount} distinct-domain source(s) / ${comparison.repeatedDomainSourceCount} repeated-domain source(s)
+- Retrieval evidence confidence: ${comparison.confidenceLevel} (retrieval evidence only; factual accuracy and publisher trust are not assessed)
 - Evidence: ${comparison.pageVerifiedCount} page verified / ${comparison.snippetCount} search snippets
 - Freshness: ${comparison.recentCount} within 30 days / ${comparison.olderCount} older / ${comparison.unknownFreshnessCount} unknown
 - Duplicate text: ${comparison.duplicateTextGroupCount} group(s)
@@ -175,7 +220,7 @@ export function createOriginResearchRouter() {
     }
 
     const comparison = buildEvidenceComparison(result.sources);
-    const sourceAssessments = result.sources.map(assessSource);
+    const sourceAssessments = assessSources(result.sources);
     const content = language === "ja"
       ? `無料の公開Web検索を実行しました。検索結果は複数の公開Webソースから取得しています。\n\n${comparisonContent(comparison, "ja")}\n\n${result.sources.map((source, index) => `### ${source.title}\n${source.excerpt}\n\n〔出典: [${sourceLabel(source)}](${source.url})〕\n証拠レベル: ${source.evidenceLevel === "page-verified" ? "ページ確認済み" : "検索スニペットのみ"}\n取得日時: ${source.retrievedAt}\n鮮度: ${freshnessLabel(source.freshness, "ja")}\n${sourceNatureLabel(sourceAssessments[index], "ja")}${source.rank ? `\n検索順位: ${source.rank}` : ""}${source.revisionTimestamp ? `\n最終更新: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`
       : `I ran a free public web search and retrieved multiple public web sources.\n\n${comparisonContent(comparison, "en")}\n\n${result.sources.map((source, index) => `### ${source.title}\n${source.excerpt}\n\n〔Source: [${sourceLabel(source)}](${source.url})〕\nEvidence level: ${source.evidenceLevel === "page-verified" ? "Page verified" : "Search snippet only"}\nRetrieved at: ${source.retrievedAt}\nFreshness: ${freshnessLabel(source.freshness, "en")}\n${sourceNatureLabel(sourceAssessments[index], "en")}${source.rank ? `\nSearch rank: ${source.rank}` : ""}${source.revisionTimestamp ? `\nLatest revision: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`;
