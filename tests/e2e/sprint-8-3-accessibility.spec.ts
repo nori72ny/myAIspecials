@@ -89,8 +89,8 @@ test.describe('ORIGIN Personal 2.0 accessibility', () => {
     await page.getByTestId('origin-home-request').fill(`連絡先は ${privateValue} です`);
     await page.getByTestId('start-request-button').click();
 
-    await expect(page.getByText('個人情報を端末内で保護しました')).toBeVisible();
-    await expect(page.getByTestId('response-announcement')).toContainText('送信前に端末内で遮断');
+    await expect(page.getByText('入力内容は送信せず、履歴にも追加していません。個人・金融・医療・認証情報を削除してください。画像は個人情報が含まれないことを検証できないため、この版では端末外へ送信しません。')).toBeVisible();
+    await expect(page.getByTestId('origin-safe-waiting-state')).toHaveAttribute('aria-live', 'assertive');
     await expect(page.getByTestId('origin-home-request')).toHaveValue(`連絡先は ${privateValue} です`);
     await expect(page.getByRole('article', { name: 'あなたの依頼' })).toHaveCount(0);
     expect(requests).toBe(0);
