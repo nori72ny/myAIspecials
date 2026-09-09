@@ -630,6 +630,23 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('blocks personal data and image attachments locally before production chat fetch', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const privateValue = ['nori', '@', 'example.invalid'].join('');
+    render(<App language="ja" />);
+
+    const input = screen.getByTestId('origin-home-request') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: `連絡先は ${privateValue} です` } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText('入力内容は送信せず、履歴にも追加していません。個人・金融・医療・認証情報を削除してください。画像は個人情報が含まれないことを検証できないため、この版では端末外へ送信しません。')).toBeTruthy());
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(input.value).toContain(privateValue);
+    expect(screen.queryByRole('article', { name: 'あなたの依頼' })).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it('stops new AI requests while offline and preserves local-only operations', async () => {
     const online = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
