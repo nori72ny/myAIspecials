@@ -38,7 +38,6 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
     status: "ok",
     service: "acos-2",
     releaseSha: resolveOriginReleaseSha(env),
-    agentProtocolVersion: 3,
     costUsd: 0,
     freeOnly: true,
     paidFallbackEnabled: false,
