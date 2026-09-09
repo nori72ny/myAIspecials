@@ -1,18 +1,52 @@
 import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { createAgentOrchestratorV3Router } from './agentOrchestratorV3.js';
+import { createAgentOrchestratorV3Router, type AgentRunConsumptionStore } from './agentOrchestratorV3.js';
+import { approvalDigest } from './agentApproval.js';
+import { issueApprovalCapability } from './agentV3Capability.js';
 
 const env = { ORIGIN_AGENT_APPROVAL_SECRET: 'x'.repeat(40) };
 
-function appFor(testEnv: NodeJS.ProcessEnv = env) {
+function appFor(testEnv: NodeJS.ProcessEnv = env, store?: AgentRunConsumptionStore) {
   const app = express();
   app.use(express.json());
-  app.use(createAgentOrchestratorV3Router(testEnv));
+  app.use(createAgentOrchestratorV3Router(testEnv, store));
   return app;
 }
 
 describe('agent orchestrator v3', () => {
+  const operation = { action: 'execute' as const, runId: 'run-replay-test', toolName: 'document_generator' as const, params: { content: 'Harmless audit document' } };
+  const execute = (app: express.Express) => request(app).post('/api/agent/v3/execute')
+    .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+    .send({ ...operation, approvalToken: issueApprovalCapability(operation.runId, approvalDigest(operation), env).token });
+
+  it('blocks execution without shared replay protection', async () => {
+    const response = await execute(appFor());
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('AGENT_REPLAY_PROTECTION_UNAVAILABLE');
+  });
+
+  it('fails closed and hides storage errors', async () => {
+    const response = await execute(appFor(env, { consume: async () => { throw new Error('private infrastructure details'); } }));
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(response.body)).not.toContain('private infrastructure');
+  });
+
+  it('allows only one execution across concurrent router instances and later retries', async () => {
+    const used = new Set<string>();
+    const store: AgentRunConsumptionStore = { consume: async (runId, expiresAt) => {
+      expect(expiresAt).toBeGreaterThan(Date.now());
+      if (used.has(runId)) return false;
+      used.add(runId);
+      return true;
+    } };
+    const first = appFor(env, store);
+    const second = appFor(env, store);
+    const responses = await Promise.all([execute(first), execute(second)]);
+    expect(responses.map(r => r.status).sort()).toEqual([200, 409]);
+    expect((await execute(second)).status).toBe(409);
+  });
+
   it('creates a bounded zero-cost stateless plan without returning the raw goal', async () => {
     const goal = '顧客情報を含む安全な計画';
     const response = await request(appFor()).post('/api/agent/v3/plan').send({ goal });
