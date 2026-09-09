@@ -12,6 +12,7 @@ export interface AgentApprovalOperation {
   toolName?: string;
   params?: unknown;
   checkpointId?: string;
+  runId?: string;
 }
 
 interface ApprovalRecord {
