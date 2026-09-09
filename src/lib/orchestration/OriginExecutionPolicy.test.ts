@@ -15,6 +15,7 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
     expect(result.plan.freeOnly).toBe(true);
     expect(result.plan.estimatedCostUsd).toBe(0);
+    expect(result.plan.capabilityDecision).toEqual({ capability: "coding", reason: "keyword", confidence: "high" });
     expect(result.plan.providerDataPolicy).toEqual({ allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true });
     expect(result.plan.modelEvidence.sourceUrl).toContain("openrouter.ai");
   });
@@ -26,6 +27,25 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.providerId).toBe("openrouter-free");
     expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
     expect(result.plan.taskType).toBe("current-information");
+    expect(result.plan.capabilityDecision).toEqual({ capability: "research", reason: "keyword", confidence: "high" });
+  });
+
+  it("honors an explicit capability without changing the fixed free provider boundary", () => {
+    const result = buildOriginExecutionPlan({ goal: "この内容を整理してください", capability: "analysis" }, { openRouterConfigured: true }, undefined, { nowMs: verifiedNow });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.capabilityDecision).toEqual({ capability: "analysis", reason: "explicit", confidence: "high" });
+    expect(result.plan.providerId).toBe("openrouter-free");
+    expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
+    expect(result.plan.estimatedCostUsd).toBe(0);
+  });
+
+  it("defaults unknown requests to answer capability while preserving deterministic task classification", () => {
+    const result = buildOriginExecutionPlan({ goal: "こんにちは" }, { openRouterConfigured: true }, undefined, { nowMs: verifiedNow });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.capabilityDecision).toEqual({ capability: "answer", reason: "default", confidence: "low" });
+    expect(result.plan.taskType).toBe("review");
   });
 
   it("fails closed when OpenRouter is not configured even if legacy providers are configured", () => {
