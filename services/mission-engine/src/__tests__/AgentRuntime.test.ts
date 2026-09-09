@@ -32,8 +32,8 @@ describe("=== Agent Runtime (Version 1 Core) Unit Tests ===", () => {
     it("performs safe evaluations in CalculatorTool", async () => {
       const calc = new CalculatorTool(); expect((await calc.execute({ expression: "(10 + 5) * 2" })).success).toBe(true); expect((await calc.execute({ expression: "require('fs')" })).error).toContain("Security restriction");
     });
-    it("fails closed for WebTool query execution when live network search is unavailable", async () => {
-      const web = new WebTool(); const res = await web.execute({ query: "Clean Architecture guidelines" }); expect(res.success).toBe(false); expect(res.error).toContain("Web search failed:");
+    it("fails closed for WebTool requests to non-whitelisted domains", async () => {
+      const web = new WebTool(); const res = await web.execute({ url: "https://attacker.invalid/payload" }); expect(res.success).toBe(false); expect(res.error).toContain("not whitelisted");
     });
     it("rejects absolute FileTool paths before filesystem access", async () => {
       const fileTool = new FileTool(); const resAbsolute = await fileTool.execute({ action: "read", path: "/etc/passwd" }); expect(resAbsolute.success).toBe(false); expect(resAbsolute.error).toContain("PATH_OUTSIDE_WORKSPACE");
