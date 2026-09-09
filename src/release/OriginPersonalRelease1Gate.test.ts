@@ -29,7 +29,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     const modelCatalog = readRepositoryFile("src/lib/orchestration/OriginFreeModelCatalog.ts");
     expect(providerClient).toContain('export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;');
     expect(providerClient).toContain("openrouter: [ORIGIN_OPENROUTER_FREE_MODEL]");
-    expect(providerPolicy).toContain("allow_fallbacks: true");
+    expect(providerPolicy).toContain("allow_fallbacks: false");
     expect(providerPolicy).toContain('data_collection: "deny"');
     expect(providerPolicy).toContain("zdr: true");
     expect(providerPolicy).toContain("prompt: 0");

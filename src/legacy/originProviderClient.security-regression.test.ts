@@ -12,7 +12,7 @@ const plan: OriginExecutionPlan = {
   timeoutMs: 30_000,
   requiresOwnerApproval: false,
   reason: "security regression fixture",
-  providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false },
+  providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true },
   modelEvidence: {
     providerId: "openrouter-free",
     verifiedAt: "2026-09-02T08:00:17.472Z",
