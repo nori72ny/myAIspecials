@@ -13,7 +13,7 @@ const plan: OriginExecutionPlan = {
   timeoutMs: 30_000,
   requiresOwnerApproval: false,
   reason: "stream test",
-  providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false },
+  providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true },
   modelEvidence: {
     providerId: "openrouter-free",
     verifiedAt: "2026-09-07T23:20:00.000Z",
@@ -47,7 +47,7 @@ describe("executeOriginProviderStream", () => {
       const body = JSON.parse(String(init?.body));
       expect(body.stream).toBe(true);
       expect(body.model).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
-      expect(body.provider).toEqual({ allow_fallbacks: true, data_collection: "deny", zdr: true, max_price: { prompt: 0, completion: 0, request: 0 } });
+      expect(body.provider).toEqual({ allow_fallbacks: false, data_collection: "deny", zdr: true, max_price: { prompt: 0, completion: 0, request: 0 } });
       return streamingResponse([
         ": OPENROUTER PROCESSING\n\n",
         event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "OR" }, finish_reason: null }] }).slice(0, 37),

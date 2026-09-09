@@ -13,7 +13,7 @@ const executionResult = {
   providerDataPolicy: {
     allowProviderFallbacks: false as const,
     dataCollection: "deny" as const,
-    requireZeroDataRetention: false as const,
+    requireZeroDataRetention: true as const,
   },
   routingEvidence: {
     requestedModel: "inclusionai/ling-3.0-flash-sante:free",

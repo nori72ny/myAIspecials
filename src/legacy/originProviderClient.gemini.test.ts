@@ -13,7 +13,7 @@ const request: OriginProviderExecutionRequest = {
     timeoutMs: 20_000,
     requiresOwnerApproval: false,
     reason: "test",
-    providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false },
+    providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true },
     modelEvidence: { providerId: "openrouter-free", verifiedAt: "2026-09-07T00:00:00.000Z", reviewAfter: "2026-09-17T00:00:00.000Z", sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free" },
   },
   messages: [{ role: "user", content: "日本語で短く答えてください。" }],

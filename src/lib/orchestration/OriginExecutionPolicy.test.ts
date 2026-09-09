@@ -15,7 +15,7 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
     expect(result.plan.freeOnly).toBe(true);
     expect(result.plan.estimatedCostUsd).toBe(0);
-    expect(result.plan.providerDataPolicy).toEqual({ allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false });
+    expect(result.plan.providerDataPolicy).toEqual({ allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true });
     expect(result.plan.modelEvidence.sourceUrl).toContain("openrouter.ai");
   });
 

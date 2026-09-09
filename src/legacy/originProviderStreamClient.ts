@@ -121,8 +121,10 @@ function validateStreamPlan(plan: OriginExecutionPlan): void {
     || plan.estimatedCostUsd !== 0
     || plan.providerId !== "openrouter-free"
     || plan.modelId !== ORIGIN_OPENROUTER_FREE_MODEL
-    || plan.providerDataPolicy.allowProviderFallbacks !== false) {
-    throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "0ドル固定ポリシーに適合しない実行計画です。", 400, false);
+    || plan.providerDataPolicy.allowProviderFallbacks !== false
+    || plan.providerDataPolicy.dataCollection !== "deny"
+    || plan.providerDataPolicy.requireZeroDataRetention !== true) {
+    throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "0ドル・ZDR固定ポリシーに適合しない実行計画です。", 400, false);
   }
 }
 

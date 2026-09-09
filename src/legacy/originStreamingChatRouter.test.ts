@@ -11,7 +11,7 @@ const catalogNow = () => Date.parse(evidence.verifiedAt) + 1;
 const result = (text: string): OriginProviderExecutionResult => ({
   text,
   actualCostUsd: 0,
-  providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false },
+  providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true },
   routingEvidence: {
     requestedModel: evidence.modelId,
     servedModel: evidence.modelId,
