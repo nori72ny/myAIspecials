@@ -12,6 +12,7 @@ const env = {
   ORIGIN_CODING_OPERATOR_SECRET: codingSecret,
   ORIGIN_CODING_JOB_DATA_KEY: Buffer.alloc(32, 7).toString('base64'),
   ORIGIN_CODING_JOB_OWNER_HMAC_SECRET: Buffer.alloc(40, 11).toString('base64'),
+  ORIGIN_CODING_GITHUB_DISPATCH_TOKEN: 'g'.repeat(40),
   ORIGIN_CODING_WORKER_ENABLED: 'true',
 };
 
@@ -23,11 +24,18 @@ const defaultDispatch = () => vi.fn(async (jobId: string) => ({
   ref: 'main' as const,
 }));
 
-function appFor(store: any, dispatch = defaultDispatch(), routerEnv: NodeJS.ProcessEnv = env) {
+const defaultResultStore = () => ({ get: vi.fn(async () => null) });
+
+function appFor(
+  store: any,
+  dispatch = defaultDispatch(),
+  routerEnv: NodeJS.ProcessEnv = env,
+  resultStore: any = defaultResultStore(),
+) {
   const app = express();
   app.use(express.json());
-  app.use(createCodingJobV14Router(routerEnv, store, dispatch));
-  return { app, dispatch };
+  app.use(createCodingJobV14Router(routerEnv, store, dispatch, resultStore));
+  return { app, dispatch, resultStore };
 }
 
 function publicRecord(jobId: string): CodingJobPublicRecordV14 {
@@ -48,26 +56,62 @@ function publicRecord(jobId: string): CodingJobPublicRecordV14 {
 }
 
 describe('V1.4 coding job API', () => {
-  it('reports dedicated coding authorization without exposing credential material', async () => {
+  it('reports exact submission readiness without exposing credential material', async () => {
     const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() });
     const response = await request(app).get('/api/coding/v1.4/status');
     expect(response.status).toBe(200);
+    expect(response.body.ready).toBe(true);
+    expect(response.body.controlPlaneReady).toBe(true);
+    expect(response.body.storeReady).toBe(true);
+    expect(response.body.resultStoreReady).toBe(true);
+    expect(response.body.authorizationReady).toBe(true);
+    expect(response.body.ownerBindingReady).toBe(true);
+    expect(response.body.dataKeyReady).toBe(true);
+    expect(response.body.cryptoReady).toBe(true);
+    expect(response.body.dispatchReady).toBe(true);
+    expect(response.body.workerEnabled).toBe(true);
     expect(response.body.authorizationMode).toBe('coding-operator');
     expect(response.body.authorizationScope).toBe('coding-v1.4-only-when-dedicated');
     expect(JSON.stringify(response.body)).not.toContain(codingSecret);
     expect(JSON.stringify(response.body)).not.toContain(approvalSecret);
   });
 
-  it('stays fail-closed until the hosted worker is explicitly enabled', async () => {
+  it('stays fail-closed for new work until the hosted worker is explicitly enabled', async () => {
     const disabledEnv = { ...env, ORIGIN_CODING_WORKER_ENABLED: 'false' };
-    const app = express();
-    app.use(express.json());
-    app.use(createCodingJobV14Router(disabledEnv, {} as any));
+    const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() }, defaultDispatch(), disabledEnv);
+    const status = await request(app).get('/api/coding/v1.4/status');
+    expect(status.body.ready).toBe(false);
+    expect(status.body.controlPlaneReady).toBe(true);
+    expect(status.body.workerEnabled).toBe(false);
     const response = await request(app).post('/api/coding/v1.4/jobs')
       .set('Authorization', `Bearer ${codingSecret}`)
       .send({ goal: 'fix the parser', confirmRun: true });
     expect(response.status).toBe(503);
     expect(response.body.code).toBe('CODING_JOB_API_NOT_READY');
+  });
+
+  it('keeps status and cancellation available when new-job submission is disabled', async () => {
+    const knownId = 'coding-AAAAAAAAAAAAAAAAAAAAAA';
+    const record = { ...publicRecord(knownId), status: 'running' as const, attempt: 1, version: 2 };
+    const store = {
+      create: vi.fn(),
+      getJob: vi.fn(async () => record),
+      requestCancel: vi.fn(async () => ({ ...record, cancelRequested: true })),
+    };
+    const degradedEnv = { ...env, ORIGIN_CODING_WORKER_ENABLED: 'false', ORIGIN_CODING_GITHUB_DISPATCH_TOKEN: '' };
+    const { app } = appFor(store, defaultDispatch(), degradedEnv);
+    const capability = await request(app).get('/api/coding/v1.4/status');
+    expect(capability.body.ready).toBe(false);
+    expect(capability.body.controlPlaneReady).toBe(true);
+    expect(capability.body.dispatchReady).toBe(false);
+
+    const status = await request(app).get(`/api/coding/v1.4/jobs/${knownId}`).set('Authorization', `Bearer ${codingSecret}`);
+    expect(status.status).toBe(200);
+    expect(status.body.job.status).toBe('running');
+
+    const cancel = await request(app).delete(`/api/coding/v1.4/jobs/${knownId}`).set('Authorization', `Bearer ${codingSecret}`);
+    expect(cancel.status).toBe(200);
+    expect(cancel.body.job.cancelRequested).toBe(true);
   });
 
   it('requires the coding operator credential', async () => {
@@ -92,6 +136,7 @@ describe('V1.4 coding job API', () => {
     const status = await request(app).get('/api/coding/v1.4/status');
     expect(status.body.authorizationMode).toBe('unconfigured');
     expect(status.body.ready).toBe(false);
+    expect(status.body.controlPlaneReady).toBe(false);
     const response = await request(app).post('/api/coding/v1.4/jobs')
       .set('Authorization', `Bearer ${approvalSecret}`)
       .send({ goal: 'fix the parser', confirmRun: true });
@@ -110,10 +155,24 @@ describe('V1.4 coding job API', () => {
     const { app } = appFor(store, defaultDispatch(), legacyEnv);
     const status = await request(app).get('/api/coding/v1.4/status');
     expect(status.body.authorizationMode).toBe('legacy-agent-compat');
+    expect(status.body.ready).toBe(true);
     const response = await request(app).post('/api/coding/v1.4/jobs')
       .set('Authorization', `Bearer ${approvalSecret}`)
       .send({ goal: 'fix the parser', confirmRun: true });
     expect(response.status).toBe(202);
+  });
+
+  it('requires data-key, result-store and dispatch readiness before accepting new work', async () => {
+    const store = { create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() };
+    const missingDataKey = { ...env, ORIGIN_CODING_JOB_DATA_KEY: '' };
+    const noKey = appFor(store, defaultDispatch(), missingDataKey);
+    expect((await request(noKey.app).get('/api/coding/v1.4/status')).body.dataKeyReady).toBe(false);
+    expect((await request(noKey.app).post('/api/coding/v1.4/jobs').set('Authorization', `Bearer ${codingSecret}`).send({ goal: 'fix it', confirmRun: true })).status).toBe(503);
+
+    const noResults = appFor(store, defaultDispatch(), env, undefined);
+    const noResultsStatus = await request(noResults.app).get('/api/coding/v1.4/status');
+    expect(noResultsStatus.body.resultStoreReady).toBe(false);
+    expect((await request(noResults.app).post('/api/coding/v1.4/jobs').set('Authorization', `Bearer ${codingSecret}`).send({ goal: 'fix it', confirmRun: true })).status).toBe(503);
   });
 
   it('persists only an encrypted private envelope and dispatches only the opaque job id', async () => {
