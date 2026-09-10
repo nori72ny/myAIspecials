@@ -11,6 +11,8 @@ import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsu
 import { createGroundedResearchV11Router } from "../research/groundedResearchV11Router.js";
 import { createArtifactV12Router } from "../artifacts/artifactV12Router.js";
 import { createWebAppBuilderV13Router } from "../builder/webAppBuilderV13Router.js";
+import { createWebPublicationStoreFromEnv } from "../builder/webPublicationStoreV131.js";
+import { createWebPublicationV131Router } from "../builder/webPublicationV131Router.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): string { const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA; return candidate && FULL_GIT_SHA.test(candidate) ? candidate.toLowerCase() : "unknown"; }
@@ -23,7 +25,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.use("/api/chat", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
   app.use("/api/research/v1.1", createOriginChatRateLimiter());
   app.use("/api/artifacts/v1.2", createOriginChatRateLimiter());
-  app.use("/api/builder/v1.3", createOriginChatRateLimiter());
+  app.use("/api/builder", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
   app.use(express.json({ limit: "64kb", strict: true, type: ["application/json", "application/*+json"] }));
 
   const invalidJsonHandler: ErrorRequestHandler = (error, _req, res, next) => {
@@ -39,6 +41,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.all("/api/generate-image", (_req, res) => res.status(503).json({ code: "ORIGIN_PROVIDER_PATH_DISABLED", message: "このAI実行経路はORIGINの安全・無料実行ポリシーへ未移行のため停止しています。", retryable: false, requestId: "UNKNOWN" }));
 
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
+  const webPublicationStore = createWebPublicationStoreFromEnv(env);
   app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore));
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
@@ -54,6 +57,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.use(createGroundedResearchV11Router());
   app.use(createArtifactV12Router());
   app.use(createWebAppBuilderV13Router());
+  app.use(createWebPublicationV131Router(env, webPublicationStore));
   app.use(createOriginResearchRouter());
   // Browser clients request text/event-stream. Handle provider-eligible requests here
   // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router
