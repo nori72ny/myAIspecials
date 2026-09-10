@@ -4,6 +4,8 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CODING_JOB_ID_PATTERN } from '../src/agent/codingJobCryptoV14.js';
+import { buildCodingJobResultV14 } from '../src/agent/codingJobResultV14.js';
+import { createCodingJobResultStoreFromEnvV14 } from '../src/agent/codingJobResultStoreV14.js';
 import { runCodingJobWorkerV14, type CodingJobResolvedTargetV14, type CodingJobWorkerCheckpointV14 } from '../src/agent/codingJobWorkerV14.js';
 import { createCodingJobStoreFromEnvV14 } from '../src/agent/supabaseCodingJobStoreV14.js';
 import type { CodingCheck } from '../src/agent/codingSessionV14.js';
@@ -85,6 +87,8 @@ async function main(): Promise<void> {
   const checkout = await fs.realpath(process.cwd());
   const store = createCodingJobStoreFromEnvV14(process.env);
   if (!store) throw new Error('CODING_WORKER_STORE_NOT_CONFIGURED');
+  const resultStore = createCodingJobResultStoreFromEnvV14(process.env);
+  if (!resultStore) throw new Error('CODING_WORKER_RESULT_STORE_NOT_CONFIGURED');
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), `origin-v14-${jobId}-`));
   const workerId = `gha-${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`;
   try {
@@ -104,7 +108,14 @@ async function main(): Promise<void> {
       }
       return checks;
     };
-    const outcome = await runCodingJobWorkerV14(jobId, workerId, { store, resolveTarget, verify, env: process.env });
+    const outcome = await runCodingJobWorkerV14(jobId, workerId, {
+      store,
+      resultStore,
+      resolveTarget,
+      verify,
+      captureResult: (session, root) => buildCodingJobResultV14(session, checkout, root),
+      env: process.env,
+    });
     console.log(JSON.stringify({ jobId: outcome.jobId, state: outcome.state, code: outcome.code }));
     if (outcome.state === 'retryable' || outcome.state === 'lease_lost') process.exitCode = 2;
   } finally {
