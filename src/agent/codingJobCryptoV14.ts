@@ -34,14 +34,26 @@ function ownerSecret(value: string | undefined): string {
   return value;
 }
 
-export function codingJobCryptoConfiguredV14(env: NodeJS.ProcessEnv = process.env): boolean {
+export function codingJobDataKeyConfiguredV14(env: NodeJS.ProcessEnv = process.env): boolean {
   try {
     canonicalDataKey(env[DATA_KEY_ENV]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function codingJobOwnerHashConfiguredV14(env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
     ownerSecret(env[OWNER_SECRET_ENV]);
     return true;
   } catch {
     return false;
   }
+}
+
+export function codingJobCryptoConfiguredV14(env: NodeJS.ProcessEnv = process.env): boolean {
+  return codingJobDataKeyConfiguredV14(env) && codingJobOwnerHashConfiguredV14(env);
 }
 
 function validateGoal(value: unknown): string {
