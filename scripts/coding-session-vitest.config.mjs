@@ -12,6 +12,7 @@ export default {
       'src/agent/safeRepositoryWriter.test.ts',
       'src/agent/codingJobCryptoV14.test.ts',
       'src/agent/supabaseCodingJobStoreV14.test.ts',
+      'src/agent/codingJobWorkerV14.test.ts',
     ],
   },
 };

@@ -1,0 +1,168 @@
+import { decryptCodingJobPayloadV14 } from './codingJobCryptoV14.js';
+import { createCodingNavigatorV14 } from './codingNavigatorV14.js';
+import { createCodingPlannerV14 } from './codingPlannerV14.js';
+import { runCodingSessionV14, type CodingCheck, type CodingSessionRequest } from './codingSessionV14.js';
+import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
+import type { CodingJobCompletionStatusV14, CodingJobLeaseV14, CodingJobPublicRecordV14, PostgresCodingJobStoreV14 } from './supabaseCodingJobStoreV14.js';
+
+const DEFAULT_WORKER_LEASE_SECONDS = 120;
+
+type WorkerStoreV14 = Pick<PostgresCodingJobStoreV14,
+  'recoverStaleJob' | 'claimJob' | 'startJob' | 'markRepairing' | 'renewLease' |
+  'cancellationRequested' | 'acknowledgeCancel' | 'completeJob'>;
+
+export type CodingJobResolvedTargetV14 = {
+  root: string;
+  allowedPaths?: string[];
+  contextPaths?: string[];
+  creatablePaths?: string[];
+  maxRepairs?: number;
+  trustedWorkspaceApproved: true;
+};
+
+export type CodingJobWorkerDependenciesV14 = {
+  store: WorkerStoreV14;
+  /** Server-owned allowlist resolver. Never interpret targetKey as a filesystem path. */
+  resolveTarget: (targetKey: string) => Promise<CodingJobResolvedTargetV14>;
+  /** Executes repository code only inside the dedicated isolated verification sandbox. */
+  verify: (root: string) => Promise<CodingCheck[]>;
+  env?: NodeJS.ProcessEnv;
+  execute?: (request: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv) => Promise<OriginProviderExecutionResult>;
+  leaseSeconds?: number;
+};
+
+export type CodingJobWorkerOutcomeV14 = {
+  jobId: string;
+  state: 'not_claimed' | 'verified' | 'blocked' | 'failed' | 'cancelled' | 'lease_lost' | 'retryable';
+  code: string;
+};
+
+type AbortKind = 'cancelled' | 'lease_lost';
+class WorkerAbort extends Error {}
+
+function terminalOutcome(jobId: string, record: CodingJobPublicRecordV14): CodingJobWorkerOutcomeV14 | null {
+  if (record.status === 'cancelled') return { jobId, state: 'cancelled', code: record.resultCode ?? 'CODING_CANCELLED_BY_USER' };
+  if (record.status === 'failed') return { jobId, state: 'failed', code: record.resultCode ?? 'CODING_WORKER_RETRY_EXHAUSTED' };
+  if (record.status === 'blocked') return { jobId, state: 'blocked', code: record.resultCode ?? 'CODING_OPERATION_BLOCKED' };
+  if (record.status === 'verified') return { jobId, state: 'verified', code: record.resultCode ?? 'CODING_CHECKS_PASSED' };
+  return null;
+}
+
+function completionStatus(status: Awaited<ReturnType<typeof runCodingSessionV14>>['status']): CodingJobCompletionStatusV14 {
+  if (status === 'verified') return 'verified';
+  if (status === 'repair_limit') return 'failed';
+  return 'blocked';
+}
+
+/**
+ * Trusted hosted-worker controller. It receives only an opaque job id from the
+ * dispatch transport. Private task text is decrypted only after an atomic lease
+ * claim. Provider/database/key material remains in this controller process and
+ * must never be copied into the repository verification sandbox.
+ */
+export async function runCodingJobWorkerV14(jobId: string, workerId: string, deps: CodingJobWorkerDependenciesV14): Promise<CodingJobWorkerOutcomeV14> {
+  const leaseSeconds = deps.leaseSeconds ?? DEFAULT_WORKER_LEASE_SECONDS;
+  const recovered = await deps.store.recoverStaleJob(jobId);
+  if (recovered) {
+    const terminal = terminalOutcome(jobId, recovered);
+    if (terminal) return terminal;
+  }
+
+  const lease = await deps.store.claimJob(jobId, workerId, leaseSeconds);
+  if (!lease) return { jobId, state: 'not_claimed', code: 'CODING_JOB_NOT_CLAIMED' };
+
+  let abortKind: AbortKind | null = null;
+  const cancelledOrLost = async (): Promise<CodingJobWorkerOutcomeV14> => {
+    const acknowledged = await deps.store.acknowledgeCancel(jobId, workerId);
+    if (acknowledged) return { jobId, state: 'cancelled', code: 'CODING_CANCELLED_BY_USER' };
+    return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
+  };
+  const heartbeat = async (): Promise<void> => {
+    const renewed = await deps.store.renewLease(jobId, workerId, leaseSeconds);
+    if (!renewed) {
+      abortKind = 'lease_lost';
+      throw new WorkerAbort('lease lost');
+    }
+    if (await deps.store.cancellationRequested(jobId, workerId)) {
+      abortKind = 'cancelled';
+      throw new WorkerAbort('cancelled');
+    }
+  };
+
+  try {
+    if (await deps.store.cancellationRequested(jobId, workerId)) return cancelledOrLost();
+    const started = await deps.store.startJob(jobId, workerId);
+    if (!started) {
+      if (await deps.store.cancellationRequested(jobId, workerId)) return cancelledOrLost();
+      return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
+    }
+
+    let payload: ReturnType<typeof decryptCodingJobPayloadV14>;
+    let target: CodingJobResolvedTargetV14;
+    try {
+      payload = decryptCodingJobPayloadV14(lease.jobId, lease.payloadCiphertext, deps.env);
+      target = await deps.resolveTarget(lease.targetKey);
+    } catch {
+      return { jobId, state: 'retryable', code: 'CODING_WORKER_PRIVATE_STAGE_BLOCKED' };
+    }
+
+    const modelOptions = { env: deps.env, execute: deps.execute };
+    const navigator = createCodingNavigatorV14(target.root, modelOptions);
+    const planner = createCodingPlannerV14(modelOptions);
+    const request: CodingSessionRequest = {
+      root: target.root,
+      goal: payload.goal,
+      allowedPaths: target.allowedPaths,
+      contextPaths: target.contextPaths,
+      creatablePaths: target.creatablePaths,
+      maxRepairs: target.maxRepairs,
+      trustedWorkspaceApproved: target.trustedWorkspaceApproved,
+    };
+
+    const session = await runCodingSessionV14(request, {
+      discover: async context => {
+        await heartbeat();
+        return navigator(context);
+      },
+      propose: async context => {
+        await heartbeat();
+        if (context.attempt > 0) {
+          const moved = await deps.store.markRepairing(jobId, workerId);
+          if (!moved) {
+            if (await deps.store.cancellationRequested(jobId, workerId)) abortKind = 'cancelled';
+            else abortKind = 'lease_lost';
+            throw new WorkerAbort('worker state changed');
+          }
+        }
+        return planner(context);
+      },
+      verify: async root => {
+        await heartbeat();
+        return deps.verify(root);
+      },
+    });
+
+    if (abortKind === 'cancelled') return cancelledOrLost();
+    if (abortKind === 'lease_lost') return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
+    try { await heartbeat(); }
+    catch (error) { if (!(error instanceof WorkerAbort)) throw error; }
+    if (abortKind === 'cancelled') return cancelledOrLost();
+    if (abortKind === 'lease_lost') return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
+
+    const finalStatus = completionStatus(session.status);
+    const completed = await deps.store.completeJob(jobId, workerId, finalStatus, session.code, session.changedPaths);
+    if (!completed) {
+      if (await deps.store.cancellationRequested(jobId, workerId)) return cancelledOrLost();
+      return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
+    }
+    return { jobId, state: finalStatus, code: session.code };
+  } catch (error) {
+    if (error instanceof WorkerAbort) {
+      if (abortKind === 'cancelled') return cancelledOrLost();
+      return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
+    }
+    return { jobId, state: 'retryable', code: 'CODING_WORKER_STAGE_FAILED' };
+  }
+}
+
+export type { CodingJobLeaseV14 };
