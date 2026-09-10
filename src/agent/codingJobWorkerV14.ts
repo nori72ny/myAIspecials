@@ -1,7 +1,9 @@
 import { decryptCodingJobPayloadV14 } from './codingJobCryptoV14.js';
 import { createCodingNavigatorV14 } from './codingNavigatorV14.js';
 import { createCodingPlannerV14 } from './codingPlannerV14.js';
-import { runCodingSessionV14, type CodingCheck, type CodingSessionRequest } from './codingSessionV14.js';
+import { runCodingSessionV14, type CodingCheck, type CodingSessionRequest, type CodingSessionResult } from './codingSessionV14.js';
+import { encryptCodingJobResultV14, type CodingJobResultV14 } from './codingJobResultV14.js';
+import type { PostgresCodingJobResultStoreV14 } from './codingJobResultStoreV14.js';
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import type { CodingJobCompletionStatusV14, CodingJobLeaseV14, CodingJobPublicRecordV14, PostgresCodingJobStoreV14 } from './supabaseCodingJobStoreV14.js';
 
@@ -10,6 +12,7 @@ const DEFAULT_WORKER_LEASE_SECONDS = 120;
 type WorkerStoreV14 = Pick<PostgresCodingJobStoreV14,
   'recoverStaleJob' | 'claimJob' | 'startJob' | 'markRepairing' | 'renewLease' |
   'cancellationRequested' | 'acknowledgeCancel' | 'completeJob'>;
+type WorkerResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'put'>;
 
 export type CodingJobResolvedTargetV14 = {
   root: string;
@@ -27,6 +30,10 @@ export type CodingJobWorkerDependenciesV14 = {
   resolveTarget: (targetKey: string) => Promise<CodingJobResolvedTargetV14>;
   /** Executes repository code only inside the dedicated isolated verification sandbox. Call checkpoint between long-running checks. */
   verify: (root: string, checkpoint?: CodingJobWorkerCheckpointV14) => Promise<CodingCheck[]>;
+  /** Optional in unit-level integrations. Production workers provide both resultStore and captureResult. */
+  resultStore?: WorkerResultStoreV14;
+  /** Trusted host-side projection. It may read the workspace but must never execute repository code. */
+  captureResult?: (session: CodingSessionResult, workspaceRoot: string) => Promise<CodingJobResultV14>;
   env?: NodeJS.ProcessEnv;
   execute?: (request: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv) => Promise<OriginProviderExecutionResult>;
   leaseSeconds?: number;
@@ -145,6 +152,22 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
     catch (error) { if (!(error instanceof WorkerAbort)) throw error; }
     if (abortKind === 'cancelled') return cancelledOrLost();
     if (abortKind === 'lease_lost') return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
+
+    if (Boolean(deps.resultStore) !== Boolean(deps.captureResult)) {
+      return { jobId, state: 'retryable', code: 'CODING_RESULT_PIPELINE_NOT_CONFIGURED' };
+    }
+    if (deps.resultStore && deps.captureResult) {
+      try {
+        const resultPayload = await deps.captureResult(session, target.root);
+        await heartbeat();
+        const resultCiphertext = encryptCodingJobResultV14(jobId, resultPayload, deps.env);
+        if (!await deps.resultStore.put(jobId, resultCiphertext)) throw new Error('CODING_RESULT_PERSISTENCE_FAILED');
+        await heartbeat();
+      } catch (error) {
+        if (error instanceof WorkerAbort) throw error;
+        return { jobId, state: 'retryable', code: 'CODING_RESULT_PERSISTENCE_FAILED' };
+      }
+    }
 
     const finalStatus = completionStatus(session.status);
     const completed = await deps.store.completeJob(jobId, workerId, finalStatus, session.code, session.changedPaths);
