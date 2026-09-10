@@ -141,10 +141,30 @@ async function searchWeb(query: string, retrievedAt: string): Promise<OriginRese
   }
 }
 
+export async function retrieveResearchPages(sources: OriginResearchSource[]): Promise<OriginResearchSource[]> {
+  // Only bounded article/main content is treated as page evidence. Search text
+  // remains available when an original is blocked, unavailable, or unreadable.
+  return Promise.all(sources.map(async (source, index) => {
+    if (index >= 4) return { ...source, evidenceLevel: "snippet" as const };
+    try {
+      const url = new URL(source.url);
+      if (url.protocol !== 'https:' || url.username || url.password) return { ...source, evidenceLevel: 'snippet' as const };
+      const html = await secureFetch(url.href);
+      const article = html.match(/<(article|main)\b[^>]*>([\s\S]*?)<\/\1\s*>/i)?.[2];
+      if (!article) return { ...source, evidenceLevel: 'snippet' as const };
+      const text = cleanExcerpt(article.replace(/<(script|style|nav|aside)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' '));
+      if (text.length < 80) return { ...source, evidenceLevel: 'snippet' as const };
+      return { ...source, excerpt: text, evidenceLevel: 'page-verified' as const };
+    } catch {
+      return { ...source, evidenceLevel: 'snippet' as const };
+    }
+  }));
+}
+
 export async function researchCurrentInformation(query: string, now = new Date()): Promise<OriginResearchResult> {
   const retrievedAt = now.toISOString();
   const webResult = await searchWeb(query, retrievedAt);
-  if (webResult.ok) return webResult;
+  if (webResult.ok) return { ...webResult, sources: await retrieveResearchPages(webResult.sources) };
 
   // Keep Wikipedia as a bounded secondary public source when search is unavailable.
   const language = languageForQuery(query);
@@ -166,7 +186,9 @@ export async function researchCurrentInformation(query: string, now = new Date()
           : `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
         const excerpt = cleanExcerpt(page.excerpt) || cleanExcerpt(page.description);
         if (!excerpt) continue;
-        sources.push({ title, url, excerpt, revisionTimestamp: metadata.latest?.timestamp, sourceType: "encyclopedia", domain: new URL(url).hostname, rank: sources.length + 1, evidenceLevel: "page-verified", retrievedAt, freshness: freshnessOf(metadata.latest?.timestamp, retrievedAt) });
+        // The bare endpoint verifies metadata, not the article text. The excerpt
+        // still comes from search and must not be promoted to page evidence.
+        sources.push({ title, url, excerpt, revisionTimestamp: metadata.latest?.timestamp, sourceType: "encyclopedia", domain: new URL(url).hostname, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: freshnessOf(metadata.latest?.timestamp, retrievedAt) });
       } catch {
         const excerpt = cleanExcerpt(page.excerpt) || cleanExcerpt(page.description);
         if (excerpt) sources.push({ title, url: `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`, excerpt, sourceType: "encyclopedia", domain: new URL(origin).hostname, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: "unknown" });
