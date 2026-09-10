@@ -52,10 +52,10 @@ const result: CodingJobResultV14 = {
   deployed: false,
 };
 
-function appFor(store: { getJob: ReturnType<typeof vi.fn> }, resultStore: { get: ReturnType<typeof vi.fn> }) {
+function appFor(store: { getJob: ReturnType<typeof vi.fn> }, resultStore: { get: ReturnType<typeof vi.fn>; delete?: ReturnType<typeof vi.fn> }) {
   const app = express();
   app.use(express.json());
-  app.use(createCodingJobV14Router(env, store as never, vi.fn() as never, resultStore as never));
+  app.use(createCodingJobV14Router(env, store as never, vi.fn() as never, { delete: vi.fn(async () => true), ...resultStore } as never));
   return app;
 }
 
