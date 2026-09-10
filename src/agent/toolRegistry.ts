@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { listRepository, readRepositoryFile } from './safeRepositoryReader.js';
-import { writeRepositoryFile } from './safeRepositoryWriter.js';
+import { createRepositoryFileIfAbsent } from './safeRepositoryWriter.js';
 import { validateDeltaEdit, applyDeltaEdit } from './safeDeltaEditor.js';
 import { runVerification, type VerificationKind } from './verificationRunner.js';
 import { isCapabilityAllowed, type AgentCapability } from './agentExecutionPolicy.js';
@@ -46,8 +46,8 @@ const registry: Record<ToolName, ToolDefinition> = {
     const content = typeof params.content === 'string' ? params.content : '';
     const beforeContent = await readExisting(filePath);
     if (beforeContent !== undefined) return { ok: false, tool: 'file_writer', message: 'Existing files must be edited with exact-one-match search/replacement; whole-file replacement is blocked.' };
-    const result = await writeRepositoryFile(repositoryRoot(), filePath, content);
-    return { ok: true, tool: 'file_writer', artifact: result.path, message: `New repository file written atomically (${result.bytes} bytes).`, mutation: { path: result.path, beforeExists: false, afterSha256: sha256(content) } };
+    const result = await createRepositoryFileIfAbsent(repositoryRoot(), filePath, content);
+    return { ok: true, tool: 'file_writer', artifact: result.path, message: `New repository file created atomically without replacement (${result.bytes} bytes).`, mutation: { path: result.path, beforeExists: false, afterSha256: sha256(content) } };
   } },
   verification_runner: { name: 'verification_runner', capability: 'run_tests', description: 'Runs only the repository allowlisted test, typecheck, lint, or build command with bounded output, timeout, no repository-controlled npm lifecycle execution, and a sanitized environment.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const kind = textParam(params, 'kind') as VerificationKind; if (kind !== 'test' && kind !== 'typecheck' && kind !== 'lint' && kind !== 'build') return { ok: false, tool: 'verification_runner', message: 'Verification kind must be test, typecheck, lint, or build.' }; const result = await runVerification(repositoryRoot(), kind); return { ok: result.ok, tool: 'verification_runner', artifact: JSON.stringify(result), message: result.ok ? `${kind} verification passed.` : `${kind} verification failed (exit=${result.exitCode}, timeout=${result.timedOut}).` }; } },
 };

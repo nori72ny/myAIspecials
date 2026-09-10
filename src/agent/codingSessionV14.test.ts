@@ -55,7 +55,8 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
             await execute(bin, args, { cwd: root, timeout: 15_000, maxBuffer: 64 * 1024 });
             checks.push({ kind, ok: true, exitCode: 0, timedOut: false });
           } catch (error) {
-            checks.push({ kind, ok: false, exitCode: typeof error.code === 'number' ? error.code : null, timedOut: Boolean(error.killed), diagnostic: `${error.stdout ?? ''}\n${error.stderr ?? ''}` });
+            const failure = error as { code?: number; killed?: boolean; stdout?: string; stderr?: string };
+            checks.push({ kind, ok: false, exitCode: typeof failure.code === 'number' ? failure.code : null, timedOut: Boolean(failure.killed), diagnostic: `${failure.stdout ?? ''}\n${failure.stderr ?? ''}` });
           }
         }
         rounds.push(checks);
@@ -64,7 +65,7 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
     });
     expect(rounds).toHaveLength(2);
     expect(result).toMatchObject({ status: 'verified', repairRounds: 1, changedPaths: ['src/math.js', 'src/message.js'], gitPublished: false, deployed: false });
-    expect(result.audit.filter(e => e.action === 'edited')).toHaveLength(3);
+    expect(result.audit.filter(event => event.action === 'edited')).toHaveLength(3);
     expect(JSON.stringify(result)).not.toContain('export const');
     expect(await readFile(path.join(input.root, 'src/math.js'), 'utf8')).toContain('a + b;');
   }, 60_000);
@@ -83,7 +84,7 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
     input.contextPaths = ['src/message.js'];
     const result = await runCodingSessionV14(input, {
       propose: async context => {
-        expect(context.files.map(f => f.path)).toContain('src/message.js');
+        expect(context.files.map(file => file.path)).toContain('src/message.js');
         expect(context.editablePaths).toEqual(['src/math.js']);
         return [{ path: 'src/message.js', search: '"old"', replacement: '"cheat"' }];
       }, verify: async () => green(),
@@ -102,8 +103,8 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
         expect(context.diagnostics?.[0].text).not.toContain('private-value');
         return [{ path: 'src/math.js', search: 'a + b + 1', replacement: 'a + b' }];
       },
-      verify: async () => green().map(c => round === 1 && c.kind === 'test'
-        ? { ...c, ok: false, exitCode: 1, diagnostic: 'password="private-value" assertion failed' } : c),
+      verify: async () => green().map(check => round === 1 && check.kind === 'test'
+        ? { ...check, ok: false, exitCode: 1, diagnostic: 'password="private-value" assertion failed' } : check),
     });
     expect(result.status).toBe('verified');
     expect(JSON.stringify(result.audit)).not.toContain('assertion failed');
@@ -112,7 +113,7 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
 
   it.each(['../outside.js', '.env.local', '.github/workflows/ci.yml', 'package.json', 'src\\math.js'])('rejects protected scope %s', async filePath => {
     const input = await fixture();
-    input.allowedPaths.push(filePath);
+    input.allowedPaths = [...(input.allowedPaths ?? []), filePath];
     const result = await runCodingSessionV14(input, { propose: async () => { throw new Error('must not reach planner'); }, verify: async () => green() });
     expect(result.code).toBe('CODING_PATH_BLOCKED');
     expect(result.changedPaths).toEqual([]);
@@ -162,12 +163,12 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
   it('stops at the repair budget and never publishes an unverified result', async () => {
     const input = await fixture();
     input.maxRepairs = 0;
-    const result = await runCodingSessionV14(input, { propose: async () => [mathEdit()], verify: async () => green().map(c => ({ ...c, ok: false, exitCode: 1 })) });
+    const result = await runCodingSessionV14(input, { propose: async () => [mathEdit()], verify: async () => green().map(check => ({ ...check, ok: false, exitCode: 1 })) });
     expect(result).toMatchObject({ status: 'repair_limit', repairRounds: 0, deployed: false, gitPublished: false });
   });
 
   it('stops a repeated patch rather than retrying indefinitely', async () => {
-    const result = await runCodingSessionV14(await fixture(), { propose: async () => [mathEdit()], verify: async () => green().map(c => ({ ...c, ok: false, exitCode: 1 })) });
+    const result = await runCodingSessionV14(await fixture(), { propose: async () => [mathEdit()], verify: async () => green().map(check => ({ ...check, ok: false, exitCode: 1 })) });
     expect(result.code).toBe('CODING_REPEATED_PATCH');
     expect(result.repairRounds).toBe(1);
   });
@@ -214,8 +215,70 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
 
   it('rejects malformed runner evidence without leaking it into the audit', async () => {
     const input = await fixture();
-    const result = await runCodingSessionV14(input, { propose: async () => [mathEdit()], verify: async () => green().map(c => ({ ...c, exitCode: 'private-value' as never })) });
+    const result = await runCodingSessionV14(input, { propose: async () => [mathEdit()], verify: async () => green().map(check => ({ ...check, exitCode: 'private-value' as never })) });
     expect(result.code).toBe('CODING_VERIFICATION_INCOMPLETE');
     expect(JSON.stringify(result)).not.toContain('private-value');
+  });
+
+  it('autonomously discovers a bounded scope and can create a new file', async () => {
+    const input = await fixture();
+    input.allowedPaths = undefined;
+    const result = await runCodingSessionV14(input, {
+      discover: async discovery => {
+        expect(discovery.files).toContain('package.json');
+        expect(discovery.files).toContain('src/math.js');
+        return { editablePaths: ['src/math.js'], contextPaths: ['package.json'], creatablePaths: ['src/helper.js'] };
+      },
+      propose: async context => {
+        expect(context.files.map(file => file.path)).toContain('package.json');
+        expect(context.editablePaths).toEqual(['src/math.js']);
+        expect(context.creatablePaths).toEqual(['src/helper.js']);
+        return { edits: [mathEdit()], creates: [{ path: 'src/helper.js', content: 'export const helper = true;\n' }] };
+      },
+      verify: async () => green(),
+    });
+    expect(result).toMatchObject({ status: 'verified', changedPaths: ['src/math.js', 'src/helper.js'] });
+    expect(result.audit[0]).toMatchObject({ action: 'discovered' });
+    expect(await readFile(path.join(input.root, 'src/helper.js'), 'utf8')).toContain('helper = true');
+  });
+
+  it('can repair a file that it created on an earlier failed round', async () => {
+    const input = await fixture();
+    input.allowedPaths = [];
+    input.creatablePaths = ['src/helper.js'];
+    let verificationRound = 0;
+    const result = await runCodingSessionV14(input, {
+      propose: async context => context.attempt === 0
+        ? { edits: [], creates: [{ path: 'src/helper.js', content: 'export const value = 1;\n' }] }
+        : (expect(context.editablePaths).toContain('src/helper.js'), expect(context.files.find(file => file.path === 'src/helper.js')?.content).toContain('value = 1'), { edits: [{ path: 'src/helper.js', search: 'value = 1', replacement: 'value = 2' }], creates: [] }),
+      verify: async () => {
+        const current = verificationRound++;
+        return green().map(check => current === 0 && check.kind === 'test' ? { ...check, ok: false, exitCode: 1, diagnostic: 'expected 2, received 1' } : check);
+      },
+    });
+    expect(result).toMatchObject({ status: 'verified', repairRounds: 1, changedPaths: ['src/helper.js'] });
+    expect(await readFile(path.join(input.root, 'src/helper.js'), 'utf8')).toContain('value = 2');
+  });
+
+  it('preflights create targets before applying other edits', async () => {
+    const input = await fixture();
+    input.allowedPaths = ['src/math.js'];
+    input.creatablePaths = ['src/message.js'];
+    const result = await runCodingSessionV14(input, {
+      propose: async () => ({ edits: [mathEdit()], creates: [{ path: 'src/message.js', content: 'must not overwrite' }] }),
+      verify: async () => green(),
+    });
+    expect(result.code).toBe('CODING_CREATE_TARGET_EXISTS');
+    expect(result.changedPaths).toEqual([]);
+    expect(await readFile(path.join(input.root, 'src/math.js'), 'utf8')).toContain('a - b');
+    expect(await readFile(path.join(input.root, 'src/message.js'), 'utf8')).toContain('"old"');
+  });
+
+  it('fails closed when autonomous discovery is requested without a discovery adapter', async () => {
+    const input = await fixture();
+    input.allowedPaths = undefined;
+    const result = await runCodingSessionV14(input, { propose: async () => [mathEdit()], verify: async () => green() });
+    expect(result.code).toBe('CODING_DISCOVERY_UNAVAILABLE');
+    expect(result.changedPaths).toEqual([]);
   });
 });

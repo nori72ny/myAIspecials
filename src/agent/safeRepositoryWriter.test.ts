@@ -9,7 +9,7 @@ vi.mock('node:fs', async () => {
 });
 
 import * as fs from 'node:fs';
-import { writeRepositoryFile, writeRepositoryFileIfUnchanged } from './safeRepositoryWriter';
+import { createRepositoryFileIfAbsent, writeRepositoryFile, writeRepositoryFileIfUnchanged } from './safeRepositoryWriter';
 
 describe('safeRepositoryWriter', () => {
   it('writes bounded content inside the repository', async () => { const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-')); const result = await writeRepositoryFile(root, 'src/app.ts', 'export const ok = true;'); expect(result.path).toBe('src/app.ts'); expect(await readFile(path.join(root, 'src/app.ts'), 'utf8')).toBe('export const ok = true;'); });
@@ -25,4 +25,23 @@ describe('safeRepositoryWriter', () => {
     finally { renameSpy.mockReset(); renameSpy.mockImplementation(originalRename); }
   });
   it('rejects a target that changed after validation', async () => { const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-')); await fs.promises.mkdir(path.join(root, 'src'), { recursive: true }); await fs.promises.writeFile(path.join(root, 'src/app.ts'), 'before'); await expect(writeRepositoryFileIfUnchanged(root, 'src/app.ts', 'after-validation', 'new-content')).rejects.toThrow('FILE_CHANGED_SINCE_VALIDATION'); });
+
+  it('creates a new file without ever replacing an existing target', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-create-'));
+    await expect(createRepositoryFileIfAbsent(root, 'src/new.ts', 'first')).resolves.toMatchObject({ path: 'src/new.ts', bytes: 5 });
+    await expect(createRepositoryFileIfAbsent(root, 'src/new.ts', 'second')).rejects.toThrow('FILE_ALREADY_EXISTS');
+    expect(await readFile(path.join(root, 'src/new.ts'), 'utf8')).toBe('first');
+  });
+
+  it('allows only one winner when two create-only writes race for the same path', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'origin-agent-writer-race-'));
+    const outcomes = await Promise.allSettled([
+      createRepositoryFileIfAbsent(root, 'src/race.ts', 'one'),
+      createRepositoryFileIfAbsent(root, 'src/race.ts', 'two'),
+    ]);
+    expect(outcomes.filter(outcome => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter(outcome => outcome.status === 'rejected')).toHaveLength(1);
+    const content = await readFile(path.join(root, 'src/race.ts'), 'utf8');
+    expect(['one', 'two']).toContain(content);
+  });
 });
