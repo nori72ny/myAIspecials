@@ -36,10 +36,11 @@ import { message } from './src/message.js';
 test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(message, 'ready'); });
 `);
     const rounds: CodingCheck[][] = [];
+    input.contextPaths = ['math.test.js'];
     const result = await runCodingSessionV14(input, {
       propose: async context => context.attempt === 0
         ? [mathEdit('a + b + 1'), { path: 'src/message.js', search: '"old"', replacement: '"ready"' }]
-        : (expect(context.failedChecks).toEqual(['test']), [{ path: 'src/math.js', search: 'a + b + 1', replacement: 'a + b' }]),
+        : (expect(context.failedChecks).toEqual(['test']), expect(context.diagnostics?.[0].text).toContain('AssertionError'), [{ path: 'src/math.js', search: 'a + b + 1', replacement: 'a + b' }]),
       verify: async root => {
         const commands: Record<typeof kinds[number], string[]> = {
           typecheck: [require.resolve('typescript/bin/tsc'), '--allowJs', '--checkJs', '--noEmit', 'src/math.js', 'src/message.js'],
@@ -54,7 +55,7 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
             await execute(bin, args, { cwd: root, timeout: 15_000, maxBuffer: 64 * 1024 });
             checks.push({ kind, ok: true, exitCode: 0, timedOut: false });
           } catch (error) {
-            checks.push({ kind, ok: false, exitCode: typeof error.code === 'number' ? error.code : null, timedOut: Boolean(error.killed) });
+            checks.push({ kind, ok: false, exitCode: typeof error.code === 'number' ? error.code : null, timedOut: Boolean(error.killed), diagnostic: `${error.stdout ?? ''}\n${error.stderr ?? ''}` });
           }
         }
         rounds.push(checks);
@@ -74,6 +75,39 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
     expect(result.status).toBe('blocked');
     expect(result.changedPaths).toEqual([]);
     expect(await readFile(path.join(input.root, 'src/math.js'), 'utf8')).toContain('a - b');
+  });
+
+  it('provides read-only tests to the planner without authorizing edits', async () => {
+    const input = await fixture();
+    input.allowedPaths = ['src/math.js'];
+    input.contextPaths = ['src/message.js'];
+    const result = await runCodingSessionV14(input, {
+      propose: async context => {
+        expect(context.files.map(f => f.path)).toContain('src/message.js');
+        expect(context.editablePaths).toEqual(['src/math.js']);
+        return [{ path: 'src/message.js', search: '"old"', replacement: '"cheat"' }];
+      }, verify: async () => green(),
+    });
+    expect(result.code).toBe('CODING_OUT_OF_SCOPE');
+    expect(await readFile(path.join(input.root, 'src/message.js'), 'utf8')).toContain('"old"');
+  });
+
+  it('redacts diagnostics before repair and excludes them from the audit', async () => {
+    const input = await fixture();
+    let round = 0;
+    const result = await runCodingSessionV14(input, {
+      propose: async context => {
+        if (round++ === 0) return [mathEdit('a + b + 1')];
+        expect(context.diagnostics?.[0].text).toContain('[REDACTED_SECRET]');
+        expect(context.diagnostics?.[0].text).not.toContain('private-value');
+        return [{ path: 'src/math.js', search: 'a + b + 1', replacement: 'a + b' }];
+      },
+      verify: async () => green().map(c => round === 1 && c.kind === 'test'
+        ? { ...c, ok: false, exitCode: 1, diagnostic: 'password="private-value" assertion failed' } : c),
+    });
+    expect(result.status).toBe('verified');
+    expect(JSON.stringify(result.audit)).not.toContain('assertion failed');
+    expect(JSON.stringify(result)).not.toContain('private-value');
   });
 
   it.each(['../outside.js', '.env.local', '.github/workflows/ci.yml', 'package.json', 'src\\math.js'])('rejects protected scope %s', async filePath => {

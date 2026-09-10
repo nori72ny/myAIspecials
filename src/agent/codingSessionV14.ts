@@ -5,6 +5,7 @@ import { applyDeltaEdit, validateDeltaEdit, type DeltaEditProposal } from './saf
 import { readRepositoryFile } from './safeRepositoryReader.js';
 import { containsLikelySecret } from './safeFilePolicy.js';
 import type { VerificationKind } from './verificationRunner.js';
+import { sanitizePreEgress } from '../services/securitySanitizer.js';
 
 const CHECKS: readonly VerificationKind[] = ['typecheck', 'lint', 'test', 'build'];
 const MAX_FILES = 12;
@@ -16,16 +17,20 @@ export type CodingSessionRequest = {
   goal: string;
   root: string;
   allowedPaths: string[];
+  /** Read-only context, such as tests and callers; never eligible for editing. */
+  contextPaths?: string[];
   /** This API is for a trusted local worker, never an HTTP request body. */
   trustedWorkspaceApproved: true;
   maxRepairs?: number;
 };
-export type CodingCheck = { kind: VerificationKind; ok: boolean; exitCode: number | null; timedOut: boolean };
+export type CodingCheck = { kind: VerificationKind; ok: boolean; exitCode: number | null; timedOut: boolean; diagnostic?: string };
 export type CodingContext = {
   goal: string;
   files: ReadonlyArray<{ path: string; content: string; sha256: string }>;
   attempt: number;
   failedChecks: VerificationKind[];
+  editablePaths?: readonly string[];
+  diagnostics?: ReadonlyArray<{ kind: VerificationKind; text: string }>;
 };
 export type CodingSessionDependencies = {
   /** Trusted worker supplies a planner. This module performs no provider calls. */
@@ -83,6 +88,8 @@ export async function runCodingSessionV14(request: CodingSessionRequest, deps: C
     if (!Array.isArray(request.allowedPaths) || !request.allowedPaths.length || request.allowedPaths.length > MAX_FILES) stop('CODING_SCOPE_BLOCKED');
     const allowed = request.allowedPaths.map(safePath);
     if (new Set(allowed).size !== allowed.length) stop('CODING_DUPLICATE_PATH');
+    if (request.contextPaths !== undefined && (!Array.isArray(request.contextPaths) || request.contextPaths.length > MAX_FILES)) stop('CODING_SCOPE_BLOCKED');
+    const inspected = [...new Set([...allowed, ...(request.contextPaths ?? []).map(safePath)])];
     const maxRepairs = request.maxRepairs ?? 2;
     if (!Number.isInteger(maxRepairs) || maxRepairs < 0 || maxRepairs > 3) stop('CODING_REPAIR_BUDGET_BLOCKED');
     root = await realpath(request.root);
@@ -92,20 +99,21 @@ export async function runCodingSessionV14(request: CodingSessionRequest, deps: C
     locked = true;
     const seenProposals = new Set<string>();
     let failedChecks: VerificationKind[] = [];
+    let diagnostics: Array<{ kind: VerificationKind; text: string }> = [];
 
     for (let attempt = 0; attempt <= maxRepairs; attempt += 1) {
       result.repairRounds = attempt;
       const files: CodingContext['files'][number][] = [];
       let bytes = 0;
-      for (const filePath of allowed) {
+      for (const filePath of inspected) {
         const content = await readRepositoryFile(root, filePath);
         bytes += Buffer.byteLength(content);
         if (bytes > MAX_BYTES) stop('CODING_CONTEXT_LIMIT');
         if (containsLikelySecret(content)) stop('CODING_SENSITIVE_CONTEXT_BLOCKED');
         files.push({ path: filePath, content, sha256: digest(content) });
       }
-      record({ action: 'inspected', attempt, paths: allowed });
-      const proposals = await deps.propose({ goal: request.goal.trim(), files, attempt, failedChecks });
+      record({ action: 'inspected', attempt, paths: inspected });
+      const proposals = await deps.propose({ goal: request.goal.trim(), files, attempt, failedChecks, editablePaths: allowed, diagnostics });
       if (!Array.isArray(proposals) || !proposals.length || proposals.length > MAX_FILES) stop('CODING_EMPTY_OR_OVERSIZED_PATCH');
       const paths = new Set<string>();
       let patchBytes = 0;
@@ -148,6 +156,13 @@ export async function runCodingSessionV14(request: CodingSessionRequest, deps: C
         if (digest(await readRepositoryFile(root, file.path)) !== digest(expected)) stop('CODING_WORKSPACE_CHANGED_DURING_CHECKS');
       }
       failedChecks = summaries.filter(c => !c.ok || c.exitCode !== 0 || c.timedOut).map(c => c.kind);
+      diagnostics = checks.filter(c => failedChecks.includes(c.kind)).map(c => ({
+        kind: c.kind,
+        // Sanitize before truncation to avoid retaining a partial credential.
+        text: typeof c.diagnostic === 'string' && c.diagnostic.length <= 65536
+          ? sanitizePreEgress(c.diagnostic).replaceAll(root, '[workspace]').slice(0, 4096)
+          : 'Diagnostic unavailable or exceeded limit.',
+      }));
       if (!failedChecks.length) {
         result.status = 'verified';
         result.code = 'CODING_CHECKS_PASSED';
