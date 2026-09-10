@@ -18,8 +18,9 @@ Do not return markdown, commands, explanations, or claims about code you have no
 
 const fail = (): never => { throw new Error('CODING_DISCOVERY_RESPONSE_INVALID'); };
 const strictArray = (value: unknown, limit: number): string[] => {
-  if (!Array.isArray(value) || value.length > limit || value.some(item => typeof item !== 'string')) fail();
-  return [...value] as string[];
+  if (!Array.isArray(value)) fail();
+  if (value.length > limit || value.some(item => typeof item !== 'string')) fail();
+  return value.slice() as string[];
 };
 
 export function parseCodingScopeProposal(text: string, context: CodingDiscoveryContext): CodingDiscoveredScope {
