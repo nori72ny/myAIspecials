@@ -96,7 +96,7 @@ describe('V1.4 coding job API', () => {
         return publicRecord(envelope.jobId);
       }),
       getJob: vi.fn(),
-      requestCancel: vi.fn(async () => publicRecord(jobId)),
+      requestCancel: vi.fn(async (_jobId: string, _ownerHash: string) => publicRecord(jobId)),
     };
     const { app } = appFor(store, vi.fn(async () => { throw new Error('unavailable'); }));
     const response = await request(app).post('/api/coding/v1.4/jobs')
