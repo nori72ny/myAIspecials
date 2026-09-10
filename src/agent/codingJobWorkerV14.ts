@@ -20,12 +20,13 @@ export type CodingJobResolvedTargetV14 = {
   trustedWorkspaceApproved: true;
 };
 
+export type CodingJobWorkerCheckpointV14 = () => Promise<void>;
 export type CodingJobWorkerDependenciesV14 = {
   store: WorkerStoreV14;
   /** Server-owned allowlist resolver. Never interpret targetKey as a filesystem path. */
   resolveTarget: (targetKey: string) => Promise<CodingJobResolvedTargetV14>;
-  /** Executes repository code only inside the dedicated isolated verification sandbox. */
-  verify: (root: string) => Promise<CodingCheck[]>;
+  /** Executes repository code only inside the dedicated isolated verification sandbox. Call checkpoint between long-running checks. */
+  verify: (root: string, checkpoint?: CodingJobWorkerCheckpointV14) => Promise<CodingCheck[]>;
   env?: NodeJS.ProcessEnv;
   execute?: (request: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv) => Promise<OriginProviderExecutionResult>;
   leaseSeconds?: number;
@@ -54,13 +55,7 @@ function completionStatus(status: Awaited<ReturnType<typeof runCodingSessionV14>
   return 'blocked';
 }
 
-/**
- * Trusted hosted-worker controller. It receives only an opaque job id from the
- * dispatch transport. The target alias is resolved against a server-owned
- * allowlist before private task text is decrypted. Provider/database/key material
- * remains in this controller process and must never be copied into the repository
- * verification sandbox.
- */
+/** Trusted hosted-worker controller. Provider/database/key material remains outside the verification sandbox. */
 export async function runCodingJobWorkerV14(jobId: string, workerId: string, deps: CodingJobWorkerDependenciesV14): Promise<CodingJobWorkerOutcomeV14> {
   const leaseSeconds = deps.leaseSeconds ?? DEFAULT_WORKER_LEASE_SECONDS;
   const recovered = await deps.store.recoverStaleJob(jobId);
@@ -101,8 +96,6 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
     let payload: ReturnType<typeof decryptCodingJobPayloadV14>;
     let target: CodingJobResolvedTargetV14;
     try {
-      // Resolve the opaque target alias first. An unapproved/unknown target never
-      // causes private user task text to be decrypted in this worker process.
       target = await deps.resolveTarget(lease.targetKey);
       payload = decryptCodingJobPayloadV14(lease.jobId, lease.payloadCiphertext, deps.env);
     } catch {
@@ -140,7 +133,9 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
       },
       verify: async root => {
         await heartbeat();
-        return deps.verify(root);
+        const checks = await deps.verify(root, heartbeat);
+        await heartbeat();
+        return checks;
       },
     });
 
