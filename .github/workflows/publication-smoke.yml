@@ -2,6 +2,11 @@ name: V1.3.1 Production Publication Smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publication-smoke.yml
+      - scripts/verify-production-publication.mjs
 
 permissions:
   contents: read
