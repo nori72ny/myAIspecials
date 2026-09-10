@@ -50,6 +50,10 @@
       "destination": "/api/index.ts"
     },
     {
+      "source": "/sites/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
