@@ -44,12 +44,13 @@ async function copyTrustedCheckout(source: string, destination: string): Promise
 async function dockerCheck(sourceRoot: string, dependencyRoot: string, kind: VerificationKind): Promise<CodingCheck> {
   const verifyRoot = await fs.mkdtemp(path.join(os.tmpdir(), `origin-v14-check-${kind}-`));
   const name = `origin-v14-${kind}-${randomUUID().slice(0, 12)}`;
+  const runtimeUser = `${typeof process.getuid === 'function' ? process.getuid() : 1000}:${typeof process.getgid === 'function' ? process.getgid() : 1000}`;
   try {
     await copyTrustedCheckout(sourceRoot, verifyRoot);
     const args = [
       'run', '--rm', '--name', name,
       '--network', 'none', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-      '--read-only', '--user', '1000:1000', '--pids-limit', '128', '--cpus', '2', '--memory', '3g',
+      '--read-only', '--user', runtimeUser, '--pids-limit', '128', '--cpus', '2', '--memory', '3g',
       '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
       '--mount', `type=bind,src=${verifyRoot},dst=/work`,
       '--mount', `type=bind,src=${path.join(dependencyRoot, 'node_modules')},dst=/work/node_modules,readonly`,
