@@ -10,6 +10,8 @@ export default {
       'src/agent/codingNavigatorV14.test.ts',
       'src/agent/safeRepositorySearchV14.test.ts',
       'src/agent/safeRepositoryWriter.test.ts',
+      'src/agent/codingJobCryptoV14.test.ts',
+      'src/agent/supabaseCodingJobStoreV14.test.ts',
     ],
   },
 };
