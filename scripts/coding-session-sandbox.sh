@@ -20,5 +20,5 @@ timeout --signal=TERM --kill-after=10s 300s docker run --rm --name "$name" \
     cp -r /source/src /work/src
     cp /source/config.mjs /work/vitest.config.mjs
     ln -s /deps/node_modules /work/node_modules
-    node node_modules/vitest/vitest.mjs run --config vitest.config.mjs
+    node node_modules/vitest/vitest.mjs run --config vitest.config.mjs --configLoader runner
   '
