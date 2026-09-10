@@ -56,9 +56,10 @@ function completionStatus(status: Awaited<ReturnType<typeof runCodingSessionV14>
 
 /**
  * Trusted hosted-worker controller. It receives only an opaque job id from the
- * dispatch transport. Private task text is decrypted only after an atomic lease
- * claim. Provider/database/key material remains in this controller process and
- * must never be copied into the repository verification sandbox.
+ * dispatch transport. The target alias is resolved against a server-owned
+ * allowlist before private task text is decrypted. Provider/database/key material
+ * remains in this controller process and must never be copied into the repository
+ * verification sandbox.
  */
 export async function runCodingJobWorkerV14(jobId: string, workerId: string, deps: CodingJobWorkerDependenciesV14): Promise<CodingJobWorkerOutcomeV14> {
   const leaseSeconds = deps.leaseSeconds ?? DEFAULT_WORKER_LEASE_SECONDS;
@@ -78,14 +79,14 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
     return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
   };
   const heartbeat = async (): Promise<void> => {
-    const renewed = await deps.store.renewLease(jobId, workerId, leaseSeconds);
-    if (!renewed) {
-      abortKind = 'lease_lost';
-      throw new WorkerAbort('lease lost');
-    }
     if (await deps.store.cancellationRequested(jobId, workerId)) {
       abortKind = 'cancelled';
       throw new WorkerAbort('cancelled');
+    }
+    const renewed = await deps.store.renewLease(jobId, workerId, leaseSeconds);
+    if (!renewed) {
+      abortKind = await deps.store.cancellationRequested(jobId, workerId) ? 'cancelled' : 'lease_lost';
+      throw new WorkerAbort(abortKind === 'cancelled' ? 'cancelled' : 'lease lost');
     }
   };
 
@@ -100,8 +101,10 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
     let payload: ReturnType<typeof decryptCodingJobPayloadV14>;
     let target: CodingJobResolvedTargetV14;
     try {
-      payload = decryptCodingJobPayloadV14(lease.jobId, lease.payloadCiphertext, deps.env);
+      // Resolve the opaque target alias first. An unapproved/unknown target never
+      // causes private user task text to be decrypted in this worker process.
       target = await deps.resolveTarget(lease.targetKey);
+      payload = decryptCodingJobPayloadV14(lease.jobId, lease.payloadCiphertext, deps.env);
     } catch {
       return { jobId, state: 'retryable', code: 'CODING_WORKER_PRIVATE_STAGE_BLOCKED' };
     }
@@ -129,8 +132,7 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
         if (context.attempt > 0) {
           const moved = await deps.store.markRepairing(jobId, workerId);
           if (!moved) {
-            if (await deps.store.cancellationRequested(jobId, workerId)) abortKind = 'cancelled';
-            else abortKind = 'lease_lost';
+            abortKind = await deps.store.cancellationRequested(jobId, workerId) ? 'cancelled' : 'lease_lost';
             throw new WorkerAbort('worker state changed');
           }
         }

@@ -41,7 +41,10 @@ async function fixture() {
 
 class FakeStore {
   cancel = false;
+  cancelAfterChecks: number | null = null;
+  cancelChecks = 0;
   renew = true;
+  renewCalls = 0;
   started = true;
   acknowledged = false;
   repairingCalls = 0;
@@ -51,8 +54,11 @@ class FakeStore {
   async claimJob(_jobId: string, _workerId: string, _seconds: number): Promise<CodingJobLeaseV14 | null> { return this.lease; }
   async startJob(_jobId: string, _workerId: string): Promise<boolean> { return this.started; }
   async markRepairing(_jobId: string, _workerId: string): Promise<boolean> { this.repairingCalls += 1; return true; }
-  async renewLease(_jobId: string, _workerId: string, _seconds: number): Promise<boolean> { return this.renew; }
-  async cancellationRequested(_jobId: string, _workerId: string): Promise<boolean> { return this.cancel; }
+  async renewLease(_jobId: string, _workerId: string, _seconds: number): Promise<boolean> { this.renewCalls += 1; return this.renew; }
+  async cancellationRequested(_jobId: string, _workerId: string): Promise<boolean> {
+    this.cancelChecks += 1;
+    return this.cancel || (this.cancelAfterChecks !== null && this.cancelChecks >= this.cancelAfterChecks);
+  }
   async acknowledgeCancel(_jobId: string, _workerId: string): Promise<boolean> { this.acknowledged = true; return true; }
   async completeJob(_jobId: string, _workerId: string, status: CodingJobCompletionStatusV14, code: string, paths: readonly string[]): Promise<boolean> {
     this.completion = { status, code, paths };
@@ -91,6 +97,36 @@ describe('V1.4 durable coding worker controller', () => {
     expect(outcome.state).toBe('cancelled');
     expect(store.acknowledged).toBe(true);
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('lets cancellation win at a stage heartbeat instead of misreporting lease loss', async () => {
+    const { root, envelope, lease } = await fixture();
+    const store = new FakeStore(lease);
+    store.cancelAfterChecks = 2;
+    const execute = vi.fn();
+    const outcome = await runCodingJobWorkerV14(envelope.jobId, 'gha:123:1', {
+      store, env, execute,
+      resolveTarget: async () => ({ root, allowedPaths: ['src/math.js'], trustedWorkspaceApproved: true }),
+      verify: async () => green(),
+    });
+    expect(outcome).toEqual({ jobId: envelope.jobId, state: 'cancelled', code: 'CODING_CANCELLED_BY_USER' });
+    expect(store.acknowledged).toBe(true);
+    expect(store.renewCalls).toBe(0);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('resolves an allowlisted target before attempting private payload decryption', async () => {
+    const { envelope, lease } = await fixture();
+    const store = new FakeStore(lease);
+    const resolveTarget = vi.fn(async () => { throw new Error('unknown target alias'); });
+    const outcome = await runCodingJobWorkerV14(envelope.jobId, 'gha:123:1', {
+      store,
+      env: { ...env, ORIGIN_CODING_JOB_DATA_KEY: 'invalid' },
+      resolveTarget,
+      verify: async () => green(),
+    });
+    expect(outcome).toEqual({ jobId: envelope.jobId, state: 'retryable', code: 'CODING_WORKER_PRIVATE_STAGE_BLOCKED' });
+    expect(resolveTarget).toHaveBeenCalledWith(envelope.targetKey);
   });
 
   it('fails closed without completing after losing the lease', async () => {
