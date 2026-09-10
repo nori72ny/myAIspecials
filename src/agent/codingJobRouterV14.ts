@@ -3,6 +3,8 @@ import { Router, type Request, type Response } from 'express';
 import { agentApprovalConfigured, authenticateAgentRequest } from './agentApproval.js';
 import { CODING_JOB_ID_PATTERN, createCodingJobEnvelopeV14, hashCodingJobOwnerV14 } from './codingJobCryptoV14.js';
 import { dispatchCodingJobV14, type CodingJobDispatchReceiptV14 } from './codingJobDispatchV14.js';
+import { decryptCodingJobResultV14, type CodingJobResultV14 } from './codingJobResultV14.js';
+import type { PostgresCodingJobResultStoreV14 } from './codingJobResultStoreV14.js';
 import type { CodingJobPublicRecordV14, PostgresCodingJobStoreV14 } from './supabaseCodingJobStoreV14.js';
 
 const FIXED_TARGET_KEY = 'origin:self';
@@ -11,7 +13,9 @@ const MAX_TTL_MINUTES = 7 * 24 * 60;
 const WORKER_ENABLED_ENV = 'ORIGIN_CODING_WORKER_ENABLED';
 
 type CodingJobApiStoreV14 = Pick<PostgresCodingJobStoreV14, 'create' | 'getJob' | 'requestCancel'>;
+type CodingJobApiResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'get'>;
 type DispatchFn = (jobId: string, env: NodeJS.ProcessEnv) => Promise<CodingJobDispatchReceiptV14>;
+type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 
 function ownerBinding(req: Request): string | null {
   const header = req.get('authorization');
@@ -65,10 +69,28 @@ function publicJson(record: CodingJobPublicRecordV14) {
   };
 }
 
+async function resultDetails(
+  record: CodingJobPublicRecordV14,
+  resultStore: CodingJobApiResultStoreV14 | undefined,
+  env: NodeJS.ProcessEnv,
+): Promise<{ result: CodingJobResultV14 | null; resultDetailsState: ResultDetailsState }> {
+  if (record.status === 'cancelled') return { result: null, resultDetailsState: 'not_applicable' };
+  if (!['verified', 'blocked', 'failed'].includes(record.status)) return { result: null, resultDetailsState: 'pending' };
+  if (!resultStore) return { result: null, resultDetailsState: 'unavailable' };
+  try {
+    const encoded = await resultStore.get(record.jobId);
+    if (!encoded) return { result: null, resultDetailsState: 'unavailable' };
+    return { result: decryptCodingJobResultV14(record.jobId, encoded, env), resultDetailsState: 'available' };
+  } catch {
+    return { result: null, resultDetailsState: 'unavailable' };
+  }
+}
+
 export function createCodingJobV14Router(
   env: NodeJS.ProcessEnv = process.env,
   store?: CodingJobApiStoreV14,
   dispatch: DispatchFn = dispatchCodingJobV14,
+  resultStore?: CodingJobApiResultStoreV14,
 ) {
   const router = Router();
 
@@ -77,10 +99,12 @@ export function createCodingJobV14Router(
     version: '1.4',
     capability: 'durable-agentic-coding-jobs',
     ready: ready(env, store),
+    resultDetailsReady: Boolean(resultStore),
     targetMode: 'server-owned-fixed-alias',
     targetKey: FIXED_TARGET_KEY,
     publicDispatchPayload: 'opaque-job-id-only',
     persistence: 'encrypted-bounded-postgres',
+    resultPersistence: 'encrypted-bounded-postgres',
     requiresServerOnlyAuthorization: true,
     workerOptInRequired: true,
     freeOnly: true,
@@ -127,6 +151,8 @@ export function createCodingJobV14Router(
       return res.status(202).json({
         ok: true,
         job: publicJson(created),
+        result: null,
+        resultDetailsState: 'pending' satisfies ResultDetailsState,
         freeOnly: true,
         costUsd: 0,
         paidFallbackUsed: false,
@@ -144,7 +170,8 @@ export function createCodingJobV14Router(
     try {
       const record = await auth.store.getJob(jobId, auth.ownerHash);
       if (!record) return res.status(404).json({ ok: false, code: 'CODING_JOB_NOT_FOUND' });
-      return res.status(200).json({ ok: true, job: publicJson(record), freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      const details = await resultDetails(record, resultStore, env);
+      return res.status(200).json({ ok: true, job: publicJson(record), ...details, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     } catch {
       return res.status(503).json({ ok: false, code: 'CODING_JOB_STORE_UNAVAILABLE', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     }
@@ -158,7 +185,8 @@ export function createCodingJobV14Router(
     try {
       const record = await auth.store.requestCancel(jobId, auth.ownerHash);
       if (!record) return res.status(404).json({ ok: false, code: 'CODING_JOB_NOT_FOUND' });
-      return res.status(200).json({ ok: true, job: publicJson(record), freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      const details = await resultDetails(record, resultStore, env);
+      return res.status(200).json({ ok: true, job: publicJson(record), ...details, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     } catch {
       return res.status(503).json({ ok: false, code: 'CODING_JOB_STORE_UNAVAILABLE', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     }
