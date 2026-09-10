@@ -64,4 +64,23 @@ jobs:
           FREE_ONLY: 'true'
         run: |
           set -euo pipefail
-          node --import tsx scripts/run-coding-job-worker-v14.ts
+          # Exit 2 means the controller intentionally left the durable job
+          # retryable/lease-lost. The store lease is 120s; after it expires the
+          # next invocation first runs recoverStaleJob and atomically reclaims it.
+          # This keeps recovery inside one bounded hosted run with no polling server.
+          for attempt in 1 2 3; do
+            set +e
+            node --import tsx scripts/run-coding-job-worker-v14.ts
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$status" -ne 2 ]; then
+              exit "$status"
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep 125
+            fi
+          done
+          exit 2
