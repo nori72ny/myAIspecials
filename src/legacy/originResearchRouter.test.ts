@@ -8,7 +8,20 @@ vi.mock("./originResearchSource.js", () => ({ researchCurrentInformation: resear
 import { createOriginResearchRouter } from "./originResearchRouter.js";
 
 describe("originResearchRouter", () => {
-  beforeEach(() => researchMock.mockReset());
+  beforeEach(() => { researchMock.mockReset(); });
+
+  it("routes explicit research requests and returns a report without claiming completed verification", async () => {
+    researchMock.mockResolvedValue({ ok: true, sources: [{ title: "Evidence", url: "https://en.wikipedia.org/wiki/AI", excerpt: "Retrieved evidence.", evidenceLevel: "page-verified", freshness: "unknown", retrievedAt: "2026-09-10T00:00:00Z" }] });
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter());
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: "AIの調査レポートを出典付きで作成して" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.research.report.status).toBe("needs-review");
+    expect(response.body.research.report.verification.citationIntegrity).toBe(true);
+    expect(response.body.content).toContain("[S1](https://en.wikipedia.org/wiki/AI)");
+    expect(researchMock).toHaveBeenCalledTimes(1);
+  });
 
   it("returns live public-source evidence for explicit freshness requests", async () => {
     researchMock.mockResolvedValue({ ok: true, searchProvider: "DuckDuckGo", sources: [
