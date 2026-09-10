@@ -28,7 +28,7 @@ const MAX_TTL_MINUTES = 7 * 24 * 60;
 const WORKER_ENABLED_ENV = 'ORIGIN_CODING_WORKER_ENABLED';
 
 type CodingJobApiStoreV14 = Pick<PostgresCodingJobStoreV14, 'create' | 'getJob' | 'requestCancel'>;
-type CodingJobApiResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'get'>;
+type CodingJobApiResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'get' | 'delete'>;
 type DispatchFn = (jobId: string, env: NodeJS.ProcessEnv) => Promise<CodingJobDispatchReceiptV14>;
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 
@@ -110,6 +110,17 @@ function publicJson(record: CodingJobPublicRecordV14) {
     updatedAt: new Date(record.updatedAt).toISOString(),
     expiresAt: new Date(record.expiresAt).toISOString(),
   };
+}
+
+async function eraseCancelledResult(
+  record: CodingJobPublicRecordV14,
+  resultStore: CodingJobApiResultStoreV14 | undefined,
+): Promise<void> {
+  if (record.status !== 'cancelled' || !resultStore) return;
+  // Cancellation has already won in the durable job row. Result evidence is
+  // encrypted and inaccessible through the API, but remove it immediately when
+  // the result store is healthy instead of waiting for TTL/FK cleanup.
+  await resultStore.delete(record.jobId).catch(() => undefined);
 }
 
 async function resultDetails(
@@ -194,7 +205,8 @@ export function createCodingJobV14Router(
         await dispatch(created.jobId, env);
       } catch {
         // Fail closed and erase the private payload when dispatch cannot be accepted.
-        await auth.store.requestCancel(created.jobId, auth.ownerHash).catch(() => undefined);
+        const cancelled = await auth.store.requestCancel(created.jobId, auth.ownerHash).catch(() => null);
+        if (cancelled) await eraseCancelledResult(cancelled, resultStore);
         return res.status(503).json({ ok: false, code: 'CODING_JOB_DISPATCH_UNAVAILABLE', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
       }
       return res.status(202).json({
@@ -234,6 +246,7 @@ export function createCodingJobV14Router(
     try {
       const record = await auth.store.requestCancel(jobId, auth.ownerHash);
       if (!record) return res.status(404).json({ ok: false, code: 'CODING_JOB_NOT_FOUND' });
+      await eraseCancelledResult(record, resultStore);
       const details = await resultDetails(record, resultStore, env);
       return res.status(200).json({ ok: true, job: publicJson(record), ...details, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     } catch {
