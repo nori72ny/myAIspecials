@@ -10,7 +10,7 @@ import {
   PASSKEY_MIGRATION_STATUS_EVENT,
 } from '../security/passkeyKeyMigration';
 
-export type OriginWorkspaceMode = 'chat' | 'agent';
+export type OriginWorkspaceMode = 'chat' | 'agent' | 'coding';
 
 interface HeaderModeSwitcherProps {
   currentMode: OriginWorkspaceMode;
@@ -65,6 +65,9 @@ export default function HeaderModeSwitcher({ currentMode, onModeChange }: Header
         <button type="button" aria-pressed={currentMode === 'agent'} onClick={() => onModeChange('agent')} className={`min-h-11 rounded-lg px-4 text-sm font-semibold transition ${currentMode === 'agent' ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'}`}>
           ⚡ Agent Workspace
         </button>
+        <button type="button" aria-pressed={currentMode === 'coding'} onClick={() => onModeChange('coding')} className={`min-h-11 rounded-lg px-4 text-sm font-semibold transition ${currentMode === 'coding' ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'}`}>
+          &lt;/&gt; Coding
+        </button>
       </div>
       <button
         type="button"
@@ -76,7 +79,7 @@ export default function HeaderModeSwitcher({ currentMode, onModeChange }: Header
         🛡️ {passkeyBusy ? 'Passkey...' : migrationComplete ? 'Hardware Locked (Passkey Active)' : 'Enable Passkey'}
       </button>
       {passkeyError && <span role="status" className="text-xs font-medium text-amber-700 dark:text-amber-300">Passkeyまたは暗号鍵の移行は完了していません。</span>}
-      <span className="sr-only">Option+A switches Chat Mode and Agent Workspace Mode.</span>
+      <span className="sr-only">Option+A switches Chat Mode and Agent Workspace Mode. Option+C opens Coding Mode.</span>
     </div>
   );
 }
