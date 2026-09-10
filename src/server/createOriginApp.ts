@@ -25,7 +25,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.use("/api/chat", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
   app.use("/api/research/v1.1", createOriginChatRateLimiter());
   app.use("/api/artifacts/v1.2", createOriginChatRateLimiter());
-  app.use("/api/builder", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
+  app.use("/api/builder", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
   app.use(express.json({ limit: "64kb", strict: true, type: ["application/json", "application/*+json"] }));
 
   const invalidJsonHandler: ErrorRequestHandler = (error, _req, res, next) => {

@@ -115,10 +115,10 @@ export function requireSafeOriginChatRequest(env: NodeJS.ProcessEnv = process.en
   };
 }
 
-export function createOriginChatRateLimiter(now: () => number = Date.now) {
+export function createOriginChatRateLimiter(now: () => number = Date.now, methods: readonly string[] = ["POST"]) {
   const buckets = new Map<string, RateBucket>();
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (req.method !== "POST") {
+    if (!methods.includes(req.method)) {
       next();
       return;
     }
