@@ -169,7 +169,7 @@ describe('V1.4 coding job API', () => {
     expect((await request(noKey.app).get('/api/coding/v1.4/status')).body.dataKeyReady).toBe(false);
     expect((await request(noKey.app).post('/api/coding/v1.4/jobs').set('Authorization', `Bearer ${codingSecret}`).send({ goal: 'fix it', confirmRun: true })).status).toBe(503);
 
-    const noResults = appFor(store, defaultDispatch(), env, undefined);
+    const noResults = appFor(store, defaultDispatch(), env, null);
     const noResultsStatus = await request(noResults.app).get('/api/coding/v1.4/status');
     expect(noResultsStatus.body.resultStoreReady).toBe(false);
     expect((await request(noResults.app).post('/api/coding/v1.4/jobs').set('Authorization', `Bearer ${codingSecret}`).send({ goal: 'fix it', confirmRun: true })).status).toBe(503);
