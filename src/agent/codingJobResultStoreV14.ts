@@ -48,6 +48,18 @@ export class PostgresCodingJobResultStoreV14 {
     }
     return value;
   }
+
+  /** Remove terminal evidence when a cancellation wins after result projection. */
+  async delete(jobId: string): Promise<boolean> {
+    if (!CODING_JOB_ID_PATTERN.test(jobId)) return false;
+    const result = await this.database.query(
+      `delete from public.origin_coding_job_results_v14
+       where job_id = $1
+       returning job_id`,
+      [jobId],
+    );
+    return result.rowCount === 1;
+  }
 }
 
 export function createCodingJobResultStoreFromEnvV14(env: NodeJS.ProcessEnv = process.env): PostgresCodingJobResultStoreV14 | undefined {
