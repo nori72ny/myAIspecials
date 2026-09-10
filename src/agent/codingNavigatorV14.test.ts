@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createCodingNavigatorV14, parseCodingSearchPlanV14 } from './codingNavigatorV14.js';
 import type { CodingDiscoveryContext } from './codingSessionV14.js';
-import type { OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
+import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import { ORIGIN_OPENROUTER_FREE_MODEL, DEFAULT_ORIGIN_PROVIDER_DATA_POLICY } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 const roots: string[] = [];
@@ -47,9 +47,11 @@ describe('V1.4 multi-stage coding navigator', () => {
   it('searches locally between two zero-cost model stages and scopes from evidence', async () => {
     const { root, context } = await fixture();
     const scope = { editablePaths: ['src/App.tsx'], contextPaths: ['src/status.ts', 'src/App.test.tsx'], creatablePaths: ['src/components/StatusBadge.tsx'] };
-    const execute = vi.fn(async () => execute.mock.calls.length === 1
-      ? result(JSON.stringify({ queries: ['renderStatus'] }))
-      : result(JSON.stringify(scope)));
+    let call = 0;
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => {
+      call += 1;
+      return call === 1 ? result(JSON.stringify({ queries: ['renderStatus'] })) : result(JSON.stringify(scope));
+    });
     const navigator = createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute });
     await expect(navigator(context)).resolves.toEqual(scope);
     expect(execute).toHaveBeenCalledTimes(2);

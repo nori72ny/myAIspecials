@@ -31,17 +31,18 @@ export function parseCodingSearchPlanV14(text: string): CodingSearchPlanV14 {
   try { data = JSON.parse(text); } catch { failQuery(); }
   if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).join() !== 'queries') failQuery();
   const queries = (data as { queries?: unknown }).queries;
-  if (!Array.isArray(queries)) failQuery();
-  try {
-    // The search primitive owns the canonical query policy. Calling it is not
-    // appropriate here because parsing must stay synchronous, so mirror only
-    // the structural bounds and let searchRepositoryV14 revalidate before I/O.
-    if (queries.length < 1 || queries.length > 6 || queries.some(item => typeof item !== 'string' || item.trim().length < 2 || item.trim().length > 96 || /[\u0000-\u001f\u007f]/.test(item))) failQuery();
-    const normalized = (queries as string[]).map(query => query.trim());
-    if (new Set(normalized.map(query => query.toLocaleLowerCase('en-US'))).size !== normalized.length) failQuery();
-    if (normalized.some(query => /(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|\.env)/i.test(query))) failQuery();
-    return { queries: normalized };
-  } catch { return failQuery(); }
+  if (!Array.isArray(queries)) throw new Error('CODING_NAVIGATION_QUERY_RESPONSE_INVALID');
+  if (queries.length < 1 || queries.length > 6) failQuery();
+  const normalized: string[] = [];
+  for (const item of queries) {
+    if (typeof item !== 'string') failQuery();
+    const query = item.trim();
+    if (query.length < 2 || query.length > 96 || /[\u0000-\u001f\u007f]/.test(query)) failQuery();
+    if (/(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|\.env)/i.test(query)) failQuery();
+    normalized.push(query);
+  }
+  if (new Set(normalized.map(query => query.toLocaleLowerCase('en-US'))).size !== normalized.length) failQuery();
+  return { queries: normalized };
 }
 
 type NavigatorOptions = {
