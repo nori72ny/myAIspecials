@@ -1,8 +1,12 @@
-import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
-import { agentApprovalConfigured, authenticateAgentRequest } from './agentApproval.js';
 import { CODING_JOB_ID_PATTERN, createCodingJobEnvelopeV14, hashCodingJobOwnerV14 } from './codingJobCryptoV14.js';
 import { dispatchCodingJobV14, type CodingJobDispatchReceiptV14 } from './codingJobDispatchV14.js';
+import {
+  authenticateCodingJobOperatorV14,
+  CODING_JOB_OPERATOR_OWNER_BINDING_V14,
+  codingJobAuthorizationModeV14,
+  codingJobOperatorConfiguredV14,
+} from './codingJobOperatorAuthV14.js';
 import { decryptCodingJobResultV14, type CodingJobResultV14 } from './codingJobResultV14.js';
 import type { PostgresCodingJobResultStoreV14 } from './codingJobResultStoreV14.js';
 import type { CodingJobPublicRecordV14, PostgresCodingJobStoreV14 } from './supabaseCodingJobStoreV14.js';
@@ -17,18 +21,8 @@ type CodingJobApiResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'get'>;
 type DispatchFn = (jobId: string, env: NodeJS.ProcessEnv) => Promise<CodingJobDispatchReceiptV14>;
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 
-function ownerBinding(req: Request): string | null {
-  const header = req.get('authorization');
-  if (!header?.startsWith('Bearer ')) return null;
-  const bearer = header.slice('Bearer '.length).trim();
-  if (!bearer) return null;
-  // Never persist or forward the approval credential itself. The stable digest is
-  // then HMAC-bound again by codingJobCryptoV14 before it reaches Postgres.
-  return `approval:${createHash('sha256').update(bearer, 'utf8').digest('hex')}`;
-}
-
 function ready(env: NodeJS.ProcessEnv, store: CodingJobApiStoreV14 | undefined): boolean {
-  return Boolean(store) && agentApprovalConfigured(env) && env[WORKER_ENABLED_ENV] === 'true';
+  return Boolean(store) && codingJobOperatorConfiguredV14(env) && env[WORKER_ENABLED_ENV] === 'true';
 }
 
 function requireApiAuth(req: Request, res: Response, env: NodeJS.ProcessEnv, store: CodingJobApiStoreV14 | undefined): { store: CodingJobApiStoreV14; ownerHash: string } | null {
@@ -36,17 +30,17 @@ function requireApiAuth(req: Request, res: Response, env: NodeJS.ProcessEnv, sto
     res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     return null;
   }
-  if (!authenticateAgentRequest(req, env)) {
-    res.status(401).json({ ok: false, code: 'CODING_JOB_AUTHENTICATION_REQUIRED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
-    return null;
-  }
-  const binding = ownerBinding(req);
-  if (!binding) {
+  if (!authenticateCodingJobOperatorV14(req, env)) {
     res.status(401).json({ ok: false, code: 'CODING_JOB_AUTHENTICATION_REQUIRED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     return null;
   }
   try {
-    return { store: store as CodingJobApiStoreV14, ownerHash: hashCodingJobOwnerV14(binding, env) };
+    return {
+      store: store as CodingJobApiStoreV14,
+      // Keep ownership stable across operator credential rotation. Future multi-user
+      // auth replaces this constant with the authenticated ORIGIN user/session id.
+      ownerHash: hashCodingJobOwnerV14(CODING_JOB_OPERATOR_OWNER_BINDING_V14, env),
+    };
   } catch {
     res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     return null;
@@ -105,7 +99,8 @@ export function createCodingJobV14Router(
     publicDispatchPayload: 'opaque-job-id-only',
     persistence: 'encrypted-bounded-postgres',
     resultPersistence: 'encrypted-bounded-postgres',
-    requiresServerOnlyAuthorization: true,
+    authorizationMode: codingJobAuthorizationModeV14(env),
+    authorizationScope: 'coding-v1.4-only-when-dedicated',
     workerOptInRequired: true,
     freeOnly: true,
     costUsd: 0,
@@ -131,10 +126,8 @@ export function createCodingJobV14Router(
     }
 
     try {
-      const binding = ownerBinding(req);
-      if (!binding) return res.status(401).json({ ok: false, code: 'CODING_JOB_AUTHENTICATION_REQUIRED' });
       const envelope = createCodingJobEnvelopeV14({
-        ownerBinding: binding,
+        ownerBinding: CODING_JOB_OPERATOR_OWNER_BINDING_V14,
         targetKey: FIXED_TARGET_KEY,
         goal: input.goal,
         ttlMs: Number(ttlMinutes) * 60_000,
