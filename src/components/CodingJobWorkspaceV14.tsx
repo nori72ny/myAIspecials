@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 type CodingJobStatus = 'queued' | 'leased' | 'running' | 'repairing' | 'verified' | 'blocked' | 'failed' | 'cancelled';
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 type VerificationKind = 'typecheck' | 'lint' | 'test' | 'build';
+type CodingJobAuthorizationMode = 'coding-operator' | 'legacy-agent-compat' | 'unconfigured';
 
 type CodingJobRecord = {
   jobId: string;
@@ -56,6 +57,8 @@ type CapabilityResponse = {
   ok?: boolean;
   ready?: boolean;
   resultDetailsReady?: boolean;
+  authorizationMode?: CodingJobAuthorizationMode;
+  authorizationScope?: string;
   freeOnly?: boolean;
   costUsd?: number;
   gitPublished?: boolean;
@@ -107,6 +110,12 @@ function formatTime(value: string | undefined): string {
   return Number.isFinite(date.getTime()) ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
 }
 
+function authorizationLabel(mode: CodingJobAuthorizationMode | undefined): string {
+  if (mode === 'coding-operator') return 'dedicated coding credential';
+  if (mode === 'legacy-agent-compat') return 'legacy agent compatibility';
+  return 'unconfigured';
+}
+
 function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; cancelRequested: boolean }) {
   const terminal = !ACTIVE.has(status);
   const tone = status === 'verified'
@@ -124,6 +133,8 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
 
 function VerificationPanel({ result, state }: { result: CodingJobResult | null; state: ResultDetailsState }) {
   const byKind = new Map(result?.verificationChecks.map(check => [check.kind, check]) ?? []);
+  const absentLabel = result ? 'NOT RUN' : state === 'unavailable' ? 'N/A' : state === 'not_applicable' ? 'CANCELLED' : 'WAIT';
+  const absentDetail = result ? 'not executed before terminal stop' : state === 'unavailable' ? 'result unavailable' : state === 'not_applicable' ? 'job cancelled' : 'pending';
   return <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-900/50" aria-labelledby="coding-verification-title">
     <div className="mb-3 flex items-center justify-between gap-3">
       <h2 id="coding-verification-title" className="font-bold">Verification</h2>
@@ -136,11 +147,11 @@ function VerificationPanel({ result, state }: { result: CodingJobResult | null; 
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{kind}</span>
             <span className={`text-sm font-black ${check?.ok ? 'text-emerald-600 dark:text-emerald-300' : check ? 'text-rose-600 dark:text-rose-300' : 'text-slate-400'}`}>
-              {check ? check.ok ? 'PASS' : 'FAIL' : 'WAIT'}
+              {check ? check.ok ? 'PASS' : 'FAIL' : absentLabel}
             </span>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            {check ? `exit ${check.exitCode ?? 'null'}${check.timedOut ? ' · timeout' : ''}` : state === 'unavailable' ? 'result unavailable' : 'pending'}
+            {check ? `exit ${check.exitCode ?? 'null'}${check.timedOut ? ' · timeout' : ''}` : absentDetail}
           </p>
         </div>;
       })}
@@ -192,6 +203,10 @@ export default function CodingJobWorkspaceV14() {
   const credentialInputRef = useRef<HTMLInputElement | null>(null);
   const credentialRef = useRef('');
   const mountedRef = useRef(true);
+  const requestEpochRef = useRef(0);
+  const latestVersionRef = useRef(0);
+  const currentJobIdRef = useRef('');
+  const refreshInFlightRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -201,37 +216,53 @@ export default function CodingJobWorkspaceV14() {
         const data = await response.json() as CapabilityResponse;
         if (mountedRef.current) setCapability(data);
       })
-      .catch(() => { if (mountedRef.current) setCapability({ ok: false, ready: false, resultDetailsReady: false }); })
+      .catch(() => { if (mountedRef.current) setCapability({ ok: false, ready: false, resultDetailsReady: false, authorizationMode: 'unconfigured' }); })
       .finally(() => { if (mountedRef.current) setCheckingCapability(false); });
     return () => {
       mountedRef.current = false;
       credentialRef.current = '';
+      requestEpochRef.current += 1;
+      currentJobIdRef.current = '';
+      latestVersionRef.current = 0;
       controller.abort();
     };
   }, []);
 
-  const applyResponse = useCallback((data: JobResponse) => {
-    if (data.job) setJob(data.job);
+  const applyResponse = useCallback((data: JobResponse, epoch: number) => {
+    if (epoch !== requestEpochRef.current) return;
+    if (data.job) {
+      const sameJob = currentJobIdRef.current === data.job.jobId;
+      if (sameJob && data.job.version < latestVersionRef.current) return;
+      currentJobIdRef.current = data.job.jobId;
+      latestVersionRef.current = data.job.version;
+      setJob(data.job);
+      if (!ACTIVE.has(data.job.status)) credentialRef.current = '';
+    }
     setResult(data.result ?? null);
     setResultState(data.resultDetailsState ?? 'pending');
   }, []);
 
   const refreshJob = useCallback(async (jobId: string) => {
     const credential = credentialRef.current;
-    if (!credential) return;
+    if (!credential || refreshInFlightRef.current || currentJobIdRef.current !== jobId) return;
+    const epoch = requestEpochRef.current;
+    refreshInFlightRef.current = true;
     try {
       const response = await fetch(`/api/coding/v1.4/jobs/${encodeURIComponent(jobId)}`, {
         headers: authHeaders(credential),
       });
       const data = await jsonBody(response);
+      if (epoch !== requestEpochRef.current || currentJobIdRef.current !== jobId) return;
       if (!response.ok || !data.ok || !data.job) {
         setError(safeCode(data.code, `CODING_UI_STATUS_${response.status}`));
         return;
       }
       setError(null);
-      applyResponse(data);
+      applyResponse(data, epoch);
     } catch {
-      setError('CODING_UI_STATUS_UNAVAILABLE');
+      if (epoch === requestEpochRef.current) setError('CODING_UI_STATUS_UNAVAILABLE');
+    } finally {
+      refreshInFlightRef.current = false;
     }
   }, [applyResponse]);
 
@@ -250,6 +281,10 @@ export default function CodingJobWorkspaceV14() {
       credentialInputRef.current?.focus();
       return;
     }
+    const epoch = requestEpochRef.current + 1;
+    requestEpochRef.current = epoch;
+    currentJobIdRef.current = '';
+    latestVersionRef.current = 0;
     credentialRef.current = credential;
     setBusy(true);
     setError(null);
@@ -263,20 +298,28 @@ export default function CodingJobWorkspaceV14() {
         body: JSON.stringify({ goal: trimmedGoal, confirmRun: true }),
       });
       const data = await jsonBody(response);
+      if (epoch !== requestEpochRef.current) return;
       if (!response.ok || !data.ok || !data.job) {
+        credentialRef.current = '';
         setError(safeCode(data.code, `CODING_UI_CREATE_${response.status}`));
         return;
       }
-      applyResponse(data);
+      currentJobIdRef.current = data.job.jobId;
+      if (credentialInputRef.current) credentialInputRef.current.value = '';
+      applyResponse(data, epoch);
     } catch {
-      setError('CODING_UI_CREATE_UNAVAILABLE');
+      if (epoch === requestEpochRef.current) {
+        credentialRef.current = '';
+        setError('CODING_UI_CREATE_UNAVAILABLE');
+      }
     } finally {
-      setBusy(false);
+      if (epoch === requestEpochRef.current) setBusy(false);
     }
   }, [applyResponse, busy, capability?.ready, goal]);
 
   const cancelJob = useCallback(async () => {
-    if (!job || !ACTIVE.has(job.status) || job.cancelRequested || busy || !credentialRef.current) return;
+    if (!job || !ACTIVE.has(job.status) || job.cancelRequested || busy || !credentialRef.current || currentJobIdRef.current !== job.jobId) return;
+    const epoch = requestEpochRef.current;
     setBusy(true);
     setError(null);
     try {
@@ -285,20 +328,28 @@ export default function CodingJobWorkspaceV14() {
         headers: authHeaders(credentialRef.current),
       });
       const data = await jsonBody(response);
+      if (epoch !== requestEpochRef.current || currentJobIdRef.current !== job.jobId) return;
       if (!response.ok || !data.ok || !data.job) {
         setError(safeCode(data.code, `CODING_UI_CANCEL_${response.status}`));
         return;
       }
-      applyResponse(data);
+      applyResponse(data, epoch);
     } catch {
-      setError('CODING_UI_CANCEL_UNAVAILABLE');
+      if (epoch === requestEpochRef.current) setError('CODING_UI_CANCEL_UNAVAILABLE');
     } finally {
-      setBusy(false);
+      if (epoch === requestEpochRef.current) setBusy(false);
     }
   }, [applyResponse, busy, job]);
 
   const ready = capability?.ready === true;
   const progress = job ? STATUS_PROGRESS[job.status] : 0;
+  const verificationReached = Boolean(result?.verificationChecks.length);
+  const stageReached = [
+    Boolean(job),
+    Boolean(job && job.status !== 'queued' && job.status !== 'leased'),
+    Boolean(job && (job.status === 'repairing' || (result?.repairRounds ?? 0) > 0)),
+    Boolean(job && (job.status === 'verified' || verificationReached)),
+  ];
 
   return <section className="min-h-[calc(100vh-5rem)] bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="Coding Job Workspace">
     <div className="mx-auto grid max-w-[1600px] gap-4 xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.65fr)]">
@@ -315,15 +366,17 @@ export default function CodingJobWorkspaceV14() {
         <div className="mt-4 rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-800">
           <div className="flex items-center justify-between gap-2"><span className="font-bold">Hosted worker</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? 'checking…' : ready ? 'ready' : 'not ready'}</span></div>
           <div className="mt-2 flex items-center justify-between gap-2"><span className="text-slate-500">Encrypted result details</span><span>{capability?.resultDetailsReady ? 'configured' : 'unavailable'}</span></div>
+          <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Authorization</span><span>{authorizationLabel(capability?.authorizationMode)}</span></div>
           <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Git publish</span><span>not authorized</span></div>
           <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Deploy</span><span>not authorized</span></div>
         </div>
 
-        {!checkingCapability && !ready && <div role="status" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">Coding workerは現在fail-closedです。DB/approval secret/worker opt-inの本番設定が揃うまでジョブは開始されません。</div>}
+        {capability?.authorizationMode === 'legacy-agent-compat' && <div role="status" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">互換モードです。`ORIGIN_CODING_OPERATOR_SECRET` を設定するとCoding権限を他のAgent操作から分離できます。</div>}
+        {!checkingCapability && !ready && <div role="status" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">Coding workerは現在fail-closedです。DB / Coding operator credential / worker opt-inの設定が揃うまでジョブは開始されません。</div>}
 
-        <label htmlFor="coding-operator-key" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">Operator approval credential</label>
-        <input ref={credentialInputRef} id="coding-operator-key" type="password" autoComplete="off" spellCheck={false} placeholder="Trusted operator key" className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
-        <p className="mt-1 text-[10px] leading-4 text-slate-500">この値はReact state・localStorage・ログへ保存せず、このページのメモリ内でAPI認証にだけ使用します。</p>
+        <label htmlFor="coding-operator-key" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">Coding operator credential</label>
+        <input ref={credentialInputRef} id="coding-operator-key" type="password" autoComplete="off" spellCheck={false} placeholder="Coding operator key" className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
+        <p className="mt-1 text-[10px] leading-4 text-slate-500">この値はReact state・localStorage・ログへ保存しません。開始後は入力欄も消去し、実行中のみページメモリでAPI認証に使用します。</p>
 
         <label htmlFor="coding-goal" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">Coding goal</label>
         <textarea id="coding-goal" value={goal} onChange={event => setGoal(event.target.value)} maxLength={4000} placeholder="例: ログイン画面のフォーム検証を修正し、関連テストを追加してすべての検証を通してください。" className="mt-2 min-h-40 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
@@ -336,8 +389,8 @@ export default function CodingJobWorkspaceV14() {
         {job && <div className="mt-4 space-y-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-live="polite">
           <div className="flex flex-wrap items-center justify-between gap-2"><StatusBadge status={job.status} cancelRequested={job.cancelRequested} /><span className="text-[10px] text-slate-500">attempt {job.attempt}</span></div>
           <div>
-            <div className="mb-1 flex items-center justify-between text-[10px] text-slate-500"><span>State progress</span><span>{progress}%</span></div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} aria-label="Coding job progress"><div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${progress}%` }} /></div>
+            <div className="mb-1 flex items-center justify-between text-[10px] text-slate-500"><span>Lifecycle position</span><span>{progress}%</span></div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} aria-valuetext={STATUS_LABELS[job.status]} aria-label="Coding job lifecycle position"><div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${progress}%` }} /></div>
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[10px]">
             <dt className="text-slate-500">Job</dt><dd className="truncate font-mono" title={job.jobId}>{job.jobId}</dd>
@@ -357,16 +410,12 @@ export default function CodingJobWorkspaceV14() {
             {job ? <StatusBadge status={job.status} cancelRequested={job.cancelRequested} /> : <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-slate-800">No active job</span>}
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-4">
-            {(['queued', 'running', 'repairing', 'verified'] as const).map((stage, index) => {
-              const stageProgress = [10, 55, 75, 100][index];
-              const reached = progress >= stageProgress;
-              return <div key={stage} className={`rounded-xl border p-3 ${reached ? 'border-indigo-300 bg-indigo-50/60 dark:border-indigo-800 dark:bg-indigo-950/20' : 'border-slate-200 dark:border-slate-800'}`}>
-                <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">{index + 1}</div>
-                <div className="mt-1 text-sm font-bold">{stage === 'queued' ? 'Queue' : stage === 'running' ? 'Discover / Edit' : stage === 'repairing' ? 'Repair' : 'Verify'}</div>
-              </div>;
-            })}
+            {(['Queue', 'Discover / Edit', 'Repair', 'Verify'] as const).map((label, index) => <div key={label} className={`rounded-xl border p-3 ${stageReached[index] ? 'border-indigo-300 bg-indigo-50/60 dark:border-indigo-800 dark:bg-indigo-950/20' : 'border-slate-200 dark:border-slate-800'}`}>
+              <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">{index + 1}</div>
+              <div className="mt-1 text-sm font-bold">{label}</div>
+            </div>)}
           </div>
-          <p className="mt-3 text-[10px] leading-4 text-slate-500">進捗率は永続ジョブ状態の段階を示すもので、処理時間の予測値ではありません。</p>
+          <p className="mt-3 text-[10px] leading-4 text-slate-500">Lifecycle positionは永続ジョブ状態の位置を示し、成功率や残り時間の予測ではありません。Verify段階は実際の検証証拠が存在する場合だけ到達表示します。</p>
         </section>
 
         <VerificationPanel result={result} state={resultState} />
