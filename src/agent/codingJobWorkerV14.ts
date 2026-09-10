@@ -12,7 +12,7 @@ const DEFAULT_WORKER_LEASE_SECONDS = 120;
 type WorkerStoreV14 = Pick<PostgresCodingJobStoreV14,
   'recoverStaleJob' | 'claimJob' | 'startJob' | 'markRepairing' | 'renewLease' |
   'cancellationRequested' | 'acknowledgeCancel' | 'completeJob'>;
-type WorkerResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'put'>;
+type WorkerResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'put' | 'delete'>;
 
 export type CodingJobResolvedTargetV14 = {
   root: string;
@@ -75,9 +75,19 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
   if (!lease) return { jobId, state: 'not_claimed', code: 'CODING_JOB_NOT_CLAIMED' };
 
   let abortKind: AbortKind | null = null;
+  const eraseResultAfterCancellation = async (): Promise<void> => {
+    if (!deps.resultStore) return;
+    // The result is already AES-GCM encrypted and owner-gated. Cancellation erasure
+    // is still attempted immediately; DB expiry/FK cleanup remains the fallback if
+    // the result store is temporarily unavailable during this terminal transition.
+    await deps.resultStore.delete(jobId).catch(() => undefined);
+  };
   const cancelledOrLost = async (): Promise<CodingJobWorkerOutcomeV14> => {
     const acknowledged = await deps.store.acknowledgeCancel(jobId, workerId);
-    if (acknowledged) return { jobId, state: 'cancelled', code: 'CODING_CANCELLED_BY_USER' };
+    if (acknowledged) {
+      await eraseResultAfterCancellation();
+      return { jobId, state: 'cancelled', code: 'CODING_CANCELLED_BY_USER' };
+    }
     return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
   };
   const heartbeat = async (): Promise<void> => {
