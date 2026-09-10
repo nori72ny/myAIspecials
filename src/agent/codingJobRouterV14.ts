@@ -1,6 +1,17 @@
 import { Router, type Request, type Response } from 'express';
-import { CODING_JOB_ID_PATTERN, createCodingJobEnvelopeV14, hashCodingJobOwnerV14 } from './codingJobCryptoV14.js';
-import { dispatchCodingJobV14, type CodingJobDispatchReceiptV14 } from './codingJobDispatchV14.js';
+import {
+  CODING_JOB_ID_PATTERN,
+  codingJobCryptoConfiguredV14,
+  codingJobDataKeyConfiguredV14,
+  codingJobOwnerHashConfiguredV14,
+  createCodingJobEnvelopeV14,
+  hashCodingJobOwnerV14,
+} from './codingJobCryptoV14.js';
+import {
+  codingJobDispatchConfiguredV14,
+  dispatchCodingJobV14,
+  type CodingJobDispatchReceiptV14,
+} from './codingJobDispatchV14.js';
 import {
   authenticateCodingJobOperatorV14,
   CODING_JOB_OPERATOR_OWNER_BINDING_V14,
@@ -21,12 +32,50 @@ type CodingJobApiResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'get'>;
 type DispatchFn = (jobId: string, env: NodeJS.ProcessEnv) => Promise<CodingJobDispatchReceiptV14>;
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 
-function ready(env: NodeJS.ProcessEnv, store: CodingJobApiStoreV14 | undefined): boolean {
-  return Boolean(store) && codingJobOperatorConfiguredV14(env) && env[WORKER_ENABLED_ENV] === 'true';
+type CodingJobReadinessV14 = {
+  ready: boolean;
+  controlPlaneReady: boolean;
+  storeReady: boolean;
+  resultStoreReady: boolean;
+  authorizationReady: boolean;
+  ownerBindingReady: boolean;
+  dataKeyReady: boolean;
+  cryptoReady: boolean;
+  dispatchReady: boolean;
+  workerEnabled: boolean;
+};
+
+function readiness(
+  env: NodeJS.ProcessEnv,
+  store: CodingJobApiStoreV14 | undefined,
+  resultStore: CodingJobApiResultStoreV14 | undefined,
+): CodingJobReadinessV14 {
+  const storeReady = Boolean(store);
+  const resultStoreReady = Boolean(resultStore);
+  const authorizationReady = codingJobOperatorConfiguredV14(env);
+  const ownerBindingReady = codingJobOwnerHashConfiguredV14(env);
+  const dataKeyReady = codingJobDataKeyConfiguredV14(env);
+  const cryptoReady = codingJobCryptoConfiguredV14(env);
+  const dispatchReady = codingJobDispatchConfiguredV14(env);
+  const workerEnabled = env[WORKER_ENABLED_ENV] === 'true';
+  const controlPlaneReady = storeReady && authorizationReady && ownerBindingReady;
+  return {
+    ready: controlPlaneReady && resultStoreReady && dataKeyReady && dispatchReady && workerEnabled,
+    controlPlaneReady,
+    storeReady,
+    resultStoreReady,
+    authorizationReady,
+    ownerBindingReady,
+    dataKeyReady,
+    cryptoReady,
+    dispatchReady,
+    workerEnabled,
+  };
 }
 
 function requireApiAuth(req: Request, res: Response, env: NodeJS.ProcessEnv, store: CodingJobApiStoreV14 | undefined): { store: CodingJobApiStoreV14; ownerHash: string } | null {
-  if (!ready(env, store)) {
+  const controlReady = Boolean(store) && codingJobOperatorConfiguredV14(env) && codingJobOwnerHashConfiguredV14(env);
+  if (!controlReady) {
     res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     return null;
   }
@@ -88,28 +137,35 @@ export function createCodingJobV14Router(
 ) {
   const router = Router();
 
-  router.get('/api/coding/v1.4/status', (_req, res) => res.status(200).json({
-    ok: true,
-    version: '1.4',
-    capability: 'durable-agentic-coding-jobs',
-    ready: ready(env, store),
-    resultDetailsReady: Boolean(resultStore),
-    targetMode: 'server-owned-fixed-alias',
-    targetKey: FIXED_TARGET_KEY,
-    publicDispatchPayload: 'opaque-job-id-only',
-    persistence: 'encrypted-bounded-postgres',
-    resultPersistence: 'encrypted-bounded-postgres',
-    authorizationMode: codingJobAuthorizationModeV14(env),
-    authorizationScope: 'coding-v1.4-only-when-dedicated',
-    workerOptInRequired: true,
-    freeOnly: true,
-    costUsd: 0,
-    paidFallbackEnabled: false,
-    gitPublished: false,
-    deployed: false,
-  }));
+  router.get('/api/coding/v1.4/status', (_req, res) => {
+    const state = readiness(env, store, resultStore);
+    return res.status(200).json({
+      ok: true,
+      version: '1.4',
+      capability: 'durable-agentic-coding-jobs',
+      ...state,
+      resultDetailsReady: state.resultStoreReady,
+      targetMode: 'server-owned-fixed-alias',
+      targetKey: FIXED_TARGET_KEY,
+      publicDispatchPayload: 'opaque-job-id-only',
+      persistence: 'encrypted-bounded-postgres',
+      resultPersistence: 'encrypted-bounded-postgres',
+      authorizationMode: codingJobAuthorizationModeV14(env),
+      authorizationScope: 'coding-v1.4-only-when-dedicated',
+      workerOptInRequired: true,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
+      gitPublished: false,
+      deployed: false,
+    });
+  });
 
   router.post('/api/coding/v1.4/jobs', async (req, res) => {
+    const state = readiness(env, store, resultStore);
+    if (!state.ready) {
+      return res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+    }
     const auth = requireApiAuth(req, res, env, store);
     if (!auth) return;
     const body = req.body;
