@@ -24,7 +24,10 @@ const defaultDispatch = () => vi.fn(async (jobId: string) => ({
   ref: 'main' as const,
 }));
 
-const defaultResultStore = () => ({ get: vi.fn(async () => null) });
+const defaultResultStore = () => ({
+  get: vi.fn(async () => null),
+  delete: vi.fn(async () => true),
+});
 
 function appFor(
   store: any,
@@ -208,9 +211,9 @@ describe('V1.4 coding job API', () => {
         return publicRecord(envelope.jobId);
       }),
       getJob: vi.fn(),
-      requestCancel: vi.fn(async (_jobId: string, _ownerHash: string) => publicRecord(jobId)),
+      requestCancel: vi.fn(async (_jobId: string, _ownerHash: string) => ({ ...publicRecord(jobId), status: 'cancelled' as const, cancelRequested: true, resultCode: 'CODING_CANCELLED_BY_USER' })),
     };
-    const { app } = appFor(store, vi.fn(async () => { throw new Error('unavailable'); }));
+    const { app, resultStore } = appFor(store, vi.fn(async () => { throw new Error('unavailable'); }));
     const response = await request(app).post('/api/coding/v1.4/jobs')
       .set('Authorization', `Bearer ${codingSecret}`)
       .send({ goal: 'fix the parser', confirmRun: true });
@@ -219,17 +222,18 @@ describe('V1.4 coding job API', () => {
     expect(store.requestCancel).toHaveBeenCalledTimes(1);
     expect(store.requestCancel.mock.calls[0][0]).toBe(jobId);
     expect(store.requestCancel.mock.calls[0][1]).toMatch(/^[0-9a-f]{64}$/);
+    expect(resultStore.delete).toHaveBeenCalledWith(jobId);
   });
 
-  it('keeps status and cancellation owner-scoped', async () => {
+  it('keeps status and cancellation owner-scoped and erases terminal cancelled evidence', async () => {
     const knownId = 'coding-AAAAAAAAAAAAAAAAAAAAAA';
     const record = publicRecord(knownId);
     const store = {
       create: vi.fn(),
       getJob: vi.fn(async (_jobId: string, ownerHash: string) => ownerHash ? record : null),
-      requestCancel: vi.fn(async (_jobId: string, ownerHash: string) => ownerHash ? { ...record, status: 'cancelled' as const, cancelRequested: true } : null),
+      requestCancel: vi.fn(async (_jobId: string, ownerHash: string) => ownerHash ? { ...record, status: 'cancelled' as const, cancelRequested: true, resultCode: 'CODING_CANCELLED_BY_USER' } : null),
     };
-    const { app } = appFor(store);
+    const { app, resultStore } = appFor(store);
     const status = await request(app).get(`/api/coding/v1.4/jobs/${knownId}`).set('Authorization', `Bearer ${codingSecret}`);
     expect(status.status).toBe(200);
     expect(store.getJob.mock.calls[0][1]).toMatch(/^[0-9a-f]{64}$/);
@@ -237,6 +241,8 @@ describe('V1.4 coding job API', () => {
     const cancelled = await request(app).delete(`/api/coding/v1.4/jobs/${knownId}`).set('Authorization', `Bearer ${codingSecret}`);
     expect(cancelled.status).toBe(200);
     expect(cancelled.body.job.status).toBe('cancelled');
+    expect(cancelled.body.resultDetailsState).toBe('not_applicable');
     expect(store.requestCancel.mock.calls[0][1]).toBe(store.getJob.mock.calls[0][1]);
+    expect(resultStore.delete).toHaveBeenCalledWith(knownId);
   });
 });
