@@ -13,6 +13,7 @@ export default {
       'src/agent/codingJobCryptoV14.test.ts',
       'src/agent/codingJobResultV14.test.ts',
       'src/agent/codingJobResultStoreV14.test.ts',
+      'src/agent/codingJobResultMigrationV14.test.ts',
       'src/agent/supabaseCodingJobStoreV14.test.ts',
       'src/agent/codingJobWorkerV14.test.ts',
       'src/agent/codingJobWorkerCancellationResultV14.test.ts',
