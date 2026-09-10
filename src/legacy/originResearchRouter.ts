@@ -2,6 +2,7 @@ import { Router } from "express";
 import { createOriginAnswerEnvelope, type OriginAnswerEnvelope } from "../lib/orchestration/OriginAnswerEnvelope.js";
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
 import { detectSensitiveConversation, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
+import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation } from "./originResearchSource.js";
 
 function isFreshnessRequest(message: string): boolean {
@@ -183,7 +184,7 @@ function envelope(content: string, language: "ja" | "en", status: "passed" | "no
     answer: content,
     evidence,
     verification: { status, independentReviewPerformed: status === "passed", summary },
-    limitations: [language === "ja" ? "検索結果は無料の公開Web検索から取得したスニペットです。検索結果の掲載順・内容は変動するため、重要な価格・契約・公式発表などは原典を開いて最終確認してください。" : "Results are snippets from a free public web search. Rankings and content can change, so verify important prices, contracts, and official announcements against the original source."],
+    limitations: [language === "ja" ? "情報には検索スニペットと、取得できた原典本文の抜粋が含まれます。本文取得は事実の真偽の検証ではありません。検索結果の掲載順・内容は変動するため、重要な価格・契約・公式発表などは原典を開いて最終確認してください。" : "Evidence includes search snippets and original passages where retrieval succeeded. Retrieval does not verify factual accuracy. Rankings and content can change, so verify important prices, contracts, and official announcements against the original source."],
     nextActions: [language === "ja" ? "重要な事実の一致・矛盾は、各原典を開いて確認してください。" : "Open each original source to verify agreement or conflict on important facts."],
   });
   if (result.ok === false) throw new Error(result.code);
@@ -197,7 +198,8 @@ export function createOriginResearchRouter() {
     const messages = validateOriginChatMessages(body.messages);
     if (!messages || messages[messages.length - 1].role !== "user") return next();
     const query = messages[messages.length - 1].content;
-    if (!isFreshnessRequest(query) || isWeatherRequest(query)) return next();
+    const explicitResearch = /調査レポート|出典付き|出典つき|ファクトチェック|複数ソース|\b(?:research report|fact[- ]check|compare sources)\b/i.test(query);
+    if ((!isFreshnessRequest(query) && !explicitResearch) || isWeatherRequest(query)) return next();
     const sensitiveKinds = detectSensitiveConversation(messages);
     if (sensitiveKinds.length > 0) return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", message: "秘密情報の可能性がある内容を検出したため、外部情報源への送信を停止しました。", retryable: false, sensitiveKinds });
 
@@ -221,12 +223,14 @@ export function createOriginResearchRouter() {
 
     const comparison = buildEvidenceComparison(result.sources);
     const sourceAssessments = assessSources(result.sources);
-    const content = language === "ja"
+    const report = buildResearchReport(result.sources, language);
+    const sourceContent = language === "ja"
       ? `無料の公開Web検索を実行しました。検索結果は複数の公開Webソースから取得しています。\n\n${comparisonContent(comparison, "ja")}\n\n${result.sources.map((source, index) => `### ${source.title}\n${source.excerpt}\n\n〔出典: [${sourceLabel(source)}](${source.url})〕\n証拠レベル: ${source.evidenceLevel === "page-verified" ? "ページ確認済み" : "検索スニペットのみ"}\n取得日時: ${source.retrievedAt}\n鮮度: ${freshnessLabel(source.freshness, "ja")}\n${sourceNatureLabel(sourceAssessments[index], "ja")}${source.rank ? `\n検索順位: ${source.rank}` : ""}${source.revisionTimestamp ? `\n最終更新: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`
       : `I ran a free public web search and retrieved multiple public web sources.\n\n${comparisonContent(comparison, "en")}\n\n${result.sources.map((source, index) => `### ${source.title}\n${source.excerpt}\n\n〔Source: [${sourceLabel(source)}](${source.url})〕\nEvidence level: ${source.evidenceLevel === "page-verified" ? "Page verified" : "Search snippet only"}\nRetrieved at: ${source.retrievedAt}\nFreshness: ${freshnessLabel(source.freshness, "en")}\n${sourceNatureLabel(sourceAssessments[index], "en")}${source.rank ? `\nSearch rank: ${source.rank}` : ""}${source.revisionTimestamp ? `\nLatest revision: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`;
+    const content = `${report.markdown}\n\n${sourceContent}`;
     const evidence = extractProvidedOriginEvidence(content);
     const reason = language === "ja" ? "無料公開Web検索が実行され、取得した複数ソースを回答に添付しました。証拠レベルを各ソースに明示しています。独立AIレビューは実行していません。" : "The free public web search executed and attached multiple retrieved sources. Evidence level is explicit for each source. No independent AI review was performed.";
-    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, freeOnly: true, verificationStatus: "not-run" }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, sourceAssessments, comparison, fallback: result.fallback } });
+    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, freeOnly: true, verificationStatus: "not-run" }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback } });
   });
   return router;
 }
