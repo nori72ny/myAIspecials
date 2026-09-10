@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { generateWebProjectV13, runWebBuilderV13SelfTest } from './webAppBuilderV13.js';
 
@@ -8,7 +8,7 @@ function sensitiveKinds(body: unknown): string[] {
   return detectSensitiveConversation([{ role: 'user', content: serialized }]);
 }
 
-function safeFailure(res: Parameters<ReturnType<typeof Router>['post']>[1] extends never ? never : any, status: number, code: string) {
+function safeFailure(res: Response, status: number, code: string) {
   return res.status(status).json({ ok: false, code, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
 }
 
