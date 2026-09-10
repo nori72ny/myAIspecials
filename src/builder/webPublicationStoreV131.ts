@@ -117,23 +117,29 @@ export class PostgresWebPublicationStore implements WebPublicationStore {
     const serializedManifest = JSON.stringify(payload.manifest);
     if (Buffer.byteLength(serializedFiles, 'utf8') > MAX_PUBLICATION_BYTES * 2) throw new Error('PUBLICATION_SIZE_LIMIT_EXCEEDED');
 
-    const count = await this.database.query<{ active_count: string }>(
-      `with cleanup as (
-         delete from public.origin_builder_publications where expires_at <= clock_timestamp()
-       )
-       select count(*)::text as active_count
-       from public.origin_builder_publications
-       where expires_at > clock_timestamp()`,
-    );
-    if (Number(count.rows[0]?.active_count ?? MAX_ACTIVE_PUBLICATIONS) >= MAX_ACTIVE_PUBLICATIONS) return false;
-
+    // Capacity checking and insertion must be one database statement. The transaction-
+    // scoped advisory lock serializes concurrent publishers across serverless instances,
+    // preventing a race where multiple requests observe the same remaining slot.
     const inserted = await this.database.query<{ publication_id: string }>(
-      `insert into public.origin_builder_publications
-         (publication_id, project_sha256, expires_at, manifest, files)
-       values ($1, $2, to_timestamp($3 / 1000.0), $4::jsonb, $5::jsonb)
-       on conflict (publication_id) do nothing
-       returning publication_id`,
-      [payload.publicationId, payload.projectSha256, payload.expiresAt, serializedManifest, serializedFiles],
+      `with capacity_lock as materialized (
+         select pg_advisory_xact_lock(hashtextextended('origin_builder_publications', 0)) as locked
+       ), cleanup as (
+         delete from public.origin_builder_publications
+         where expires_at <= clock_timestamp()
+       ), capacity as materialized (
+         select count(*)::int as active_count
+         from public.origin_builder_publications, capacity_lock
+         where expires_at > clock_timestamp()
+       ), inserted as (
+         insert into public.origin_builder_publications
+           (publication_id, project_sha256, expires_at, manifest, files)
+         select $1, $2, to_timestamp($3 / 1000.0), $4::jsonb, $5::jsonb
+         where (select active_count from capacity) < $6
+         on conflict (publication_id) do nothing
+         returning publication_id
+       )
+       select publication_id from inserted`,
+      [payload.publicationId, payload.projectSha256, payload.expiresAt, serializedManifest, serializedFiles, MAX_ACTIVE_PUBLICATIONS],
     );
     return inserted.rowCount === 1;
   }
