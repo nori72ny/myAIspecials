@@ -171,7 +171,15 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
         const resultPayload = await deps.captureResult(session, target.root);
         await heartbeat();
         const resultCiphertext = encryptCodingJobResultV14(jobId, resultPayload, deps.env);
-        if (!await deps.resultStore.put(jobId, resultCiphertext)) throw new Error('CODING_RESULT_PERSISTENCE_FAILED');
+        const stored = await deps.resultStore.put(jobId, workerId, resultCiphertext);
+        if (!stored) {
+          // A conditional insert can lose a cancellation/lease race between the
+          // previous heartbeat and DB write. Re-check the durable state so that
+          // cancellation/lease loss is reported truthfully instead of as a
+          // generic persistence failure.
+          await heartbeat();
+          throw new Error('CODING_RESULT_PERSISTENCE_FAILED');
+        }
         await heartbeat();
       } catch (error) {
         if (error instanceof WorkerAbort) throw error;
