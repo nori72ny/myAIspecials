@@ -17,6 +17,7 @@ export default {
       'src/agent/codingJobWorkerV14.test.ts',
       'src/agent/codingJobDispatchV14.test.ts',
       'src/agent/codingJobRouterV14.test.ts',
+      'src/agent/codingJobResultRouterV14.test.ts',
       'src/components/CodingJobWorkspaceV14.test.tsx',
     ],
   },
