@@ -7,6 +7,8 @@ export default {
       'src/agent/codingSessionV14.test.ts',
       'src/agent/codingPlannerV14.test.ts',
       'src/agent/codingScoutV14.test.ts',
+      'src/agent/codingNavigatorV14.test.ts',
+      'src/agent/safeRepositorySearchV14.test.ts',
       'src/agent/safeRepositoryWriter.test.ts',
     ],
   },
