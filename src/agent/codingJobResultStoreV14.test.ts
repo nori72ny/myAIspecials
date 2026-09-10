@@ -33,4 +33,20 @@ describe('PostgresCodingJobResultStoreV14', () => {
     expect(capturedValues).toEqual([jobId]);
     await expect(store.get('invalid')).resolves.toBeNull();
   });
+
+  it('deletes encrypted result evidence by opaque job id', async () => {
+    let capturedText = '';
+    let capturedValues: readonly unknown[] | undefined;
+    const query = vi.fn(async (text: string, values?: readonly unknown[]) => {
+      capturedText = text;
+      capturedValues = values;
+      return { rows: [{ job_id: jobId }], rowCount: 1, command: '', oid: 0, fields: [] };
+    });
+    const store = new PostgresCodingJobResultStoreV14({ query } as never);
+    await expect(store.delete(jobId)).resolves.toBe(true);
+    expect(capturedText).toContain('delete from public.origin_coding_job_results_v14');
+    expect(capturedValues).toEqual([jobId]);
+    await expect(store.delete('invalid')).resolves.toBe(false);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
 });
