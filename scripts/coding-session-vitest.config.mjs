@@ -11,10 +11,13 @@ export default {
       'src/agent/safeRepositorySearchV14.test.ts',
       'src/agent/safeRepositoryWriter.test.ts',
       'src/agent/codingJobCryptoV14.test.ts',
+      'src/agent/codingJobResultV14.test.ts',
+      'src/agent/codingJobResultStoreV14.test.ts',
       'src/agent/supabaseCodingJobStoreV14.test.ts',
       'src/agent/codingJobWorkerV14.test.ts',
       'src/agent/codingJobDispatchV14.test.ts',
       'src/agent/codingJobRouterV14.test.ts',
+      'src/components/CodingJobWorkspaceV14.test.tsx',
     ],
   },
 };
