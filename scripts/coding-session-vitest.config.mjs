@@ -14,6 +14,7 @@ export default {
       'src/agent/supabaseCodingJobStoreV14.test.ts',
       'src/agent/codingJobWorkerV14.test.ts',
       'src/agent/codingJobDispatchV14.test.ts',
+      'src/agent/codingJobRouterV14.test.ts',
     ],
   },
 };
