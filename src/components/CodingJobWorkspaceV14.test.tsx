@@ -35,6 +35,8 @@ const capability = {
   ok: true,
   ready: true,
   resultDetailsReady: true,
+  authorizationMode: 'coding-operator' as const,
+  authorizationScope: 'coding-v1.4-only-when-dedicated',
   freeOnly: true,
   costUsd: 0,
   gitPublished: false,
@@ -81,7 +83,7 @@ describe('CodingJobWorkspaceV14', () => {
     sessionStorage.clear();
   });
 
-  it('submits a natural-language job and renders encrypted result evidence after verification', async () => {
+  it('submits a natural-language job, clears the credential field, and renders encrypted result evidence', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(capability))
       .mockResolvedValueOnce(response({ ok: true, job: job('verified'), result, resultDetailsState: 'available' }, 202));
@@ -89,13 +91,16 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('configured');
+    expect(screen.getByText('dedicated coding credential')).toBeTruthy();
 
     const credential = 'operator-secret-that-is-long-enough-for-production';
-    fireEvent.change(screen.getByLabelText('Operator approval credential'), { target: { value: credential } });
+    const credentialInput = screen.getByLabelText('Coding operator credential') as HTMLInputElement;
+    fireEvent.change(credentialInput, { target: { value: credential } });
     fireEvent.change(screen.getByLabelText('Coding goal'), { target: { value: 'Fix the parser and add regression coverage.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start coding job' }));
 
     await screen.findByText('src/existing.ts');
+    expect(credentialInput.value).toBe('');
     expect(screen.getByText('export const value = 1;')).toBeTruthy();
     expect(screen.getByText('export const value = 2;')).toBeTruthy();
     expect(screen.getAllByText('PASS')).toHaveLength(4);
@@ -111,8 +116,45 @@ describe('CodingJobWorkspaceV14', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  it('renders terminal blocked verification truthfully instead of leaving WAIT states', async () => {
+    const blockedResult = {
+      ...result,
+      sessionStatus: 'blocked' as const,
+      repairRounds: 0,
+      diffs: [],
+      verificationChecks: [],
+    };
+    const blockedJob = { ...job('blocked'), resultCode: 'CODING_SCOPE_BLOCKED', version: 3 };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(capability))
+      .mockResolvedValueOnce(response({ ok: true, job: blockedJob, result: blockedResult, resultDetailsState: 'available' }, 202));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CodingJobWorkspaceV14 />);
+    await screen.findByText('configured');
+    fireEvent.change(screen.getByLabelText('Coding operator credential'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
+    fireEvent.change(screen.getByLabelText('Coding goal'), { target: { value: 'Attempt a bounded change.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start coding job' }));
+
+    await screen.findByText('CODING_SCOPE_BLOCKED');
+    expect(screen.getAllByText('NOT RUN')).toHaveLength(4);
+    expect(screen.queryByText('WAIT')).toBeNull();
+  });
+
+  it('surfaces legacy agent authorization as an explicit compatibility warning', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response({
+      ...capability,
+      authorizationMode: 'legacy-agent-compat',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CodingJobWorkspaceV14 />);
+    expect(await screen.findByText('legacy agent compatibility')).toBeTruthy();
+    expect(screen.getByText(/ORIGIN_CODING_OPERATOR_SECRET/)).toBeTruthy();
+  });
+
   it('requests cancellation through the owner-authenticated DELETE route', async () => {
-    const cancelled = { ...job('cancelled'), cancelRequested: true };
+    const cancelled = { ...job('cancelled'), cancelRequested: true, version: 3 };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(capability))
       .mockResolvedValueOnce(response({ ok: true, job: job('running'), result: null, resultDetailsState: 'pending' }, 202))
@@ -121,13 +163,14 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('configured');
-    fireEvent.change(screen.getByLabelText('Operator approval credential'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
+    fireEvent.change(screen.getByLabelText('Coding operator credential'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('Coding goal'), { target: { value: 'Fix the parser.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start coding job' }));
     await screen.findAllByText('Coding');
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel job' }));
     await waitFor(() => expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('CANCELLED')).toHaveLength(4);
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const [url, options] = fetchMock.mock.calls[2] as [string, RequestInit];
