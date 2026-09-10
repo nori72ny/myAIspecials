@@ -1,0 +1,67 @@
+name: V1.4 durable coding job worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Opaque ORIGIN coding job id
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-coding-job-${{ inputs.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  coding-job:
+    # The current $0 architecture intentionally uses only this public repository's
+    # standard GitHub-hosted runner. There is no private/larger/paid fallback.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Validate opaque dispatch input
+        shell: bash
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+        run: |
+          set -euo pipefail
+          [[ "$JOB_ID" =~ ^coding-[A-Za-z0-9_-]{22}$ ]] || exit 2
+
+      - name: Prepare trusted controller dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull node:22-bookworm-slim
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Validate server-only worker configuration
+        shell: bash
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          ORIGIN_CODING_JOB_DATA_KEY: ${{ secrets.ORIGIN_CODING_JOB_DATA_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$POSTGRES_URL"
+          test -n "$ORIGIN_CODING_JOB_DATA_KEY"
+          test -n "$OPENROUTER_API_KEY"
+
+      - name: Run credential-separated coding controller
+        shell: bash
+        env:
+          ORIGIN_CODING_JOB_ID: ${{ inputs.job_id }}
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          ORIGIN_CODING_JOB_DATA_KEY: ${{ secrets.ORIGIN_CODING_JOB_DATA_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          FREE_ONLY: 'true'
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/run-coding-job-worker-v14.ts
