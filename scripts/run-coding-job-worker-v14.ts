@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CODING_JOB_ID_PATTERN } from '../src/agent/codingJobCryptoV14.js';
-import { runCodingJobWorkerV14, type CodingJobResolvedTargetV14 } from '../src/agent/codingJobWorkerV14.js';
+import { runCodingJobWorkerV14, type CodingJobResolvedTargetV14, type CodingJobWorkerCheckpointV14 } from '../src/agent/codingJobWorkerV14.js';
 import { createCodingJobStoreFromEnvV14 } from '../src/agent/supabaseCodingJobStoreV14.js';
 import type { CodingCheck } from '../src/agent/codingSessionV14.js';
 import type { VerificationKind } from '../src/agent/verificationRunner.js';
@@ -93,12 +93,15 @@ async function main(): Promise<void> {
       if (targetKey !== TARGET_KEY) throw new Error('CODING_WORKER_TARGET_BLOCKED');
       return { root: workspace, trustedWorkspaceApproved: true };
     };
-    const verify = async (root: string): Promise<CodingCheck[]> => {
+    const verify = async (root: string, checkpoint?: CodingJobWorkerCheckpointV14): Promise<CodingCheck[]> => {
       const realRoot = await fs.realpath(root);
       if (realRoot !== await fs.realpath(workspace)) throw new Error('CODING_WORKER_ROOT_BLOCKED');
       const kinds: VerificationKind[] = ['typecheck', 'lint', 'test', 'build'];
       const checks: CodingCheck[] = [];
-      for (const kind of kinds) checks.push(await dockerCheck(realRoot, checkout, kind));
+      for (const kind of kinds) {
+        if (checkpoint) await checkpoint();
+        checks.push(await dockerCheck(realRoot, checkout, kind));
+      }
       return checks;
     };
     const outcome = await runCodingJobWorkerV14(jobId, workerId, { store, resolveTarget, verify, env: process.env });
