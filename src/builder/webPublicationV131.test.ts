@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { QueryResult } from 'pg';
 import { generateWebProjectV13 } from './webAppBuilderV13.js';
 import {
+  MAX_ACTIVE_PUBLICATIONS,
   MAX_PUBLICATION_BYTES,
   PUBLICATION_ID_PATTERN,
   PostgresWebPublicationStore,
@@ -146,11 +147,10 @@ describe('V1.3.1 safe publication', () => {
     expect(response.body).toMatchObject({ code: 'PUBLICATION_CAPACITY_REACHED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
   });
 
-  it('uses parameterized shared Postgres operations for publish, read and remove', async () => {
+  it('uses one atomic parameterized Postgres statement for capacity and publish', async () => {
     const project = generateWebProjectV13(projectSpec);
     const payload = publicationPayloadFromProject(project, 7);
     const db = new FakeDb([
-      { rows: [{ active_count: '0' }], rowCount: 1 },
       { rows: [{ publication_id: payload.publicationId }], rowCount: 1 },
       { rows: [{ content: '<!doctype html><title>OK</title>', project_sha256: payload.projectSha256, expires_ms: String(payload.expiresAt) }], rowCount: 1 },
       { rows: [{ publication_id: payload.publicationId }], rowCount: 1 },
@@ -159,10 +159,18 @@ describe('V1.3.1 safe publication', () => {
     expect(await store.publish(payload)).toBe(true);
     expect(await store.getFile(payload.publicationId, 'index.html')).toMatchObject({ content: '<!doctype html><title>OK</title>', projectSha256: payload.projectSha256 });
     expect(await store.remove(payload.publicationId)).toBe(true);
-    expect(db.calls).toHaveLength(4);
-    expect(db.calls[1].text).toContain('$1');
-    expect(db.calls[1].text).toContain('$5::jsonb');
-    expect(db.calls[2].text).toContain('files ->> $2');
-    expect(db.calls[3].text).toContain('publication_id = $1');
+    expect(db.calls).toHaveLength(3);
+    expect(db.calls[0].text).toContain('pg_advisory_xact_lock');
+    expect(db.calls[0].text).toContain('insert into public.origin_builder_publications');
+    expect(db.calls[0].text).toContain('$5::jsonb');
+    expect(db.calls[0].text).toContain('< $6');
+    expect(db.calls[0].values?.[5]).toBe(MAX_ACTIVE_PUBLICATIONS);
+    expect(db.calls[1].text).toContain('files ->> $2');
+    expect(db.calls[2].text).toContain('publication_id = $1');
+
+    const fullDb = new FakeDb([{ rows: [], rowCount: 0 }]);
+    expect(await new PostgresWebPublicationStore(fullDb).publish(payload)).toBe(false);
+    expect(fullDb.calls).toHaveLength(1);
+    expect(fullDb.calls[0].text).toContain('pg_advisory_xact_lock');
   });
 });
