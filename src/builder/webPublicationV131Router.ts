@@ -30,7 +30,13 @@ function contentType(path: string): string | null {
 
 function publicFilePath(rawPath: string | string[] | undefined): string | null {
   const joined = Array.isArray(rawPath) ? rawPath.join('/') : (rawPath ?? '');
-  const clean = joined.replace(/^\/+|\/+$/g, '');
+  // Trim in one linear pass; an unanchored trailing-slash regex can backtrack
+  // quadratically before the path-length check on attacker-controlled input.
+  let start = 0;
+  let end = joined.length;
+  while (start < end && joined[start] === '/') start += 1;
+  while (end > start && joined[end - 1] === '/') end -= 1;
+  const clean = joined.slice(start, end);
   if (!clean) return 'index.html';
   if (clean.includes('..') || clean.includes('\\') || clean.length > 120) return null;
   if (/^[a-z0-9-]+$/.test(clean)) return `${clean}/index.html`;

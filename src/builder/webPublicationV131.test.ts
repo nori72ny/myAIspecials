@@ -112,6 +112,38 @@ describe('V1.3.1 safe publication', () => {
     expect((await request(app(store)).get(publish.body.publicPath)).status).toBe(404);
   });
 
+  it('preserves slash normalization and rejects malformed paths before storage access', async () => {
+    const paths: string[] = [];
+    const store: WebPublicationStore = {
+      publish: async () => false,
+      remove: async () => false,
+      getFile: async (_id, path) => {
+        paths.push(path);
+        return { content: 'safe', projectSha256: 'a'.repeat(64), expiresAt: Date.now() + 60_000 };
+      },
+    };
+    const server = app(store);
+    const base = `/sites/site-${'a'.repeat(22)}`;
+    for (const [suffix, file] of [
+      ['/', 'index.html'],
+      ['/about///', 'about/index.html'],
+      ['/assets/app.js/', 'assets/app.js'],
+    ]) {
+      expect((await request(server).get(base + suffix)).status).toBe(200);
+      expect(paths.at(-1)).toBe(file);
+    }
+    const before = paths.length;
+    for (const suffix of [
+      `/${'a'.repeat(121)}`,
+      `/a${'%2F'.repeat(2_000)}x`,
+      '/assets%2F..%2Fprivate.js',
+      '/assets%5Cprivate.js',
+    ]) {
+      expect((await request(server).get(base + suffix)).status).toBe(404);
+    }
+    expect(paths).toHaveLength(before);
+  });
+
   it('fails closed without configuration, authentication, confirmation, or safe public input', async () => {
     const store = new MemoryPublicationStore();
     const status = await request(app(store)).get('/api/builder/v1.3.1/status');

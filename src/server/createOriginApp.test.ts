@@ -240,6 +240,36 @@ describe("createOriginApp provider isolation", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("shares the builder burst limit across publish and delete before authentication", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    try {
+      const app = createOriginApp({
+        ORIGIN_AGENT_APPROVAL_SECRET: "x".repeat(40),
+        POSTGRES_URL: "postgresql://unused:unused@127.0.0.1:1/unused",
+      });
+      const publicationPath = `/api/builder/v1.3.1/publications/site-${"a".repeat(22)}`;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const response = attempt % 2 === 0
+          ? await request(app).post("/api/builder/v1.3.1/publish").send({})
+          : await request(app).delete(publicationPath);
+        expect(response.status).toBe(401);
+      }
+      for (const response of [
+        await request(app).delete(publicationPath),
+        await request(app).post("/api/builder/v1.3.1/publish").send({}),
+      ]) {
+        expect(response.status).toBe(429);
+        expect(response.headers["retry-after"]).toBeDefined();
+      }
+      expect((await request(app).get("/api/builder/v1.3.1/status")).status).toBe(200);
+      clock.mockReturnValue(1_800_000_001_000);
+      expect((await request(app).delete(publicationPath)).status).toBe(401);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("rate limits repeated chat requests before provider execution", async () => {
     const app = createOriginApp();
     for (let attempt = 0; attempt < 8; attempt += 1) {
