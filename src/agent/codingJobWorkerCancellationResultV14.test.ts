@@ -7,6 +7,7 @@ import { createCodingJobEnvelopeV14 } from './codingJobCryptoV14.js';
 import { runCodingJobWorkerV14, type CodingJobLeaseV14 } from './codingJobWorkerV14.js';
 import type { CodingCheck } from './codingSessionV14.js';
 import type { CodingJobPublicRecordV14 } from './supabaseCodingJobStoreV14.js';
+import type { OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import { ORIGIN_OPENROUTER_FREE_MODEL, DEFAULT_ORIGIN_PROVIDER_DATA_POLICY } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 const roots: string[] = [];
@@ -60,7 +61,7 @@ describe('V1.4 cancellation/result race', () => {
     const put = vi.fn(async () => { cancel = true; return true; });
     const deleteResult = vi.fn(async () => true);
     const resultStore = { put, delete: deleteResult };
-    const execute = vi.fn(async () => ({
+    const execute = vi.fn(async (): Promise<OriginProviderExecutionResult> => ({
       text: JSON.stringify({ edits: [{ path: 'src/math.js', search: 'a - b', replacement: 'a + b' }], creates: [] }),
       actualCostUsd: 0,
       usage: { costUsd: 0 },
@@ -69,7 +70,7 @@ describe('V1.4 cancellation/result race', () => {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         provider: 'OpenRouter',
-        strategy: 'adaptive-primary' as const,
+        strategy: 'adaptive-primary',
         attempt: 1,
         fallbackUsed: false,
       },
