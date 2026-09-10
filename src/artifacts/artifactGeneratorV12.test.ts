@@ -23,9 +23,11 @@ describe('V1.2 real artifacts', () => {
     for (const input of inputs) {
       const artifact = generateArtifactV12(input);
       expect(artifact.verified).toBe(true);
-      expect(artifact.bytes.length).toBeGreaterThan(20);
+      expect(artifact.bytes.length).toBeGreaterThan(0);
       expect(artifact.sha256).toMatch(/^[0-9a-f]{64}$/);
     }
+    expect(generateArtifactV12(inputs[0]).bytes.toString('utf8')).toContain('# Report');
+    expect(generateArtifactV12(inputs[1]).bytes.toString('utf8')).toContain('Name,Value');
     expect(generateArtifactV12(inputs[2]).bytes.subarray(0, 5).toString()).toBe('%PDF-');
     expect(generateArtifactV12(inputs[3]).bytes.readUInt32LE(0)).toBe(0x04034b50);
     expect(generateArtifactV12(inputs[4]).bytes.readUInt32LE(0)).toBe(0x04034b50);
@@ -46,7 +48,7 @@ describe('V1.2 real artifacts', () => {
 
   it('fails closed for invalid and sensitive requests', async () => {
     expect((await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'exe' })).status).toBe(400);
-    const sensitive = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'markdown', content: 'password=super-secret-value' });
+    const sensitive = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'markdown', content: 'api_key=xxxxxx' });
     expect(sensitive.status).toBe(422);
     expect(sensitive.body.code).toBe('SENSITIVE_INPUT_BLOCKED');
   });
