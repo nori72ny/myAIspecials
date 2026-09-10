@@ -27,6 +27,15 @@ function dispatchToken(env: NodeJS.ProcessEnv): string {
   return token;
 }
 
+export function codingJobDispatchConfiguredV14(env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
+    dispatchToken(env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fixed-target server-side dispatch boundary. The workflow request can carry only
  * the opaque durable job id. Prompt/source/target/repository/ref are deliberately
