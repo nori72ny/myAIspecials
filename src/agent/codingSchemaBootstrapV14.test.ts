@@ -82,7 +82,6 @@ describe('V1.4 guarded Vercel schema bootstrap', () => {
 
     const result = await bootstrapCodingSchemaV14(productionEnv, {
       createClient: () => client,
-      readMigration: vi.fn(),
     });
 
     expect(result).toEqual({ status: 'failed', code: 'CODING_SCHEMA_BOOTSTRAP_TARGET_UNRECOGNIZED' });
@@ -100,15 +99,13 @@ describe('V1.4 guarded Vercel schema bootstrap', () => {
       if (text.includes('jobs_rls')) return { rows: [healthyVerification()] };
       return { rows: [] };
     });
-    const readMigration = vi.fn(async (url: URL) => url.pathname.includes('20260911') ? '--jobs-migration' : '--results-migration');
 
     const result = await bootstrapCodingSchemaV14(productionEnv, {
       createClient: () => client,
-      readMigration,
+      migrations: { jobs: '--jobs-migration', results: '--results-migration' },
     });
 
     expect(result).toEqual({ status: 'applied', code: 'CODING_SCHEMA_BOOTSTRAP_APPLIED' });
-    expect(readMigration).toHaveBeenCalledTimes(2);
     expect(client.calls.some(call => call.text === '--jobs-migration')).toBe(true);
     expect(client.calls.some(call => call.text === '--results-migration')).toBe(true);
     expect(client.calls.some(call => call.text === 'commit')).toBe(true);
@@ -124,15 +121,15 @@ describe('V1.4 guarded Vercel schema bootstrap', () => {
       if (text.includes('jobs_rls')) return { rows: [healthyVerification()] };
       return { rows: [] };
     });
-    const readMigration = vi.fn();
 
     const result = await bootstrapCodingSchemaV14(productionEnv, {
       createClient: () => client,
-      readMigration,
+      migrations: { jobs: '--jobs-migration', results: '--results-migration' },
     });
 
     expect(result).toEqual({ status: 'already_ready', code: 'CODING_SCHEMA_BOOTSTRAP_ALREADY_READY' });
-    expect(readMigration).not.toHaveBeenCalled();
+    expect(client.calls.some(call => call.text === '--jobs-migration')).toBe(false);
+    expect(client.calls.some(call => call.text === '--results-migration')).toBe(false);
     expect(client.calls.some(call => call.text === 'commit')).toBe(true);
   });
 
@@ -148,11 +145,30 @@ describe('V1.4 guarded Vercel schema bootstrap', () => {
 
     const result = await bootstrapCodingSchemaV14(productionEnv, {
       createClient: () => client,
-      readMigration: vi.fn(async (url: URL) => url.pathname.includes('20260911') ? '--jobs-migration' : '--results-migration'),
+      migrations: { jobs: '--jobs-migration', results: '--results-migration' },
     });
 
     expect(result).toEqual({ status: 'failed', code: 'CODING_SCHEMA_BOOTSTRAP_VERIFICATION_FAILED' });
     expect(client.calls.some(call => call.text === 'rollback')).toBe(true);
     expect(client.calls.some(call => call.text === 'commit')).toBe(false);
+  });
+
+  it('ships non-empty default migrations without runtime file or import.meta dependency', async () => {
+    const client = makeClient(async text => {
+      if (text.includes("origin_builder_publications")) return { rows: [{ origin_marker: true }] };
+      if (text.includes('as jobs_table') && !text.includes('jobs_rls')) {
+        return { rows: [{ jobs_table: false, results_table: false }] };
+      }
+      if (text.includes('jobs_rls')) return { rows: [healthyVerification()] };
+      return { rows: [] };
+    });
+
+    const result = await bootstrapCodingSchemaV14(productionEnv, {
+      createClient: () => client,
+    });
+
+    expect(result).toEqual({ status: 'applied', code: 'CODING_SCHEMA_BOOTSTRAP_APPLIED' });
+    expect(client.calls.some(call => call.text.includes('create table if not exists public.origin_coding_jobs_v14'))).toBe(true);
+    expect(client.calls.some(call => call.text.includes('create table if not exists public.origin_coding_job_results_v14'))).toBe(true);
   });
 });
