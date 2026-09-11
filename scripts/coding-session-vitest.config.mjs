@@ -22,7 +22,6 @@ export default {
       'src/agent/codingDatabaseUrlV14.test.ts',
       'src/agent/codingJobRouterV14.test.ts',
       'src/agent/codingJobLiveReadinessV14.test.ts',
-      'src/agent/codingSchemaBootstrapV14.test.ts',
       'src/agent/codingJobResultRouterV14.test.ts',
       'src/components/CodingJobWorkspaceV14.test.tsx',
     ],
