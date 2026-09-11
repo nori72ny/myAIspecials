@@ -81,6 +81,37 @@ describe('V1.4 live database readiness', () => {
     expect(status.body.ready).toBe(false);
   });
 
+  it('logs only a bounded probe code once and never logs secret-bearing error text', async () => {
+    const secretMessage = 'postgresql://user:super-secret-password@private.example/db';
+    const probeError = Object.assign(new Error(secretMessage), { code: 'ETESTSAFE' });
+    const store = {
+      create: vi.fn(),
+      getJob: vi.fn(async () => { throw probeError; }),
+      requestCancel: vi.fn(),
+    };
+    const resultStore = {
+      get: vi.fn(async () => null),
+      delete: vi.fn(async () => true),
+    };
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { app } = appFor(store, resultStore);
+
+    try {
+      await request(app).get('/api/coding/v1.4/status');
+      await request(app).get('/api/coding/v1.4/status');
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      expect(consoleSpy).toHaveBeenCalledWith('ORIGIN_CODING_DB_PROBE_FAILED', {
+        store: 'job-store',
+        code: 'ETESTSAFE',
+      });
+      expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain('super-secret-password');
+      expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain('private.example');
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
   it('reports live database readiness only after both schema probes succeed', async () => {
     const store = {
       create: vi.fn(),
