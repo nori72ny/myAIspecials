@@ -20,6 +20,7 @@ export default {
       'src/agent/codingJobWorkerCancellationResultV14.test.ts',
       'src/agent/codingJobDispatchV14.test.ts',
       'src/agent/codingJobRouterV14.test.ts',
+      'src/agent/codingJobLiveReadinessV14.test.ts',
       'src/agent/codingJobResultRouterV14.test.ts',
       'src/components/CodingJobWorkspaceV14.test.tsx',
     ],
