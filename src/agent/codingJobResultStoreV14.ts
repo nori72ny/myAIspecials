@@ -21,6 +21,10 @@ export class PostgresCodingJobResultStoreV14 {
    * Persist result evidence only while the caller still owns a live, uncancelled
    * coding-job lease. This prevents a stale worker from publishing evidence after
    * cancellation or lease takeover.
+   * Lock the parent row before inserting/updating the result: a snapshot-only
+   * SELECT can otherwise publish after the cancellation cleanup trigger ran.
+   * Under READ COMMITTED, a writer waiting on this lock rechecks the updated
+   * lease/cancellation predicates before any result is written.
    */
   async put(jobId: string, workerId: string, resultCiphertext: string): Promise<boolean> {
     if (!CODING_JOB_ID_PATTERN.test(jobId) || !WORKER_ID_PATTERN.test(workerId) || !CODING_JOB_RESULT_CIPHERTEXT_PATTERN.test(resultCiphertext) || Buffer.byteLength(resultCiphertext, 'utf8') > 96 * 1024) {
@@ -36,6 +40,7 @@ export class PostgresCodingJobResultStoreV14 {
          and lease_expires_at > clock_timestamp()
          and expires_at > clock_timestamp()
          and cancel_requested_at is null
+       for update
        on conflict (job_id) do update
          set result_ciphertext = excluded.result_ciphertext,
              updated_at = clock_timestamp()
