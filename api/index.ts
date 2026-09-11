@@ -2,36 +2,13 @@ import "dotenv/config";
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Express } from "express";
-import { resolveCodingDatabaseUrlV14 } from "../src/agent/codingDatabaseUrlV14.js";
-import { bootstrapCodingSchemaV14 } from "../src/agent/codingSchemaBootstrapV14.js";
 
 type OriginAppLoader = () => Promise<Express>;
 
 let originAppPromise: Promise<Express> | undefined;
 
 async function loadOriginApp(): Promise<Express> {
-  // The bootstrap module is now self-contained and bundle-safe. Import it
-  // statically so Vercel does not need to resolve a second runtime dynamic
-  // module URL. The guarded database operation itself remains isolated below.
-  originAppPromise ??= import("../src/server/createOriginApp.js").then(async ({ createOriginApp }) => {
-    try {
-      const database = resolveCodingDatabaseUrlV14(process.env);
-      const bootstrapEnv = database
-        ? { ...process.env, POSTGRES_URL: database.connectionString }
-        : process.env;
-      const bootstrap = await bootstrapCodingSchemaV14(bootstrapEnv);
-      if (bootstrap.status === "failed") {
-        // Never emit database URLs, exception messages, SQL, or environment data.
-        console.error("ORIGIN_CODING_SCHEMA_BOOTSTRAP_FAILED", { code: bootstrap.code });
-      }
-    } catch (error) {
-      const code = error && typeof error === "object" && "code" in error && typeof error.code === "string"
-        ? error.code.slice(0, 80)
-        : "CODING_SCHEMA_BOOTSTRAP_EXECUTION_FAILED";
-      console.error("ORIGIN_CODING_SCHEMA_BOOTSTRAP_FAILED", { code });
-    }
-    return createOriginApp();
-  });
+  originAppPromise ??= import("../src/server/createOriginApp.js").then(({ createOriginApp }) => createOriginApp());
   return originAppPromise;
 }
 
