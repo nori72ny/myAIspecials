@@ -8,7 +8,9 @@ describe('offline cross-AI comparison', () => {
     expect(comparisonPrompt()).not.toContain('"total":480');
   });
   it('scores structured answers independently of object key order', () => {
-    expect(scoreComparisonResponse(JSON.stringify(response()), 'reference', 'rubric-visible reference')).toMatchObject({ passed: 8, total: 8, formatValid: true });
+    const data = response();
+    data.answers['conflicting-sources'] = { sources: ['S2', 'S1'], values: [12, 15], status: 'conflict' };
+    expect(scoreComparisonResponse(JSON.stringify(data), 'reference', 'rubric-visible reference')).toMatchObject({ passed: 8, total: 8, formatValid: true });
   });
   it('keeps unanswered tasks in the denominator', () => {
     const data = response(); delete data.answers['aggregation'];

@@ -31,7 +31,15 @@ export function scoreComparisonResponse(text: string, participant: string, prove
   const rows = COMPARISON_TASKS.map(task => {
     const present = Object.hasOwn(answers, task.id);
     let matches = false;
-    try { matches = present && canonical(answers[task.id]) === canonical(task.expected); } catch { /* excessively nested answers fail */ }
+    try {
+      let candidate = answers[task.id];
+      // Source IDs are a set; the prompt specifies no ordering for this field.
+      if (task.id === 'conflicting-sources' && candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        const item = candidate as Record<string, unknown>;
+        if (Array.isArray(item.sources) && item.sources.every(source => typeof source === 'string')) candidate = { ...item, sources: [...item.sources].sort() };
+      }
+      matches = present && canonical(candidate) === canonical(task.expected);
+    } catch { /* excessively nested answers fail */ }
     return { id: task.id, status: !formatValid ? 'invalid-format' : !present ? 'missing' : matches ? 'pass' : 'fail' };
   });
   return { suite: COMPARISON_VERSION, participant, provenance, formatValid, unknownTaskIds, passed: rows.filter(row => row.status === 'pass').length, total: COMPARISON_TASKS.length, rows,
