@@ -1,0 +1,27 @@
+export default {
+  cacheDir: '/tmp/origin-vite-cache',
+  test: {
+    environment: 'node',
+    maxWorkers: 1,
+    include: [
+      'src/agent/aiComparisonV14.test.ts',
+      'src/agent/codingSessionV14.test.ts',
+      'src/agent/codingPlannerV14.test.ts',
+      'src/agent/codingScoutV14.test.ts',
+      'src/agent/codingNavigatorV14.test.ts',
+      'src/agent/safeRepositorySearchV14.test.ts',
+      'src/agent/safeRepositoryWriter.test.ts',
+      'src/agent/codingJobCryptoV14.test.ts',
+      'src/agent/codingJobResultV14.test.ts',
+      'src/agent/codingJobResultStoreV14.test.ts',
+      'src/agent/codingJobResultMigrationV14.test.ts',
+      'src/agent/supabaseCodingJobStoreV14.test.ts',
+      'src/agent/codingJobWorkerV14.test.ts',
+      'src/agent/codingJobWorkerCancellationResultV14.test.ts',
+      'src/agent/codingJobDispatchV14.test.ts',
+      'src/agent/codingJobRouterV14.test.ts',
+      'src/agent/codingJobResultRouterV14.test.ts',
+      'src/components/CodingJobWorkspaceV14.test.tsx',
+    ],
+  },
+};

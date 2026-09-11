@@ -93,6 +93,30 @@ async function writeThroughStableParent(rootReal: string, target: string, conten
   } finally { await parentHandle.close(); }
 }
 
+async function createThroughStableParent(rootReal: string, target: string, content: string): Promise<void> {
+  const parent = path.dirname(target);
+  const parentHandle = await openStableParent(rootReal, parent);
+  try {
+    const stableParent = `/proc/self/fd/${parentHandle.fd}`;
+    const stableTarget = path.join(stableParent, path.basename(target));
+    const tempName = `.${path.basename(target)}.origin-create-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const temp = path.join(stableParent, tempName);
+    try {
+      await fs.writeFile(temp, content, { encoding: 'utf8', flag: 'wx' });
+      try {
+        // link(2) is create-only: an existing destination is never replaced.
+        // The source and destination share the descriptor-stable parent directory.
+        await fs.link(temp, stableTarget);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'EEXIST') throw new Error('FILE_ALREADY_EXISTS');
+        if (code === 'ELOOP') throw new Error('SYMLINK_PATH_BLOCKED');
+        throw error;
+      }
+    } finally { await fs.rm(temp, { force: true }).catch(() => undefined); }
+  } finally { await parentHandle.close(); }
+}
+
 async function prepareWrite(root: string, filePath: string, content: string): Promise<{ rootReal: string; target: string; relative: string; bytes: number }> {
   assertSafeRelativePath(filePath);
   if (containsLikelySecret(content)) throw new Error('SECRET_CONTENT_BLOCKED');
@@ -115,5 +139,12 @@ export async function writeRepositoryFile(root: string, filePath: string, conten
 export async function writeRepositoryFileIfUnchanged(root: string, filePath: string, expectedPrevious: string, content: string): Promise<{ bytes: number; path: string }> {
   const prepared = await prepareWrite(root, filePath, content);
   await writeThroughStableParent(prepared.rootReal, prepared.target, content, expectedPrevious);
+  return { bytes: prepared.bytes, path: prepared.relative };
+}
+
+/** Atomically creates a new file and refuses to replace a target created by a concurrent actor. */
+export async function createRepositoryFileIfAbsent(root: string, filePath: string, content: string): Promise<{ bytes: number; path: string }> {
+  const prepared = await prepareWrite(root, filePath, content);
+  await createThroughStableParent(prepared.rootReal, prepared.target, content);
   return { bytes: prepared.bytes, path: prepared.relative };
 }

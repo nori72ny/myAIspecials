@@ -1,0 +1,37 @@
+name: V1.4 hosted coding sandbox
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/agent/**'
+      - 'src/components/CodingJobWorkspaceV14*'
+      - 'supabase/migrations/**'
+      - 'scripts/coding-session-*'
+      - '.github/workflows/coding-session-sandbox.yml'
+      - 'package-lock.json'
+permissions:
+  contents: read
+concurrency:
+  group: coding-sandbox-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-session:
+    # Fail closed on private repositories: no billable private runner fallback.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Prepare dependencies without repository lifecycle scripts
+        run: |
+          docker pull node:22-bookworm-slim
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
+            --env HOME=/tmp node:22-bookworm-slim \
+            npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run bounded offline coding session
+        run: bash scripts/coding-session-sandbox.sh

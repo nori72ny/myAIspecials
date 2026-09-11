@@ -2,6 +2,7 @@ import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import UnifiedChatCore from './UnifiedChatCore';
 import HeaderModeSwitcher, { type OriginWorkspaceMode } from '../HeaderModeSwitcher';
 import AgentWorkspaceView from '../AgentWorkspaceView';
+import CodingJobWorkspaceV14 from '../CodingJobWorkspaceV14';
 
 type UnifiedChatProps = ComponentProps<typeof UnifiedChatCore>;
 type Range = [number, number];
@@ -80,6 +81,7 @@ export default function UnifiedChat(props: UnifiedChatProps) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.altKey && event.key.toLowerCase() === 'a') { event.preventDefault(); setMode((current) => current === 'chat' ? 'agent' : 'chat'); }
+      if (event.altKey && event.key.toLowerCase() === 'c') { event.preventDefault(); setMode('coding'); }
     };
     window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
@@ -94,7 +96,7 @@ export default function UnifiedChat(props: UnifiedChatProps) {
   return (
     <div ref={rootRef} data-origin-context-aware-numeric-postprocessor="v1" className="min-h-full w-full">
       <HeaderModeSwitcher currentMode={mode} onModeChange={setMode} />
-      {mode === 'chat' ? <UnifiedChatCore {...props} /> : <AgentWorkspaceView />}
+      {mode === 'chat' ? <UnifiedChatCore {...props} /> : mode === 'agent' ? <AgentWorkspaceView /> : <CodingJobWorkspaceV14 />}
     </div>
   );
 }
