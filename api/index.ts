@@ -8,11 +8,20 @@ type OriginAppLoader = () => Promise<Express>;
 let originAppPromise: Promise<Express> | undefined;
 
 async function loadOriginApp(): Promise<Express> {
-  // Vercel emits the TypeScript dependency graph as Node ESM. Keep the
-  // runtime specifier on the emitted .js path; TypeScript/esbuild resolve it
-  // back to the .ts source during local checks and bundling.
-  originAppPromise ??= import("../src/server/createOriginApp.js")
-    .then(({ createOriginApp }) => createOriginApp());
+  // Vercel emits the TypeScript dependency graph as Node ESM. Keep runtime
+  // specifiers on emitted .js paths; TypeScript/esbuild resolve them back to
+  // the .ts sources during local checks and bundling.
+  originAppPromise ??= Promise.all([
+    import("../src/server/createOriginApp.js"),
+    import("../src/agent/codingSchemaBootstrapV14.js"),
+  ]).then(async ([{ createOriginApp }, { bootstrapCodingSchemaV14 }]) => {
+    const bootstrap = await bootstrapCodingSchemaV14(process.env);
+    if (bootstrap.status === "failed") {
+      // Never emit database URLs, exception messages, SQL, or environment data.
+      console.error("ORIGIN_CODING_SCHEMA_BOOTSTRAP_FAILED", { code: bootstrap.code });
+    }
+    return createOriginApp();
+  });
   return originAppPromise;
 }
 
