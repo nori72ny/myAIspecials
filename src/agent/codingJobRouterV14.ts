@@ -28,11 +28,14 @@ const MAX_TTL_MINUTES = 7 * 24 * 60;
 const WORKER_ENABLED_ENV = 'ORIGIN_CODING_WORKER_ENABLED';
 const READINESS_PROBE_JOB_ID = 'coding-0000000000000000000000';
 const READINESS_PROBE_OWNER_HASH = '0'.repeat(64);
+const SAFE_PROBE_ERROR_CODE = /^[A-Za-z0-9_.:-]{1,80}$/;
+const loggedProbeFailures = new Set<string>();
 
 type CodingJobApiStoreV14 = Pick<PostgresCodingJobStoreV14, 'create' | 'getJob' | 'requestCancel'>;
 type CodingJobApiResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'get' | 'delete'>;
 type DispatchFn = (jobId: string, env: NodeJS.ProcessEnv) => Promise<CodingJobDispatchReceiptV14>;
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
+type DatabaseProbeStoreV14 = 'job-store' | 'result-store';
 
 type CodingJobReadinessV14 = {
   ready: boolean;
@@ -50,12 +53,31 @@ type CodingJobReadinessV14 = {
   workerEnabled: boolean;
 };
 
+function safeDatabaseProbeFailureCode(error: unknown): string {
+  if (error && typeof error === 'object') {
+    if ('code' in error && typeof error.code === 'string' && SAFE_PROBE_ERROR_CODE.test(error.code)) return error.code;
+    if ('name' in error && typeof error.name === 'string' && SAFE_PROBE_ERROR_CODE.test(error.name)) return error.name;
+  }
+  return 'UNKNOWN';
+}
+
+function logDatabaseProbeFailure(store: DatabaseProbeStoreV14, error: unknown): void {
+  const code = safeDatabaseProbeFailureCode(error);
+  const key = `${store}:${code}`;
+  if (loggedProbeFailures.has(key)) return;
+  loggedProbeFailures.add(key);
+  // Do not log exception messages, stacks, SQL, host names, environment values,
+  // or connection strings. A bounded class/code is enough for production triage.
+  console.error('ORIGIN_CODING_DB_PROBE_FAILED', { store, code });
+}
+
 async function liveStoreReady(store: CodingJobApiStoreV14 | undefined): Promise<boolean> {
   if (!store) return false;
   try {
     await store.getJob(READINESS_PROBE_JOB_ID, READINESS_PROBE_OWNER_HASH);
     return true;
-  } catch {
+  } catch (error) {
+    logDatabaseProbeFailure('job-store', error);
     return false;
   }
 }
@@ -65,7 +87,8 @@ async function liveResultStoreReady(resultStore: CodingJobApiResultStoreV14 | un
   try {
     await resultStore.get(READINESS_PROBE_JOB_ID);
     return true;
-  } catch {
+  } catch (error) {
+    logDatabaseProbeFailure('result-store', error);
     return false;
   }
 }
