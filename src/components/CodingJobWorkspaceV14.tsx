@@ -56,6 +56,18 @@ type JobResponse = {
 type CapabilityResponse = {
   ok?: boolean;
   ready?: boolean;
+  controlPlaneReady?: boolean;
+  databaseReady?: boolean;
+  storeConfigured?: boolean;
+  resultStoreConfigured?: boolean;
+  storeReady?: boolean;
+  resultStoreReady?: boolean;
+  authorizationReady?: boolean;
+  ownerBindingReady?: boolean;
+  dataKeyReady?: boolean;
+  cryptoReady?: boolean;
+  dispatchReady?: boolean;
+  workerEnabled?: boolean;
   resultDetailsReady?: boolean;
   authorizationMode?: CodingJobAuthorizationMode;
   authorizationScope?: string;
@@ -112,6 +124,10 @@ function authorizationLabel(mode: CodingJobAuthorizationMode | undefined): strin
   if (mode === 'coding-operator') return 'dedicated coding credential';
   if (mode === 'legacy-agent-compat') return 'legacy agent compatibility';
   return 'unconfigured';
+}
+
+function ReadinessValue({ ready }: { ready: boolean | undefined }) {
+  return <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{ready ? 'ready' : 'missing'}</span>;
 }
 
 function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; cancelRequested: boolean }) {
@@ -212,7 +228,7 @@ export default function CodingJobWorkspaceV14() {
     setResultState(data.resultDetailsState ?? 'pending');
   }, []);
 
-  const loadJob = useCallback(async (jobId: string, credential: string, epoch: number, unavailableCode: string) => {
+  const loadJob = useCallback(async (jobId: string, credential: string, epoch: number) => {
     const response = await fetch(`/api/coding/v1.4/jobs/${encodeURIComponent(jobId)}`, { headers: authHeaders(credential) });
     const data = await jsonBody(response);
     if (epoch !== requestEpochRef.current || currentJobIdRef.current !== jobId) return false;
@@ -230,7 +246,7 @@ export default function CodingJobWorkspaceV14() {
     if (!credential || refreshInFlightRef.current || currentJobIdRef.current !== jobId) return;
     const epoch = requestEpochRef.current;
     refreshInFlightRef.current = true;
-    try { await loadJob(jobId, credential, epoch, 'CODING_UI_STATUS_UNAVAILABLE'); }
+    try { await loadJob(jobId, credential, epoch); }
     catch { if (epoch === requestEpochRef.current) setError('CODING_UI_STATUS_UNAVAILABLE'); }
     finally { refreshInFlightRef.current = false; }
   }, [loadJob]);
@@ -281,7 +297,7 @@ export default function CodingJobWorkspaceV14() {
     if (!credential) { setError('CODING_JOB_AUTHENTICATION_REQUIRED'); credentialInputRef.current?.focus(); return; }
     const epoch = beginOperation(credential, jobId);
     try {
-      const loaded = await loadJob(jobId, credential, epoch, 'CODING_UI_STATUS_UNAVAILABLE');
+      const loaded = await loadJob(jobId, credential, epoch);
       if (loaded && credentialInputRef.current) credentialInputRef.current.value = '';
       if (!loaded && epoch === requestEpochRef.current) credentialRef.current = '';
     } catch { if (epoch === requestEpochRef.current) { credentialRef.current = ''; setError('CODING_UI_STATUS_UNAVAILABLE'); } }
@@ -304,6 +320,17 @@ export default function CodingJobWorkspaceV14() {
   }, [applyResponse, busy, job]);
 
   const ready = capability?.ready === true;
+  const dedicatedAuthorizationReady = capability?.authorizationReady === true && capability.authorizationMode === 'coding-operator';
+  const readinessItems = [
+    ['Control plane', capability?.controlPlaneReady],
+    ['Database config', capability?.storeConfigured === true && capability?.resultStoreConfigured === true],
+    ['Live job/result schema', capability?.databaseReady === true && capability?.storeReady === true && capability?.resultStoreReady === true],
+    ['Owner binding', capability?.ownerBindingReady],
+    ['Encryption', capability?.dataKeyReady === true && capability?.cryptoReady === true],
+    ['Dedicated coding auth', dedicatedAuthorizationReady],
+    ['GitHub dispatch', capability?.dispatchReady],
+    ['Worker opt-in', capability?.workerEnabled],
+  ] as const;
   const progress = job ? STATUS_PROGRESS[job.status] : 0;
   const verificationReached = Boolean(result?.verificationChecks.length);
   const stageReached = [Boolean(job), Boolean(job && job.status !== 'queued' && job.status !== 'leased'), Boolean(job && (job.status === 'repairing' || (result?.repairRounds ?? 0) > 0)), Boolean(job && (job.status === 'verified' || verificationReached))];
@@ -321,8 +348,14 @@ export default function CodingJobWorkspaceV14() {
           <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Deploy</span><span>not authorized</span></div>
         </div>
 
+        {!checkingCapability && <div className="mt-4 rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-800" aria-label="Coding production readiness">
+          <div className="mb-2 font-bold">Production readiness</div>
+          <div className="space-y-1">{readinessItems.map(([label, itemReady]) => <div key={label} className="flex items-center justify-between gap-3"><span className="text-slate-500">{label}</span><ReadinessValue ready={itemReady} /></div>)}</div>
+          <p className="mt-2 text-[10px] leading-4 text-slate-500">公開statusの非秘密booleanのみを表示しています。secret値・DB URI・tokenは表示しません。</p>
+        </div>}
+
         {capability?.authorizationMode === 'legacy-agent-compat' && <div role="status" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">互換モードです。`ORIGIN_CODING_OPERATOR_SECRET` を設定するとCoding権限を他のAgent操作から分離できます。</div>}
-        {!checkingCapability && !ready && <div role="status" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">Coding workerは現在fail-closedです。DB / Coding operator credential / worker opt-inの設定が揃うまで新規ジョブは開始されません。既存ジョブの参照・取消はcontrol-plane条件が揃っていれば利用できます。</div>}
+        {!checkingCapability && !ready && <div role="status" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">Coding workerは現在fail-closedです。上のreadinessが揃うまで新規ジョブは開始されません。既存ジョブの参照・取消はcontrol-plane条件が揃っていれば利用できます。</div>}
 
         <label htmlFor="coding-operator-key" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">Coding operator credential</label>
         <input ref={credentialInputRef} id="coding-operator-key" type="password" autoComplete="off" spellCheck={false} placeholder="Coding operator key" className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
