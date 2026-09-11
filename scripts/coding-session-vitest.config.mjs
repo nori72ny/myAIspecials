@@ -4,6 +4,7 @@ export default {
     environment: 'node',
     maxWorkers: 1,
     include: [
+      'src/agent/aiComparisonV14.test.ts',
       'src/agent/codingSessionV14.test.ts',
       'src/agent/codingPlannerV14.test.ts',
       'src/agent/codingScoutV14.test.ts',
