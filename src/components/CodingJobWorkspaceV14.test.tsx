@@ -34,6 +34,18 @@ function job(status: JobStatus) {
 const capability = {
   ok: true,
   ready: true,
+  controlPlaneReady: true,
+  databaseReady: true,
+  storeConfigured: true,
+  resultStoreConfigured: true,
+  storeReady: true,
+  resultStoreReady: true,
+  authorizationReady: true,
+  ownerBindingReady: true,
+  dataKeyReady: true,
+  cryptoReady: true,
+  dispatchReady: true,
+  workerEnabled: true,
   resultDetailsReady: true,
   authorizationMode: 'coding-operator' as const,
   authorizationScope: 'coding-v1.4-only-when-dedicated',
@@ -114,6 +126,44 @@ describe('CodingJobWorkspaceV14', () => {
     expect(JSON.parse(String(options.body))).toEqual({ goal: 'Fix the parser and add regression coverage.', confirmRun: true });
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
+  });
+
+  it('renders only non-secret readiness state and keeps submission fail-closed when prerequisites are missing', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response({
+      ...capability,
+      ready: false,
+      controlPlaneReady: false,
+      databaseReady: false,
+      storeConfigured: false,
+      resultStoreConfigured: false,
+      storeReady: false,
+      resultStoreReady: false,
+      ownerBindingReady: false,
+      dataKeyReady: false,
+      cryptoReady: false,
+      dispatchReady: false,
+      workerEnabled: false,
+      resultDetailsReady: false,
+      authorizationMode: 'legacy-agent-compat',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CodingJobWorkspaceV14 />);
+    expect(await screen.findByLabelText('Coding production readiness')).toBeTruthy();
+    expect(screen.getByText('Database config')).toBeTruthy();
+    expect(screen.getByText('Live job/result schema')).toBeTruthy();
+    expect(screen.getByText('Owner binding')).toBeTruthy();
+    expect(screen.getByText('Encryption')).toBeTruthy();
+    expect(screen.getByText('Dedicated coding auth')).toBeTruthy();
+    expect(screen.getByText('GitHub dispatch')).toBeTruthy();
+    expect(screen.getByText('Worker opt-in')).toBeTruthy();
+    expect(screen.getAllByText('missing').length).toBeGreaterThanOrEqual(7);
+    expect(screen.queryByText(/postgres:\/\//i)).toBeNull();
+    expect(screen.queryByText(/Bearer\s+[A-Za-z0-9_-]+/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Coding goal'), { target: { value: 'Do not submit while readiness is false.' } });
+    expect((screen.getByRole('button', { name: 'Start coding job' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('reopens a terminal owner-scoped job and renders its stored result without persisting identifiers', async () => {
