@@ -176,7 +176,7 @@ describe('CodingJobWorkspaceV14', () => {
     await screen.findByText('configured');
     fireEvent.change(screen.getByLabelText('Coding operator credential'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('Open existing job'), { target: { value: 'coding-invalid' } });
-    expect(screen.getByRole('button', { name: 'Open job' })).toBeDisabled();
+    expect((screen.getByRole('button', { name: 'Open job' }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
