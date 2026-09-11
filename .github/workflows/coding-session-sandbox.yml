@@ -7,7 +7,7 @@ on:
       - 'src/agent/**'
       - 'src/components/CodingJobWorkspaceV14*'
       - 'supabase/migrations/**'
-      - 'scripts/coding-session-*'
+      - 'scripts/coding-*'
       - '.github/workflows/coding-session-sandbox.yml'
       - 'package-lock.json'
 permissions:
@@ -35,3 +35,36 @@ jobs:
             npm ci --ignore-scripts --no-audit --no-fund
       - name: Run bounded offline coding session
         run: bash scripts/coding-session-sandbox.sh
+  postgres-concurrency:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['16', '18']
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: coding-test-only
+          POSTGRES_DB: origin_coding_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d origin_coding_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Exercise real SQL, row locks, cancellation, and recovery
+        env:
+          # Disposable local service only. Never uses repository/production secrets.
+          ORIGIN_CODING_TEST_POSTGRES_URL: postgres://postgres:coding-test-only@127.0.0.1:5432/origin_coding_test
+        run: node --import tsx --test scripts/coding-postgres.integration.ts
