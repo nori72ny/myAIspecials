@@ -27,6 +27,33 @@ export type CodingSchemaBootstrapDepsV14 = {
   readMigration?: (url: URL) => Promise<string>;
 };
 
+class PgCodingSchemaBootstrapClientV14 implements CodingSchemaBootstrapClientV14 {
+  private readonly client: Client;
+
+  constructor(connectionString: string) {
+    this.client = new Client({
+      connectionString,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 15_000,
+    });
+  }
+
+  async connect(): Promise<void> {
+    await this.client.connect();
+  }
+
+  async query<T extends DbRow = DbRow>(text: string, values?: readonly unknown[]): Promise<{ rows: T[]; rowCount?: number | null }> {
+    const result = values
+      ? await this.client.query(text, [...values])
+      : await this.client.query(text);
+    return { rows: result.rows as T[], rowCount: result.rowCount };
+  }
+
+  async end(): Promise<void> {
+    await this.client.end();
+  }
+}
+
 function resolveDatabaseUrl(env: NodeJS.ProcessEnv): string | undefined {
   const value = env.POSTGRES_URL ?? env.DATABASE_URL ?? env.SUPABASE_DB_URL;
   if (!value || !/^postgres(?:ql)?:\/\//i.test(value)) return undefined;
@@ -102,11 +129,8 @@ export async function bootstrapCodingSchemaV14(
   const connectionString = resolveDatabaseUrl(env);
   if (!connectionString) return { status: 'skipped', code: 'CODING_SCHEMA_BOOTSTRAP_DATABASE_NOT_CONFIGURED' };
 
-  const createClient = deps.createClient ?? ((value: string) => new Client({
-    connectionString: value,
-    connectionTimeoutMillis: 5_000,
-    statement_timeout: 15_000,
-  }));
+  const createClient: (value: string) => CodingSchemaBootstrapClientV14 = deps.createClient
+    ?? ((value: string) => new PgCodingSchemaBootstrapClientV14(value));
   const readMigration = deps.readMigration ?? (async (url: URL) => readFile(url, 'utf8'));
   const client = createClient(connectionString);
   let transactionStarted = false;
