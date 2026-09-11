@@ -59,3 +59,27 @@ export function compareAIResponses(text: string) {
     return scoreComparisonResponse(entry.response, label, entry.provenance);
   });
 }
+
+/** Human-readable comparison without exposing raw answers or declaring a model ranking. */
+export function comparisonReport(text: string): string {
+  const results = compareAIResponses(text);
+  const cell = (value: string) => value.replace(/[\r\n]+/g, ' ').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/[\\`*_[\]|]/g, '\\$&');
+  const labels: Record<string, string> = { pass: '正解', fail: '不一致', missing: '未回答', 'invalid-format': '形式不正' };
+  const lines = [
+    '# 回答比較結果', '',
+    '同一の公開8課題に対する採点です。総合性能の順位ではありません。モデル名・実行条件は提出者の申告で、未検証です。', '',
+    '| 課題 | ' + results.map(result => cell(result.participant)).join(' | ') + ' |',
+    '| --- | ' + results.map(() => '---').join(' | ') + ' |',
+    ...COMPARISON_TASKS.map(task => '| ' + task.id + ' | ' + results.map(result => labels[result.rows.find(row => row.id === task.id)!.status]).join(' | ') + ' |'),
+    '| 合計 | ' + results.map(result => `${result.passed}/${result.total}`).join(' | ') + ' |', '',
+  ];
+  for (const result of results) {
+    lines.push(`## ${cell(result.participant)}`, '', `実行条件：${cell(result.provenance)}`, '');
+    const failed = result.rows.filter(row => row.status !== 'pass');
+    lines.push(failed.length ? '再確認する課題：' + failed.map(row => row.id).join('、') + '。' : 'この課題セットで不一致はありません。未使用課題での確認が必要です。');
+    if (result.unknownTaskIds.length) lines.push(`未定義の課題IDが${result.unknownTaskIds.length}件あります。加点対象外です。`);
+    lines.push('');
+  }
+  lines.push('誤答を修正した後は、同じ8問だけでなく未使用の課題でも再評価してください。速度、料金、大規模コード生成、文章の読みやすさはこの採点には含みません。');
+  return lines.join('\n');
+}

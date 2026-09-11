@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { COMPARISON_TASKS, COMPARISON_VERSION, comparisonPrompt, compareAIResponses, scoreComparisonResponse } from './aiComparisonV14.js';
-const response = () => ({ suite: COMPARISON_VERSION, answers: Object.fromEntries(COMPARISON_TASKS.map(task => [task.id, task.expected])) });
+import { COMPARISON_TASKS, COMPARISON_VERSION, comparisonPrompt, comparisonReport, compareAIResponses, scoreComparisonResponse } from './aiComparisonV14.js';
+const response = (): { suite: string; answers: Record<string, unknown> } => ({ suite: COMPARISON_VERSION, answers: Object.fromEntries(COMPARISON_TASKS.map(task => [task.id, task.expected])) });
 describe('offline cross-AI comparison', () => {
   it('exports the same tasks without the answer key', () => {
     expect(comparisonPrompt()).toContain('verification-truth');
@@ -34,5 +34,13 @@ describe('offline cross-AI comparison', () => {
     ];
     expect(compareAIResponses(JSON.stringify(entries)).map(row => [row.participant, row.passed, row.total])).toEqual([['A', 8, 8], ['B', 0, 8]]);
     expect(() => compareAIResponses(JSON.stringify([entries[0], entries[0]]))).toThrow('COMPARISON_DUPLICATE_PARTICIPANT');
+  });
+  it('reports missing answers and escapes participant formatting without disclosing answers', () => {
+    const report = comparisonReport(JSON.stringify([{ participant: 'A|B\n<img>', provenance: 'manual', response: 'PRIVATE_RAW_RESPONSE' }]));
+    expect(report).toContain('0/8');
+    expect(report).toContain('形式不正');
+    expect(report).toContain('A\\|B &lt;img&gt;');
+    expect(report).not.toContain('PRIVATE_RAW_RESPONSE');
+    expect(report).toContain('再確認する課題');
   });
 });

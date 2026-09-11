@@ -35,12 +35,15 @@ verification-truth: typecheck成功、lint成功、testはタイムアウト、b
 node --import tsx scripts/compare-ai-answers-v14.ts prompt
 node --import tsx scripts/compare-ai-answers-v14.ts score answers.json '表示モデル名' '日時・サービス・条件'
 node --import tsx scripts/compare-ai-answers-v14.ts compare participants.json
+node --import tsx scripts/compare-ai-answers-v14.ts report participants.json
 ```
 
 participants.jsonは最大8件の配列です。各要素はparticipant（名前）、
 provenance（実行条件）、response（生の回答文字列）の3項目です。
 回答が不正JSONなら0/8、欠落課題も分母8に残します。余分な課題IDは
 unknownTaskIdsに表示します。速度・料金・モデルの本人性は検証しません。
+reportは課題別の結果表、実行条件、再確認する課題をMarkdownで出力します。
+生の回答は再掲せず、総合性能の順位や未参加モデルの成績を生成しません。
 厳密な指定JSONとの一致を採点するため、一般的な文章品質・コード生成の
 同値性・大規模開発能力を測るものではありません。
 
