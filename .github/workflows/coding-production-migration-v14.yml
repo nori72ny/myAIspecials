@@ -17,6 +17,7 @@ concurrency:
 jobs:
   migrate:
     if: github.repository == 'nori72ny/myAIspecials' && github.ref == 'refs/heads/ops/v14-production-migration'
+    environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
