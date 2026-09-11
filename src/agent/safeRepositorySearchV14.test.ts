@@ -87,4 +87,21 @@ describe('V1.4 safe repository search', () => {
     expect(hits.every(hit => hit.excerpt.length <= 1200)).toBe(true);
     expect(hits.find(hit => hit.line === 2)?.excerpt).toContain('repeat final');
   });
+
+  it('preserves source offsets when Unicode case conversion changes length', async () => {
+    const root = await fixture();
+    await writeFile(path.join(root, 'src/unicode.ts'), '// ' + 'İ '.repeat(400) + 'calculateTotal();\n');
+    const hits = await searchRepositoryV14(root, ['CALCULATETOTAL'], ['src/unicode.ts']);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].line).toBe(1);
+    expect(hits[0].excerpt).toContain('calculateTotal');
+  });
+
+  it.each(['a+b', '[value]', '(a|b)', 'a?b', 'a\\b', '^value$', 'a{2}', 'a.b'])('escapes literal metacharacters in %s', async query => {
+    const root = await fixture();
+    await writeFile(path.join(root, 'src/literal.ts'), `// ${query}\n// unrelated\n`);
+    const hits = await searchRepositoryV14(root, [query], ['src/literal.ts']);
+    expect(hits.map(hit => hit.line)).toEqual([1]);
+    expect(hits[0].excerpt).toContain(query);
+  });
 });

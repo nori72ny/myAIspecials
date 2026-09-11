@@ -85,7 +85,9 @@ export async function searchRepositoryV14(root: string, queriesInput: unknown, c
   if (new Set(candidatePaths).size !== candidatePaths.length) throw new Error('CODING_SEARCH_INVENTORY_BLOCKED');
 
   const candidates = candidatePaths.filter(searchablePath);
-  const queryLower = queries.map(query => query.toLocaleLowerCase('en-US'));
+  // Escape every metacharacter: this remains literal search. Match offsets must
+  // refer to original text; lowercasing Unicode can change its UTF-16 length.
+  const patterns = queries.map(query => new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu'));
   const hits: CodingSearchHitV14[] = [];
   const pool: CodingSearchHitV14[] = [];
   let scannedBytes = 0;
@@ -104,14 +106,15 @@ export async function searchRepositoryV14(root: string, queriesInput: unknown, c
     scannedBytes += bytes;
     if (bytes > MAX_FILE_SEARCH_BYTES || scannedBytes > MAX_SCANNED_BYTES || content.includes('\0') || containsLikelySecret(content)) continue;
 
-    const lower = content.toLocaleLowerCase('en-US');
     for (let queryIndex = 0; queryIndex < queries.length; queryIndex += 1) {
       let from = 0;
       let queryHits = 0;
       const seenLines = new Set<number>();
       while (queryHits < MAX_HITS_PER_FILE) {
-        const found = lower.indexOf(queryLower[queryIndex], from);
-        if (found < 0) break;
+        patterns[queryIndex].lastIndex = from;
+        const match = patterns[queryIndex].exec(content);
+        if (!match) break;
+        const found = match.index;
         const snippet = excerptFor(content, found);
         if (!seenLines.has(snippet.line)) {
           seenLines.add(snippet.line);
@@ -121,7 +124,7 @@ export async function searchRepositoryV14(root: string, queriesInput: unknown, c
         // One excerpt per line: skip repeated occurrences on a minified/long
         // line instead of rescanning and rebuilding the same excerpt thousands
         // of times.
-        const nextLine = lower.indexOf('\n', found);
+        const nextLine = content.indexOf('\n', found);
         if (nextLine < 0) break;
         from = nextLine + 1;
       }
