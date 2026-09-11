@@ -1,0 +1,45 @@
+name: V1.4 guarded production coding migration
+
+on:
+  push:
+    branches:
+      - ops/v14-production-migration
+    paths:
+      - ops/v14-production-migration.trigger
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-v14-production-coding-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.repository == 'nori72ny/myAIspecials' && github.ref == 'refs/heads/ops/v14-production-migration'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Prepare migration dependencies without lifecycle scripts
+        shell: bash
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Require server-only production database credential
+        shell: bash
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$POSTGRES_URL"
+          [[ "$POSTGRES_URL" =~ ^postgres(ql)?:// ]] || exit 2
+
+      - name: Apply and verify V1.4 coding migrations
+        shell: bash
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          ORIGIN_CODING_MIGRATION_CONFIRM: production-coding-v14
+        run: node scripts/apply-coding-production-migrations-v14.mjs
