@@ -8,8 +8,7 @@ import { applyOriginSecurityHeaders, createOriginChatRateLimiter, requireSafeOri
 import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
 import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js";
 import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsumptionStore.js";
-import { createCodingJobStoreFromEnvV14 } from "../agent/supabaseCodingJobStoreV14.js";
-import { createCodingJobResultStoreFromEnvV14 } from "../agent/codingJobResultStoreV14.js";
+import { createCodingDatabaseStoresFromEnvV14 } from "../agent/codingDatabaseStoresV14.js";
 import { createCodingJobV14Router } from "../agent/codingJobRouterV14.js";
 import { createGroundedResearchV11Router } from "../research/groundedResearchV11Router.js";
 import { createArtifactV12Router } from "../artifacts/artifactV12Router.js";
@@ -46,8 +45,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
 
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
   const webPublicationStore = createWebPublicationStoreFromEnv(env);
-  const codingJobStore = createCodingJobStoreFromEnvV14(env);
-  const codingJobResultStore = createCodingJobResultStoreFromEnvV14(env);
+  const codingStores = createCodingDatabaseStoresFromEnvV14(env);
   app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore));
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
@@ -64,7 +62,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.use(createArtifactV12Router());
   app.use(createWebAppBuilderV13Router());
   app.use(createWebPublicationV131Router(env, webPublicationStore));
-  app.use(createCodingJobV14Router(env, codingJobStore, undefined, codingJobResultStore));
+  app.use(createCodingJobV14Router(env, codingStores.jobStore, undefined, codingStores.resultStore));
   app.use(createOriginResearchRouter());
   // Browser clients request text/event-stream. Handle provider-eligible requests here
   // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router
