@@ -26,6 +26,8 @@ const FIXED_TARGET_KEY = 'origin:self';
 const DEFAULT_TTL_MINUTES = 24 * 60;
 const MAX_TTL_MINUTES = 7 * 24 * 60;
 const WORKER_ENABLED_ENV = 'ORIGIN_CODING_WORKER_ENABLED';
+const READINESS_PROBE_JOB_ID = 'coding-0000000000000000000000';
+const READINESS_PROBE_OWNER_HASH = '0'.repeat(64);
 
 type CodingJobApiStoreV14 = Pick<PostgresCodingJobStoreV14, 'create' | 'getJob' | 'requestCancel'>;
 type CodingJobApiResultStoreV14 = Pick<PostgresCodingJobResultStoreV14, 'get' | 'delete'>;
@@ -35,6 +37,9 @@ type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applica
 type CodingJobReadinessV14 = {
   ready: boolean;
   controlPlaneReady: boolean;
+  databaseReady: boolean;
+  storeConfigured: boolean;
+  resultStoreConfigured: boolean;
   storeReady: boolean;
   resultStoreReady: boolean;
   authorizationReady: boolean;
@@ -45,23 +50,51 @@ type CodingJobReadinessV14 = {
   workerEnabled: boolean;
 };
 
-function readiness(
+async function liveStoreReady(store: CodingJobApiStoreV14 | undefined): Promise<boolean> {
+  if (!store) return false;
+  try {
+    await store.getJob(READINESS_PROBE_JOB_ID, READINESS_PROBE_OWNER_HASH);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function liveResultStoreReady(resultStore: CodingJobApiResultStoreV14 | undefined): Promise<boolean> {
+  if (!resultStore) return false;
+  try {
+    await resultStore.get(READINESS_PROBE_JOB_ID);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readiness(
   env: NodeJS.ProcessEnv,
   store: CodingJobApiStoreV14 | undefined,
   resultStore: CodingJobApiResultStoreV14 | undefined,
-): CodingJobReadinessV14 {
-  const storeReady = Boolean(store);
-  const resultStoreReady = Boolean(resultStore);
+): Promise<CodingJobReadinessV14> {
+  const storeConfigured = Boolean(store);
+  const resultStoreConfigured = Boolean(resultStore);
+  const [storeReady, resultStoreReady] = await Promise.all([
+    liveStoreReady(store),
+    liveResultStoreReady(resultStore),
+  ]);
   const authorizationReady = codingJobOperatorConfiguredV14(env);
   const ownerBindingReady = codingJobOwnerHashConfiguredV14(env);
   const dataKeyReady = codingJobDataKeyConfiguredV14(env);
   const cryptoReady = codingJobCryptoConfiguredV14(env);
   const dispatchReady = codingJobDispatchConfiguredV14(env);
   const workerEnabled = env[WORKER_ENABLED_ENV] === 'true';
+  const databaseReady = storeReady && resultStoreReady;
   const controlPlaneReady = storeReady && authorizationReady && ownerBindingReady;
   return {
     ready: controlPlaneReady && resultStoreReady && dataKeyReady && dispatchReady && workerEnabled,
     controlPlaneReady,
+    databaseReady,
+    storeConfigured,
+    resultStoreConfigured,
     storeReady,
     resultStoreReady,
     authorizationReady,
@@ -86,8 +119,6 @@ function requireApiAuth(req: Request, res: Response, env: NodeJS.ProcessEnv, sto
   try {
     return {
       store: store as CodingJobApiStoreV14,
-      // Keep ownership stable across operator credential rotation. Future multi-user
-      // auth replaces this constant with the authenticated ORIGIN user/session id.
       ownerHash: hashCodingJobOwnerV14(CODING_JOB_OPERATOR_OWNER_BINDING_V14, env),
     };
   } catch {
@@ -117,9 +148,6 @@ async function eraseCancelledResult(
   resultStore: CodingJobApiResultStoreV14 | undefined,
 ): Promise<void> {
   if (record.status !== 'cancelled' || !resultStore) return;
-  // Cancellation has already won in the durable job row. Result evidence is
-  // encrypted and inaccessible through the API, but remove it immediately when
-  // the result store is healthy instead of waiting for TTL/FK cleanup.
   await resultStore.delete(record.jobId).catch(() => undefined);
 }
 
@@ -148,14 +176,15 @@ export function createCodingJobV14Router(
 ) {
   const router = Router();
 
-  router.get('/api/coding/v1.4/status', (_req, res) => {
-    const state = readiness(env, store, resultStore);
+  router.get('/api/coding/v1.4/status', async (_req, res) => {
+    const state = await readiness(env, store, resultStore);
     return res.status(200).json({
       ok: true,
       version: '1.4',
       capability: 'durable-agentic-coding-jobs',
       ...state,
       resultDetailsReady: state.resultStoreReady,
+      databaseProbe: 'live-schema-select',
       targetMode: 'server-owned-fixed-alias',
       targetKey: FIXED_TARGET_KEY,
       publicDispatchPayload: 'opaque-job-id-only',
@@ -173,7 +202,7 @@ export function createCodingJobV14Router(
   });
 
   router.post('/api/coding/v1.4/jobs', async (req, res) => {
-    const state = readiness(env, store, resultStore);
+    const state = await readiness(env, store, resultStore);
     if (!state.ready) {
       return res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     }
@@ -204,7 +233,6 @@ export function createCodingJobV14Router(
       try {
         await dispatch(created.jobId, env);
       } catch {
-        // Fail closed and erase the private payload when dispatch cannot be accepted.
         const cancelled = await auth.store.requestCancel(created.jobId, auth.ownerHash).catch(() => null);
         if (cancelled) await eraseCancelledResult(cancelled, resultStore);
         return res.status(503).json({ ok: false, code: 'CODING_JOB_DISPATCH_UNAVAILABLE', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
