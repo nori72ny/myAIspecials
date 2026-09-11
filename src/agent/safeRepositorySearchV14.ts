@@ -79,11 +79,11 @@ export async function searchRepositoryV14(root: string, queriesInput: unknown, c
   const candidates = candidatePaths.filter(searchablePath);
   const queryLower = queries.map(query => query.toLocaleLowerCase('en-US'));
   const hits: CodingSearchHitV14[] = [];
-  const seenLocations = new Set<string>();
+  const pool: CodingSearchHitV14[] = [];
   let scannedBytes = 0;
 
   for (const filePath of candidates) {
-    if (hits.length >= MAX_HITS || scannedBytes >= MAX_SCANNED_BYTES) break;
+    if (scannedBytes >= MAX_SCANNED_BYTES) break;
     let content: string;
     try {
       content = await readRepositoryFile(root, filePath);
@@ -97,22 +97,47 @@ export async function searchRepositoryV14(root: string, queriesInput: unknown, c
     if (bytes > MAX_FILE_SEARCH_BYTES || scannedBytes > MAX_SCANNED_BYTES || content.includes('\0') || containsLikelySecret(content)) continue;
 
     const lower = content.toLocaleLowerCase('en-US');
-    let fileHits = 0;
-    for (let queryIndex = 0; queryIndex < queries.length && fileHits < MAX_HITS_PER_FILE && hits.length < MAX_HITS; queryIndex += 1) {
+    for (let queryIndex = 0; queryIndex < queries.length; queryIndex += 1) {
       let from = 0;
-      while (fileHits < MAX_HITS_PER_FILE && hits.length < MAX_HITS) {
+      let queryHits = 0;
+      const seenLines = new Set<number>();
+      while (queryHits < MAX_HITS_PER_FILE) {
         const found = lower.indexOf(queryLower[queryIndex], from);
         if (found < 0) break;
         const snippet = excerptFor(content, found);
-        const locationKey = `${filePath}:${snippet.line}`;
-        if (!seenLocations.has(locationKey)) {
-          seenLocations.add(locationKey);
-          hits.push({ path: filePath, line: snippet.line, query: queries[queryIndex], excerpt: snippet.excerpt });
-          fileHits += 1;
+        if (!seenLines.has(snippet.line)) {
+          seenLines.add(snippet.line);
+          pool.push({ path: filePath, line: snippet.line, query: queries[queryIndex], excerpt: snippet.excerpt });
+          queryHits += 1;
         }
-        from = found + Math.max(1, queryLower[queryIndex].length);
+        // One excerpt per line: skip repeated occurrences on a minified/long
+        // line instead of rescanning and rebuilding the same excerpt thousands
+        // of times.
+        const nextLine = lower.indexOf('\n', found);
+        if (nextLine < 0) break;
+        from = nextLine + 1;
       }
     }
+  }
+  // Scan within the existing byte budget before allocating the output budget.
+  // Prefer underrepresented files, then queries. A common early match must not
+  // hide a later definition, caller or test. Pool <= 200 files * 6 queries * 4.
+  const perFile = new Map<string, number>();
+  const perQuery = new Map<string, number>();
+  const selected = new Set<string>();
+  while (hits.length < MAX_HITS) {
+    let best: CodingSearchHitV14 | undefined;
+    for (const candidate of pool) {
+      const fileCount = perFile.get(candidate.path) ?? 0;
+      if (fileCount >= MAX_HITS_PER_FILE || selected.has(`${candidate.path}:${candidate.line}`)) continue;
+      if (!best || fileCount < (perFile.get(best.path) ?? 0) ||
+        (fileCount === (perFile.get(best.path) ?? 0) && (perQuery.get(candidate.query) ?? 0) < (perQuery.get(best.query) ?? 0))) best = candidate;
+    }
+    if (!best) break;
+    hits.push(best);
+    selected.add(`${best.path}:${best.line}`);
+    perFile.set(best.path, (perFile.get(best.path) ?? 0) + 1);
+    perQuery.set(best.query, (perQuery.get(best.query) ?? 0) + 1);
   }
   return hits;
 }

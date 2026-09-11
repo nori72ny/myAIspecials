@@ -46,4 +46,44 @@ describe('V1.4 safe repository search', () => {
     await expect(searchRepositoryV14(root, ['renderStatus'], ['src/app.ts', 'src/app.ts'])).rejects.toThrow('CODING_SEARCH_INVENTORY_BLOCKED');
     await expect(searchRepositoryV14(root, ['renderStatus'], Array.from({ length: 201 }, (_, index) => `src/${index}.ts`))).rejects.toThrow('CODING_SEARCH_INVENTORY_BLOCKED');
   });
+
+  it('finds a rare implementation after many common early matches', async () => {
+    const root = await fixture();
+    const paths: string[] = [];
+    for (let index = 0; index < 10; index++) {
+      const file = `src/noise${index}.ts`;
+      paths.push(file);
+      await writeFile(path.join(root, file), 'commonHandler();\n'.repeat(8));
+    }
+    paths.push('src/target.ts');
+    await writeFile(path.join(root, 'src/target.ts'), 'export function rareImplementation() {}\n');
+    const hits = await searchRepositoryV14(root, ['commonHandler', 'rareImplementation'], paths);
+    expect(hits.some(hit => hit.path === 'src/target.ts')).toBe(true);
+    expect(new Set(hits.map(hit => hit.path)).size).toBe(11);
+    expect(hits.length).toBeLessThanOrEqual(24);
+    expect(Math.max(...paths.map(file => hits.filter(hit => hit.path === file).length))).toBeLessThanOrEqual(4);
+  });
+
+  it('does not starve a later query in the same file', async () => {
+    const root = await fixture();
+    await writeFile(path.join(root, 'src/target.ts'), 'commonHandler();\n'.repeat(12) + 'rareImplementation();\n');
+    const hits = await searchRepositoryV14(root, ['commonHandler', 'rareImplementation'], ['src/target.ts']);
+    expect(hits.some(hit => hit.query === 'rareImplementation')).toBe(true);
+    expect(hits.length).toBeLessThanOrEqual(4);
+  });
+
+  it('treats regex characters literally and preserves Japanese line evidence', async () => {
+    const root = await fixture();
+    await writeFile(path.join(root, 'src/target.ts'), '// 注文を保存\nconst pattern = "a.*b";\nconst other = "axxb";\n');
+    const hits = await searchRepositoryV14(root, ['注文を保存', 'a.*b'], ['src/target.ts']);
+    expect(hits.map(hit => hit.line)).toEqual([1, 2]);
+  });
+
+  it('handles long repeated lines and still finds evidence on the following line', async () => {
+    const root = await fixture();
+    await writeFile(path.join(root, 'src/long.ts'), 'repeat '.repeat(20000) + '\nrepeat final\n');
+    const hits = await searchRepositoryV14(root, ['repeat'], ['src/long.ts']);
+    expect(hits.map(hit => hit.line)).toEqual([1, 2]);
+    expect(hits.every(hit => hit.excerpt.length <= 1200)).toBe(true);
+  });
 });
