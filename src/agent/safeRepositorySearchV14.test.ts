@@ -85,5 +85,6 @@ describe('V1.4 safe repository search', () => {
     const hits = await searchRepositoryV14(root, ['repeat'], ['src/long.ts']);
     expect(hits.map(hit => hit.line)).toEqual([1, 2]);
     expect(hits.every(hit => hit.excerpt.length <= 1200)).toBe(true);
+    expect(hits.find(hit => hit.line === 2)?.excerpt).toContain('repeat final');
   });
 });

@@ -60,7 +60,15 @@ function excerptFor(content: string, index: number): { line: number; excerpt: st
   const lines = content.split(/\r?\n/);
   const start = Math.max(0, line - 2);
   const end = Math.min(lines.length, line + 2);
-  const numbered = lines.slice(start, end).map((text, offset) => `${start + offset + 1}: ${text}`).join('\n');
+  const column = index - (content.lastIndexOf('\n', index - 1) + 1);
+  const numbered = lines.slice(start, end).map((text, offset) => {
+    const currentLine = start + offset + 1;
+    // Keep the matching column visible even after a very long preceding line.
+    const from = currentLine === line ? Math.max(0, column - 160) : 0;
+    const budget = currentLine === line ? 480 : 180;
+    const excerpt = text.slice(from, from + budget);
+    return `${currentLine}: ${from ? '…' : ''}${excerpt}${from + budget < text.length ? '…' : ''}`;
+  }).join('\n');
   return { line, excerpt: sanitizePreEgress(numbered).slice(0, MAX_EXCERPT_CHARS) };
 }
 
