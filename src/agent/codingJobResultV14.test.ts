@@ -81,4 +81,29 @@ describe('coding job result V1.4', () => {
     expect(decryptCodingJobResultV14(jobId, encrypted, env)).toEqual(result);
     expect(() => decryptCodingJobResultV14('coding-BBBBBBBBBBBBBBBBBBBBBB', encrypted, env)).toThrow('CODING_JOB_RESULT_INVALID');
   });
+
+  it.each(['edited', 'mutation'] as const)('does not attach stale check results after %s', async reason => {
+    const baseline = await root('origin-v14-stale-base-');
+    const workspace = await root('origin-v14-stale-work-');
+    const value = session();
+    value.status = 'blocked';
+    value.changedPaths = [];
+    value.audit.push(reason === 'edited'
+      ? { sequence: 3, action: 'edited', attempt: 2, changes: [] }
+      : { sequence: 3, action: 'stopped', attempt: 1, code: 'CODING_WORKSPACE_CHANGED_DURING_CHECKS' });
+    const result = await buildCodingJobResultV14(value, baseline, workspace);
+    expect(result.verificationChecks).toEqual([]);
+  });
+
+  it('rejects a verified result without four successful checks on the final attempt', async () => {
+    const baseline = await root('origin-v14-evidence-base-');
+    const workspace = await root('origin-v14-evidence-work-');
+    const value = session();
+    value.changedPaths = [];
+    const result = await buildCodingJobResultV14(value, baseline, workspace);
+    expect(() => encryptCodingJobResultV14(jobId, { ...result, verificationChecks: [] }, env)).toThrow('CODING_JOB_RESULT_INVALID');
+    expect(() => encryptCodingJobResultV14(jobId, { ...result, repairRounds: 2 }, env)).toThrow('CODING_JOB_RESULT_INVALID');
+    const checks = result.verificationChecks.map(check => ({ ...check, timedOut: true }));
+    expect(() => encryptCodingJobResultV14(jobId, { ...result, verificationChecks: checks }, env)).toThrow('CODING_JOB_RESULT_INVALID');
+  });
 });

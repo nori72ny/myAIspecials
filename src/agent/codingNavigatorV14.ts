@@ -84,7 +84,27 @@ export function createCodingNavigatorV14(root: string, options: NavigatorOptions
     }, env);
     assertOriginZeroCostExecutionResult(queryResult, plan.modelId, plan.providerId);
     const searchPlan = parseCodingSearchPlanV14(queryResult.text);
-    const searchHits = await searchRepositoryV14(root, searchPlan.queries, context.files);
+    let searchHits = await searchRepositoryV14(root, searchPlan.queries, context.files);
+    if (!searchHits.length) {
+      // One bounded refinement, never an unbounded model retry. Search misses
+      // are evidence to reconsider terminology, not permission to invent files.
+      const refined = await execute({
+        plan,
+        systemInstruction: QUERY_INSTRUCTION,
+        messages: [{ role: 'user', content: serializeStage({
+          goal: context.goal, files: context.files, previousQueries: searchPlan.queries,
+          finding: 'No matches. Choose different literal symbols from the inventory and goal. Do not repeat previous queries.',
+        }) }],
+      }, env);
+      assertOriginZeroCostExecutionResult(refined, plan.modelId, plan.providerId);
+      const previous = new Set(searchPlan.queries.map(query => query.toLocaleLowerCase('en-US')));
+      const next = parseCodingSearchPlanV14(refined.text);
+      if (next.queries.some(query => previous.has(query.toLocaleLowerCase('en-US')))) {
+        throw new Error('CODING_NAVIGATION_REPEATED_QUERY');
+      }
+      searchHits = await searchRepositoryV14(root, next.queries, context.files);
+      if (!searchHits.length) throw new Error('CODING_NAVIGATION_NO_EVIDENCE');
+    }
 
     const scopeResult = await execute({
       plan,

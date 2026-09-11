@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'src/agent/**'
+      - 'src/components/CodingJobWorkspaceV14*'
+      - 'supabase/migrations/**'
       - 'scripts/coding-session-*'
       - '.github/workflows/coding-session-sandbox.yml'
       - 'package-lock.json'

@@ -13,11 +13,14 @@ timeout --signal=TERM --kill-after=10s 300s docker run --rm --name "$name" \
   --tmpfs /tmp:rw,nosuid,nodev,size=512m,mode=1777 \
   --tmpfs /work:rw,nosuid,nodev,size=512m,mode=1777 \
   --mount "type=bind,src=$root/src,dst=/source/src,readonly" \
+  --mount "type=bind,src=$root/supabase/migrations,dst=/source/migrations,readonly" \
   --mount "type=bind,src=$root/node_modules,dst=/deps/node_modules,readonly" \
   --mount "type=bind,src=$root/scripts/coding-session-vitest.config.mjs,dst=/source/config.mjs,readonly" \
   --workdir /work --env HOME=/tmp --env CI=true \
   "$image" sh -eu -c '
     cp -r /source/src /work/src
+    mkdir -p /work/supabase
+    cp -r /source/migrations /work/supabase/migrations
     cp /source/config.mjs /work/vitest.config.mjs
     ln -s /deps/node_modules /work/node_modules
     node node_modules/vitest/vitest.mjs run --config vitest.config.mjs --configLoader runner

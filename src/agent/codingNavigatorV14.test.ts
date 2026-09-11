@@ -94,4 +94,24 @@ describe('V1.4 multi-stage coding navigator', () => {
     await expect(createCodingNavigatorV14(root, { env: {}, execute })(context)).rejects.toThrow('FREE_PROVIDER_NOT_CONFIGURED');
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it('refines an empty search and selects scope only after finding real code', async () => {
+    const { root, context } = await fixture();
+    const scope = { editablePaths: ['src/status.ts'], contextPaths: ['src/App.tsx'], creatablePaths: [] };
+    const replies = [{ queries: ['missingWidget'] }, { queries: ['renderStatus'] }, scope];
+    const execute = vi.fn(async () => result(JSON.stringify(replies.shift())));
+    await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context)).resolves.toEqual(scope);
+    expect(execute).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    ['missingWidget', 'MISSINGWIDGET', 'CODING_NAVIGATION_REPEATED_QUERY'],
+    ['missingWidget', 'anotherMissingSymbol', 'CODING_NAVIGATION_NO_EVIDENCE'],
+  ])('bounds unsuccessful navigation without a speculative scope call', async (first, second, code) => {
+    const { root, context } = await fixture();
+    const replies = [{ queries: [first] }, { queries: [second] }];
+    const execute = vi.fn(async () => result(JSON.stringify(replies.shift())));
+    await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context)).rejects.toThrow(code);
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
 });

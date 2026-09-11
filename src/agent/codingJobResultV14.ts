@@ -77,7 +77,11 @@ async function optionalRepositoryFile(root: string, filePath: string): Promise<s
 }
 
 function latestVerification(audit: readonly CodingAuditEvent[]): CodingJobVerificationResultV14[] {
-  const event = [...audit].reverse().find(candidate => candidate.action === 'verified' && Array.isArray(candidate.checks));
+  const reversed = [...audit].reverse();
+  const latest = reversed.findIndex(candidate => candidate.action === 'verified' && Array.isArray(candidate.checks));
+  if (latest < 0 || reversed.slice(0, latest).some(candidate =>
+    candidate.action === 'edited' || candidate.code === 'CODING_WORKSPACE_CHANGED_DURING_CHECKS')) return [];
+  const event = reversed[latest];
   if (!event?.checks) return [];
   const checks: CodingJobVerificationResultV14[] = [];
   for (const kind of CHECK_KINDS) {
@@ -182,6 +186,8 @@ function normalizeResult(value: unknown): CodingJobResultV14 {
   if (!Array.isArray(item.diffs) || item.diffs.length > MAX_DIFFS || item.diffs.some(diff => !validDiff(diff))) throw new Error('CODING_JOB_RESULT_INVALID');
   if (!Array.isArray(item.verificationChecks) || ![0, 4].includes(item.verificationChecks.length) || item.verificationChecks.some(check => !validVerification(check))) throw new Error('CODING_JOB_RESULT_INVALID');
   if (item.verificationChecks.length === 4 && new Set(item.verificationChecks.map(check => check.kind)).size !== 4) throw new Error('CODING_JOB_RESULT_INVALID');
+  if (item.sessionStatus === 'verified' && (item.verificationChecks.length !== 4 || item.verificationChecks.some(check =>
+    !check.ok || check.exitCode !== 0 || check.timedOut || check.attempt !== item.repairRounds))) throw new Error('CODING_JOB_RESULT_INVALID');
   if (item.freeOnly !== true || item.costUsd !== 0 || item.gitPublished !== false || item.deployed !== false) throw new Error('CODING_JOB_RESULT_INVALID');
   return item as CodingJobResultV14;
 }
