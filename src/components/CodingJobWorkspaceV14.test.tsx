@@ -116,6 +116,70 @@ describe('CodingJobWorkspaceV14', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  it('reopens a terminal owner-scoped job and renders its stored result without persisting identifiers', async () => {
+    const credential = 'operator-secret-that-is-long-enough-for-production';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(capability))
+      .mockResolvedValueOnce(response({ ok: true, job: job('verified'), result, resultDetailsState: 'available' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CodingJobWorkspaceV14 />);
+    await screen.findByText('configured');
+    const credentialInput = screen.getByLabelText('Coding operator credential') as HTMLInputElement;
+    fireEvent.change(credentialInput, { target: { value: credential } });
+    fireEvent.change(screen.getByLabelText('Open existing job'), { target: { value: 'coding-AAAAAAAAAAAAAAAAAAAAAA' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Open job' }));
+
+    await screen.findByText('CODING_CHECKS_PASSED');
+    expect(credentialInput.value).toBe('');
+    expect(screen.getByText('src/existing.ts')).toBeTruthy();
+    expect(screen.getAllByText('PASS')).toHaveLength(4);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/coding/v1.4/jobs/coding-AAAAAAAAAAAAAAAAAAAAAA');
+    expect(options.method).toBeUndefined();
+    expect((options.headers as Record<string, string>).Authorization).toBe(`Bearer ${credential}`);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('reopens an active job and keeps cancellation control attached to the same in-memory credential', async () => {
+    const credential = 'operator-secret-that-is-long-enough-for-production';
+    const cancelled = { ...job('cancelled'), cancelRequested: true, version: 3 };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(capability))
+      .mockResolvedValueOnce(response({ ok: true, job: job('running'), result: null, resultDetailsState: 'pending' }))
+      .mockResolvedValueOnce(response({ ok: true, job: cancelled, result: null, resultDetailsState: 'not_applicable' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CodingJobWorkspaceV14 />);
+    await screen.findByText('configured');
+    fireEvent.change(screen.getByLabelText('Coding operator credential'), { target: { value: credential } });
+    fireEvent.change(screen.getByLabelText('Open existing job'), { target: { value: 'coding-AAAAAAAAAAAAAAAAAAAAAA' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Open job' }));
+
+    await screen.findAllByText('Coding');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel job' }));
+    await waitFor(() => expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [url, options] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(url).toBe('/api/coding/v1.4/jobs/coding-AAAAAAAAAAAAAAAAAAAAAA');
+    expect(options.method).toBe('DELETE');
+    expect((options.headers as Record<string, string>).Authorization).toBe(`Bearer ${credential}`);
+  });
+
+  it('rejects malformed reconnect ids before sending an authenticated job request', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(capability));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CodingJobWorkspaceV14 />);
+    await screen.findByText('configured');
+    fireEvent.change(screen.getByLabelText('Coding operator credential'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
+    fireEvent.change(screen.getByLabelText('Open existing job'), { target: { value: 'coding-invalid' } });
+    expect((screen.getByRole('button', { name: 'Open job' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('renders terminal blocked verification truthfully instead of leaving WAIT states', async () => {
     const blockedResult = {
       ...result,
