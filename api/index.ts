@@ -2,19 +2,32 @@ import "dotenv/config";
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Express } from "express";
+import { resolveCodingDatabaseUrlV14 } from "../src/agent/codingDatabaseUrlV14.js";
 import { bootstrapCodingSchemaV14 } from "../src/agent/codingSchemaBootstrapV14.js";
 
 type OriginAppLoader = () => Promise<Express>;
 
 let originAppPromise: Promise<Express> | undefined;
 
+function normalizedRuntimeEnv(): NodeJS.ProcessEnv {
+  const resolution = resolveCodingDatabaseUrlV14(process.env);
+  if (!resolution) return process.env;
+  // Normalize only the server-local Postgres URL consumed by existing stores.
+  // Never emit or persist the value; the source label is non-secret metadata.
+  if (resolution.source !== "POSTGRES_URL") {
+    console.info("ORIGIN_CODING_DB_URL_NORMALIZED", { source: resolution.source });
+  }
+  return { ...process.env, POSTGRES_URL: resolution.connectionString };
+}
+
 async function loadOriginApp(): Promise<Express> {
-  // The bootstrap module is now self-contained and bundle-safe. Import it
-  // statically so Vercel does not need to resolve a second runtime dynamic
-  // module URL. The guarded database operation itself remains isolated below.
+  // The bootstrap module is self-contained and bundle-safe. Keep the database
+  // operation isolated, and pass the same validated runtime configuration to
+  // bootstrap and the normal API stores so readiness measures the real path.
   originAppPromise ??= import("../src/server/createOriginApp.js").then(async ({ createOriginApp }) => {
+    const runtimeEnv = normalizedRuntimeEnv();
     try {
-      const bootstrap = await bootstrapCodingSchemaV14(process.env);
+      const bootstrap = await bootstrapCodingSchemaV14(runtimeEnv);
       if (bootstrap.status === "failed") {
         // Never emit database URLs, exception messages, SQL, or environment data.
         console.error("ORIGIN_CODING_SCHEMA_BOOTSTRAP_FAILED", { code: bootstrap.code });
@@ -25,7 +38,7 @@ async function loadOriginApp(): Promise<Express> {
         : "CODING_SCHEMA_BOOTSTRAP_EXECUTION_FAILED";
       console.error("ORIGIN_CODING_SCHEMA_BOOTSTRAP_FAILED", { code });
     }
-    return createOriginApp();
+    return createOriginApp(runtimeEnv);
   });
   return originAppPromise;
 }
