@@ -36,7 +36,9 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerPolicy).toContain("completion: 0");
     expect(providerPolicy).toContain("request: 0");
     expect(providerClient).toContain("zero(data.usage?.cost");
-    expect(providerClient).toContain("evidence(request, String(servedModel))");
+    expect(providerClient).toMatch(
+      /routingEvidence:\s*evidence\([A-Za-z_$][\w$]*,\s*String\(servedModel\)\)/,
+    );
     expect(providerClient).toContain('evidence.fallbackUsed === false');
     expect(providerClient).not.toContain('"openrouter/free"');
     expect(providerClient).not.toContain("?key=");
