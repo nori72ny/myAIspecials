@@ -29,11 +29,16 @@ describe('V1.4 opaque GitHub Actions dispatch boundary', () => {
     expect(JSON.stringify(receipt)).not.toContain(env.ORIGIN_CODING_GITHUB_DISPATCH_TOKEN);
   });
 
-  it('fails closed for malformed ids, missing credentials, transport errors, and non-204 responses', async () => {
+  it('fails closed while classifying safe GitHub status codes without reading response bodies', async () => {
     const jobId = createCodingJobIdV14();
     await expect(dispatchCodingJobV14('coding-invalid', env, vi.fn() as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_JOB_ID_INVALID');
     await expect(dispatchCodingJobV14(jobId, {}, vi.fn() as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_NOT_CONFIGURED');
     await expect(dispatchCodingJobV14(jobId, env, vi.fn(async () => { throw new Error('private transport text'); }) as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_UNAVAILABLE');
-    await expect(dispatchCodingJobV14(jobId, env, vi.fn(async () => new Response(null, { status: 403 })) as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_REJECTED');
+    await expect(dispatchCodingJobV14(jobId, env, vi.fn(async () => new Response('private', { status: 401 })) as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_TOKEN_INVALID');
+    await expect(dispatchCodingJobV14(jobId, env, vi.fn(async () => new Response('private', { status: 403 })) as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_PERMISSION_DENIED');
+    await expect(dispatchCodingJobV14(jobId, env, vi.fn(async () => new Response('private', { status: 404 })) as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_WORKFLOW_INACCESSIBLE');
+    await expect(dispatchCodingJobV14(jobId, env, vi.fn(async () => new Response('private', { status: 422 })) as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_REF_INVALID');
+    await expect(dispatchCodingJobV14(jobId, env, vi.fn(async () => new Response('private', { status: 429 })) as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_RATE_LIMITED');
+    await expect(dispatchCodingJobV14(jobId, env, vi.fn(async () => new Response('private', { status: 500 })) as unknown as typeof fetch)).rejects.toThrow('CODING_DISPATCH_REJECTED');
   });
 });

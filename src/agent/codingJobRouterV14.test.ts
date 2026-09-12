@@ -225,6 +225,25 @@ describe('V1.4 coding job API', () => {
     expect(resultStore.delete).toHaveBeenCalledWith(jobId);
   });
 
+  it('returns a safe dispatch reason while keeping the cancelled row cleanup', async () => {
+    let jobId = '';
+    const store = {
+      create: vi.fn(async (envelope: any) => {
+        jobId = envelope.jobId;
+        return publicRecord(envelope.jobId);
+      }),
+      getJob: vi.fn(),
+      requestCancel: vi.fn(async () => ({ ...publicRecord(jobId), status: 'cancelled' as const, cancelRequested: true, resultCode: 'CODING_CANCELLED_BY_USER' })),
+    };
+    const { app } = appFor(store, vi.fn(async () => { throw new Error('CODING_DISPATCH_PERMISSION_DENIED'); }));
+    const response = await request(app).post('/api/coding/v1.4/jobs')
+      .set('Authorization', `Bearer ${codingSecret}`)
+      .send({ goal: 'fix the parser', confirmRun: true });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('CODING_JOB_DISPATCH_PERMISSION_DENIED');
+    expect(response.body).not.toHaveProperty('message');
+  });
+
   it('keeps status and cancellation owner-scoped and erases terminal cancelled evidence', async () => {
     const knownId = 'coding-AAAAAAAAAAAAAAAAAAAAAA';
     const record = publicRecord(knownId);

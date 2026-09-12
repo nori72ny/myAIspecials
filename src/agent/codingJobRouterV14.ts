@@ -255,10 +255,13 @@ export function createCodingJobV14Router(
       if (!created) return res.status(409).json({ ok: false, code: 'CODING_JOB_CREATE_CONFLICT', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
       try {
         await dispatch(created.jobId, env);
-      } catch {
+      } catch (error) {
         const cancelled = await auth.store.requestCancel(created.jobId, auth.ownerHash).catch(() => null);
         if (cancelled) await eraseCancelledResult(cancelled, resultStore);
-        return res.status(503).json({ ok: false, code: 'CODING_JOB_DISPATCH_UNAVAILABLE', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+        const dispatchCode = error instanceof Error && /^CODING_DISPATCH_[A-Z_]+$/.test(error.message)
+          ? error.message.replace(/^CODING_DISPATCH_/, 'CODING_JOB_DISPATCH_')
+          : 'CODING_JOB_DISPATCH_UNAVAILABLE';
+        return res.status(503).json({ ok: false, code: dispatchCode, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
       }
       return res.status(202).json({
         ok: true,

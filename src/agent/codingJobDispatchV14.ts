@@ -6,6 +6,14 @@ const API_VERSION = '2022-11-28';
 const TIMEOUT_MS = 6_000;
 const TOKEN_ENV = 'ORIGIN_CODING_GITHUB_DISPATCH_TOKEN';
 
+const DISPATCH_FAILURE_BY_STATUS: Readonly<Record<number, string>> = {
+  401: 'CODING_DISPATCH_TOKEN_INVALID',
+  403: 'CODING_DISPATCH_PERMISSION_DENIED',
+  404: 'CODING_DISPATCH_WORKFLOW_INACCESSIBLE',
+  422: 'CODING_DISPATCH_REF_INVALID',
+  429: 'CODING_DISPATCH_RATE_LIMITED',
+};
+
 export type CodingJobDispatchReceiptV14 = {
   accepted: true;
   jobId: string;
@@ -69,7 +77,9 @@ export async function dispatchCodingJobV14(
     } catch {
       throw new Error('CODING_DISPATCH_UNAVAILABLE');
     }
-    if (response.status !== 204) throw new Error('CODING_DISPATCH_REJECTED');
+    if (response.status !== 204) {
+      throw new Error(DISPATCH_FAILURE_BY_STATUS[response.status] ?? 'CODING_DISPATCH_REJECTED');
+    }
     return { accepted: true, jobId, repository: 'nori72ny/myAIspecials', workflow: 'coding-job-worker-v14.yml', ref: 'main' };
   } finally {
     clearTimeout(timer);
