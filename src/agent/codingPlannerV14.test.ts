@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createCodingPlannerV14, parseCodingProposal } from './codingPlannerV14.js';
 import type { CodingContext } from './codingSessionV14.js';
-import type { OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
+import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import { ORIGIN_OPENROUTER_FREE_MODEL, DEFAULT_ORIGIN_PROVIDER_DATA_POLICY } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 const context: CodingContext = {
@@ -19,8 +19,8 @@ const context: CodingContext = {
 };
 const edit = { path: 'math.js', search: 'a - b', replacement: 'a + b' };
 const batch = { edits: [edit], creates: [] as { path: string; content: string }[] };
-const response = (): OriginProviderExecutionResult => ({
-  text: JSON.stringify(batch),
+const response = (text = JSON.stringify(batch)): OriginProviderExecutionResult => ({
+  text,
   actualCostUsd: 0,
   usage: { costUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
@@ -46,6 +46,37 @@ describe('coding model protocol', () => {
     expect(request[0].plan.freeOnly).toBe(true);
   });
 
+  it('performs one bounded proposal schema correction without replaying invalid model response', async () => {
+    const replies = [
+      response(JSON.stringify({ edits: [], creates: [{ path: 'other.js', content: 'out of scope' }] })),
+      response(),
+    ];
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => replies.shift()!);
+    const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
+
+    await expect(planner(context)).resolves.toEqual(batch);
+    expect(execute).toHaveBeenCalledTimes(2);
+
+    const firstRequest = execute.mock.calls[0][0];
+    const correctionRequest = execute.mock.calls[1][0];
+    expect(correctionRequest.messages).toEqual(firstRequest.messages);
+    expect(correctionRequest.messages).toHaveLength(1);
+    expect(correctionRequest.messages[0].content).toBe(firstRequest.messages[0].content);
+    expect(correctionRequest.systemInstruction).not.toBe(firstRequest.systemInstruction);
+    expect(correctionRequest.systemInstruction).toContain('one bounded schema-correction attempt');
+    expect(correctionRequest.messages[0].content).not.toContain('other.js');
+    expect(correctionRequest.plan.freeOnly).toBe(true);
+  });
+
+  it('fails closed after exactly one unsuccessful proposal schema correction', async () => {
+    const replies = [response('not JSON'), response(JSON.stringify({ edits: [], creates: [] }))];
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => replies.shift()!);
+    const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
+
+    await expect(planner(context)).rejects.toThrow('CODING_MODEL_RESPONSE_INVALID');
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
   it('accepts a bounded authorized new-file proposal', () => {
     expect(parseCodingProposal(JSON.stringify({ edits: [], creates: [{ path: 'helper.js', content: 'export const value = 1;\n' }] }), context))
       .toEqual({ edits: [], creates: [{ path: 'helper.js', content: 'export const value = 1;\n' }] });
@@ -65,11 +96,13 @@ describe('coding model protocol', () => {
     expect(() => parseCodingProposal(text, context)).toThrow('CODING_MODEL_RESPONSE_INVALID');
   });
 
-  it('rejects paid evidence without accepting the patch', async () => {
+  it('rejects paid evidence without accepting or retrying the patch', async () => {
     const paid = response();
     paid.actualCostUsd = 1 as 0;
-    const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute: async () => paid });
+    const execute = vi.fn(async () => paid);
+    const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
     await expect(planner(context)).rejects.toThrow();
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it('stops before calling a provider when no key is configured', async () => {
