@@ -19,11 +19,11 @@ describe('PersonalEditionApp production wrapper', () => {
   it('opens Coding from the actual production wrapper and preserves the chat mount', async () => {
     render(<PersonalEditionApp />);
     const originalChat = screen.getByTestId('mock-origin-app');
-    fireEvent.click(screen.getByRole('button', { name: 'Coding', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Coding' }));
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     expect(window.location.search).toBe('?workspace=coding');
     expect(originalChat.closest('[hidden]')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'チャット', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'チャット' }));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
     expect(originalChat.closest('[hidden]')).toBeNull();
     expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
@@ -35,7 +35,7 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     window.history.replaceState(null, '', '/');
     fireEvent(window, new PopStateEvent('popstate'));
-    expect(screen.getByRole('button', { name: 'チャット', exact: true }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'チャット' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
   });
 
