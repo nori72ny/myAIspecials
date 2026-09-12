@@ -6,6 +6,7 @@ import { listRepository, readRepositoryFile } from './safeRepositoryReader.js';
 import { createRepositoryFileIfAbsent } from './safeRepositoryWriter.js';
 import { containsLikelySecret } from './safeFilePolicy.js';
 import { normalizeCodingContextPathV14, normalizeCodingMutablePathV14 } from './codingPathPolicyV14.js';
+import { classifyCodingSessionFailureV14 } from './codingSessionFailureCodeV14.js';
 import type { VerificationKind } from './verificationRunner.js';
 import { sanitizePreEgress } from '../services/securitySanitizer.js';
 
@@ -254,7 +255,7 @@ export async function runCodingSessionV14(request: CodingSessionRequest, deps: C
     result.status = 'repair_limit';
     result.code = 'CODING_REPAIR_LIMIT_REACHED';
   } catch (error) {
-    result.code = error instanceof CodingBlocked ? error.message : 'CODING_OPERATION_BLOCKED';
+    result.code = error instanceof CodingBlocked ? error.message : classifyCodingSessionFailureV14(error);
   } finally {
     if (locked && root) activeRoots.delete(root);
   }
