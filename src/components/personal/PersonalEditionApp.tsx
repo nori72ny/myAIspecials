@@ -27,7 +27,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
   const handleArchiveSession = useCallback((nextMessages: readonly ConversationMessage[]) => { parentOnArchiveSession?.(nextMessages); }, [parentOnArchiveSession]);
   const handleRestoreSession = useCallback((session: ConversationSession) => { const restored = session.messages.map((message) => ({ ...message })); setMessages(restored); parentOnRestoreSession?.(session); parentOnMessagesChange?.(restored); }, [parentOnMessagesChange, parentOnRestoreSession]);
   return <>
-    <nav aria-label="ワークスペース" className="sticky top-0 z-[70] flex flex-wrap gap-2 border-b border-slate-200 bg-white p-2 text-slate-900">
+    <nav aria-label="ワークスペース" className="flex flex-wrap gap-2 border-b border-slate-200 bg-white p-2 text-slate-900">
       <button type="button" aria-pressed={!codingOpen} onClick={() => switchWorkspace(false)} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold">チャット</button>
       <button type="button" aria-pressed={codingOpen} onClick={() => switchWorkspace(true)} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold">Coding</button>
     </nav>
