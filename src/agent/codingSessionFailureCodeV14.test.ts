@@ -9,6 +9,11 @@ describe('V1.4 coding session failure classification', () => {
 
   it('translates provider and zero-cost planning failures into durable CODING codes', () => {
     expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_TIMEOUT' }))).toBe('CODING_PROVIDER_TIMEOUT');
+    expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_MISSING' }))).toBe('CODING_PROVIDER_REQUIRED_TOOL_MISSING');
+    expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_AMBIGUOUS' }))).toBe('CODING_PROVIDER_REQUIRED_TOOL_AMBIGUOUS');
+    expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_INVALID' }))).toBe('CODING_PROVIDER_REQUIRED_TOOL_INVALID');
+    expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID' }))).toBe('CODING_PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID');
+    expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_TRUNCATED' }))).toBe('CODING_PROVIDER_REQUIRED_TOOL_TRUNCATED');
     expect(classifyCodingSessionFailureV14(new Error('FREE_MODEL_EVIDENCE_STALE'))).toBe('CODING_FREE_MODEL_EVIDENCE_STALE');
   });
 

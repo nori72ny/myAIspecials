@@ -75,22 +75,36 @@ describe('required OpenRouter tool contract', () => {
   it('fails closed when a required tool request returns only prose', async () => {
     const fetchMock = vi.fn(async () => response({ content: 'Here is the proposal.' }, 'stop'));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: 'synthetic-test-key' }, fetchMock as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: 'PROVIDER_INVALID_RESPONSE' });
+      .rejects.toMatchObject({ code: 'PROVIDER_REQUIRED_TOOL_MISSING' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('fails closed on the wrong tool or multiple tool calls', async () => {
+  it('fails closed on multiple tool calls', async () => {
     const args = JSON.stringify({ edits: [], creates: [{ path: 'new.ts', content: 'x' }] });
-    const wrong = vi.fn(async () => response({ tool_calls: [{ type: 'function', function: { name: 'other_tool', arguments: args } }] }));
-    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: 'synthetic-test-key' }, wrong as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: 'PROVIDER_INVALID_RESPONSE' });
-
     const multiple = vi.fn(async () => response({ tool_calls: [
       { type: 'function', function: { name: requiredTool.name, arguments: args } },
       { type: 'function', function: { name: requiredTool.name, arguments: args } },
     ] }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: 'synthetic-test-key' }, multiple as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: 'PROVIDER_INVALID_RESPONSE' });
+      .rejects.toMatchObject({ code: 'PROVIDER_REQUIRED_TOOL_AMBIGUOUS' });
+  });
+
+  it('fails closed on a tool contract mismatch', async () => {
+    const args = JSON.stringify({ edits: [], creates: [{ path: 'new.ts', content: 'x' }] });
+    const wrong = vi.fn(async () => response({ tool_calls: [{ type: 'function', function: { name: 'other_tool', arguments: args } }] }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: 'synthetic-test-key' }, wrong as unknown as OriginFetch))
+      .rejects.toMatchObject({ code: 'PROVIDER_REQUIRED_TOOL_INVALID' });
+  });
+
+  it('fails closed on missing, empty, or oversized tool arguments', async () => {
+    const invalidArguments: unknown[] = [undefined, '', 'x'.repeat(256 * 1024 + 1)];
+    for (const args of invalidArguments) {
+      const fetchMock = vi.fn(async () => response({
+        tool_calls: [{ type: 'function', function: { name: requiredTool.name, arguments: args } }],
+      }));
+      await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: 'synthetic-test-key' }, fetchMock as unknown as OriginFetch))
+        .rejects.toMatchObject({ code: 'PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID' });
+    }
   });
 
   it('fails closed instead of continuing a truncated required tool call', async () => {
@@ -98,7 +112,7 @@ describe('required OpenRouter tool contract', () => {
       tool_calls: [{ type: 'function', function: { name: requiredTool.name, arguments: '{"edits":[' } }],
     }, 'length'));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: 'synthetic-test-key' }, fetchMock as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: 'PROVIDER_INVALID_RESPONSE' });
+      .rejects.toMatchObject({ code: 'PROVIDER_REQUIRED_TOOL_TRUNCATED' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
