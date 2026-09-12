@@ -124,7 +124,7 @@ describe('V1.4 multi-stage coding navigator', () => {
       invalidScope,
       correctedScope,
     ];
-    const execute = vi.fn(async () => result(JSON.stringify(replies.shift())));
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => result(JSON.stringify(replies.shift())));
 
     await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context)).resolves.toEqual(correctedScope);
     expect(execute).toHaveBeenCalledTimes(3);
