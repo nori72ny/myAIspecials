@@ -114,4 +114,38 @@ describe('V1.4 multi-stage coding navigator', () => {
     await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context)).rejects.toThrow(code);
     expect(execute).toHaveBeenCalledTimes(2);
   });
+
+  it('performs one bounded scope schema correction without replaying the invalid model response', async () => {
+    const { root, context } = await fixture();
+    const invalidScope = { editablePaths: ['src/components/StatusBadge.tsx'], contextPaths: [], creatablePaths: [] };
+    const correctedScope = { editablePaths: ['src/App.tsx'], contextPaths: ['src/status.ts'], creatablePaths: ['src/components/StatusBadge.tsx'] };
+    const replies = [
+      { queries: ['renderStatus'] },
+      invalidScope,
+      correctedScope,
+    ];
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => result(JSON.stringify(replies.shift())));
+
+    await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context)).resolves.toEqual(correctedScope);
+    expect(execute).toHaveBeenCalledTimes(3);
+
+    const firstScopeRequest = execute.mock.calls[1][0];
+    const correctionRequest = execute.mock.calls[2][0];
+    expect(correctionRequest.messages).toEqual(firstScopeRequest.messages);
+    expect(correctionRequest.messages).toHaveLength(1);
+    expect(correctionRequest.systemInstruction).not.toBe(firstScopeRequest.systemInstruction);
+    expect(correctionRequest.systemInstruction).toContain('one bounded schema-correction attempt');
+    expect(correctionRequest.plan.freeOnly).toBe(true);
+  });
+
+  it('fails closed after exactly one unsuccessful scope schema correction', async () => {
+    const { root, context } = await fixture();
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result(JSON.stringify({ queries: ['renderStatus'] })))
+      .mockResolvedValueOnce(result('not JSON'))
+      .mockResolvedValueOnce(result(JSON.stringify({ editablePaths: [], contextPaths: [], creatablePaths: [] })));
+
+    await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context)).rejects.toThrow('CODING_DISCOVERY_RESPONSE_INVALID');
+    expect(execute).toHaveBeenCalledTimes(3);
+  });
 });
