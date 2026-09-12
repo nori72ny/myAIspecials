@@ -21,7 +21,7 @@ export interface OriginProviderExecutionRequest {
 }
 export interface OriginProviderRoutingEvidence { requestedModel: string; servedModel: string; strategy: string; provider: string; region?: string; attempt: 1; fallbackUsed: boolean; }
 export interface OriginProviderExecutionResult { text: string; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; }
-export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_INTERNAL_ERROR";
+export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_INTERNAL_ERROR";
 export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; }
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
@@ -31,6 +31,11 @@ function safeProviderMessage(code: OriginProviderErrorCode): string {
     case "PROVIDER_TIMEOUT": return "無料AIがタイムアウトしました。";
     case "PROVIDER_UNAVAILABLE": return "無料AIを現在利用できません。";
     case "PROVIDER_INVALID_RESPONSE": return "無料AIから有効な応答を取得できません。";
+    case "PROVIDER_REQUIRED_TOOL_MISSING": return "無料AIの必須ツール呼び出しを確認できません。";
+    case "PROVIDER_REQUIRED_TOOL_AMBIGUOUS": return "無料AIの必須ツール呼び出しを一意に確認できません。";
+    case "PROVIDER_REQUIRED_TOOL_INVALID": return "無料AIの必須ツール呼び出しが契約に適合しません。";
+    case "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID": return "無料AIの必須ツール引数を確認できません。";
+    case "PROVIDER_REQUIRED_TOOL_TRUNCATED": return "無料AIの必須ツール出力が完了しませんでした。";
     case "PROVIDER_COST_UNVERIFIED": return "無料実行の費用を確認できません。";
     case "PROVIDER_ROUTING_UNVERIFIED": return "許可された無料Provider/Modelの証跡を確認できません。";
     case "PROVIDER_POLICY_VIOLATION": return "0ドル固定ポリシーに適合しない実行計画です。";
@@ -180,10 +185,12 @@ type OpenRouterMessage = {
 };
 function requiredToolArguments(message: OpenRouterMessage | undefined, requiredTool: OriginProviderRequiredTool): string {
   const calls = message?.tool_calls;
-  if (!Array.isArray(calls) || calls.length !== 1) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "必須ツール呼び出しを確認できません。", 502, true);
+  if (!Array.isArray(calls) || calls.length === 0) throw new OriginProviderError("PROVIDER_REQUIRED_TOOL_MISSING", "必須ツール呼び出しを確認できません。", 502, true);
+  if (calls.length !== 1) throw new OriginProviderError("PROVIDER_REQUIRED_TOOL_AMBIGUOUS", "必須ツール呼び出しを一意に確認できません。", 502, true);
   const call = calls[0];
   const args = call?.function?.arguments;
-  if (call?.type !== "function" || call.function?.name !== requiredTool.name || typeof args !== "string" || !args.trim() || Buffer.byteLength(args, "utf8") > MAX_TOOL_ARGUMENT_BYTES) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "必須ツール呼び出しを確認できません。", 502, true);
+  if (call?.type !== "function" || call.function?.name !== requiredTool.name) throw new OriginProviderError("PROVIDER_REQUIRED_TOOL_INVALID", "必須ツール呼び出しが契約に適合しません。", 502, true);
+  if (typeof args !== "string" || !args.trim() || Buffer.byteLength(args, "utf8") > MAX_TOOL_ARGUMENT_BYTES) throw new OriginProviderError("PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID", "必須ツール引数を確認できません。", 502, true);
   return args.trim();
 }
 async function openrouter(requestData: OriginProviderExecutionRequest, key: string, fetchImpl: OriginFetch, provider: AllowedZeroCostProvider): Promise<OriginProviderExecutionResult> {
@@ -218,7 +225,7 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     zero(data.usage?.cost, "usage.cost");
 
     if (requestData.requiredTool) {
-      if (choice?.finish_reason === "length") throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "必須ツール出力が完了しませんでした。", 502, true);
+      if (choice?.finish_reason === "length") throw new OriginProviderError("PROVIDER_REQUIRED_TOOL_TRUNCATED", "必須ツール出力が完了しませんでした。", 502, true);
       output = requiredToolArguments(choice?.message, requestData.requiredTool);
     } else {
       const part = text(choice?.message?.content);
