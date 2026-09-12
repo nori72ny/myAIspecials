@@ -10,6 +10,7 @@ import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js
 import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsumptionStore.js";
 import { createCodingDatabaseStoresFromEnvV14 } from "../agent/codingDatabaseStoresV14.js";
 import { createCodingJobV14Router } from "../agent/codingJobRouterV14.js";
+import { createCodingJobSmokeV14Router } from "../agent/codingJobSmokeRouterV14.js";
 import { createGroundedResearchV11Router } from "../research/groundedResearchV11Router.js";
 import { createArtifactV12Router } from "../artifacts/artifactV12Router.js";
 import { createWebAppBuilderV13Router } from "../builder/webAppBuilderV13Router.js";
@@ -62,6 +63,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.use(createArtifactV12Router());
   app.use(createWebAppBuilderV13Router());
   app.use(createWebPublicationV131Router(env, webPublicationStore));
+  app.use(createCodingJobSmokeV14Router(env));
   app.use(createCodingJobV14Router(env, codingStores.jobStore, undefined, codingStores.resultStore));
   app.use(createOriginResearchRouter());
   // Browser clients request text/event-stream. Handle provider-eligible requests here
