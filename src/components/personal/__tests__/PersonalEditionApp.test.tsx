@@ -1,9 +1,10 @@
-import { render } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PERSONAL_SETTINGS } from '../../../hooks/usePersonalSettings';
 import PersonalEditionApp from '../PersonalEditionApp';
 
 const appProps = vi.fn();
+vi.mock('../../CodingJobWorkspaceV14', () => ({ default: () => <section aria-label="Coding Job Workspace">Coding test workspace</section> }));
 
 vi.mock('../../../App', () => ({
   default: (props: Record<string, unknown>) => {
@@ -12,9 +13,32 @@ vi.mock('../../../App', () => ({
   },
 }));
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => { cleanup(); vi.clearAllMocks(); window.history.replaceState(null, '', '/'); });
 
 describe('PersonalEditionApp production wrapper', () => {
+  it('opens Coding from the actual production wrapper and preserves the chat mount', async () => {
+    render(<PersonalEditionApp />);
+    const originalChat = screen.getByTestId('mock-origin-app');
+    fireEvent.click(screen.getByRole('button', { name: 'Coding', exact: true }));
+    expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
+    expect(window.location.search).toBe('?workspace=coding');
+    expect(originalChat.closest('[hidden]')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'チャット', exact: true }));
+    expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
+    expect(originalChat.closest('[hidden]')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
+  });
+
+  it('supports a direct mobile link and browser history navigation', async () => {
+    window.history.replaceState(null, '', '/?workspace=coding');
+    render(<PersonalEditionApp />);
+    expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
+    window.history.replaceState(null, '', '/');
+    fireEvent(window, new PopStateEvent('popstate'));
+    expect(screen.getByRole('button', { name: 'チャット', exact: true }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
+  });
+
   it('mounts the shared App with the Personal settings boundary', () => {
     const onOpenSettings = vi.fn();
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} onOpenSettings={onOpenSettings} />);

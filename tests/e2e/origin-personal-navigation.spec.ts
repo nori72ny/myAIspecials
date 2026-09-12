@@ -1,6 +1,30 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('ORIGIN Personal 2.0 production surface', () => {
+  test('opens Coding by touch and direct URL on a narrow screen without losing the chat draft', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/coding/v1.4/status', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({
+        ok: true, ready: false, controlPlaneReady: false,
+        authorizationMode: 'unconfigured', freeOnly: true, paidFallbackEnabled: false,
+      }),
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('保存前の相談メモ');
+    await page.getByRole('navigation', { name: 'ワークスペース' }).getByRole('button', { name: 'Coding', exact: true }).click();
+    await expect(page).toHaveURL(/workspace=coding/);
+    await expect(page.getByLabel('Coding operator credential')).toBeVisible();
+    await expect(page.getByLabel('Coding goal', { exact: true })).toBeEditable();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.getByRole('button', { name: 'チャット', exact: true }).click();
+    await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
+    await page.goBack();
+    await expect(page.getByLabel('Coding operator credential')).toBeVisible();
+    await page.reload();
+    await expect(page.getByLabel('Coding operator credential')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start coding job', exact: true })).toBeDisabled();
+  });
+
   test('shows the truthful first-release workspace without legacy navigation or sample data', async ({ page }) => {
     await page.goto('/');
 
