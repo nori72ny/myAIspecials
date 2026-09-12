@@ -1,5 +1,5 @@
 import { buildOriginExecutionPlan } from '../lib/orchestration/OriginExecutionPolicy.js';
-import { executeOriginProvider, assertOriginZeroCostExecutionResult, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
+import { executeOriginProvider, assertOriginZeroCostExecutionResult, type OriginProviderExecutionRequest, type OriginProviderExecutionResult, type OriginProviderRequiredTool } from '../legacy/originProviderClient.js';
 import { containsLikelySecret } from './safeFilePolicy.js';
 import type { CodingContext, CodingProposalBatch } from './codingSessionV14.js';
 
@@ -9,15 +9,53 @@ Inspect callers and tests supplied as context. Preserve interfaces unless the go
 On repair rounds, diagnose the provided failures before proposing a different fix.
 Existing editable files must use exact unique search/replacement edits. New files may be created only from creatablePaths.
 Use only paths listed in editablePaths for edits and only paths listed in creatablePaths for creates.
-Never weaken tests, disable verification, add credentials, invoke tools, or expand the editable/creatable scope.
-Return exactly one JSON object with exactly these keys and no others: {"edits":[{"path":"...","search":"exact unique existing text","replacement":"new text"}],"creates":[{"path":"...","content":"complete new file"}]}.
-Each edit object must contain exactly path, search, replacement. Each create object must contain exactly path, content.
+Never weaken tests, disable verification, add credentials, invoke tools other than the required proposal function, or expand the editable/creatable scope.
+Submit exactly one proposal through the required proposal function. The function arguments must contain exactly edits and creates.
 At most one mutation per path. Combine nearby changes into one exact search block. Empty arrays are allowed, but at least one total mutation is required.
 Do not return markdown, code fences, shell commands, explanations, or claims that checks passed.`;
 const CORRECTION_INSTRUCTION = `${INSTRUCTION}
 Your immediately previous proposal did not satisfy ORIGIN's strict mutation schema, exact-match requirements, or authorized scope.
-This is one bounded schema-correction attempt. Re-evaluate the same trusted goal, files, authorized paths, failures, and diagnostics from the user payload and return only the exact JSON object required above.
+This is one bounded schema-correction attempt. Re-evaluate the same trusted goal, files, authorized paths, failures, and diagnostics from the user payload and invoke the required proposal function exactly once.
 Do not quote, explain, or attempt to repair the text of the previous response. Do not add keys, paths, commands, or prose.`;
+
+const PROPOSAL_TOOL: OriginProviderRequiredTool = {
+  name: 'submit_coding_proposal_v14',
+  description: 'Submit exactly one bounded ORIGIN V1.4 coding mutation proposal.',
+  parameters: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['edits', 'creates'],
+    properties: {
+      edits: {
+        type: 'array',
+        maxItems: 12,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['path', 'search', 'replacement'],
+          properties: {
+            path: { type: 'string' },
+            search: { type: 'string', minLength: 1 },
+            replacement: { type: 'string' },
+          },
+        },
+      },
+      creates: {
+        type: 'array',
+        maxItems: 4,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['path', 'content'],
+          properties: {
+            path: { type: 'string' },
+            content: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
 
 export function parseCodingProposal(text: string, context: CodingContext): CodingProposalBatch {
   const fail = (): never => { throw new Error('CODING_MODEL_RESPONSE_INVALID'); };
@@ -80,7 +118,12 @@ export function createCodingPlannerV14(options: {
     if (Buffer.byteLength(payload) > 320 * 1024 || containsLikelySecret(payload)) throw new Error('CODING_MODEL_CONTEXT_BLOCKED');
 
     const requestProposal = async (systemInstruction: string): Promise<CodingProposalBatch> => {
-      const result = await execute({ plan: selected.plan, systemInstruction, messages: [{ role: 'user', content: payload }] }, env);
+      const result = await execute({
+        plan: selected.plan,
+        systemInstruction,
+        messages: [{ role: 'user', content: payload }],
+        requiredTool: PROPOSAL_TOOL,
+      }, env);
       assertOriginZeroCostExecutionResult(result, selected.plan.modelId, selected.plan.providerId);
       return parseCodingProposal(result.text, context);
     };
