@@ -1,4 +1,4 @@
-import { createPublicKey, verify as verifySignature, type KeyObject } from 'node:crypto';
+import { createPublicKey, verify as verifySignature, type JsonWebKey as NodeJsonWebKey, type KeyObject } from 'node:crypto';
 
 export const CODING_SMOKE_OIDC_AUDIENCE_V14 = 'origin-coding-smoke-v14';
 export const CODING_SMOKE_OIDC_ISSUER_V14 = 'https://token.actions.githubusercontent.com';
@@ -96,7 +96,7 @@ async function resolveSigningKey(kid: string, fetchImpl: FetchLike, nowMs: numbe
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
     const keys = (parsed as { keys?: unknown }).keys;
     if (!Array.isArray(keys) || keys.length === 0 || keys.length > 16) return null;
-    const candidate = keys.find((value): value is JsonWebKey & { kid: string } => {
+    const candidate = keys.find((value): value is NodeJsonWebKey & { kid: string } => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
       const jwk = value as Record<string, unknown>;
       return jwk.kid === kid
