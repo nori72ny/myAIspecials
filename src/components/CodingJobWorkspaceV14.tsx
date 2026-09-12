@@ -81,25 +81,47 @@ const ACTIVE = new Set<CodingJobStatus>(['queued', 'leased', 'running', 'repairi
 const CHECKS: readonly VerificationKind[] = ['typecheck', 'lint', 'test', 'build'];
 const JOB_ID = /^coding-[A-Za-z0-9_-]{22}$/;
 const STATUS_LABELS: Record<CodingJobStatus, string> = {
-  queued: 'Queued',
-  leased: 'Worker claimed',
-  running: 'Coding',
-  repairing: 'Repairing',
-  verified: 'Verified',
-  blocked: 'Blocked',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
+  queued: '受付済み',
+  leased: '実行準備中',
+  running: 'コードを変更中',
+  repairing: '修正中',
+  verified: '検証済み',
+  blocked: '実行停止',
+  failed: '失敗',
+  cancelled: '取消済み',
 };
-const STATUS_PROGRESS: Record<CodingJobStatus, number> = {
-  queued: 10,
-  leased: 25,
-  running: 55,
-  repairing: 75,
-  verified: 100,
-  blocked: 100,
-  failed: 100,
-  cancelled: 100,
+const STATUS_DETAILS: Record<CodingJobStatus, string> = {
+  queued: '依頼を受け付けました。ワーカーの処理開始を待っています。',
+  leased: 'ワーカーが依頼を受け取りました。実行を準備しています。',
+  running: 'コードの確認・変更を実行しています。検証結果が届くまでお待ちください。',
+  repairing: '検証で見つかった問題を修正しています。',
+  verified: 'ジョブは検証済みとして終了しました。各検査と変更内容は下の結果で確認できます。',
+  blocked: '安全条件または実行条件を満たせず停止しました。実施できた検査だけを表示します。',
+  failed: '処理が失敗して終了しました。完了していない工程を成功として扱いません。',
+  cancelled: '依頼は取り消されました。取り消し前にどこまで実行されたかは、この状態だけでは分かりません。',
 };
+
+const ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  CODING_JOB_AUTHENTICATION_REQUIRED: 'Coding専用の認証キーが必要です。認証欄を確認してください。',
+  CODING_JOB_DISPATCH_TOKEN_INVALID: 'ワーカーの起動用認証がGitHubに受け付けられませんでした。管理側で認証設定の確認が必要です。',
+  CODING_JOB_DISPATCH_PERMISSION_DENIED: 'GitHubがワーカーの起動を拒否しました。管理側で起動権限の確認が必要です。',
+  CODING_JOB_DISPATCH_WORKFLOW_INACCESSIBLE: '起動対象のワーカーにアクセスできません。管理側でワークフローとアクセス範囲の確認が必要です。',
+  CODING_JOB_DISPATCH_REF_INVALID: 'ワーカーの起動条件が受け付けられませんでした。管理側で対象ブランチと入力条件の確認が必要です。',
+  CODING_JOB_DISPATCH_RATE_LIMITED: 'GitHubの利用制限によりワーカーを起動できませんでした。時間をおいてからお試しください。',
+  CODING_JOB_DISPATCH_UNAVAILABLE: 'ワーカーの起動要求が届いたか確認できませんでした。自動で再送はしていません。',
+  CODING_JOB_DISPATCH_REJECTED: 'ワーカーの起動要求が受け付けられませんでした。管理側で確認が必要です。',
+  CODING_UI_CREATE_UNAVAILABLE: '通信が途切れ、依頼が受け付けられたか確認できませんでした。重複を避けるため、自動で再送はしていません。',
+  CODING_UI_STATUS_UNAVAILABLE: '最新の状態を取得できませんでした。表示中の結果は最後に取得した内容です。',
+  CODING_UI_CANCEL_UNAVAILABLE: '取り消しの結果を確認できませんでした。依頼が停止したとは限りません。',
+  CODING_UI_INVALID_JOB_ID: 'ジョブIDの形式を確認してください。',
+};
+
+function ErrorNotice({ code }: { code: string }) {
+  return <div role="alert" className="mt-4 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs leading-5 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+    <p className="font-semibold">{ERROR_MESSAGES[code] ?? '処理を完了できませんでした。確認用のエラーコードを詳細に表示しています。'}</p>
+    <details className="mt-2"><summary className="min-h-11 cursor-pointer py-3 font-semibold">エラーの詳細</summary><code className="block break-all">{code}</code></details>
+  </div>;
+}
 
 function safeCode(value: unknown, fallback: string): string {
   return typeof value === 'string' && /^CODING_[A-Z0-9_]{1,120}$/.test(value) ? value : fallback;
@@ -141,7 +163,7 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
         : 'border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200';
   return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${tone}`}>
     {!terminal && !cancelRequested && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-current" aria-hidden="true" />}
-    {cancelRequested && ACTIVE.has(status) ? 'Cancellation requested' : STATUS_LABELS[status]}
+    {cancelRequested && ACTIVE.has(status) ? '取り消しを確認中' : STATUS_LABELS[status]}
   </span>;
 }
 
@@ -150,7 +172,7 @@ function VerificationPanel({ result, state }: { result: CodingJobResult | null; 
   const absentLabel = result ? 'NOT RUN' : state === 'unavailable' ? 'N/A' : state === 'not_applicable' ? 'CANCELLED' : 'WAIT';
   const absentDetail = result ? 'not executed before terminal stop' : state === 'unavailable' ? 'result unavailable' : state === 'not_applicable' ? 'job cancelled' : 'pending';
   return <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-900/50" aria-labelledby="coding-verification-title">
-    <div className="mb-3 flex items-center justify-between gap-3"><h2 id="coding-verification-title" className="font-bold">Verification</h2>{result && <span className="text-xs text-slate-500">repair rounds: {result.repairRounds}</span>}</div>
+    <div className="mb-3 flex items-center justify-between gap-3"><h2 id="coding-verification-title" className="font-bold">検証結果</h2>{result && <span className="text-xs text-slate-500">repair rounds: {result.repairRounds}</span>}</div>
     <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{CHECKS.map(kind => {
       const check = byKind.get(kind);
       return <div key={kind} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
@@ -163,7 +185,7 @@ function VerificationPanel({ result, state }: { result: CodingJobResult | null; 
 
 function DiffPanel({ result, state, changedPaths }: { result: CodingJobResult | null; state: ResultDetailsState; changedPaths: string[] }) {
   return <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-900/50" aria-labelledby="coding-diff-title">
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 id="coding-diff-title" className="font-bold">Diff / Changed files</h2><span className="text-xs text-slate-500">{changedPaths.length} file{changedPaths.length === 1 ? '' : 's'}</span></div>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 id="coding-diff-title" className="font-bold">変更ファイル</h2><span className="text-xs text-slate-500">{changedPaths.length} file{changedPaths.length === 1 ? '' : 's'}</span></div>
     {state === 'unavailable' && <p role="status" className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">暗号化された差分詳細を取得できませんでした。ジョブ状態と changed paths は保持されています。</p>}
     {changedPaths.length === 0 && !result?.diffs.length ? <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-slate-700">変更はまだ確定していません。</div> : null}
     <div className="space-y-4">
@@ -201,7 +223,12 @@ export default function CodingJobWorkspaceV14() {
     mountedRef.current = true;
     const controller = new AbortController();
     void fetch('/api/coding/v1.4/status', { signal: controller.signal })
-      .then(async response => { const data = await response.json() as CapabilityResponse; if (mountedRef.current) setCapability(data); })
+      .then(async response => {
+        if (!response.ok) throw new Error('CODING_UI_STATUS_UNAVAILABLE');
+        const data = await response.json() as CapabilityResponse;
+        if (!data || data.ok !== true) throw new Error('CODING_UI_INVALID_RESPONSE');
+        if (mountedRef.current) setCapability(data);
+      })
       .catch(() => { if (mountedRef.current) setCapability({ ok: false, ready: false, resultDetailsReady: false, authorizationMode: 'unconfigured' }); })
       .finally(() => { if (mountedRef.current) setCheckingCapability(false); });
     return () => {
@@ -331,62 +358,59 @@ export default function CodingJobWorkspaceV14() {
     ['GitHub dispatch', capability?.dispatchReady],
     ['Worker opt-in', capability?.workerEnabled],
   ] as const;
-  const progress = job ? STATUS_PROGRESS[job.status] : 0;
-  const verificationReached = Boolean(result?.verificationChecks.length);
-  const stageReached = [Boolean(job), Boolean(job && job.status !== 'queued' && job.status !== 'leased'), Boolean(job && (job.status === 'repairing' || (result?.repairRounds ?? 0) > 0)), Boolean(job && (job.status === 'verified' || verificationReached))];
 
   return <section className="min-h-[calc(100vh-5rem)] bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="Coding Job Workspace">
     <div className="mx-auto grid max-w-[1600px] gap-4 xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.65fr)]">
       <aside className="origin-workspace rounded-2xl p-4 xl:sticky xl:top-4 xl:self-start">
-        <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-500">V1.4 · Agentic Coding OS</p><h1 className="mt-1 text-xl font-black">Coding Job</h1><p className="mt-2 text-xs leading-5 text-slate-500">自然言語で変更を依頼し、隔離workerで探索・編集・検証・修復を実行します。</p></div><span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">$0 only</span></div>
+        <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-500">V1.4 · Agentic Coding OS</p><h1 className="mt-1 text-xl font-black">コードの変更を依頼</h1><p className="mt-2 text-xs leading-5 text-slate-500">変更したいことを伝えると、コードの確認・編集・検証を進めます。</p></div><span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">$0 only</span></div>
 
         <div className="mt-4 rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-800">
-          <div className="flex items-center justify-between gap-2"><span className="font-bold">Hosted worker</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? 'checking…' : ready ? 'ready' : 'not ready'}</span></div>
-          <div className="mt-2 flex items-center justify-between gap-2"><span className="text-slate-500">Encrypted result details</span><span>{capability?.resultDetailsReady ? 'configured' : 'unavailable'}</span></div>
+          <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境の設定</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '設定確認済み' : '設定を確認できません'}</span></div>
+          <p className="mt-2 leading-5 text-slate-500">設定の確認と、ワーカーの起動・実行成功は別です。実行結果は依頼ごとに確認します。</p><details className="mt-2"><summary className="min-h-11 cursor-pointer py-3 font-semibold">接続・認証の詳細</summary><div className="mt-2 flex items-center justify-between gap-2"><span className="text-slate-500">Encrypted result details</span><span>{capability?.resultDetailsReady ? 'configured' : 'unavailable'}</span></div>
           <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Authorization</span><span>{authorizationLabel(capability?.authorizationMode)}</span></div>
           <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Git publish</span><span>not authorized</span></div>
-          <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Deploy</span><span>not authorized</span></div>
+          <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Deploy</span><span>not authorized</span></div></details>
         </div>
 
-        {!checkingCapability && <div className="mt-4 rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-800" aria-label="Coding production readiness">
-          <div className="mb-2 font-bold">Production readiness</div>
+        {!checkingCapability && <details className="mt-4 rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-800" aria-label="Coding production readiness">
+          <summary className="min-h-11 cursor-pointer py-3 font-bold">設定の診断結果</summary>
           <div className="space-y-1">{readinessItems.map(([label, itemReady]) => <div key={label} className="flex items-center justify-between gap-3"><span className="text-slate-500">{label}</span><ReadinessValue ready={itemReady} /></div>)}</div>
-          <p className="mt-2 text-[10px] leading-4 text-slate-500">公開statusの非秘密booleanのみを表示しています。secret値・DB URI・tokenは表示しません。</p>
-        </div>}
+          <p className="mt-2 text-[10px] leading-4 text-slate-500">接続設定の確認結果です。ワーカーの実行成功を示すものではありません。</p>
+        </details>}
 
         {capability?.authorizationMode === 'legacy-agent-compat' && <div role="status" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">互換モードです。`ORIGIN_CODING_OPERATOR_SECRET` を設定するとCoding権限を他のAgent操作から分離できます。</div>}
         {!checkingCapability && !ready && <div role="status" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">Coding workerは現在fail-closedです。上のreadinessが揃うまで新規ジョブは開始されません。既存ジョブの参照・取消はcontrol-plane条件が揃っていれば利用できます。</div>}
 
-        <label htmlFor="coding-operator-key" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">Coding operator credential</label>
+        <label htmlFor="coding-operator-key" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">Coding認証キー</label>
         <input ref={credentialInputRef} id="coding-operator-key" type="password" autoComplete="off" spellCheck={false} placeholder="Coding operator key" className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
         <p className="mt-1 text-[10px] leading-4 text-slate-500">この値はReact state・localStorage・ログへ保存しません。開始/再接続後は入力欄を消去し、active jobの操作中のみページメモリでAPI認証に使用します。</p>
 
         <div className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-          <label htmlFor="coding-existing-job" className="block text-xs font-bold text-slate-600 dark:text-slate-300">Open existing job</label>
+          <label htmlFor="coding-existing-job" className="block text-xs font-bold text-slate-600 dark:text-slate-300">既存のジョブID</label>
           <input id="coding-existing-job" value={existingJobId} onChange={event => setExistingJobId(event.target.value)} autoComplete="off" spellCheck={false} placeholder="coding-…" className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 font-mono text-xs outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
-          <button type="button" onClick={() => void openExistingJob()} disabled={busy || !JOB_ID.test(existingJobId.trim())} className="mt-2 min-h-11 w-full rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-sm font-bold text-indigo-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-200">{busy ? 'Processing…' : 'Open job'}</button>
+          <button type="button" onClick={() => void openExistingJob()} disabled={busy || !JOB_ID.test(existingJobId.trim())} className="mt-2 min-h-11 w-full rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-sm font-bold text-indigo-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-200">{busy ? '処理中…' : '結果を開く'}</button>
           <p className="mt-2 text-[10px] leading-4 text-slate-500">Job IDとcredentialはブラウザ保存しません。ページ再読込後は両方を再入力してください。</p>
         </div>
 
-        <label htmlFor="coding-goal" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">Coding goal</label>
+        <label htmlFor="coding-goal" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">変更したいこと</label>
         <textarea id="coding-goal" value={goal} onChange={event => setGoal(event.target.value)} maxLength={4000} placeholder="例: ログイン画面のフォーム検証を修正し、関連テストを追加してすべての検証を通してください。" className="mt-2 min-h-40 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
         <div className="mt-1 text-right text-[10px] text-slate-500">{goal.length}/4000</div>
-        <button type="button" onClick={() => void startJob()} disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))} className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'Processing…' : job && ACTIVE.has(job.status) ? 'Job running' : 'Start coding job'}</button>
+        <button type="button" onClick={() => void startJob()} disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))} className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '処理中…' : job && ACTIVE.has(job.status) ? '実行中' : '変更を依頼する'}</button>
 
         {job && <div className="mt-4 space-y-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-live="polite">
           <div className="flex flex-wrap items-center justify-between gap-2"><StatusBadge status={job.status} cancelRequested={job.cancelRequested} /><span className="text-[10px] text-slate-500">attempt {job.attempt}</span></div>
-          <div><div className="mb-1 flex items-center justify-between text-[10px] text-slate-500"><span>Lifecycle position</span><span>{progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} aria-valuetext={STATUS_LABELS[job.status]} aria-label="Coding job lifecycle position"><div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${progress}%` }} /></div></div>
+          <p className="text-xs leading-5 text-slate-500">{job.cancelRequested && ACTIVE.has(job.status) ? '取り消しを要求しました。停止の確認を待っています。' : STATUS_DETAILS[job.status]}</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[10px]"><dt className="text-slate-500">Job</dt><dd className="truncate font-mono" title={job.jobId}>{job.jobId}</dd><dt className="text-slate-500">Updated</dt><dd>{formatTime(job.updatedAt)}</dd><dt className="text-slate-500">Result</dt><dd className="break-all font-mono">{job.resultCode ?? 'pending'}</dd></dl>
-          <button type="button" onClick={() => void cancelJob()} disabled={!ACTIVE.has(job.status) || job.cancelRequested || busy} className="min-h-11 w-full rounded-xl border border-rose-300 bg-rose-50 px-3 text-sm font-bold text-rose-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">{job.cancelRequested && ACTIVE.has(job.status) ? 'Cancellation requested…' : 'Cancel job'}</button>
+          <button type="button" onClick={() => void cancelJob()} disabled={!ACTIVE.has(job.status) || job.cancelRequested || busy} className="min-h-11 w-full rounded-xl border border-rose-300 bg-rose-50 px-3 text-sm font-bold text-rose-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">{job.cancelRequested && ACTIVE.has(job.status) ? '取り消しを確認中…' : '依頼を取り消す'}</button>
         </div>}
-        {error && <div role="alert" className="mt-4 rounded-xl border border-rose-300 bg-rose-50 p-3 font-mono text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">{error}</div>}
+        {error && <ErrorNotice code={error} />}
       </aside>
 
       <main className="min-w-0 space-y-4">
         <section className="origin-workspace rounded-2xl p-4" aria-labelledby="coding-progress-title">
-          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Execution</p><h2 id="coding-progress-title" className="mt-1 text-lg font-black">Progress & evidence</h2></div>{job ? <StatusBadge status={job.status} cancelRequested={job.cancelRequested} /> : <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-slate-800">No active job</span>}</div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-4">{(['Queue', 'Discover / Edit', 'Repair', 'Verify'] as const).map((label, index) => <div key={label} className={`rounded-xl border p-3 ${stageReached[index] ? 'border-indigo-300 bg-indigo-50/60 dark:border-indigo-800 dark:bg-indigo-950/20' : 'border-slate-200 dark:border-slate-800'}`}><div className="text-[10px] font-black uppercase tracking-wider text-slate-500">{index + 1}</div><div className="mt-1 text-sm font-bold">{label}</div></div>)}</div>
-          <p className="mt-3 text-[10px] leading-4 text-slate-500">Lifecycle positionは永続ジョブ状態の位置を示し、成功率や残り時間の予測ではありません。Verify段階は実際の検証証拠が存在する場合だけ到達表示します。</p>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Execution</p><h2 id="coding-progress-title" className="mt-1 text-lg font-black">実行状況と結果</h2></div>{job ? <StatusBadge status={job.status} cancelRequested={job.cancelRequested} /> : <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-slate-800">依頼前</span>}</div>
+          <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">{job ? STATUS_DETAILS[job.status] : '変更したい内容を入力してください。依頼後はここで実行状態と検証結果を確認できます。'}</p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">進捗率や残り時間は推測せず、取得できたジョブ状態と検証結果を表示します。</p>
         </section>
         <VerificationPanel result={result} state={resultState} />
         <DiffPanel result={result} state={resultState} changedPaths={job?.changedPaths ?? []} />
