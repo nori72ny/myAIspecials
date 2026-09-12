@@ -61,12 +61,14 @@ describe('V1.4 multi-stage coding navigator', () => {
     expect(firstPayload.files).toEqual(context.files);
     expect(JSON.stringify(firstPayload)).not.toContain('export const renderStatus');
     expect(firstRequest.plan.freeOnly).toBe(true);
+    expect(firstRequest.requiredTool?.name).toBe('submit_coding_search_plan_v14');
 
     const secondRequest = execute.mock.calls[1][0];
     const secondPayload = JSON.parse(secondRequest.messages[0].content);
     expect(secondPayload.searchHits.some((hit: { path: string }) => hit.path === 'src/status.ts')).toBe(true);
     expect(JSON.stringify(secondPayload.searchHits)).toContain('renderStatus');
     expect(secondRequest.plan.freeOnly).toBe(true);
+    expect(secondRequest.requiredTool?.name).toBe('submit_coding_scope_v14');
   });
 
   it.each([
@@ -99,7 +101,7 @@ describe('V1.4 multi-stage coding navigator', () => {
     const { root, context } = await fixture();
     const scope = { editablePaths: ['src/status.ts'], contextPaths: ['src/App.tsx'], creatablePaths: [] };
     const replies = [{ queries: ['missingWidget'] }, { queries: ['renderStatus'] }, scope];
-    const execute = vi.fn(async () => result(JSON.stringify(replies.shift())));
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => result(JSON.stringify(replies.shift())));
     await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context)).resolves.toEqual(scope);
     expect(execute).toHaveBeenCalledTimes(3);
   });
@@ -110,9 +112,38 @@ describe('V1.4 multi-stage coding navigator', () => {
   ])('bounds unsuccessful navigation without a speculative scope call', async (first, second, code) => {
     const { root, context } = await fixture();
     const replies = [{ queries: [first] }, { queries: [second] }];
-    const execute = vi.fn(async () => result(JSON.stringify(replies.shift())));
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => result(JSON.stringify(replies.shift())));
     await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context)).rejects.toThrow(code);
     expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('permits only explicitly named absent paths when repository search has no evidence', async () => {
+    const { root, context } = await fixture();
+    context.goal = 'Create exactly one new file at src/components/StatusBadge.tsx and do not modify other files.';
+    const replies = [
+      { queries: ['missingWidget'] },
+      { queries: ['MISSINGWIDGET'] },
+      { editablePaths: [], contextPaths: [], creatablePaths: ['src/components/StatusBadge.tsx'] },
+    ];
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => result(JSON.stringify(replies.shift())));
+
+    await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context))
+      .resolves.toEqual({ editablePaths: [], contextPaths: [], creatablePaths: ['src/components/StatusBadge.tsx'] });
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(execute.mock.calls[2][0].messages[0].content).explicitCreatablePaths)
+      .toEqual(['src/components/StatusBadge.tsx']);
+  });
+
+  it('rejects existing-file scope when falling back to an explicit create-only path', async () => {
+    const { root, context } = await fixture();
+    context.goal = 'Create exactly one new file at src/components/StatusBadge.tsx and do not modify other files.';
+    const invalidScope = { editablePaths: ['src/App.tsx'], contextPaths: [], creatablePaths: ['src/components/StatusBadge.tsx'] };
+    const replies = [{ queries: ['missingWidget'] }, { queries: ['MISSINGWIDGET'] }, invalidScope, invalidScope];
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => result(JSON.stringify(replies.shift())));
+
+    await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context))
+      .rejects.toThrow('CODING_DISCOVERY_RESPONSE_INVALID');
+    expect(execute).toHaveBeenCalledTimes(4);
   });
 
   it('performs one bounded scope schema correction without replaying the invalid model response', async () => {
