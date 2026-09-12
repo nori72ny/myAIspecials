@@ -516,6 +516,23 @@ hidden testをagentが編集できないようにする。held-out setへチュ�
 
 # PART E — Live Snapshot（2026-09-12 JST時点）
 
+## Takeover revalidation — 2026-09-12
+
+This supplement supersedes the older snapshot values below where explicitly stated. Fixed product/security policy is unchanged.
+
+- Current main verified at takeover: `577ee66ff5021468a6caad59c1b2b2f5caf88b9c` (master handover PR #230).
+- Exact-main workflows: ACOS Quality Gate `34683731758`, Production Release CI/CD `34683731739`, CodeQL `34683731731`, Scorecard `34683731721`: completed/success.
+- Production: `dpl_4bEvvi8Gwy4gKXnnaRu5wnDZjJP1`, READY, same exact main SHA.
+- Production Coding status: HTTP 200; configuration, live database schema, encryption, dedicated operator authentication and dispatch configuration ready; freeOnly true, costUsd 0, paid fallback disabled. This is configuration evidence only.
+- Live database aggregate: five jobs, all cancelled with attempt 0 and `CODING_CANCELLED_BY_USER`; latest update `2026-09-12 05:54:36.151916+00`; zero associated result rows. No prompts, ciphertext or owner identifiers were read.
+- Retrieved workflow_dispatch history contains no V1.4 worker run. Post-rotation authenticated submit → worker → encrypted terminal result remains UNVERIFIED.
+- Runtime error clusters returned by the connector refer to earlier deployments and September 11 URL/authentication failures; they are not evidence that the latest production deployment is failing.
+- Existing machine smoke is publication-specific and uses the legacy Agent credential. The Coding worker accepts only an opaque existing job ID; it is not an authenticated submit harness. Do not substitute the broader credential or bypass operator authentication to obtain a green smoke.
+- This batch corrects the Coding UI configuration/execution distinction, adds Japanese controls and safe error explanations, removes invented percentages/inferred completed stages, and checks HTTP/application success before enabling submissions. Candidate CI and production rollout must be verified separately.
+- Next primary goal remains the post-rotation Coding E2E with dedicated operator authorization. Full visual/device acceptance and a successful real Coding run are not proven by component tests.
+
+---
+
 ## 21. GitHub current state
 
 Repository: `nori72ny/myAIspecials`

@@ -13,16 +13,16 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-home-request').fill('保存前の相談メモ');
     await page.getByRole('navigation', { name: 'ワークスペース' }).getByRole('button', { name: 'Coding', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
-    await expect(page.getByLabel('Coding operator credential')).toBeVisible();
-    await expect(page.getByLabel('Coding goal', { exact: true })).toBeEditable();
+    await expect(page.getByLabel('Coding認証キー')).toBeVisible();
+    await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await page.getByRole('button', { name: 'チャット', exact: true }).click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
-    await expect(page.getByLabel('Coding operator credential')).toBeVisible();
+    await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await page.reload();
-    await expect(page.getByLabel('Coding operator credential')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Start coding job', exact: true })).toBeDisabled();
+    await expect(page.getByLabel('Coding認証キー')).toBeVisible();
+    await expect(page.getByRole('button', { name: '変更を依頼する', exact: true })).toBeDisabled();
   });
 
   test('shows the truthful first-release workspace without legacy navigation or sample data', async ({ page }) => {
