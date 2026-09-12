@@ -85,6 +85,7 @@ export async function registerPasskeyKey(): Promise<CryptoKey> {
   const challenge = crypto.getRandomValues(new Uint8Array(32));
   const userId = crypto.getRandomValues(new Uint8Array(16));
   const salt = getOrCreateSalt();
+  const previousCredentialId = window.localStorage.getItem(PASSKEY_STORAGE_KEY);
   const credential = await window.navigator.credentials.create({
     publicKey: {
       challenge,
@@ -102,10 +103,29 @@ export async function registerPasskeyKey(): Promise<CryptoKey> {
   if (!credential) throw new Error('PASSKEY_REGISTRATION_CANCELLED');
 
   window.localStorage.setItem(PASSKEY_STORAGE_KEY, base64UrlEncode(new Uint8Array(credential.rawId)));
-  return unlockPasskeyKey();
+  try {
+    // Registration must verify the newly-created credential even when an older
+    // unlocked key is cached; otherwise the new credential ID could be persisted
+    // without ever proving that it derives a usable key.
+    const key = await unlockPasskeyKey();
+    unlockedPasskeyKey = key;
+    return key;
+  } catch (error: unknown) {
+    if (previousCredentialId === null) {
+      window.localStorage.removeItem(PASSKEY_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(PASSKEY_STORAGE_KEY, previousCredentialId);
+    }
+    throw error;
+  }
 }
 
-/** Unlocks the existing passkey using WebAuthn PRF and derives a non-extractable AES-GCM-256 key. */
+/**
+ * Unlocks the existing passkey using WebAuthn PRF and derives a non-extractable
+ * AES-GCM-256 key. This is the low-level derivation primitive and does not mutate
+ * the module's unlocked-key state; callers that need shared state should use
+ * unlockAndSetPasskeyKey().
+ */
 export async function unlockPasskeyKey(): Promise<CryptoKey> {
   if (!isBrowser()) throw new Error('PASSKEY_BROWSER_REQUIRED');
   const credentialId = getStoredCredentialId();
@@ -136,17 +156,45 @@ export async function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
 }
 
 /**
- * Passkey-first key selection. This intentionally does not silently prompt for
- * biometric authentication: callers can unlock explicitly, after which this
- * in-memory key is preferred by the encrypted stores. Without PRF support or
- * unlock, callers should retain their existing local-key fallback.
+ * Unlocks the existing passkey and atomically stores the derived key for subsequent
+ * encrypted-store operations. Concurrent callers share one in-flight operation,
+ * and a failed unlock never replaces an already-unlocked key.
+ *
+ * This function intentionally is not declared `async`: returning the exact
+ * in-flight Promise is part of the concurrency contract and must preserve Promise
+ * reference identity for callers that coalesce concurrent unlock attempts.
  */
 let unlockedPasskeyKey: CryptoKey | null = null;
+let activeUnlockPromise: Promise<CryptoKey> | null = null;
 
+export function unlockAndSetPasskeyKey(): Promise<CryptoKey> {
+  if (unlockedPasskeyKey !== null) return Promise.resolve(unlockedPasskeyKey);
+  if (activeUnlockPromise !== null) return activeUnlockPromise;
+
+  activeUnlockPromise = (async () => {
+    try {
+      const key = await unlockPasskeyKey();
+      unlockedPasskeyKey = key;
+      return key;
+    } catch (error: unknown) {
+      // Never log authentication payloads, CryptoKey instances, or derivation data.
+      // Preserve the original public error contract and keep state unchanged because
+      // assignment occurs only after complete success.
+      throw error;
+    } finally {
+      activeUnlockPromise = null;
+    }
+  })();
+
+  return activeUnlockPromise;
+}
+
+/** Sets or clears the in-memory passkey key. The CryptoKey remains non-extractable. */
 export function setUnlockedPasskeyKey(key: CryptoKey | null): void {
   unlockedPasskeyKey = key;
 }
 
+/** Returns the currently unlocked in-memory passkey key, if any. */
 export function getUnlockedPasskeyKey(): CryptoKey | null {
   return unlockedPasskeyKey;
 }
