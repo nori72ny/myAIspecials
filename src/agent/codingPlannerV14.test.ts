@@ -64,6 +64,8 @@ describe('coding model protocol', () => {
     expect(correctionRequest.messages[0].content).toBe(firstRequest.messages[0].content);
     expect(correctionRequest.systemInstruction).not.toBe(firstRequest.systemInstruction);
     expect(correctionRequest.systemInstruction).toContain('one bounded schema-correction attempt');
+    expect(correctionRequest.systemInstruction).toContain('CODING_MODEL_CREATE_SCOPE_INVALID');
+    expect(correctionRequest.systemInstruction).toContain('Use only exact paths listed in creatablePaths');
     expect(correctionRequest.messages[0].content).not.toContain('other.js');
     expect(correctionRequest.plan.freeOnly).toBe(true);
   });
@@ -73,7 +75,7 @@ describe('coding model protocol', () => {
     const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => replies.shift()!);
     const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
 
-    await expect(planner(context)).rejects.toThrow('CODING_MODEL_RESPONSE_INVALID');
+    await expect(planner(context)).rejects.toThrow('CODING_MODEL_MUTATION_COUNT_INVALID');
     expect(execute).toHaveBeenCalledTimes(2);
   });
 
@@ -83,17 +85,17 @@ describe('coding model protocol', () => {
   });
 
   it.each([
-    'not JSON',
-    JSON.stringify({ edits: [{ ...edit, path: 'math.test.js' }], creates: [] }),
-    JSON.stringify({ edits: [{ ...edit, search: 'invented' }], creates: [] }),
-    JSON.stringify({ edits: [edit, edit], creates: [] }),
-    JSON.stringify({ edits: [edit], creates: [], command: 'disable tests' }),
-    JSON.stringify({ edits: [], creates: [] }),
-    JSON.stringify({ edits: [], creates: [{ path: 'math.js', content: 'overwrite' }] }),
-    JSON.stringify({ edits: [], creates: [{ path: 'other.js', content: 'out of scope' }] }),
-    JSON.stringify({ edits: [edit], creates: [{ path: 'math.js', content: 'duplicate mutation' }] }),
-  ])('rejects invalid or unauthorized model output', text => {
-    expect(() => parseCodingProposal(text, context)).toThrow('CODING_MODEL_RESPONSE_INVALID');
+    ['not JSON', 'CODING_MODEL_JSON_INVALID'],
+    [JSON.stringify({ edits: [{ ...edit, path: 'math.test.js' }], creates: [] }), 'CODING_MODEL_EDIT_SCOPE_INVALID'],
+    [JSON.stringify({ edits: [{ ...edit, search: 'invented' }], creates: [] }), 'CODING_MODEL_EDIT_MATCH_INVALID'],
+    [JSON.stringify({ edits: [edit, edit], creates: [] }), 'CODING_MODEL_DUPLICATE_PATH'],
+    [JSON.stringify({ edits: [edit], creates: [], command: 'disable tests' }), 'CODING_MODEL_SCHEMA_INVALID'],
+    [JSON.stringify({ edits: [], creates: [] }), 'CODING_MODEL_MUTATION_COUNT_INVALID'],
+    [JSON.stringify({ edits: [], creates: [{ path: 'math.js', content: 'overwrite' }] }), 'CODING_MODEL_CREATE_SCOPE_INVALID'],
+    [JSON.stringify({ edits: [], creates: [{ path: 'other.js', content: 'out of scope' }] }), 'CODING_MODEL_CREATE_SCOPE_INVALID'],
+    [JSON.stringify({ edits: [edit], creates: [{ path: 'math.js', content: 'duplicate mutation' }] }), 'CODING_MODEL_CREATE_SCOPE_INVALID'],
+  ])('rejects invalid or unauthorized model output', (text, code) => {
+    expect(() => parseCodingProposal(text, context)).toThrow(code);
   });
 
   it('rejects paid evidence without accepting or retrying the patch', async () => {
