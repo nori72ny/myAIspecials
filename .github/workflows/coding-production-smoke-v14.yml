@@ -1,0 +1,173 @@
+name: V1.4 production coding smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/agent/coding*V14.ts'
+      - 'src/agent/coding*V14.test.ts'
+      - 'src/agent/codingJob*.ts'
+      - 'src/agent/codingJob*.test.ts'
+      - 'src/server/createOriginApp.ts'
+      - 'scripts/run-coding-job-worker-v14.ts'
+      - '.github/workflows/coding-job-worker-v14.yml'
+      - '.github/workflows/coding-production-smoke-v14.yml'
+      - 'supabase/migrations/*coding*'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: origin-coding-production-smoke-v14
+  cancel-in-progress: false
+
+jobs:
+  production-smoke:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Wait for exact main SHA in Production
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            set +e
+            curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              https://origin-personal.vercel.app/api/health -o health.json
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ] && RELEASE_SHA="$RELEASE_SHA" node <<'NODE'
+          const fs = require('fs');
+          try {
+            const value = JSON.parse(fs.readFileSync('health.json', 'utf8'));
+            process.exit(value?.status === 'ok' && value?.releaseSha === process.env.RELEASE_SHA && value?.freeOnly === true && value?.costUsd === 0 && value?.paidFallbackEnabled === false ? 0 : 1);
+          } catch { process.exit(1); }
+          NODE
+            then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Exact Production SHA did not become ready within the bounded window.' >&2
+          exit 1
+
+      - name: Run authenticated end-to-end Coding smoke
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          request_oidc() {
+            local response
+            response="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=origin-coding-smoke-v14")"
+            RESPONSE="$response" node <<'NODE'
+          const value = JSON.parse(process.env.RESPONSE || '{}');
+          if (typeof value.value !== 'string' || value.value.split('.').length !== 3) process.exit(1);
+          process.stdout.write(value.value);
+          NODE
+          }
+
+          oidc_token="$(request_oidc)"
+          printf '{"confirmSmoke":true,"releaseSha":"%s"}' "$RELEASE_SHA" > smoke-start-request.json
+          start_status="$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
+            -o smoke-start.json -w '%{http_code}' \
+            -H "Authorization: Bearer $oidc_token" \
+            -H 'Content-Type: application/json' \
+            --data-binary @smoke-start-request.json \
+            https://origin-personal.vercel.app/api/coding/v1.4/smoke)"
+          if [ "$start_status" != '202' ]; then
+            node <<'NODE'
+          const fs = require('fs');
+          try { const v = JSON.parse(fs.readFileSync('smoke-start.json', 'utf8')); console.error('Coding smoke start failed:', String(v?.code || 'UNKNOWN')); }
+          catch { console.error('Coding smoke start failed with a non-JSON response.'); }
+          NODE
+            exit 1
+          fi
+          job_id="$(node <<'NODE'
+          const fs = require('fs');
+          const v = JSON.parse(fs.readFileSync('smoke-start.json', 'utf8'));
+          const id = v?.job?.jobId;
+          if (typeof id !== 'string' || !/^coding-[A-Za-z0-9_-]{22}$/.test(id)) process.exit(1);
+          process.stdout.write(id);
+          NODE
+          )"
+
+          for attempt in $(seq 1 120); do
+            if [ "$attempt" -eq 1 ] || [ $(( (attempt - 1) % 10 )) -eq 0 ]; then
+              oidc_token="$(request_oidc)"
+            fi
+            poll_status="$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
+              -o smoke-poll.json -w '%{http_code}' \
+              -H "Authorization: Bearer $oidc_token" \
+              "https://origin-personal.vercel.app/api/coding/v1.4/smoke/${job_id}?releaseSha=${RELEASE_SHA}")"
+            if [ "$poll_status" != '200' ]; then
+              node <<'NODE'
+          const fs = require('fs');
+          try { const v = JSON.parse(fs.readFileSync('smoke-poll.json', 'utf8')); console.error('Coding smoke poll failed:', String(v?.code || 'UNKNOWN')); }
+          catch { console.error('Coding smoke poll failed with a non-JSON response.'); }
+          NODE
+              exit 1
+            fi
+            state="$(node <<'NODE'
+          const fs = require('fs');
+          const v = JSON.parse(fs.readFileSync('smoke-poll.json', 'utf8'));
+          process.stdout.write(typeof v?.job?.status === 'string' ? v.job.status : 'invalid');
+          NODE
+            )"
+            case "$state" in
+              verified)
+                RELEASE_SHA="$RELEASE_SHA" JOB_ID="$job_id" node <<'NODE'
+          const fs = require('fs');
+          const v = JSON.parse(fs.readFileSync('smoke-poll.json', 'utf8'));
+          const expectedPath = 'src/agent/__origin_coding_smoke_v14__.ts';
+          const expectedAfter = 'export const ORIGIN_CODING_SMOKE_V14 = true;\n';
+          const checks = v?.result?.verificationChecks;
+          const kinds = Array.isArray(checks) ? checks.map(c => c.kind).sort().join('|') : '';
+          const diff = Array.isArray(v?.result?.diffs) && v.result.diffs.length === 1 ? v.result.diffs[0] : null;
+          const paths = v?.job?.changedPaths;
+          const valid = v?.ok === true
+            && v?.releaseSha === process.env.RELEASE_SHA
+            && v?.job?.jobId === process.env.JOB_ID
+            && v?.job?.status === 'verified'
+            && Array.isArray(paths) && paths.length === 1 && paths[0] === expectedPath
+            && v?.resultDetailsState === 'available'
+            && v?.result?.sessionStatus === 'verified'
+            && kinds === 'build|lint|test|typecheck'
+            && checks.every(c => c?.ok === true && c?.exitCode === 0 && c?.timedOut === false)
+            && diff?.path === expectedPath && diff?.kind === 'created' && diff?.before === null && diff?.after === expectedAfter && diff?.previewAvailable === true
+            && v?.result?.freeOnly === true && v?.result?.costUsd === 0
+            && v?.result?.gitPublished === false && v?.result?.deployed === false
+            && v?.freeOnly === true && v?.costUsd === 0 && v?.paidFallbackUsed === false;
+          if (!valid) {
+            console.error('Coding smoke reached verified but evidence contract was incomplete.');
+            process.exit(1);
+          }
+          NODE
+                echo "ORIGIN Coding V1.4 production smoke verified: $job_id"
+                exit 0
+                ;;
+              blocked|failed|cancelled)
+                node <<'NODE'
+          const fs = require('fs');
+          const v = JSON.parse(fs.readFileSync('smoke-poll.json', 'utf8'));
+          console.error('Coding smoke terminal failure:', String(v?.job?.status || 'UNKNOWN'), String(v?.job?.resultCode || 'UNKNOWN'));
+          NODE
+                exit 1
+                ;;
+              queued|leased|running|repairing)
+                sleep 15
+                ;;
+              *)
+                echo 'Coding smoke returned an invalid job state.' >&2
+                exit 1
+                ;;
+            esac
+          done
+          echo 'Coding smoke did not reach a terminal state within the bounded window.' >&2
+          exit 1
