@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { OriginLanguage } from '../../i18n';
 
 type OriginAnswerMarkdownProps = {
@@ -15,6 +16,7 @@ export default function OriginAnswerMarkdown({ content, language }: OriginAnswer
   return (
     <div className="origin-answer-markdown markdown-body">
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
           a: ({ children, href }) => (
             <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>

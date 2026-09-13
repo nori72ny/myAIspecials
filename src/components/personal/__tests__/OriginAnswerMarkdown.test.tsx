@@ -6,10 +6,12 @@ afterEach(cleanup);
 
 describe('OriginAnswerMarkdown', () => {
   it('renders a structured answer with readable semantic elements', () => {
-    render(<OriginAnswerMarkdown language="ja" content={'## 結論\n\n重要な回答です。\n\n- 根拠A\n- 根拠B'} />);
+    render(<OriginAnswerMarkdown language="ja" content={'## 結論\n\n重要な回答です。\n\n- 根拠A\n- 根拠B\n\n| 項目 | 判断 |\n| --- | --- |\n| 費用 | 0円 |'} />);
 
     expect(screen.getByRole('heading', { name: '結論', level: 2 })).toBeTruthy();
     expect(screen.getByRole('list').children).toHaveLength(2);
+    expect(screen.getByRole('table').textContent).toContain('0円');
+    expect(screen.getByRole('region', { name: '横にスクロールできる回答表' })).toBeTruthy();
     expect(screen.getByText('重要な回答です。')).toBeTruthy();
   });
 
