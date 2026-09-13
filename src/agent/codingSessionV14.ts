@@ -14,6 +14,8 @@ const CHECKS: readonly VerificationKind[] = ['typecheck', 'lint', 'test', 'build
 const MAX_SCOPE_PATHS = 12;
 const MAX_CREATE_PATHS = 4;
 const MAX_BYTES = 256 * 1024;
+const MAX_REPEAT_REPLANS = 1;
+const REPEATED_PATCH_FEEDBACK = 'ORIGIN controller feedback: the previous proposal exactly repeated an already-attempted patch. Re-read the current files and failed checks, then propose a materially different mutation. Do not repeat the same search/replacement or create content.';
 const activeRoots = new Set<string>();
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 
@@ -151,6 +153,7 @@ export async function runCodingSessionV14(request: CodingSessionRequest, deps: C
     const createdPaths = new Set<string>();
     let failedChecks: VerificationKind[] = [];
     let diagnostics: Array<{ kind: VerificationKind; text: string }> = [];
+    let repeatedProposalReplans = 0;
 
     for (let attempt = 0; attempt <= maxRepairs; attempt += 1) {
       result.repairRounds = attempt;
@@ -195,7 +198,17 @@ export async function runCodingSessionV14(request: CodingSessionRequest, deps: C
         edits: [...proposals.edits].sort((a, b) => a.path.localeCompare(b.path)),
         creates: [...proposals.creates].sort((a, b) => a.path.localeCompare(b.path)),
       }));
-      if (seenProposals.has(fingerprint)) stop('CODING_REPEATED_PATCH');
+      if (seenProposals.has(fingerprint)) {
+        const feedbackKind = failedChecks[0];
+        if (repeatedProposalReplans >= MAX_REPEAT_REPLANS || !feedbackKind) stop('CODING_REPEATED_PATCH');
+        repeatedProposalReplans += 1;
+        diagnostics = [...diagnostics, { kind: feedbackKind, text: REPEATED_PATCH_FEEDBACK }];
+        // Reject the duplicate without spending a repair round or touching the
+        // workspace. One bounded replan gets the same current files plus an
+        // explicit controller failure signal; a second duplicate still fails closed.
+        attempt -= 1;
+        continue;
+      }
       seenProposals.add(fingerprint);
 
       // Preflight every mutation before the first write. OS races can still produce
