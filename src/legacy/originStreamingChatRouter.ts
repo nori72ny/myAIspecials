@@ -64,6 +64,8 @@ function systemInstruction(
 - For explanatory or comparison answers, make the opening block a one-to-three sentence bottom line, followed by three to five prioritized key points.
 - Write for a phone screen: use short descriptive headings, one idea per paragraph, and compact bullet lists. Do not use a Markdown table unless the user explicitly asks for a table.
 - Use at most six main sections. Remove duplicated headings, repeated claims, generic filler, and repeated summaries.
+- Calibrate depth to complexity. Simple requests may be brief; multi-part, technical, planning, or consequential requests must address every explicit requirement with enough reasoning, constraints, examples, and execution detail to be decision-ready.
+- Use professional, domain-appropriate language. Do not oversimplify important nuance unless the user asks for a beginner explanation.
 - Prefer specific recommendations, examples, and ready-to-use wording over generic advice.
 - Silently draft, challenge factual support and omissions, then edit for priority, clarity, and completeness. Output only the final answer.
 - Fit the answer within the available output budget. Never restart the answer, repeat an earlier section, or end with a fragment.

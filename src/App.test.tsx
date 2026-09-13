@@ -385,16 +385,17 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     for (const format of ['html', 'svg', 'png', 'markdown', 'json']) expect(screen.getByTestId(`artifact-export-${format}`)).toBeTruthy();
   });
 
-  it('collapses completed response verification into a one-line badge until requested', () => {
+  it('collapses truthful delivery evidence into a one-line badge until requested', () => {
     render(<App language="ja" messages={[{ id: 'a-1', role: 'assistant', content: '結論です。' }]} />);
     const verification = screen.getByTestId('response-verification-details');
     expect(verification.textContent).toContain('✓');
     expect(verification.hasAttribute('open')).toBe(false);
-    fireEvent.click(screen.getByText('検証済み'));
+    fireEvent.click(screen.getByText('$0配信を確認'));
     expect(verification.hasAttribute('open')).toBe(true);
     const verificationLog = screen.getByTestId('response-verification-log');
-    for (const label of ['意図分析', '制作仕様', '構文検証']) expect(verificationLog.textContent).toContain(label);
+    for (const label of ['応答完了', '費用経路', '内容の限界']) expect(verificationLog.textContent).toContain(label);
     expect(verificationLog.textContent).toContain('固定の無料モデル');
+    expect(verificationLog.textContent).toContain('出典確認や別AIによる内容検証を示すものではありません');
   });
 
   it('never discloses a verified Process Trace for a failed assistant message', () => {

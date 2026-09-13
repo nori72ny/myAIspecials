@@ -69,6 +69,18 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(props.sessions).toEqual(sessions);
   });
 
+  it('hydrates messages and artifacts that arrive after IndexedDB finishes loading', () => {
+    const { rerender } = render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={[]} artifacts={[]} />);
+    const restoredMessages = [{ id: 'u-restored', role: 'user' as const, content: '再読込後の相談' }];
+    const restoredArtifacts = [{ id: 'a-restored', type: 'markdown' as const, title: '復元資料', language: 'markdown', content: '# 復元', isComplete: true }];
+
+    rerender(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={restoredMessages} artifacts={restoredArtifacts} />);
+
+    const latestProps = appProps.mock.calls.at(-1)?.[0];
+    expect(latestProps.messages).toEqual(restoredMessages);
+    expect(latestProps.artifacts).toEqual(restoredArtifacts);
+  });
+
   it('renders the shared ORIGIN application surface', () => {
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} />);
     expect(document.querySelector('[data-testid="mock-origin-app"]')?.textContent).toBe('ORIGIN');
