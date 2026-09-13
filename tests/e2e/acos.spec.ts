@@ -77,7 +77,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('origin-thinking')).toBeHidden({ timeout: 15_000 });
   });
 
-  test('protects Japanese IME composition, then discloses exactly three verification stages', async ({ page }) => {
+  test('protects Japanese IME composition, then discloses the exact delivery-evidence scope', async ({ page }) => {
     let requests = 0;
     await page.route('**/api/chat', async (route) => {
       requests += 1;
@@ -98,8 +98,9 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(requests).toBe(1);
     const verification = page.getByTestId('response-verification-details');
     await expect(verification).not.toHaveAttribute('open');
-    await verification.getByText('検証済み').click();
-    for (const label of ['意図分析', '制作仕様', '構文検証']) await expect(page.getByTestId('response-verification-log')).toContainText(label);
+    await verification.getByText('$0配信を確認').click();
+    for (const label of ['応答完了', '費用経路', '内容の限界']) await expect(page.getByTestId('response-verification-log')).toContainText(label);
+    await expect(page.getByTestId('response-verification-log')).toContainText('出典確認や別AIによる内容検証を示すものではありません');
     await expect(page.locator('.safe-area-bottom .origin-composer')).toBeVisible();
   });
 

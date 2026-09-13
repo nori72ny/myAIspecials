@@ -21,6 +21,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     setCodingOpen(coding);
   };
   const [artifacts, setArtifacts] = useState<ArtifactBlock[]>(() => [...(parentArtifacts ?? [])]);
+  useEffect(() => { if (parentMessages) setMessages(parentMessages); }, [parentMessages]);
+  useEffect(() => { if (parentArtifacts) setArtifacts([...parentArtifacts]); }, [parentArtifacts]);
   const effectiveSessions = parentSessions ?? [];
   const handleMessagesChange = useCallback((nextMessages: ConversationMessage[]) => { setMessages(nextMessages); parentOnMessagesChange?.(nextMessages); }, [parentOnMessagesChange]);
   const handleArtifactsChange = useCallback((nextArtifacts: ArtifactBlock[]) => { setArtifacts(nextArtifacts); parentOnArtifactsChange?.(nextArtifacts); }, [parentOnArtifactsChange]);
@@ -31,7 +33,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
       <button type="button" aria-pressed={!codingOpen} onClick={() => switchWorkspace(false)} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold">チャット</button>
       <button type="button" aria-pressed={codingOpen} onClick={() => switchWorkspace(true)} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold">Coding</button>
     </nav>
-    <div hidden={codingOpen}><App onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts.length ? artifacts : parentArtifacts ?? []} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
+    <div hidden={codingOpen}><App onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
     {codingOpen && <Suspense fallback={<p role="status">Codingを読み込んでいます…</p>}><CodingJobWorkspace /></Suspense>}
   </>;
 });

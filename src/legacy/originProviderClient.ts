@@ -108,9 +108,9 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
 export function originCompletionTokenBudget(taskType: OriginExecutionPlan["taskType"], requiredTool = false): number {
   if (requiredTool) return 8192;
   switch (taskType) {
-    case "implementation": case "documentation": return 2400;
-    case "research": case "review": case "architecture": case "security": case "current-information": return 1800;
-    default: return 1200;
+    case "implementation": case "documentation": return 3600;
+    case "research": case "review": case "architecture": case "security": case "current-information": case "operations": case "ux": return 2600;
+    default: return 1600;
   }
 }
 const msgs = (messages: OriginChatMessage[], systemInstruction: string) => [

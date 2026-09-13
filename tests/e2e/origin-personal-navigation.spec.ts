@@ -57,6 +57,30 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     )).toBe(true);
   });
 
+  test('renders structured answers safely and readably on a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/chat', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/plain; charset=utf-8',
+        body: '## 結論\n\n優先順位を決めて進めます。\n\n- 根拠A\n- 根拠B\n\n| 項目 | 判断 |\n| --- | --- |\n| 費用 | 0円 |\n\n![外部図](https://example.invalid/image.png)',
+      });
+    });
+    await page.goto('/');
+
+    await page.getByTestId('origin-home-request').fill('構造化した回答を表示してください');
+    await page.getByTestId('start-request-button').click();
+
+    const answer = page.getByRole('article', { name: 'ORIGINの回答' });
+    await expect(answer.getByRole('heading', { name: '結論', level: 2 })).toBeVisible();
+    await expect(answer.getByRole('list')).toContainText('根拠A');
+    await expect(answer.getByRole('table')).toBeVisible();
+    await expect(answer.getByRole('img')).toHaveCount(0);
+    await expect(answer.getByRole('note')).toContainText('外部画像は自動表示しません');
+    await expect(page.getByTestId('response-verification-details')).toContainText('$0配信を確認');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
   test('does not automatically retry a transient transport failure', async ({ page }) => {
     let attempts = 0;
     await page.route('**/api/chat', async (route) => {
