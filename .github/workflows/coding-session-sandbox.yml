@@ -6,6 +6,10 @@ on:
     paths:
       - 'src/agent/**'
       - 'src/components/CodingJobWorkspaceV14*'
+      - 'src/legacy/originProviderClient*.ts'
+      - 'src/legacy/zeroCostRoutingPolicy.ts'
+      - 'src/lib/orchestration/OriginExecutionPolicy.ts'
+      - 'src/lib/orchestration/OriginFreeModelCatalog.ts'
       - 'supabase/migrations/**'
       - 'scripts/coding-*'
       - '.github/workflows/coding-session-sandbox.yml'
