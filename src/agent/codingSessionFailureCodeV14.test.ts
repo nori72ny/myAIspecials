@@ -4,6 +4,7 @@ import { classifyCodingSessionFailureV14 } from './codingSessionFailureCodeV14.j
 describe('V1.4 coding session failure classification', () => {
   it('preserves reviewed coding-stage failure codes', () => {
     expect(classifyCodingSessionFailureV14(new Error('CODING_MODEL_RESPONSE_INVALID'))).toBe('CODING_MODEL_RESPONSE_INVALID');
+    expect(classifyCodingSessionFailureV14(new Error('CODING_MODEL_CREATE_SCOPE_INVALID'))).toBe('CODING_MODEL_CREATE_SCOPE_INVALID');
     expect(classifyCodingSessionFailureV14(new Error('CODING_NAVIGATION_NO_EVIDENCE'))).toBe('CODING_NAVIGATION_NO_EVIDENCE');
   });
 

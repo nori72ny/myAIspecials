@@ -57,43 +57,82 @@ const PROPOSAL_TOOL: OriginProviderRequiredTool = {
   },
 };
 
+const MODEL_RESPONSE_FAILURE_CODES = [
+  'CODING_MODEL_RESPONSE_INVALID',
+  'CODING_MODEL_JSON_INVALID',
+  'CODING_MODEL_SCHEMA_INVALID',
+  'CODING_MODEL_MUTATION_COUNT_INVALID',
+  'CODING_MODEL_EDIT_INVALID',
+  'CODING_MODEL_EDIT_SCOPE_INVALID',
+  'CODING_MODEL_EDIT_MATCH_INVALID',
+  'CODING_MODEL_CREATE_SCOPE_INVALID',
+  'CODING_MODEL_DUPLICATE_PATH',
+  'CODING_MODEL_SENSITIVE_PATCH_BLOCKED',
+] as const;
+type CodingModelResponseFailureCode = (typeof MODEL_RESPONSE_FAILURE_CODES)[number];
+const MODEL_RESPONSE_FAILURE_SET = new Set<string>(MODEL_RESPONSE_FAILURE_CODES);
+
+const CORRECTION_HINTS: Record<CodingModelResponseFailureCode, string> = {
+  CODING_MODEL_RESPONSE_INVALID: 'Submit one complete bounded function argument object.',
+  CODING_MODEL_JSON_INVALID: 'Submit valid JSON function arguments.',
+  CODING_MODEL_SCHEMA_INVALID: 'Include exactly the edits and creates arrays and only their documented item keys.',
+  CODING_MODEL_MUTATION_COUNT_INVALID: 'Include at least one and at most twelve total mutations, with at most four creates.',
+  CODING_MODEL_EDIT_INVALID: 'Every edit needs a non-empty search that differs from replacement.',
+  CODING_MODEL_EDIT_SCOPE_INVALID: 'Use only exact paths listed in editablePaths for edits.',
+  CODING_MODEL_EDIT_MATCH_INVALID: 'Copy one exact unique search block from the supplied file content.',
+  CODING_MODEL_CREATE_SCOPE_INVALID: 'Use only exact paths listed in creatablePaths for creates, never edits.',
+  CODING_MODEL_DUPLICATE_PATH: 'Mutate each path at most once across edits and creates.',
+  CODING_MODEL_SENSITIVE_PATCH_BLOCKED: 'Do not add credentials, secrets, tokens, or private keys.',
+};
+
+function failProposal(code: CodingModelResponseFailureCode): never {
+  throw new Error(code);
+}
+
 export function parseCodingProposal(text: string, context: CodingContext): CodingProposalBatch {
-  const fail = (): never => { throw new Error('CODING_MODEL_RESPONSE_INVALID'); };
-  if (typeof text !== 'string' || Buffer.byteLength(text) > 256 * 1024) fail();
+  if (typeof text !== 'string' || Buffer.byteLength(text) > 256 * 1024) failProposal('CODING_MODEL_RESPONSE_INVALID');
   let data: unknown;
-  try { data = JSON.parse(text); } catch { fail(); }
-  if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).sort().join() !== 'creates,edits') fail();
+  try { data = JSON.parse(text); } catch { failProposal('CODING_MODEL_JSON_INVALID'); }
+  if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).sort().join() !== 'creates,edits') failProposal('CODING_MODEL_SCHEMA_INVALID');
   const edits = (data as { edits?: unknown }).edits;
   const creates = (data as { creates?: unknown }).creates;
-  if (!Array.isArray(edits) || !Array.isArray(creates) || edits.length + creates.length < 1 || edits.length + creates.length > 12 || creates.length > 4) fail();
+  if (!Array.isArray(edits) || !Array.isArray(creates)) failProposal('CODING_MODEL_SCHEMA_INVALID');
+  if (edits.length + creates.length < 1 || edits.length + creates.length > 12 || creates.length > 4) failProposal('CODING_MODEL_MUTATION_COUNT_INVALID');
   const editable = context.editablePaths ?? context.files.map(file => file.path);
   const creatable = context.creatablePaths ?? [];
   const existing = new Set(context.files.map(file => file.path));
   const seen = new Set<string>();
   const parsedEdits = (edits as Array<Record<string, unknown>>).map(edit => {
-    if (!edit || typeof edit !== 'object' || Object.keys(edit).sort().join() !== 'path,replacement,search') fail();
-    if (typeof edit.path !== 'string' || typeof edit.search !== 'string' || typeof edit.replacement !== 'string') return fail();
+    if (!edit || typeof edit !== 'object' || Object.keys(edit).sort().join() !== 'path,replacement,search') failProposal('CODING_MODEL_SCHEMA_INVALID');
+    if (typeof edit.path !== 'string' || typeof edit.search !== 'string' || typeof edit.replacement !== 'string') return failProposal('CODING_MODEL_SCHEMA_INVALID');
     const { path, search, replacement } = edit as { path: string; search: string; replacement: string };
-    if (!search || search === replacement || !editable.includes(path) || seen.has(path) || containsLikelySecret(replacement)) fail();
+    if (!search || search === replacement) failProposal('CODING_MODEL_EDIT_INVALID');
+    if (!editable.includes(path)) failProposal('CODING_MODEL_EDIT_SCOPE_INVALID');
+    if (seen.has(path)) failProposal('CODING_MODEL_DUPLICATE_PATH');
+    if (containsLikelySecret(replacement)) failProposal('CODING_MODEL_SENSITIVE_PATCH_BLOCKED');
     const file = context.files.find(candidate => candidate.path === path);
     const first = file?.content.indexOf(search) ?? -1;
-    if (!file || first < 0 || file.content.indexOf(search, first + 1) >= 0) fail();
+    if (!file || first < 0 || file.content.indexOf(search, first + 1) >= 0) failProposal('CODING_MODEL_EDIT_MATCH_INVALID');
     seen.add(path);
     return { path, search, replacement };
   });
   const parsedCreates = (creates as Array<Record<string, unknown>>).map(create => {
-    if (!create || typeof create !== 'object' || Object.keys(create).sort().join() !== 'content,path') fail();
-    if (typeof create.path !== 'string' || typeof create.content !== 'string') return fail();
+    if (!create || typeof create !== 'object' || Object.keys(create).sort().join() !== 'content,path') failProposal('CODING_MODEL_SCHEMA_INVALID');
+    if (typeof create.path !== 'string' || typeof create.content !== 'string') return failProposal('CODING_MODEL_SCHEMA_INVALID');
     const { path, content } = create as { path: string; content: string };
-    if (!creatable.includes(path) || existing.has(path) || seen.has(path) || containsLikelySecret(content)) fail();
+    if (!creatable.includes(path) || existing.has(path)) failProposal('CODING_MODEL_CREATE_SCOPE_INVALID');
+    if (seen.has(path)) failProposal('CODING_MODEL_DUPLICATE_PATH');
+    if (containsLikelySecret(content)) failProposal('CODING_MODEL_SENSITIVE_PATCH_BLOCKED');
     seen.add(path);
     return { path, content };
   });
   return { edits: parsedEdits, creates: parsedCreates };
 }
 
-function isModelResponseInvalid(error: unknown): boolean {
-  return error instanceof Error && error.message === 'CODING_MODEL_RESPONSE_INVALID';
+function modelResponseFailureCode(error: unknown): CodingModelResponseFailureCode | null {
+  return error instanceof Error && MODEL_RESPONSE_FAILURE_SET.has(error.message)
+    ? error.message as CodingModelResponseFailureCode
+    : null;
 }
 
 /** Trusted controller adapter. Credentials must never be passed into a code execution container. */
@@ -131,11 +170,12 @@ export function createCodingPlannerV14(options: {
     try {
       return await requestProposal(INSTRUCTION);
     } catch (error) {
-      if (!isModelResponseInvalid(error)) throw error;
+      const code = modelResponseFailureCode(error);
+      if (!code) throw error;
       // Keep the proposal parser strict and fail closed. One bounded correction
       // may ask the same zero-cost model to satisfy the existing contract while
       // reusing only the original trusted payload and never replaying invalid text.
-      return requestProposal(CORRECTION_INSTRUCTION);
+      return requestProposal(`${CORRECTION_INSTRUCTION}\nValidation class: ${code}. ${CORRECTION_HINTS[code]}`);
     }
   };
 }
