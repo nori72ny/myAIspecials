@@ -80,6 +80,20 @@ function explicitCreatablePaths(goal: string, files: readonly string[]): string[
   return candidates;
 }
 
+// A strictly create-only task with exact user-supplied content does not need a
+// model to discover repository scope. The path is already explicit authority
+// from the owner goal, is normalized by the mutation-path policy, and must be
+// absent from the trusted inventory. Mixed edit/create work still uses the
+// normal model-assisted search and scope stages below.
+function explicitExactCreateOnlyScope(goal: string, files: readonly string[]): CodingDiscoveredScope | null {
+  if (!/\bcreate exactly one new file\b/i.test(goal)
+    || !/\bwith exact content\s*:/i.test(goal)
+    || !/\bdo not modify any other file\b/i.test(goal)) return null;
+  const candidates = explicitCreatablePaths(goal, files);
+  if (candidates.length !== 1) return null;
+  return { editablePaths: [], contextPaths: [], creatablePaths: candidates };
+}
+
 export type CodingSearchPlanV14 = { queries: string[] };
 
 const failQuery = (): never => { throw new Error('CODING_NAVIGATION_QUERY_RESPONSE_INVALID'); };
@@ -130,6 +144,8 @@ function isScopeResponseInvalid(error: unknown): boolean {
  * sanitized local search. Stage two receives only those snippets plus the same
  * inventory and chooses the final edit/read/create scope. Repository code never
  * authorizes capabilities and search output never bypasses session validation.
+ * An exact single-file create-only goal can take the deterministic path above
+ * because no repository discovery is required to identify its authorized scope.
  */
 export function createCodingNavigatorV14(root: string, options: NavigatorOptions = {}): (context: CodingDiscoveryContext) => Promise<CodingDiscoveredScope> {
   const env = options.env ?? process.env;
@@ -139,6 +155,9 @@ export function createCodingNavigatorV14(root: string, options: NavigatorOptions
       throw new Error('CODING_DISCOVERY_INVENTORY_BLOCKED');
     }
     const plan = buildPlan(context.goal, env);
+    const explicitScope = explicitExactCreateOnlyScope(context.goal, context.files);
+    if (explicitScope) return explicitScope;
+
     const queryResult = await execute({
       plan,
       systemInstruction: QUERY_INSTRUCTION,
