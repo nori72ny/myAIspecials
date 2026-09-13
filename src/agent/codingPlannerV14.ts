@@ -25,6 +25,8 @@ function authorizedPathSchema(paths: readonly string[]): Record<string, unknown>
 function proposalTool(context: CodingContext): OriginProviderRequiredTool {
   const editablePaths = [...new Set(context.editablePaths ?? context.files.map(file => file.path))];
   const creatablePaths = [...new Set(context.creatablePaths ?? [])];
+  const editOnly = editablePaths.length > 0 && creatablePaths.length === 0;
+  const createOnly = creatablePaths.length > 0 && editablePaths.length === 0;
   return {
     name: 'submit_coding_proposal_v14',
     description: 'Submit exactly one bounded ORIGIN V1.4 coding mutation proposal using only the authorized path enums.',
@@ -35,6 +37,7 @@ function proposalTool(context: CodingContext): OriginProviderRequiredTool {
       properties: {
         edits: {
           type: 'array',
+          ...(editOnly ? { minItems: 1 } : {}),
           maxItems: Math.min(12, editablePaths.length),
           items: {
             type: 'object',
@@ -49,6 +52,7 @@ function proposalTool(context: CodingContext): OriginProviderRequiredTool {
         },
         creates: {
           type: 'array',
+          ...(createOnly ? { minItems: 1 } : {}),
           maxItems: Math.min(4, creatablePaths.length),
           items: {
             type: 'object',
@@ -92,6 +96,18 @@ const CORRECTION_HINTS: Record<CodingModelResponseFailureCode, string> = {
   CODING_MODEL_DUPLICATE_PATH: 'Mutate each path at most once across edits and creates.',
   CODING_MODEL_SENSITIVE_PATCH_BLOCKED: 'Do not add credentials, secrets, tokens, or private keys.',
 };
+
+function mutationScopeCorrectionHint(context: CodingContext): string {
+  const editableCount = new Set(context.editablePaths ?? context.files.map(file => file.path)).size;
+  const creatableCount = new Set(context.creatablePaths ?? []).size;
+  if (editableCount === 0 && creatableCount > 0) {
+    return `This authorized scope is create-only: edits must be empty and creates must contain at least one authorized item (${creatableCount} creatable path${creatableCount === 1 ? '' : 's'} available).`;
+  }
+  if (creatableCount === 0 && editableCount > 0) {
+    return `This authorized scope is edit-only: creates must be empty and edits must contain at least one authorized item (${editableCount} editable path${editableCount === 1 ? '' : 's'} available).`;
+  }
+  return 'At least one authorized mutation is required across edits and creates.';
+}
 
 function failProposal(code: CodingModelResponseFailureCode): never {
   throw new Error(code);
@@ -184,7 +200,8 @@ export function createCodingPlannerV14(options: {
       // Keep the proposal parser strict and fail closed. One bounded correction
       // may ask the same zero-cost model to satisfy the existing contract while
       // reusing only the original trusted payload and never replaying invalid text.
-      return requestProposal(`${CORRECTION_INSTRUCTION}\nValidation class: ${code}. ${CORRECTION_HINTS[code]}`);
+      const scopeHint = code === 'CODING_MODEL_MUTATION_COUNT_INVALID' ? `\n${mutationScopeCorrectionHint(context)}` : '';
+      return requestProposal(`${CORRECTION_INSTRUCTION}\nValidation class: ${code}. ${CORRECTION_HINTS[code]}${scopeHint}`);
     }
   };
 }
