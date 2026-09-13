@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { CODING_JOB_ID_PATTERN } from '../src/agent/codingJobCryptoV14.js';
 import { buildCodingJobResultV14 } from '../src/agent/codingJobResultV14.js';
+import { captureCodingJobExecutionEvidenceV14 } from '../src/agent/codingJobExecutionEvidenceV14.js';
 import { createCodingJobResultStoreFromEnvV14 } from '../src/agent/codingJobResultStoreV14.js';
 import { runCodingJobWorkerV14, type CodingJobResolvedTargetV14, type CodingJobWorkerCheckpointV14 } from '../src/agent/codingJobWorkerV14.js';
 import { createCodingJobStoreFromEnvV14 } from '../src/agent/supabaseCodingJobStoreV14.js';
@@ -113,6 +114,7 @@ async function main(): Promise<void> {
   const jobId = process.env.ORIGIN_CODING_JOB_ID ?? '';
   if (!CODING_JOB_ID_PATTERN.test(jobId)) throw new Error('CODING_WORKER_JOB_ID_INVALID');
   const checkout = await fs.realpath(process.cwd());
+  const executionEvidence = await captureCodingJobExecutionEvidenceV14(checkout, process.env);
   const store = createCodingJobStoreFromEnvV14(process.env);
   if (!store) throw new Error('CODING_WORKER_STORE_NOT_CONFIGURED');
   const resultStore = createCodingJobResultStoreFromEnvV14(process.env);
@@ -153,7 +155,7 @@ async function main(): Promise<void> {
       resultStore,
       resolveTarget,
       verify,
-      captureResult: (session, root) => buildCodingJobResultV14(session, checkout, root),
+      captureResult: (session, root) => buildCodingJobResultV14(session, checkout, root, executionEvidence),
       env: process.env,
       execute: executeWithSafeProviderDiagnostics,
       leaseSeconds: WORKER_LEASE_SECONDS,

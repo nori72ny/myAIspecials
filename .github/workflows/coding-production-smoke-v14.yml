@@ -135,6 +135,7 @@ jobs:
           const kinds = Array.isArray(checks) ? checks.map(c => c.kind).sort().join('|') : '';
           const diff = Array.isArray(v?.result?.diffs) && v.result.diffs.length === 1 ? v.result.diffs[0] : null;
           const paths = v?.job?.changedPaths;
+          const execution = v?.result?.executionEvidence;
           const valid = v?.ok === true
             && v?.releaseSha === process.env.RELEASE_SHA
             && v?.job?.jobId === process.env.JOB_ID
@@ -142,8 +143,11 @@ jobs:
             && Array.isArray(paths) && paths.length === 1 && paths[0] === expectedPath
             && v?.resultDetailsState === 'available'
             && v?.result?.sessionStatus === 'verified'
+            && execution?.sourceRevision === process.env.RELEASE_SHA
+            && typeof execution?.workerRunId === 'string' && /^[1-9][0-9]{0,19}$/.test(execution.workerRunId)
+            && Number.isSafeInteger(execution?.workerRunAttempt) && execution.workerRunAttempt > 0
             && kinds === 'build|lint|test|typecheck'
-            && checks.every(c => c?.ok === true && c?.exitCode === 0 && c?.timedOut === false)
+            && checks.every(c => c?.ok === true && c?.exitCode === 0 && c?.timedOut === false && c?.attempt === v?.result?.repairRounds)
             && diff?.path === expectedPath && diff?.kind === 'created' && diff?.before === null && diff?.after === expectedAfter && diff?.previewAvailable === true
             && v?.result?.freeOnly === true && v?.result?.costUsd === 0
             && v?.result?.gitPublished === false && v?.result?.deployed === false
