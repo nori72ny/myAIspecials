@@ -1,4 +1,7 @@
 // @vitest-environment node
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createCodingNavigatorV14 } from './codingNavigatorV14.js';
 import type { CodingDiscoveryContext } from './codingSessionV14.js';
@@ -22,6 +25,25 @@ const result = (text: string): OriginProviderExecutionResult => ({
 
 const files = ['package.json', 'src/App.tsx', 'src/status.ts'];
 const env = { OPENROUTER_API_KEY: 'test-only' };
+
+async function withRepository<T>(extraFiles: Record<string, string>, run: (root: string) => Promise<T>): Promise<T> {
+  const root = await mkdtemp(join(tmpdir(), 'origin-coding-nav-v14-'));
+  const contents: Record<string, string> = {
+    'package.json': '{"private":true}\n',
+    'src/App.tsx': 'export function App() { return null; }\n',
+    'src/status.ts': 'export const status = "ready";\n',
+    ...extraFiles,
+  };
+  try {
+    for (const [path, content] of Object.entries(contents)) {
+      await mkdir(dirname(join(root, path)), { recursive: true });
+      await writeFile(join(root, path), content, 'utf8');
+    }
+    return await run(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
 
 describe('V1.4 explicit exact create-only navigation', () => {
   it('derives the single absent create path without spending a provider call', async () => {
@@ -55,7 +77,9 @@ describe('V1.4 explicit exact create-only navigation', () => {
     ];
     const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => result(JSON.stringify(replies.shift())));
 
-    await expect(createCodingNavigatorV14('/repo', { env, execute })(context)).resolves.toEqual(scope);
+    await withRepository({}, async root => {
+      await expect(createCodingNavigatorV14(root, { env, execute })(context)).resolves.toEqual(scope);
+    });
     expect(execute).toHaveBeenCalledTimes(2);
     expect(execute.mock.calls[0][0].requiredTool?.name).toBe('submit_coding_search_plan_v14');
   });
@@ -70,7 +94,9 @@ describe('V1.4 explicit exact create-only navigation', () => {
     const replies = [{ queries: ['ORIGIN_CODING_SMOKE_V14'] }, scope];
     const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => result(JSON.stringify(replies.shift())));
 
-    await expect(createCodingNavigatorV14('/repo', { env, execute })(context)).resolves.toEqual(scope);
+    await withRepository({ [existingPath]: 'export const ORIGIN_CODING_SMOKE_V14 = true;\n' }, async root => {
+      await expect(createCodingNavigatorV14(root, { env, execute })(context)).resolves.toEqual(scope);
+    });
     expect(execute).toHaveBeenCalledTimes(2);
   });
 });
