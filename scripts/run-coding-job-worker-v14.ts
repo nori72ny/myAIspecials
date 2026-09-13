@@ -126,7 +126,19 @@ async function main(): Promise<void> {
       const checks: CodingCheck[] = [];
       for (const kind of kinds) {
         if (checkpoint) await checkpoint();
-        checks.push(await dockerCheck(realRoot, checkout, kind));
+        const check = await dockerCheck(realRoot, checkout, kind);
+        checks.push(check);
+        if (!check.ok || check.exitCode !== 0 || check.timedOut) {
+          // Only code-owned check metadata is emitted. Repository output and
+          // diagnostics can contain private source or secrets and stay inside
+          // the encrypted result/repair path.
+          console.warn(JSON.stringify({
+            event: 'coding-verification-check-failed',
+            kind: check.kind,
+            exitCode: check.exitCode,
+            timedOut: check.timedOut,
+          }));
+        }
       }
       return checks;
     };
