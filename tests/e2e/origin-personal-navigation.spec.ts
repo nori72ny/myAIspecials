@@ -175,3 +175,24 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('knowledge-map-toggle')).toBeVisible();
   });
 });
+
+for (const width of [390, 834, 1440]) {
+  test(`code answer controls stay usable at ${width}px`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const code = 'const message = "' + 'long-code-value-'.repeat(35) + '";';
+    const content = '## 実装\n\n以下を利用できます。\n\n```ts\n' + code + '\n```';
+    await page.route('**/api/chat', route => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: content }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('コードを表示してください');
+    await page.getByTestId('start-request-button').click();
+    await page.getByRole('button', { name: 'コードをコピー', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(code + '\n');
+    const wrap = page.getByRole('button', { name: '折り返し', exact: true });
+    await wrap.click();
+    await expect(wrap).toHaveAttribute('aria-pressed', 'true');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.getByRole('button', { name: '回答をコピー', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(content);
+  });
+}

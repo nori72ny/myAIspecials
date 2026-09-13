@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -657,5 +657,22 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('オフライン中は新規AI応答を停止しています。端末内の履歴・成果物は閲覧、直接編集、保存、パッケージ化を継続できます。')).toBeTruthy());
     if (online) Object.defineProperty(window.navigator, 'onLine', online);
     else delete (window.navigator as { onLine?: boolean }).onLine;
+  });
+});
+
+describe('code examples remain in conversation context', () => {
+  it('preserves ordinary code and surrounding explanation without opening an artifact', () => {
+    const content = '説明\n\n```ts\nconst value = 0;\n```\n\n次の手順';
+    expect(StreamArtifactParser.parse(content)).toEqual({ conversationalText: content, artifacts: [], activeArtifact: null });
+  });
+  it('preserves a partially streamed ordinary code block', () => {
+    const content = '```python\nprint(1)';
+    expect(StreamArtifactParser.parse(content).conversationalText).toBe(content);
+    expect(StreamArtifactParser.parse(content).artifacts).toHaveLength(0);
+  });
+  it('still extracts explicitly named code deliverables', () => {
+    const result = StreamArtifactParser.parse('実装\n\n```ts:example.ts\nexport const value = 0;\n```');
+    expect(result.conversationalText).toBe('実装');
+    expect(result.activeArtifact).toMatchObject({ title: 'example.ts', type: 'code', content: 'export const value = 0;\n', isComplete: true });
   });
 });

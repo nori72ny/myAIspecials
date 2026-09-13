@@ -323,3 +323,18 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
   .origin-header > div > div > div:first-child > span:nth-child(3) { overflow: hidden; text-overflow: ellipsis; }
   .origin-header > div > div > div:last-child { flex: 0 0 auto; gap: 0.125rem !important; }
 }
+
+/* Answer tools stay within the reading column, including on narrow screens. */
+.origin-answer-code { min-width: 0; margin: 1rem 0; border: 1px solid var(--border-default); border-radius: var(--radius-control); overflow: hidden; }
+.origin-answer-code-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.75rem; background: var(--bg-surface-muted); font-size: 0.8rem; }
+.origin-answer-code-toolbar > div { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.origin-answer-code pre { margin: 0; border: 0; border-radius: 0; }
+.origin-answer-code pre.origin-code-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.origin-answer-code pre code { padding: 0; background: transparent; }
+.origin-copy-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.origin-copy-control [role="status"] { color: var(--text-secondary); font-size: 0.8rem; }
+.origin-answer-code-toolbar button, .origin-answer-actions button { min-height: 44px; padding: 0.4rem 0.65rem; border-radius: var(--radius-control); color: var(--text-secondary); cursor: pointer; }
+.origin-answer-code-toolbar button:hover, .origin-answer-actions button:hover { color: var(--text-primary); background: var(--bg-surface-muted); }
+.origin-answer-code-toolbar button:focus-visible, .origin-answer-actions button:focus-visible, .origin-answer-code pre:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+.origin-answer-code-toolbar button[aria-pressed="true"] { color: var(--accent-primary); }
+.origin-answer-actions { margin-top: 1rem; border-top: 1px solid var(--border-default); padding-top: 0.4rem; font-size: 0.85rem; }
