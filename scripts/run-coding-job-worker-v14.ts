@@ -10,6 +10,7 @@ import { runCodingJobWorkerV14, type CodingJobResolvedTargetV14, type CodingJobW
 import { createCodingJobStoreFromEnvV14 } from '../src/agent/supabaseCodingJobStoreV14.js';
 import type { CodingCheck } from '../src/agent/codingSessionV14.js';
 import type { VerificationKind } from '../src/agent/verificationRunner.js';
+import { executeOriginProvider, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from '../src/legacy/originProviderClient.js';
 
 const IMAGE = 'node:22-bookworm-slim';
 const CHECK_TIMEOUT_MS = 120_000;
@@ -28,6 +29,27 @@ function appendBounded(current: string, chunk: Buffer | string): string {
   const next = current + chunk.toString();
   if (Buffer.byteLength(next, 'utf8') <= MAX_DIAGNOSTIC_BYTES) return next;
   return Buffer.from(next, 'utf8').subarray(0, MAX_DIAGNOSTIC_BYTES).toString('utf8') + '\n[OUTPUT_TRUNCATED]';
+}
+
+async function executeWithSafeProviderDiagnostics(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+): Promise<OriginProviderExecutionResult> {
+  try {
+    return await executeOriginProvider(request, env);
+  } catch (error) {
+    const code = error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code
+      : null;
+    if (code === 'PROVIDER_REQUIRED_TOOL_TRUNCATED') {
+      const candidate = request.requiredTool?.name;
+      const requiredTool = typeof candidate === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(candidate) ? candidate : 'unknown';
+      // This event deliberately excludes prompts, repository content, tool arguments,
+      // credentials, and provider response bodies. Tool names are static code-owned IDs.
+      console.warn(JSON.stringify({ event: 'coding-provider-required-tool-truncated', requiredTool, code }));
+    }
+    throw error;
+  }
 }
 
 async function copyTrustedCheckout(source: string, destination: string): Promise<void> {
@@ -115,6 +137,7 @@ async function main(): Promise<void> {
       verify,
       captureResult: (session, root) => buildCodingJobResultV14(session, checkout, root),
       env: process.env,
+      execute: executeWithSafeProviderDiagnostics,
     });
     console.log(JSON.stringify({ jobId: outcome.jobId, state: outcome.state, code: outcome.code }));
     if (outcome.state === 'retryable' || outcome.state === 'lease_lost') process.exitCode = 2;

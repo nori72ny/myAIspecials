@@ -12,6 +12,7 @@ on:
       - 'src/lib/orchestration/OriginFreeModelCatalog.ts'
       - 'supabase/migrations/**'
       - 'scripts/coding-*'
+      - 'scripts/run-coding-job-worker-v14.ts'
       - '.github/workflows/coding-session-sandbox.yml'
       - 'package-lock.json'
 permissions:
