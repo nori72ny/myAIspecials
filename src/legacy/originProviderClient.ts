@@ -57,6 +57,7 @@ const TIMEOUT = 6000;
 const MAX_SEGMENTS = 3;
 const MAX_TOOL_SCHEMA_BYTES = 32 * 1024;
 const MAX_TOOL_ARGUMENT_BYTES = 256 * 1024;
+const REQUIRED_TOOL_REASONING = { effort: "minimal", exclude: true } as const;
 export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;
 export type AllowedZeroCostProvider = (typeof ALLOWED_ZERO_COST_PROVIDERS)[number];
 export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL] } as const;
@@ -258,6 +259,7 @@ async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderE
     top_p: 0.9,
     usage: { include: true },
     provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY,
+    ...(requestData.requiredTool ? { reasoning: REQUIRED_TOOL_REASONING } : {}),
     ...structured,
   };
   return request(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", {
