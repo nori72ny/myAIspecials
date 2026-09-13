@@ -56,7 +56,7 @@ describe('coding model protocol', () => {
   });
 
   it('binds required-tool edit and create paths to the trusted authorized scope', async () => {
-    const execute = vi.fn(async () => response());
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => response());
     const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
     await planner(context);
 
@@ -78,7 +78,7 @@ describe('coding model protocol', () => {
       diagnostics: [],
     };
     const createBatch = { edits: [], creates: [{ path: 'src/agent/probe.ts', content: 'export const probe = true;\n' }] };
-    const execute = vi.fn(async () => response(JSON.stringify(createBatch)));
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => response(JSON.stringify(createBatch)));
     const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
 
     await expect(planner(createOnly)).resolves.toEqual(createBatch);
