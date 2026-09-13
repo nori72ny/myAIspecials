@@ -57,6 +57,7 @@ describe('required OpenRouter tool contract', () => {
       const body = JSON.parse(String(init?.body));
       expect(body.response_format).toBeUndefined();
       expect(body.max_tokens).toBe(8192);
+      expect(body.reasoning).toEqual({ effort: 'minimal', exclude: true });
       expect(body.tools).toEqual([{ type: 'function', function: requiredTool }]);
       expect(body.tool_choice).toEqual({ type: 'function', function: { name: requiredTool.name } });
       expect(body.provider).toEqual({ allow_fallbacks: false, data_collection: 'deny', zdr: true, max_price: { prompt: 0, completion: 0, request: 0 } });
