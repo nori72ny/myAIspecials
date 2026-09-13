@@ -34,6 +34,15 @@ const response = (text = JSON.stringify(batch)): OriginProviderExecutionResult =
   },
 });
 
+type ProposalToolProperties = {
+  edits: { maxItems: number; items: { properties: { path: { enum?: string[] } } } };
+  creates: { maxItems: number; items: { properties: { path: { enum?: string[] } } } };
+};
+
+function proposalProperties(request: OriginProviderExecutionRequest): ProposalToolProperties {
+  return (request.requiredTool?.parameters as { properties: ProposalToolProperties }).properties;
+}
+
 describe('coding model protocol', () => {
   it('sends actual code and diagnostics through the zero-cost provider adapter', async () => {
     const execute = vi.fn(async () => response());
@@ -44,6 +53,40 @@ describe('coding model protocol', () => {
     expect(payload.diagnostics[0].text).toContain('Expected 5');
     expect(payload.creatablePaths).toEqual(['helper.js']);
     expect(request[0].plan.freeOnly).toBe(true);
+  });
+
+  it('binds required-tool edit and create paths to the trusted authorized scope', async () => {
+    const execute = vi.fn(async () => response());
+    const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
+    await planner(context);
+
+    const properties = proposalProperties(execute.mock.calls[0][0]);
+    expect(properties.edits.maxItems).toBe(1);
+    expect(properties.edits.items.properties.path.enum).toEqual(['math.js']);
+    expect(properties.creates.maxItems).toBe(1);
+    expect(properties.creates.items.properties.path.enum).toEqual(['helper.js']);
+  });
+
+  it('makes a create-only scope unambiguous in the required tool schema', async () => {
+    const createOnly: CodingContext = {
+      goal: 'Create src/agent/probe.ts',
+      files: [],
+      editablePaths: [],
+      creatablePaths: ['src/agent/probe.ts'],
+      attempt: 0,
+      failedChecks: [],
+      diagnostics: [],
+    };
+    const createBatch = { edits: [], creates: [{ path: 'src/agent/probe.ts', content: 'export const probe = true;\n' }] };
+    const execute = vi.fn(async () => response(JSON.stringify(createBatch)));
+    const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
+
+    await expect(planner(createOnly)).resolves.toEqual(createBatch);
+    const properties = proposalProperties(execute.mock.calls[0][0]);
+    expect(properties.edits.maxItems).toBe(0);
+    expect(properties.edits.items.properties.path.enum).toBeUndefined();
+    expect(properties.creates.maxItems).toBe(1);
+    expect(properties.creates.items.properties.path.enum).toEqual(['src/agent/probe.ts']);
   });
 
   it('performs one bounded proposal schema correction without replaying invalid model response', async () => {
@@ -68,6 +111,7 @@ describe('coding model protocol', () => {
     expect(correctionRequest.systemInstruction).toContain('Use only exact paths listed in creatablePaths');
     expect(correctionRequest.messages[0].content).not.toContain('other.js');
     expect(correctionRequest.plan.freeOnly).toBe(true);
+    expect(correctionRequest.requiredTool).toEqual(firstRequest.requiredTool);
   });
 
   it('fails closed after exactly one unsuccessful proposal schema correction', async () => {
