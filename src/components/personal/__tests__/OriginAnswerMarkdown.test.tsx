@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import OriginAnswerMarkdown from '../OriginAnswerMarkdown';
 
 afterEach(cleanup);
@@ -30,5 +30,30 @@ describe('OriginAnswerMarkdown', () => {
     const link = screen.getByRole('link', { name: 'Primary source' });
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toBe('noreferrer noopener');
+  });
+});
+
+describe('answer copy and code controls', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('copies exact code and the full Markdown answer separately', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const content = '説明です。\n\n```ts\nconst value = 0;\n```';
+    render(<OriginAnswerMarkdown language="ja" content={content} />);
+    fireEvent.click(screen.getByRole('button', { name: 'コードをコピー' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('const value = 0;\n'));
+    fireEvent.click(screen.getByRole('button', { name: '回答をコピー' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(content));
+    const wrap = screen.getByRole('button', { name: '折り返し' });
+    fireEvent.click(wrap);
+    expect(wrap.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('region', { name: 'コードブロック' }).querySelector('pre')?.className).toBe('origin-code-wrap');
+  });
+  it('reports clipboard rejection without claiming success', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    render(<OriginAnswerMarkdown language="en" content="Useful answer" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy answer' }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Select and copy'));
+    expect(screen.queryByText('Copied')).toBeNull();
   });
 });
