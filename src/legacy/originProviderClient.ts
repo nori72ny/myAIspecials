@@ -104,7 +104,8 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   if (!validStrategy || !validFallback || !validServedModel) fail("Provider fallback またはPrimary証跡が不正です。", "PROVIDER_ROUTING_UNVERIFIED");
   if (expectedProvider && pid(expectedProvider) !== provider) fail("Providerが一致しません。", "PROVIDER_ROUTING_UNVERIFIED");
 }
-export function originCompletionTokenBudget(taskType: OriginExecutionPlan["taskType"]): number {
+export function originCompletionTokenBudget(taskType: OriginExecutionPlan["taskType"], requiredTool = false): number {
+  if (requiredTool) return 8192;
   switch (taskType) {
     case "implementation": case "documentation": return 2400;
     case "research": case "review": case "architecture": case "security": case "current-information": return 1800;
@@ -252,7 +253,7 @@ async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderE
   const body = {
     model: requestData.plan.modelId,
     messages,
-    max_tokens: originCompletionTokenBudget(requestData.plan.taskType),
+    max_tokens: originCompletionTokenBudget(requestData.plan.taskType, Boolean(requestData.requiredTool)),
     temperature: 0.2,
     top_p: 0.9,
     usage: { include: true },
