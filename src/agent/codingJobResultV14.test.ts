@@ -106,4 +106,22 @@ describe('coding job result V1.4', () => {
     const checks = result.verificationChecks.map(check => ({ ...check, timedOut: true }));
     expect(() => encryptCodingJobResultV14(jobId, { ...result, verificationChecks: checks }, env)).toThrow('CODING_JOB_RESULT_INVALID');
   });
+
+  it('authenticates worker provenance with the result while preserving historical records', async () => {
+    const baseline = await root('origin-v14-provenance-base-');
+    const workspace = await root('origin-v14-provenance-work-');
+    const value = session();
+    value.changedPaths = [];
+    const historical = await buildCodingJobResultV14(value, baseline, workspace);
+    expect(decryptCodingJobResultV14(jobId, encryptCodingJobResultV14(jobId, historical, env), env)).toEqual(historical);
+    expect(historical.executionEvidence).toBeUndefined();
+    const evidence = { sourceRevision: 'a'.repeat(40), workerRunId: '12345', workerRunAttempt: 2 };
+    const result = await buildCodingJobResultV14(value, baseline, workspace, evidence);
+    expect(result.executionEvidence).toEqual(evidence);
+    const encrypted = encryptCodingJobResultV14(jobId, result, env);
+    expect(decryptCodingJobResultV14(jobId, encrypted, env)).toEqual(result);
+    expect(() => decryptCodingJobResultV14('coding-BBBBBBBBBBBBBBBBBBBBBB', encrypted, env)).toThrow('CODING_JOB_RESULT_INVALID');
+    expect(() => encryptCodingJobResultV14(jobId, { ...result, executionEvidence: { ...evidence, sourceRevision: 'main' } }, env)).toThrow('CODING_JOB_RESULT_INVALID');
+    expect(() => encryptCodingJobResultV14(jobId, { ...result, executionEvidence: { ...evidence, workerRunAttempt: 0 } }, env)).toThrow('CODING_JOB_RESULT_INVALID');
+  });
 });

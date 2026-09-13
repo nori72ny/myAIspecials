@@ -4,7 +4,7 @@
 Owner: **ノリさん**  
 Canonical repository: **`nori72ny/myAIspecials`**  
 Primary production: **Vercel / `origin-personal.vercel.app`**  
-Last consolidated: **2026-09-12 JST**  
+Last consolidated: **2026-09-13 UTC（統合レビュー反映）**  
 Document role: **ORIGINの唯一のマスター引き継ぎ書**
 
 ---
@@ -514,7 +514,48 @@ hidden testをagentが編集できないようにする。held-out setへチュ�
 
 ---
 
-# PART E — Live Snapshot（2026-09-12 JST時点）
+# PART E — Live Snapshot（latest supplement first）
+
+## Integrated review adoption and execution provenance — 2026-09-13 UTC
+
+今回のユーザー依頼に基づき改善作業を再開した。固定方針は維持する。レビュー資料にある停止中の表現は過去の資料作成時点の背景として扱う。
+
+- GitHub mainを再取得し `e16a6496cc8456448720b3d28f8db53612f3f611` を確認。PR #254はmerged。open PR #252は公開比較suite拡張であり、held-outの代用にしない。
+- Vercel Production `dpl_7yyErDpggR7rg1AVzc2pXkXcXkhs` はREADY、上記mainと一致。2026-09-13T21:47:26ZのCoding statusはHTTP 200 / no-store / ready true / dedicated Coding operator / freeOnly true / costUsd 0 / paidFallbackEnabled false。これは設定とDB probeの証拠。
+- main Quality Gate `34777941820`、CodeQL `34777941879`、Scorecard `34777941789` はsuccess。Production Release `34777941779` はfailure。Node 22/24 build/browser jobsはsuccessだが、job `103780252211` の実chatがHTTP 429 / PROVIDER_RATE_LIMITEDで失敗していた。旧補足の「running」をこの結果で更新する。
+- free-model evidence run `34782114606` は料金検証自体ではなく、job `103790892790` のPR作成権限で失敗。ログの包括的な「無料証明失敗」という末尾表示を原因として転記しない。権限を広げる操作は行っていない。
+- 新規改善branch: `fix/v14-worker-execution-provenance`。workerの実Git HEADとGitHub SHAをprovider実行前に照合し、run ID / attemptとともに暗号化結果へ保存する。本番smokeにworker SHAとProduction SHAの一致、最終roundの4検証を追加。旧結果の読取互換性は保ち、記録がない結果を新リリースの成功証拠には使わない。
+- ローカルではNode 24で実Git checkout取得と実workflow内のvalidatorを実行し30項目を確認した。リポジトリ全体のtypecheck/build/Vitest成功はこのローカル確認から主張しない。最新PR headのCIを別途確認する。
+- 採用判断と境界台帳は `docs/V1.4_INTEGRATED_REVIEW_ACTIONS.md`。6提案、プレビュー実測の完了条件、無料枠を守る本番確認、回答品質、隔離held-outの設計を記載。今回モデル追加、有料API、定期smoke、公開範囲拡大はしていない。
+- Production Codingの新規完全成功、プレビュー自己ナビゲーションのブラウザー実測、実回答の前後比較、Claude Codeとの公平な実測比較は未完了。今回の実装がprovider 429を解消したとは扱わない。
+
+次の担当者はbranch/PRの最新headとCIを再取得し、mergeと本番反映を実測してから実装済み・公開済みの段階を更新する。通常の作業をオーナーへ戻さず、実行証拠の不足は成功表示で埋めない。
+
+---
+
+
+## Takeover and usability release — 2026-09-13 to 2026-09-14 JST
+
+This supplement supersedes older live values only. Fixed policy remains unchanged.
+
+- Takeover main observed: `a6cb60d6ef53532c4bf255d72c2752c7cc65d779` (PR #253).
+- Production `dpl_BJF6XeFnWEG4hnwGgexENoJQ6tru`: READY with the same exact SHA. `/api/health`: HTTP 200, no-store, freeOnly true, costUsd 0, paidFallbackEnabled false.
+- Coding status: HTTP 200 and ready true. Configuration readiness is not execution success.
+- Existing main Production Release run `34753608862`: Node 22/24 build and browser jobs passed; actual production chat failed with HTTP 429 / PROVIDER_RATE_LIMITED.
+- Coding smoke run `34753608868` first failed before submission with CODING_SMOKE_RELEASE_MISMATCH. A bounded diagnostic rerun reached terminal `blocked` / `CODING_PROVIDER_RATE_LIMITED` (job `103716544352`). No further quota retries were made. Coding production success remains UNVERIFIED.
+- New PR #254: https://github.com/nori72ny/myAIspecials/pull/254; candidate `ce608853da927593b2e30422bab8b23de2c14ec0`.
+- Changes: ordinary fenced code remains in the answer and subsequent conversation context; explicitly named code artifacts retain workspace behavior. Code language labels, exact code copy, wrapping toggle, full Markdown answer copy, accessible controls and clipboard failure feedback. Answer policy asks for complete usable coding/integration guidance and substantive plans, replacing the rigid executive heading sequence.
+- Local validation: 165 test files / 1,545 tests passed; typecheck, design-token lint, build passed. Added browser cases at 390/834/1440px. Local browser installation timed out; use exact-head CI results, not an assumed local visual pass.
+- Superseded candidate preview deployment `dpl_3CKFyJ7k5KDzvjKmTG9uHbhVNY6m`: READY. Candidate CI/release status must be recorded below before declaring published.
+- PR #254 merged after all exact-head workflows passed: Quality Gate 34755060451, CodeQL 34755060436, Scorecard 34755060439, Production Release 34755060428. Node 22 and 24 browser tests and Lighthouse passed. Merged main: `e16a6496cc8456448720b3d28f8db53612f3f611`.
+- Production after merge: `dpl_7yyErDpggR7rg1AVzc2pXkXcXkhs`, READY, main `e16a6496cc8456448720b3d28f8db53612f3f611`. At 2026-09-13T19:32:37Z, canonical `/api/health` returned HTTP 200 with the same SHA, no-store, freeOnly true, costUsd 0, paidFallbackEnabled false.
+- Post-release browser smoke: public home loaded; one non-sensitive TypeScript code-example request returned the explicit free-AI busy / no-auto-retry alert, with no assistant success response. No retry or paid fallback was attempted. Browser display of a real successful answer remains unverified.
+- Main workflows at this observation: Quality Gate 34777941820, CodeQL 34777941879, Production Release 34777941779 running; Scorecard 34777941789 passed. Do not equate PR green with all post-merge production gates green.
+- Quality limitations: no live before/after answer-quality comparison while the free provider is quota-limited; no Claude Code parity claim; no successful complete Coding smoke claim.
+
+---
+
+
 
 ## Takeover revalidation — 2026-09-12
 
@@ -530,6 +571,20 @@ This supplement supersedes the older snapshot values below where explicitly stat
 - Existing machine smoke is publication-specific and uses the legacy Agent credential. The Coding worker accepts only an opaque existing job ID; it is not an authenticated submit harness. Do not substitute the broader credential or bypass operator authentication to obtain a green smoke.
 - This batch corrects the Coding UI configuration/execution distinction, adds Japanese controls and safe error explanations, removes invented percentages/inferred completed stages, and checks HTTP/application success before enabling submissions. Candidate CI and production rollout must be verified separately.
 - Next primary goal remains the post-rotation Coding E2E with dedicated operator authorization. Full visual/device acceptance and a successful real Coding run are not proven by component tests.
+
+---
+
+## Release completion — PR #231
+
+- PR: https://github.com/nori72ny/myAIspecials/pull/231 — merged.
+- Tested PR head: `b03c13116687939679181f701a22ac60d85e20cb`. All five exact-head workflows passed: Quality Gate `34690898004`, Production Release `34690897854`, CodeQL `34690897952`, Scorecard `34690897852`, hosted coding sandbox `34690897907`. Vercel candidate check also succeeded.
+- Local validation: 157 files / 1,498 tests passed; typecheck/design-token lint/build passed.
+- New production main: `9ee5f530bb9a09ea62113324ecf4bac2101395a0`.
+- Production deployment: `dpl_CYauBPgR2gumkf6temqD3vkZX6sU`, READY, exact SHA above, canonical origin-personal.vercel.app alias.
+- At `2026-09-12T11:30:12Z`, `/api/health` returned HTTP 200 with the exact new release SHA. Subsequent Coding status returned HTTP 200 with readiness true and freeOnly true / costUsd 0 / paid fallback false.
+- Automated browser navigation tests passed on Node 22 and 24 in the release workflow. This does not establish real authenticated Coding execution.
+- Remaining blocker: no operator credential is available to the assistant; the Coding page offers dedicated password-field authentication. Secure browser authentication is the next bounded route; never ask for the key in chat or use DB privileges as an authentication bypass.
+- Post-rotation real Coding E2E remains UNVERIFIED. UI release is complete; world-leading quality, full device visual acceptance and V1.4 runtime success are not claimed.
 
 ---
 

@@ -3,6 +3,7 @@ import { readRepositoryFile } from './safeRepositoryReader.js';
 import { normalizeCodingMutablePathV14 } from './codingPathPolicyV14.js';
 import { sanitizePreEgress } from '../services/securitySanitizer.js';
 import { CODING_JOB_ID_PATTERN } from './codingJobCryptoV14.js';
+import { validCodingJobExecutionEvidenceV14, type CodingJobExecutionEvidenceV14 } from './codingJobExecutionEvidenceV14.js';
 import type { CodingAuditEvent, CodingSessionResult } from './codingSessionV14.js';
 import type { VerificationKind } from './verificationRunner.js';
 
@@ -37,6 +38,8 @@ export type CodingJobResultV14 = {
   repairRounds: number;
   diffs: CodingJobDiffPreviewV14[];
   verificationChecks: CodingJobVerificationResultV14[];
+  // Absent on historical records; absence is never proof of a release match.
+  executionEvidence?: CodingJobExecutionEvidenceV14;
   freeOnly: true;
   costUsd: 0;
   gitPublished: false;
@@ -102,7 +105,11 @@ export async function buildCodingJobResultV14(
   session: CodingSessionResult,
   baselineRoot: string,
   workspaceRoot: string,
+  executionEvidence?: CodingJobExecutionEvidenceV14,
 ): Promise<CodingJobResultV14> {
+  if (executionEvidence !== undefined && !validCodingJobExecutionEvidenceV14(executionEvidence)) {
+    throw new Error('CODING_JOB_RESULT_INVALID');
+  }
   if (!session || !Array.isArray(session.changedPaths) || session.changedPaths.length > MAX_DIFFS) {
     throw new Error('CODING_JOB_RESULT_INVALID');
   }
@@ -143,6 +150,7 @@ export async function buildCodingJobResultV14(
     repairRounds: session.repairRounds,
     diffs,
     verificationChecks: latestVerification(session.audit),
+    ...(executionEvidence === undefined ? {} : { executionEvidence: { ...executionEvidence } }),
     freeOnly: true,
     costUsd: 0,
     gitPublished: false,
@@ -180,6 +188,10 @@ function normalizeResult(value: unknown): CodingJobResultV14 {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('CODING_JOB_RESULT_INVALID');
   const item = value as Record<string, unknown>;
   const exactKeys = ['schemaVersion', 'sessionStatus', 'repairRounds', 'diffs', 'verificationChecks', 'freeOnly', 'costUsd', 'gitPublished', 'deployed'];
+  if (Object.prototype.hasOwnProperty.call(item, 'executionEvidence')) {
+    exactKeys.push('executionEvidence');
+    if (!validCodingJobExecutionEvidenceV14(item.executionEvidence)) throw new Error('CODING_JOB_RESULT_INVALID');
+  }
   if (Object.keys(item).sort().join('|') !== [...exactKeys].sort().join('|')) throw new Error('CODING_JOB_RESULT_INVALID');
   if (item.schemaVersion !== 1 || !['verified', 'blocked', 'repair_limit'].includes(String(item.sessionStatus))) throw new Error('CODING_JOB_RESULT_INVALID');
   if (!Number.isInteger(item.repairRounds) || Number(item.repairRounds) < 0 || Number(item.repairRounds) > 3) throw new Error('CODING_JOB_RESULT_INVALID');
