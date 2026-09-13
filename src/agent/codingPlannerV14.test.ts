@@ -35,8 +35,8 @@ const response = (text = JSON.stringify(batch)): OriginProviderExecutionResult =
 });
 
 type ProposalToolProperties = {
-  edits: { maxItems: number; items: { properties: { path: { enum?: string[] } } } };
-  creates: { maxItems: number; items: { properties: { path: { enum?: string[] } } } };
+  edits: { minItems?: number; maxItems: number; items: { properties: { path: { enum?: string[] } } } };
+  creates: { minItems?: number; maxItems: number; items: { properties: { path: { enum?: string[] } } } };
 };
 
 function proposalProperties(request: OriginProviderExecutionRequest): ProposalToolProperties {
@@ -61,13 +61,15 @@ describe('coding model protocol', () => {
     await planner(context);
 
     const properties = proposalProperties(execute.mock.calls[0][0]);
+    expect(properties.edits.minItems).toBeUndefined();
     expect(properties.edits.maxItems).toBe(1);
     expect(properties.edits.items.properties.path.enum).toEqual(['math.js']);
+    expect(properties.creates.minItems).toBeUndefined();
     expect(properties.creates.maxItems).toBe(1);
     expect(properties.creates.items.properties.path.enum).toEqual(['helper.js']);
   });
 
-  it('makes a create-only scope unambiguous in the required tool schema', async () => {
+  it('makes a create-only scope unambiguous and nonempty in the required tool schema', async () => {
     const createOnly: CodingContext = {
       goal: 'Create src/agent/probe.ts',
       files: [],
@@ -83,10 +85,28 @@ describe('coding model protocol', () => {
 
     await expect(planner(createOnly)).resolves.toEqual(createBatch);
     const properties = proposalProperties(execute.mock.calls[0][0]);
+    expect(properties.edits.minItems).toBeUndefined();
     expect(properties.edits.maxItems).toBe(0);
     expect(properties.edits.items.properties.path.enum).toBeUndefined();
+    expect(properties.creates.minItems).toBe(1);
     expect(properties.creates.maxItems).toBe(1);
     expect(properties.creates.items.properties.path.enum).toEqual(['src/agent/probe.ts']);
+  });
+
+  it('makes an edit-only scope unambiguous and nonempty in the required tool schema', async () => {
+    const editOnly: CodingContext = {
+      ...context,
+      creatablePaths: [],
+    };
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => response());
+    const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
+
+    await expect(planner(editOnly)).resolves.toEqual(batch);
+    const properties = proposalProperties(execute.mock.calls[0][0]);
+    expect(properties.edits.minItems).toBe(1);
+    expect(properties.edits.maxItems).toBe(1);
+    expect(properties.creates.minItems).toBeUndefined();
+    expect(properties.creates.maxItems).toBe(0);
   });
 
   it('performs one bounded proposal schema correction without replaying invalid model response', async () => {
@@ -112,6 +132,30 @@ describe('coding model protocol', () => {
     expect(correctionRequest.messages[0].content).not.toContain('other.js');
     expect(correctionRequest.plan.freeOnly).toBe(true);
     expect(correctionRequest.requiredTool).toEqual(firstRequest.requiredTool);
+  });
+
+  it('makes the bounded mutation-count correction explicit for a create-only scope', async () => {
+    const createOnly: CodingContext = {
+      goal: 'Create src/agent/probe.ts',
+      files: [],
+      editablePaths: [],
+      creatablePaths: ['src/agent/probe.ts'],
+      attempt: 0,
+      failedChecks: [],
+      diagnostics: [],
+    };
+    const valid = { edits: [], creates: [{ path: 'src/agent/probe.ts', content: 'export const probe = true;\n' }] };
+    const replies = [response(JSON.stringify({ edits: [], creates: [] })), response(JSON.stringify(valid))];
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => replies.shift()!);
+    const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
+
+    await expect(planner(createOnly)).resolves.toEqual(valid);
+    expect(execute).toHaveBeenCalledTimes(2);
+    const correctionRequest = execute.mock.calls[1][0];
+    expect(correctionRequest.systemInstruction).toContain('CODING_MODEL_MUTATION_COUNT_INVALID');
+    expect(correctionRequest.systemInstruction).toContain('authorized scope is create-only');
+    expect(correctionRequest.systemInstruction).toContain('creates must contain at least one authorized item');
+    expect(correctionRequest.requiredTool).toEqual(execute.mock.calls[0][0].requiredTool);
   });
 
   it('fails closed after exactly one unsuccessful proposal schema correction', async () => {
