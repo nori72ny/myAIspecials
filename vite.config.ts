@@ -2,15 +2,17 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import {defineConfig, type Plugin} from 'vite';
 import {createOriginApp} from './src/server/createOriginApp';
 
+const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 function originPwaReleasePlugin(): Plugin {
   return {
     name: 'origin-pwa-release',
     async closeBundle() {
-      const workerPath = path.resolve(__dirname, 'dist/sw.js');
+      const workerPath = path.resolve(configDir, 'dist/sw.js');
       const worker = await readFile(workerPath, 'utf8').catch(() => {
         throw new Error('ORIGIN_PWA_WORKER_MISSING');
       });
@@ -39,11 +41,15 @@ function originApiDevPlugin(): Plugin {
 
 export default defineConfig(() => {
   return {
+    // Hosted Coding verification mounts trusted dependencies read-only. Keep
+    // Vite/Vitest caches in the sandbox tmpfs so repository checks never need
+    // write access to node_modules.
+    cacheDir: process.env.ORIGIN_ISOLATED_VERIFY === 'true' ? '/tmp/origin-vite-cache' : undefined,
     plugins: [originApiDevPlugin(), originPwaReleasePlugin(), react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
-        '@origin/domain': path.resolve(__dirname, './packages/domain/src/index.ts')
+        '@': path.resolve(configDir, '.'),
+        '@origin/domain': path.resolve(configDir, './packages/domain/src/index.ts')
       },
     },
     server: {
