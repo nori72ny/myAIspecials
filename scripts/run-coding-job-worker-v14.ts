@@ -13,14 +13,19 @@ import type { VerificationKind } from '../src/agent/verificationRunner.js';
 import { executeOriginProvider, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from '../src/legacy/originProviderClient.js';
 
 const IMAGE = 'node:22-bookworm-slim';
-const CHECK_TIMEOUT_MS = 120_000;
+// The container is limited to two CPUs, so Vitest must use the same bounded
+// worker count instead of sizing its pool from the larger host runner. Keep the
+// durable lease longer than any single check so a slow-but-bounded verification
+// cannot be misclassified as lease loss.
+const CHECK_TIMEOUT_MS = 180_000;
+const WORKER_LEASE_SECONDS = 240;
 const MAX_DIAGNOSTIC_BYTES = 32 * 1024;
 const TARGET_KEY = 'origin:self';
 const EXCLUDED_ROOT_NAMES = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', 'test-results']);
 const CHECK_COMMANDS: Record<VerificationKind, string> = {
   typecheck: 'tsc --noEmit',
   lint: 'mkdir -p test-results && (tsc --noEmit > test-results/lint.log 2>&1 || (cat test-results/lint.log && exit 1)) && node scripts/design-token-lock.js',
-  test: "FREE_ONLY=false vitest run --configLoader runner --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default",
+  test: "FREE_ONLY=false vitest run --configLoader runner --maxWorkers=2 --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default",
   build: 'vite build --configLoader runner && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs',
 };
 
@@ -151,6 +156,7 @@ async function main(): Promise<void> {
       captureResult: (session, root) => buildCodingJobResultV14(session, checkout, root),
       env: process.env,
       execute: executeWithSafeProviderDiagnostics,
+      leaseSeconds: WORKER_LEASE_SECONDS,
     });
     console.log(JSON.stringify({ jobId: outcome.jobId, state: outcome.state, code: outcome.code }));
     if (outcome.state === 'retryable' || outcome.state === 'lease_lost') process.exitCode = 2;
