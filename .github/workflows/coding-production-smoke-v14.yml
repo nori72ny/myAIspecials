@@ -9,6 +9,7 @@ on:
       - 'src/agent/codingJob*.ts'
       - 'src/agent/codingJob*.test.ts'
       - 'src/server/createOriginApp.ts'
+      - 'src/legacy/originProviderClient.ts'
       - 'scripts/run-coding-job-worker-v14.ts'
       - '.github/workflows/coding-job-worker-v14.yml'
       - '.github/workflows/coding-production-smoke-v14.yml'
