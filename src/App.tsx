@@ -370,6 +370,14 @@ export class StreamArtifactParser {
       closeFenceRegex.lastIndex = contentStart;
       const closeMatch = closeFenceRegex.exec(normalized);
       const type = rawLang === 'html' || rawLang === 'svg' ? 'html' : rawLang === 'mermaid' ? 'mermaid' : rawLang === 'markdown' || rawLang === 'md' ? 'markdown' : 'code';
+      // Ordinary code examples belong beside their explanation and in the next
+      // conversation turn. Only explicit named code artifacts open the workspace.
+      if (type === 'code' && !rawTitle) {
+        const end = closeMatch ? closeMatch.index + closeMatch[0].length : normalized.length;
+        conversationalText += normalized.slice(matchIndex, end);
+        cursor = end;
+        continue;
+      }
       const id = `art-${artifactIndex++}`;
       if (!closeMatch) { artifacts.push({ id, type, title, language: rawLang, content: normalized.slice(contentStart), isComplete: false }); break; }
       const contentEnd = closeMatch.index + (closeMatch[0].startsWith('\n') ? 1 : 0);
