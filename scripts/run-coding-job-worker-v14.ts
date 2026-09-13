@@ -20,8 +20,8 @@ const EXCLUDED_ROOT_NAMES = new Set(['.git', 'node_modules', 'dist', 'build', 'c
 const CHECK_COMMANDS: Record<VerificationKind, string> = {
   typecheck: 'tsc --noEmit',
   lint: 'mkdir -p test-results && (tsc --noEmit > test-results/lint.log 2>&1 || (cat test-results/lint.log && exit 1)) && node scripts/design-token-lock.js',
-  test: "FREE_ONLY=false vitest run --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default",
-  build: 'vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs',
+  test: "FREE_ONLY=false vitest run --configLoader runner --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default",
+  build: 'vite build --configLoader runner && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs',
 };
 
 function appendBounded(current: string, chunk: Buffer | string): string {
@@ -80,6 +80,7 @@ async function dockerCheck(sourceRoot: string, dependencyRoot: string, kind: Ver
       '--mount', `type=bind,src=${path.join(dependencyRoot, 'node_modules')},dst=/work/node_modules,readonly`,
       '--workdir', '/work',
       '--env', 'HOME=/tmp', '--env', 'CI=true', '--env', 'NODE_ENV=test', '--env', 'FREE_ONLY=false',
+      '--env', 'ORIGIN_ISOLATED_VERIFY=true',
       '--env', 'PATH=/work/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       IMAGE, '/bin/sh', '-eu', '-c', CHECK_COMMANDS[kind],
     ];
