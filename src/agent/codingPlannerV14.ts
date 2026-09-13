@@ -18,44 +18,52 @@ Your immediately previous proposal did not satisfy ORIGIN's strict mutation sche
 This is one bounded schema-correction attempt. Re-evaluate the same trusted goal, files, authorized paths, failures, and diagnostics from the user payload and invoke the required proposal function exactly once.
 Do not quote, explain, or attempt to repair the text of the previous response. Do not add keys, paths, commands, or prose.`;
 
-const PROPOSAL_TOOL: OriginProviderRequiredTool = {
-  name: 'submit_coding_proposal_v14',
-  description: 'Submit exactly one bounded ORIGIN V1.4 coding mutation proposal.',
-  parameters: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['edits', 'creates'],
-    properties: {
-      edits: {
-        type: 'array',
-        maxItems: 12,
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['path', 'search', 'replacement'],
-          properties: {
-            path: { type: 'string' },
-            search: { type: 'string', minLength: 1 },
-            replacement: { type: 'string' },
+function authorizedPathSchema(paths: readonly string[]): Record<string, unknown> {
+  return paths.length ? { type: 'string', enum: [...paths] } : { type: 'string' };
+}
+
+function proposalTool(context: CodingContext): OriginProviderRequiredTool {
+  const editablePaths = [...new Set(context.editablePaths ?? context.files.map(file => file.path))];
+  const creatablePaths = [...new Set(context.creatablePaths ?? [])];
+  return {
+    name: 'submit_coding_proposal_v14',
+    description: 'Submit exactly one bounded ORIGIN V1.4 coding mutation proposal using only the authorized path enums.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['edits', 'creates'],
+      properties: {
+        edits: {
+          type: 'array',
+          maxItems: Math.min(12, editablePaths.length),
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['path', 'search', 'replacement'],
+            properties: {
+              path: authorizedPathSchema(editablePaths),
+              search: { type: 'string', minLength: 1 },
+              replacement: { type: 'string' },
+            },
           },
         },
-      },
-      creates: {
-        type: 'array',
-        maxItems: 4,
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['path', 'content'],
-          properties: {
-            path: { type: 'string' },
-            content: { type: 'string' },
+        creates: {
+          type: 'array',
+          maxItems: Math.min(4, creatablePaths.length),
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['path', 'content'],
+            properties: {
+              path: authorizedPathSchema(creatablePaths),
+              content: { type: 'string' },
+            },
           },
         },
       },
     },
-  },
-};
+  };
+}
 
 const MODEL_RESPONSE_FAILURE_CODES = [
   'CODING_MODEL_RESPONSE_INVALID',
@@ -155,13 +163,14 @@ export function createCodingPlannerV14(options: {
       diagnostics: context.diagnostics ?? [],
     });
     if (Buffer.byteLength(payload) > 320 * 1024 || containsLikelySecret(payload)) throw new Error('CODING_MODEL_CONTEXT_BLOCKED');
+    const requiredTool = proposalTool(context);
 
     const requestProposal = async (systemInstruction: string): Promise<CodingProposalBatch> => {
       const result = await execute({
         plan: selected.plan,
         systemInstruction,
         messages: [{ role: 'user', content: payload }],
-        requiredTool: PROPOSAL_TOOL,
+        requiredTool,
       }, env);
       assertOriginZeroCostExecutionResult(result, selected.plan.modelId, selected.plan.providerId);
       return parseCodingProposal(result.text, context);
