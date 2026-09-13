@@ -36,4 +36,13 @@ describe('V1.4 workflow coverage', () => {
     expect(worker).toContain('vite build --configLoader runner');
     expect(viteConfig).toContain("process.env.ORIGIN_ISOLATED_VERIFY === 'true' ? '/tmp/origin-vite-cache' : undefined");
   });
+
+  it('bounds the hosted Vitest pool and keeps the job lease longer than one check', () => {
+    const worker = readWorkflow('scripts/run-coding-job-worker-v14.ts');
+
+    expect(worker).toContain('const CHECK_TIMEOUT_MS = 180_000');
+    expect(worker).toContain('const WORKER_LEASE_SECONDS = 240');
+    expect(worker).toContain('vitest run --configLoader runner --maxWorkers=2');
+    expect(worker).toContain('leaseSeconds: WORKER_LEASE_SECONDS');
+  });
 });
