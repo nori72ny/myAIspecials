@@ -71,6 +71,25 @@ describe("MissionInput Component", () => {
     expect(voiceBtn.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("stops the voice simulation timer when recording is stopped", () => {
+    vi.useFakeTimers();
+    try {
+      render(<MissionInput />);
+      const input = screen.getByPlaceholderText(/What is your next mission\?/i) as HTMLInputElement;
+      const voiceBtn = screen.getByRole("button", { name: "Start voice input" });
+
+      fireEvent.click(voiceBtn);
+      act(() => vi.advanceTimersByTime(60));
+      expect(input.value).toBe("A");
+
+      fireEvent.click(screen.getByRole("button", { name: "Stop voice input" }));
+      act(() => vi.advanceTimersByTime(1_000));
+      expect(input.value).toBe("A");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps both voice and send controls at least 44px in each dimension", () => {
     render(<MissionInput />);
 

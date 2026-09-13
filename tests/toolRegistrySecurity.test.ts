@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { executeToolWithPermission, toolRegistry } from '../src/agent/toolRegistry.js';
 
 describe('tool registry security boundary', () => {
-  it('registers exactly the approved tools and requires approval', () => {
+  it('registers exactly the approved tools and requires approval', async () => {
     expect(Object.keys(toolRegistry).sort()).toEqual([
       'code_interpreter',
       'document_generator',
@@ -16,7 +16,7 @@ describe('tool registry security boundary', () => {
 
     expect(toolRegistry.file_writer.requiresApproval).toBe(true);
     expect(toolRegistry.verification_runner.requiresApproval).toBe(true);
-    expect(executeToolWithPermission('repository_explorer', {}, { approved: false }))
+    await expect(executeToolWithPermission('repository_explorer', {}, { approved: false }))
       .rejects.toThrow('HUMAN_APPROVAL_REQUIRED');
   });
 

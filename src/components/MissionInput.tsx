@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Mic, 
@@ -48,6 +48,11 @@ export default function MissionInput({
   const [isFocused, setIsFocused] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const voiceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => () => {
+    if (voiceIntervalRef.current) clearInterval(voiceIntervalRef.current);
+  }, []);
 
   const liveScanResult = useMemo(() => {
     if (!prompt.trim() || prompt.trim().length < 3) return null;
@@ -145,19 +150,23 @@ export default function MissionInput({
   };
 
   const toggleVoiceInput = () => {
-    setIsListening(prev => !prev);
-    if (!isListening) {
+    if (isListening) {
+      if (voiceIntervalRef.current) clearInterval(voiceIntervalRef.current);
+      voiceIntervalRef.current = null;
+      setIsListening(false);
+    } else {
+      setIsListening(true);
       // Simulate voice typing
       const phrase = "Analyze current market trends...";
-      let currentText = "";
       let i = 0;
-      const interval = setInterval(() => {
+      voiceIntervalRef.current = setInterval(() => {
         if (i < phrase.length) {
-          currentText += phrase[i];
-          setPrompt(prev => prev + phrase[i]);
+          const character = phrase[i];
           i++;
+          setPrompt(prev => prev + character);
         } else {
-          clearInterval(interval);
+          if (voiceIntervalRef.current) clearInterval(voiceIntervalRef.current);
+          voiceIntervalRef.current = null;
           setIsListening(false);
         }
       }, 50);
