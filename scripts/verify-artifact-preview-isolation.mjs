@@ -121,7 +121,7 @@ async function verifyBrowser(name, browserType) {
     assert.ok(!(await workspace.textContent()).includes('artifact-forged-boundary'), `${name}: forged boundary message affected parent UI`);
 
     const direct = await context.newPage();
-    const response = await direct.goto(`${baseUrl}/origin-artifact-sandbox.html`, { waitUntil: 'domcontentloaded' });
+    const response = await direct.goto(`${baseUrl}/origin-artifact-sandbox.html?direct-open-proof=${Date.now()}`, { waitUntil: 'domcontentloaded' });
     assert.equal(response?.status(), 200, `${name}: direct sandbox URL unavailable`);
     const csp = String((await response?.allHeaders())?.['content-security-policy'] || '');
     assert.match(csp, /connect-src 'none'/, `${name}: direct sandbox CSP must block connections`);
