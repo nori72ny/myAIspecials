@@ -9,8 +9,10 @@ cleanup() {
   rm -rf "$verify_root"
 }
 trap cleanup EXIT INT TERM
-tar --exclude=./.git --exclude=./node_modules --exclude=./dist --exclude=./build \
-  --exclude=./coverage --exclude=./test-results --exclude='./.env*' -cf - . | tar -xf - -C "$verify_root"
+node --import tsx --input-type=module -e '
+  import { copyTrustedCodingCheckoutV14 } from "./src/agent/codingWorkerCheckoutV14.ts";
+  await copyTrustedCodingCheckoutV14(process.cwd(), process.argv[1]);
+' "$verify_root"
 timeout --signal=TERM --kill-after=10s 180s docker run --rm --name "$name" \
   --network none --cap-drop ALL --security-opt no-new-privileges \
   --read-only --user "$(id -u):$(id -g)" --pids-limit 128 --cpus 2 --memory 3g \

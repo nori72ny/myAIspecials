@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { copyTrustedCodingCheckoutV14 as copyTrustedCheckout } from '../src/agent/codingWorkerCheckoutV14.js';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -22,7 +23,6 @@ const CHECK_TIMEOUT_MS = 180_000;
 const WORKER_LEASE_SECONDS = 240;
 const MAX_DIAGNOSTIC_BYTES = 32 * 1024;
 const TARGET_KEY = 'origin:self';
-const EXCLUDED_ROOT_NAMES = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', 'test-results']);
 const CHECK_COMMANDS: Record<VerificationKind, string> = {
   typecheck: 'tsc --noEmit',
   lint: 'mkdir -p test-results && (tsc --noEmit > test-results/lint.log 2>&1 || (cat test-results/lint.log && exit 1)) && node scripts/design-token-lock.js',
@@ -56,19 +56,6 @@ async function executeWithSafeProviderDiagnostics(
     }
     throw error;
   }
-}
-
-async function copyTrustedCheckout(source: string, destination: string): Promise<void> {
-  await fs.cp(source, destination, {
-    recursive: true,
-    dereference: false,
-    filter: (candidate) => {
-      const relative = path.relative(source, candidate);
-      if (!relative) return true;
-      const first = relative.split(path.sep)[0];
-      return !EXCLUDED_ROOT_NAMES.has(first) && !/^\.env(?:\.|$)/i.test(first);
-    },
-  });
 }
 
 async function dockerCheck(sourceRoot: string, dependencyRoot: string, kind: VerificationKind): Promise<CodingCheck> {
