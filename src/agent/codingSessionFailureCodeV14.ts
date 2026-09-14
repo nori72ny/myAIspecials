@@ -21,6 +21,19 @@ const DIRECT_CODING_FAILURE_CODES = new Set([
   'CODING_SEARCH_INVENTORY_BLOCKED',
 ]);
 
+const SAFE_SCHEMA_STAGE_CODES = new Set([
+  'root',
+  'top-level',
+  'array-shape',
+  'edit-item',
+  'edit-item-keys',
+  'edit-item-types',
+  'create-item',
+  'create-item-keys',
+  'create-item-types',
+  'unknown',
+]);
+
 const TRANSLATED_FAILURE_CODES = new Map<string, string>([
   ['FREE_PROVIDER_NOT_CONFIGURED', 'CODING_FREE_PROVIDER_NOT_CONFIGURED'],
   ['FREE_MODEL_CATALOG_INVALID', 'CODING_FREE_MODEL_CATALOG_INVALID'],
@@ -57,6 +70,10 @@ export function classifyCodingSessionFailureV14(error: unknown): string {
   for (const candidate of candidates) {
     if (typeof candidate !== 'string') continue;
     if (DIRECT_CODING_FAILURE_CODES.has(candidate)) return candidate;
+    if (candidate.startsWith('CODING_MODEL_SCHEMA_INVALID:')) {
+      const stage = candidate.slice('CODING_MODEL_SCHEMA_INVALID:'.length);
+      if (SAFE_SCHEMA_STAGE_CODES.has(stage)) return candidate;
+    }
     const translated = TRANSLATED_FAILURE_CODES.get(candidate);
     if (translated) return translated;
   }
