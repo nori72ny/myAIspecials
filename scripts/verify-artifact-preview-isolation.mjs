@@ -8,6 +8,9 @@ const browserTypes = [
   ['firefox', firefox],
   ['webkit', webkit],
 ];
+const requestedBrowsers = new Set(String(process.env.ORIGIN_ISOLATION_BROWSERS || 'chromium,firefox,webkit').split(',').map((name) => name.trim()).filter(Boolean));
+const selectedBrowserTypes = browserTypes.filter(([name]) => requestedBrowsers.has(name));
+assert.ok(selectedBrowserTypes.length > 0, 'No supported artifact-isolation browser was selected');
 
 const artifactHtml = `
 <style>body{font-family:system-ui}#safe-render{padding:12px}</style>
@@ -120,8 +123,8 @@ async function verifyBrowser(name, browserType) {
   }
 }
 
-for (const [name, browserType] of browserTypes) {
+for (const [name, browserType] of selectedBrowserTypes) {
   await verifyBrowser(name, browserType);
 }
 
-console.log(JSON.stringify({ ok: true, boundary: 'artifact-preview-isolation', browsers: browserTypes.map(([name]) => name), baseUrl }));
+console.log(JSON.stringify({ ok: true, boundary: 'artifact-preview-isolation', browsers: selectedBrowserTypes.map(([name]) => name), baseUrl }));
