@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -185,14 +185,14 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect((screen.getByTitle('プレビュー') as HTMLIFrameElement).getAttribute('data-origin-srcdoc')!).toContain('Ready');
   });
 
-  it('provides complete, isolated Storage semantics before untrusted opaque-origin artifact scripts', () => {
+  it('provides complete, isolated Storage semantics while removing artifact-authored scripts', () => {
     const isolatedArtifact = { ...artifact, content: '<script>localStorage.setItem("artifact", "ready")</script><main>Storage ready</main>' };
     render(<ArtifactWorkspace artifact={isolatedArtifact} isOpen language="ja" onClose={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
     const match = frame.getAttribute('data-origin-srcdoc')!.match(/<script data-origin-storage-polyfill="true">([\s\S]*?)<\/script>/);
     expect(match).not.toBeNull();
-    expect(frame.getAttribute('data-origin-srcdoc')!.indexOf('data-origin-storage-polyfill')).toBeLessThan(frame.getAttribute('data-origin-srcdoc')!.indexOf('localStorage.setItem("artifact", "ready")'));
+    expect(frame.getAttribute('data-origin-srcdoc')).not.toContain('localStorage.setItem("artifact", "ready")');
     expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
     expect(frame.getAttribute('src')).toBe('/origin-artifact-sandbox.html');
     expect(frame.getAttribute('data-origin-srcdoc')!).toContain("connect-src 'none'");
@@ -215,6 +215,17 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     isolatedWindow.localStorage.clear();
     expect(isolatedWindow.localStorage.length).toBe(0);
     expect(isolatedWindow.sessionStorage.getItem('session')).toBe('separate');
+  });
+
+  it('keeps visual markup but strips authored execution, navigation, embeds, forms, and remote CSS', () => {
+    const result = sanitizeArtifactPreviewMarkup(`<style>@import 'https://outside.invalid/a.css';main{background:url(https://outside.invalid/a.png);color:red}</style><main onclick="location.href='https://outside.invalid/'"><script>window.pwned=true</script><a href="https://outside.invalid/">Visible link</a><form action="https://outside.invalid/post"><button formaction="https://outside.invalid/other">Send</button></form><img src="https://outside.invalid/a.png"><iframe src="https://outside.invalid/frame"></iframe><meta http-equiv="refresh" content="0;url=https://outside.invalid/"></main>`);
+    const template = document.createElement('template');
+    template.innerHTML = result;
+    expect(template.content.querySelector('main')?.textContent).toContain('Visible link');
+    expect(template.content.querySelector('script,iframe,frame,object,embed,meta[http-equiv]')).toBeNull();
+    expect(template.content.querySelector('[onclick],[href],[src],[action],[formaction]')).toBeNull();
+    expect(template.content.querySelector('form')?.getAttribute('method')).toBe('dialog');
+    expect(result).not.toMatch(/outside\.invalid|@import|url\s*\(/i);
   });
 
   it('rejects forged cross-window messages and never confirms last-known-good from iframe load alone', () => {

@@ -1,4 +1,5 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import DOMPurify from 'dompurify';
 import OriginAnswerMarkdown from './components/personal/OriginAnswerMarkdown';
 import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
@@ -597,6 +598,44 @@ export type OriginDesignTheme = 'minimal' | 'luxury' | 'glass';
 export const ORIGIN_ARTIFACT_SANDBOX_PERMISSIONS = 'allow-scripts' as const;
 export const ORIGIN_ARTIFACT_THEME_TOKENS = ['--bg-primary', '--bg-surface', '--bg-surface-muted', '--bg-elevated', '--text-primary', '--text-secondary', '--text-placeholder', '--text-on-accent', '--border-default', '--border-strong', '--accent-primary', '--accent-hover', '--accent-soft', '--accent-border', '--accent-glow', '--success', '--danger', '--shadow-color', '--radius-control', '--radius-card', '--radius-composer'] as const;
 
+const stripArtifactCssCapabilities = (css: string): string => css
+  .replace(/@import\s+(?:url\s*\([^)]*\)|[^;}]*)\s*;?/gi, '')
+  .replace(/url\s*\([^)]*\)/gi, 'none')
+  .replace(/(?:-moz-binding|behavior)\s*:[^;}]*/gi, '');
+
+/**
+ * Keeps preview markup and local styling, but removes every capability authored
+ * content could use to execute code, navigate, submit, embed, or reach a URL.
+ * ORIGIN-owned runtime bridges are appended only after this function returns.
+ */
+export const sanitizeArtifactPreviewMarkup = (markup: string): string => {
+  const sanitized = DOMPurify.sanitize(markup, {
+    USE_PROFILES: { html: true, svg: true, svgFilters: false },
+    FORBID_TAGS: ['script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'portal', 'base', 'link'],
+    FORBID_ATTR: ['srcdoc'],
+    ALLOW_DATA_ATTR: true,
+    SANITIZE_DOM: true,
+  });
+  const template = document.createElement('template');
+  template.innerHTML = sanitized;
+  template.content.querySelectorAll('*').forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      if (name.startsWith('on') || ['href', 'src', 'srcset', 'action', 'formaction', 'ping', 'poster', 'data', 'cite', 'background', 'xlink:href'].includes(name)) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+    if (element.hasAttribute('style')) element.setAttribute('style', stripArtifactCssCapabilities(element.getAttribute('style') || ''));
+  });
+  template.content.querySelectorAll('meta[http-equiv]').forEach((element) => element.remove());
+  template.content.querySelectorAll('style').forEach((element) => { element.textContent = stripArtifactCssCapabilities(element.textContent || ''); });
+  template.content.querySelectorAll('form').forEach((element) => {
+    element.setAttribute('method', 'dialog');
+    element.setAttribute('data-origin-inert-form', 'true');
+  });
+  return template.innerHTML;
+};
+
 export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artifacts?: readonly ArtifactBlock[]; isOpen: boolean; language: OriginLanguage; onClose: () => void; onOpenSettings?: () => void; onArtifactRevision?: (artifact: ArtifactBlock) => void; isStreaming?: boolean; onSteer?: (direction: string) => void; designTheme?: OriginDesignTheme }> = ({ artifact, artifacts = [], isOpen, language, onClose, onOpenSettings, onArtifactRevision, isStreaming = false, onSteer, designTheme = 'minimal' }) => {
   const t = getTranslations(language);
   const [activeTab, setActiveTab] = useState<'preview' | 'code'>('code');
@@ -638,7 +677,8 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
     const presentationKeyboardBridge = `<script>(function(){window.addEventListener('keydown',function(event){if(event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft'&&event.key!=='Escape')return;event.preventDefault();try{parent.postMessage({source:'ORIGIN_PRESENTATION_KEYBOARD',key:event.key},'*')}catch(_){}})})();</script>`;
     const artifactThemeBridge = `<script data-origin-theme-bridge="true">(function(){var allowed=${JSON.stringify(ORIGIN_ARTIFACT_THEME_TOKENS)};window.addEventListener('message',function(event){if(event.source!==parent)return;var data=event.data;if(!data||data.source!=='ORIGIN_ARTIFACT_THEME'||!data.tokens||typeof data.tokens!=='object')return;if(data.designTheme!=='minimal'&&data.designTheme!=='luxury'&&data.designTheme!=='glass')return;var root=document.documentElement;allowed.forEach(function(name){var value=data.tokens[name];if(typeof value!=='string'||!value||value.length>160||/[;{}<>]/.test(value)||/url\\s*\\(|expression\\s*\\(/i.test(value))return;var property=name.indexOf('--radius-')===0?'border-radius':'color';if(typeof CSS==='undefined'||!CSS.supports(property,value))return;root.style.setProperty(name,value)});root.setAttribute('data-origin-design-theme',data.designTheme);if(data.colorTheme==='light'||data.colorTheme==='dark'){root.setAttribute('data-origin-color-theme',data.colorTheme);root.style.colorScheme=data.colorTheme}if(typeof window.__originRunA11yLint==='function')setTimeout(window.__originRunA11yLint,0)})})();</script>`;
     let slideOrder = 0;
-    const markedContent = workingContent.replace(/<(section|article|div)(?=[^>]*(?:\bdata-slide\b|class\s*=\s*["'][^"']*\bslide\b|aria-roledescription\s*=\s*["']slide["']))[^>]*>/gi, (tag) => tag.replace(/>$/, ` data-origin-slide-order="${++slideOrder}">`));
+    const safeWorkingContent = sanitizeArtifactPreviewMarkup(workingContent);
+    const markedContent = safeWorkingContent.replace(/<(section|article|div)(?=[^>]*(?:\bdata-slide\b|class\s*=\s*["'][^"']*\bslide\b|aria-roledescription\s*=\s*["']slide["']))[^>]*>/gi, (tag) => tag.replace(/>$/, ` data-origin-slide-order="${++slideOrder}">`));
     const presentationStyles = `<style>[data-origin-presentation-content][data-origin-presenting="true"] [data-origin-slide-order]{display:none!important;opacity:0;transform:translateX(12px)}[data-origin-presentation-content][data-origin-presenting="true"] [data-origin-slide-order="${presentationSlideIndex + 1}"]{display:block!important;opacity:1;transform:translateX(0);transition:opacity 180ms ease-out,transform 180ms ease-out}@media (prefers-reduced-motion:reduce){[data-origin-presentation-content] [data-origin-slide-order]{transition:none!important}}</style>`;
     const previewContent = isDirectEditing ? prepareDirectTouchMarkup(markedContent) : markedContent;
     const sanitized = `${isolatedStorageBootstrap}${cleanLoadBoundary}${presentationBridge}${presentationKeyboardBridge}${artifactA11yLinter}${artifactThemeBridge}${presentationStyles}<div data-origin-presentation-content data-origin-presenting="${isPresentation ? 'true' : 'false'}"><div data-origin-direct-touch-root${isDirectEditing ? ' data-origin-direct-touch="true"' : ''}>${previewContent.replace(/<meta[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '')}</div></div>`;

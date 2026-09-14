@@ -224,7 +224,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(workspace).toBeHidden();
   });
 
-  test('polyfills opaque-origin Storage without exposing parent data or permitting outbound requests', async ({ page }) => {
+  test('disables authored scripts while keeping opaque-origin Storage isolated and network silent', async ({ page }) => {
     const outbound: string[] = [];
     page.on('request', (request) => { if (request.url().includes('origin-egress.invalid')) outbound.push(request.url()); });
     await page.route('**/api/chat', async (route) => route.fulfill({
@@ -240,14 +240,15 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const preview = page.getByTestId('artifact-workspace').getByTitle('プレビュー');
     await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
     const sandbox = preview.contentFrame();
-    await expect(sandbox.locator('#storage-result')).toHaveText('done');
+    await expect(sandbox.locator('#storage-result')).toHaveText('Waiting');
     expect(await sandbox.locator('body').evaluate(() => ({
-      habit: localStorage.getItem('habit'),
-      session: sessionStorage.getItem('session'),
+      habit: (localStorage.setItem('habit', 'test-only'), localStorage.getItem('habit')),
+      session: (sessionStorage.setItem('session', 'test-isolated'), sessionStorage.getItem('session')),
       parentSecret: localStorage.getItem('origin-parent-secret'),
       key: localStorage.key(0),
       length: localStorage.length,
-    }))).toEqual({ habit: 'done', session: 'isolated', parentSecret: null, key: 'habit', length: 1 });
+      authoredScriptRan: document.getElementById('storage-result')?.textContent !== 'Waiting',
+    }))).toEqual({ habit: 'test-only', session: 'test-isolated', parentSecret: null, key: 'habit', length: 1, authoredScriptRan: false });
     expect(await page.evaluate(() => localStorage.getItem('origin-parent-secret'))).toBe('parent-only');
     expect(outbound).toEqual([]);
   });

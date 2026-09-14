@@ -112,6 +112,40 @@ jobs:
         retention-days: 30
         if-no-files-found: ignore
 
+  artifact-preview-isolation:
+    name: Artifact isolation (${{ matrix.browser }})
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install ${{ matrix.browser }}
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npm run build
+      - name: Exercise isolated preview boundary
+        env:
+          ORIGIN_PRODUCTION_URL: http://127.0.0.1:4173
+          ORIGIN_ISOLATION_BROWSERS: ${{ matrix.browser }}
+        run: |
+          TEST_PORT=4173 ORIGIN_RELEASE_SHA=${{ github.sha }} npm start &
+          app_pid=$!
+          trap 'kill "$app_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:4173/api/health >/dev/null; then break; fi
+            if [ "$attempt" -eq 30 ]; then echo "Local release server did not become ready."; exit 1; fi
+            sleep 1
+          done
+          npm run test:artifact-isolation
+
   dependency-review:
     name: Dependency Review
     if: github.event_name == 'pull_request'
