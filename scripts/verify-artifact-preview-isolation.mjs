@@ -52,9 +52,18 @@ async function verifyBrowser(name, browserType) {
       localStorage.setItem('origin-preview-parent-canary', 'parent-only');
       document.cookie = 'origin_preview_canary=parent-only; path=/; SameSite=Lax';
     });
-    await page.getByTestId('origin-home-request').fill('artifact isolation probe');
-    await page.getByTestId('start-request-button').click();
     const workspace = page.getByTestId('artifact-workspace');
+    const requestInput = page.getByTestId('origin-home-request');
+    const startButton = page.getByTestId('start-request-button');
+    for (let attempt = 0; attempt < 5 && !(await workspace.isVisible().catch(() => false)); attempt += 1) {
+      await requestInput.fill('artifact isolation probe');
+      await page.waitForTimeout(150);
+      await startButton.evaluate((button) => {
+        if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error('request button is not ready');
+        button.click();
+      }).catch(() => undefined);
+      await workspace.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => undefined);
+    }
     await workspace.waitFor({ state: 'visible', timeout: 20_000 });
     await page.getByRole('button', { name: /プレビューを表示|Show preview/ }).click();
     const preview = workspace.getByTitle(/プレビュー|Preview/);
