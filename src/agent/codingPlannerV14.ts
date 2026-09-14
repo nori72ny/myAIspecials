@@ -10,8 +10,8 @@ On repair rounds, diagnose the provided failures before proposing a different fi
 Existing editable files must use exact unique search/replacement edits. New files may be created only from creatablePaths.
 Use only paths listed in editablePaths for edits and only paths listed in creatablePaths for creates.
 Never weaken tests, disable verification, add credentials, invoke tools other than the required proposal function, or expand the editable/creatable scope.
-Submit exactly one proposal through the required proposal function. The function arguments must contain exactly edits and creates.
-At most one mutation per path. Combine nearby changes into one exact search block. Empty arrays are allowed, but at least one total mutation is required.
+Submit exactly one proposal through the required proposal function. In mixed scopes, the function arguments must contain exactly edits and creates. In an edit-only or create-only scope, the impossible empty array may be omitted.
+At most one mutation per path. Combine nearby changes into one exact search block. At least one total mutation is required.
 Do not return markdown, code fences, shell commands, explanations, or claims that checks passed.`;
 const CORRECTION_INSTRUCTION = `${INSTRUCTION}
 Your immediately previous proposal did not satisfy ORIGIN's strict mutation schema, exact-match requirements, or authorized scope.
@@ -33,7 +33,7 @@ function proposalTool(context: CodingContext): OriginProviderRequiredTool {
     parameters: {
       type: 'object',
       additionalProperties: false,
-      required: ['edits', 'creates'],
+      required: editOnly ? ['edits'] : createOnly ? ['creates'] : ['edits', 'creates'],
       properties: {
         edits: {
           type: 'array',
@@ -87,7 +87,7 @@ const MODEL_RESPONSE_FAILURE_SET = new Set<string>(MODEL_RESPONSE_FAILURE_CODES)
 const CORRECTION_HINTS: Record<CodingModelResponseFailureCode, string> = {
   CODING_MODEL_RESPONSE_INVALID: 'Submit one complete bounded function argument object.',
   CODING_MODEL_JSON_INVALID: 'Submit valid JSON function arguments.',
-  CODING_MODEL_SCHEMA_INVALID: 'Include exactly the edits and creates arrays and only their documented item keys.',
+  CODING_MODEL_SCHEMA_INVALID: 'Use only the documented edits and creates arrays and only their documented item keys. In a single-kind scope, the impossible empty array may be omitted.',
   CODING_MODEL_MUTATION_COUNT_INVALID: 'Include at least one and at most twelve total mutations, with at most four creates.',
   CODING_MODEL_EDIT_INVALID: 'Every edit needs a non-empty search that differs from replacement.',
   CODING_MODEL_EDIT_SCOPE_INVALID: 'Use only exact paths listed in editablePaths for edits.',
@@ -101,10 +101,10 @@ function mutationScopeCorrectionHint(context: CodingContext): string {
   const editableCount = new Set(context.editablePaths ?? context.files.map(file => file.path)).size;
   const creatableCount = new Set(context.creatablePaths ?? []).size;
   if (editableCount === 0 && creatableCount > 0) {
-    return `This authorized scope is create-only: edits must be empty and creates must contain at least one authorized item (${creatableCount} creatable path${creatableCount === 1 ? '' : 's'} available).`;
+    return `This authorized scope is create-only: edits must be empty or omitted and creates must contain at least one authorized item (${creatableCount} creatable path${creatableCount === 1 ? '' : 's'} available).`;
   }
   if (creatableCount === 0 && editableCount > 0) {
-    return `This authorized scope is edit-only: creates must be empty and edits must contain at least one authorized item (${editableCount} editable path${editableCount === 1 ? '' : 's'} available).`;
+    return `This authorized scope is edit-only: creates must be empty or omitted and edits must contain at least one authorized item (${editableCount} editable path${editableCount === 1 ? '' : 's'} available).`;
   }
   return 'At least one authorized mutation is required across edits and creates.';
 }
@@ -117,13 +117,22 @@ export function parseCodingProposal(text: string, context: CodingContext): Codin
   if (typeof text !== 'string' || Buffer.byteLength(text) > 256 * 1024) failProposal('CODING_MODEL_RESPONSE_INVALID');
   let data: unknown;
   try { data = JSON.parse(text); } catch { failProposal('CODING_MODEL_JSON_INVALID'); }
-  if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).sort().join() !== 'creates,edits') failProposal('CODING_MODEL_SCHEMA_INVALID');
-  const edits = (data as { edits?: unknown }).edits;
-  const creates = (data as { creates?: unknown }).creates;
-  if (!Array.isArray(edits) || !Array.isArray(creates)) failProposal('CODING_MODEL_SCHEMA_INVALID');
-  if (edits.length + creates.length < 1 || edits.length + creates.length > 12 || creates.length > 4) failProposal('CODING_MODEL_MUTATION_COUNT_INVALID');
+  if (!data || typeof data !== 'object' || Array.isArray(data)) failProposal('CODING_MODEL_SCHEMA_INVALID');
   const editable = context.editablePaths ?? context.files.map(file => file.path);
   const creatable = context.creatablePaths ?? [];
+  const editOnly = editable.length > 0 && creatable.length === 0;
+  const createOnly = creatable.length > 0 && editable.length === 0;
+  const keys = Object.keys(data).sort().join();
+  const validTopLevelShape = keys === 'creates,edits'
+    || (editOnly && keys === 'edits')
+    || (createOnly && keys === 'creates');
+  if (!validTopLevelShape) failProposal('CODING_MODEL_SCHEMA_INVALID');
+  const rawEdits = (data as { edits?: unknown }).edits;
+  const rawCreates = (data as { creates?: unknown }).creates;
+  const edits = rawEdits === undefined && createOnly ? [] : rawEdits;
+  const creates = rawCreates === undefined && editOnly ? [] : rawCreates;
+  if (!Array.isArray(edits) || !Array.isArray(creates)) failProposal('CODING_MODEL_SCHEMA_INVALID');
+  if (edits.length + creates.length < 1 || edits.length + creates.length > 12 || creates.length > 4) failProposal('CODING_MODEL_MUTATION_COUNT_INVALID');
   const existing = new Set(context.files.map(file => file.path));
   const seen = new Set<string>();
   const parsedEdits = (edits as Array<Record<string, unknown>>).map(edit => {
@@ -200,7 +209,9 @@ export function createCodingPlannerV14(options: {
       // Keep the proposal parser strict and fail closed. One bounded correction
       // may ask the same zero-cost model to satisfy the existing contract while
       // reusing only the original trusted payload and never replaying invalid text.
-      const scopeHint = code === 'CODING_MODEL_MUTATION_COUNT_INVALID' ? `\n${mutationScopeCorrectionHint(context)}` : '';
+      const scopeHint = (code === 'CODING_MODEL_MUTATION_COUNT_INVALID' || code === 'CODING_MODEL_SCHEMA_INVALID')
+        ? `\n${mutationScopeCorrectionHint(context)}`
+        : '';
       return requestProposal(`${CORRECTION_INSTRUCTION}\nValidation class: ${code}. ${CORRECTION_HINTS[code]}${scopeHint}`);
     }
   };
