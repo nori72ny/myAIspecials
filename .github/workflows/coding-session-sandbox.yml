@@ -40,6 +40,8 @@ jobs:
             npm ci --ignore-scripts --no-audit --no-fund
       - name: Run bounded offline coding session
         run: bash scripts/coding-session-sandbox.sh
+      - name: Verify full test suite with Production worker isolation
+        run: bash scripts/coding-production-parity.sh
   postgres-concurrency:
     if: github.event.repository.private == false
     runs-on: ubuntu-24.04
