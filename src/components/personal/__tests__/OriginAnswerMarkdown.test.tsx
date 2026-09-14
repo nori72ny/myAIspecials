@@ -45,6 +45,10 @@ describe('OriginAnswerMarkdown', () => {
     expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('検証方法'));
     expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('開発なら'));
 
+    fireEvent.click(screen.getByRole('button', { name: '具体例を追加' }));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('仮定や例示は明示'));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('架空の事例を実績として扱わない'));
+
     fireEvent.click(screen.getByRole('button', { name: '実行プランにする' }));
     expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('明確な完了条件'));
     expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('未実施の作業を完了済みとは書かない'));
