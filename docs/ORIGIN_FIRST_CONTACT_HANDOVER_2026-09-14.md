@@ -80,7 +80,7 @@ ORIGINは総合AI OSを目指す。ユーザーが依頼し、計画・調査・
 - Worker run: https://github.com/nori72ny/myAIspecials/actions/runs/34881679490
 - Worker Actions job ID: 104102228657
 - Worker checkout: e42d6f5f21420d9ac53735ab6e9793985d2e8bd4
-- 最終取得時、smokeはin_progress。完了時ログを再取得する。
+- 最終確認: smoke workflowはfailure。18:45:45 UTC、poll中のcurlが Connection reset by peer / exit code 35で終了。Coding jobの終端状態はこのログでは未確定。workerのstage失敗・lease不整合と、この通信障害を分けて扱う。POST作成の盲目的再試行は避け、必要ならGET pollingだけのbounded retryを検討。
 
 実際のworkerログ:
 - 18:38:05 UTC: coding-verification-check-failed / test / exitCode 1 / timedOut false
