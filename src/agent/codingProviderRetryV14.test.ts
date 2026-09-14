@@ -2,16 +2,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createBoundedCodingProviderExecuteV14 } from './codingProviderRetryV14.js';
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
-import { DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, ORIGIN_OPENROUTER_FREE_MODEL } from '../lib/orchestration/OriginExecutionPolicy.js';
+import {
+  buildOriginExecutionPlan,
+  DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
+  ORIGIN_OPENROUTER_FREE_MODEL,
+} from '../lib/orchestration/OriginExecutionPolicy.js';
+
+const selected = buildOriginExecutionPlan(
+  { goal: 'Create a bounded probe', taskType: 'implementation', requiresCodeChanges: true },
+  { openRouterConfigured: true },
+);
+if (!selected.ok) throw new Error(`TEST_PLAN_UNAVAILABLE:${selected.code}`);
 
 const request: OriginProviderExecutionRequest = {
-  plan: {
-    taskType: 'implementation',
-    providerId: 'openrouter',
-    modelId: ORIGIN_OPENROUTER_FREE_MODEL,
-    freeOnly: true,
-    dataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
-  },
+  plan: selected.plan,
   systemInstruction: 'submit one tool call',
   messages: [{ role: 'user', content: '{"goal":"probe"}' }],
   requiredTool: {
