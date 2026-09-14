@@ -208,6 +208,11 @@ jobs:
         env:
           ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
         run: node scripts/verify-production-browser.mjs
+      - name: Verify production artifact preview isolation
+        env:
+          ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+          ORIGIN_ISOLATION_BROWSERS: chromium
+        run: npm run test:artifact-isolation
 
   release:
     name: Generate CHANGELOG & GitHub Release
