@@ -10,7 +10,7 @@ const EXPECTED_REPOSITORY = 'nori72ny/myAIspecials';
 const EXPECTED_REPOSITORY_ID = '1282163675';
 const EXPECTED_REPOSITORY_OWNER = 'nori72ny';
 const EXPECTED_REF = 'refs/heads/main';
-const EXPECTED_EVENT = 'push';
+const EXPECTED_EVENTS = new Set(['push', 'schedule']);
 const EXPECTED_RUNNER = 'github-hosted';
 const MAX_TOKEN_BYTES = 16 * 1024;
 const MAX_JSON_BYTES = 8 * 1024;
@@ -69,7 +69,7 @@ function preliminaryClaimsValid(payload: JwtPayload, nowSeconds: number): payloa
   if (payload.repository_owner !== EXPECTED_REPOSITORY_OWNER) return false;
   if (payload.repository_visibility !== 'public') return false;
   if (payload.ref !== EXPECTED_REF || payload.ref_type !== 'branch') return false;
-  if (payload.event_name !== EXPECTED_EVENT || payload.runner_environment !== EXPECTED_RUNNER) return false;
+  if (typeof payload.event_name !== 'string' || !EXPECTED_EVENTS.has(payload.event_name) || payload.runner_environment !== EXPECTED_RUNNER) return false;
   if (payload.workflow !== CODING_SMOKE_WORKFLOW_NAME_V14 || payload.workflow_ref !== CODING_SMOKE_WORKFLOW_REF_V14) return false;
   if (typeof payload.sha !== 'string' || !SHA_PATTERN.test(payload.sha)) return false;
   if (payload.workflow_sha !== payload.sha) return false;
