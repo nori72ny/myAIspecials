@@ -32,10 +32,12 @@ parent.postMessage({source:'ORIGIN_SANDBOX_BOUNDARY',type:'runtime-error',messag
 async function verifyBrowser(name, browserType) {
   const browser = await browserType.launch({ headless: true });
   try {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ serviceWorkers: 'block' });
     const page = await context.newPage();
     const receiverRequests = [];
     const authProbeRequests = [];
+    const browserErrors = [];
+    page.on('pageerror', (error) => browserErrors.push(String(error?.message || error)));
     page.on('request', (request) => {
       const url = request.url();
       if (url.startsWith(receiverOrigin)) receiverRequests.push(url);
@@ -47,7 +49,13 @@ async function verifyBrowser(name, browserType) {
       body: `\`\`\`html:isolation-probe.html\n${artifactHtml}\n\`\`\``,
     }));
 
-    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    let appReady = false;
+    for (let attempt = 0; attempt < 3 && !appReady; attempt += 1) {
+      const response = await page.goto(baseUrl, { waitUntil: 'load' });
+      assert.equal(response?.status(), 200, `${name}: app shell unavailable`);
+      appReady = await page.getByTestId('origin-home-request').waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false);
+    }
+    assert.ok(appReady, `${name}: app did not become ready: ${browserErrors.join(' | ') || (await page.locator('body').innerText()).slice(0, 500)}`);
     await page.evaluate(() => {
       localStorage.setItem('origin-preview-parent-canary', 'parent-only');
       document.cookie = 'origin_preview_canary=parent-only; path=/; SameSite=Lax';
