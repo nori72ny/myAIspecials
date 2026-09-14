@@ -25,6 +25,8 @@ describe('V1.4 coding session failure classification', () => {
   });
 
   it('never surfaces arbitrary error messages or unreviewed code-shaped values', () => {
+    expect(classifyCodingSessionFailureV14(new Error('CODING_MODEL_SCHEMA_INVALID:private-value'))).toBe('CODING_OPERATION_BLOCKED');
+    expect(classifyCodingSessionFailureV14(new Error('CODING_MODEL_SCHEMA_INVALID:edit-item-keys:private-value'))).toBe('CODING_OPERATION_BLOCKED');
     expect(classifyCodingSessionFailureV14(new Error('private-value'))).toBe('CODING_OPERATION_BLOCKED');
     expect(classifyCodingSessionFailureV14(Object.assign(new Error('private-value'), { code: 'CODING_PRIVATE_VALUE' }))).toBe('CODING_OPERATION_BLOCKED');
   });
