@@ -12,7 +12,7 @@ const selected = buildOriginExecutionPlan(
   { goal: 'Create a bounded probe', taskType: 'implementation', requiresCodeChanges: true },
   { openRouterConfigured: true },
 );
-if (!selected.ok) throw new Error(`TEST_PLAN_UNAVAILABLE:${selected.code}`);
+if (!selected.ok) throw new Error('TEST_PLAN_UNAVAILABLE');
 
 const request: OriginProviderExecutionRequest = {
   plan: selected.plan,
