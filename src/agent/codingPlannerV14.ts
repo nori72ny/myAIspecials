@@ -84,6 +84,18 @@ const MODEL_RESPONSE_FAILURE_CODES = [
 type CodingModelResponseFailureCode = (typeof MODEL_RESPONSE_FAILURE_CODES)[number];
 const MODEL_RESPONSE_FAILURE_SET = new Set<string>(MODEL_RESPONSE_FAILURE_CODES);
 
+type SchemaStage =
+  | 'root'
+  | 'top-level'
+  | 'array-shape'
+  | 'edit-item'
+  | 'edit-item-keys'
+  | 'edit-item-types'
+  | 'create-item'
+  | 'create-item-keys'
+  | 'create-item-types'
+  | 'unknown';
+
 const CORRECTION_HINTS: Record<CodingModelResponseFailureCode, string> = {
   CODING_MODEL_RESPONSE_INVALID: 'Submit one complete bounded function argument object.',
   CODING_MODEL_JSON_INVALID: 'Submit valid JSON function arguments.',
@@ -111,6 +123,46 @@ function mutationScopeCorrectionHint(context: CodingContext): string {
 
 function failProposal(code: CodingModelResponseFailureCode): never {
   throw new Error(code);
+}
+
+function classifySchemaStage(text: string, context: CodingContext): SchemaStage {
+  let data: unknown;
+  try { data = JSON.parse(text); } catch { return 'root'; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return 'root';
+  const editable = context.editablePaths ?? context.files.map(file => file.path);
+  const creatable = context.creatablePaths ?? [];
+  const editOnly = editable.length > 0 && creatable.length === 0;
+  const createOnly = creatable.length > 0 && editable.length === 0;
+  const keys = Object.keys(data).sort().join();
+  const validTopLevelShape = keys === 'creates,edits'
+    || (editOnly && keys === 'edits')
+    || (createOnly && keys === 'creates');
+  if (!validTopLevelShape) return 'top-level';
+  const rawEdits = (data as { edits?: unknown }).edits;
+  const rawCreates = (data as { creates?: unknown }).creates;
+  const edits = rawEdits === undefined && createOnly ? [] : rawEdits;
+  const creates = rawCreates === undefined && editOnly ? [] : rawCreates;
+  if (!Array.isArray(edits) || !Array.isArray(creates)) return 'array-shape';
+  for (const edit of edits) {
+    if (!edit || typeof edit !== 'object' || Array.isArray(edit)) return 'edit-item';
+    if (Object.keys(edit).sort().join() !== 'path,replacement,search') return 'edit-item-keys';
+    const candidate = edit as Record<string, unknown>;
+    if (typeof candidate.path !== 'string' || typeof candidate.search !== 'string' || typeof candidate.replacement !== 'string') return 'edit-item-types';
+  }
+  for (const create of creates) {
+    if (!create || typeof create !== 'object' || Array.isArray(create)) return 'create-item';
+    if (Object.keys(create).sort().join() !== 'content,path') return 'create-item-keys';
+    const candidate = create as Record<string, unknown>;
+    if (typeof candidate.path !== 'string' || typeof candidate.content !== 'string') return 'create-item-types';
+  }
+  return 'unknown';
+}
+
+function addSafeSchemaStage(error: unknown, text: string, context: CodingContext): never {
+  if (error instanceof Error && error.message === 'CODING_MODEL_SCHEMA_INVALID') {
+    throw new Error(`CODING_MODEL_SCHEMA_INVALID:${classifySchemaStage(text, context)}`);
+  }
+  throw error;
 }
 
 export function parseCodingProposal(text: string, context: CodingContext): CodingProposalBatch {
@@ -163,8 +215,10 @@ export function parseCodingProposal(text: string, context: CodingContext): Codin
 }
 
 function modelResponseFailureCode(error: unknown): CodingModelResponseFailureCode | null {
-  return error instanceof Error && MODEL_RESPONSE_FAILURE_SET.has(error.message)
-    ? error.message as CodingModelResponseFailureCode
+  if (!(error instanceof Error)) return null;
+  const baseCode = error.message.split(':', 1)[0];
+  return MODEL_RESPONSE_FAILURE_SET.has(baseCode)
+    ? baseCode as CodingModelResponseFailureCode
     : null;
 }
 
@@ -198,7 +252,11 @@ export function createCodingPlannerV14(options: {
         requiredTool,
       }, env);
       assertOriginZeroCostExecutionResult(result, selected.plan.modelId, selected.plan.providerId);
-      return parseCodingProposal(result.text, context);
+      try {
+        return parseCodingProposal(result.text, context);
+      } catch (error) {
+        addSafeSchemaStage(error, result.text, context);
+      }
     };
 
     try {
