@@ -81,6 +81,15 @@ jobs:
           NODE
           }
 
+          read_code() {
+            local file="$1"
+            FILE="$file" node <<'NODE'
+          const fs = require('fs');
+          try { const v = JSON.parse(fs.readFileSync(process.env.FILE, 'utf8')); process.stdout.write(String(v?.code || 'UNKNOWN')); }
+          catch { process.stdout.write('UNKNOWN'); }
+          NODE
+          }
+
           record_scheduled_quota_skip() {
             local code="$1"
             if [ "$SMOKE_EVENT_NAME" = 'schedule' ] && [ "$code" = 'CODING_PROVIDER_RATE_LIMITED' ]; then
@@ -90,21 +99,32 @@ jobs:
             fi
           }
 
-          oidc_token="$(request_oidc)"
+          # The production alias can briefly route consecutive requests to different
+          # deployment instances immediately after promotion. Keep the exact-SHA gate,
+          # but retry only the explicit release-mismatch response for a bounded window.
           printf '{"confirmSmoke":true,"releaseSha":"%s"}' "$RELEASE_SHA" > smoke-start-request.json
-          start_status="$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
-            -o smoke-start.json -w '%{http_code}' \
-            -H "Authorization: Bearer $oidc_token" \
-            -H 'Content-Type: application/json' \
-            --data-binary @smoke-start-request.json \
-            https://origin-personal.vercel.app/api/coding/v1.4/smoke)"
+          start_status='000'
+          start_code='UNKNOWN'
+          for start_attempt in $(seq 1 6); do
+            oidc_token="$(request_oidc)"
+            start_status="$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
+              -o smoke-start.json -w '%{http_code}' \
+              -H "Authorization: Bearer $oidc_token" \
+              -H 'Content-Type: application/json' \
+              --data-binary @smoke-start-request.json \
+              https://origin-personal.vercel.app/api/coding/v1.4/smoke)"
+            if [ "$start_status" = '202' ]; then
+              break
+            fi
+            start_code="$(read_code smoke-start.json)"
+            if [ "$start_status" = '409' ] && [ "$start_code" = 'CODING_SMOKE_RELEASE_MISMATCH' ] && [ "$start_attempt" -lt 6 ]; then
+              echo "Production alias has not converged for the Coding smoke yet; retrying exact release ($start_attempt/6)."
+              sleep 5
+              continue
+            fi
+            break
+          done
           if [ "$start_status" != '202' ]; then
-            start_code="$(node <<'NODE'
-          const fs = require('fs');
-          try { const v = JSON.parse(fs.readFileSync('smoke-start.json', 'utf8')); process.stdout.write(String(v?.code || 'UNKNOWN')); }
-          catch { process.stdout.write('UNKNOWN'); }
-          NODE
-            )"
             record_scheduled_quota_skip "$start_code"
             echo "Coding smoke start failed: $start_code" >&2
             exit 1
