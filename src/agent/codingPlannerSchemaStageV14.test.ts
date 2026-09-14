@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { createCodingPlannerV14 } from './codingPlannerV14.js';
-import { classifyCodingSessionFailureV14 } from './codingSessionFailureCodeV14.js';
 import type { CodingContext } from './codingSessionV14.js';
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import { DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, ORIGIN_OPENROUTER_FREE_MODEL } from '../lib/orchestration/OriginExecutionPolicy.js';
@@ -40,10 +39,7 @@ describe('safe schema stage diagnostics', () => {
     })));
     const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
 
-    const error = await planner(editOnly).catch(error => error);
-    expect(error).toBeInstanceOf(Error);
-    expect(error.message).toBe('CODING_MODEL_SCHEMA_INVALID:edit-item-keys');
-    expect(classifyCodingSessionFailureV14(error)).toBe('CODING_MODEL_SCHEMA_INVALID_EDIT_ITEM_KEYS');
+    await expect(planner(editOnly)).rejects.toThrow('CODING_MODEL_SCHEMA_INVALID:edit-item-keys');
     expect(execute).toHaveBeenCalledTimes(2);
   });
 });

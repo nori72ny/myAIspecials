@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { CODING_CHECK_TIMEOUT_MS as CHECK_TIMEOUT_MS, CODING_WORKER_LEASE_SECONDS as WORKER_LEASE_SECONDS } from '../src/agent/codingWorkerTimingV14.js';
 import { copyTrustedCodingCheckoutV14 as copyTrustedCheckout } from '../src/agent/codingWorkerCheckoutV14.js';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
@@ -19,8 +20,6 @@ const IMAGE = 'node:22-bookworm-slim';
 // worker count instead of sizing its pool from the larger host runner. Keep the
 // durable lease longer than any single check so a slow-but-bounded verification
 // cannot be misclassified as lease loss.
-const CHECK_TIMEOUT_MS = 180_000;
-const WORKER_LEASE_SECONDS = 240;
 const MAX_DIAGNOSTIC_BYTES = 32 * 1024;
 const TARGET_KEY = 'origin:self';
 const CHECK_COMMANDS: Record<VerificationKind, string> = {

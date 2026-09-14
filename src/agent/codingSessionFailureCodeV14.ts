@@ -21,17 +21,20 @@ const DIRECT_CODING_FAILURE_CODES = new Set([
   'CODING_SEARCH_INVENTORY_BLOCKED',
 ]);
 
+const SAFE_SCHEMA_STAGE_CODES = new Set([
+  'root',
+  'top-level',
+  'array-shape',
+  'edit-item',
+  'edit-item-keys',
+  'edit-item-types',
+  'create-item',
+  'create-item-keys',
+  'create-item-types',
+  'unknown',
+]);
+
 const TRANSLATED_FAILURE_CODES = new Map<string, string>([
-  ['CODING_MODEL_SCHEMA_INVALID:root', 'CODING_MODEL_SCHEMA_INVALID_ROOT'],
-  ['CODING_MODEL_SCHEMA_INVALID:top-level', 'CODING_MODEL_SCHEMA_INVALID_TOP_LEVEL'],
-  ['CODING_MODEL_SCHEMA_INVALID:array-shape', 'CODING_MODEL_SCHEMA_INVALID_ARRAY_SHAPE'],
-  ['CODING_MODEL_SCHEMA_INVALID:edit-item', 'CODING_MODEL_SCHEMA_INVALID_EDIT_ITEM'],
-  ['CODING_MODEL_SCHEMA_INVALID:edit-item-keys', 'CODING_MODEL_SCHEMA_INVALID_EDIT_ITEM_KEYS'],
-  ['CODING_MODEL_SCHEMA_INVALID:edit-item-types', 'CODING_MODEL_SCHEMA_INVALID_EDIT_ITEM_TYPES'],
-  ['CODING_MODEL_SCHEMA_INVALID:create-item', 'CODING_MODEL_SCHEMA_INVALID_CREATE_ITEM'],
-  ['CODING_MODEL_SCHEMA_INVALID:create-item-keys', 'CODING_MODEL_SCHEMA_INVALID_CREATE_ITEM_KEYS'],
-  ['CODING_MODEL_SCHEMA_INVALID:create-item-types', 'CODING_MODEL_SCHEMA_INVALID_CREATE_ITEM_TYPES'],
-  ['CODING_MODEL_SCHEMA_INVALID:unknown', 'CODING_MODEL_SCHEMA_INVALID_UNKNOWN'],
   ['FREE_PROVIDER_NOT_CONFIGURED', 'CODING_FREE_PROVIDER_NOT_CONFIGURED'],
   ['FREE_MODEL_CATALOG_INVALID', 'CODING_FREE_MODEL_CATALOG_INVALID'],
   ['FREE_MODEL_EVIDENCE_STALE', 'CODING_FREE_MODEL_EVIDENCE_STALE'],
@@ -67,6 +70,10 @@ export function classifyCodingSessionFailureV14(error: unknown): string {
   for (const candidate of candidates) {
     if (typeof candidate !== 'string') continue;
     if (DIRECT_CODING_FAILURE_CODES.has(candidate)) return candidate;
+    if (candidate.startsWith('CODING_MODEL_SCHEMA_INVALID:')) {
+      const stage = candidate.slice('CODING_MODEL_SCHEMA_INVALID:'.length);
+      if (SAFE_SCHEMA_STAGE_CODES.has(stage)) return candidate;
+    }
     const translated = TRANSLATED_FAILURE_CODES.get(candidate);
     if (translated) return translated;
   }

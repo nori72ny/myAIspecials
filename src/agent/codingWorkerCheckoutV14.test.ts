@@ -39,4 +39,12 @@ describe('credential-free worker checkout', () => {
     await symlink(path.resolve('.env.example'), path.join(source, '.env.example'));
     await expect(copyTrustedCodingCheckoutV14(source, target)).rejects.toThrow('CODING_WORKER_TEMPLATE_BLOCKED');
   });
+
+  it('rejects an oversized template without publishing it', async () => {
+    const source = await fixture();
+    const target = await fixture();
+    await writeFile(path.join(source, '.env.example'), Buffer.alloc(8193));
+    await expect(copyTrustedCodingCheckoutV14(source, target)).rejects.toThrow('CODING_WORKER_TEMPLATE_BLOCKED');
+    await expect(access(path.join(target, '.env.example'))).rejects.toThrow();
+  });
 });

@@ -8,6 +8,12 @@ describe('V1.4 coding session failure classification', () => {
     expect(classifyCodingSessionFailureV14(new Error('CODING_NAVIGATION_NO_EVIDENCE'))).toBe('CODING_NAVIGATION_NO_EVIDENCE');
   });
 
+  it('preserves only reviewed schema-stage diagnostics', () => {
+    expect(classifyCodingSessionFailureV14(new Error('CODING_MODEL_SCHEMA_INVALID:edit-item-keys'))).toBe('CODING_MODEL_SCHEMA_INVALID:edit-item-keys');
+    expect(classifyCodingSessionFailureV14(new Error('CODING_MODEL_SCHEMA_INVALID:top-level'))).toBe('CODING_MODEL_SCHEMA_INVALID:top-level');
+    expect(classifyCodingSessionFailureV14(new Error('CODING_MODEL_SCHEMA_INVALID:private-value'))).toBe('CODING_OPERATION_BLOCKED');
+  });
+
   it('translates provider and zero-cost planning failures into durable CODING codes', () => {
     expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_TIMEOUT' }))).toBe('CODING_PROVIDER_TIMEOUT');
     expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_MISSING' }))).toBe('CODING_PROVIDER_REQUIRED_TOOL_MISSING');

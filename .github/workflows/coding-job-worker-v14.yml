@@ -65,9 +65,11 @@ jobs:
         run: |
           set -euo pipefail
           # Exit 2 means the controller intentionally left the durable job
-          # retryable/lease-lost. The store lease is 120s; after it expires the
+          # retryable/lease-lost. Read the controller's shared lease policy; after it expires the
           # next invocation first runs recoverStaleJob and atomically reclaims it.
           # This keeps recovery inside one bounded hosted run with no polling server.
+          recovery_wait=$(node --import tsx --input-type=module -e 'import { CODING_WORKER_RECOVERY_WAIT_SECONDS } from "./src/agent/codingWorkerTimingV14.ts"; process.stdout.write(String(CODING_WORKER_RECOVERY_WAIT_SECONDS));')
+          [[ "$recovery_wait" =~ ^[0-9]+$ ]] || exit 1
           for attempt in 1 2 3; do
             set +e
             node --import tsx scripts/run-coding-job-worker-v14.ts
@@ -80,7 +82,7 @@ jobs:
               exit "$status"
             fi
             if [ "$attempt" -lt 3 ]; then
-              sleep 125
+              sleep "$recovery_wait"
             fi
           done
           exit 2

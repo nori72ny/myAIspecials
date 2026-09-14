@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { CODING_CHECK_TIMEOUT_MS, CODING_WORKER_LEASE_SECONDS, CODING_WORKER_RECOVERY_WAIT_SECONDS } from './codingWorkerTimingV14.js';
 
 const SHARED_CODING_RUNTIME_PATHS = [
   "src/legacy/originProviderClient*.ts",
@@ -40,9 +41,17 @@ describe('V1.4 workflow coverage', () => {
   it('bounds the hosted Vitest pool and keeps the job lease longer than one check', () => {
     const worker = readWorkflow('scripts/run-coding-job-worker-v14.ts');
 
-    expect(worker).toContain('const CHECK_TIMEOUT_MS = 180_000');
-    expect(worker).toContain('const WORKER_LEASE_SECONDS = 240');
+    expect(CODING_WORKER_LEASE_SECONDS * 1000).toBeGreaterThan(CODING_CHECK_TIMEOUT_MS);
+    expect(worker).toContain('CODING_WORKER_LEASE_SECONDS as WORKER_LEASE_SECONDS');
     expect(worker).toContain('vitest run --configLoader runner --maxWorkers=2');
     expect(worker).toContain('leaseSeconds: WORKER_LEASE_SECONDS');
+  });
+
+  it('waits beyond a freshly renewed lease before hosted recovery', () => {
+    const workflow = readWorkflow('.github/workflows/coding-job-worker-v14.yml');
+    expect(CODING_WORKER_RECOVERY_WAIT_SECONDS).toBeGreaterThan(CODING_WORKER_LEASE_SECONDS);
+    expect(workflow).toContain('import { CODING_WORKER_RECOVERY_WAIT_SECONDS }');
+    expect(workflow).toContain('sleep "$recovery_wait"');
+    expect(workflow).not.toContain('sleep 125');
   });
 });
