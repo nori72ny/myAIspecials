@@ -71,7 +71,7 @@ describe('single-scope coding proposal protocol', () => {
   });
 
   it('makes the impossible array optional in the required tool contract for edit-only repairs', async () => {
-    const execute = vi.fn(async (request: OriginProviderExecutionRequest) => response(JSON.stringify({
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest) => response(JSON.stringify({
       edits: [{ path: 'src/agent/probe.ts', search: 'false', replacement: 'true' }],
     })));
     const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
@@ -84,7 +84,7 @@ describe('single-scope coding proposal protocol', () => {
   });
 
   it('makes the impossible array optional in the required tool contract for create-only proposals', async () => {
-    const execute = vi.fn(async () => response(JSON.stringify({
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest) => response(JSON.stringify({
       creates: [{ path: 'src/agent/probe.ts', content: 'export const probe = true;\n' }],
     })));
     const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
