@@ -6,6 +6,7 @@ import type { OriginLanguage } from '../../i18n';
 type OriginAnswerMarkdownProps = {
   content: string;
   language: OriginLanguage;
+  onRefine?: (prompt: string) => void;
 };
 
 function CopyButton({ text, language, label }: { text: string; language: OriginLanguage; label: string }) {
@@ -46,7 +47,7 @@ function AnswerCodeBlock({ children, language }: { children: ReactNode; language
  * external image loading. Semantic elements are styled in index.css so long
  * answers remain readable on narrow screens.
  */
-export default function OriginAnswerMarkdown({ content, language }: OriginAnswerMarkdownProps) {
+export default function OriginAnswerMarkdown({ content, language, onRefine }: OriginAnswerMarkdownProps) {
   return (
     <div className="origin-answer-markdown markdown-body">
       <ReactMarkdown
@@ -74,6 +75,17 @@ export default function OriginAnswerMarkdown({ content, language }: OriginAnswer
       </ReactMarkdown>
       {content.trim() && <div className="origin-answer-actions">
         <CopyButton text={content} language={language} label={language === 'en' ? 'Copy answer' : '回答をコピー'} />
+        {onRefine && <div className="origin-answer-refinements" role="group" aria-label={language === 'en' ? 'Refine this answer' : '回答を調整'}>
+          <button type="button" onClick={() => onRefine(language === 'en'
+            ? 'Expand your previous answer with concrete reasoning, relevant conditions, and practical steps. Address missing detail without repeating the summary. Keep unverified points explicit.'
+            : '直前の回答を、判断の理由・適用条件・実行手順まで具体的に掘り下げてください。要約の繰り返しではなく、不足している説明を補い、未確認の点は明示してください。')}>{language === 'en' ? 'More detail' : '詳しく説明'}</button>
+          <button type="button" onClick={() => onRefine(language === 'en'
+            ? 'Add a concrete, usable example to your previous answer that fits my request. Label any illustrative assumptions and do not present invented examples as actual results.'
+            : '直前の回答に、私の依頼に合った、そのまま使える具体例を加えてください。仮定や例示は明示し、架空の事例を実績として扱わないでください。')}>{language === 'en' ? 'Add an example' : '具体例を追加'}</button>
+          <button type="button" onClick={() => onRefine(language === 'en'
+            ? 'Summarize your previous answer into the key conclusion and next action, preserving essential conditions and uncertainty.'
+            : '直前の回答を、結論と次に行うことがすぐ分かる要点にまとめてください。判断に必要な条件と不確実性は残してください。')}>{language === 'en' ? 'Key points' : '要点だけ'}</button>
+        </div>}
       </div>}
     </div>
   );
