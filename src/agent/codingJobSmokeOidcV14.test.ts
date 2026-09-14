@@ -53,11 +53,24 @@ function tokenFixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe('V1.4 GitHub OIDC production smoke verifier', () => {
-  it('accepts only a correctly signed exact-repository main push token', async () => {
+  it('accepts a correctly signed exact-repository main push token', async () => {
     const { token, fetchImpl } = tokenFixture();
     const verified = await verifyCodingJobSmokeOidcV14(token, { fetchImpl, nowMs });
     expect(verified).toEqual({ sha, runId: '34699999999' });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts the same bounded workflow when GitHub triggers it on schedule', async () => {
+    const { token, fetchImpl } = tokenFixture({ event_name: 'schedule' });
+    const verified = await verifyCodingJobSmokeOidcV14(token, { fetchImpl, nowMs });
+    expect(verified).toEqual({ sha, runId: '34699999999' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects other trigger types before any JWKS request', async () => {
+    const { token, fetchImpl } = tokenFixture({ event_name: 'workflow_dispatch' });
+    await expect(verifyCodingJobSmokeOidcV14(token, { fetchImpl, nowMs })).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('rejects the wrong audience before any JWKS request', async () => {

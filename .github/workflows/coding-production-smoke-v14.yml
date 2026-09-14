@@ -17,6 +17,9 @@ on:
       - '.github/workflows/coding-job-worker-v14.yml'
       - '.github/workflows/coding-production-smoke-v14.yml'
       - 'supabase/migrations/*coding*'
+  schedule:
+    # Deliberately off the top of the hour. Scheduled runs use the current default-branch SHA.
+    - cron: '17 3 * * *'
 
 permissions:
   contents: read
@@ -63,6 +66,7 @@ jobs:
         shell: bash
         env:
           RELEASE_SHA: ${{ github.sha }}
+          SMOKE_EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           request_oidc() {
@@ -77,6 +81,15 @@ jobs:
           NODE
           }
 
+          record_scheduled_quota_skip() {
+            local code="$1"
+            if [ "$SMOKE_EVENT_NAME" = 'schedule' ] && [ "$code" = 'CODING_PROVIDER_RATE_LIMITED' ]; then
+              echo "Scheduled Coding smoke skipped because the free provider is rate-limited; no paid fallback was used."
+              printf '### ORIGIN Coding V1.4 scheduled watch\n\n- Result: skipped\n- Reason: `%s`\n- Paid fallback: disabled\n' "$code" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          }
+
           oidc_token="$(request_oidc)"
           printf '{"confirmSmoke":true,"releaseSha":"%s"}' "$RELEASE_SHA" > smoke-start-request.json
           start_status="$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
@@ -86,11 +99,14 @@ jobs:
             --data-binary @smoke-start-request.json \
             https://origin-personal.vercel.app/api/coding/v1.4/smoke)"
           if [ "$start_status" != '202' ]; then
-            node <<'NODE'
+            start_code="$(node <<'NODE'
           const fs = require('fs');
-          try { const v = JSON.parse(fs.readFileSync('smoke-start.json', 'utf8')); console.error('Coding smoke start failed:', String(v?.code || 'UNKNOWN')); }
-          catch { console.error('Coding smoke start failed with a non-JSON response.'); }
+          try { const v = JSON.parse(fs.readFileSync('smoke-start.json', 'utf8')); process.stdout.write(String(v?.code || 'UNKNOWN')); }
+          catch { process.stdout.write('UNKNOWN'); }
           NODE
+            )"
+            record_scheduled_quota_skip "$start_code"
+            echo "Coding smoke start failed: $start_code" >&2
             exit 1
           fi
           job_id="$(node <<'NODE'
@@ -158,14 +174,18 @@ jobs:
           }
           NODE
                 echo "ORIGIN Coding V1.4 production smoke verified: $job_id"
+                printf '### ORIGIN Coding V1.4 production smoke\n\n- Result: verified\n- Release: `%s`\n- Job: `%s`\n- Verification: build, lint, test, typecheck\n- Paid fallback: disabled\n' "$RELEASE_SHA" "$job_id" >> "$GITHUB_STEP_SUMMARY"
                 exit 0
                 ;;
               blocked|failed|cancelled)
-                node <<'NODE'
+                terminal_code="$(node <<'NODE'
           const fs = require('fs');
           const v = JSON.parse(fs.readFileSync('smoke-poll.json', 'utf8'));
-          console.error('Coding smoke terminal failure:', String(v?.job?.status || 'UNKNOWN'), String(v?.job?.resultCode || 'UNKNOWN'));
+          process.stdout.write(String(v?.job?.resultCode || 'UNKNOWN'));
           NODE
+                )"
+                record_scheduled_quota_skip "$terminal_code"
+                echo "Coding smoke terminal failure: $state $terminal_code" >&2
                 exit 1
                 ;;
               queued|leased|running|repairing)
