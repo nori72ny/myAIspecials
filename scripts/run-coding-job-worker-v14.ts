@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { CODING_CHECK_TIMEOUT_MS as CHECK_TIMEOUT_MS, CODING_WORKER_LEASE_SECONDS as WORKER_LEASE_SECONDS } from '../src/agent/codingWorkerTimingV14.js';
 import { copyTrustedCodingCheckoutV14 as copyTrustedCheckout } from '../src/agent/codingWorkerCheckoutV14.js';
+import { createBoundedCodingProviderExecuteV14 } from '../src/agent/codingProviderRetryV14.js';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -13,7 +14,7 @@ import { runCodingJobWorkerV14, type CodingJobResolvedTargetV14, type CodingJobW
 import { createCodingJobStoreFromEnvV14 } from '../src/agent/supabaseCodingJobStoreV14.js';
 import type { CodingCheck } from '../src/agent/codingSessionV14.js';
 import type { VerificationKind } from '../src/agent/verificationRunner.js';
-import { executeOriginProvider, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from '../src/legacy/originProviderClient.js';
+import { executeOriginProvider, type OriginProviderExecutionRequest } from '../src/legacy/originProviderClient.js';
 
 const IMAGE = 'node:22-bookworm-slim';
 // The container is limited to two CPUs, so Vitest must use the same bounded
@@ -36,25 +37,12 @@ function appendBounded(current: string, chunk: Buffer | string): string {
   return Buffer.from(next, 'utf8').subarray(0, MAX_DIAGNOSTIC_BYTES).toString('utf8') + '\n[OUTPUT_TRUNCATED]';
 }
 
-async function executeWithSafeProviderDiagnostics(
-  request: OriginProviderExecutionRequest,
-  env: NodeJS.ProcessEnv,
-): Promise<OriginProviderExecutionResult> {
-  try {
-    return await executeOriginProvider(request, env);
-  } catch (error) {
-    const code = error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
-      ? (error as { code: string }).code
-      : null;
-    if (code === 'PROVIDER_REQUIRED_TOOL_TRUNCATED') {
-      const candidate = request.requiredTool?.name;
-      const requiredTool = typeof candidate === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(candidate) ? candidate : 'unknown';
-      // This event deliberately excludes prompts, repository content, tool arguments,
-      // credentials, and provider response bodies. Tool names are static code-owned IDs.
-      console.warn(JSON.stringify({ event: 'coding-provider-required-tool-truncated', requiredTool, code }));
-    }
-    throw error;
-  }
+function logTruncatedRequiredTool(request: OriginProviderExecutionRequest, code: string): void {
+  const candidate = request.requiredTool?.name;
+  const requiredTool = typeof candidate === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(candidate) ? candidate : 'unknown';
+  // This event deliberately excludes prompts, repository content, tool arguments,
+  // credentials, and provider response bodies. Tool names are static code-owned IDs.
+  console.warn(JSON.stringify({ event: 'coding-provider-required-tool-truncated', requiredTool, code }));
 }
 
 async function dockerCheck(sourceRoot: string, dependencyRoot: string, kind: VerificationKind): Promise<CodingCheck> {
@@ -136,6 +124,7 @@ async function main(): Promise<void> {
       }
       return checks;
     };
+    const execute = createBoundedCodingProviderExecuteV14(executeOriginProvider, logTruncatedRequiredTool);
     const outcome = await runCodingJobWorkerV14(jobId, workerId, {
       store,
       resultStore,
@@ -143,7 +132,7 @@ async function main(): Promise<void> {
       verify,
       captureResult: (session, root) => buildCodingJobResultV14(session, checkout, root, executionEvidence),
       env: process.env,
-      execute: executeWithSafeProviderDiagnostics,
+      execute,
       leaseSeconds: WORKER_LEASE_SECONDS,
     });
     console.log(JSON.stringify({ jobId: outcome.jobId, state: outcome.state, code: outcome.code }));
