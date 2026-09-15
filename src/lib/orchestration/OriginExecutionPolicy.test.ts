@@ -11,6 +11,9 @@ const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
 const codingEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[1];
 const verifiedNow = Date.parse(verifiedEvidence.verifiedAt) + 1;
 const codingVerifiedNow = Date.parse(codingEvidence.verifiedAt) + 1;
+const afterAllEvidenceExpires = Math.max(
+  ...DEFAULT_ORIGIN_FREE_MODEL_CATALOG.map((entry) => Date.parse(entry.reviewAfter)),
+) + 1;
 
 describe("buildOriginExecutionPlan", () => {
   it("keeps inferred chat coding requests on the fixed verified OpenRouter model", () => {
@@ -88,8 +91,8 @@ describe("buildOriginExecutionPlan", () => {
     expect(buildOriginExecutionPlan(request, { openRouterConfigured: false }, undefined, { nowMs: verifiedNow })).toEqual({ ok: false, code: "FREE_PROVIDER_NOT_CONFIGURED", message: "明示的に無料と確認できるOpenRouter無料モデルが設定されていません。" });
   });
 
-  it("fails closed after the fixed OpenRouter model evidence expires", () => {
-    const result = buildOriginExecutionPlan(request, { openRouterConfigured: true }, undefined, { nowMs: Date.parse(verifiedEvidence.reviewAfter) + 1 });
+  it("fails closed after all fixed OpenRouter model evidence expires", () => {
+    const result = buildOriginExecutionPlan(request, { openRouterConfigured: true }, undefined, { nowMs: afterAllEvidenceExpires });
     expect(result).toEqual(expect.objectContaining({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" }));
   });
 
