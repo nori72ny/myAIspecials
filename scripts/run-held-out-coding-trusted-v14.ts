@@ -6,6 +6,7 @@ import path from 'node:path';
 import { runCodingAgentV14 } from '../src/agent/codingAgentV14.js';
 import { createBoundedCodingProviderExecuteV14 } from '../src/agent/codingProviderRetryV14.js';
 import { CODING_CHECK_TIMEOUT_MS } from '../src/agent/codingWorkerTimingV14.js';
+import { selectHeldOutPrivateTaskFromGzipB64V14 } from '../src/agent/heldOutCodingPrivateCorpusV14.js';
 import type { CodingCheck } from '../src/agent/codingSessionV14.js';
 import type { VerificationKind } from '../src/agent/verificationRunner.js';
 import { buildOriginExecutionPlan } from '../src/lib/orchestration/OriginExecutionPolicy.js';
@@ -104,17 +105,26 @@ async function isolatedCheck(sourceRoot: string, dependencyRoot: string, kind: V
   return { kind, ok: row.ok, exitCode: row.exitCode, timedOut: row.timedOut, diagnostic: row.output };
 }
 
-async function main(): Promise<void> {
-  const encoded = process.env.ORIGIN_HELDOUT_TASK_PACKET_B64 ?? '';
-  const dispatchedTaskId = process.env.ORIGIN_HELDOUT_TASK_ID ?? '';
-  if (!encoded || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(dispatchedTaskId)) throw new Error('HELD_OUT_HOSTED_INPUT_INVALID');
+function loadPrivatePacket(dispatchedTaskId: string): HeldOutPrivateTaskPacketV14 {
+  const encodedCorpus = process.env.ORIGIN_HELDOUT_CORPUS_GZIP_B64 ?? '';
+  const encodedPacket = process.env.ORIGIN_HELDOUT_TASK_PACKET_B64 ?? '';
+  if (!encodedCorpus && !encodedPacket) throw new Error('HELD_OUT_HOSTED_INPUT_INVALID');
+  if (encodedCorpus) return selectHeldOutPrivateTaskFromGzipB64V14(encodedCorpus, dispatchedTaskId);
   let packet: HeldOutPrivateTaskPacketV14;
-  try { packet = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')) as HeldOutPrivateTaskPacketV14; }
+  try { packet = JSON.parse(Buffer.from(encodedPacket, 'base64').toString('utf8')) as HeldOutPrivateTaskPacketV14; }
   catch { throw new Error('HELD_OUT_HOSTED_PACKET_INVALID'); }
   if (packet.id !== dispatchedTaskId) throw new Error('HELD_OUT_HOSTED_TASK_ID_MISMATCH');
-  // The full private packet contains the prompt and hidden tests. Retain it only
-  // in this controller's memory; do not let later provider calls or child
-  // processes inherit it through process.env.
+  return packet;
+}
+
+async function main(): Promise<void> {
+  const dispatchedTaskId = process.env.ORIGIN_HELDOUT_TASK_ID ?? '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(dispatchedTaskId)) throw new Error('HELD_OUT_HOSTED_INPUT_INVALID');
+  const packet = loadPrivatePacket(dispatchedTaskId);
+  // Private corpus/packet data contains prompts and hidden tests. Retain the
+  // selected packet only in controller memory; provider calls and child
+  // processes never inherit either encoded source through process.env.
+  delete process.env.ORIGIN_HELDOUT_CORPUS_GZIP_B64;
   delete process.env.ORIGIN_HELDOUT_TASK_PACKET_B64;
   const plannerEnv: NodeJS.ProcessEnv = {
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
