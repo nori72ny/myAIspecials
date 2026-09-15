@@ -1,4 +1,9 @@
-import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
+import {
+  executeOriginProvider,
+  type OriginProviderExecutionRequest,
+  type OriginProviderExecutionResult,
+} from '../legacy/originProviderClient.js';
+import { executeOriginCodingFreeFailoverV14 } from './codingFreeModelFailoverV14.js';
 import { createCodingProviderRetryBudgetV14, type CodingProviderRetryFamilyV14 } from './codingProviderRetryBudgetV14.js';
 
 export type CodingProviderExecuteV14 = (
@@ -16,6 +21,11 @@ const TRANSIENT_RETRY_CODES = new Set([
   'PROVIDER_UNAVAILABLE',
   'PROVIDER_INVALID_RESPONSE',
 ]);
+const FREE_MODEL_FAILOVER_CODES = new Set([
+  'PROVIDER_RATE_LIMITED',
+  'PROVIDER_TIMEOUT',
+  'PROVIDER_UNAVAILABLE',
+]);
 
 function providerCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null;
@@ -30,17 +40,36 @@ function retryFamily(code: string | null, request: OriginProviderExecutionReques
   return null;
 }
 
+function canUseFreeModelFailover(code: string | null, request: OriginProviderExecutionRequest): boolean {
+  return Boolean(
+    code &&
+    FREE_MODEL_FAILOVER_CODES.has(code) &&
+    request.requiredTool &&
+    request.plan.taskType === 'implementation' &&
+    request.plan.providerId === 'openrouter-free' &&
+    request.plan.freeOnly === true &&
+    request.plan.estimatedCostUsd === 0,
+  );
+}
+
 /**
  * Retry only explicitly classified provider failures using a small per-request
- * budget plus a hard session-wide cap. The exact trusted request/environment is
- * reused on every retry. Required-tool schema, provider/model routing, zero-cost
- * policy and paid-fallback prohibition are never relaxed.
+ * budget plus a hard session-wide cap. After those retries are exhausted, the
+ * production Coding executor may make one explicit attempt against a separately
+ * evidence-backed zero-cost coding model. That attempt keeps the same trusted
+ * prompt/tool contract and independently re-enforces ZDR, data-collection deny,
+ * max-price zero, exact model identity and zero reported cost. OpenRouter's own
+ * provider fallback remains disabled and paid fallback is never enabled.
  */
 export function createBoundedCodingProviderExecuteV14(
   execute: CodingProviderExecuteV14,
   onRetryableFailure?: (request: OriginProviderExecutionRequest, code: string) => void,
+  freeModelFailoverExecute: CodingProviderExecuteV14 | undefined = execute === executeOriginProvider
+    ? executeOriginCodingFreeFailoverV14
+    : undefined,
 ): CodingProviderExecuteV14 {
   const budget = createCodingProviderRetryBudgetV14();
+  const failoverUsed = new WeakSet<object>();
 
   return async (request, env) => {
     while (true) {
@@ -51,7 +80,17 @@ export function createBoundedCodingProviderExecuteV14(
         const family = retryFamily(code, request);
         if (!family) throw error;
         onRetryableFailure?.(request, code as string);
-        if (!budget.tryConsume(request as object, family)) throw error;
+        if (budget.tryConsume(request as object, family)) continue;
+
+        if (
+          freeModelFailoverExecute &&
+          canUseFreeModelFailover(code, request) &&
+          !failoverUsed.has(request as object)
+        ) {
+          failoverUsed.add(request as object);
+          return freeModelFailoverExecute(request, env);
+        }
+        throw error;
       }
     }
   };
