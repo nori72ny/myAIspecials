@@ -21,8 +21,10 @@ const TRANSIENT_RETRY_CODES = new Set([
   'PROVIDER_UNAVAILABLE',
   'PROVIDER_INVALID_RESPONSE',
 ]);
+// A 429 can represent OpenRouter's account-wide free-model daily ceiling. A
+// second model on the same account cannot bypass that ceiling, so model
+// failover is reserved for route/model availability failures only.
 const FREE_MODEL_FAILOVER_CODES = new Set([
-  'PROVIDER_RATE_LIMITED',
   'PROVIDER_TIMEOUT',
   'PROVIDER_UNAVAILABLE',
 ]);
@@ -56,7 +58,9 @@ function canUseFreeModelFailover(code: string | null, request: OriginProviderExe
  * Retry only explicitly classified provider failures using a small per-request
  * budget plus a hard session-wide cap. After those retries are exhausted, the
  * production Coding executor may make one explicit attempt against a separately
- * evidence-backed zero-cost coding model. That attempt keeps the same trusted
+ * evidence-backed zero-cost/ZDR coding model for timeout or availability
+ * failures. Rate limits never switch models because OpenRouter free-model daily
+ * quotas are account-wide. The alternate attempt keeps the same trusted
  * prompt/tool contract and independently re-enforces ZDR, data-collection deny,
  * max-price zero, exact model identity and zero reported cost. OpenRouter's own
  * provider fallback remains disabled and paid fallback is never enabled.
