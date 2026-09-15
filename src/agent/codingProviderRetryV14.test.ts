@@ -5,7 +5,6 @@ import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } fr
 import {
   buildOriginExecutionPlan,
   DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
-  ORIGIN_OPENROUTER_FREE_MODEL,
 } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 const selected = buildOriginExecutionPlan(
@@ -31,8 +30,8 @@ const result: OriginProviderExecutionResult = {
   usage: { costUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {
-    requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
-    servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+    requestedModel: selected.plan.modelId,
+    servedModel: selected.plan.modelId,
     provider: 'OpenRouter',
     strategy: 'adaptive-primary',
     attempt: 1,

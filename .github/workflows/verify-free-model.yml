@@ -56,20 +56,29 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const evidence = JSON.parse(fs.readFileSync(process.env.ORIGIN_FREE_MODEL_EVIDENCE_PATH, 'utf8'));
-          if (evidence.modelId !== 'inclusionai/ling-3.0-flash-sante:free'
-            || evidence.pricing.prompt !== '0'
-            || evidence.pricing.completion !== '0'
-            || Date.parse(evidence.reviewAfter) <= Date.now()) {
-            throw new Error('Free-model evidence is invalid, paid, or already expired.');
+          const expected = new Set([
+            'inclusionai/ling-3.0-flash-sante:free',
+            'inclusionai/ling-3.0-flash:free',
+          ]);
+          if (!Array.isArray(evidence.models) || evidence.models.length !== expected.size) {
+            throw new Error('Free-model evidence does not contain the exact required model set.');
+          }
+          for (const model of evidence.models) {
+            if (!expected.delete(model.modelId)
+              || model.pricing?.prompt !== '0'
+              || model.pricing?.completion !== '0') {
+              throw new Error('A required free model is missing, duplicated, or no longer verified at zero price.');
+            }
+          }
+          if (expected.size !== 0 || Date.parse(evidence.reviewAfter) <= Date.now()) {
+            throw new Error('Free-model evidence is incomplete or already expired.');
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `review_after=${evidence.reviewAfter}\n`);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
             '## Fixed free-model verification',
-            `- Model: ${evidence.modelId}`,
-            `- Prompt price: $${evidence.pricing.prompt}.00`,
-            `- Completion price: $${evidence.pricing.completion}.00`,
+            ...evidence.models.map((model) => `- Model: ${model.modelId} — prompt $${model.pricing.prompt}.00 / completion $${model.pricing.completion}.00`),
             `- Verified at: ${evidence.verifiedAt}`,
-            `- Evidence valid through: ${evidence.reviewAfter}`,
+            `- Shared evidence valid through: ${evidence.reviewAfter}`,
             `- Official source: ${evidence.sourceUrl}`,
             `- Catalog refreshed: ${evidence.updated}`,
             '',
@@ -99,9 +108,9 @@ jobs:
           git add src/lib/orchestration/OriginFreeModelCatalog.ts
           git commit -m 'chore: refresh verified free-model evidence'
           git push origin "$branch"
-          gh pr create --base main --head "$branch" --title 'chore: refresh verified free-model evidence' --body 'Automated fail-closed verification confirmed the fixed OpenRouter model still reports zero prompt and completion pricing. Full CI must pass before merge.'
+          gh pr create --base main --head "$branch" --title 'chore: refresh verified free-model evidence' --body 'Automated fail-closed verification confirmed both fixed OpenRouter model profiles still report zero prompt and completion pricing. Full CI must pass before merge.'
       - name: Mark paid, unavailable, or expired evidence as unsafe
         if: failure()
         run: |
-          echo '::error::Free-model evidence could not be proven at $0.00. Paid fallback remains disabled and expired runtime evidence fails closed.'
+          echo '::error::Required free-model evidence could not be proven at $0.00. Paid fallback remains disabled and expired runtime evidence fails closed.'
           echo '### Free-model verification failed; paid fallback remains disabled.' >> "$GITHUB_STEP_SUMMARY"

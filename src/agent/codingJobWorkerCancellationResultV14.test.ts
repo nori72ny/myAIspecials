@@ -8,7 +8,7 @@ import { runCodingJobWorkerV14, type CodingJobLeaseV14 } from './codingJobWorker
 import type { CodingCheck } from './codingSessionV14.js';
 import type { CodingJobPublicRecordV14 } from './supabaseCodingJobStoreV14.js';
 import type { OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
-import { ORIGIN_OPENROUTER_FREE_MODEL, DEFAULT_ORIGIN_PROVIDER_DATA_POLICY } from '../lib/orchestration/OriginExecutionPolicy.js';
+import { ORIGIN_OPENROUTER_CODING_FREE_MODEL, DEFAULT_ORIGIN_PROVIDER_DATA_POLICY } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 const roots: string[] = [];
 const kinds = ['typecheck', 'lint', 'test', 'build'] as const;
@@ -53,8 +53,8 @@ const execute = vi.fn(async (): Promise<OriginProviderExecutionResult> => ({
   usage: { costUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {
-    requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
-    servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+    requestedModel: ORIGIN_OPENROUTER_CODING_FREE_MODEL,
+    servedModel: ORIGIN_OPENROUTER_CODING_FREE_MODEL,
     provider: 'OpenRouter',
     strategy: 'adaptive-primary',
     attempt: 1,

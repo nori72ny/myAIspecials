@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createCodingScoutV14, parseCodingScopeProposal } from './codingScoutV14.js';
 import type { CodingDiscoveryContext } from './codingSessionV14.js';
 import type { OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
-import { ORIGIN_OPENROUTER_FREE_MODEL, DEFAULT_ORIGIN_PROVIDER_DATA_POLICY } from '../lib/orchestration/OriginExecutionPolicy.js';
+import { ORIGIN_OPENROUTER_CODING_FREE_MODEL, DEFAULT_ORIGIN_PROVIDER_DATA_POLICY } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 const context: CodingDiscoveryContext = {
   goal: 'Add a reusable status badge and wire it into the app',
@@ -20,8 +20,8 @@ const response = (): OriginProviderExecutionResult => ({
   usage: { costUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {
-    requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
-    servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+    requestedModel: ORIGIN_OPENROUTER_CODING_FREE_MODEL,
+    servedModel: ORIGIN_OPENROUTER_CODING_FREE_MODEL,
     provider: 'OpenRouter',
     strategy: 'adaptive-primary',
     attempt: 1,
