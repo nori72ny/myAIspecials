@@ -4,23 +4,57 @@ on:
   workflow_dispatch:
     inputs:
       task_id:
-        description: Opaque evaluator-owned held-out task id
-        required: true
+        description: Optional opaque task id; leave blank to run the full private corpus
+        required: false
         type: string
 
 permissions:
   contents: read
 
-concurrency:
-  group: origin-held-out-${{ inputs.task_id }}
-  cancel-in-progress: false
-
 jobs:
-  benchmark:
-    # Held-out packets/corpora and provider credentials are never available to
-    # PR-triggered jobs. This workflow is manual-only and accepts only an opaque
-    # task id as public input.
+  select-tasks:
     if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      task_ids: ${{ steps.select.outputs.task_ids }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Prepare trusted selector
+        shell: bash
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Select opaque task ids
+        id: select
+        shell: bash
+        env:
+          ORIGIN_HELDOUT_TASK_FILTER: ${{ inputs.task_id }}
+          ORIGIN_HELDOUT_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_CORPUS_GZIP_B64 }}
+          ORIGIN_HELDOUT_TASK_PACKET_B64: ${{ secrets.ORIGIN_HELDOUT_TASK_PACKET_B64 }}
+        run: |
+          set -euo pipefail
+          task_ids=$(node --import tsx scripts/select-held-out-task-ids-v14.ts)
+          echo "task_ids=$task_ids" >> "$GITHUB_OUTPUT"
+
+  benchmark:
+    needs: select-tasks
+    if: github.event.repository.private == false
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        task_id: ${{ fromJSON(needs.select-tasks.outputs.task_ids) }}
+    concurrency:
+      group: origin-held-out-${{ matrix.task_id }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -28,14 +62,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Validate opaque task id
-        shell: bash
-        env:
-          TASK_ID: ${{ inputs.task_id }}
-        run: |
-          set -euo pipefail
-          [[ "$TASK_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$ ]] || exit 2
 
       - name: Prepare trusted benchmark controller and isolated verifier
         shell: bash
@@ -61,7 +87,7 @@ jobs:
       - name: Run trusted held-out benchmark
         shell: bash
         env:
-          ORIGIN_HELDOUT_TASK_ID: ${{ inputs.task_id }}
+          ORIGIN_HELDOUT_TASK_ID: ${{ matrix.task_id }}
           ORIGIN_HELDOUT_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_CORPUS_GZIP_B64 }}
           ORIGIN_HELDOUT_TASK_PACKET_B64: ${{ secrets.ORIGIN_HELDOUT_TASK_PACKET_B64 }}
           ORIGIN_HELDOUT_PARTICIPANT: ORIGIN
@@ -75,7 +101,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: origin-held-out-${{ inputs.task_id }}-${{ github.run_id }}
+          name: origin-held-out-${{ matrix.task_id }}-${{ github.run_id }}
           path: |
             test-results/held-out-task-public.json
             test-results/held-out-run.json
