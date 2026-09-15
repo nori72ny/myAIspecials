@@ -52,7 +52,10 @@ function zero(value: unknown): boolean {
 }
 
 function assertZeroCostPayload(data: Record<string, any>): void {
-  if (!zero(data.usage?.cost)) fail('PROVIDER_COST_UNVERIFIED');
+  const reportedCost = data.usage?.cost;
+  if (typeof reportedCost !== 'number' || !Number.isFinite(reportedCost)) fail('PROVIDER_COST_UNVERIFIED');
+  if (!zero(reportedCost)) fail('PROVIDER_POLICY_VIOLATION');
+
   const upstream = data.usage?.cost_details?.upstream_inference_cost;
   if (upstream !== undefined && !zero(Number(upstream))) fail('PROVIDER_POLICY_VIOLATION');
   if (data.usage?.is_byok === true) fail('PROVIDER_POLICY_VIOLATION');
