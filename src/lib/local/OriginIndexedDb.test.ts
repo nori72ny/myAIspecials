@@ -4,13 +4,13 @@ import { isQuotaExceeded, migrateOriginLegacySnapshot, type OriginPersistedSnaps
 const snapshot: OriginPersistedSnapshot = { version: 1, messages: [{ id: 'm-1', role: 'user', content: 'persist me' }], sessions: [], artifacts: [{ id: 'a-1', content: '<main>artifact</main>' }], updatedAt: 1 };
 
 describe('OriginIndexedDb migration boundary', () => {
-  it('uses a durable IndexedDB snapshot without mutating legacy data', async () => {
+  it('uses a durable IndexedDB snapshot and cleans the older legacy journal', async () => {
     const existing = { ...snapshot, updatedAt: 2 };
     const adapter: OriginStorageAdapter = { load: vi.fn(async () => existing), save: vi.fn(async () => 'saved' as const) };
     const removeLegacy = vi.fn();
     await expect(migrateOriginLegacySnapshot(adapter, snapshot, removeLegacy)).resolves.toEqual({ snapshot: existing, source: 'indexeddb' });
     expect(adapter.save).not.toHaveBeenCalled();
-    expect(removeLegacy).not.toHaveBeenCalled();
+    expect(removeLegacy).toHaveBeenCalledOnce();
   });
 
   it('preserves an existing IndexedDB snapshot when no legacy storage exists', async () => {
