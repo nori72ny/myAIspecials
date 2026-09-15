@@ -44,6 +44,8 @@ export type HeldOutCodingRunV14 = {
   durationMs: number;
   costUsd: number;
   terminalStatus: 'verified' | 'blocked' | 'failed' | 'cancelled';
+  /** Stable controller code only; never contains model text, prompts, tests, or diagnostics. */
+  terminalCode?: string;
   attempts: HeldOutCodingAttemptV14[];
   finalChangedPaths: string[];
   gitPublished: boolean;
@@ -102,6 +104,7 @@ function validateRun(run: HeldOutCodingRunV14): void {
   if (!run.taskId?.trim() || !validSha256(run.taskDigest) || !/^[a-f0-9]{40}$/i.test(run.baseSha)) throw new Error('HELD_OUT_RUN_IDENTITY_INVALID');
   if (!run.participant?.trim() || !run.provider?.trim() || !run.model?.trim()) throw new Error('HELD_OUT_RUN_PROVENANCE_REQUIRED');
   if (!Number.isFinite(run.durationMs) || run.durationMs < 0 || !Number.isFinite(run.costUsd) || run.costUsd < 0) throw new Error('HELD_OUT_RUN_METRICS_INVALID');
+  if (run.terminalCode !== undefined && !/^CODING_[A-Z0-9_]{1,96}$/.test(run.terminalCode)) throw new Error('HELD_OUT_TERMINAL_CODE_INVALID');
   if (!Array.isArray(run.attempts) || run.attempts.length < 1 || run.attempts.length > 8) throw new Error('HELD_OUT_ATTEMPTS_INVALID');
   if (!Array.isArray(run.finalChangedPaths) || !uniquePaths(run.finalChangedPaths)) throw new Error('HELD_OUT_CHANGED_PATHS_INVALID');
   for (let index = 0; index < run.attempts.length; index += 1) {

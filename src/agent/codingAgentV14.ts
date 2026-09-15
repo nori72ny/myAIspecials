@@ -1,5 +1,6 @@
 import { createCodingPlannerV14 } from './codingPlannerV14.js';
 import { createCodingNavigatorV14 } from './codingNavigatorV14.js';
+import { augmentCodingDiscoveryContextV14 } from './explicitCodingPathHintsV14.js';
 import { runCodingSessionV14, type CodingSessionDependencies, type CodingSessionRequest } from './codingSessionV14.js';
 
 /**
@@ -13,8 +14,11 @@ export function runCodingAgentV14(
   request: CodingSessionRequest,
   adapters: { verify: CodingSessionDependencies['verify']; plannerOptions?: Parameters<typeof createCodingPlannerV14>[0] },
 ) {
+  const navigate = createCodingNavigatorV14(request.root, adapters.plannerOptions);
   return runCodingSessionV14(request, {
-    discover: createCodingNavigatorV14(request.root, adapters.plannerOptions),
+    // runCodingSessionV14 invokes discovery only after validating the trusted,
+    // dedicated workspace. Keep explicit-path probing inside that boundary.
+    discover: async context => navigate(await augmentCodingDiscoveryContextV14(request.root, context)),
     propose: createCodingPlannerV14(adapters.plannerOptions),
     verify: adapters.verify,
   });

@@ -157,6 +157,7 @@ export function buildHeldOutCodingRunFromSessionV14(input: {
     durationMs: input.outcome.durationMs,
     costUsd: input.outcome.costUsd,
     terminalStatus,
+    terminalCode: session.code,
     attempts: attemptsFromSession(session, input.hiddenTestsOk),
     finalChangedPaths: [...session.changedPaths],
     gitPublished: session.gitPublished,
