@@ -7,11 +7,13 @@ import {
 import { sanitizePreEgress, sanitizePreEgressPayload } from '../services/securitySanitizer.js';
 import { ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY } from '../legacy/zeroCostRoutingPolicy.js';
 
-export const ORIGIN_CODING_FREE_FAILOVER_MODEL_V14 = 'cohere/north-mini-code:free' as const;
-export const ORIGIN_CODING_FREE_FAILOVER_SOURCE_V14 = 'https://openrouter.ai/cohere/north-mini-code:free' as const;
-// UTC instant when the failover evidence was introduced and reviewed in commit cba879dd.
-export const ORIGIN_CODING_FREE_FAILOVER_VERIFIED_AT_V14 = '2026-09-15T21:35:40.000Z' as const;
-export const ORIGIN_CODING_FREE_FAILOVER_REVIEW_AFTER_V14 = '2026-09-22T21:35:40.000Z' as const;
+export const ORIGIN_CODING_FREE_FAILOVER_MODEL_V14 = 'inclusionai/ling-3.0-flash-vl:free' as const;
+export const ORIGIN_CODING_FREE_FAILOVER_SOURCE_V14 = 'https://openrouter.ai/inclusionai/ling-3.0-flash-vl:free' as const;
+// Verified against OpenRouter's authenticated zdr=true model catalog and strict
+// ZDR/tool-call probe on 2026-09-15. The probe reached the eligible route and
+// was rejected only by the account-wide free-model daily quota, not by ZDR.
+export const ORIGIN_CODING_FREE_FAILOVER_VERIFIED_AT_V14 = '2026-09-15T23:13:30.000Z' as const;
+export const ORIGIN_CODING_FREE_FAILOVER_REVIEW_AFTER_V14 = '2026-09-22T23:13:30.000Z' as const;
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const TIMEOUT_MS = 6_000;
@@ -97,7 +99,6 @@ export async function executeOriginCodingFreeFailoverV14(
     model: ORIGIN_CODING_FREE_FAILOVER_MODEL_V14,
     messages,
     max_tokens: 8192,
-    reasoning: { effort: 'minimal', exclude: true },
     tools: [{ type: 'function', function: request.requiredTool }],
     tool_choice: { type: 'function', function: { name: request.requiredTool.name } },
     provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY,

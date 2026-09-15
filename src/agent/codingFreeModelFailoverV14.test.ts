@@ -109,8 +109,8 @@ describe('V1.4 explicit free coding model failover', () => {
       .rejects.toMatchObject({ code: 'PROVIDER_ROUTING_UNVERIFIED' });
   });
 
-  it('uses the alternate free model once after bounded primary rate-limit retries are exhausted', async () => {
-    const primary = vi.fn().mockRejectedValue(failure('PROVIDER_RATE_LIMITED'));
+  it('uses the alternate ZDR free model once after bounded primary availability retries are exhausted', async () => {
+    const primary = vi.fn().mockRejectedValue(failure('PROVIDER_UNAVAILABLE'));
     const alternate = vi.fn().mockResolvedValue(fallbackResult);
     const wrapped = createBoundedCodingProviderExecuteV14(primary, undefined, alternate);
 
@@ -118,6 +118,16 @@ describe('V1.4 explicit free coding model failover', () => {
     expect(primary).toHaveBeenCalledTimes(2);
     expect(alternate).toHaveBeenCalledTimes(1);
     expect(alternate.mock.calls[0][0]).toBe(request);
+  });
+
+  it('does not switch models after an account-wide free-model rate limit', async () => {
+    const primary = vi.fn().mockRejectedValue(failure('PROVIDER_RATE_LIMITED'));
+    const alternate = vi.fn().mockResolvedValue(fallbackResult);
+    const wrapped = createBoundedCodingProviderExecuteV14(primary, undefined, alternate);
+
+    await expect(wrapped(request, {})).rejects.toMatchObject({ code: 'PROVIDER_RATE_LIMITED' });
+    expect(primary).toHaveBeenCalledTimes(2);
+    expect(alternate).not.toHaveBeenCalled();
   });
 
   it('never switches model for policy failures or required-tool contract failures', async () => {
