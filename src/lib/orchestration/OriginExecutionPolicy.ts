@@ -1,19 +1,11 @@
 import { selectOriginCapability, type OriginCapability, type OriginCapabilityDecision } from "./OriginCapabilityRouter.js";
 import { classifyTask, type AITaskRequest, type AITaskType } from "./MultiAIOrchestrator.js";
-import {
-  DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
-  ORIGIN_CODING_OPENROUTER_FREE_MODEL,
-  ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-  selectCurrentOriginFreeModel,
-  type OriginFreeModelEvidence,
-  type OriginFreeModelId,
-} from "./OriginFreeModelCatalog.js";
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG, ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, selectCurrentOriginFreeModel, type OriginFreeModelEvidence } from "./OriginFreeModelCatalog.js";
 
 export const ORIGIN_OPENROUTER_FREE_PROVIDER_ID = "openrouter-free" as const;
 export const ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID = "google-ai-studio-free" as const;
 export const ORIGIN_GROQ_FREE_PROVIDER_ID = "groq-free" as const;
 export const ORIGIN_OPENROUTER_FREE_MODEL = ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
-export const ORIGIN_OPENROUTER_CODING_FREE_MODEL = ORIGIN_CODING_OPENROUTER_FREE_MODEL;
 export const ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL = "gemini-2.5-flash" as const;
 export const ORIGIN_GROQ_FREE_MODEL = "llama-3.3-70b-versatile" as const;
 
@@ -61,10 +53,6 @@ function chooseProvider(_taskType: AITaskType, _availability: OriginExecutionAva
   return ORIGIN_OPENROUTER_FREE_PROVIDER_ID;
 }
 
-function chooseOpenRouterModel(taskType: AITaskType): OriginFreeModelId {
-  return taskType === "implementation" ? ORIGIN_OPENROUTER_CODING_FREE_MODEL : ORIGIN_OPENROUTER_FREE_MODEL;
-}
-
 function parseEvidence(evidence: OriginProviderFreeEvidence, providerId: OriginExecutionProviderId, nowMs: number): OriginExecutionPlanResult | null {
   const verifiedAt = Date.parse(evidence.verifiedAt);
   const reviewAfter = Date.parse(evidence.reviewAfter);
@@ -73,9 +61,9 @@ function parseEvidence(evidence: OriginProviderFreeEvidence, providerId: OriginE
   return null;
 }
 
-function resolveProviderEvidence(providerId: OriginExecutionProviderId, planningOptions: OriginExecutionPlanningOptions, nowMs: number, modelId: OriginFreeModelId): OriginProviderFreeEvidence | OriginExecutionPlanResult {
+function resolveProviderEvidence(providerId: OriginExecutionProviderId, planningOptions: OriginExecutionPlanningOptions, nowMs: number): OriginProviderFreeEvidence | OriginExecutionPlanResult {
   if (providerId === ORIGIN_OPENROUTER_FREE_PROVIDER_ID) {
-    const result = selectCurrentOriginFreeModel(planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG, nowMs, modelId);
+    const result = selectCurrentOriginFreeModel(planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG, nowMs);
     if ("model" in result) return { ...result.model, providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID };
     return { ok: false, code: result.code, message: result.message };
   }
@@ -98,10 +86,10 @@ export function buildOriginExecutionPlan(request: OriginExecutionRequest, availa
   const capabilityDecision = selectOriginCapability(request.goal, request.capability);
   const taskType = classifyTask(request);
   const providerId = chooseProvider(taskType, availability);
-  const modelId = chooseOpenRouterModel(taskType);
-  const evidence = resolveProviderEvidence(providerId, planningOptions, nowMs, modelId);
+  const evidence = resolveProviderEvidence(providerId, planningOptions, nowMs);
   if ("ok" in evidence && evidence.ok === false) return evidence;
   const modelEvidence = evidence as OriginProviderFreeEvidence;
+  const modelId = ORIGIN_OPENROUTER_FREE_MODEL;
   const providerDataPolicy = DEFAULT_ORIGIN_PROVIDER_DATA_POLICY;
-  return { ok: true, plan: { providerId, providerLabel: taskType === "implementation" ? "ORIGIN Coding 無料AI" : "ORIGIN 無料AI", modelId, taskType, capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: policy.timeoutMs, requiresOwnerApproval: false, reason: `依頼を capability「${capabilityDecision.capability}」/ task「${taskType}」としてローカル分類し、用途別に検証済みのOpenRouter無料モデルのみを選択します。Provider自身の無料利用証拠が期限内である場合のみ実行します。`, providerDataPolicy, modelEvidence } };
+  return { ok: true, plan: { providerId, providerLabel: "ORIGIN 無料AI", modelId, taskType, capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: policy.timeoutMs, requiresOwnerApproval: false, reason: `依頼を capability「${capabilityDecision.capability}」/ task「${taskType}」としてローカル分類し、検証済みのOpenRouter無料モデルのみを選択します。Provider自身の無料利用証拠が期限内である場合のみ実行します。`, providerDataPolicy, modelEvidence } };
 }
