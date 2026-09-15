@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createCodingPlannerV14, parseCodingProposal } from './codingPlannerV14.js';
 import type { CodingContext } from './codingSessionV14.js';
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
-import { DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, ORIGIN_OPENROUTER_FREE_MODEL } from '../lib/orchestration/OriginExecutionPolicy.js';
+import { DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, ORIGIN_OPENROUTER_CODING_FREE_MODEL } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 function response(text: string): OriginProviderExecutionResult {
   return {
@@ -12,8 +12,8 @@ function response(text: string): OriginProviderExecutionResult {
     usage: { costUsd: 0 },
     providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
     routingEvidence: {
-      requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
-      servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+      requestedModel: ORIGIN_OPENROUTER_CODING_FREE_MODEL,
+      servedModel: ORIGIN_OPENROUTER_CODING_FREE_MODEL,
       provider: 'OpenRouter',
       strategy: 'adaptive-primary',
       attempt: 1,
