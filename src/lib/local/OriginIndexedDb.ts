@@ -82,10 +82,13 @@ export type OriginMigrationResult = { snapshot: OriginPersistedSnapshot | null; 
 
 export const migrateOriginLegacySnapshot = async (
   adapter: OriginStorageAdapter,
-  legacySnapshot: OriginPersistedSnapshot,
+  legacySnapshot: OriginPersistedSnapshot | null,
   removeLegacy: () => void,
 ): Promise<OriginMigrationResult> => {
   const existing = await adapter.load();
+  // Absence of legacy storage means "nothing to migrate", not "an empty, newer snapshot".
+  // Returning the durable snapshot without writing prevents reload hydration from erasing history.
+  if (!legacySnapshot) return existing ? { snapshot: existing, source: 'indexeddb' } : { snapshot: null, source: 'memory' };
   // A synchronous localStorage journal may be newer than the last completed
   // IndexedDB transaction when a tab is reloaded immediately after a message.
   // Prefer and durably migrate that newer journal instead of restoring stale data.
