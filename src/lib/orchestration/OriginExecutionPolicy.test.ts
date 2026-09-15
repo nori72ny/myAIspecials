@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL } from "./OriginExecutionPolicy";
+import {
+  buildOriginExecutionPlan,
+  ORIGIN_OPENROUTER_CODING_FREE_MODEL,
+  ORIGIN_OPENROUTER_FREE_MODEL,
+} from "./OriginExecutionPolicy";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "./OriginFreeModelCatalog";
 
 const request = { goal: "認証処理の安全性を確認してください" };
 const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
+const codingEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[1];
 const verifiedNow = Date.parse(verifiedEvidence.verifiedAt) + 1;
+const codingVerifiedNow = Date.parse(codingEvidence.verifiedAt) + 1;
 
 describe("buildOriginExecutionPlan", () => {
-  it("always selects the verified OpenRouter free route when it is configured", () => {
+  it("keeps inferred chat coding requests on the fixed verified OpenRouter model", () => {
     const result = buildOriginExecutionPlan({ goal: "認証処理を実装してください", requiresCodeChanges: true }, { openRouterConfigured: true, googleAiStudioConfigured: true, groqConfigured: true }, undefined, { nowMs: verifiedNow });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -18,6 +24,31 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.capabilityDecision).toEqual({ capability: "coding", reason: "keyword", confidence: "high" });
     expect(result.plan.providerDataPolicy).toEqual({ allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true });
     expect(result.plan.modelEvidence.sourceUrl).toContain("openrouter.ai");
+  });
+
+  it("uses the dedicated verified coding model only for explicit trusted V1.4 implementation requests", () => {
+    const result = buildOriginExecutionPlan(
+      { goal: "認証処理を実装してください", taskType: "implementation", requiresCodeChanges: true },
+      { openRouterConfigured: true },
+      undefined,
+      { nowMs: codingVerifiedNow },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_CODING_FREE_MODEL);
+    expect(result.plan.providerLabel).toBe("ORIGIN Coding 無料AI");
+    expect(result.plan.providerDataPolicy).toEqual({ allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true });
+    expect(result.plan.modelEvidence.sourceUrl).toBe("https://openrouter.ai/inclusionai/ling-3.0-flash:free");
+  });
+
+  it("fails closed instead of falling back to the chat model when coding evidence is unavailable", () => {
+    const result = buildOriginExecutionPlan(
+      { goal: "認証処理を実装してください", taskType: "implementation", requiresCodeChanges: true },
+      { openRouterConfigured: true },
+      undefined,
+      { freeModelCatalog: [verifiedEvidence], nowMs: codingVerifiedNow },
+    );
+    expect(result).toEqual(expect.objectContaining({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" }));
   });
 
   it("uses OpenRouter for current-information and research tasks", () => {
