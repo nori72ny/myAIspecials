@@ -36,10 +36,11 @@ jobs:
           set -euo pipefail
           [[ "$TASK_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$ ]] || exit 2
 
-      - name: Prepare trusted benchmark controller
+      - name: Prepare trusted benchmark controller and isolated verifier
         shell: bash
         run: |
           set -euo pipefail
+          docker pull node:22-bookworm-slim
           npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Validate server-only benchmark configuration
