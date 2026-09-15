@@ -13,7 +13,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await page.goto('/');
       await page.getByTestId('origin-home-request').fill('開発の進め方を説明してください');
       await page.getByTestId('start-request-button').click();
-      const detail = page.getByRole('button', { name: '詳しく説明', exact: true });
+      const detail = page.getByRole('button', { name: '実務レベルに深掘り', exact: true });
       await expect(detail).toBeVisible();
       await page.getByTestId('origin-chat-request').fill('まだ送信しないメモ');
       await expect(detail).toHaveCount(0);
@@ -23,7 +23,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(page.getByText('具体的な手順を補足しました。')).toBeVisible();
       expect(requests).toHaveLength(2);
       expect(requests[1].messages.some(message => message.role === 'assistant' && message.content.includes('要件を確認'))).toBe(true);
-      expect(requests[1].messages.at(-1)?.content).toContain('判断の理由・適用条件・実行手順');
+      expect(requests[1].messages.at(-1)?.content).toContain('判断基準');
+      expect(requests[1].messages.at(-1)?.content).toContain('開発なら使える変更内容・組込み方・テスト・制約');
       await expect(page.getByRole('group', { name: '回答を調整', exact: true })).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });
