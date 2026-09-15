@@ -196,14 +196,37 @@ jobs:
         run: npm ci
       - name: Install production browser
         run: npx playwright install --force chromium
-      - name: Wait for and verify matching production, live upstream streaming, and multi-turn context
+      - name: Verify matching production and classify live upstream availability
         env:
           ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
           ORIGIN_EXPECTED_SHA: ${{ github.sha }}
           ORIGIN_DEPLOY_TIMEOUT_MS: "600000"
           ORIGIN_DEPLOY_POLL_INTERVAL_MS: "10000"
           ORIGIN_REQUEST_TIMEOUT_MS: "25000"
-        run: node scripts/verify-production-deployment.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          node scripts/verify-production-deployment.mjs > production-verification.out 2> production-verification.err
+          verification_exit=$?
+          set -e
+          cat production-verification.out
+          set +e
+          classification="$(node scripts/classify-production-verification-result.mjs "$verification_exit" production-verification.err)"
+          classification_exit=$?
+          set -e
+          if [ "$classification_exit" -ne 0 ]; then
+            cat production-verification.err >&2
+            exit "$verification_exit"
+          fi
+          echo "$classification"
+          availability="$(CLASSIFICATION="$classification" node -e 'const v=JSON.parse(process.env.CLASSIFICATION); process.stdout.write(String(v.upstreamAvailability))')"
+          if [ "$availability" = 'degraded' ]; then
+            echo "::warning title=Free provider quota exhausted::Production release is healthy, but live AI availability is degraded because the reviewed free provider returned PROVIDER_RATE_LIMITED. Paid fallback remains disabled."
+            printf '### ORIGIN production verification\n\n- Release: verified\n- Live AI availability: degraded\n- Provider code: `PROVIDER_RATE_LIMITED`\n- Paid fallback: disabled\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '### ORIGIN production verification\n\n- Release: verified\n- Live AI availability: available\n- Paid fallback: disabled\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Verify production PWA, History, New Chat, failure UX, and recovery
         env:
           ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
