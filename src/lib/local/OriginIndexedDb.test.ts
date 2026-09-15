@@ -13,6 +13,23 @@ describe('OriginIndexedDb migration boundary', () => {
     expect(removeLegacy).not.toHaveBeenCalled();
   });
 
+  it('preserves an existing IndexedDB snapshot when no legacy storage exists', async () => {
+    const existing = { ...snapshot, sessions: [{ id: 'saved-session' }], updatedAt: 5 };
+    const adapter: OriginStorageAdapter = { load: vi.fn(async () => existing), save: vi.fn(async () => 'saved' as const) };
+    const removeLegacy = vi.fn();
+    await expect(migrateOriginLegacySnapshot(adapter, null, removeLegacy)).resolves.toEqual({ snapshot: existing, source: 'indexeddb' });
+    expect(adapter.save).not.toHaveBeenCalled();
+    expect(removeLegacy).not.toHaveBeenCalled();
+  });
+
+  it('does not synthesize or save an empty snapshot when neither storage source exists', async () => {
+    const adapter: OriginStorageAdapter = { load: vi.fn(async () => null), save: vi.fn(async () => 'saved' as const) };
+    const removeLegacy = vi.fn();
+    await expect(migrateOriginLegacySnapshot(adapter, null, removeLegacy)).resolves.toEqual({ snapshot: null, source: 'memory' });
+    expect(adapter.save).not.toHaveBeenCalled();
+    expect(removeLegacy).not.toHaveBeenCalled();
+  });
+
   it('removes localStorage legacy keys only after IndexedDB confirms a durable write', async () => {
     const adapter: OriginStorageAdapter = { load: vi.fn(async () => null), save: vi.fn(async () => 'saved' as const) };
     const removeLegacy = vi.fn();
