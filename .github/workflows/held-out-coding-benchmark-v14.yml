@@ -17,8 +17,9 @@ concurrency:
 
 jobs:
   benchmark:
-    # Held-out packets and provider credentials are never available to PR-triggered jobs.
-    # This workflow is manual-only and accepts only an opaque task id as public input.
+    # Held-out packets/corpora and provider credentials are never available to
+    # PR-triggered jobs. This workflow is manual-only and accepts only an opaque
+    # task id as public input.
     if: github.event.repository.private == false
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -46,17 +47,22 @@ jobs:
       - name: Validate server-only benchmark configuration
         shell: bash
         env:
+          ORIGIN_HELDOUT_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_CORPUS_GZIP_B64 }}
           ORIGIN_HELDOUT_TASK_PACKET_B64: ${{ secrets.ORIGIN_HELDOUT_TASK_PACKET_B64 }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
-          test -n "$ORIGIN_HELDOUT_TASK_PACKET_B64"
+          if [ -z "$ORIGIN_HELDOUT_CORPUS_GZIP_B64" ] && [ -z "$ORIGIN_HELDOUT_TASK_PACKET_B64" ]; then
+            echo "held-out corpus/packet secret is not configured" >&2
+            exit 2
+          fi
           test -n "$OPENROUTER_API_KEY"
 
       - name: Run trusted held-out benchmark
         shell: bash
         env:
           ORIGIN_HELDOUT_TASK_ID: ${{ inputs.task_id }}
+          ORIGIN_HELDOUT_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_CORPUS_GZIP_B64 }}
           ORIGIN_HELDOUT_TASK_PACKET_B64: ${{ secrets.ORIGIN_HELDOUT_TASK_PACKET_B64 }}
           ORIGIN_HELDOUT_PARTICIPANT: ORIGIN
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
