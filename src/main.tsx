@@ -47,8 +47,12 @@ function loadSessionsFromSnapshot(value: unknown): ConversationSession[] { if (!
 function parseStoredArtifacts(value: unknown): PersistedArtifact[] { if (!Array.isArray(value)) return []; return value.slice(0, 500).flatMap((candidate) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<PersistedArtifact>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.language !== 'string' || typeof source.content !== 'string' || typeof source.isComplete !== 'boolean' || !source.type || !['code', 'markdown', 'mermaid', 'html'].includes(source.type)) return []; return [{ id: source.id.slice(0, 160), type: source.type, title: source.title.slice(0, 160), language: source.language.slice(0, 48), content: source.content.slice(0, 1_000_000), isComplete: source.isComplete, revision: typeof source.revision === 'number' ? Math.max(1, Math.floor(source.revision)) : undefined, revisions: undefined }]; }); }
 function snapshotFromState(messages: ConversationMessage[], sessions: ConversationSession[], artifacts: PersistedArtifact[]): OriginPersistedSnapshot { return { version: 1, messages, sessions, artifacts, updatedAt: Date.now() }; }
 function loadLegacySnapshot(): OriginPersistedSnapshot | null {
-  const historyRaw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
-  const sessionsRaw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+  let historyRaw: string | null;
+  let sessionsRaw: string | null;
+  try {
+    historyRaw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    sessionsRaw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+  } catch { return null; }
   if (!historyRaw && !sessionsRaw) return null;
 
   const messages = historyRaw ? loadStoredHistory() : [];
@@ -82,6 +86,7 @@ function PersonalReleaseRoot() {
   const [sessions, setSessions] = useState<ConversationSession[]>(loadStoredSessions);
   const [artifacts, setArtifacts] = useState<PersistedArtifact[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [storageReadFailed, setStorageReadFailed] = useState(false);
   const [storageHealth, setStorageHealth] = useState<StorageHealth>('ready');
   const [resetSignal, setResetSignal] = useState(0);
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false);
@@ -92,8 +97,8 @@ function PersonalReleaseRoot() {
   useEffect(() => { const media = window.matchMedia('(prefers-color-scheme: dark)'); const onChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches); setSystemPrefersDark(media.matches); media.addEventListener?.('change', onChange); return () => media.removeEventListener?.('change', onChange); }, []);
   useEffect(() => { const announceUpdate = () => setUpdateReady(true); window.addEventListener('origin:pwa-update-ready', announceUpdate); return () => window.removeEventListener('origin:pwa-update-ready', announceUpdate); }, []);
   useEffect(() => { const root = document.documentElement; root.lang = settings.language; root.dataset.theme = resolvedTheme; root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal'; root.classList.toggle('light', resolvedTheme === 'light'); root.classList.toggle('dark', resolvedTheme === 'dark'); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#030712' : '#f7f6f2'); }, [settings.language, settings.designTheme, resolvedTheme]);
-  useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
-  useEffect(() => { if (!isHydrated) return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, isHydrated, messages, sessions]);
+  useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
+  useEffect(() => { if (!isHydrated || storageReadFailed) return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
 
   /* The legacy App header contains an accidental ancestor click handler that clears local state and reloads /.
      Capture the settings trigger before React's delegated click handler so Settings is deterministic on touch and desktop. */
@@ -123,7 +128,7 @@ function PersonalReleaseRoot() {
     <SplashScreen />
     <UniversalMasterEnginePanel onContextReady={(context) => { setKnowledgeContext(context); window.dispatchEvent(new CustomEvent('origin:knowledge-context', { detail: { context } })); }} />
     {knowledgeContext && <p role="status" className="sr-only">ナレッジグラフからチャット文脈を選択しました。</p>}
-    <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => { const next = session.messages.map((message) => ({ ...message })); journalMessages(next); setMessages(next); }} onMessagesChange={(next) => { journalMessages(next); setMessages(next); }} onArtifactsChange={setArtifacts} resetSignal={resetSignal} />
+    <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => { const next = session.messages.map((message) => ({ ...message })); if (!storageReadFailed) journalMessages(next); setMessages(next); }} onMessagesChange={(next) => { if (!storageReadFailed) journalMessages(next); setMessages(next); }} onArtifactsChange={setArtifacts} resetSignal={resetSignal} />
     <SettingsErrorBoundary>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} messageCount={messages.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} />
     </SettingsErrorBoundary>

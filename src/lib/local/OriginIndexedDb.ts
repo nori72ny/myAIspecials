@@ -57,8 +57,6 @@ export const originIndexedDbAdapter: OriginStorageAdapter = {
       const transaction = database.transaction(ORIGIN_LOCAL_STORE, 'readonly');
       const value = await requestResult(transaction.objectStore(ORIGIN_LOCAL_STORE).get(ORIGIN_LOCAL_SNAPSHOT_KEY));
       return isSnapshot(value) ? value : null;
-    } catch {
-      return null;
     } finally {
       database?.close();
     }
@@ -78,14 +76,21 @@ export const originIndexedDbAdapter: OriginStorageAdapter = {
   },
 };
 
-export type OriginMigrationResult = { snapshot: OriginPersistedSnapshot | null; source: 'indexeddb' | 'migrated' | 'memory'; writeResult?: OriginStorageWriteResult };
+export type OriginMigrationResult = { snapshot: OriginPersistedSnapshot | null; source: 'indexeddb' | 'migrated' | 'memory'; writeResult?: OriginStorageWriteResult; readFailed?: boolean };
 
 export const migrateOriginLegacySnapshot = async (
   adapter: OriginStorageAdapter,
   legacySnapshot: OriginPersistedSnapshot | null,
   removeLegacy: () => void,
 ): Promise<OriginMigrationResult> => {
-  const existing = await adapter.load();
+  let existing: OriginPersistedSnapshot | null;
+  try {
+    existing = await adapter.load();
+  } catch {
+    // An unreadable database may still contain history. Keep the legacy data
+    // and prohibit later writes until a new page load successfully restores it.
+    return { snapshot: legacySnapshot, source: 'memory', writeResult: 'failed', readFailed: true };
+  }
   // Absence of legacy storage means "nothing to migrate", not "an empty, newer snapshot".
   // Returning the durable snapshot without writing prevents reload hydration from erasing history.
   if (!legacySnapshot) return existing ? { snapshot: existing, source: 'indexeddb' } : { snapshot: null, source: 'memory' };

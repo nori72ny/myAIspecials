@@ -55,6 +55,14 @@ describe('OriginIndexedDb migration boundary', () => {
     expect(removeLegacy).not.toHaveBeenCalled();
   });
 
+  it.each([null, snapshot])('does not write or remove legacy data after a failed read (%j)', async (legacy) => {
+    const adapter: OriginStorageAdapter = { load: vi.fn(async () => { throw new Error('read-failed'); }), save: vi.fn(async () => 'saved' as const) };
+    const removeLegacy = vi.fn();
+    await expect(migrateOriginLegacySnapshot(adapter, legacy, removeLegacy)).resolves.toEqual({ snapshot: legacy, source: 'memory', writeResult: 'failed', readFailed: true });
+    expect(adapter.save).not.toHaveBeenCalled();
+    expect(removeLegacy).not.toHaveBeenCalled();
+  });
+
   it('recognizes platform quota errors without exposing them to the UI', () => {
     expect(isQuotaExceeded(new DOMException('full', 'QuotaExceededError'))).toBe(true);
     expect(isQuotaExceeded(new Error('full'))).toBe(false);

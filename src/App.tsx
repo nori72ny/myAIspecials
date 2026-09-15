@@ -576,7 +576,7 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; artifa
       });
       setStoredSessions(restoredSessions);
       setStoredArtifacts(snapshot.artifacts.filter(isStoredArtifactBlock));
-    });
+    }).catch(() => { /* Keep the in-memory history available if durable storage cannot be read. */ });
     return () => { active = false; };
   }, [isOpen]);
   const searchableSessions = storedSessions ?? sessions;
