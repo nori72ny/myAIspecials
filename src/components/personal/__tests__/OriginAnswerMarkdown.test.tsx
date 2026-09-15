@@ -31,6 +31,38 @@ describe('OriginAnswerMarkdown', () => {
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toBe('noreferrer noopener');
   });
+
+  it('offers task-adaptive professional refinements without inventing completed work', () => {
+    const onRefine = vi.fn();
+    render(<OriginAnswerMarkdown language="ja" content="回答本文" onRefine={onRefine} />);
+
+    for (const label of ['実務レベルに深掘り', '具体例を追加', '実行プランにする', '要点だけ']) {
+      expect(screen.getByRole('button', { name: label })).toBeTruthy();
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: '実務レベルに深掘り' }));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('判断基準'));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('検証方法'));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('開発なら'));
+
+    fireEvent.click(screen.getByRole('button', { name: '具体例を追加' }));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('仮定や例示は明示'));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('架空の事例を実績として扱わない'));
+
+    fireEvent.click(screen.getByRole('button', { name: '実行プランにする' }));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('明確な完了条件'));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('未実施の作業を完了済みとは書かない'));
+  });
+
+  it('keeps the English deepening prompt specific to research, coding, planning, and unknowns', () => {
+    const onRefine = vi.fn();
+    render(<OriginAnswerMarkdown language="en" content="Answer" onRefine={onRefine} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Professional depth' }));
+    const prompt = String(onRefine.mock.calls[0]?.[0] ?? '');
+    for (const phrase of ['decision criteria', 'verification', 'research', 'coding', 'planning', 'Do not add filler']) {
+      expect(prompt).toContain(phrase);
+    }
+  });
 });
 
 describe('answer copy and code controls', () => {

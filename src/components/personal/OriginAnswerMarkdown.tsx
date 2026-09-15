@@ -42,6 +42,19 @@ function AnswerCodeBlock({ children, language }: { children: ReactNode; language
   </section>;
 }
 
+const refinementPrompt = (language: OriginLanguage, kind: 'depth' | 'example' | 'plan' | 'summary') => {
+  if (language === 'en') {
+    if (kind === 'depth') return 'Upgrade your previous answer to professional working depth. Keep the direct conclusion, then fill the material gaps with decision criteria, evidence or reasoning, relevant conditions, trade-offs, risks, concrete steps, verification, and explicit unknowns. Adapt the structure to the task: research needs sources/conditions/comparison logic; coding needs usable changes, integration, tests, and limitations; planning needs deliverables, dependencies, ownership, and completion criteria. Do not add filler or invent facts.';
+    if (kind === 'example') return 'Add a concrete, directly usable example that fits my request and show how it connects to the recommendation. Label illustrative assumptions, preserve important constraints, and never present an invented example as an observed result.';
+    if (kind === 'plan') return 'Turn the previous answer into an executable plan. Preserve the conclusion and constraints, then give the ordered actions, dependencies, decision points, verification for each material step, and a clear definition of done. For coding work, name the files or components to change and the tests/checks that prove completion. Do not invent completed work.';
+    return 'Compress the previous answer to the decision-critical conclusion and next action. Preserve material conditions, risks, and uncertainty; remove repetition rather than removing necessary caveats.';
+  }
+  if (kind === 'depth') return '直前の回答を、実務でそのまま判断・実行に使える深さまで引き上げてください。結論は明確に保ちつつ、不足している判断基準、根拠、適用条件、比較、トレードオフ、リスク、具体手順、検証方法、未確認点を補ってください。依頼の種類に合わせ、調査なら出典・条件・比較理由、開発なら使える変更内容・組込み方・テスト・制約、計画なら成果物・依存関係・担当・完了条件を含めてください。文字数を増やすための一般論や、未確認の事実の創作はしないでください。';
+  if (kind === 'example') return '直前の回答に、私の依頼に直接使える具体例を追加し、その例が結論や提案にどうつながるかまで示してください。仮定や例示は明示し、重要な条件を落とさず、架空の事例を実績として扱わないでください。';
+  if (kind === 'plan') return '直前の回答を、実際に進められる実行プランに変換してください。結論と制約を維持し、実施順、依存関係、判断ポイント、各重要工程の検証方法、明確な完了条件まで示してください。開発作業なら変更対象のファイルやコンポーネント、完了を証明するテストやチェックも具体化してください。未実施の作業を完了済みとは書かないでください。';
+  return '直前の回答を、意思決定に必要な結論と次の行動がすぐ分かる形に圧縮してください。重要な条件、リスク、不確実性は残し、必要情報ではなく重複を削ってください。';
+};
+
 /**
  * Renders model-authored Markdown without enabling raw HTML or automatic
  * external image loading. Semantic elements are styled in index.css so long
@@ -76,15 +89,10 @@ export default function OriginAnswerMarkdown({ content, language, onRefine }: Or
       {content.trim() && <div className="origin-answer-actions">
         <CopyButton text={content} language={language} label={language === 'en' ? 'Copy answer' : '回答をコピー'} />
         {onRefine && <div className="origin-answer-refinements" role="group" aria-label={language === 'en' ? 'Refine this answer' : '回答を調整'}>
-          <button type="button" onClick={() => onRefine(language === 'en'
-            ? 'Expand your previous answer with concrete reasoning, relevant conditions, and practical steps. Address missing detail without repeating the summary. Keep unverified points explicit.'
-            : '直前の回答を、判断の理由・適用条件・実行手順まで具体的に掘り下げてください。要約の繰り返しではなく、不足している説明を補い、未確認の点は明示してください。')}>{language === 'en' ? 'More detail' : '詳しく説明'}</button>
-          <button type="button" onClick={() => onRefine(language === 'en'
-            ? 'Add a concrete, usable example to your previous answer that fits my request. Label any illustrative assumptions and do not present invented examples as actual results.'
-            : '直前の回答に、私の依頼に合った、そのまま使える具体例を加えてください。仮定や例示は明示し、架空の事例を実績として扱わないでください。')}>{language === 'en' ? 'Add an example' : '具体例を追加'}</button>
-          <button type="button" onClick={() => onRefine(language === 'en'
-            ? 'Summarize your previous answer into the key conclusion and next action, preserving essential conditions and uncertainty.'
-            : '直前の回答を、結論と次に行うことがすぐ分かる要点にまとめてください。判断に必要な条件と不確実性は残してください。')}>{language === 'en' ? 'Key points' : '要点だけ'}</button>
+          <button type="button" onClick={() => onRefine(refinementPrompt(language, 'depth'))}>{language === 'en' ? 'Professional depth' : '実務レベルに深掘り'}</button>
+          <button type="button" onClick={() => onRefine(refinementPrompt(language, 'example'))}>{language === 'en' ? 'Add an example' : '具体例を追加'}</button>
+          <button type="button" onClick={() => onRefine(refinementPrompt(language, 'plan'))}>{language === 'en' ? 'Make a plan' : '実行プランにする'}</button>
+          <button type="button" onClick={() => onRefine(refinementPrompt(language, 'summary'))}>{language === 'en' ? 'Key points' : '要点だけ'}</button>
         </div>}
       </div>}
     </div>

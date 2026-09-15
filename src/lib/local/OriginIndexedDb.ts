@@ -57,8 +57,6 @@ export const originIndexedDbAdapter: OriginStorageAdapter = {
       const transaction = database.transaction(ORIGIN_LOCAL_STORE, 'readonly');
       const value = await requestResult(transaction.objectStore(ORIGIN_LOCAL_STORE).get(ORIGIN_LOCAL_SNAPSHOT_KEY));
       return isSnapshot(value) ? value : null;
-    } catch {
-      return null;
     } finally {
       database?.close();
     }
@@ -78,18 +76,34 @@ export const originIndexedDbAdapter: OriginStorageAdapter = {
   },
 };
 
-export type OriginMigrationResult = { snapshot: OriginPersistedSnapshot | null; source: 'indexeddb' | 'migrated' | 'memory'; writeResult?: OriginStorageWriteResult };
+export type OriginMigrationResult = { snapshot: OriginPersistedSnapshot | null; source: 'indexeddb' | 'migrated' | 'memory'; writeResult?: OriginStorageWriteResult; readFailed?: boolean };
 
 export const migrateOriginLegacySnapshot = async (
   adapter: OriginStorageAdapter,
-  legacySnapshot: OriginPersistedSnapshot,
+  legacySnapshot: OriginPersistedSnapshot | null,
   removeLegacy: () => void,
 ): Promise<OriginMigrationResult> => {
-  const existing = await adapter.load();
+  let existing: OriginPersistedSnapshot | null;
+  try {
+    existing = await adapter.load();
+  } catch {
+    // An unreadable database may still contain history. Keep the legacy data
+    // and prohibit later writes until a new page load successfully restores it.
+    return { snapshot: legacySnapshot, source: 'memory', writeResult: 'failed', readFailed: true };
+  }
+  // Absence of legacy storage means "nothing to migrate", not "an empty, newer snapshot".
+  // Returning the durable snapshot without writing prevents reload hydration from erasing history.
+  if (!legacySnapshot) return existing ? { snapshot: existing, source: 'indexeddb' } : { snapshot: null, source: 'memory' };
   // A synchronous localStorage journal may be newer than the last completed
   // IndexedDB transaction when a tab is reloaded immediately after a message.
   // Prefer and durably migrate that newer journal instead of restoring stale data.
-  if (existing && existing.updatedAt >= legacySnapshot.updatedAt) return { snapshot: existing, source: 'indexeddb' };
+  if (existing && existing.updatedAt >= legacySnapshot.updatedAt) {
+    // A validated durable snapshot that is at least as recent makes the legacy
+    // journal redundant. Cleaning it here also makes concurrent StrictMode
+    // migration attempts converge on IndexedDB instead of leaving stale keys.
+    try { removeLegacy(); } catch { /* Durable IndexedDB data remains authoritative. */ }
+    return { snapshot: existing, source: 'indexeddb' };
+  }
   const writeResult = await adapter.save(legacySnapshot);
   if (writeResult === 'saved') {
     try { removeLegacy(); } catch { /* Persistence succeeded, so legacy cleanup is best effort only. */ }
