@@ -40,8 +40,12 @@ const result: OriginProviderExecutionResult = {
   },
 };
 
+function providerFailure(code: string) {
+  return Object.assign(new Error('safe provider message'), { code });
+}
+
 function truncated() {
-  return Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_TRUNCATED' });
+  return providerFailure('PROVIDER_REQUIRED_TOOL_TRUNCATED');
 }
 
 describe('bounded Coding provider retry', () => {
@@ -55,19 +59,51 @@ describe('bounded Coding provider retry', () => {
     await expect(wrapped(request, { OPENROUTER_API_KEY: 'test-only' })).resolves.toBe(result);
     expect(execute).toHaveBeenCalledTimes(2);
     expect(execute.mock.calls[1][0]).toBe(request);
-    expect(observed).toHaveBeenCalledTimes(1);
+    expect(observed).toHaveBeenCalledWith(request, 'PROVIDER_REQUIRED_TOOL_TRUNCATED');
   });
 
-  it('fails closed when the one retry is also truncated', async () => {
-    const execute = vi.fn().mockRejectedValue(truncated());
+  it.each([
+    'PROVIDER_RATE_LIMITED',
+    'PROVIDER_TIMEOUT',
+    'PROVIDER_UNAVAILABLE',
+    'PROVIDER_INVALID_RESPONSE',
+  ])('retries one transient %s failure with the exact same trusted request', async code => {
+    const execute = vi.fn()
+      .mockRejectedValueOnce(providerFailure(code))
+      .mockResolvedValueOnce(result);
     const wrapped = createBoundedCodingProviderExecuteV14(execute);
 
-    await expect(wrapped(request, {})).rejects.toMatchObject({ code: 'PROVIDER_REQUIRED_TOOL_TRUNCATED' });
+    await expect(wrapped(request, { OPENROUTER_API_KEY: 'test-only' })).resolves.toBe(result);
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute.mock.calls[1][0]).toBe(request);
+  });
+
+  it('retries one ambiguous required-tool response only when a required tool is present', async () => {
+    const execute = vi.fn()
+      .mockRejectedValueOnce(providerFailure('PROVIDER_REQUIRED_TOOL_AMBIGUOUS'))
+      .mockResolvedValueOnce(result);
+    const wrapped = createBoundedCodingProviderExecuteV14(execute);
+
+    await expect(wrapped(request, {})).resolves.toBe(result);
     expect(execute).toHaveBeenCalledTimes(2);
   });
 
-  it('does not retry other provider failures', async () => {
-    const failure = Object.assign(new Error('safe provider message'), { code: 'PROVIDER_INTERNAL_ERROR' });
+  it('fails closed when the one retry also fails', async () => {
+    const execute = vi.fn().mockRejectedValue(providerFailure('PROVIDER_RATE_LIMITED'));
+    const wrapped = createBoundedCodingProviderExecuteV14(execute);
+
+    await expect(wrapped(request, {})).rejects.toMatchObject({ code: 'PROVIDER_RATE_LIMITED' });
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    'PROVIDER_INTERNAL_ERROR',
+    'PROVIDER_POLICY_VIOLATION',
+    'PROVIDER_COST_UNVERIFIED',
+    'PROVIDER_ROUTING_UNVERIFIED',
+    'PROVIDER_NOT_CONFIGURED',
+  ])('does not retry permanent or policy failure %s', async code => {
+    const failure = providerFailure(code);
     const execute = vi.fn().mockRejectedValue(failure);
     const wrapped = createBoundedCodingProviderExecuteV14(execute);
 
@@ -75,23 +111,26 @@ describe('bounded Coding provider retry', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
-  it('does not retry truncation when no required tool is present', async () => {
-    const execute = vi.fn().mockRejectedValue(truncated());
+  it.each([
+    'PROVIDER_REQUIRED_TOOL_TRUNCATED',
+    'PROVIDER_REQUIRED_TOOL_AMBIGUOUS',
+  ])('does not retry required-tool failure %s when no required tool is present', async code => {
+    const execute = vi.fn().mockRejectedValue(providerFailure(code));
     const wrapped = createBoundedCodingProviderExecuteV14(execute);
 
-    await expect(wrapped({ ...request, requiredTool: undefined }, {})).rejects.toMatchObject({ code: 'PROVIDER_REQUIRED_TOOL_TRUNCATED' });
+    await expect(wrapped({ ...request, requiredTool: undefined }, {})).rejects.toMatchObject({ code });
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
-  it('allows only one truncation retry across an entire Coding session adapter', async () => {
+  it('allows only one eligible retry across an entire Coding session adapter', async () => {
     const execute = vi.fn()
-      .mockRejectedValueOnce(truncated())
+      .mockRejectedValueOnce(providerFailure('PROVIDER_RATE_LIMITED'))
       .mockResolvedValueOnce(result)
-      .mockRejectedValueOnce(truncated());
+      .mockRejectedValueOnce(providerFailure('PROVIDER_REQUIRED_TOOL_AMBIGUOUS'));
     const wrapped = createBoundedCodingProviderExecuteV14(execute);
 
     await expect(wrapped(request, {})).resolves.toBe(result);
-    await expect(wrapped(request, {})).rejects.toMatchObject({ code: 'PROVIDER_REQUIRED_TOOL_TRUNCATED' });
+    await expect(wrapped(request, {})).rejects.toMatchObject({ code: 'PROVIDER_REQUIRED_TOOL_AMBIGUOUS' });
     expect(execute).toHaveBeenCalledTimes(3);
   });
 });
