@@ -63,6 +63,19 @@ const SCOPE_TOOL: OriginProviderRequiredTool = {
 };
 
 const PATH_TOKEN = /(?:^|[\s"'`([{])([A-Za-z0-9_-](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?(?:\/[A-Za-z0-9_-](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?)+)(?=$|[\s"'`\])},:;])/g;
+const OWNER_MUTATION_INTENT = /\b(?:edit|update|modify|fix|change|refactor|implement|wire|replace|adjust|add|create)\b/i;
+const OWNER_CREATE_INTENT = /\b(?:create|add|introduce)\b|\bnew\s+file\b/i;
+
+function explicitPathTokens(goal: string): string[] {
+  const candidates: string[] = [];
+  for (const match of goal.matchAll(PATH_TOKEN)) {
+    let candidate: string;
+    try { candidate = normalizeCodingMutablePathV14(match[1]); } catch { continue; }
+    if (!candidates.includes(candidate)) candidates.push(candidate);
+    if (candidates.length > 12) return [];
+  }
+  return candidates;
+}
 
 // This fallback runs only after both bounded searches miss. A path must be an
 // exact path-like token in the goal, pass the mutation-path policy, and be
@@ -70,21 +83,16 @@ const PATH_TOKEN = /(?:^|[\s"'`([{])([A-Za-z0-9_-](?:[A-Za-z0-9._-]*[A-Za-z0-9_-
 // every existing-file edit and every create not in this derived allowlist.
 function explicitCreatablePaths(goal: string, files: readonly string[]): string[] {
   const existing = new Set(files);
-  const candidates: string[] = [];
-  for (const match of goal.matchAll(PATH_TOKEN)) {
-    let candidate: string;
-    try { candidate = normalizeCodingMutablePathV14(match[1]); } catch { continue; }
-    if (!existing.has(candidate) && !candidates.includes(candidate)) candidates.push(candidate);
-    if (candidates.length > 4) return [];
-  }
-  return candidates;
+  const candidates = explicitPathTokens(goal).filter(candidate => !existing.has(candidate));
+  return candidates.length <= 4 ? candidates : [];
 }
 
 // A strictly create-only task with exact user-supplied content does not need a
 // model to discover repository scope. The path is already explicit authority
 // from the owner goal, is normalized by the mutation-path policy, and must be
 // absent from the trusted inventory. Mixed edit/create work still uses the
-// normal model-assisted search and scope stages below.
+// normal model-assisted search and scope stages below unless all paths are
+// explicitly owner-named and safely classifiable.
 function explicitExactCreateOnlyScope(goal: string, files: readonly string[]): CodingDiscoveredScope | null {
   if (!/\bcreate exactly one new file\b/i.test(goal)
     || !/\bwith exact content\s*:/i.test(goal)
@@ -92,6 +100,24 @@ function explicitExactCreateOnlyScope(goal: string, files: readonly string[]): C
   const candidates = explicitCreatablePaths(goal, files);
   if (candidates.length !== 1) return null;
   return { editablePaths: [], contextPaths: [], creatablePaths: candidates };
+}
+
+// When an implementation goal itself names at least two exact safe paths and
+// contains explicit mutation intent, the owner has already provided a tighter
+// scope than model discovery can infer. Existing named paths become editable;
+// absent named paths become creatable only when the goal explicitly contains
+// create/add intent. This never invents paths, never expands the trusted file
+// inventory, and still leaves all mutation/session validation in force.
+function explicitOwnerNamedScope(goal: string, files: readonly string[]): CodingDiscoveredScope | null {
+  if (!OWNER_MUTATION_INTENT.test(goal)) return null;
+  const candidates = explicitPathTokens(goal);
+  if (candidates.length < 2) return null;
+  const existing = new Set(files);
+  const editablePaths = candidates.filter(candidate => existing.has(candidate));
+  const creatablePaths = candidates.filter(candidate => !existing.has(candidate));
+  if (!editablePaths.length || creatablePaths.length > 4) return null;
+  if (creatablePaths.length && !OWNER_CREATE_INTENT.test(goal)) return null;
+  return { editablePaths, contextPaths: [], creatablePaths };
 }
 
 export type CodingSearchPlanV14 = { queries: string[] };
@@ -144,8 +170,9 @@ function isScopeResponseInvalid(error: unknown): boolean {
  * sanitized local search. Stage two receives only those snippets plus the same
  * inventory and chooses the final edit/read/create scope. Repository code never
  * authorizes capabilities and search output never bypasses session validation.
- * An exact single-file create-only goal can take the deterministic path above
- * because no repository discovery is required to identify its authorized scope.
+ * Exact owner-named mutation scopes and a strict exact create-only goal can take
+ * deterministic paths because no model inference is required to identify the
+ * authorized paths.
  */
 export function createCodingNavigatorV14(root: string, options: NavigatorOptions = {}): (context: CodingDiscoveryContext) => Promise<CodingDiscoveredScope> {
   const env = options.env ?? process.env;
@@ -155,7 +182,7 @@ export function createCodingNavigatorV14(root: string, options: NavigatorOptions
       throw new Error('CODING_DISCOVERY_INVENTORY_BLOCKED');
     }
     const plan = buildPlan(context.goal, env);
-    const explicitScope = explicitExactCreateOnlyScope(context.goal, context.files);
+    const explicitScope = explicitExactCreateOnlyScope(context.goal, context.files) ?? explicitOwnerNamedScope(context.goal, context.files);
     if (explicitScope) return explicitScope;
 
     const queryResult = await execute({

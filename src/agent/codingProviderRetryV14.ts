@@ -5,7 +5,16 @@ export type CodingProviderExecuteV14 = (
   env: NodeJS.ProcessEnv,
 ) => Promise<OriginProviderExecutionResult>;
 
-const TRUNCATED_REQUIRED_TOOL_CODE = 'PROVIDER_REQUIRED_TOOL_TRUNCATED';
+const REQUIRED_TOOL_RETRY_CODES = new Set([
+  'PROVIDER_REQUIRED_TOOL_TRUNCATED',
+  'PROVIDER_REQUIRED_TOOL_AMBIGUOUS',
+]);
+const TRANSIENT_RETRY_CODES = new Set([
+  'PROVIDER_RATE_LIMITED',
+  'PROVIDER_TIMEOUT',
+  'PROVIDER_UNAVAILABLE',
+  'PROVIDER_INVALID_RESPONSE',
+]);
 
 function providerCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null;
@@ -13,15 +22,22 @@ function providerCode(error: unknown): string | null {
   return typeof code === 'string' ? code : null;
 }
 
+function eligibleForOneRetry(code: string | null, request: OriginProviderExecutionRequest): boolean {
+  if (!code) return false;
+  if (TRANSIENT_RETRY_CODES.has(code)) return true;
+  return Boolean(request.requiredTool) && REQUIRED_TOOL_RETRY_CODES.has(code);
+}
+
 /**
- * Retry exactly once when a free provider ends a required-tool response before
- * its function arguments are complete. The retry reuses the exact trusted
- * request and environment; it never relaxes the tool schema, replays partial
- * arguments, changes provider/model routing, or enables a paid fallback.
+ * Retry at most one eligible provider failure across an entire Coding session.
+ * The retry always reuses the exact trusted request and environment. It never
+ * relaxes the required-tool schema, changes provider/model routing, replays
+ * partial tool arguments, or enables a paid fallback. Permanent policy,
+ * authentication, cost, routing and schema violations fail closed immediately.
  */
 export function createBoundedCodingProviderExecuteV14(
   execute: CodingProviderExecuteV14,
-  onTruncated?: (request: OriginProviderExecutionRequest, code: string) => void,
+  onRetryableFailure?: (request: OriginProviderExecutionRequest, code: string) => void,
 ): CodingProviderExecuteV14 {
   let retryAvailable = true;
 
@@ -30,16 +46,17 @@ export function createBoundedCodingProviderExecuteV14(
       return await execute(request, env);
     } catch (error) {
       const code = providerCode(error);
-      if (code !== TRUNCATED_REQUIRED_TOOL_CODE) throw error;
-      onTruncated?.(request, code);
-      if (!retryAvailable || !request.requiredTool) throw error;
+      if (!eligibleForOneRetry(code, request)) throw error;
+      onRetryableFailure?.(request, code as string);
+      if (!retryAvailable) throw error;
 
       retryAvailable = false;
       try {
         return await execute(request, env);
       } catch (retryError) {
-        if (providerCode(retryError) === TRUNCATED_REQUIRED_TOOL_CODE) {
-          onTruncated?.(request, TRUNCATED_REQUIRED_TOOL_CODE);
+        const retryCode = providerCode(retryError);
+        if (eligibleForOneRetry(retryCode, request)) {
+          onRetryableFailure?.(request, retryCode as string);
         }
         throw retryError;
       }
