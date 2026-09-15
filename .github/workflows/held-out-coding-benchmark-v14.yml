@@ -1,0 +1,78 @@
+name: V1.4 held-out coding benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: Opaque evaluator-owned held-out task id
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-held-out-${{ inputs.task_id }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    # Held-out packets and provider credentials are never available to PR-triggered jobs.
+    # This workflow is manual-only and accepts only an opaque task id as public input.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate opaque task id
+        shell: bash
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+        run: |
+          set -euo pipefail
+          [[ "$TASK_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$ ]] || exit 2
+
+      - name: Prepare trusted benchmark controller and isolated verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull node:22-bookworm-slim
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Validate server-only benchmark configuration
+        shell: bash
+        env:
+          ORIGIN_HELDOUT_TASK_PACKET_B64: ${{ secrets.ORIGIN_HELDOUT_TASK_PACKET_B64 }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$ORIGIN_HELDOUT_TASK_PACKET_B64"
+          test -n "$OPENROUTER_API_KEY"
+
+      - name: Run trusted held-out benchmark
+        shell: bash
+        env:
+          ORIGIN_HELDOUT_TASK_ID: ${{ inputs.task_id }}
+          ORIGIN_HELDOUT_TASK_PACKET_B64: ${{ secrets.ORIGIN_HELDOUT_TASK_PACKET_B64 }}
+          ORIGIN_HELDOUT_PARTICIPANT: ORIGIN
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          FREE_ONLY: 'true'
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/run-held-out-coding-trusted-v14.ts
+
+      - name: Preserve public benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: origin-held-out-${{ inputs.task_id }}-${{ github.run_id }}
+          path: |
+            test-results/held-out-task-public.json
+            test-results/held-out-run.json
+            test-results/held-out-score.json
+          if-no-files-found: error
+          retention-days: 30
