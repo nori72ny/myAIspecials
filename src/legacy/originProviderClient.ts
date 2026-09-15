@@ -1,4 +1,5 @@
 import {
+  ORIGIN_OPENROUTER_CODING_FREE_MODEL,
   ORIGIN_OPENROUTER_FREE_MODEL,
   type OriginExecutionPlan,
   type OriginProviderDataPolicy,
@@ -60,15 +61,20 @@ const MAX_TOOL_ARGUMENT_BYTES = 256 * 1024;
 const REQUIRED_TOOL_REASONING = { effort: "minimal", exclude: true } as const;
 export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;
 export type AllowedZeroCostProvider = (typeof ALLOWED_ZERO_COST_PROVIDERS)[number];
-export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL] } as const;
-const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
+/** Non-streaming execution serves the fixed chat profile plus the explicitly isolated V1.4 Coding profile. */
+export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL, ORIGIN_OPENROUTER_CODING_FREE_MODEL] } as const;
+const canonicalModel = (model: string): string => model.replace(/:free$/, "");
 const IDS: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", "openrouter-free": "openrouter" };
 export function resetOriginProviderCooldownForTests(): void { /* retained for test compatibility; cooldown circuit was removed */ }
 const pid = (value: unknown): AllowedZeroCostProvider | null => {
   if (typeof value !== "string") return null;
   return IDS[value] ?? (ALLOWED_ZERO_COST_PROVIDERS.includes(value as AllowedZeroCostProvider) ? value as AllowedZeroCostProvider : null);
 };
-const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && ((ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model) || (provider === "openrouter" && model === OPENROUTER_CANONICAL_SERVED_MODEL));
+const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => {
+  if (typeof model !== "string") return false;
+  const models = ALLOWED_ZERO_COST_MODELS[provider] as readonly string[];
+  return models.includes(model) || (provider === "openrouter" && models.some((candidate) => canonicalModel(candidate) === model));
+};
 function fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
 function zero(value: unknown, field: string): asserts value is 0 {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
@@ -101,7 +107,7 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   if (evidence.attempt !== 1) fail("不正な試行番号です。", "PROVIDER_ROUTING_UNVERIFIED");
   const validStrategy = evidence.strategy === "adaptive-primary";
   const validFallback = evidence.fallbackUsed === false;
-  const validServedModel = evidence.requestedModel === evidence.servedModel || evidence.servedModel === OPENROUTER_CANONICAL_SERVED_MODEL;
+  const validServedModel = evidence.requestedModel === evidence.servedModel || canonicalModel(evidence.requestedModel) === evidence.servedModel;
   if (!validStrategy || !validFallback || !validServedModel) fail("Provider fallback またはPrimary証跡が不正です。", "PROVIDER_ROUTING_UNVERIFIED");
   if (expectedProvider && pid(expectedProvider) !== provider) fail("Providerが一致しません。", "PROVIDER_ROUTING_UNVERIFIED");
 }
