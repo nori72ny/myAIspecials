@@ -112,6 +112,14 @@ async function main(): Promise<void> {
   try { packet = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')) as HeldOutPrivateTaskPacketV14; }
   catch { throw new Error('HELD_OUT_HOSTED_PACKET_INVALID'); }
   if (packet.id !== dispatchedTaskId) throw new Error('HELD_OUT_HOSTED_TASK_ID_MISMATCH');
+  // The full private packet contains the prompt and hidden tests. Retain it only
+  // in this controller's memory; do not let later provider calls or child
+  // processes inherit it through process.env.
+  delete process.env.ORIGIN_HELDOUT_TASK_PACKET_B64;
+  const plannerEnv: NodeJS.ProcessEnv = {
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+    FREE_ONLY: 'true',
+  };
 
   const controllerRoot = await fs.realpath(process.cwd());
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-heldout-worktree-'));
@@ -130,7 +138,7 @@ async function main(): Promise<void> {
 
     const selected = buildOriginExecutionPlan(
       { goal: packet.goal, taskType: 'implementation', requiresCodeChanges: true },
-      { openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY) },
+      { openRouterConfigured: Boolean(plannerEnv.OPENROUTER_API_KEY) },
     );
     if (selected.ok === false) throw new Error(selected.code);
     const execute = createBoundedCodingProviderExecuteV14(executeOriginProvider, () => {});
@@ -150,7 +158,7 @@ async function main(): Promise<void> {
             for (const kind of CHECKS) rows.push(await isolatedCheck(root, controllerRoot, kind));
             return rows;
           },
-          plannerOptions: { env: process.env, execute },
+          plannerOptions: { env: plannerEnv, execute },
         });
         return {
           session,
