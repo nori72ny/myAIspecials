@@ -46,6 +46,7 @@ function provenance(overrides: Partial<HeldOutFinalRunProvenanceV14> = {}): Held
     engineeringObservedBeforeRun: false,
     taskSpecificTuningAfterFreeze: false,
     priorObservedCorpusDigests: ['e'.repeat(64)],
+    priorObservedTaskDigests: ['d'.repeat(64)],
     ...overrides,
   };
 }
@@ -94,6 +95,22 @@ describe('V1.4 final held-out qualification gate', () => {
       'final-run-not-one-shot',
       'engineering-observed-before-run',
     ]));
+  });
+
+  it('rejects any task digest already observed even if the private corpus wrapper digest changed', () => {
+    const value = corpus();
+    const result = qualifyHeldOutFinalCorpusV14(value, provenance({
+      priorObservedCorpusDigests: [],
+      priorObservedTaskDigests: [value.tasks[3].taskDigest],
+    }));
+    expect(result.eligible).toBe(false);
+    expect(result.reasons).toContain('task-already-observed');
+  });
+
+  it('fails closed on malformed observed task digests', () => {
+    const result = qualifyHeldOutFinalCorpusV14(corpus(), provenance({ priorObservedTaskDigests: ['not-a-digest'] }));
+    expect(result.eligible).toBe(false);
+    expect(result.reasons).toContain('prior-observed-task-digest-invalid');
   });
 
   it('rejects task-specific tuning after freeze and insufficient recovery coverage', () => {
