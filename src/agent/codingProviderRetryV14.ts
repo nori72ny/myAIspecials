@@ -1,4 +1,5 @@
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
+import { createCodingProviderRetryBudgetV14, type CodingProviderRetryFamilyV14 } from './codingProviderRetryBudgetV14.js';
 
 export type CodingProviderExecuteV14 = (
   request: OriginProviderExecutionRequest,
@@ -22,43 +23,35 @@ function providerCode(error: unknown): string | null {
   return typeof code === 'string' ? code : null;
 }
 
-function eligibleForOneRetry(code: string | null, request: OriginProviderExecutionRequest): boolean {
-  if (!code) return false;
-  if (TRANSIENT_RETRY_CODES.has(code)) return true;
-  return Boolean(request.requiredTool) && REQUIRED_TOOL_RETRY_CODES.has(code);
+function retryFamily(code: string | null, request: OriginProviderExecutionRequest): CodingProviderRetryFamilyV14 | null {
+  if (!code) return null;
+  if (TRANSIENT_RETRY_CODES.has(code)) return 'transient';
+  if (request.requiredTool && REQUIRED_TOOL_RETRY_CODES.has(code)) return 'required-tool';
+  return null;
 }
 
 /**
- * Retry at most one eligible provider failure across an entire Coding session.
- * The retry always reuses the exact trusted request and environment. It never
- * relaxes the required-tool schema, changes provider/model routing, replays
- * partial tool arguments, or enables a paid fallback. Permanent policy,
- * authentication, cost, routing and schema violations fail closed immediately.
+ * Retry only explicitly classified provider failures using a small per-request
+ * budget plus a hard session-wide cap. The exact trusted request/environment is
+ * reused on every retry. Required-tool schema, provider/model routing, zero-cost
+ * policy and paid-fallback prohibition are never relaxed.
  */
 export function createBoundedCodingProviderExecuteV14(
   execute: CodingProviderExecuteV14,
   onRetryableFailure?: (request: OriginProviderExecutionRequest, code: string) => void,
 ): CodingProviderExecuteV14 {
-  let retryAvailable = true;
+  const budget = createCodingProviderRetryBudgetV14();
 
   return async (request, env) => {
-    try {
-      return await execute(request, env);
-    } catch (error) {
-      const code = providerCode(error);
-      if (!eligibleForOneRetry(code, request)) throw error;
-      onRetryableFailure?.(request, code as string);
-      if (!retryAvailable) throw error;
-
-      retryAvailable = false;
+    while (true) {
       try {
         return await execute(request, env);
-      } catch (retryError) {
-        const retryCode = providerCode(retryError);
-        if (eligibleForOneRetry(retryCode, request)) {
-          onRetryableFailure?.(request, retryCode as string);
-        }
-        throw retryError;
+      } catch (error) {
+        const code = providerCode(error);
+        const family = retryFamily(code, request);
+        if (!family) throw error;
+        onRetryableFailure?.(request, code as string);
+        if (!budget.tryConsume(request as object, family)) throw error;
       }
     }
   };
