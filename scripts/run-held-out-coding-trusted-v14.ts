@@ -7,6 +7,7 @@ import { runCodingAgentV14 } from '../src/agent/codingAgentV14.js';
 import { createBoundedCodingProviderExecuteV14 } from '../src/agent/codingProviderRetryV14.js';
 import { CODING_CHECK_TIMEOUT_MS } from '../src/agent/codingWorkerTimingV14.js';
 import { selectHeldOutPrivateTaskFromGzipB64V14 } from '../src/agent/heldOutCodingPrivateCorpusV14.js';
+import { resolveHeldOutTrustedScopeV14 } from '../src/agent/heldOutCodingTrustedScopeV14.js';
 import type { CodingCheck } from '../src/agent/codingSessionV14.js';
 import type { VerificationKind } from '../src/agent/verificationRunner.js';
 import { buildOriginExecutionPlan } from '../src/lib/orchestration/OriginExecutionPolicy.js';
@@ -145,6 +146,7 @@ async function main(): Promise<void> {
     const controllerLock = path.join(controllerRoot, 'package-lock.json');
     const taskLock = path.join(workspace, 'package-lock.json');
     if (await fileDigest(controllerLock) !== await fileDigest(taskLock)) throw new Error('HELD_OUT_DEPENDENCY_SNAPSHOT_MISMATCH');
+    const trustedScope = await resolveHeldOutTrustedScopeV14(workspace, packet.requiredChangedPaths);
 
     const selected = buildOriginExecutionPlan(
       { goal: packet.goal, taskType: 'implementation', requiresCodeChanges: true },
@@ -160,6 +162,8 @@ async function main(): Promise<void> {
         const session = await runCodingAgentV14({
           goal: privatePacket.goal,
           root: workspace,
+          allowedPaths: trustedScope.allowedPaths,
+          creatablePaths: trustedScope.creatablePaths,
           trustedWorkspaceApproved: true,
           maxRepairs: 3,
         }, {
