@@ -68,6 +68,7 @@ describe('trusted held-out coding benchmark runner', () => {
     expect(result.score.solved).toBe(true);
     expect(result.score.axes).toEqual({ heldOutIdentity: true, multiFileEditing: true, verification: true, failureRecovery: true });
     expect(result.run.attempts).toHaveLength(2);
+    expect(result.run.terminalCode).toBe('CODING_CHECKS_PASSED');
   });
 
   it('fails final verification when hidden tests fail without feeding them back to the agent', async () => {
@@ -94,6 +95,7 @@ describe('trusted held-out coding benchmark runner', () => {
     });
     expect(hiddenCalls).toBe(0);
     expect(result.run.terminalStatus).toBe('blocked');
+    expect(result.run.terminalCode).toBe('CODING_PATH_BLOCKED');
     expect(result.score.solved).toBe(false);
   });
 
