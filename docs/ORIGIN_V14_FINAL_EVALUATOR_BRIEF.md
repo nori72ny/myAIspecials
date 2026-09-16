@@ -21,6 +21,7 @@ Read these files from the exact frozen `main` revision:
 - `src/agent/heldOutCodingTrustedRunnerV14.ts`
 - `src/agent/heldOutCodingFinalPrivateCorpusV14.ts`
 - `src/agent/heldOutCodingFinalQualificationV14.ts`
+- `src/agent/heldOutCodingProviderRequestBudgetV14.ts`
 - `.github/workflows/held-out-coding-final-v14.yml`
 
 The private task packet version is:
@@ -37,7 +38,9 @@ The qualification version is:
 
 ## Corpus requirements
 
-The corpus must contain 6–16 tasks. Use 6 tasks unless there is an independent evaluation reason to use more, because ORIGIN is intentionally constrained to zero-cost free-provider execution.
+The official first final corpus must contain **exactly 6 tasks**. The sealed corpus parser intentionally supports a wider bounded range for future audit use, but the one-shot final workflow rejects any task count other than six. This keeps the official run inside the reviewed zero-cost provider-request envelope.
+
+Each final task receives at most **7 actual provider executions**, shared across primary attempts, retries, and the explicit zero-cost/ZDR failover. Therefore the six-task official run can issue at most 42 provider requests, leaving headroom under the reviewed free-provider daily request ceiling. Reaching the per-task cap fails closed with a stable public terminal code; it never enables paid fallback or relaxes privacy policy.
 
 Every task must:
 
@@ -61,7 +64,7 @@ The corpus as a whole must cover all five public qualification dimensions:
 - `buildOrTypecheckRepair`
 - `securityPathBoundary`
 
-Recommended six-task composition:
+Required six-task composition:
 
 1. multi-file existing-code bug/navigation task;
 2. multi-file feature requiring a new production file;
