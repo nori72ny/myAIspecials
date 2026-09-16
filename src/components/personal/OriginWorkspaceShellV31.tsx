@@ -30,7 +30,7 @@ const modeCapabilities: Record<OriginWorkspaceModeV31, readonly string[]> = {
 
 function CapabilityDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
   return <details className="origin-card min-w-40 border px-3 py-2 text-sm">
-    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold">
+    <summary aria-label="Tools 自動管理" className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold">
       <span className="origin-muted text-xs">Tools</span>
       <span>自動管理</span>
     </summary>
@@ -46,7 +46,7 @@ function CapabilityDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
 
 function ModelDetails() {
   return <details className="origin-card min-w-40 border px-3 py-2 text-sm">
-    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold">
+    <summary aria-label="Model ORIGIN Auto" className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold">
       <span className="origin-muted text-xs">Model</span>
       <span>ORIGIN Auto</span>
     </summary>
@@ -59,10 +59,11 @@ function ModelDetails() {
 
 function AgentDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
   const coding = mode === 'coding';
+  const stateLabel = coding ? '実行可能' : '通常応答';
   return <details className="origin-card min-w-40 border px-3 py-2 text-sm">
-    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold">
+    <summary aria-label={`Agent ${stateLabel}`} className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold">
       <span className="origin-muted text-xs">Agent</span>
-      <span>{coding ? '実行可能' : '通常応答'}</span>
+      <span>{stateLabel}</span>
     </summary>
     <div className="border-t border-origin-border pt-3 text-xs leading-6">
       <p className="m-0 font-semibold">{coding ? 'Code ModeではAgentic Codingを利用できます。' : 'このModeは通常応答として動作します。'}</p>
