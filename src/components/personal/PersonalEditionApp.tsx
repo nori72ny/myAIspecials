@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import App, { ArtifactWorkspace } from '../../App';
+import App from '../../App';
+import { ArtifactWorkspace } from '../../App';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
 import type { Settings } from '../../types';
 import OriginArtifactContextV31 from './OriginArtifactContextV31';
