@@ -26,6 +26,11 @@ function safeFailure(res: Response, status: number, code: string) {
   });
 }
 
+function utf8DownloadDisposition(filename: string, fallback: string): string {
+  const encoded = encodeURIComponent(filename).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
 export function createVisualArtifactV15Router() {
   const router = Router();
 
@@ -85,9 +90,10 @@ export function createVisualArtifactV15Router() {
     try {
       const artifact = generateVisualArtifactV15(req.body);
       if (!artifact.verified) return safeFailure(res, 422, 'VISUAL_ARTIFACT_VERIFICATION_FAILED');
+      const fallbackName = `origin-${artifact.kind}-${artifact.preset}.svg`;
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', artifact.mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${artifact.filename.replace(/"/g, '')}"`);
+      res.setHeader('Content-Disposition', utf8DownloadDisposition(artifact.filename, fallbackName));
       res.setHeader('X-Origin-Visual-Sha256', artifact.sha256);
       res.setHeader('X-Origin-Visual-Verified', 'true');
       res.setHeader('X-Origin-Free-Only', 'true');
