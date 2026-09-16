@@ -5,7 +5,7 @@ export const HELD_OUT_FINAL_MIN_TASKS_V14 = 6 as const;
 export const HELD_OUT_FINAL_MAX_TASKS_V14 = 16 as const;
 export const HELD_OUT_FINAL_MIN_RECOVERY_TASKS_V14 = 2 as const;
 
-const REQUIRED_COVERAGE_KEYS = [
+export const HELD_OUT_FINAL_REQUIRED_COVERAGE_KEYS_V14 = [
   'navigationMultiFile',
   'featureWithNewFile',
   'regressionRecovery',
@@ -13,9 +13,8 @@ const REQUIRED_COVERAGE_KEYS = [
   'securityPathBoundary',
 ] as const;
 
-type CoverageKey = (typeof REQUIRED_COVERAGE_KEYS)[number];
-
-export type HeldOutFinalCoverageV14 = Record<CoverageKey, boolean>;
+export type HeldOutFinalCoverageKeyV14 = (typeof HELD_OUT_FINAL_REQUIRED_COVERAGE_KEYS_V14)[number];
+export type HeldOutFinalCoverageV14 = Record<HeldOutFinalCoverageKeyV14, boolean>;
 
 export type HeldOutFinalCorpusV14 = {
   qualification: typeof HELD_OUT_FINAL_QUALIFICATION_VERSION_V14;
@@ -40,6 +39,8 @@ export type HeldOutFinalRunProvenanceV14 = {
   taskSpecificTuningAfterFreeze: boolean;
   /** Digests of any corpora already observed during engineering/pilot work. */
   priorObservedCorpusDigests: string[];
+  /** Public task digests already observed during engineering/pilot work. */
+  priorObservedTaskDigests?: string[];
 };
 
 export type HeldOutFinalQualificationV14 = {
@@ -151,15 +152,22 @@ export function qualifyHeldOutFinalCorpusV14(
 
   const recoveryTaskCount = tasks.filter(task => task.recoveryRequired === true).length;
   if (recoveryTaskCount < HELD_OUT_FINAL_MIN_RECOVERY_TASKS_V14) reasons.push('recovery-coverage-insufficient');
-  for (const key of REQUIRED_COVERAGE_KEYS) {
+  for (const key of HELD_OUT_FINAL_REQUIRED_COVERAGE_KEYS_V14) {
     if (coverage[key] !== true) reasons.push(`coverage-missing:${key}`);
   }
 
-  const observed = Array.isArray(provenance?.priorObservedCorpusDigests)
+  const observedCorpora = Array.isArray(provenance?.priorObservedCorpusDigests)
     ? provenance.priorObservedCorpusDigests.map(value => String(value).toLowerCase())
     : [];
-  if (!observed.every(validSha256)) reasons.push('prior-observed-digest-invalid');
-  if (validSha256(corpus?.corpusDigest ?? '') && observed.includes(corpus.corpusDigest.toLowerCase())) reasons.push('corpus-already-observed');
+  if (!observedCorpora.every(validSha256)) reasons.push('prior-observed-digest-invalid');
+  if (validSha256(corpus?.corpusDigest ?? '') && observedCorpora.includes(corpus.corpusDigest.toLowerCase())) reasons.push('corpus-already-observed');
+
+  const observedTasks = Array.isArray(provenance?.priorObservedTaskDigests)
+    ? provenance.priorObservedTaskDigests.map(value => String(value).toLowerCase())
+    : [];
+  if (!observedTasks.every(validSha256)) reasons.push('prior-observed-task-digest-invalid');
+  if (digests.some(digest => observedTasks.includes(digest))) reasons.push('task-already-observed');
+
   if (provenance?.runOrdinal !== 1) reasons.push('final-run-not-one-shot');
   if (provenance?.engineeringObservedBeforeRun !== false) reasons.push('engineering-observed-before-run');
   if (provenance?.taskSpecificTuningAfterFreeze !== false) reasons.push('task-specific-tuning-after-freeze');
