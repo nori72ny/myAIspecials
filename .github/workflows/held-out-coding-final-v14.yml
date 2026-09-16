@@ -1,0 +1,261 @@
+name: V1.4 final held-out coding qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: origin-v14-final-heldout-one-shot
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      task_ids: ${{ steps.select.outputs.task_ids }}
+      task_count: ${{ steps.select.outputs.task_count }}
+      corpus_id: ${{ steps.select.outputs.corpus_id }}
+      corpus_digest: ${{ steps.select.outputs.corpus_digest }}
+      frozen_base_sha: ${{ steps.select.outputs.frozen_base_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Prepare trusted final selector
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Validate one-shot invocation
+        shell: bash
+        env:
+          FINAL_CORPUS: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -n "$FINAL_CORPUS"
+          test -n "$OPENROUTER_API_KEY"
+
+      - name: Select sealed final task identities
+        id: select
+        shell: bash
+        env:
+          ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
+        run: |
+          set -euo pipefail
+          metadata="$(node --import tsx scripts/select-held-out-final-task-ids-v14.ts)"
+          METADATA="$metadata" GITHUB_SHA_EXPECTED="$GITHUB_SHA" node <<'NODE' >> "$GITHUB_OUTPUT"
+          const value = JSON.parse(process.env.METADATA || '{}');
+          if (!Array.isArray(value.taskIds) || value.taskIds.length < 6 || value.taskIds.length > 16) process.exit(2);
+          if (value.frozenBaseSha !== process.env.GITHUB_SHA_EXPECTED) {
+            console.error('HELD_OUT_FINAL_BASE_MUST_EQUAL_WORKFLOW_SHA');
+            process.exit(2);
+          }
+          if (!/^[a-f0-9]{64}$/i.test(String(value.corpusDigest || ''))) process.exit(2);
+          console.log(`task_ids=${JSON.stringify(value.taskIds)}`);
+          console.log(`task_count=${value.taskIds.length}`);
+          console.log(`corpus_id=${value.corpusId}`);
+          console.log(`corpus_digest=${value.corpusDigest}`);
+          console.log(`frozen_base_sha=${value.frozenBaseSha}`);
+          NODE
+
+      - name: Reject a previously started final corpus
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORPUS_DIGEST: ${{ steps.select.outputs.corpus_digest }}
+        run: |
+          set -euo pipefail
+          marker="origin-held-out-final-started-${CORPUS_DIGEST}"
+          curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${marker}&per_page=100" \
+            -o prior-final-artifacts.json
+          count="$(node -e "const v=require('./prior-final-artifacts.json'); process.stdout.write(String(v.total_count || 0))")"
+          if [ "$count" != '0' ]; then
+            echo 'HELD_OUT_FINAL_ALREADY_STARTED' >&2
+            exit 2
+          fi
+
+      - name: Create immutable-start audit marker payload
+        shell: bash
+        env:
+          CORPUS_ID: ${{ steps.select.outputs.corpus_id }}
+          CORPUS_DIGEST: ${{ steps.select.outputs.corpus_digest }}
+          FROZEN_BASE_SHA: ${{ steps.select.outputs.frozen_base_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          node <<'NODE'
+          const fs = require('fs');
+          fs.writeFileSync('test-results/held-out-final-started.json', `${JSON.stringify({
+            qualification: 'origin-held-out-final-qualification-v1',
+            corpusId: process.env.CORPUS_ID,
+            corpusDigest: process.env.CORPUS_DIGEST,
+            frozenBaseSha: process.env.FROZEN_BASE_SHA,
+            workflowRunId: process.env.GITHUB_RUN_ID,
+            workflowRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            workflowSha: process.env.GITHUB_SHA,
+            started: true,
+          }, null, 2)}\n`);
+          NODE
+
+      - name: Preserve one-shot start marker
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-held-out-final-started-${{ steps.select.outputs.corpus_digest }}
+          path: test-results/held-out-final-started.json
+          if-no-files-found: error
+          retention-days: 90
+
+  benchmark:
+    needs: preflight
+    if: github.event.repository.private == false
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        task_id: ${{ fromJSON(needs.preflight.outputs.task_ids) }}
+    concurrency:
+      group: origin-held-out-final-${{ matrix.task_id }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare trusted benchmark controller and isolated verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull node:22-bookworm-slim
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Materialize only the selected private packet in controller memory
+        shell: bash
+        env:
+          ORIGIN_HELDOUT_TASK_ID: ${{ matrix.task_id }}
+          ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
+        run: |
+          set -euo pipefail
+          packet="$(node --import tsx scripts/select-held-out-final-task-packet-v14.ts)"
+          test -n "$packet"
+          echo "::add-mask::$packet"
+          printf 'ORIGIN_HELDOUT_TASK_PACKET_B64=%s\n' "$packet" >> "$GITHUB_ENV"
+
+      - name: Run trusted one-shot held-out task
+        shell: bash
+        env:
+          ORIGIN_HELDOUT_TASK_ID: ${{ matrix.task_id }}
+          ORIGIN_HELDOUT_PARTICIPANT: ORIGIN
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          FREE_ONLY: 'true'
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/run-held-out-coding-trusted-v14.ts
+
+      - name: Preserve public final-task evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-held-out-final-task-${{ matrix.task_id }}-${{ github.run_id }}
+          path: |
+            test-results/held-out-task-public.json
+            test-results/held-out-run.json
+            test-results/held-out-score.json
+          if-no-files-found: error
+          retention-days: 90
+
+  aggregate:
+    needs: [preflight, benchmark]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Prepare trusted final evidence aggregator
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Download only this run's public task evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_COUNT: ${{ needs.preflight.outputs.task_count }}
+        run: |
+          set -euo pipefail
+          mkdir -p final-artifacts
+          for attempt in $(seq 1 12); do
+            curl --fail --silent --show-error \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+              -o current-run-artifacts.json
+            RUN_ID="$GITHUB_RUN_ID" node <<'NODE' > artifact-list.tsv
+          const v = require('./current-run-artifacts.json');
+          const suffix = `-${process.env.RUN_ID}`;
+          for (const a of v.artifacts || []) {
+            if (typeof a?.name === 'string' && a.name.startsWith('origin-held-out-final-task-') && a.name.endsWith(suffix) && Number.isSafeInteger(a.id)) {
+              console.log(`${a.id}\t${a.name}`);
+            }
+          }
+          NODE
+            count="$(wc -l < artifact-list.tsv | tr -d ' ')"
+            if [ "$count" = "$EXPECTED_COUNT" ]; then break; fi
+            if [ "$attempt" -eq 12 ]; then echo "HELD_OUT_FINAL_ARTIFACT_COUNT_MISMATCH:${count}/${EXPECTED_COUNT}" >&2; exit 2; fi
+            sleep 5
+          done
+          while IFS=$'\t' read -r artifact_id artifact_name; do
+            test -n "$artifact_id"
+            target="final-artifacts/${artifact_id}"
+            mkdir -p "$target"
+            curl --fail --silent --show-error --location \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+              -o "${target}.zip"
+            unzip -q "${target}.zip" -d "$target"
+          done < artifact-list.tsv
+
+      - name: Produce public final qualification evidence
+        shell: bash
+        env:
+          ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
+          ORIGIN_HELDOUT_FINAL_ARTIFACT_ROOT: ${{ github.workspace }}/final-artifacts
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/summarize-held-out-final-run-v14.ts
+
+      - name: Preserve final public evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-held-out-final-evidence-${{ needs.preflight.outputs.corpus_digest }}
+          path: test-results/held-out-final-evidence.json
+          if-no-files-found: error
+          retention-days: 90
