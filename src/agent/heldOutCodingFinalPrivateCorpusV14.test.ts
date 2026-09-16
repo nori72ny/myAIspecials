@@ -77,7 +77,10 @@ describe('V1.4 sealed final private corpus', () => {
     expect(() => prepareHeldOutFinalPrivateCorpusV14(tooFew)).toThrow('HELD_OUT_FINAL_PRIVATE_TASK_COUNT_INVALID');
 
     const missingCoverage = corpus();
-    missingCoverage.tasks = missingCoverage.tasks.map(row => ({ ...row, coverage: row.coverage.filter(key => key !== 'securityPathBoundary') }));
+    missingCoverage.tasks = missingCoverage.tasks.map(row => ({
+      ...row,
+      coverage: row.coverage.includes('securityPathBoundary') ? ['navigationMultiFile'] : row.coverage,
+    }));
     expect(() => prepareHeldOutFinalPrivateCorpusV14(missingCoverage)).toThrow('HELD_OUT_FINAL_NOT_ELIGIBLE');
 
     const duplicate = corpus();
