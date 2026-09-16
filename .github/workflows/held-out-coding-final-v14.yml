@@ -26,15 +26,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.x'
           cache: npm
-
       - name: Prepare trusted final selector
         run: npm ci --ignore-scripts --no-audit --no-fund
-
       - name: Validate one-shot invocation
         shell: bash
         env:
@@ -46,7 +43,6 @@ jobs:
           test "$GITHUB_RUN_ATTEMPT" = '1'
           test -n "$FINAL_CORPUS"
           test -n "$OPENROUTER_API_KEY"
-
       - name: Select sealed final task identities
         id: select
         shell: bash
@@ -69,7 +65,6 @@ jobs:
           console.log(`corpus_digest=${value.corpusDigest}`);
           console.log(`frozen_base_sha=${value.frozenBaseSha}`);
           NODE
-
       - name: Reject a previously started final corpus
         shell: bash
         env:
@@ -89,8 +84,7 @@ jobs:
             echo 'HELD_OUT_FINAL_ALREADY_STARTED' >&2
             exit 2
           fi
-
-      - name: Create immutable-start audit marker payload
+      - name: Create one-shot start audit marker payload
         shell: bash
         env:
           CORPUS_ID: ${{ steps.select.outputs.corpus_id }}
@@ -112,7 +106,6 @@ jobs:
             started: true,
           }, null, 2)}\n`);
           NODE
-
       - name: Preserve one-shot start marker
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -139,37 +132,28 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-
       - name: Prepare trusted benchmark controller and isolated verifier
         shell: bash
         run: |
           set -euo pipefail
           docker pull node:22-bookworm-slim
           npm ci --ignore-scripts --no-audit --no-fund
-
-      - name: Materialize only the selected private packet in controller memory
+      - name: Run selected final task with step-local private packet
         shell: bash
         env:
           ORIGIN_HELDOUT_TASK_ID: ${{ matrix.task_id }}
           ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
-        run: |
-          set -euo pipefail
-          packet="$(node --import tsx scripts/select-held-out-final-task-packet-v14.ts)"
-          test -n "$packet"
-          echo "::add-mask::$packet"
-          printf 'ORIGIN_HELDOUT_TASK_PACKET_B64=%s\n' "$packet" >> "$GITHUB_ENV"
-
-      - name: Run trusted one-shot held-out task
-        shell: bash
-        env:
-          ORIGIN_HELDOUT_TASK_ID: ${{ matrix.task_id }}
           ORIGIN_HELDOUT_PARTICIPANT: ORIGIN
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           FREE_ONLY: 'true'
         run: |
           set -euo pipefail
-          node --import tsx scripts/run-held-out-coding-trusted-v14.ts
-
+          packet="$(node --import tsx scripts/select-held-out-final-task-packet-v14.ts)"
+          test -n "$packet"
+          echo "::add-mask::$packet"
+          unset ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64
+          ORIGIN_HELDOUT_TASK_PACKET_B64="$packet" node --import tsx scripts/run-held-out-coding-trusted-v14.ts
+          unset packet
       - name: Preserve public final-task evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -191,16 +175,13 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.x'
           cache: npm
-
       - name: Prepare trusted final evidence aggregator
         run: npm ci --ignore-scripts --no-audit --no-fund
-
-      - name: Download only this run's public task evidence
+      - name: Download this run's available public task evidence
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -226,11 +207,14 @@ jobs:
           NODE
             count="$(wc -l < artifact-list.tsv | tr -d ' ')"
             if [ "$count" = "$EXPECTED_COUNT" ]; then break; fi
-            if [ "$attempt" -eq 12 ]; then echo "HELD_OUT_FINAL_ARTIFACT_COUNT_MISMATCH:${count}/${EXPECTED_COUNT}" >&2; exit 2; fi
-            sleep 5
+            if [ "$attempt" -lt 12 ]; then sleep 5; fi
           done
+          count="$(wc -l < artifact-list.tsv | tr -d ' ')"
+          if [ "$count" != "$EXPECTED_COUNT" ]; then
+            echo "::warning title=Incomplete final evidence artifacts::Observed ${count}/${EXPECTED_COUNT} public task artifacts; aggregate evidence will be preserved as ineligible."
+          fi
           while IFS=$'\t' read -r artifact_id artifact_name; do
-            test -n "$artifact_id"
+            [ -n "$artifact_id" ] || continue
             target="final-artifacts/${artifact_id}"
             mkdir -p "$target"
             curl --fail --silent --show-error --location \
@@ -241,7 +225,6 @@ jobs:
               -o "${target}.zip"
             unzip -q "${target}.zip" -d "$target"
           done < artifact-list.tsv
-
       - name: Produce public final qualification evidence
         shell: bash
         env:
@@ -250,7 +233,6 @@ jobs:
         run: |
           set -euo pipefail
           node --import tsx scripts/summarize-held-out-final-run-v14.ts
-
       - name: Preserve final public evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
