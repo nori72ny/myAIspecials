@@ -44,7 +44,7 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await expect(page).toHaveURL(/workspace=creative/);
     await expect(page.getByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0')).toBeVisible();
 
-    await page.getByLabel('タイトル').fill('モバイルCreative');
+    await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('モバイルCreative');
     await page.getByRole('button', { name: 'Visualを生成' }).click();
 
     await expect(page.getByRole('img', { name: '生成済みVisual: モバイルCreative' })).toBeVisible();
