@@ -5,6 +5,7 @@ import PersonalEditionApp from '../PersonalEditionApp';
 
 const appProps = vi.fn();
 vi.mock('../../CodingJobWorkspaceV14', () => ({ default: () => <section aria-label="Coding Job Workspace">Coding test workspace</section> }));
+vi.mock('../../CreativeWorkspaceV15', () => ({ default: () => <section aria-label="Creative Workspace">Creative test workspace</section> }));
 
 vi.mock('../../../App', () => ({
   default: (props: Record<string, unknown>) => {
@@ -29,14 +30,31 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
   });
 
-  it('supports a direct mobile link and browser history navigation', async () => {
+  it('opens Creative from the production wrapper and preserves the chat mount', async () => {
+    render(<PersonalEditionApp />);
+    const originalChat = screen.getByTestId('mock-origin-app');
+    fireEvent.click(screen.getByRole('button', { name: /Creative/ }));
+    expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
+    expect(window.location.search).toBe('?workspace=creative');
+    expect(originalChat.closest('[hidden]')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'チャット' }));
+    expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
+    expect(originalChat.closest('[hidden]')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
+  });
+
+  it('supports direct workspace links and browser history navigation', async () => {
     window.history.replaceState(null, '', '/?workspace=coding');
     render(<PersonalEditionApp />);
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
+    window.history.replaceState(null, '', '/?workspace=creative');
+    fireEvent(window, new PopStateEvent('popstate'));
+    expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Creative/ }).getAttribute('aria-pressed')).toBe('true');
     window.history.replaceState(null, '', '/');
     fireEvent(window, new PopStateEvent('popstate'));
     expect(screen.getByRole('button', { name: 'チャット' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
   });
 
   it('mounts the shared App with the Personal settings boundary', () => {
