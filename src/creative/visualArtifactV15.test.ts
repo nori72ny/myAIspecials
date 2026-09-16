@@ -100,12 +100,14 @@ describe('V1.5 verified visual artifacts', () => {
       kind: 'social-card',
       preset: 'portrait',
       layout: 'editorial',
-      title: '1080 × 1350',
+      title: '日本語クリエイティブ',
       subtitle: 'Verified social visual',
       body: 'Generated locally without an image provider.',
     });
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('image/svg+xml');
+    expect(response.headers['content-disposition']).toContain('filename="origin-social-card-portrait.svg"');
+    expect(response.headers['content-disposition']).toContain("filename*=UTF-8''");
     expect(response.headers['x-origin-visual-verified']).toBe('true');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
