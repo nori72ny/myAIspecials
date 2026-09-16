@@ -24,9 +24,9 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(screen.getByText('Workspace')).toBeTruthy();
     expect(screen.getByText('Personal')).toBeTruthy();
     expect(screen.getByRole('navigation', { name: 'Mode' })).toBeTruthy();
-    expect(screen.getByText('ORIGIN Auto')).toBeTruthy();
-    expect(screen.getByText('自動管理')).toBeTruthy();
-    expect(screen.getByText('通常応答')).toBeTruthy();
+    expect(screen.getByLabelText('Model ORIGIN Auto')).toBeTruthy();
+    expect(screen.getByLabelText('Tools 自動管理')).toBeTruthy();
+    expect(screen.getByLabelText('Agent 通常応答')).toBeTruthy();
 
     const research = screen.getByRole('button', { name: 'Research 準備中' }) as HTMLButtonElement;
     const work = screen.getByRole('button', { name: 'Work 準備中' }) as HTMLButtonElement;
@@ -41,7 +41,7 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     expect(window.location.search).toBe('?workspace=coding');
     expect(originalChat.closest('[hidden]')).toBeTruthy();
-    expect(screen.getByText('実行可能')).toBeTruthy();
+    expect(screen.getByLabelText('Agent 実行可能')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
     expect(originalChat.closest('[hidden]')).toBeNull();
