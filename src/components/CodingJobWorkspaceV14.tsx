@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import OriginAgentActionProgressV31 from './personal/OriginAgentActionProgressV31';
 
 type CodingJobStatus = 'queued' | 'leased' | 'running' | 'repairing' | 'verified' | 'blocked' | 'failed' | 'cancelled';
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
@@ -407,11 +408,12 @@ export default function CodingJobWorkspaceV14() {
       </aside>
 
       <main className="min-w-0 space-y-4">
-        <section className="origin-workspace rounded-2xl p-4" aria-labelledby="coding-progress-title">
-          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Execution</p><h2 id="coding-progress-title" className="mt-1 text-lg font-black">実行状況と結果</h2></div>{job ? <StatusBadge status={job.status} cancelRequested={job.cancelRequested} /> : <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 dark:bg-slate-800">依頼前</span>}</div>
-          <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">{job ? STATUS_DETAILS[job.status] : '変更したい内容を入力してください。依頼後はここで実行状態と検証結果を確認できます。'}</p>
-          <p className="mt-3 text-xs leading-5 text-slate-500">進捗率や残り時間は推測せず、取得できたジョブ状態と検証結果を表示します。</p>
-        </section>
+        <OriginAgentActionProgressV31
+          status={job?.status ?? null}
+          cancelRequested={job?.cancelRequested ?? false}
+          busy={busy}
+          onStop={job && ACTIVE.has(job.status) ? () => { void cancelJob(); } : undefined}
+        />
         <VerificationPanel result={result} state={resultState} />
         <DiffPanel result={result} state={resultState} changedPaths={job?.changedPaths ?? []} />
         <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 text-xs leading-5 text-slate-500 dark:border-slate-800 dark:bg-slate-900/50"><strong className="text-slate-700 dark:text-slate-200">Safety boundary:</strong> UIからrepository/ref/pathは指定できません。targetはserver-ownedの <code>origin:self</code> に固定され、Git公開・デプロイはこのV1.4経路では実行されません。</section>
