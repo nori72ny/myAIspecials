@@ -12,6 +12,7 @@ vi.mock('../../../App', () => ({
     appProps(props);
     return <div data-testid="mock-origin-app">ORIGIN</div>;
   },
+  ArtifactWorkspace: ({ artifact, isOpen, onClose }: { artifact: { title: string }; isOpen: boolean; onClose: () => void }) => isOpen ? <aside aria-label="成果物ワークスペース"><p>{artifact.title}</p><button type="button" onClick={onClose}>会話に戻る</button></aside> : null,
 }));
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); window.history.replaceState(null, '', '/'); });
@@ -128,6 +129,26 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(artifactLayer.textContent).toContain('Ready');
   });
 
+  it('reopens the latest artifact through the mobile Conversation / Artifact tabs', () => {
+    const artifacts = [{ id: 'a-mobile', type: 'markdown' as const, title: 'モバイル成果物', language: 'markdown', content: '# Mobile', isComplete: true }];
+    render(<PersonalEditionApp artifacts={artifacts} />);
+
+    const tabs = screen.getByRole('tablist', { name: 'モバイルChat表示' });
+    const conversation = screen.getByRole('tab', { name: '会話' });
+    const artifact = screen.getByRole('tab', { name: '成果物' });
+    expect(tabs).toBeTruthy();
+    expect(conversation.getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('complementary', { name: '成果物ワークスペース' })).toBeNull();
+
+    fireEvent.click(artifact);
+    expect(artifact.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('complementary', { name: '成果物ワークスペース' }).textContent).toContain('モバイル成果物');
+
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
+    expect(conversation.getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('complementary', { name: '成果物ワークスペース' })).toBeNull();
+  });
+
   it('keeps the Chat Artifact layer out of Code and Create modes', async () => {
     const artifacts = [{ id: 'a-1', type: 'markdown' as const, title: '成果物', language: 'markdown', content: '# A', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
@@ -136,10 +157,12 @@ describe('PersonalEditionApp production wrapper', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Code' }));
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.queryByRole('tablist', { name: 'モバイルChat表示' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.queryByRole('tablist', { name: 'モバイルChat表示' })).toBeNull();
   });
 
   it('renders the shared ORIGIN application surface', () => {
