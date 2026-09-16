@@ -10,6 +10,7 @@ export const VISUAL_PRESET_DIMENSIONS_V15: Record<VisualRasterPresetV15, { width
 const MAX_SVG_BYTES = 512 * 1024;
 const MAX_DIMENSION = 4096;
 const MAX_PIXELS = 12_000_000;
+const SHA256 = /^[a-f0-9]{64}$/i;
 
 export class LocalVisualExportErrorV15 extends Error {
   constructor(public readonly code: string) {
@@ -24,13 +25,17 @@ export function pngFilenameFromSvg(filename: string): string {
   return `${stem}.png`;
 }
 
-function assertRasterInput(svgBlob: Blob, preset: VisualRasterPresetV15) {
+function assertSvgBlob(svgBlob: Blob) {
   if (!(svgBlob instanceof Blob) || svgBlob.size <= 0 || svgBlob.size > MAX_SVG_BYTES) {
     throw new LocalVisualExportErrorV15('INVALID_LOCAL_SVG_BLOB');
   }
   if (!svgBlob.type.toLowerCase().includes('image/svg+xml')) {
     throw new LocalVisualExportErrorV15('INVALID_LOCAL_SVG_MIME');
   }
+}
+
+function assertRasterInput(svgBlob: Blob, preset: VisualRasterPresetV15) {
+  assertSvgBlob(svgBlob);
   const dimensions = VISUAL_PRESET_DIMENSIONS_V15[preset];
   if (!dimensions
     || dimensions.width <= 0
@@ -41,6 +46,19 @@ function assertRasterInput(svgBlob: Blob, preset: VisualRasterPresetV15) {
     throw new LocalVisualExportErrorV15('INVALID_LOCAL_RASTER_DIMENSIONS');
   }
   return dimensions;
+}
+
+export async function sha256SvgBlobV15(svgBlob: Blob): Promise<string> {
+  assertSvgBlob(svgBlob);
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new LocalVisualExportErrorV15('LOCAL_SHA256_UNAVAILABLE');
+  const digest = await subtle.digest('SHA-256', await svgBlob.arrayBuffer());
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export async function verifyVisualBlobSha256V15(svgBlob: Blob, expectedSha256: string): Promise<boolean> {
+  if (!SHA256.test(expectedSha256)) return false;
+  return (await sha256SvgBlobV15(svgBlob)) === expectedSha256.toLowerCase();
 }
 
 function loadSvgImage(url: string): Promise<HTMLImageElement> {
