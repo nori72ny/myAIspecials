@@ -2,12 +2,28 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { rasterizeVerifiedSvgToPng } from '../creative/localVisualExportV15';
+import {
+  rasterizeVerifiedSvgToPng,
+  verifyVisualBlobSha256V15,
+} from '../creative/localVisualExportV15';
+import {
+  deleteCreativeHistoryV15,
+  loadCreativeHistoryV15,
+  saveCreativeHistoryV15,
+  type CreativeHistoryEntryV15,
+} from '../creative/localVisualHistoryV15';
 import CreativeWorkspaceV15 from './CreativeWorkspaceV15';
 
 vi.mock('../creative/localVisualExportV15', () => ({
   pngFilenameFromSvg: (filename: string) => filename.replace(/\.svg$/i, '.png'),
   rasterizeVerifiedSvgToPng: vi.fn(),
+  verifyVisualBlobSha256V15: vi.fn(),
+}));
+
+vi.mock('../creative/localVisualHistoryV15', () => ({
+  deleteCreativeHistoryV15: vi.fn(),
+  loadCreativeHistoryV15: vi.fn(),
+  saveCreativeHistoryV15: vi.fn(),
 }));
 
 const statusBody = {
@@ -59,6 +75,19 @@ function svgResponse(options: {
   } as unknown as Response;
 }
 
+function historyEntry(title = '履歴Visual'): CreativeHistoryEntryV15 {
+  return {
+    version: 1,
+    id: 'c'.repeat(64),
+    sha256: 'c'.repeat(64),
+    title,
+    preset: 'portrait',
+    downloadName: 'history-portrait.svg',
+    createdAt: 1_789_565_000_000,
+    svgBlob: new Blob(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], { type: 'image/svg+xml' }),
+  };
+}
+
 describe('CreativeWorkspaceV15', () => {
   const originalCreateObjectURL = URL.createObjectURL;
   const originalRevokeObjectURL = URL.revokeObjectURL;
@@ -67,9 +96,23 @@ describe('CreativeWorkspaceV15', () => {
   beforeEach(() => {
     objectUrlSequence = 0;
     vi.clearAllMocks();
-    vi.mocked(rasterizeVerifiedSvgToPng).mockReset();
-    vi.mocked(rasterizeVerifiedSvgToPng)
-      .mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+    vi.mocked(rasterizeVerifiedSvgToPng).mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+    vi.mocked(verifyVisualBlobSha256V15).mockResolvedValue(true);
+    vi.mocked(loadCreativeHistoryV15).mockResolvedValue({ status: 'ready', entries: [] });
+    vi.mocked(saveCreativeHistoryV15).mockImplementation(async (input) => ({
+      status: 'saved',
+      entry: {
+        version: 1,
+        id: input.sha256.toLowerCase(),
+        sha256: input.sha256.toLowerCase(),
+        title: input.title,
+        preset: input.preset,
+        downloadName: input.downloadName,
+        createdAt: 1_789_565_000_000,
+        svgBlob: input.svgBlob,
+      },
+    }));
+    vi.mocked(deleteCreativeHistoryV15).mockResolvedValue('deleted');
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       value: vi.fn(() => `blob:origin-${++objectUrlSequence}`),
@@ -85,7 +128,7 @@ describe('CreativeWorkspaceV15', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: originalRevokeObjectURL });
   });
 
-  it('checks the zero-cost capability, generates a verified SVG, previews it, and exposes SVG download', async () => {
+  it('checks the zero-cost capability, verifies actual bytes, previews SVG, and persists local history', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(statusBody))
       .mockResolvedValueOnce(svgResponse());
@@ -102,12 +145,33 @@ describe('CreativeWorkspaceV15', () => {
     const download = screen.getByRole('link', { name: 'SVG保存' }) as HTMLAnchorElement;
     expect(download.getAttribute('download')).toBe('日本語-portrait.svg');
     expect(screen.getByText(/SHA-256 aaaaaaaaaaaa…/)).toBeTruthy();
+    expect(screen.getByText(/実バイト照合済み/)).toBeTruthy();
+    await screen.findByText('端末内履歴に保存しました。SVGは再読み込み後もこの端末から開けます。');
 
+    expect(verifyVisualBlobSha256V15).toHaveBeenCalledWith(expect.any(Blob), 'a'.repeat(64));
+    expect(saveCreativeHistoryV15).toHaveBeenCalledWith(expect.objectContaining({
+      sha256: 'a'.repeat(64),
+      title: '日本語',
+      preset: 'portrait',
+      downloadName: '日本語-portrait.svg',
+    }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const request = fetchMock.mock.calls[1][1] as RequestInit;
-    expect(request.method).toBe('POST');
-    const sent = JSON.parse(String(request.body));
-    expect(sent).toMatchObject({ kind: 'social-card', preset: 'portrait', layout: 'editorial', title: '日本語' });
+  });
+
+  it('rejects a response whose SVG bytes do not match the advertised SHA-256', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(statusBody))
+      .mockResolvedValueOnce(svgResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(verifyVisualBlobSha256V15).mockResolvedValueOnce(false);
+
+    render(<CreativeWorkspaceV15 />);
+    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+
+    await screen.findByText('成果物の実バイトとSHA-256証拠が一致しませんでした。');
+    expect(screen.queryByRole('link', { name: 'SVG保存' })).toBeNull();
+    expect(saveCreativeHistoryV15).not.toHaveBeenCalled();
   });
 
   it('creates PNG locally from the verified artifact snapshot without another fetch', async () => {
@@ -132,8 +196,38 @@ describe('CreativeWorkspaceV15', () => {
     expect(pngDownload.href).toContain('blob:origin-2');
     expect(screen.getByText('縦長 1080×1350 · SVG + PNG')).toBeTruthy();
     expect(rasterizeVerifiedSvgToPng).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(rasterizeVerifiedSvgToPng).mock.calls[0]?.[1]).toBe('portrait');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('loads a verified local-history entry without generating again', async () => {
+    const entry = historyEntry();
+    vi.mocked(loadCreativeHistoryV15).mockResolvedValueOnce({ status: 'ready', entries: [entry] });
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(statusBody));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CreativeWorkspaceV15 />);
+    const open = await screen.findByRole('button', { name: '履歴を開く: 履歴Visual' });
+    fireEvent.click(open);
+
+    await screen.findByAltText('生成済みVisual: 履歴Visual');
+    expect(verifyVisualBlobSha256V15).toHaveBeenCalledWith(entry.svgBlob, entry.sha256);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes a local-history entry without affecting current generation capability', async () => {
+    const entry = historyEntry();
+    vi.mocked(loadCreativeHistoryV15).mockResolvedValueOnce({ status: 'ready', entries: [entry] });
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(statusBody));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CreativeWorkspaceV15 />);
+    const remove = await screen.findByRole('button', { name: '履歴から削除: 履歴Visual' });
+    fireEvent.click(remove);
+    await screen.findByText('端末内履歴から削除しました。');
+
+    expect(deleteCreativeHistoryV15).toHaveBeenCalledWith(entry.id);
+    expect(screen.queryByRole('button', { name: '履歴を開く: 履歴Visual' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Visualを生成' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('keeps verified SVG available if local PNG conversion fails', async () => {

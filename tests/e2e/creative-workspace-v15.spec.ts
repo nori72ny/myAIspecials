@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 
 const statusBody = JSON.stringify({
@@ -13,6 +14,7 @@ const statusBody = JSON.stringify({
 });
 
 const svg = '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350"><rect width="1080" height="1350" fill="#F7F7F4"/><text x="80" y="180">Creative E2E</text></svg>';
+const svgSha256 = createHash('sha256').update(svg).digest('hex');
 
 test.describe('V1.5 Creative workspace production surface', () => {
   test.beforeEach(async ({ page }) => {
@@ -27,7 +29,7 @@ test.describe('V1.5 Creative workspace production surface', () => {
       headers: {
         'Content-Disposition': "attachment; filename=\"origin-social-card-portrait.svg\"; filename*=UTF-8''creative-e2e-portrait.svg",
         'X-Origin-Visual-Verified': 'true',
-        'X-Origin-Visual-Sha256': 'b'.repeat(64),
+        'X-Origin-Visual-Sha256': svgSha256,
         'X-Origin-Free-Only': 'true',
         'X-Origin-Cost-Usd': '0',
         'X-Origin-External-Network': 'false',
@@ -36,7 +38,7 @@ test.describe('V1.5 Creative workspace production surface', () => {
     }));
   });
 
-  test('opens Creative on mobile, generates a verified preview, and exports a real PNG locally', async ({ page }) => {
+  test('opens Creative on mobile, verifies actual SVG bytes, persists history, and exports a real PNG locally', async ({ page }) => {
     const requests: string[] = [];
     page.on('request', request => requests.push(request.url()));
 
@@ -54,7 +56,9 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await expect(page.getByRole('img', { name: '生成済みVisual: モバイルCreative' })).toBeVisible();
     const svgDownload = page.getByRole('link', { name: 'SVG保存' });
     await expect(svgDownload).toHaveAttribute('download', 'creative-e2e-portrait.svg');
-    await expect(page.getByText(/SHA-256 bbbbbbbbbbbb…/)).toBeVisible();
+    await expect(page.getByText(new RegExp(`SHA-256 ${svgSha256.slice(0, 12)}…`))).toBeVisible();
+    await expect(page.getByText(/実バイト照合済み/)).toBeVisible();
+    await expect(page.getByRole('button', { name: '履歴を開く: モバイルCreative' })).toBeVisible();
 
     const requestsBeforePng = requests.length;
     await page.getByRole('button', { name: 'PNGを作成' }).click();
@@ -73,6 +77,33 @@ test.describe('V1.5 Creative workspace production surface', () => {
     expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
+  test('restores a verified artifact from IndexedDB after reload without another generation request', async ({ page }) => {
+    const generateRequests: string[] = [];
+    page.on('request', request => {
+      if (request.url().includes('/api/creative/v1.5/generate')) generateRequests.push(request.url());
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/?workspace=creative');
+    await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('履歴Creative');
+    await page.getByRole('button', { name: 'Visualを生成' }).click();
+    await expect(page.getByRole('button', { name: '履歴を開く: 履歴Creative' })).toBeVisible();
+    expect(generateRequests).toHaveLength(1);
+
+    await page.reload();
+    const openHistory = page.getByRole('button', { name: '履歴を開く: 履歴Creative' });
+    await expect(openHistory).toBeVisible();
+    await openHistory.click();
+    await expect(page.getByRole('img', { name: '生成済みVisual: 履歴Creative' })).toBeVisible();
+    await expect(page.getByText('端末内履歴から検証済みSVGを開きました。')).toBeVisible();
+    expect(generateRequests).toHaveLength(1);
+
+    const requestsBeforePng = generateRequests.length;
+    await page.getByRole('button', { name: 'PNGを作成' }).click();
+    await expect(page.getByRole('link', { name: 'PNG保存' })).toBeVisible();
+    expect(generateRequests.length).toBe(requestsBeforePng);
   });
 
   test('supports a direct Creative URL and browser history without losing the chat mount', async ({ page }) => {

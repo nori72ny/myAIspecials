@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   pngFilenameFromSvg,
   rasterizeVerifiedSvgToPng,
+  verifyVisualBlobSha256V15,
   VISUAL_PRESET_DIMENSIONS_V15,
 } from './localVisualExportV15';
 
@@ -27,5 +28,10 @@ describe('localVisualExportV15', () => {
       .rejects.toMatchObject({ code: 'INVALID_LOCAL_SVG_BLOB' });
     await expect(rasterizeVerifiedSvgToPng(new Blob(['not-svg'], { type: 'text/plain' }), 'portrait'))
       .rejects.toMatchObject({ code: 'INVALID_LOCAL_SVG_MIME' });
+  });
+
+  it('rejects a malformed expected SHA before hashing', async () => {
+    const blob = new Blob(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], { type: 'image/svg+xml' });
+    await expect(verifyVisualBlobSha256V15(blob, 'not-a-sha')).resolves.toBe(false);
   });
 });

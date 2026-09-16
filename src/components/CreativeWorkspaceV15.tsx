@@ -2,8 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   pngFilenameFromSvg,
   rasterizeVerifiedSvgToPng,
+  verifyVisualBlobSha256V15,
   type VisualRasterPresetV15,
 } from '../creative/localVisualExportV15';
+import {
+  deleteCreativeHistoryV15,
+  loadCreativeHistoryV15,
+  saveCreativeHistoryV15,
+  type CreativeHistoryEntryV15,
+} from '../creative/localVisualHistoryV15';
 
 type VisualKind = 'social-card' | 'poster' | 'info-card';
 type VisualPreset = VisualRasterPresetV15;
@@ -69,6 +76,13 @@ const PRESET_ASPECT: Record<VisualPreset, string> = {
   landscape: '40 / 21',
 };
 
+const HISTORY_DATE = new Intl.DateTimeFormat('ja-JP', {
+  month: 'numeric',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 function filenameFromDisposition(value: string | null, fallback: string): string {
   if (!value) return fallback;
   const utf8 = value.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
@@ -87,15 +101,25 @@ async function errorMessage(response: Response): Promise<string> {
   }
 }
 
+function historyStorageMessage(status: 'unavailable' | 'quota' | 'failed'): string {
+  if (status === 'quota') return '端末の保存容量が不足しているため、この成果物は履歴に保存できませんでした。';
+  if (status === 'unavailable') return 'この環境では端末内のCreative履歴を利用できません。生成と保存は引き続き利用できます。';
+  return '端末内のCreative履歴を更新できませんでした。生成済み成果物はそのまま保存できます。';
+}
+
 export default function CreativeWorkspaceV15() {
   const [draft, setDraft] = useState<CreativeDraft>(INITIAL_DRAFT);
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [busy, setBusy] = useState(false);
   const [pngBusy, setPngBusy] = useState(false);
+  const [historyBusyId, setHistoryBusyId] = useState('');
   const [error, setError] = useState('');
+  const [historyNotice, setHistoryNotice] = useState('');
   const [previewUrl, setPreviewUrl] = useState('');
   const [pngUrl, setPngUrl] = useState('');
   const [artifact, setArtifact] = useState<VerifiedCreativeArtifact | null>(null);
+  const [historyStatus, setHistoryStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
+  const [history, setHistory] = useState<CreativeHistoryEntryV15[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -117,6 +141,17 @@ export default function CreativeWorkspaceV15() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    void loadCreativeHistoryV15().then((result) => {
+      if (!active) return;
+      setHistory(result.entries);
+      setHistoryStatus(result.status === 'ready' ? 'ready' : 'unavailable');
+      if (result.status === 'failed') setHistoryNotice(historyStorageMessage('failed'));
+    });
+    return () => { active = false; };
+  }, []);
+
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
@@ -125,8 +160,8 @@ export default function CreativeWorkspaceV15() {
     if (pngUrl) URL.revokeObjectURL(pngUrl);
   }, [pngUrl]);
 
-  const canGenerate = status === 'ready' && !busy && !pngBusy && draft.title.trim().length > 0;
-  const canPreparePng = artifact !== null && !busy && !pngBusy;
+  const canGenerate = status === 'ready' && !busy && !pngBusy && !historyBusyId && draft.title.trim().length > 0;
+  const canPreparePng = artifact !== null && !busy && !pngBusy && !historyBusyId;
   const verificationText = useMemo(() => status === 'ready'
     ? '検証済みローカル生成 · 外部通信 0 · Provider 0 · $0'
     : status === 'loading' ? 'Creative engine を確認中…' : 'Creative engine は現在利用できません', [status]);
@@ -135,10 +170,35 @@ export default function CreativeWorkspaceV15() {
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
+  const applyArtifact = (nextArtifact: VerifiedCreativeArtifact) => {
+    setArtifact(nextArtifact);
+    setPreviewUrl(URL.createObjectURL(nextArtifact.blob));
+    setPngUrl('');
+  };
+
+  const persistHistory = async (nextArtifact: VerifiedCreativeArtifact) => {
+    const result = await saveCreativeHistoryV15({
+      sha256: nextArtifact.sha256,
+      title: nextArtifact.title,
+      preset: nextArtifact.preset,
+      downloadName: nextArtifact.downloadName,
+      svgBlob: nextArtifact.blob,
+    });
+    if (result.status === 'saved') {
+      setHistoryStatus('ready');
+      setHistory((current) => [result.entry, ...current.filter(entry => entry.id !== result.entry.id)].slice(0, 12));
+      setHistoryNotice('端末内履歴に保存しました。SVGは再読み込み後もこの端末から開けます。');
+      return;
+    }
+    if (result.status === 'unavailable') setHistoryStatus('unavailable');
+    setHistoryNotice(historyStorageMessage(result.status));
+  };
+
   const generate = async () => {
     if (!canGenerate) return;
     setBusy(true);
     setError('');
+    setHistoryNotice('');
     try {
       const response = await fetch('/api/creative/v1.5/generate', {
         method: 'POST',
@@ -172,17 +232,19 @@ export default function CreativeWorkspaceV15() {
       if (!/^[a-f0-9]{64}$/i.test(artifactSha256)) throw new Error('成果物のSHA-256証拠を確認できませんでした。');
       const blob = await response.blob();
       if (blob.size <= 0) throw new Error('空の成果物が返されました。');
+      if (!(await verifyVisualBlobSha256V15(blob, artifactSha256))) {
+        throw new Error('成果物の実バイトとSHA-256証拠が一致しませんでした。');
+      }
 
       const nextArtifact: VerifiedCreativeArtifact = {
         blob,
         preset: draft.preset,
         title: draft.title,
         downloadName: filenameFromDisposition(response.headers.get('content-disposition'), 'origin-creative.svg'),
-        sha256: artifactSha256,
+        sha256: artifactSha256.toLowerCase(),
       };
-      setArtifact(nextArtifact);
-      setPreviewUrl(URL.createObjectURL(blob));
-      setPngUrl('');
+      applyArtifact(nextArtifact);
+      await persistHistory(nextArtifact);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '生成に失敗しました。');
     } finally {
@@ -195,12 +257,57 @@ export default function CreativeWorkspaceV15() {
     setPngBusy(true);
     setError('');
     try {
+      if (!(await verifyVisualBlobSha256V15(artifact.blob, artifact.sha256))) {
+        throw new Error('artifact-integrity');
+      }
       const pngBlob = await rasterizeVerifiedSvgToPng(artifact.blob, artifact.preset);
       setPngUrl(URL.createObjectURL(pngBlob));
     } catch {
       setError('PNGの端末内変換に失敗しました。SVGはそのまま保存できます。');
     } finally {
       setPngBusy(false);
+    }
+  };
+
+  const openHistoryEntry = async (entry: CreativeHistoryEntryV15) => {
+    if (busy || pngBusy || historyBusyId) return;
+    setHistoryBusyId(entry.id);
+    setError('');
+    setHistoryNotice('');
+    try {
+      if (!(await verifyVisualBlobSha256V15(entry.svgBlob, entry.sha256))) {
+        setHistoryNotice('履歴の整合性を確認できなかったため、この成果物は開きませんでした。');
+        return;
+      }
+      applyArtifact({
+        blob: entry.svgBlob,
+        preset: entry.preset,
+        title: entry.title,
+        downloadName: entry.downloadName,
+        sha256: entry.sha256,
+      });
+      setHistoryNotice('端末内履歴から検証済みSVGを開きました。');
+    } catch {
+      setHistoryNotice('履歴の整合性を確認できなかったため、この成果物は開きませんでした。');
+    } finally {
+      setHistoryBusyId('');
+    }
+  };
+
+  const removeHistoryEntry = async (entry: CreativeHistoryEntryV15) => {
+    if (busy || pngBusy || historyBusyId) return;
+    setHistoryBusyId(entry.id);
+    setHistoryNotice('');
+    try {
+      const result = await deleteCreativeHistoryV15(entry.id);
+      if (result === 'deleted') {
+        setHistory((current) => current.filter(item => item.id !== entry.id));
+        setHistoryNotice('端末内履歴から削除しました。');
+      } else {
+        setHistoryNotice(historyStorageMessage(result === 'unavailable' ? 'unavailable' : 'failed'));
+      }
+    } finally {
+      setHistoryBusyId('');
     }
   };
 
@@ -216,7 +323,7 @@ export default function CreativeWorkspaceV15() {
               <span aria-hidden="true">✦</span> V1.5 Creative / Visual Generation
             </div>
             <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl dark:text-white">作る・確認する・保存するを、1画面で。</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base dark:text-slate-300">検証済みSVGを生成し、PNGも端末内だけで書き出せます。外部画像モデルや追加通信は使いません。</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base dark:text-slate-300">検証済みSVGを生成し、PNGも端末内だけで書き出せます。成果物履歴もこの端末内だけに保存します。</p>
           </div>
           <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${status === 'ready' ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200' : status === 'loading' ? 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300' : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'}`} role="status">
             {verificationText}
@@ -307,10 +414,52 @@ export default function CreativeWorkspaceV15() {
             )}
           </div>
           {artifact && previewUrl && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · 外部通信なし · PNGは端末内変換
+            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · 実バイト照合済み · 外部通信なし · PNGは端末内変換
           </div>}
         </section>
       </div>
+
+      <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative local history">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-black text-slate-950 dark:text-white">端末内履歴</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">最大12件の検証済みSVGだけをこの端末に保存します。PNGは保存容量を抑えるため、必要時に端末内で再生成します。</p>
+          </div>
+          <span className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300">
+            {historyStatus === 'loading' ? '読込中' : historyStatus === 'unavailable' ? '保存不可' : `${history.length}/12`}
+          </span>
+        </div>
+
+        {historyNotice && <div role="status" className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">{historyNotice}</div>}
+
+        {historyStatus === 'ready' && history.length === 0 && (
+          <p className="mt-4 rounded-2xl border border-dashed border-slate-300 px-4 py-5 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">まだ履歴はありません。次に生成した検証済みSVGから端末内へ保存します。</p>
+        )}
+
+        {history.length > 0 && (
+          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {history.map((entry) => {
+              const active = artifact?.sha256 === entry.sha256;
+              const waiting = historyBusyId === entry.id;
+              return (
+                <article key={entry.id} className={`rounded-2xl border p-3 ${active ? 'border-indigo-300 bg-indigo-50/70 dark:border-indigo-800 dark:bg-indigo-950/20' : 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900'}`}>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-slate-950 dark:text-white" title={entry.title}>{entry.title}</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{PRESET_LABELS[entry.preset]} · {HISTORY_DATE.format(new Date(entry.createdAt))}</p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-400">SHA {entry.sha256.slice(0, 12)}…</p>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void openHistoryEntry(entry)} aria-label={`履歴を開く: ${entry.title}`} className="min-h-11 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-900 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+                      {waiting ? '確認中…' : active ? '表示中' : '開く'}
+                    </button>
+                    <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void removeHistoryEntry(entry)} aria-label={`履歴から削除: ${entry.title}`} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-600 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">削除</button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </main>
   );
 }
