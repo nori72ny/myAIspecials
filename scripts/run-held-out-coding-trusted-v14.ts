@@ -4,7 +4,9 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runCodingAgentV14 } from '../src/agent/codingAgentV14.js';
+import { executeOriginCodingFreeFailoverV14 } from '../src/agent/codingFreeModelFailoverV14.js';
 import { createBoundedCodingProviderExecuteV14 } from '../src/agent/codingProviderRetryV14.js';
+import { createHeldOutCodingProviderRequestBudgetV14 } from '../src/agent/heldOutCodingProviderRequestBudgetV14.js';
 import { CODING_CHECK_TIMEOUT_MS } from '../src/agent/codingWorkerTimingV14.js';
 import { selectHeldOutPrivateTaskFromGzipB64V14 } from '../src/agent/heldOutCodingPrivateCorpusV14.js';
 import { resolveHeldOutTrustedScopeV14 } from '../src/agent/heldOutCodingTrustedScopeV14.js';
@@ -122,11 +124,13 @@ async function main(): Promise<void> {
   const dispatchedTaskId = process.env.ORIGIN_HELDOUT_TASK_ID ?? '';
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(dispatchedTaskId)) throw new Error('HELD_OUT_HOSTED_INPUT_INVALID');
   const packet = loadPrivatePacket(dispatchedTaskId);
+  const finalMode = process.env.ORIGIN_HELDOUT_FINAL_MODE === 'true';
   // Private corpus/packet data contains prompts and hidden tests. Retain the
   // selected packet only in controller memory; provider calls and child
   // processes never inherit either encoded source through process.env.
   delete process.env.ORIGIN_HELDOUT_CORPUS_GZIP_B64;
   delete process.env.ORIGIN_HELDOUT_TASK_PACKET_B64;
+  delete process.env.ORIGIN_HELDOUT_FINAL_MODE;
   const plannerEnv: NodeJS.ProcessEnv = {
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
     FREE_ONLY: 'true',
@@ -153,7 +157,14 @@ async function main(): Promise<void> {
       { openRouterConfigured: Boolean(plannerEnv.OPENROUTER_API_KEY) },
     );
     if (selected.ok === false) throw new Error(selected.code);
-    const execute = createBoundedCodingProviderExecuteV14(executeOriginProvider, () => {});
+    const finalProviderBudget = finalMode ? createHeldOutCodingProviderRequestBudgetV14() : null;
+    const execute = finalProviderBudget
+      ? createBoundedCodingProviderExecuteV14(
+          finalProviderBudget.wrap(executeOriginProvider),
+          () => {},
+          finalProviderBudget.wrap(executeOriginCodingFreeFailoverV14),
+        )
+      : createBoundedCodingProviderExecuteV14(executeOriginProvider, () => {});
 
     const result = await runTrustedHeldOutCodingBenchmarkV14(packet, process.env.ORIGIN_HELDOUT_PARTICIPANT ?? 'ORIGIN', {
       assertBaseSha: async sha => { if (sha !== packet.baseSha) throw new Error('HELD_OUT_BASE_SHA_MISMATCH'); },
@@ -201,7 +212,15 @@ async function main(): Promise<void> {
     await fs.writeFile(path.join(controllerRoot, 'test-results', 'held-out-task-public.json'), JSON.stringify(result.task, null, 2));
     await fs.writeFile(path.join(controllerRoot, 'test-results', 'held-out-run.json'), JSON.stringify(result.run, null, 2));
     await fs.writeFile(path.join(controllerRoot, 'test-results', 'held-out-score.json'), JSON.stringify(result.score, null, 2));
-    console.log(JSON.stringify({ taskId: result.task.id, solved: result.score.solved, provider: result.run.provider, model: result.run.model, durationMs: result.run.durationMs, costUsd: result.run.costUsd }));
+    console.log(JSON.stringify({
+      taskId: result.task.id,
+      solved: result.score.solved,
+      provider: result.run.provider,
+      model: result.run.model,
+      durationMs: result.run.durationMs,
+      costUsd: result.run.costUsd,
+      ...(finalProviderBudget ? { providerRequestsUsed: finalProviderBudget.used() } : {}),
+    }));
   } finally {
     if (worktreeAdded) await execFixed('git', ['worktree', 'remove', '--force', workspace], controllerRoot).catch(() => undefined);
     await fs.rm(workspace, { recursive: true, force: true }).catch(() => undefined);
