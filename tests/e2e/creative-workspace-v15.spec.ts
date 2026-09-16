@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { expect, test } from '@playwright/test';
 
 const statusBody = JSON.stringify({
@@ -35,7 +36,10 @@ test.describe('V1.5 Creative workspace production surface', () => {
     }));
   });
 
-  test('opens Creative on mobile, generates a verified preview, and exposes download', async ({ page }) => {
+  test('opens Creative on mobile, generates a verified preview, and exports a real PNG locally', async ({ page }) => {
+    const requests: string[] = [];
+    page.on('request', request => requests.push(request.url()));
+
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
@@ -48,9 +52,26 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await page.getByRole('button', { name: 'Visualを生成' }).click();
 
     await expect(page.getByRole('img', { name: '生成済みVisual: モバイルCreative' })).toBeVisible();
-    const download = page.getByRole('link', { name: '保存' });
-    await expect(download).toHaveAttribute('download', 'creative-e2e-portrait.svg');
+    const svgDownload = page.getByRole('link', { name: 'SVG保存' });
+    await expect(svgDownload).toHaveAttribute('download', 'creative-e2e-portrait.svg');
     await expect(page.getByText(/SHA-256 bbbbbbbbbbbb…/)).toBeVisible();
+
+    const requestsBeforePng = requests.length;
+    await page.getByRole('button', { name: 'PNGを作成' }).click();
+    const pngDownload = page.getByRole('link', { name: 'PNG保存' });
+    await expect(pngDownload).toHaveAttribute('download', 'creative-e2e-portrait.png');
+    expect(requests.length).toBe(requestsBeforePng);
+
+    const downloadPromise = page.waitForEvent('download');
+    await pngDownload.click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe('creative-e2e-portrait.png');
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    const bytes = Buffer.concat(chunks);
+    expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
