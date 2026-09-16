@@ -13,6 +13,9 @@ on:
       - 'supabase/migrations/**'
       - 'scripts/coding-*'
       - 'scripts/run-coding-job-worker-v14.ts'
+      - 'scripts/select-held-out-final-*.ts'
+      - 'scripts/summarize-held-out-final-run-v14.ts'
+      - '.github/workflows/held-out-coding-final-v14.yml'
       - '.github/workflows/coding-session-sandbox.yml'
       - 'package-lock.json'
 permissions:
