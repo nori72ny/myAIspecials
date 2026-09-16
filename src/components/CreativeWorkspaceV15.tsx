@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import {
+  pngFilenameFromSvg,
+  rasterizeVerifiedSvgToPng,
+  type VisualRasterPresetV15,
+} from '../creative/localVisualExportV15';
 
 type VisualKind = 'social-card' | 'poster' | 'info-card';
-type VisualPreset = 'square' | 'portrait' | 'story' | 'landscape';
+type VisualPreset = VisualRasterPresetV15;
 type VisualLayout = 'editorial' | 'minimal' | 'split';
 
 type CreativeStatus = {
@@ -26,6 +31,14 @@ type CreativeDraft = {
   foreground: string;
   accent: string;
   muted: string;
+};
+
+type VerifiedCreativeArtifact = {
+  blob: Blob;
+  preset: VisualPreset;
+  title: string;
+  downloadName: string;
+  sha256: string;
 };
 
 const INITIAL_DRAFT: CreativeDraft = {
@@ -78,10 +91,11 @@ export default function CreativeWorkspaceV15() {
   const [draft, setDraft] = useState<CreativeDraft>(INITIAL_DRAFT);
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [busy, setBusy] = useState(false);
+  const [pngBusy, setPngBusy] = useState(false);
   const [error, setError] = useState('');
   const [previewUrl, setPreviewUrl] = useState('');
-  const [downloadName, setDownloadName] = useState('origin-creative.svg');
-  const [sha256, setSha256] = useState('');
+  const [pngUrl, setPngUrl] = useState('');
+  const [artifact, setArtifact] = useState<VerifiedCreativeArtifact | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -107,7 +121,12 @@ export default function CreativeWorkspaceV15() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 
-  const canGenerate = status === 'ready' && !busy && draft.title.trim().length > 0;
+  useEffect(() => () => {
+    if (pngUrl) URL.revokeObjectURL(pngUrl);
+  }, [pngUrl]);
+
+  const canGenerate = status === 'ready' && !busy && !pngBusy && draft.title.trim().length > 0;
+  const canPreparePng = artifact !== null && !busy && !pngBusy;
   const verificationText = useMemo(() => status === 'ready'
     ? '検証済みローカル生成 · 外部通信 0 · Provider 0 · $0'
     : status === 'loading' ? 'Creative engine を確認中…' : 'Creative engine は現在利用できません', [status]);
@@ -153,19 +172,40 @@ export default function CreativeWorkspaceV15() {
       if (!/^[a-f0-9]{64}$/i.test(artifactSha256)) throw new Error('成果物のSHA-256証拠を確認できませんでした。');
       const blob = await response.blob();
       if (blob.size <= 0) throw new Error('空の成果物が返されました。');
-      const nextUrl = URL.createObjectURL(blob);
-      setPreviewUrl((current) => {
-        if (current) URL.revokeObjectURL(current);
-        return nextUrl;
-      });
-      setDownloadName(filenameFromDisposition(response.headers.get('content-disposition'), 'origin-creative.svg'));
-      setSha256(artifactSha256);
+
+      const nextArtifact: VerifiedCreativeArtifact = {
+        blob,
+        preset: draft.preset,
+        title: draft.title,
+        downloadName: filenameFromDisposition(response.headers.get('content-disposition'), 'origin-creative.svg'),
+        sha256: artifactSha256,
+      };
+      setArtifact(nextArtifact);
+      setPreviewUrl(URL.createObjectURL(blob));
+      setPngUrl('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '生成に失敗しました。');
     } finally {
       setBusy(false);
     }
   };
+
+  const preparePng = async () => {
+    if (!artifact || !canPreparePng) return;
+    setPngBusy(true);
+    setError('');
+    try {
+      const pngBlob = await rasterizeVerifiedSvgToPng(artifact.blob, artifact.preset);
+      setPngUrl(URL.createObjectURL(pngBlob));
+    } catch {
+      setError('PNGの端末内変換に失敗しました。SVGはそのまま保存できます。');
+    } finally {
+      setPngBusy(false);
+    }
+  };
+
+  const previewPreset = artifact?.preset ?? draft.preset;
+  const pngDownloadName = artifact ? pngFilenameFromSvg(artifact.downloadName) : 'origin-creative.png';
 
   return (
     <main className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-5 lg:px-8" aria-label="Creative workspace">
@@ -176,7 +216,7 @@ export default function CreativeWorkspaceV15() {
               <span aria-hidden="true">✦</span> V1.5 Creative / Visual Generation
             </div>
             <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl dark:text-white">作る・確認する・保存するを、1画面で。</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base dark:text-slate-300">まずは安全な実Visual Artifactから。生成したSVGは自己検証され、プレビュー後そのまま保存できます。</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base dark:text-slate-300">検証済みSVGを生成し、PNGも端末内だけで書き出せます。外部画像モデルや追加通信は使いません。</p>
           </div>
           <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${status === 'ready' ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200' : status === 'loading' ? 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300' : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'}`} role="status">
             {verificationText}
@@ -243,13 +283,21 @@ export default function CreativeWorkspaceV15() {
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-sm font-black text-slate-950 dark:text-white">Preview</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{PRESET_LABELS[draft.preset]} · SVG</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{PRESET_LABELS[previewPreset]} · {pngUrl ? 'SVG + PNG' : 'SVG'}</p>
             </div>
-            {previewUrl && <a href={previewUrl} download={downloadName} className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-800">保存</a>}
+            {artifact && previewUrl && (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <a href={previewUrl} download={artifact.downloadName} className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-800">SVG保存</a>
+                <button type="button" disabled={!canPreparePng} onClick={() => void preparePng()} className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-800">
+                  {pngBusy ? 'PNG変換中…' : pngUrl ? 'PNGを再作成' : 'PNGを作成'}
+                </button>
+                {pngUrl && <a href={pngUrl} download={pngDownloadName} className="inline-flex min-h-11 items-center rounded-xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">PNG保存</a>}
+              </div>
+            )}
           </div>
           <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-[linear-gradient(45deg,#eef2f7_25%,transparent_25%),linear-gradient(-45deg,#eef2f7_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#eef2f7_75%),linear-gradient(-45deg,transparent_75%,#eef2f7_75%)] bg-[length:20px_20px] bg-[position:0_0,0_10px,10px_-10px,-10px_0px] p-4 dark:border-slate-800 dark:bg-slate-950">
-            {previewUrl ? (
-              <img src={previewUrl} alt={`生成済みVisual: ${draft.title}`} className="max-h-[72vh] max-w-full rounded-lg bg-white object-contain shadow-xl" style={{ aspectRatio: PRESET_ASPECT[draft.preset] }} />
+            {previewUrl && artifact ? (
+              <img src={previewUrl} alt={`生成済みVisual: ${artifact.title}`} className="max-h-[72vh] max-w-full rounded-lg bg-white object-contain shadow-xl" style={{ aspectRatio: PRESET_ASPECT[artifact.preset] }} />
             ) : (
               <div className="max-w-sm text-center text-slate-500 dark:text-slate-400">
                 <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-300 bg-white text-2xl shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-hidden="true">✦</div>
@@ -258,8 +306,8 @@ export default function CreativeWorkspaceV15() {
               </div>
             )}
           </div>
-          {previewUrl && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-            <strong>Verified</strong>{sha256 ? ` · SHA-256 ${sha256.slice(0, 12)}…` : ''} · 外部通信なし
+          {artifact && previewUrl && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · 外部通信なし · PNGは端末内変換
           </div>}
         </section>
       </div>
