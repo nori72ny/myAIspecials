@@ -22,7 +22,7 @@ export class HeldOutCodingProviderBudgetExhaustedV14 extends Error {
  * retries. This budget is evaluator-only and does not change Production Coding.
  */
 export function createHeldOutCodingProviderRequestBudgetV14(
-  limit = HELD_OUT_CODING_PROVIDER_REQUEST_LIMIT_V14,
+  limit: number = HELD_OUT_CODING_PROVIDER_REQUEST_LIMIT_V14,
 ) {
   if (!Number.isInteger(limit) || limit < 1 || limit > HELD_OUT_CODING_PROVIDER_REQUEST_LIMIT_V14) {
     throw new Error('HELD_OUT_PROVIDER_REQUEST_BUDGET_INVALID');
