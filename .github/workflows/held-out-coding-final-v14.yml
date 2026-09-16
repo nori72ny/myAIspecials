@@ -53,7 +53,10 @@ jobs:
           metadata="$(node --import tsx scripts/select-held-out-final-task-ids-v14.ts)"
           METADATA="$metadata" GITHUB_SHA_EXPECTED="$GITHUB_SHA" node <<'NODE' >> "$GITHUB_OUTPUT"
           const value = JSON.parse(process.env.METADATA || '{}');
-          if (!Array.isArray(value.taskIds) || value.taskIds.length < 6 || value.taskIds.length > 16) process.exit(2);
+          if (!Array.isArray(value.taskIds) || value.taskIds.length !== 6) {
+            console.error('HELD_OUT_FINAL_EXACTLY_SIX_TASKS_REQUIRED');
+            process.exit(2);
+          }
           if (value.frozenBaseSha !== process.env.GITHUB_SHA_EXPECTED) {
             console.error('HELD_OUT_FINAL_BASE_MUST_EQUAL_WORKFLOW_SHA');
             process.exit(2);
@@ -144,6 +147,7 @@ jobs:
           ORIGIN_HELDOUT_TASK_ID: ${{ matrix.task_id }}
           ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
           ORIGIN_HELDOUT_PARTICIPANT: ORIGIN
+          ORIGIN_HELDOUT_FINAL_MODE: 'true'
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           FREE_ONLY: 'true'
         run: |
