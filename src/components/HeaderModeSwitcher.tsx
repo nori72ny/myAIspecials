@@ -10,7 +10,7 @@ import {
   PASSKEY_MIGRATION_STATUS_EVENT,
 } from '../security/passkeyKeyMigration';
 
-export type OriginWorkspaceMode = 'chat' | 'agent' | 'coding' | 'creative';
+export type OriginWorkspaceMode = 'chat' | 'agent' | 'coding';
 
 interface HeaderModeSwitcherProps {
   currentMode: OriginWorkspaceMode;
@@ -56,22 +56,17 @@ export default function HeaderModeSwitcher({ currentMode, onModeChange }: Header
     }
   };
 
-  const buttonClass = (active: boolean) => `min-h-11 rounded-lg px-3 text-sm font-semibold transition sm:px-4 ${active ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'}`;
-
   return (
-    <div className="z-40 flex w-full flex-wrap items-center justify-center gap-2 border-b border-slate-200/80 bg-white/90 px-2 backdrop-blur sm:px-3 dark:border-slate-800/80 dark:bg-slate-950/90" role="group" aria-label="Workspace mode">
-      <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-slate-100 p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <button type="button" aria-pressed={currentMode === 'chat'} onClick={() => onModeChange('chat')} className={buttonClass(currentMode === 'chat')}>
-          Chat
+    <div className="z-40 flex w-full flex-wrap items-center justify-center gap-2 border-b border-slate-200/80 bg-white/90 px-3 backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/90" role="group" aria-label="Workspace mode">
+      <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <button type="button" aria-pressed={currentMode === 'chat'} onClick={() => onModeChange('chat')} className={`min-h-11 rounded-lg px-4 text-sm font-semibold transition ${currentMode === 'chat' ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'}`}>
+          Chat Mode
         </button>
-        <button type="button" aria-pressed={currentMode === 'agent'} onClick={() => onModeChange('agent')} className={buttonClass(currentMode === 'agent')}>
-          ⚡ Agent
+        <button type="button" aria-pressed={currentMode === 'agent'} onClick={() => onModeChange('agent')} className={`min-h-11 rounded-lg px-4 text-sm font-semibold transition ${currentMode === 'agent' ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'}`}>
+          ⚡ Agent Workspace
         </button>
-        <button type="button" aria-pressed={currentMode === 'coding'} onClick={() => onModeChange('coding')} className={buttonClass(currentMode === 'coding')}>
+        <button type="button" aria-pressed={currentMode === 'coding'} onClick={() => onModeChange('coding')} className={`min-h-11 rounded-lg px-4 text-sm font-semibold transition ${currentMode === 'coding' ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'}`}>
           &lt;/&gt; Coding
-        </button>
-        <button type="button" aria-pressed={currentMode === 'creative'} onClick={() => onModeChange('creative')} className={buttonClass(currentMode === 'creative')}>
-          ✦ Creative
         </button>
       </div>
       <button
@@ -84,7 +79,7 @@ export default function HeaderModeSwitcher({ currentMode, onModeChange }: Header
         🛡️ {passkeyBusy ? 'Passkey...' : migrationComplete ? 'Hardware Locked (Passkey Active)' : 'Enable Passkey'}
       </button>
       {passkeyError && <span role="status" className="text-xs font-medium text-amber-700 dark:text-amber-300">Passkeyまたは暗号鍵の移行は完了していません。</span>}
-      <span className="sr-only">Option+A switches Chat and Agent. Option+C opens Coding. Option+V opens Creative.</span>
+      <span className="sr-only">Option+A switches Chat Mode and Agent Workspace Mode. Option+C opens Coding Mode.</span>
     </div>
   );
 }
