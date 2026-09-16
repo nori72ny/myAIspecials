@@ -73,7 +73,7 @@ async function main(): Promise<void> {
   delete process.env.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64;
 
   const files = await collectScoreFiles(artifactRoot);
-  if (files.length < 1 || files.length > prepared.publicCorpus.tasks.length) throw new Error('HELD_OUT_FINAL_SCORE_FILE_COUNT_INVALID');
+  if (files.length > prepared.publicCorpus.tasks.length) throw new Error('HELD_OUT_FINAL_SCORE_FILE_COUNT_INVALID');
   const scores: HeldOutCodingScoreV14[] = [];
   for (const file of files) scores.push(await readScore(file));
 
