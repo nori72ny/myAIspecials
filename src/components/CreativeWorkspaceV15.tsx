@@ -143,7 +143,14 @@ export default function CreativeWorkspaceV15() {
       });
       if (!response.ok) throw new Error(await errorMessage(response));
       if (response.headers.get('x-origin-visual-verified') !== 'true') throw new Error('成果物の検証証拠を確認できませんでした。');
+      if (response.headers.get('x-origin-free-only') !== 'true'
+        || response.headers.get('x-origin-cost-usd') !== '0'
+        || response.headers.get('x-origin-external-network') !== 'false') {
+        throw new Error('成果物のゼロコスト境界を確認できませんでした。');
+      }
       if (!response.headers.get('content-type')?.toLowerCase().includes('image/svg+xml')) throw new Error('想定外の成果物形式が返されました。');
+      const artifactSha256 = response.headers.get('x-origin-visual-sha256') || '';
+      if (!/^[a-f0-9]{64}$/i.test(artifactSha256)) throw new Error('成果物のSHA-256証拠を確認できませんでした。');
       const blob = await response.blob();
       if (blob.size <= 0) throw new Error('空の成果物が返されました。');
       const nextUrl = URL.createObjectURL(blob);
@@ -152,7 +159,7 @@ export default function CreativeWorkspaceV15() {
         return nextUrl;
       });
       setDownloadName(filenameFromDisposition(response.headers.get('content-disposition'), 'origin-creative.svg'));
-      setSha256(response.headers.get('x-origin-visual-sha256') || '');
+      setSha256(artifactSha256);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '生成に失敗しました。');
     } finally {

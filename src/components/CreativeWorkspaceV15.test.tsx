@@ -25,13 +25,23 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as unknown as Response;
 }
 
-function svgResponse(options: { verified?: boolean; status?: number } = {}): Response {
+function svgResponse(options: {
+  verified?: boolean;
+  status?: number;
+  freeOnly?: boolean;
+  costUsd?: string;
+  externalNetwork?: boolean;
+  sha256?: string;
+} = {}): Response {
   const status = options.status ?? 200;
   const headers = new Headers({
     'content-type': status === 200 ? 'image/svg+xml' : 'application/json',
     'content-disposition': "attachment; filename=\"origin-social-card-portrait.svg\"; filename*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E-portrait.svg",
     'x-origin-visual-verified': options.verified === false ? 'false' : 'true',
-    'x-origin-visual-sha256': 'a'.repeat(64),
+    'x-origin-visual-sha256': options.sha256 ?? 'a'.repeat(64),
+    'x-origin-free-only': options.freeOnly === false ? 'false' : 'true',
+    'x-origin-cost-usd': options.costUsd ?? '0',
+    'x-origin-external-network': options.externalNetwork === true ? 'true' : 'false',
   });
   return {
     ok: status >= 200 && status < 300,
@@ -107,6 +117,36 @@ describe('CreativeWorkspaceV15', () => {
 
     await screen.findByRole('alert');
     expect(screen.getByText('成果物の検証証拠を確認できませんでした。')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '保存' })).toBeNull();
+  });
+
+  it('rejects an artifact response that cannot re-prove the zero-cost boundary', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(statusBody))
+      .mockResolvedValueOnce(svgResponse({ costUsd: '0.01' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CreativeWorkspaceV15 />);
+    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+
+    await screen.findByRole('alert');
+    expect(screen.getByText('成果物のゼロコスト境界を確認できませんでした。')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '保存' })).toBeNull();
+  });
+
+  it('rejects an artifact response without a valid SHA-256 proof', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(statusBody))
+      .mockResolvedValueOnce(svgResponse({ sha256: 'not-a-sha256' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CreativeWorkspaceV15 />);
+    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+
+    await screen.findByRole('alert');
+    expect(screen.getByText('成果物のSHA-256証拠を確認できませんでした。')).toBeTruthy();
     expect(screen.queryByRole('link', { name: '保存' })).toBeNull();
   });
 
