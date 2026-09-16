@@ -91,7 +91,7 @@ describe('CreativeWorkspaceV15', () => {
 
     render(<CreativeWorkspaceV15 />);
     await screen.findByText('Creative engine は現在利用できません');
-    expect(screen.getByRole('button', { name: 'Visualを生成' })).toBeDisabled();
+    expect((screen.getByRole('button', { name: 'Visualを生成' }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
