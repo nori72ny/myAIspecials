@@ -38,15 +38,17 @@ test.describe('V1.5 Creative workspace production surface', () => {
     }));
   });
 
-  test('opens Creative on mobile, verifies actual SVG bytes, persists history, and exports a real PNG locally', async ({ page }) => {
+  test('opens Create on mobile, verifies actual SVG bytes, persists history, and exports a real PNG locally', async ({ page }) => {
     const requests: string[] = [];
     page.on('request', request => requests.push(request.url()));
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
-    const navigation = page.getByRole('navigation', { name: 'ワークスペース' });
-    await navigation.getByRole('button', { name: /Creative/ }).click();
+    const modeNavigation = page.getByRole('navigation', { name: 'Mode' });
+    await expect(modeNavigation.getByRole('button', { name: 'Research 準備中' })).toBeDisabled();
+    await expect(modeNavigation.getByRole('button', { name: 'Work 準備中' })).toBeDisabled();
+    await modeNavigation.getByRole('button', { name: 'Create' }).click();
     await expect(page).toHaveURL(/workspace=creative/);
     await expect(page.getByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0')).toBeVisible();
 
@@ -106,13 +108,13 @@ test.describe('V1.5 Creative workspace production surface', () => {
     expect(generateRequests.length).toBe(requestsBeforePng);
   });
 
-  test('supports a direct Creative URL and browser history without losing the chat mount', async ({ page }) => {
+  test('supports a direct Create URL and browser history without losing the chat mount', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?workspace=creative');
     await expect(page.getByRole('main', { name: 'Creative workspace' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Creative/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Create' })).toHaveAttribute('aria-pressed', 'true');
 
-    await page.getByRole('button', { name: 'チャット', exact: true }).click();
+    await page.getByRole('button', { name: 'Chat', exact: true }).click();
     await expect(page).not.toHaveURL(/workspace=creative/);
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     await page.goBack();
