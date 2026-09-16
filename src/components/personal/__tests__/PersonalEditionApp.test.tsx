@@ -27,6 +27,7 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(screen.getByLabelText('Model ORIGIN Auto')).toBeTruthy();
     expect(screen.getByLabelText('Tools 自動管理')).toBeTruthy();
     expect(screen.getByLabelText('Agent 通常応答')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
 
     const research = screen.getByRole('button', { name: 'Research 準備中' }) as HTMLButtonElement;
     const work = screen.getByRole('button', { name: 'Work 準備中' }) as HTMLButtonElement;
@@ -108,8 +109,10 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(props.sessions).toEqual(sessions);
   });
 
-  it('hydrates messages and artifacts that arrive after IndexedDB finishes loading', () => {
+  it('hydrates messages and shows the Artifact layer only after artifacts arrive', () => {
     const { rerender } = render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={[]} artifacts={[]} />);
+    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+
     const restoredMessages = [{ id: 'u-restored', role: 'user' as const, content: '再読込後の相談' }];
     const restoredArtifacts = [{ id: 'a-restored', type: 'markdown' as const, title: '復元資料', language: 'markdown', content: '# 復元', isComplete: true }];
 
@@ -118,6 +121,25 @@ describe('PersonalEditionApp production wrapper', () => {
     const latestProps = appProps.mock.calls.at(-1)?.[0];
     expect(latestProps.messages).toEqual(restoredMessages);
     expect(latestProps.artifacts).toEqual(restoredArtifacts);
+    const artifactLayer = screen.getByRole('region', { name: 'Artifact layer' });
+    expect(artifactLayer.textContent).toContain('Artifact');
+    expect(artifactLayer.textContent).toContain('1件');
+    expect(artifactLayer.textContent).toContain('復元資料');
+    expect(artifactLayer.textContent).toContain('Ready');
+  });
+
+  it('keeps the Chat Artifact layer out of Code and Create modes', async () => {
+    const artifacts = [{ id: 'a-1', type: 'markdown' as const, title: '成果物', language: 'markdown', content: '# A', isComplete: true }];
+    render(<PersonalEditionApp artifacts={artifacts} />);
+    expect(screen.getByRole('region', { name: 'Artifact layer' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
+    expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
   });
 
   it('renders the shared ORIGIN application surface', () => {
