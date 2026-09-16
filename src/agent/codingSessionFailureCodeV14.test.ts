@@ -21,6 +21,7 @@ describe('V1.4 coding session failure classification', () => {
     expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_INVALID' }))).toBe('CODING_PROVIDER_REQUIRED_TOOL_INVALID');
     expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID' }))).toBe('CODING_PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID');
     expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_REQUIRED_TOOL_TRUNCATED' }))).toBe('CODING_PROVIDER_REQUIRED_TOOL_TRUNCATED');
+    expect(classifyCodingSessionFailureV14(Object.assign(new Error('safe provider message'), { code: 'PROVIDER_BUDGET_EXHAUSTED' }))).toBe('CODING_PROVIDER_BUDGET_EXHAUSTED');
     expect(classifyCodingSessionFailureV14(new Error('FREE_MODEL_EVIDENCE_STALE'))).toBe('CODING_FREE_MODEL_EVIDENCE_STALE');
   });
 
