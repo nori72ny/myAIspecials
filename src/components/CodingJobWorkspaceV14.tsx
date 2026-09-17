@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import OriginAgentActionProgressV31 from './personal/OriginAgentActionProgressV31';
+import OriginCodingWorkspaceV31 from './personal/OriginCodingWorkspaceV31';
 
 type CodingJobStatus = 'queued' | 'leased' | 'running' | 'repairing' | 'verified' | 'blocked' | 'failed' | 'cancelled';
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
-type VerificationKind = 'typecheck' | 'lint' | 'test' | 'build';
 type CodingJobAuthorizationMode = 'coding-operator' | 'legacy-agent-compat' | 'unconfigured';
 
 type CodingJobRecord = {
@@ -34,7 +34,7 @@ type CodingJobResult = {
     previewAvailable: boolean;
   }>;
   verificationChecks: Array<{
-    kind: VerificationKind;
+    kind: 'typecheck' | 'lint' | 'test' | 'build';
     ok: boolean;
     exitCode: number | null;
     timedOut: boolean;
@@ -79,7 +79,6 @@ type CapabilityResponse = {
 };
 
 const ACTIVE = new Set<CodingJobStatus>(['queued', 'leased', 'running', 'repairing']);
-const CHECKS: readonly VerificationKind[] = ['typecheck', 'lint', 'test', 'build'];
 const JOB_ID = /^coding-[A-Za-z0-9_-]{22}$/;
 const STATUS_LABELS: Record<CodingJobStatus, string> = {
   queued: '受付済み',
@@ -166,40 +165,6 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
     {!terminal && !cancelRequested && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-current" aria-hidden="true" />}
     {cancelRequested && ACTIVE.has(status) ? '取り消しを確認中' : STATUS_LABELS[status]}
   </span>;
-}
-
-function VerificationPanel({ result, state }: { result: CodingJobResult | null; state: ResultDetailsState }) {
-  const byKind = new Map(result?.verificationChecks.map(check => [check.kind, check]) ?? []);
-  const absentLabel = result ? 'NOT RUN' : state === 'unavailable' ? 'N/A' : state === 'not_applicable' ? 'CANCELLED' : 'WAIT';
-  const absentDetail = result ? 'not executed before terminal stop' : state === 'unavailable' ? 'result unavailable' : state === 'not_applicable' ? 'job cancelled' : 'pending';
-  return <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-900/50" aria-labelledby="coding-verification-title">
-    <div className="mb-3 flex items-center justify-between gap-3"><h2 id="coding-verification-title" className="font-bold">検証結果</h2>{result && <span className="text-xs text-slate-500">repair rounds: {result.repairRounds}</span>}</div>
-    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{CHECKS.map(kind => {
-      const check = byKind.get(kind);
-      return <div key={kind} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-        <div className="flex items-center justify-between gap-2"><span className="text-xs font-bold uppercase tracking-wide text-slate-500">{kind}</span><span className={`text-sm font-black ${check?.ok ? 'text-emerald-600 dark:text-emerald-300' : check ? 'text-rose-600 dark:text-rose-300' : 'text-slate-400'}`}>{check ? check.ok ? 'PASS' : 'FAIL' : absentLabel}</span></div>
-        <p className="mt-2 text-xs text-slate-500">{check ? `exit ${check.exitCode ?? 'null'}${check.timedOut ? ' · timeout' : ''}` : absentDetail}</p>
-      </div>;
-    })}</div>
-  </section>;
-}
-
-function DiffPanel({ result, state, changedPaths }: { result: CodingJobResult | null; state: ResultDetailsState; changedPaths: string[] }) {
-  return <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-900/50" aria-labelledby="coding-diff-title">
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 id="coding-diff-title" className="font-bold">変更ファイル</h2><span className="text-xs text-slate-500">{changedPaths.length} file{changedPaths.length === 1 ? '' : 's'}</span></div>
-    {state === 'unavailable' && <p role="status" className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">暗号化された差分詳細を取得できませんでした。ジョブ状態と changed paths は保持されています。</p>}
-    {changedPaths.length === 0 && !result?.diffs.length ? <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-slate-700">変更はまだ確定していません。</div> : null}
-    <div className="space-y-4">
-      {result?.diffs.map((diff, index) => <article key={`${diff.path}-${index}`} className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70"><code className="break-all text-xs font-semibold">{diff.path}</code><span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold uppercase text-slate-700 dark:bg-slate-800 dark:text-slate-300">{diff.kind}</span></header>
-        {!diff.previewAvailable ? <p className="p-4 text-xs text-slate-500">Preview unavailable; path-level change evidence remains available.</p> : <div className="grid md:grid-cols-2">
-          <div className="min-w-0 border-b border-slate-200 md:border-b-0 md:border-r dark:border-slate-800"><div className="border-b border-slate-200 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:border-slate-800 dark:text-rose-300">Before</div><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5">{diff.before ?? '(new file)'}</pre>{diff.beforeTruncated && <p className="px-3 pb-3 text-[10px] font-bold text-amber-700 dark:text-amber-300">Preview truncated</p>}</div>
-          <div className="min-w-0"><div className="border-b border-slate-200 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:border-slate-800 dark:text-emerald-300">After</div><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5">{diff.after ?? '(unavailable)'}</pre>{diff.afterTruncated && <p className="px-3 pb-3 text-[10px] font-bold text-amber-700 dark:text-amber-300">Preview truncated</p>}</div>
-        </div>}
-      </article>)}
-      {!result?.diffs.length && changedPaths.map(path => <div key={path} className="rounded-xl border border-slate-200 px-3 py-2 font-mono text-xs dark:border-slate-800">{path}</div>)}
-    </div>
-  </section>;
 }
 
 export default function CodingJobWorkspaceV14() {
@@ -414,8 +379,7 @@ export default function CodingJobWorkspaceV14() {
           busy={busy}
           onStop={job && ACTIVE.has(job.status) ? () => { void cancelJob(); } : undefined}
         />
-        <VerificationPanel result={result} state={resultState} />
-        <DiffPanel result={result} state={resultState} changedPaths={job?.changedPaths ?? []} />
+        <OriginCodingWorkspaceV31 result={result} state={resultState} changedPaths={job?.changedPaths ?? []} />
         <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 text-xs leading-5 text-slate-500 dark:border-slate-800 dark:bg-slate-900/50"><strong className="text-slate-700 dark:text-slate-200">Safety boundary:</strong> UIからrepository/ref/pathは指定できません。targetはserver-ownedの <code>origin:self</code> に固定され、Git公開・デプロイはこのV1.4経路では実行されません。</section>
       </main>
     </div>
