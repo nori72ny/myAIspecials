@@ -44,6 +44,73 @@ type ResearchFailure = {
   message?: string;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string');
+}
+
+function isResearchSource(value: unknown): value is ResearchSource {
+  if (!isRecord(value)) return false;
+  return typeof value.id === 'string'
+    && typeof value.title === 'string'
+    && typeof value.url === 'string'
+    && typeof value.domain === 'string'
+    && (value.evidenceLevel === 'snippet' || value.evidenceLevel === 'page-verified')
+    && (value.freshness === 'recent' || value.freshness === 'older' || value.freshness === 'unknown')
+    && typeof value.score === 'number'
+    && Number.isFinite(value.score)
+    && value.score >= 0
+    && value.score <= 100
+    && value.scoreScope === 'retrieval-evidence-only'
+    && typeof value.citation === 'string';
+}
+
+function isResearchConflict(value: unknown): value is ResearchConflict {
+  if (!isRecord(value)) return false;
+  return value.kind === 'structured-value-mismatch'
+    && (value.topic === 'price' || value.topic === 'version' || value.topic === 'percentage')
+    && isStringArray(value.values)
+    && isStringArray(value.sourceIds)
+    && typeof value.note === 'string';
+}
+
+function isResearchSuccess(value: unknown): value is ResearchSuccess {
+  if (!isRecord(value) || !Array.isArray(value.sources) || !Array.isArray(value.conflicts)) return false;
+  const providerValid = value.provider === undefined || value.provider === 'DuckDuckGo' || value.provider === 'Wikipedia';
+  const confidenceValid = value.confidence === 'strong' || value.confidence === 'moderate' || value.confidence === 'limited';
+  return value.ok === true
+    && value.version === '1.1'
+    && value.status === 'grounded'
+    && providerValid
+    && value.freeOnly === true
+    && value.costUsd === 0
+    && value.paidFallbackUsed === false
+    && Number.isInteger(value.sourceCount)
+    && (value.sourceCount as number) >= 1
+    && Number.isInteger(value.distinctDomainCount)
+    && (value.distinctDomainCount as number) >= 1
+    && (value.distinctDomainCount as number) <= (value.sourceCount as number)
+    && value.sourceCount === value.sources.length
+    && confidenceValid
+    && value.confidenceScope === 'retrieval-evidence-only'
+    && value.semanticConflictDetection === 'conservative-structured-only'
+    && value.sources.every(isResearchSource)
+    && value.conflicts.every(isResearchConflict)
+    && typeof value.report === 'string';
+}
+
+function researchFailure(value: unknown): ResearchFailure {
+  if (!isRecord(value)) return {};
+  return {
+    ok: value.ok === false ? false : undefined,
+    code: typeof value.code === 'string' ? value.code : undefined,
+    message: typeof value.message === 'string' ? value.message : undefined,
+  };
+}
+
 function safeExternalUrl(value: string): string | null {
   try {
     const url = new URL(value);
@@ -84,13 +151,17 @@ export default function ResearchWorkspaceV31() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: trimmed }),
       });
-      const data = await response.json() as ResearchSuccess | ResearchFailure;
-      if (!response.ok || data.ok !== true) {
-        const failure = data as ResearchFailure;
+      const data = await response.json() as unknown;
+      if (!response.ok) {
+        const failure = researchFailure(data);
         setError(failureMessage(failure.code, failure.message));
         return;
       }
-      setResult(data as ResearchSuccess);
+      if (!isResearchSuccess(data)) {
+        setError('調査APIの応答を検証できなかったため、安全に停止しました。未確認内容は表示していません。');
+        return;
+      }
+      setResult(data);
     } catch {
       setError('調査APIへ接続できませんでした。未確認内容で補完していません。');
     } finally {
