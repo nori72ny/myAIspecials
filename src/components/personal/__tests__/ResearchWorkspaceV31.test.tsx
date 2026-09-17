@@ -53,6 +53,37 @@ describe('ResearchWorkspaceV31', () => {
     expect(screen.getByRole('alert').textContent).toContain('外部情報源への送信を停止');
   });
 
+  it('fails closed when a nominal success response violates the free-only result contract', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        version: '1.1',
+        status: 'grounded',
+        freeOnly: false,
+        costUsd: 1,
+        paidFallbackUsed: true,
+        sourceCount: 1,
+        distinctDomainCount: 1,
+        confidence: 'limited',
+        confidenceScope: 'retrieval-evidence-only',
+        semanticConflictDetection: 'conservative-structured-only',
+        sources: [{ id: 'S1', title: 'Unexpected', url: 'https://example.com', domain: 'example.com', evidenceLevel: 'snippet', freshness: 'unknown', score: 30, scoreScope: 'retrieval-evidence-only', citation: '[S1](https://example.com)' }],
+        conflicts: [],
+        report: 'must not render',
+      }),
+    }));
+
+    render(<ResearchWorkspaceV31 />);
+    fireEvent.change(screen.getByLabelText('調べたいこと'), { target: { value: 'query' } });
+    fireEvent.click(screen.getByRole('button', { name: '調査する' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('応答を検証できなかったため、安全に停止');
+    expect(screen.queryByRole('region', { name: 'Research summary' })).toBeNull();
+    expect(screen.queryByText('Unexpected')).toBeNull();
+  });
+
   it('does not expose unsafe non-HTTPS source URLs as links', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
