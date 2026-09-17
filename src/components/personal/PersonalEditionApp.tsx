@@ -6,6 +6,7 @@ import type { Settings } from '../../types';
 import OriginArtifactContextV31 from './OriginArtifactContextV31';
 import OriginWorkspaceShellV31, { type OriginWorkspaceModeV31 } from './OriginWorkspaceShellV31';
 
+const ResearchWorkspace = lazy(() => import('./ResearchWorkspaceV31'));
 const CodingJobWorkspace = lazy(() => import('./CodingWorkspaceV31'));
 const CreativeWorkspace = lazy(() => import('../CreativeWorkspaceV15'));
 
@@ -13,7 +14,7 @@ type MobileChatSurface = 'conversation' | 'artifact';
 
 function workspaceLocation(): OriginWorkspaceModeV31 {
   const workspace = new URLSearchParams(window.location.search).get('workspace');
-  if (workspace === 'coding' || workspace === 'creative') return workspace;
+  if (workspace === 'research' || workspace === 'coding' || workspace === 'creative') return workspace;
   return 'chat';
 }
 
@@ -61,6 +62,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     </div>}
     <div hidden={workspace !== 'chat'}><App onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
     {workspace === 'chat' && latestArtifact && <ArtifactWorkspace artifact={latestArtifact} artifacts={artifacts} isOpen={mobileSurface === 'artifact'} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} isStreaming={false} onSteer={() => undefined} onOpenSettings={onOpenSettings} onClose={() => setMobileSurface('conversation')} onArtifactRevision={handleArtifactRevision} />}
+    {workspace === 'research' && <Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace /></Suspense>}
     {workspace === 'coding' && <Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace /></Suspense>}
     {workspace === 'creative' && <Suspense fallback={<p role="status">Createを読み込んでいます…</p>}><CreativeWorkspace /></Suspense>}
   </>;
