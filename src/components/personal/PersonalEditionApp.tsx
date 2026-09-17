@@ -58,17 +58,11 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
   const handleRestoreSession = useCallback((session: ConversationSession) => { const restored = session.messages.map((message) => ({ ...message })); setMessages(restored); parentOnRestoreSession?.(session); parentOnMessagesChange?.(restored); }, [parentOnMessagesChange, parentOnRestoreSession]);
   const handleProjectViewChange = useCallback((next: OriginProjectViewV31) => {
     setProjectView(next);
-    if (next === 'chat') setMobileSurface('conversation');
-    if (next === 'artifacts' && latestArtifact) setMobileSurface('artifact');
-  }, [latestArtifact]);
-  const handleProjectViewChange = useCallback((next: OriginProjectViewV31) => {
-    setProjectView(next);
     if (next === 'artifacts' && latestArtifact) setMobileSurface('artifact');
     else if (next === 'chat' || next === 'overview') setMobileSurface('conversation');
   }, [latestArtifact]);
   return <>
     <OriginWorkspaceShellV31 mode={workspace} onModeChange={switchWorkspace} />
-    <OriginProjectWorkspaceV31 mode={workspace} messages={messages} sessions={effectiveSessions} artifacts={artifacts} activeView={projectView} onViewChange={handleProjectViewChange} />
     <OriginProjectWorkspaceV31 mode={workspace} messages={messages} sessions={effectiveSessions} artifacts={artifacts} activeView={projectView} onViewChange={handleProjectViewChange} />
     {workspace === 'chat' && <OriginArtifactContextV31 artifacts={artifacts} />}
     {workspace === 'chat' && latestArtifact && <div role="tablist" aria-label="モバイルChat表示" className="origin-surface-muted flex gap-2 border-b px-3 py-2 md:hidden">
