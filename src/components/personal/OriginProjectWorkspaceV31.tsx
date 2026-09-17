@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
 import type { OriginWorkspaceModeV31 } from './OriginWorkspaceShellV31';
+import type { ResearchSource } from './ResearchWorkspaceV31';
 
 export type OriginProjectViewV31 = 'overview' | 'chat' | 'files' | 'tasks' | 'artifacts' | 'sources';
 
@@ -16,6 +17,7 @@ type OriginProjectWorkspaceV31Props = {
   messages: readonly ConversationMessage[];
   sessions: readonly ConversationSession[];
   artifacts: readonly ArtifactBlock[];
+  sources: readonly ResearchSource[];
   activeView: OriginProjectViewV31;
   onViewChange: (view: OriginProjectViewV31) => void;
 };
@@ -25,6 +27,7 @@ export default function OriginProjectWorkspaceV31({
   messages,
   sessions,
   artifacts,
+  sources,
   activeView,
   onViewChange,
 }: OriginProjectWorkspaceV31Props) {
@@ -35,7 +38,7 @@ export default function OriginProjectWorkspaceV31({
     { id: 'files', label: 'Files', available: false, detail: mode === 'coding' ? 'Code実行証拠との接続準備中' : 'Code Modeの実行証拠が必要' },
     { id: 'tasks', label: 'Tasks', available: false, detail: '実Agent jobとの接続準備中' },
     { id: 'artifacts', label: 'Artifacts', available: artifacts.length > 0, detail: artifacts.length > 0 ? `${artifacts.length} artifacts` : '成果物はまだありません' },
-    { id: 'sources', label: 'Sources', available: false, detail: mode === 'research' ? 'Research結果との接続準備中' : 'Research結果が必要' },
+    { id: 'sources', label: 'Sources', available: sources.length > 0, detail: sources.length > 0 ? `${sources.length} verified sources` : (mode === 'research' ? 'Research結果がまだありません' : 'Research結果が必要') },
   ];
 
   return <section aria-label="Project Workspace" className="origin-surface border-b border-origin-border px-3 py-3 sm:px-5">
@@ -95,6 +98,18 @@ export default function OriginProjectWorkspaceV31({
           <p className="origin-muted m-0 mt-1 text-xs">Project view does not change Mode automatically.</p>
         </article>
       </div>}
+      {activeView === 'sources' && sources.length > 0 && <section aria-label="Project Sources" className="mt-3 origin-card border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="m-0 text-sm font-black">Research Sources</h3>
+          <span className="origin-muted text-xs">{sources.length} verified</span>
+        </div>
+        <ul className="m-0 mt-2 space-y-2 p-0">
+          {sources.map((source) => <li key={source.id} className="list-none rounded-lg border border-origin-border p-3">
+            <p className="m-0 text-xs font-black">{source.title}</p>
+            <p className="origin-muted m-0 mt-1 text-xs">{source.domain} · {source.evidenceLevel} · {source.freshness}</p>
+          </li>)}
+        </ul>
+      </section>}
     </div>
   </section>;
 }
