@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 export type OriginCodingResultStateV31 = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 export type OriginCodingVerificationKindV31 = 'typecheck' | 'lint' | 'test' | 'build';
@@ -48,6 +48,13 @@ function UnavailableNotice({ children }: { children: React.ReactNode }) {
   return <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{children}</div>;
 }
 
+function verificationState(result: OriginCodingResultV31 | null, state: OriginCodingResultStateV31, kind: OriginCodingVerificationKindV31) {
+  const check = result?.verificationChecks.find(item => item.kind === kind);
+  const label = check ? check.ok ? 'PASS' : 'FAIL' : result ? 'NOT RUN' : state === 'unavailable' ? 'N/A' : state === 'not_applicable' ? 'CANCELLED' : 'WAIT';
+  const detail = check ? `exit ${check.exitCode ?? 'null'}${check.timedOut ? ' · timeout' : ''}` : result ? 'not executed before terminal stop' : state === 'unavailable' ? 'result unavailable' : state === 'not_applicable' ? 'job cancelled' : 'pending';
+  return { check, label, detail };
+}
+
 function FilesPanel({ result, state, changedPaths }: Props) {
   const kindByPath = new Map(result?.diffs.map(diff => [diff.path, diff.kind]) ?? []);
   return <div className="space-y-3">
@@ -90,19 +97,25 @@ function DiffPanel({ result, state, changedPaths }: Props) {
 }
 
 function TestsPanel({ result, state }: Pick<Props, 'result' | 'state'>) {
-  const byKind = new Map(result?.verificationChecks.map(check => [check.kind, check]) ?? []);
-  const absentLabel = result ? 'NOT RUN' : state === 'unavailable' ? 'N/A' : state === 'not_applicable' ? 'CANCELLED' : 'WAIT';
-  const absentDetail = result ? 'not executed before terminal stop' : state === 'unavailable' ? 'result unavailable' : state === 'not_applicable' ? 'job cancelled' : 'pending';
-
   return <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{CHECKS.map(kind => {
-    const check = byKind.get(kind);
+    const { check, label, detail } = verificationState(result, state, kind);
     return <div key={kind} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{kind}</span>
-        <span className={`text-sm font-black ${check?.ok ? 'text-emerald-600 dark:text-emerald-300' : check ? 'text-rose-600 dark:text-rose-300' : 'text-slate-400'}`}>{check ? check.ok ? 'PASS' : 'FAIL' : absentLabel}</span>
+        <span className={`text-sm font-black ${check?.ok ? 'text-emerald-600 dark:text-emerald-300' : check ? 'text-rose-600 dark:text-rose-300' : 'text-slate-400'}`}>{label}</span>
       </div>
-      <p className="mt-2 text-xs text-slate-500">{check ? `exit ${check.exitCode ?? 'null'}${check.timedOut ? ' · timeout' : ''}` : absentDetail}</p>
+      <p className="mt-2 text-xs text-slate-500">{detail}</p>
     </div>;
+  })}</div>;
+}
+
+function VerificationSnapshot({ result, state }: Pick<Props, 'result' | 'state'>) {
+  return <div className="mt-3 flex flex-wrap gap-2" aria-label="Verification snapshot">{CHECKS.map(kind => {
+    const { check, label } = verificationState(result, state, kind);
+    return <span key={kind} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-2 py-1 text-[10px] font-bold dark:border-slate-700">
+      <span className="uppercase text-slate-500">{kind}</span>
+      <span className={check?.ok ? 'text-emerald-600 dark:text-emerald-300' : check ? 'text-rose-600 dark:text-rose-300' : 'text-slate-500'}>{label}</span>
+    </span>;
   })}</div>;
 }
 
@@ -118,8 +131,18 @@ function UnsupportedPanel({ kind }: { kind: 'Terminal' | 'Checkpoint' }) {
 
 export default function OriginCodingWorkspaceV31(props: Props) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('files');
+  const manualSelectionRef = useRef(false);
   const changedCount = props.changedPaths.length;
   const checkCount = props.result?.verificationChecks.length ?? 0;
+
+  useEffect(() => {
+    if (!manualSelectionRef.current && props.result?.diffs.length) setActiveTab('diff');
+  }, [props.result]);
+
+  const selectTab = (tab: WorkspaceTab) => {
+    manualSelectionRef.current = true;
+    setActiveTab(tab);
+  };
 
   return <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-900/50" aria-labelledby="coding-workspace-v31-title">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -134,6 +157,8 @@ export default function OriginCodingWorkspaceV31(props: Props) {
       </div>
     </div>
 
+    <VerificationSnapshot result={props.result} state={props.state} />
+
     <div className="mt-4 overflow-x-auto pb-1">
       <div role="tablist" aria-label="Coding workspace views" className="flex min-w-max gap-2">
         {TABS.map(tab => <button
@@ -143,7 +168,7 @@ export default function OriginCodingWorkspaceV31(props: Props) {
           aria-selected={activeTab === tab.id}
           aria-controls={`coding-workspace-panel-${tab.id}`}
           id={`coding-workspace-tab-${tab.id}`}
-          onClick={() => setActiveTab(tab.id)}
+          onClick={() => selectTab(tab.id)}
           className={`min-h-11 rounded-xl border px-3 text-sm font-bold ${activeTab === tab.id ? 'border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200' : 'border-slate-200 bg-white/70 text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300'}`}
         >
           {tab.label}{tab.availability === 'unavailable' && <span className="ml-2 text-[9px] font-bold uppercase text-amber-700 dark:text-amber-300">Unavailable</span>}
@@ -151,12 +176,12 @@ export default function OriginCodingWorkspaceV31(props: Props) {
       </div>
     </div>
 
-    <div className="mt-4">
-      <div role="tabpanel" id="coding-workspace-panel-files" aria-labelledby="coding-workspace-tab-files" hidden={activeTab !== 'files'}><FilesPanel {...props} /></div>
-      <div role="tabpanel" id="coding-workspace-panel-diff" aria-labelledby="coding-workspace-tab-diff" hidden={activeTab !== 'diff'}><DiffPanel {...props} /></div>
-      <div role="tabpanel" id="coding-workspace-panel-tests" aria-labelledby="coding-workspace-tab-tests" hidden={activeTab !== 'tests'}><TestsPanel result={props.result} state={props.state} /></div>
-      <div role="tabpanel" id="coding-workspace-panel-terminal" aria-labelledby="coding-workspace-tab-terminal" hidden={activeTab !== 'terminal'}><UnsupportedPanel kind="Terminal" /></div>
-      <div role="tabpanel" id="coding-workspace-panel-checkpoint" aria-labelledby="coding-workspace-tab-checkpoint" hidden={activeTab !== 'checkpoint'}><UnsupportedPanel kind="Checkpoint" /></div>
+    <div className="mt-4" role="tabpanel" id={`coding-workspace-panel-${activeTab}`} aria-labelledby={`coding-workspace-tab-${activeTab}`}>
+      {activeTab === 'files' && <FilesPanel {...props} />}
+      {activeTab === 'diff' && <DiffPanel {...props} />}
+      {activeTab === 'tests' && <TestsPanel result={props.result} state={props.state} />}
+      {activeTab === 'terminal' && <UnsupportedPanel kind="Terminal" />}
+      {activeTab === 'checkpoint' && <UnsupportedPanel kind="Checkpoint" />}
     </div>
   </section>;
 }
