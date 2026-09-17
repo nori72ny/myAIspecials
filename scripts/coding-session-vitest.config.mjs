@@ -25,6 +25,7 @@ export default {
       'src/agent/codingJobResultRouterV14.test.ts',
       'src/components/CodingJobWorkspaceV14.test.tsx',
       'src/components/personal/__tests__/OriginAgentActionProgressV31.test.tsx',
+      'src/components/personal/__tests__/OriginCodingWorkspaceV31.test.tsx',
     ],
   },
 };
