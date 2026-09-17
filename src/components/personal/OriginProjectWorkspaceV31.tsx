@@ -55,7 +55,7 @@ export default function OriginProjectWorkspaceV31({
             key={view.id}
             type="button"
             aria-pressed={view.available ? selected : undefined}
-            aria-label={view.available ? view.label : `${view.label} unavailable`}
+            aria-label={view.available ? `Project ${view.label}` : `Project ${view.label} unavailable`}
             disabled={!view.available}
             onClick={() => view.available && onViewChange(view.id)}
             className={`min-h-11 shrink-0 rounded-lg border px-3 text-left text-xs font-semibold ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:cursor-not-allowed disabled:opacity-55`}
