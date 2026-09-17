@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import OriginCodingWorkspaceV31 from '../OriginCodingWorkspaceV31';
 
@@ -27,7 +27,7 @@ const result = {
 afterEach(() => cleanup());
 
 describe('OriginCodingWorkspaceV31', () => {
-  it('separates Files, Diff, Tests, Terminal, and Checkpoint as explicit workspace views', () => {
+  it('separates Files, Diff, Tests, Terminal, and Checkpoint as explicit workspace views', async () => {
     render(<OriginCodingWorkspaceV31 result={result} state="available" changedPaths={['src/example.ts']} />);
 
     const tabs = screen.getByRole('tablist', { name: 'Coding workspace views' });
@@ -38,14 +38,18 @@ describe('OriginCodingWorkspaceV31', () => {
       'TerminalUnavailable',
       'CheckpointUnavailable',
     ]);
-    expect(screen.getByRole('tab', { name: 'Diff' }).getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Diff' }).getAttribute('aria-selected')).toBe('true');
+    });
   });
 
-  it('keeps changed-file, diff, and test evidence in separate views', () => {
+  it('keeps changed-file, diff, and test evidence in separate views', async () => {
     render(<OriginCodingWorkspaceV31 result={result} state="available" changedPaths={['src/example.ts']} />);
 
+    await waitFor(() => {
+      expect(screen.getByRole('tabpanel').textContent).toContain('export const value = 1;');
+    });
     let panel = screen.getByRole('tabpanel');
-    expect(panel.textContent).toContain('export const value = 1;');
     expect(panel.textContent).toContain('export const value = 2;');
 
     fireEvent.click(screen.getByRole('tab', { name: 'Files' }));
