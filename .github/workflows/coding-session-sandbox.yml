@@ -6,6 +6,8 @@ on:
     paths:
       - 'src/agent/**'
       - 'src/components/CodingJobWorkspaceV14*'
+      - 'src/components/personal/CodingWorkspaceV31*'
+      - 'src/components/personal/__tests__/CodingWorkspaceV31.test.tsx'
       - 'src/legacy/originProviderClient*.ts'
       - 'src/legacy/zeroCostRoutingPolicy.ts'
       - 'src/lib/orchestration/OriginExecutionPolicy.ts'
