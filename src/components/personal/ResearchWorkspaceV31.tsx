@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-type ResearchSource = {
+export type ResearchSource = {
   id: string;
   title: string;
   url: string;
@@ -133,7 +133,9 @@ function failureMessage(code?: string, message?: string) {
   return message || '調査を完了できませんでした。確認できていない内容は表示していません。';
 }
 
-export default function ResearchWorkspaceV31() {
+type ResearchWorkspaceV31Props = { onSourcesChange?: (sources: readonly ResearchSource[]) => void };
+
+export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorkspaceV31Props) {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<ResearchSuccess | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +147,7 @@ export default function ResearchWorkspaceV31() {
     setBusy(true);
     setError(null);
     setResult(null);
+    onSourcesChange?.([]);
     try {
       const response = await fetch('/api/research/v1.1/query', {
         method: 'POST',
@@ -162,6 +165,7 @@ export default function ResearchWorkspaceV31() {
         return;
       }
       setResult(data);
+      onSourcesChange?.(data.sources);
     } catch {
       setError('調査APIへ接続できませんでした。未確認内容で補完していません。');
     } finally {
