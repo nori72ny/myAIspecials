@@ -18,10 +18,10 @@ describe('OriginProjectWorkspaceV31', () => {
     />);
 
     expect(screen.getByText('1')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Files unavailable' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Tasks unavailable' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Sources unavailable' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Artifacts unavailable' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Project Files unavailable' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Project Tasks unavailable' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Project Sources unavailable' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Project Artifacts unavailable' }).hasAttribute('disabled')).toBe(true);
   });
 
   it('allows artifact navigation only when a real artifact exists', () => {
@@ -35,7 +35,7 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={onViewChange}
     />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Artifacts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
     expect(onViewChange).toHaveBeenCalledWith('artifacts');
   });
 
@@ -50,7 +50,7 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={onViewChange}
     />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Project Chat' }));
     expect(onViewChange).toHaveBeenCalledWith('chat');
     expect(screen.getByText('Research')).toBeTruthy();
   });
