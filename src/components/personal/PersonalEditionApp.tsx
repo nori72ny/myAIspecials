@@ -6,7 +6,7 @@ import type { Settings } from '../../types';
 import OriginArtifactContextV31 from './OriginArtifactContextV31';
 import OriginWorkspaceShellV31, { type OriginWorkspaceModeV31 } from './OriginWorkspaceShellV31';
 
-const CodingJobWorkspace = lazy(() => import('../CodingJobWorkspaceV14'));
+const CodingJobWorkspace = lazy(() => import('./CodingWorkspaceV31'));
 const CreativeWorkspace = lazy(() => import('../CreativeWorkspaceV15'));
 
 type MobileChatSurface = 'conversation' | 'artifact';
