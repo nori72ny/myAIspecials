@@ -46,7 +46,7 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await page.goto('/');
 
     const modeNavigation = page.getByRole('navigation', { name: 'Mode' });
-    await expect(modeNavigation.getByRole('button', { name: 'Research 準備中' })).toBeDisabled();
+    await expect(modeNavigation.getByRole('button', { name: 'Research', exact: true })).toBeEnabled();
     await expect(modeNavigation.getByRole('button', { name: 'Work 準備中' })).toBeDisabled();
     await modeNavigation.getByRole('button', { name: 'Create' }).click();
     await expect(page).toHaveURL(/workspace=creative/);

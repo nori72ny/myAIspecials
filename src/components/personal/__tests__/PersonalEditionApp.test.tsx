@@ -4,7 +4,8 @@ import { DEFAULT_PERSONAL_SETTINGS } from '../../../hooks/usePersonalSettings';
 import PersonalEditionApp from '../PersonalEditionApp';
 
 const appProps = vi.fn();
-vi.mock('../../CodingJobWorkspaceV14', () => ({ default: () => <section aria-label="Coding Job Workspace">Coding test workspace</section> }));
+vi.mock('../ResearchWorkspaceV31', () => ({ default: () => <section aria-label="Research Workspace">Research test workspace</section> }));
+vi.mock('../CodingWorkspaceV31', () => ({ default: () => <section aria-label="Coding Job Workspace">Coding test workspace</section> }));
 vi.mock('../../CreativeWorkspaceV15', () => ({ default: () => <section aria-label="Creative Workspace">Creative test workspace</section> }));
 
 vi.mock('../../../App', () => ({
@@ -18,7 +19,7 @@ vi.mock('../../../App', () => ({
 afterEach(() => { cleanup(); vi.clearAllMocks(); window.history.replaceState(null, '', '/'); });
 
 describe('PersonalEditionApp production wrapper', () => {
-  it('separates workspace, mode, model, tools, and agent concepts without exposing unavailable modes', () => {
+  it('separates workspace, mode, model, tools, and agent concepts and exposes only backed modes', () => {
     render(<PersonalEditionApp />);
 
     expect(screen.getByRole('region', { name: 'ORIGIN workspace shell' })).toBeTruthy();
@@ -30,10 +31,24 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(screen.getByLabelText('Agent 通常応答')).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
 
-    const research = screen.getByRole('button', { name: 'Research 準備中' }) as HTMLButtonElement;
+    const research = screen.getByRole('button', { name: 'Research' }) as HTMLButtonElement;
     const work = screen.getByRole('button', { name: 'Work 準備中' }) as HTMLButtonElement;
-    expect(research.disabled).toBe(true);
+    expect(research.disabled).toBe(false);
     expect(work.disabled).toBe(true);
+  });
+
+  it('opens Research from the Mode layer and preserves the chat mount', async () => {
+    render(<PersonalEditionApp />);
+    const originalChat = screen.getByTestId('mock-origin-app');
+    fireEvent.click(screen.getByRole('button', { name: 'Research' }));
+    expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
+    expect(window.location.search).toBe('?workspace=research');
+    expect(originalChat.closest('[hidden]')).toBeTruthy();
+    expect(screen.getByLabelText('Agent 通常応答')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
+    expect(originalChat.closest('[hidden]')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Research Workspace' })).toBeNull();
   });
 
   it('opens Code from the Mode layer and preserves the chat mount', async () => {
@@ -63,9 +78,14 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
   });
 
-  it('supports existing direct workspace links and browser history navigation', async () => {
-    window.history.replaceState(null, '', '/?workspace=coding');
+  it('supports direct workspace links and browser history navigation including Research', async () => {
+    window.history.replaceState(null, '', '/?workspace=research');
     render(<PersonalEditionApp />);
+    expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
+
+    window.history.replaceState(null, '', '/?workspace=coding');
+    fireEvent(window, new PopStateEvent('popstate'));
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Code' }).getAttribute('aria-pressed')).toBe('true');
 
@@ -149,10 +169,15 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(screen.queryByRole('complementary', { name: '成果物ワークスペース' })).toBeNull();
   });
 
-  it('keeps the Chat Artifact layer out of Code and Create modes', async () => {
+  it('keeps the Chat Artifact layer out of Research, Code, and Create modes', async () => {
     const artifacts = [{ id: 'a-1', type: 'markdown' as const, title: '成果物', language: 'markdown', content: '# A', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
     expect(screen.getByRole('region', { name: 'Artifact layer' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Research' }));
+    expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.queryByRole('tablist', { name: 'モバイルChat表示' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Code' }));
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();

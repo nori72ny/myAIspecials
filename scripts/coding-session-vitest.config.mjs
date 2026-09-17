@@ -27,6 +27,7 @@ export default {
       'src/components/personal/__tests__/OriginAgentActionProgressV31.test.tsx',
       'src/components/personal/__tests__/CodingWorkspaceV31.test.tsx',
       'src/components/personal/__tests__/OriginCodingWorkspaceV31.test.tsx',
+      'src/components/personal/__tests__/ResearchWorkspaceV31.test.tsx',
     ],
   },
 };

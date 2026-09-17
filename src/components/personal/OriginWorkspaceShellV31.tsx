@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type OriginWorkspaceModeV31 = 'chat' | 'coding' | 'creative';
+export type OriginWorkspaceModeV31 = 'chat' | 'research' | 'coding' | 'creative';
 
 type ModeItem = {
   id: 'chat' | 'research' | 'work' | 'coding' | 'creative';
@@ -16,7 +16,7 @@ type OriginWorkspaceShellV31Props = {
 
 const MODES: readonly ModeItem[] = [
   { id: 'chat', label: 'Chat', description: '会話・相談', available: true },
-  { id: 'research', label: 'Research', description: '調査・出典', available: false },
+  { id: 'research', label: 'Research', description: '調査・出典', available: true },
   { id: 'work', label: 'Work', description: '実作業', available: false },
   { id: 'coding', label: 'Code', description: 'Agentic Coding', available: true },
   { id: 'creative', label: 'Create', description: 'Visual生成', available: true },
@@ -24,6 +24,7 @@ const MODES: readonly ModeItem[] = [
 
 const modeCapabilities: Record<OriginWorkspaceModeV31, readonly string[]> = {
   chat: ['Files', 'Artifacts'],
+  research: ['Public Web', 'Sources', 'Conflict Review'],
   coding: ['GitHub', 'Diff', 'Tests'],
   creative: ['Local SVG', 'PNG', 'History'],
 };
@@ -92,7 +93,7 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
         <span className="origin-muted shrink-0 px-1 text-xs font-bold uppercase tracking-wide">Mode</span>
         {MODES.map(item => {
           const selected = item.id === mode;
-          const enabledMode = item.id === 'chat' || item.id === 'coding' || item.id === 'creative';
+          const enabledMode = item.id === 'chat' || item.id === 'research' || item.id === 'coding' || item.id === 'creative';
           return <button
             key={item.id}
             type="button"
@@ -101,7 +102,7 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
             disabled={!item.available}
             title={item.available ? item.description : `${item.description}は現在準備中です`}
             onClick={() => {
-              if (item.id === 'chat' || item.id === 'coding' || item.id === 'creative') onModeChange(item.id);
+              if (item.id === 'chat' || item.id === 'research' || item.id === 'coding' || item.id === 'creative') onModeChange(item.id);
             }}
             className={`min-h-11 shrink-0 rounded-lg border px-4 text-left text-sm font-semibold transition-colors ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:opacity-60`}
           >
