@@ -38,13 +38,13 @@ describe('OriginCodingWorkspaceV31', () => {
       'TerminalUnavailable',
       'CheckpointUnavailable',
     ]);
-    expect(screen.getByRole('tab', { name: 'Files' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: 'Diff' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('renders real changed-file, diff, and verification evidence without fabricating data', () => {
     render(<OriginCodingWorkspaceV31 result={result} state="available" changedPaths={['src/example.ts']} />);
 
-    expect(screen.queryAllByText('src/example.ts').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('src/example.ts')).not.toBeNull();
     expect(screen.queryByText('export const value = 1;')).not.toBeNull();
     expect(screen.queryByText('export const value = 2;')).not.toBeNull();
     expect(screen.getAllByText('PASS')).toHaveLength(4);
