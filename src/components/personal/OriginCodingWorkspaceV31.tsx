@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 export type OriginCodingResultStateV31 = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 export type OriginCodingVerificationKindV31 = 'typecheck' | 'lint' | 'test' | 'build';
@@ -130,18 +130,15 @@ function UnsupportedPanel({ kind }: { kind: 'Terminal' | 'Checkpoint' }) {
 }
 
 export default function OriginCodingWorkspaceV31(props: Props) {
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>('files');
+  const [selectedTab, setSelectedTab] = useState<WorkspaceTab>('files');
   const manualSelectionRef = useRef(false);
   const changedCount = props.changedPaths.length;
   const checkCount = props.result?.verificationChecks.length ?? 0;
-
-  useEffect(() => {
-    if (!manualSelectionRef.current && props.result?.diffs.length) setActiveTab('diff');
-  }, [props.result]);
+  const activeTab: WorkspaceTab = !manualSelectionRef.current && Boolean(props.result?.diffs.length) ? 'diff' : selectedTab;
 
   const selectTab = (tab: WorkspaceTab) => {
     manualSelectionRef.current = true;
-    setActiveTab(tab);
+    setSelectedTab(tab);
   };
 
   return <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-900/50" aria-labelledby="coding-workspace-v31-title">
