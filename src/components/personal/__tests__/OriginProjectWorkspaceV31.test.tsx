@@ -13,6 +13,7 @@ describe('OriginProjectWorkspaceV31', () => {
       messages={[{ id: 'm1', role: 'user', content: 'hello' }]}
       sessions={[]}
       artifacts={[]}
+      sources={[]}
       activeView="overview"
       onViewChange={() => undefined}
     />);
@@ -31,6 +32,7 @@ describe('OriginProjectWorkspaceV31', () => {
       messages={[]}
       sessions={[]}
       artifacts={[{ id: 'a1', type: 'markdown', title: 'Report', language: 'markdown', content: '# Report', isComplete: true }]}
+      sources={[]}
       activeView="overview"
       onViewChange={onViewChange}
     />);
@@ -46,6 +48,7 @@ describe('OriginProjectWorkspaceV31', () => {
       messages={[]}
       sessions={[]}
       artifacts={[]}
+      sources={[]}
       activeView="overview"
       onViewChange={onViewChange}
     />);
@@ -53,5 +56,31 @@ describe('OriginProjectWorkspaceV31', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Project Chat' }));
     expect(onViewChange).toHaveBeenCalledWith('chat');
     expect(screen.getByText('Research')).toBeTruthy();
+  });
+
+  it('enables Sources only from validated research evidence', () => {
+    render(<OriginProjectWorkspaceV31
+      mode="research"
+      messages={[]}
+      sessions={[]}
+      artifacts={[]}
+      sources={[{
+        id: 'S1',
+        title: 'Verified source',
+        url: 'https://example.com/source',
+        domain: 'example.com',
+        evidenceLevel: 'page-verified',
+        freshness: 'recent',
+        score: 90,
+        scoreScope: 'retrieval-evidence-only',
+        citation: '[S1]',
+      }]}
+      activeView="sources"
+      onViewChange={() => undefined}
+    />);
+
+    expect(screen.getByRole('button', { name: 'Project Sources' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('region', { name: 'Project Sources' }).textContent).toContain('Verified source');
+    expect(screen.getByRole('region', { name: 'Project Sources' }).textContent).toContain('example.com');
   });
 });
