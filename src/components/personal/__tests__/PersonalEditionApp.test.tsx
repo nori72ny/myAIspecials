@@ -204,7 +204,7 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Artifacts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
     expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
     expect(window.location.search).toBe('?workspace=research');
     expect(screen.getByRole('complementary', { name: '成果物ワークスペース' }).textContent).toContain('Project artifact');
@@ -213,9 +213,9 @@ describe('PersonalEditionApp production wrapper', () => {
   it('keeps Project Files, Tasks, and Sources unavailable until real backing evidence is connected', () => {
     render(<PersonalEditionApp />);
 
-    expect((screen.getByRole('button', { name: 'Files unavailable' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Tasks unavailable' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Sources unavailable' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Project Files unavailable' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Project Tasks unavailable' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Project Sources unavailable' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
 });
