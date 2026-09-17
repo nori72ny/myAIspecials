@@ -27,7 +27,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
   const [projectView, setProjectView] = useState<OriginProjectViewV31>('overview');
   const [mobileSurface, setMobileSurface] = useState<MobileChatSurface>('conversation');
   useEffect(() => {
-    const sync = () => { setWorkspace(workspaceLocation()); setMobileSurface('conversation'); };
+    const sync = () => { setWorkspace(workspaceLocation()); setProjectView('overview'); setMobileSurface('conversation'); };
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, []);
@@ -36,6 +36,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     if (next === 'chat') url.searchParams.delete('workspace');
     else url.searchParams.set('workspace', next);
     window.history.pushState(null, '', url);
+    setProjectView('overview');
     setMobileSurface('conversation');
     setWorkspace(next);
   };
@@ -60,15 +61,21 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     if (next === 'chat') setMobileSurface('conversation');
     if (next === 'artifacts' && latestArtifact) setMobileSurface('artifact');
   }, [latestArtifact]);
+  const handleProjectViewChange = useCallback((next: OriginProjectViewV31) => {
+    setProjectView(next);
+    if (next === 'artifacts' && latestArtifact) setMobileSurface('artifact');
+    else if (next === 'chat' || next === 'overview') setMobileSurface('conversation');
+  }, [latestArtifact]);
   return <>
     <OriginWorkspaceShellV31 mode={workspace} onModeChange={switchWorkspace} />
+    <OriginProjectWorkspaceV31 mode={workspace} messages={messages} sessions={effectiveSessions} artifacts={artifacts} activeView={projectView} onViewChange={handleProjectViewChange} />
     <OriginProjectWorkspaceV31 mode={workspace} messages={messages} sessions={effectiveSessions} artifacts={artifacts} activeView={projectView} onViewChange={handleProjectViewChange} />
     {workspace === 'chat' && <OriginArtifactContextV31 artifacts={artifacts} />}
     {workspace === 'chat' && latestArtifact && <div role="tablist" aria-label="モバイルChat表示" className="origin-surface-muted flex gap-2 border-b px-3 py-2 md:hidden">
       <button type="button" role="tab" aria-selected={mobileSurface === 'conversation'} onClick={() => setMobileSurface('conversation')} className={`min-h-11 flex-1 rounded-lg border px-4 text-sm font-semibold ${mobileSurface === 'conversation' ? 'origin-primary-button' : 'origin-secondary-button'}`}>会話</button>
       <button type="button" role="tab" aria-selected={mobileSurface === 'artifact'} onClick={() => setMobileSurface('artifact')} className={`min-h-11 flex-1 rounded-lg border px-4 text-sm font-semibold ${mobileSurface === 'artifact' ? 'origin-primary-button' : 'origin-secondary-button'}`}>成果物</button>
     </div>}
-    <div hidden={workspace !== 'chat'}><App onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
+    <div hidden={workspace !== 'chat' || projectView === 'artifacts'}><App onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
     {latestArtifact && <ArtifactWorkspace artifact={latestArtifact} artifacts={artifacts} isOpen={projectView === 'artifacts' || mobileSurface === 'artifact'} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} isStreaming={false} onSteer={() => undefined} onOpenSettings={onOpenSettings} onClose={() => setMobileSurface('conversation')} onArtifactRevision={handleArtifactRevision} />}
     {workspace === 'research' && <Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace /></Suspense>}
     {workspace === 'coding' && <Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace /></Suspense>}
