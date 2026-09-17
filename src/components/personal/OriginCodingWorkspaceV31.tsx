@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 export type OriginCodingResultStateV31 = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 export type OriginCodingVerificationKindV31 = 'typecheck' | 'lint' | 'test' | 'build';
@@ -139,7 +139,16 @@ export default function OriginCodingWorkspaceV31(props: Props) {
   const manualSelectionRef = useRef(false);
   const changedCount = props.changedPaths.length;
   const checkCount = props.result?.verificationChecks.length ?? 0;
-  const activeTab: WorkspaceTab = !manualSelectionRef.current && Boolean(props.result?.diffs.length) ? 'diff' : selectedTab;
+  const diffCount = props.result?.diffs.length ?? 0;
+
+  useEffect(() => {
+    if (props.state === 'pending' && props.result === null && props.changedPaths.length === 0) {
+      manualSelectionRef.current = false;
+      setSelectedTab('files');
+      return;
+    }
+    if (!manualSelectionRef.current && diffCount > 0) setSelectedTab('diff');
+  }, [diffCount, props.changedPaths.length, props.result, props.state]);
 
   const selectTab = (tab: WorkspaceTab) => {
     manualSelectionRef.current = true;
@@ -167,23 +176,23 @@ export default function OriginCodingWorkspaceV31(props: Props) {
           key={tab.id}
           type="button"
           role="tab"
-          aria-selected={activeTab === tab.id}
+          aria-selected={selectedTab === tab.id}
           aria-controls={`coding-workspace-panel-${tab.id}`}
           id={`coding-workspace-tab-${tab.id}`}
           onClick={() => selectTab(tab.id)}
-          className={`min-h-11 rounded-xl border px-3 text-sm font-bold ${activeTab === tab.id ? 'border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200' : 'border-slate-200 bg-white/70 text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300'}`}
+          className={`min-h-11 rounded-xl border px-3 text-sm font-bold ${selectedTab === tab.id ? 'border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200' : 'border-slate-200 bg-white/70 text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300'}`}
         >
           {tab.label}{tab.availability === 'unavailable' && <span className="ml-2 text-[9px] font-bold uppercase text-amber-700 dark:text-amber-300">Unavailable</span>}
         </button>)}
       </div>
     </div>
 
-    <div className="mt-4" role="tabpanel" id={`coding-workspace-panel-${activeTab}`} aria-labelledby={`coding-workspace-tab-${activeTab}`}>
-      {activeTab === 'files' && <FilesPanel {...props} />}
-      {activeTab === 'diff' && <DiffPanel {...props} />}
-      {activeTab === 'tests' && <TestsPanel result={props.result} state={props.state} />}
-      {activeTab === 'terminal' && <UnsupportedPanel kind="Terminal" />}
-      {activeTab === 'checkpoint' && <UnsupportedPanel kind="Checkpoint" />}
+    <div className="mt-4" role="tabpanel" id={`coding-workspace-panel-${selectedTab}`} aria-labelledby={`coding-workspace-tab-${selectedTab}`}>
+      {selectedTab === 'files' && <FilesPanel {...props} />}
+      {selectedTab === 'diff' && <DiffPanel {...props} />}
+      {selectedTab === 'tests' && <TestsPanel result={props.result} state={props.state} />}
+      {selectedTab === 'terminal' && <UnsupportedPanel kind="Terminal" />}
+      {selectedTab === 'checkpoint' && <UnsupportedPanel kind="Checkpoint" />}
     </div>
   </section>;
 }
