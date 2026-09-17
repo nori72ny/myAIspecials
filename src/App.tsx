@@ -897,8 +897,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, messages
   const messages = controlledMessages ?? uncontrolledMessages;
   const artifacts = controlledArtifacts ?? uncontrolledArtifacts;
   const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const attachmentBytes = attachments.reduce((total, attachment) => total + attachment.bytes, 0);
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
