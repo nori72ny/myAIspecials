@@ -32,7 +32,7 @@ type Props = {
 };
 
 const CHECKS: readonly OriginCodingVerificationKindV31[] = ['typecheck', 'lint', 'test', 'build'];
-const TABS: readonly Array<{ id: WorkspaceTab; label: string; availability: 'live' | 'unavailable' }> = [
+const TABS: ReadonlyArray<{ id: WorkspaceTab; label: string; availability: 'live' | 'unavailable' }> = [
   { id: 'files', label: 'Files', availability: 'live' },
   { id: 'diff', label: 'Diff', availability: 'live' },
   { id: 'tests', label: 'Tests', availability: 'live' },
