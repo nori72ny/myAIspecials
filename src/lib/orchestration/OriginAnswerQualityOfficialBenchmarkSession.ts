@@ -40,7 +40,7 @@ export interface OriginAnswerQualityOfficialBenchmarkScorerProvenance {
   readonly corpusVersion: "v1";
 }
 
-export interface OriginAnswerQualityOfficialBenchmarkSessionInput {
+export interface OriginAnswerQualityOfficialBenchmarkHarnessInput {
   readonly runId: string;
   readonly gitSha: string;
   readonly providerId: string;
@@ -106,8 +106,8 @@ function validScorerProvenance(
  * but its implementation revision is provenance-bound for before/after
  * comparability.
  */
-export async function runOriginAnswerQualityOfficialBenchmarkSession(
-  input: OriginAnswerQualityOfficialBenchmarkSessionInput,
+export async function runOriginAnswerQualityOfficialBenchmarkSessionHarness(
+  input: OriginAnswerQualityOfficialBenchmarkHarnessInput,
 ): Promise<OriginAnswerQualityOfficialBenchmarkSessionResult> {
   if (!validScorerProvenance(input.scorerProvenance)) {
     return { ok: false, code: "AQ_BENCHMARK_OFFICIAL_SCORER_PROVENANCE_INVALID" };
@@ -160,9 +160,9 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
 }
 
 
-export interface OriginAnswerQualityOfficialEvidenceScoredSessionInput
+export interface OriginAnswerQualityOfficialBenchmarkSessionInput
   extends Omit<
-    OriginAnswerQualityOfficialBenchmarkSessionInput,
+    OriginAnswerQualityOfficialBenchmarkHarnessInput,
     "collectScoringEvidence" | "evidenceVault"
   > {
   readonly materialClaimExtractor: OriginMaterialClaimExtractor;
@@ -179,8 +179,8 @@ export interface OriginAnswerQualityOfficialEvidenceScoredSessionInput
  * Public source verification is always composed through the pinned,
  * public-address-only source verifier; callers cannot replace the collector.
  */
-export async function runOriginAnswerQualityOfficialEvidenceScoredSession(
-  input: OriginAnswerQualityOfficialEvidenceScoredSessionInput,
+export async function runOriginAnswerQualityOfficialBenchmarkSession(
+  input: OriginAnswerQualityOfficialBenchmarkSessionInput,
 ): Promise<OriginAnswerQualityOfficialBenchmarkSessionResult> {
   const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
   const sourceVerificationExecutor = createOriginSourceVerificationExecutor({
@@ -198,7 +198,7 @@ export async function runOriginAnswerQualityOfficialEvidenceScoredSession(
   });
 
   try {
-    return await runOriginAnswerQualityOfficialBenchmarkSession({
+    return await runOriginAnswerQualityOfficialBenchmarkSessionHarness({
       runId: input.runId,
       gitSha: input.gitSha,
       providerId: input.providerId,
@@ -216,3 +216,11 @@ export async function runOriginAnswerQualityOfficialEvidenceScoredSession(
     evidenceVault.clear();
   }
 }
+
+
+/**
+ * Backward-compatible name for the evidence-grounded official entrypoint.
+ * Official callers should prefer runOriginAnswerQualityOfficialBenchmarkSession.
+ */
+export const runOriginAnswerQualityOfficialEvidenceScoredSession =
+  runOriginAnswerQualityOfficialBenchmarkSession;
