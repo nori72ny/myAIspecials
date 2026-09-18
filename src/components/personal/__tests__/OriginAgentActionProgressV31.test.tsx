@@ -60,6 +60,6 @@ describe('OriginAgentActionProgressV31', () => {
     render(<OriginAgentActionProgressV31 status="running" onStop={() => undefined} />);
 
     const controls = screen.getByLabelText('Agent mobile controls');
-    expect(controls.getAttribute('style')).toContain('safe-area-inset-bottom');
+    expect(controls.classList.contains('origin-mobile-agent-controls')).toBe(true);
   });
 });
