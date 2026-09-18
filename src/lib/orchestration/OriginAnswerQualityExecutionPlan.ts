@@ -29,9 +29,9 @@ const ORDER: readonly OriginAnswerQualityExecutionPlanStage[] = Object.freeze([
   "claim-coverage-review",
   "source-verification",
   "verifier",
-  "independent-review",
   "repair",
   "reverification",
+  "independent-review",
   "presenter",
   "trace",
 ]);
