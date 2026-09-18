@@ -29,7 +29,7 @@ export function projectOriginAnswerEvidence(
   });
 
   const claimSet = createOriginClaimSet(claims);
-  if (!claimSet.ok) {
+  if (claimSet.ok === false) {
     return {
       ok: false,
       code: "INVALID_ANSWER_EVIDENCE_PROJECTION",
@@ -60,7 +60,7 @@ export function projectOriginAnswerEvidence(
   });
 
   const ledger = createOriginEvidenceLedger(ledgerEntries);
-  if (!ledger.ok) {
+  if (ledger.ok === false) {
     return {
       ok: false,
       code: "INVALID_ANSWER_EVIDENCE_PROJECTION",
