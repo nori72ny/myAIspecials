@@ -39,7 +39,7 @@ function json(body: unknown, status = 200, headers: HeadersInit = {}): Response 
 
 describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
   it("measures the real Research API contract without provider inference", async () => {
-    const fetchImpl = vi.fn(async () => json({
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => json({
       ok: true,
       report: "# report",
       sources: [{ id: "S1", url: "https://example.com/a" }],
