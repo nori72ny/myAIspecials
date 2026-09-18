@@ -39,6 +39,7 @@ describe("OriginBatchAnswerSourceVerification", () => {
       fetched: 0,
       verified: 0,
       failed: 1,
+      sourceFetches: 0,
       assessorExecutions: 0,
     });
     expect(resolver).not.toHaveBeenCalled();
@@ -92,6 +93,7 @@ describe("OriginBatchAnswerSourceVerification", () => {
       fetched: 2,
       verified: 2,
       failed: 0,
+      sourceFetches: 2,
       assessorExecutions: 1,
     });
     expect(assessor).toHaveBeenCalledTimes(1);
@@ -140,6 +142,7 @@ describe("OriginBatchAnswerSourceVerification", () => {
       fetched: 1,
       verified: 1,
       failed: 1,
+      sourceFetches: 2,
       assessorExecutions: 1,
     });
     expect(result.evidence[0].evidenceLevel).toBe("source-checked");
