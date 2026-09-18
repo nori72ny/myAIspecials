@@ -25,14 +25,18 @@ import {
   type OriginAnswerQualityBenchmarkExecutionEvidence,
 } from "./OriginAnswerQualityBenchmarkRunner.js";
 import {
+  scoreOriginAnswerQualityBenchmarkEvidence,
+  type OriginAnswerQualityBenchmarkScoringEvidence,
+} from "./OriginAnswerQualityBenchmarkScoring.js";
+import {
   buildOriginAnswerQualityBenchmarkScorecard,
   type OriginAnswerQualityBenchmarkMeasuredObservation,
 } from "./OriginAnswerQualityBenchmarkScorecard.js";
 
-export type OriginAnswerQualityBenchmarkMeasuredCaseScorer = (
+export type OriginAnswerQualityBenchmarkScoringEvidenceCollector = (
   item: OriginAnswerQualityBenchmarkExecutableCase,
   execution: OriginAnswerQualityBenchmarkExecutionEvidence,
-) => Promise<OriginAnswerQualityBenchmarkMeasuredObservation>;
+) => Promise<OriginAnswerQualityBenchmarkScoringEvidence>;
 
 export interface OriginAnswerQualityBenchmarkSessionInput {
   readonly runId: string;
@@ -40,7 +44,7 @@ export interface OriginAnswerQualityBenchmarkSessionInput {
   readonly providerId: string;
   readonly modelId: string;
   readonly executors: OriginAnswerQualityBenchmarkLaneExecutors;
-  readonly score: OriginAnswerQualityBenchmarkMeasuredCaseScorer;
+  readonly collectScoringEvidence: OriginAnswerQualityBenchmarkScoringEvidenceCollector;
   readonly nowMs?: () => number;
   readonly corpus?: OriginAnswerQualityBenchmarkFrozenCorpus;
 }
@@ -88,9 +92,11 @@ export async function runOriginAnswerQualityBenchmarkSession(
     cases: corpus.cases,
     execute: createOriginAnswerQualityBenchmarkLaneExecutor(input.executors),
     score: async (item, evidence) => {
-      const measured = await input.score(item, evidence);
-      measuredById.set(item.caseId, measured);
-      return measured;
+      const rawEvidence = await input.collectScoringEvidence(item, evidence);
+      const measured = scoreOriginAnswerQualityBenchmarkEvidence(evidence, rawEvidence);
+      if (!measured.ok) throw new Error(measured.code);
+      measuredById.set(item.caseId, measured.value);
+      return measured.value;
     },
   });
 
