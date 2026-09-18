@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createOriginAnswerQualityBenchmarkRuntimeAdapter } from "./OriginAnswerQualityBenchmarkRuntimeAdapter";
 import { runOriginAnswerQualityBenchmarkSession } from "./OriginAnswerQualityBenchmarkSession";
 import type { OriginAnswerQualityBenchmarkCaseExecutor } from "./OriginAnswerQualityBenchmarkRunner";
 
@@ -15,6 +16,13 @@ const executor: OriginAnswerQualityBenchmarkCaseExecutor = async (item) => ({
   failureCode: null,
 });
 
+const adapters = {
+  research: createOriginAnswerQualityBenchmarkRuntimeAdapter("research", "grounded-research-v1.1", executor),
+  chat: createOriginAnswerQualityBenchmarkRuntimeAdapter("chat", "origin-chat", executor),
+  coding: createOriginAnswerQualityBenchmarkRuntimeAdapter("coding", "coding-v1.4", executor),
+  artifact: createOriginAnswerQualityBenchmarkRuntimeAdapter("artifact", "artifact-v1.2", executor),
+};
+
 describe("OriginAnswerQualityBenchmarkSession", () => {
   it("runs the frozen forty-case corpus into one measured bound session", async () => {
     let now = 1_789_761_600_000;
@@ -23,12 +31,7 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
       gitSha: "a".repeat(40),
       providerId: "openrouter-free",
       modelId: "example/free-model:free",
-      executors: {
-        research: executor,
-        chat: executor,
-        coding: executor,
-        artifact: executor,
-      },
+      executors: adapters,
       collectScoringEvidence: async (item) => ({
         caseId: item.caseId,
         category: item.category,
@@ -70,8 +73,8 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
       providerId: "openrouter-free",
       modelId: "example/free-model:free",
       executors: {
-        research: executor,
-        chat: executor,
+        research: adapters.research,
+        chat: adapters.chat,
       },
       collectScoringEvidence: async () => {
         throw new Error("must not score");
@@ -97,16 +100,22 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
       failureCode: null,
     });
 
+    const paidCodingAdapter = createOriginAnswerQualityBenchmarkRuntimeAdapter(
+      "coding",
+      "coding-v1.4",
+      paidCoding,
+    );
+
     const result = await runOriginAnswerQualityBenchmarkSession({
       runId: "aq-session-3",
       gitSha: "a".repeat(40),
       providerId: "openrouter-free",
       modelId: "example/free-model:free",
       executors: {
-        research: executor,
-        chat: executor,
-        coding: paidCoding,
-        artifact: executor,
+        research: adapters.research,
+        chat: adapters.chat,
+        coding: paidCodingAdapter,
+        artifact: adapters.artifact,
       },
       collectScoringEvidence: async (item) => ({
         caseId: item.caseId,
