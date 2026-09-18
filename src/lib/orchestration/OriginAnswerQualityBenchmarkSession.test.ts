@@ -19,6 +19,7 @@ const executor: OriginAnswerQualityBenchmarkCaseExecutor = async (item) => ({
 
 const environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof = {
   schemaVersion: "origin.aq-benchmark-environment-proof.v1",
+  baseUrl: "https://candidate.example/",
   expectedGitSha: "a".repeat(40),
   observedReleaseSha: "a".repeat(40),
   freeOnly: true,
