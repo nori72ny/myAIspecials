@@ -1,14 +1,20 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import { createOriginSourceVerificationExecutor } from "./OriginSourceVerificationExecutor";
 import type { OriginSourceVerificationRecord } from "./OriginSourceVerification";
+
+const supportedBody = "This service includes a free tier for eligible users.";
+const supportedDigest = `sha256:${createHash("sha256").update(Buffer.from(supportedBody)).digest("hex")}`;
+const unsupportedBody = "This page says nothing about pricing.";
+const unsupportedDigest = `sha256:${createHash("sha256").update(Buffer.from(unsupportedBody)).digest("hex")}`;
 
 describe("OriginSourceVerificationExecutor", () => {
   it("combines pinned public fetch and claim support assessment into a verification record", async () => {
     const assessor = vi.fn().mockResolvedValue({
       claim: "The service has a free tier.",
       sourceUrl: "https://example.com/docs",
-      sourceDigest: `sha256:${"a".repeat(64)}`,
+      sourceDigest: supportedDigest,
       support: "supported",
       supportingExcerpt: "free tier",
       actualCostUsd: 0,
@@ -23,7 +29,7 @@ describe("OriginSourceVerificationExecutor", () => {
       transport: vi.fn().mockResolvedValue({
         status: 200,
         headers: { "content-type": "text/plain" },
-        body: Buffer.from("This service includes a free tier for eligible users."),
+        body: Buffer.from(supportedBody),
       }),
       now: () => Date.parse("2026-09-18T10:30:00.000Z"),
       freshness: "passed",
@@ -86,7 +92,7 @@ describe("OriginSourceVerificationExecutor", () => {
     const assessor = vi.fn().mockResolvedValue({
       claim: "The service has a free tier.",
       sourceUrl: "https://example.com/docs",
-      sourceDigest: `sha256:${"a".repeat(64)}`,
+      sourceDigest: supportedDigest,
       support: "not-supported",
       actualCostUsd: 0,
       attempts: 1,
@@ -100,7 +106,7 @@ describe("OriginSourceVerificationExecutor", () => {
       transport: vi.fn().mockResolvedValue({
         status: 200,
         headers: { "content-type": "text/plain" },
-        body: Buffer.from("This page says nothing about pricing."),
+        body: Buffer.from(unsupportedBody),
       }),
     });
 
