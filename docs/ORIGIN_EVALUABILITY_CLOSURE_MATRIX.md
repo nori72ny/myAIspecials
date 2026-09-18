@@ -19,12 +19,13 @@ Track previously PARTIAL / UNVERIFIED / INCOMPLETE areas and convert every autom
 |---|---|---|
 | UI/UX Phase 6–10 | VERIFIED_AUTOMATED | Stacked exact-head validation complete through Phase 10; production not promoted. |
 | Evidence Ledger AQ-1 | VERIFIED_AUTOMATED | Exact head `bf8f7cc8fa5252e52e853555ad9e21e10f742138`; Production Release, ACOS, CodeQL, OpenSSF, hosted coding sandbox, Vercel successful. |
-| Material Claim Model AQ-2 | IMPLEMENTED_VALIDATING | Draft stacked PR #334; focused unit contract exists. |
-| Deterministic Verifier AQ-3 | IMPLEMENTED_VALIDATING | Draft stacked PR #335; PASS / REPAIR_REQUIRED / BLOCKED_UNVERIFIED contract exists. |
-| Evidence adapters | IMPLEMENTED_VALIDATING | Draft stacked PR #336; provider-presented citations remain unverified. |
+| Material Claim Model AQ-2 | VERIFIED_AUTOMATED | Included in exact-head validated AQ stack `5ef838ef23529c1a852eada948660cefa1fbee21`. |
+| Deterministic Verifier AQ-3 | VERIFIED_AUTOMATED | Included in exact-head validated AQ stack `5ef838ef23529c1a852eada948660cefa1fbee21`; PASS / REPAIR_REQUIRED / BLOCKED_UNVERIFIED contract verified. |
+| Evidence adapters | VERIFIED_AUTOMATED | Exact-head validated in PR #336 stack; provider-presented citations remain unverified unless separately source-checked. |
 | Duplicate-submit race | IMPLEMENTED_VALIDATING | Browser E2E proves one network request + one user message for rapid duplicate submission; exact-head rerun in progress. |
 | Provider-bound context minimization | VERIFIED_AUTOMATED | Authoritative chat and streaming paths call `minimizeOriginContext`; dedicated policy tests exist. Full production smoke still belongs to release gate. |
-| Sanitized execution trace schema/store | IMPLEMENTED_VALIDATING | Strict schema, append-only Postgres store, server-only migration, retention, tests implemented in PR #342; not production-enabled. |
+| Routing / answer verification metadata integrity | VERIFIED_AUTOMATED | UI rejects conflicting verification states, missing routing verification, malformed envelopes, and withholds legacy content rather than showing unverifiable success. |
+| Sanitized execution trace schema/store | VERIFIED_AUTOMATED | Canonical PR #339 exact head `ab2ac0ad81eaa93f6c5d5d47de86474fa5455626` passed Production Release, ACOS, CodeQL, OpenSSF, hosted sandbox, Vercel. |
 | Durable trace production wiring | IMPLEMENTED_NOT_ENABLED | Store/migration foundation exists, but production DB migration and chat-route sink wiring are intentionally deferred until held-out/release integration. |
 | Independent answer reviewer | OPEN / POST-HELD-OUT | Deterministic verifier exists; separate live independent reviewer is not yet production-connected. Must respect $0/free-only eligibility. |
 | Final V1.4 unseen coding qualification | INDEPENDENT_EVALUATOR_REQUIRED | Engineering assistant must not author/inspect corpus or run contaminated evaluation. |
