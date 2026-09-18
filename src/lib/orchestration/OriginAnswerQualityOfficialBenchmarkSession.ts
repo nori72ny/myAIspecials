@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
 import type { OriginClaimAssessor } from "./OriginClaimAssessor.js";
+import {
+  createOriginAnswerQualityBenchmarkProviderEvaluators,
+} from "./OriginAnswerQualityBenchmarkProviderEvaluators.js";
+import type { OriginExecutionPlanningOptions } from "./OriginExecutionPolicy.js";
 import type { OriginMaterialClaimExtractor } from "./OriginMaterialClaimExtractor.js";
 import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
@@ -224,3 +228,47 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
  */
 export const runOriginAnswerQualityOfficialEvidenceScoredSession =
   runOriginAnswerQualityOfficialBenchmarkSession;
+
+
+export interface OriginAnswerQualityOfficialProviderScoredSessionInput
+  extends Omit<
+    OriginAnswerQualityOfficialBenchmarkSessionInput,
+    "collectScoringEvidence" | "evidenceVault" | "scorerProvenance"
+  > {
+  readonly evaluatorPlanningOptions?: Omit<OriginExecutionPlanningOptions, "nowMs">;
+}
+
+/**
+ * Highest-level official public AQ benchmark entrypoint.
+ *
+ * The caller supplies the candidate runtime identity/environment only.
+ * Evaluator contracts, evaluator model routing, scorer provenance, safe public
+ * source verification, and the consume-once evidence vault are constructed
+ * internally from ORIGIN's current $0/ZDR execution policy.
+ */
+export async function runOriginAnswerQualityOfficialProviderScoredSession(
+  input: OriginAnswerQualityOfficialProviderScoredSessionInput,
+): Promise<OriginAnswerQualityOfficialBenchmarkSessionResult> {
+  const evaluators = createOriginAnswerQualityBenchmarkProviderEvaluators({
+    env: input.env,
+    nowMs: input.nowMs,
+    planningOptions: input.evaluatorPlanningOptions,
+  });
+
+  return runOriginAnswerQualityOfficialEvidenceScoredSession({
+    runId: input.runId,
+    gitSha: input.gitSha,
+    providerId: input.providerId,
+    modelId: input.modelId,
+    environmentProof: input.environmentProof,
+    sourceRoot: input.sourceRoot,
+    fetchImpl: input.fetchImpl,
+    env: input.env,
+    nowMs: input.nowMs,
+    scorerProvenance: evaluators.scorerProvenance,
+    materialClaimExtractor: evaluators.materialClaimExtractor,
+    promptClaimJudge: evaluators.promptClaimJudge,
+    semanticJudge: evaluators.semanticJudge,
+    claimAssessor: evaluators.claimAssessor,
+  });
+}
