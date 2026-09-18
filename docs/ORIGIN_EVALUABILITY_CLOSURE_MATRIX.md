@@ -54,6 +54,13 @@ Track previously PARTIAL / UNVERIFIED / INCOMPLETE areas and convert every autom
 | Production SHA / health / runtime smoke | IMPLEMENTED_NOT_ENABLED | Must run only after qualified integration head is promoted. |
 | AQ Presenter / Repair Planner / Decision Controller | VERIFIED_AUTOMATED | Pure logic layers are exact-head validated; PASS/REPAIR/BLOCKED states cannot overclaim verification and repair never self-certifies success. |
 | Answer-quality benchmark harness | VERIFIED_AUTOMATED | Separate $0 raw-metric harness is implemented and validated; it is not the official V1.4 held-out corpus. |
+
+| AQ Stage Policy Resolver | VERIFIED_AUTOMATED | Existing answer-quality policy deterministically selects fast-path, evidence-required, or independent-review-required stages. |
+| AQ Execution Budget | VERIFIED_AUTOMATED | Bounded provider/source/repair/time budgets preserve $0; provider capacity is derived from the bounded verification path rather than an arbitrary smaller ceiling. |
+| AQ Usage Meter | VERIFIED_AUTOMATED | Immutable execution events derive provider executions, source fetches, repair actions, elapsed time, and accumulated cost. |
+| AQ Admission Controller | VERIFIED_AUTOMATED | Policy requirements, measured budget usage, runtime readiness, verifier PASS, trace, and review requirements are composed into one fail-closed admission decision. |
+| Source freshness overclaim guard | VERIFIED_AUTOMATED | Source verifier no longer permits caller-controlled freshness=passed; freshness remains not-applicable until publication/update evidence is actually checked. |
+| Batched claim assessor | VERIFIED_AUTOMATED | Up to eight claim/source pairs can be checked in one $0 assessor execution with exact ID/claim/URL/digest/excerpt binding and duplicate-output rejection. |
 | Answer-quality benchmark before/after | POST-HELD-OUT | Benchmark specification frozen in planning; baseline/candidate runtime runs begin after official held-out evidence is frozen. |
 
 ## Closure priority
