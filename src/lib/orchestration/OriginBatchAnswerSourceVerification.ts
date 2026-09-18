@@ -63,6 +63,17 @@ export async function verifyOriginAnswerSourcesBatch(
     });
   }
 
+  if (!options.assessor) {
+    return Object.freeze({
+      evidence: Object.freeze([...evidence]),
+      attempted: eligible.length,
+      fetched: 0,
+      verified: 0,
+      failed: eligible.length,
+      assessorExecutions: 0,
+    });
+  }
+
   const fetchResults = await Promise.all(
     eligible.map(async ({ item, index }) => {
       const result = await fetchOriginPublicSource(item.sourceUrl!, {
@@ -95,7 +106,7 @@ export async function verifyOriginAnswerSourcesBatch(
   let verified = 0;
   let assessorExecutions = 0;
 
-  if (fetchedItems.length > 0 && options.assessor) {
+  if (fetchedItems.length > 0) {
     assessorExecutions = 1;
     const assessed = await assessOriginClaimsAgainstSourcesBatch(
       fetchedItems,
