@@ -1,8 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import { runOriginAnswerQualityIntegrationHarness } from "./OriginAnswerQualityIntegrationHarness";
+import {
+  appendOriginAnswerQualityUsageEvent,
+  createOriginAnswerQualityUsageMeter,
+  type OriginAnswerQualityUsageEvent,
+} from "./OriginAnswerQualityUsageMeter";
 
 const digest = (char: string) => `sha256:${char.repeat(64)}`;
+
+function usageMeter(
+  startedAtMs: number,
+  events: readonly OriginAnswerQualityUsageEvent[],
+) {
+  return events.reduce(
+    (meter, event) => appendOriginAnswerQualityUsageEvent(meter, event),
+    createOriginAnswerQualityUsageMeter(startedAtMs),
+  );
+}
 
 describe("OriginAnswerQualityIntegrationHarness", () => {
   it("releases a basic fast-path answer only when admission and sanitized audit agree", () => {
@@ -15,13 +30,10 @@ describe("OriginAnswerQualityIntegrationHarness", () => {
         creativeSpecRequired: false,
         executiveReasoningRequired: false,
       },
-      usage: {
-        providerExecutions: 1,
-        sourceFetches: 0,
-        repairActions: 0,
-        elapsedMs: 500,
-        costUsd: 0,
-      },
+      meter: usageMeter(1_000, [
+        { type: "provider-execution", costUsd: 0 },
+      ]),
+      nowMs: 1_500,
       claimExtractionCompleted: false,
       claimCoverageReviewPassed: false,
       sourceVerificationCompleted: false,
@@ -37,6 +49,8 @@ describe("OriginAnswerQualityIntegrationHarness", () => {
 
     expect(result.admission.admitted).toBe(true);
     expect(result.audit?.blockers).toEqual([]);
+    expect(result.audit?.providerExecutions).toBe(1);
+    expect(result.audit?.elapsedMs).toBe(500);
     expect(result.release.ok).toBe(true);
   });
 
@@ -52,13 +66,13 @@ describe("OriginAnswerQualityIntegrationHarness", () => {
         creativeSpecRequired: false,
         executiveReasoningRequired: true,
       },
-      usage: {
-        providerExecutions: 2,
-        sourceFetches: 2,
-        repairActions: 0,
-        elapsedMs: 2_000,
-        costUsd: 0,
-      },
+      meter: usageMeter(1_000, [
+        { type: "provider-execution", costUsd: 0 },
+        { type: "provider-execution", costUsd: 0 },
+        { type: "source-fetch" },
+        { type: "source-fetch" },
+      ]),
+      nowMs: 3_000,
       claimExtractionCompleted: true,
       claimCoverageReviewPassed: false,
       sourceVerificationCompleted: false,
@@ -76,6 +90,7 @@ describe("OriginAnswerQualityIntegrationHarness", () => {
     expect(result.admission.admitted).toBe(false);
     expect(result.audit?.blockers).toContain("SOURCE_VERIFICATION_INCOMPLETE");
     expect(result.audit?.blockers).toContain("TRACE_PERSISTENCE_INCOMPLETE");
+    expect(result.audit?.sourceFetches).toBe(2);
     expect(result.release).toEqual({ ok: false, code: "AQ_RELEASE_NOT_ADMITTED" });
   });
 
@@ -91,13 +106,14 @@ describe("OriginAnswerQualityIntegrationHarness", () => {
         creativeSpecRequired: false,
         executiveReasoningRequired: true,
       },
-      usage: {
-        providerExecutions: 3,
-        sourceFetches: 2,
-        repairActions: 0,
-        elapsedMs: 3_000,
-        costUsd: 0,
-      },
+      meter: usageMeter(1_000, [
+        { type: "provider-execution", costUsd: 0 },
+        { type: "provider-execution", costUsd: 0 },
+        { type: "provider-execution", costUsd: 0 },
+        { type: "source-fetch" },
+        { type: "source-fetch" },
+      ]),
+      nowMs: 4_000,
       claimExtractionCompleted: true,
       claimCoverageReviewPassed: false,
       sourceVerificationCompleted: true,
@@ -118,7 +134,7 @@ describe("OriginAnswerQualityIntegrationHarness", () => {
     expect(result.release.ok).toBe(false);
   });
 
-  it("fails closed on any non-zero measured cost", () => {
+  it("fails closed on any non-zero measured cost from immutable usage events", () => {
     const result = runOriginAnswerQualityIntegrationHarness({
       requestId: "origin-int-4",
       answerDigest: digest("a"),
@@ -128,13 +144,10 @@ describe("OriginAnswerQualityIntegrationHarness", () => {
         creativeSpecRequired: false,
         executiveReasoningRequired: false,
       },
-      usage: {
-        providerExecutions: 1,
-        sourceFetches: 0,
-        repairActions: 0,
-        elapsedMs: 500,
-        costUsd: 0.01,
-      },
+      meter: usageMeter(1_000, [
+        { type: "provider-execution", costUsd: 0.01 },
+      ]),
+      nowMs: 1_500,
       claimExtractionCompleted: false,
       claimCoverageReviewPassed: false,
       sourceVerificationCompleted: false,
