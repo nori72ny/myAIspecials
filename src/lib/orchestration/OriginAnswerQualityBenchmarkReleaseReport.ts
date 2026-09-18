@@ -6,6 +6,7 @@ import {
   qualifyOriginAnswerQualityBenchmark,
   ORIGIN_AQ_FROZEN_BENCHMARK_FAMILIES,
   type OriginAnswerQualityBenchmarkQualificationInput,
+  type OriginAnswerQualityBenchmarkQualificationReport,
 } from "./OriginAnswerQualityBenchmarkQualification.js";
 
 export interface OriginAnswerQualityBenchmarkFamilyReport {
@@ -23,7 +24,7 @@ export interface OriginAnswerQualityBenchmarkFamilyReport {
 
 export interface OriginAnswerQualityBenchmarkReleaseReport {
   readonly schemaVersion: "origin.aq-benchmark-release-report.v1";
-  readonly qualification: ReturnType<typeof qualifyOriginAnswerQualityBenchmark> extends { ok: true; value: infer T } ? T : never;
+  readonly qualification: OriginAnswerQualityBenchmarkQualificationReport;
   readonly families: readonly OriginAnswerQualityBenchmarkFamilyReport[];
   readonly regressionFamilies: readonly OriginAnswerQualityBenchmarkCategory[];
   readonly targetedImprovementObserved: boolean;
