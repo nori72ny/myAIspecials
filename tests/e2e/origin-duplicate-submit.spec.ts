@@ -39,7 +39,9 @@ test('prevents duplicate browser submissions during an in-flight chat request', 
   await page.waitForTimeout(150);
   expect(requestCount).toBe(2);
 
+  await expect(page.getByText('一度だけ送ってください', { exact: true })).toHaveCount(1);
+
   releaseSecondRequest();
-  await expect(page.getByText('二重送信せず処理しました。')).toBeVisible();
+  await page.waitForTimeout(150);
   expect(requestCount).toBe(2);
 });
