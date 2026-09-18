@@ -13,9 +13,6 @@ const base: OriginAnswerQualityBenchmarkObservation = {
   citationPrecisionScore: 0.9,
   taskCompletionScore: 0.8,
   contradictionDetectionScore: 0.7,
-  verificationIntegrityScore: 1,
-  failClosedAccuracyScore: 1,
-  userActionabilityScore: 3,
   verifierRejectedUnsupportedClaim: true,
   providerRequests: 2,
   latencyMs: 1_000,
@@ -52,11 +49,6 @@ describe("OriginAnswerQualityBenchmark", () => {
       totalProviderRequests: 5,
       totalCostUsd: 0,
       repairSuccessRate: 1,
-      meanVerificationIntegrity: 1,
-      meanFailClosedAccuracy: 1,
-      meanUserActionability: 3,
-      medianLatencyMs: 1_000,
-      p95LatencyMs: 2_000,
     });
     expect(result.value).not.toHaveProperty("overallScore");
     expect(result.value).not.toHaveProperty("winner");
@@ -114,9 +106,6 @@ describe("OriginAnswerQualityBenchmark", () => {
     const delta = compareOriginAnswerQualityBenchmark(baseline.value, candidate.value);
     expect(delta.factualSupportDelta).toBeCloseTo(0.1);
     expect(delta.unsupportedMaterialClaimDelta).toBe(-1);
-    expect(delta.verificationIntegrityDelta).toBe(0);
-    expect(delta.failClosedAccuracyDelta).toBe(0);
-    expect(delta.userActionabilityDelta).toBe(0);
     expect(delta.providerRequestDelta).toBe(1);
     expect(delta.latencyMsDelta).toBe(200);
     expect(delta.totalCostUsdDelta).toBe(0);
