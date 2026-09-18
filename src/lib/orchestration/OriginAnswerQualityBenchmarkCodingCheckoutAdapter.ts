@@ -29,13 +29,14 @@ import type {
 const executeFile = promisify(execFile);
 const SHA40 = /^[a-f0-9]{40}$/;
 
-function digest(value: unknown): string {
-  return `sha256:${createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex")}`;
-}
+export type OriginAnswerQualityBenchmarkGitExecutor = (
+  args: readonly string[],
+  cwd: string,
+) => Promise<{ readonly stdout: string }>;
 
-async function checkoutRevision(root: string): Promise<string> {
-  const { stdout } = await executeFile("git", ["rev-parse", "--verify", "HEAD"], {
-    cwd: root,
+const executeGit: OriginAnswerQualityBenchmarkGitExecutor = async (args, cwd) => {
+  const { stdout } = await executeFile("git", [...args], {
+    cwd,
     env: {
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       GIT_CONFIG_NOSYSTEM: "1",
@@ -45,21 +46,27 @@ async function checkoutRevision(root: string): Promise<string> {
     maxBuffer: 1024,
     encoding: "utf8",
   });
+  return { stdout };
+};
+
+function digest(value: unknown): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex")}`;
+}
+
+async function checkoutRevision(
+  root: string,
+  git: OriginAnswerQualityBenchmarkGitExecutor,
+): Promise<string> {
+  const { stdout } = await git(["rev-parse", "--verify", "HEAD"], root);
   return stdout.trim();
 }
 
-async function assertCleanTrackedCheckout(root: string): Promise<void> {
+async function assertCleanTrackedCheckout(
+  root: string,
+  git: OriginAnswerQualityBenchmarkGitExecutor,
+): Promise<void> {
   try {
-    await executeFile("git", ["diff-index", "--quiet", "HEAD", "--"], {
-      cwd: root,
-      env: {
-        PATH: process.env.PATH ?? "/usr/bin:/bin",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-      },
-      timeout: 5_000,
-      maxBuffer: 1024,
-    });
+    await git(["diff-index", "--quiet", "HEAD", "--"], root);
   } catch {
     throw new Error("AQ_BENCHMARK_CODING_CHECKOUT_DIRTY");
   }
@@ -84,6 +91,7 @@ export interface OriginAnswerQualityBenchmarkCodingCheckoutAdapterOptions {
   readonly expectedGitSha: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly nowMs?: () => number;
+  readonly gitExecutor?: OriginAnswerQualityBenchmarkGitExecutor;
 }
 
 export async function createOriginAnswerQualityBenchmarkCodingCheckoutAdapter(
@@ -94,11 +102,12 @@ export async function createOriginAnswerQualityBenchmarkCodingCheckoutAdapter(
   }
 
   const sourceRoot = await fs.realpath(options.sourceRoot);
-  const observedSha = await checkoutRevision(sourceRoot);
+  const git = options.gitExecutor ?? executeGit;
+  const observedSha = await checkoutRevision(sourceRoot, git);
   if (observedSha !== options.expectedGitSha) {
     throw new Error("AQ_BENCHMARK_CODING_SOURCE_SHA_MISMATCH");
   }
-  await assertCleanTrackedCheckout(sourceRoot);
+  await assertCleanTrackedCheckout(sourceRoot, git);
   await fs.access(path.join(sourceRoot, "node_modules"));
 
   const env = options.env ?? process.env;
