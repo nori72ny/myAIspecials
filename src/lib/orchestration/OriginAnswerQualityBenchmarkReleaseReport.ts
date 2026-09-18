@@ -17,6 +17,9 @@ export interface OriginAnswerQualityBenchmarkFamilyReport {
   readonly citationPrecisionDelta: number;
   readonly taskCompletionDelta: number;
   readonly contradictionDetectionDelta: number;
+  readonly verificationIntegrityDelta: number;
+  readonly failClosedAccuracyDelta: number;
+  readonly userActionabilityDelta: number;
   readonly unsupportedMaterialClaimDelta: number;
   readonly verifierRejectionRateDelta: number;
   readonly repairSuccessRateDelta: number | null;
@@ -32,6 +35,8 @@ export interface OriginAnswerQualityBenchmarkReleaseReport {
   readonly blockers: readonly (
     | "UNSUPPORTED_CLAIMS_REGRESSED"
     | "VERIFIER_INTEGRITY_REGRESSED"
+    | "VERIFICATION_INTEGRITY_REGRESSED"
+    | "FAIL_CLOSED_ACCURACY_REGRESSED"
     | "CRITICAL_FAMILY_REGRESSION"
     | "NO_TARGETED_IMPROVEMENT"
   )[];
@@ -70,6 +75,12 @@ function familyReport(
     taskCompletionDelta: mean(c.map((item) => item.taskCompletionScore)) - mean(b.map((item) => item.taskCompletionScore)),
     contradictionDetectionDelta:
       mean(c.map((item) => item.contradictionDetectionScore)) - mean(b.map((item) => item.contradictionDetectionScore)),
+    verificationIntegrityDelta:
+      mean(c.map((item) => item.verificationIntegrityScore)) - mean(b.map((item) => item.verificationIntegrityScore)),
+    failClosedAccuracyDelta:
+      mean(c.map((item) => item.failClosedAccuracyScore)) - mean(b.map((item) => item.failClosedAccuracyScore)),
+    userActionabilityDelta:
+      mean(c.map((item) => item.userActionabilityScore)) - mean(b.map((item) => item.userActionabilityScore)),
     unsupportedMaterialClaimDelta:
       c.reduce((sum, item) => sum + item.unsupportedMaterialClaimCount, 0)
       - b.reduce((sum, item) => sum + item.unsupportedMaterialClaimCount, 0),
@@ -87,6 +98,9 @@ function isCriticalRegression(report: OriginAnswerQualityBenchmarkFamilyReport):
     || report.taskCompletionDelta < 0
     || report.citationPrecisionDelta < 0
     || report.contradictionDetectionDelta < 0
+    || report.verificationIntegrityDelta < 0
+    || report.failClosedAccuracyDelta < 0
+    || report.userActionabilityDelta < 0
     || (report.repairSuccessRateDelta !== null && report.repairSuccessRateDelta < 0);
 }
 
@@ -95,6 +109,9 @@ function hasTargetedImprovement(report: OriginAnswerQualityBenchmarkFamilyReport
     || report.citationPrecisionDelta > 0
     || report.taskCompletionDelta > 0
     || report.contradictionDetectionDelta > 0
+    || report.verificationIntegrityDelta > 0
+    || report.failClosedAccuracyDelta > 0
+    || report.userActionabilityDelta > 0
     || report.unsupportedMaterialClaimDelta < 0
     || report.verifierRejectionRateDelta > 0
     || (report.repairSuccessRateDelta !== null && report.repairSuccessRateDelta > 0);
@@ -115,6 +132,8 @@ export function buildOriginAnswerQualityBenchmarkReleaseReport(
   const blockers: OriginAnswerQualityBenchmarkReleaseReport["blockers"][number][] = [];
   if (!qualification.value.hardGates.unsupportedClaimsNotWorse) blockers.push("UNSUPPORTED_CLAIMS_REGRESSED");
   if (!qualification.value.hardGates.verifierRejectionRateNotWorse) blockers.push("VERIFIER_INTEGRITY_REGRESSED");
+  if (!qualification.value.hardGates.verificationIntegrityNotWorse) blockers.push("VERIFICATION_INTEGRITY_REGRESSED");
+  if (!qualification.value.hardGates.failClosedAccuracyNotWorse) blockers.push("FAIL_CLOSED_ACCURACY_REGRESSED");
   if (regressionFamilies.length > 0) blockers.push("CRITICAL_FAMILY_REGRESSION");
   if (!targetedImprovementObserved) blockers.push("NO_TARGETED_IMPROVEMENT");
 
