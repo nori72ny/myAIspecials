@@ -1,3 +1,4 @@
+import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
   createOriginAnswerQualityFrozenCorpus,
   type OriginAnswerQualityBenchmarkFrozenCorpus,
