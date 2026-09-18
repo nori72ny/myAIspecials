@@ -1,6 +1,7 @@
 import type {
   OriginAnswerQualityExecutionPlan,
   OriginAnswerQualityExecutionPlanStage,
+  OriginAnswerQualityStageActivation,
 } from "./OriginAnswerQualityExecutionPlan.js";
 
 export type OriginAnswerQualityStageStatus =
@@ -13,7 +14,8 @@ export type OriginAnswerQualityStageStatus =
 
 export interface OriginAnswerQualityStageState {
   readonly stage: OriginAnswerQualityExecutionPlanStage;
-  readonly required: boolean;
+  readonly activation: OriginAnswerQualityStageActivation;
+  readonly active: boolean;
   readonly status: OriginAnswerQualityStageStatus;
 }
 
@@ -34,21 +36,47 @@ export function createOriginAnswerQualityExecutionState(
 ): OriginAnswerQualityExecutionState {
   return Object.freeze({
     schemaVersion: "origin.aq-execution-state.v1",
-    stages: Object.freeze(plan.stages.map((stage) => Object.freeze({
-      stage: stage.stage,
-      required: stage.required,
-      status: stage.required ? "pending" as const : "not-required" as const,
-    }))),
+    stages: Object.freeze(plan.stages.map((stage) => {
+      const active = stage.activation === "required";
+      return Object.freeze({
+        stage: stage.stage,
+        activation: stage.activation,
+        active,
+        status: active ? "pending" as const : "not-required" as const,
+      });
+    })),
   });
 }
 
-function priorRequiredStagesSatisfied(
+export function activateOriginAnswerQualityConditionalStages(
+  state: OriginAnswerQualityExecutionState,
+  stagesToActivate: readonly OriginAnswerQualityExecutionPlanStage[],
+): OriginAnswerQualityExecutionState {
+  const requested = new Set(stagesToActivate);
+  const stages = state.stages.map((entry) => {
+    if (!requested.has(entry.stage)) return entry;
+    if (entry.activation !== "conditional") throw new Error("AQ_STAGE_NOT_CONDITIONAL");
+    if (entry.active || entry.status !== "not-required") throw new Error("AQ_STAGE_ALREADY_ACTIVE");
+    return Object.freeze({
+      ...entry,
+      active: true,
+      status: "pending" as const,
+    });
+  });
+
+  return Object.freeze({
+    schemaVersion: "origin.aq-execution-state.v1",
+    stages: Object.freeze(stages),
+  });
+}
+
+function priorActiveStagesSatisfied(
   state: OriginAnswerQualityExecutionState,
   stageIndex: number,
 ): boolean {
   for (let index = 0; index < stageIndex; index += 1) {
     const prior = state.stages[index];
-    if (!prior.required) continue;
+    if (!prior.active) continue;
     if (prior.status !== "passed") return false;
   }
   return true;
@@ -63,12 +91,12 @@ export function transitionOriginAnswerQualityStage(
   if (index < 0) throw new Error("AQ_STAGE_NOT_FOUND");
 
   const current = state.stages[index];
-  if (!current.required) throw new Error("AQ_STAGE_NOT_REQUIRED");
+  if (!current.active) throw new Error("AQ_STAGE_NOT_ACTIVE");
   if (TERMINAL.has(current.status)) throw new Error("AQ_STAGE_ALREADY_TERMINAL");
 
   if (current.status === "pending") {
     if (nextStatus !== "running") throw new Error("AQ_STAGE_TRANSITION_INVALID");
-    if (!priorRequiredStagesSatisfied(state, index)) {
+    if (!priorActiveStagesSatisfied(state, index)) {
       throw new Error("AQ_STAGE_PREREQUISITE_INCOMPLETE");
     }
   } else if (current.status === "running") {
