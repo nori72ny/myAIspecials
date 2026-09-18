@@ -84,8 +84,9 @@ function normalizeEntry(input: OriginEvidenceLedgerEntryInput): OriginEvidenceLe
 
   let sourceUrl: string | undefined;
   if (input.sourceUrl !== undefined) {
-    sourceUrl = normalizeOriginPublicHttpsUrl(input.sourceUrl);
-    if (!sourceUrl) return null;
+    const normalizedSourceUrl = normalizeOriginPublicHttpsUrl(input.sourceUrl);
+    if (!normalizedSourceUrl) return null;
+    sourceUrl = normalizedSourceUrl;
   }
 
   if (input.sourceKind === "retrieved-public" && !sourceUrl) return null;
