@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
 import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import type {
+  OriginAnswerQualityBenchmarkEphemeralEvidenceVault,
+} from "./OriginAnswerQualityBenchmarkEphemeralEvidenceVault.js";
 import {
   createOriginAnswerQualityBenchmarkRuntimeAdapter,
   type OriginAnswerQualityBenchmarkRuntimeAdapter,
@@ -16,6 +19,7 @@ export interface OriginAnswerQualityBenchmarkHttpAdapterOptions {
   readonly environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof;
   readonly fetchImpl?: typeof fetch;
   readonly nowMs?: () => number;
+  readonly evidenceVault?: OriginAnswerQualityBenchmarkEphemeralEvidenceVault;
 }
 
 interface ChatExecution {
@@ -26,6 +30,7 @@ interface ChatExecution {
   readonly verification: "PASS" | "REPAIR_REQUIRED" | "BLOCKED_UNVERIFIED";
   readonly providerRequests: number;
   readonly failureCode: string | null;
+  readonly evidenceJson: unknown;
 }
 
 function sha256(value: string): string {
@@ -110,6 +115,7 @@ async function executeChat(
       evidenceRef: null,
       verification: "BLOCKED_UNVERIFIED",
       providerRequests: 0,
+      evidenceJson: null,
       failureCode: "AQ_BENCHMARK_CHAT_FETCH_FAILED",
     };
   }
@@ -123,6 +129,7 @@ async function executeChat(
       evidenceRef: null,
       verification: "BLOCKED_UNVERIFIED",
       providerRequests: 0,
+      evidenceJson: null,
       failureCode: safeCode(body?.code, `AQ_BENCHMARK_CHAT_HTTP_${response.status}`),
     };
   }
@@ -157,6 +164,7 @@ async function executeChat(
     verification: chatVerification(verificationStatus),
     providerRequests,
     failureCode: null,
+    evidenceJson: evidence,
   };
 }
 
@@ -210,10 +218,21 @@ export function createOriginAnswerQualityBenchmarkResearchHttpAdapter(
         throw new Error("AQ_BENCHMARK_RESEARCH_RESPONSE_INVALID");
       }
 
+      const finalAnswerRef = sha256(body.report);
+      const evidencePayload = { sources: body.sources, conflicts: body.conflicts ?? [] };
+      const evidenceLedgerRef = sha256(stableJson(evidencePayload));
+      options.evidenceVault?.put({
+        caseId: item.caseId,
+        finalAnswerRef,
+        evidenceLedgerRef,
+        answerText: body.report,
+        evidenceJson: evidencePayload,
+      });
+
       return {
         caseId: item.caseId,
-        finalAnswerRef: sha256(body.report),
-        evidenceLedgerRef: sha256(stableJson({ sources: body.sources, conflicts: body.conflicts ?? [] })),
+        finalAnswerRef,
+        evidenceLedgerRef,
         verifierResult: "PASS",
         providerRequests: 0,
         toolCalls: 1,
@@ -238,6 +257,15 @@ export function createOriginAnswerQualityBenchmarkChatHttpAdapter(
     async (item): Promise<OriginAnswerQualityBenchmarkExecutionEvidence> => {
       const startedAt = nowMs();
       const result = await executeChat(item, base, fetchImpl);
+      if (result.ok && result.answerRef && result.evidenceRef) {
+        options.evidenceVault?.put({
+          caseId: item.caseId,
+          finalAnswerRef: result.answerRef,
+          evidenceLedgerRef: result.evidenceRef,
+          answerText: result.content,
+          evidenceJson: result.evidenceJson,
+        });
+      }
       return {
         caseId: item.caseId,
         finalAnswerRef: result.answerRef,
@@ -358,9 +386,23 @@ export function createOriginAnswerQualityBenchmarkArtifactHttpAdapter(
       }
 
       await response.arrayBuffer();
+      const finalAnswerRef = `sha256:${artifactSha}`;
+      if (chat.evidenceRef) {
+        options.evidenceVault?.put({
+          caseId: item.caseId,
+          finalAnswerRef,
+          evidenceLedgerRef: chat.evidenceRef,
+          answerText: chat.content,
+          evidenceJson: {
+            chatEvidence: chat.evidenceJson,
+            artifactSha256: artifactSha,
+            verified: true,
+          },
+        });
+      }
       return {
         caseId: item.caseId,
-        finalAnswerRef: `sha256:${artifactSha}`,
+        finalAnswerRef,
         evidenceLedgerRef: chat.evidenceRef,
         verifierResult: "PASS",
         providerRequests: chat.providerRequests,
