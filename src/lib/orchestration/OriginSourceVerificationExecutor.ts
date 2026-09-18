@@ -18,7 +18,6 @@ export interface OriginSourceVerificationExecutorOptions {
   timeoutMs?: number;
   maxBytes?: number;
   now?: () => number;
-  freshness?: "passed" | "not-applicable";
 }
 
 export function createOriginSourceVerificationExecutor(
@@ -65,7 +64,7 @@ export function createOriginSourceVerificationExecutor(
       },
       checks: {
         content: "passed",
-        freshness: options.freshness ?? "not-applicable",
+        freshness: "not-applicable",
         claimSupport: "passed",
       },
     };
