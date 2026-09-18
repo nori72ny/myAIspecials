@@ -5,6 +5,8 @@ import { createOriginAnswerQualityBenchmarkManifest } from "./OriginAnswerQualit
 import {
   digestOriginAnswerQualityBenchmarkCase,
   runOriginAnswerQualityBenchmark,
+  runOriginAnswerQualityBenchmarkExecutionOnly,
+  scoreOriginAnswerQualityBenchmarkExecution,
   type OriginAnswerQualityBenchmarkExecutableCase,
 } from "./OriginAnswerQualityBenchmarkRunner";
 
@@ -174,5 +176,130 @@ describe("OriginAnswerQualityBenchmarkRunner", () => {
       failedCaseId: "case-2",
     });
     expect(calls).toBe(2);
+  });
+
+  it("can freeze all execution evidence before any scoring occurs", async () => {
+    const { items, manifest } = fixture();
+    const executed: string[] = [];
+
+    const execution = await runOriginAnswerQualityBenchmarkExecutionOnly({
+      manifest,
+      cases: items,
+      execute: async (item) => {
+        executed.push(item.caseId);
+        return {
+          caseId: item.caseId,
+          finalAnswerRef: `answer:${item.caseId}`,
+          evidenceLedgerRef: `ledger:${item.caseId}`,
+          verifierResult: "PASS",
+          providerRequests: 1,
+          toolCalls: 1,
+          latencyMs: 100,
+          costUsd: 0,
+          failureCode: null,
+        };
+      },
+    });
+
+    expect(executed).toEqual(items.map((item) => item.caseId));
+    expect(execution.ok).toBe(true);
+    if (!execution.ok) return;
+    expect(execution.value.executionOnlyDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+    let scoreCalls = 0;
+    const scored = await scoreOriginAnswerQualityBenchmarkExecution({
+      manifest,
+      cases: items,
+      execution: execution.value,
+      score: async (item, evidence) => {
+        scoreCalls += 1;
+        return score(item, evidence.providerRequests, evidence.latencyMs);
+      },
+    });
+
+    expect(scored.ok).toBe(true);
+    expect(scoreCalls).toBe(4);
+  });
+
+  it("rejects a tampered frozen execution before the scorer runs", async () => {
+    const { items, manifest } = fixture();
+    const execution = await runOriginAnswerQualityBenchmarkExecutionOnly({
+      manifest,
+      cases: items,
+      execute: async (item) => ({
+        caseId: item.caseId,
+        finalAnswerRef: `answer:${item.caseId}`,
+        evidenceLedgerRef: `ledger:${item.caseId}`,
+        verifierResult: "PASS",
+        providerRequests: 1,
+        toolCalls: 1,
+        latencyMs: 100,
+        costUsd: 0,
+        failureCode: null,
+      }),
+    });
+    if (!execution.ok) throw new Error("execution fixture failed");
+
+    const tampered = {
+      ...execution.value,
+      executedCases: execution.value.executedCases.map((item, index) =>
+        index === 0
+          ? {
+              ...item,
+              execution: { ...item.execution, finalAnswerRef: "answer:tampered" },
+            }
+          : item
+      ),
+    };
+    let scoreCalls = 0;
+    const result = await scoreOriginAnswerQualityBenchmarkExecution({
+      manifest,
+      cases: items,
+      execution: tampered,
+      score: async (item, evidence) => {
+        scoreCalls += 1;
+        return score(item, evidence.providerRequests, evidence.latencyMs);
+      },
+    });
+
+    expect(result).toEqual({ ok: false, code: "AQ_BENCHMARK_EXECUTION_INVALID_EVIDENCE" });
+    expect(scoreCalls).toBe(0);
+  });
+
+  it("keeps the legacy one-call runner behavior equivalent to two-phase execution", async () => {
+    const { items, manifest } = fixture();
+    const execute = async (item: OriginAnswerQualityBenchmarkExecutableCase) => ({
+      caseId: item.caseId,
+      finalAnswerRef: `answer:${item.caseId}`,
+      evidenceLedgerRef: `ledger:${item.caseId}`,
+      verifierResult: "PASS" as const,
+      providerRequests: 1,
+      toolCalls: 2,
+      latencyMs: 100,
+      costUsd: 0,
+      failureCode: null,
+    });
+
+    const frozen = await runOriginAnswerQualityBenchmarkExecutionOnly({
+      manifest,
+      cases: items,
+      execute,
+    });
+    if (!frozen.ok) throw new Error("execution fixture failed");
+
+    const twoPhase = await scoreOriginAnswerQualityBenchmarkExecution({
+      manifest,
+      cases: items,
+      execution: frozen.value,
+      score: async (item, evidence) => score(item, evidence.providerRequests, evidence.latencyMs),
+    });
+    const legacy = await runOriginAnswerQualityBenchmark({
+      manifest,
+      cases: items,
+      execute,
+      score: async (item, evidence) => score(item, evidence.providerRequests, evidence.latencyMs),
+    });
+
+    expect(twoPhase).toEqual(legacy);
   });
 });

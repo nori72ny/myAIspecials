@@ -72,21 +72,29 @@ export type OriginAnswerQualityBenchmarkSessionResult =
       detail?: string;
     };
 
+export function isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
+  proof: OriginAnswerQualityBenchmarkEnvironmentProof,
+  gitSha: string,
+): boolean {
+  return proof.schemaVersion === "origin.aq-benchmark-environment-proof.v1"
+    && proof.expectedGitSha === gitSha
+    && proof.observedReleaseSha === gitSha
+    && proof.freeOnly === true
+    && proof.costUsd === 0
+    && proof.paidFallbackEnabled === false
+    && proof.codingReady === true
+    && proof.runtimeIds.research === "grounded-research-v1.1"
+    && proof.runtimeIds.coding === "coding-v1.4"
+    && proof.runtimeIds.artifact === "artifact-v1.2";
+}
+
 export async function runOriginAnswerQualityBenchmarkSession(
   input: OriginAnswerQualityBenchmarkSessionInput,
 ): Promise<OriginAnswerQualityBenchmarkSessionResult> {
-  if (
-    input.environmentProof.schemaVersion !== "origin.aq-benchmark-environment-proof.v1"
-    || input.environmentProof.expectedGitSha !== input.gitSha
-    || input.environmentProof.observedReleaseSha !== input.gitSha
-    || input.environmentProof.freeOnly !== true
-    || input.environmentProof.costUsd !== 0
-    || input.environmentProof.paidFallbackEnabled !== false
-    || input.environmentProof.codingReady !== true
-    || input.environmentProof.runtimeIds.research !== "grounded-research-v1.1"
-    || input.environmentProof.runtimeIds.coding !== "coding-v1.4"
-    || input.environmentProof.runtimeIds.artifact !== "artifact-v1.2"
-  ) {
+  if (!isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
+    input.environmentProof,
+    input.gitSha,
+  )) {
     return { ok: false, code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID" };
   }
 
