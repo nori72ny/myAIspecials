@@ -4,6 +4,7 @@ import {
   createOriginAnswerQualityBenchmarkLaneExecutor,
   resolveOriginAnswerQualityBenchmarkExecutionLane,
 } from "./OriginAnswerQualityBenchmarkExecutionRouter";
+import { createOriginAnswerQualityBenchmarkRuntimeAdapter } from "./OriginAnswerQualityBenchmarkRuntimeAdapter";
 import type { OriginAnswerQualityBenchmarkExecutableCase } from "./OriginAnswerQualityBenchmarkRunner";
 
 function item(
@@ -60,7 +61,13 @@ describe("OriginAnswerQualityBenchmarkExecutionRouter", () => {
       costUsd: 0,
       failureCode: null,
     }));
-    const execute = createOriginAnswerQualityBenchmarkLaneExecutor({ research });
+    const execute = createOriginAnswerQualityBenchmarkLaneExecutor({
+      research: createOriginAnswerQualityBenchmarkRuntimeAdapter(
+        "research",
+        "grounded-research-v1.1",
+        research,
+      ),
+    });
 
     const result = await execute(item("multi-source-comparison"));
 
@@ -81,7 +88,9 @@ describe("OriginAnswerQualityBenchmarkExecutionRouter", () => {
       costUsd: 0,
       failureCode: null,
     });
-    const execute = createOriginAnswerQualityBenchmarkLaneExecutor({ chat });
+    const execute = createOriginAnswerQualityBenchmarkLaneExecutor({
+      chat: createOriginAnswerQualityBenchmarkRuntimeAdapter("chat", "origin-chat", chat),
+    });
 
     const result = await execute(item("professional-advice"));
 
@@ -101,7 +110,9 @@ describe("OriginAnswerQualityBenchmarkExecutionRouter", () => {
       costUsd: 0.01,
       failureCode: null,
     });
-    const execute = createOriginAnswerQualityBenchmarkLaneExecutor({ coding });
+    const execute = createOriginAnswerQualityBenchmarkLaneExecutor({
+      coding: createOriginAnswerQualityBenchmarkRuntimeAdapter("coding", "coding-v1.4", coding),
+    });
 
     const result = await execute(item("coding-generation"));
 
