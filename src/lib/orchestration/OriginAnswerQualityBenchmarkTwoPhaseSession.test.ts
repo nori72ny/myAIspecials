@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
 import { createOriginAnswerQualityBenchmarkRuntimeAdapter } from "./OriginAnswerQualityBenchmarkRuntimeAdapter";
-import type { OriginAnswerQualityBenchmarkCaseExecutor } from "./OriginAnswerQualityBenchmarkRunner";
+import type {
+  OriginAnswerQualityBenchmarkCaseExecutor,
+  OriginAnswerQualityBenchmarkExecutableCase,
+  OriginAnswerQualityBenchmarkExecutionEvidence,
+} from "./OriginAnswerQualityBenchmarkRunner";
 import {
   runOriginAnswerQualityBenchmarkExecutionSession,
   scoreOriginAnswerQualityBenchmarkExecutionSession,
@@ -44,8 +48,8 @@ const adapters = {
 };
 
 function scoringEvidence(
-  item: Parameters<NonNullable<Parameters<typeof scoreOriginAnswerQualityBenchmarkExecutionSession>[0]["collectScoringEvidence"]>>[0],
-  execution: Parameters<NonNullable<Parameters<typeof scoreOriginAnswerQualityBenchmarkExecutionSession>[0]["collectScoringEvidence"]>>[1],
+  item: OriginAnswerQualityBenchmarkExecutableCase,
+  execution: OriginAnswerQualityBenchmarkExecutionEvidence,
 ) {
   return {
     caseId: item.caseId,
