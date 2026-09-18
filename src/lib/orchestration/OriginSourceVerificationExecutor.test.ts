@@ -92,7 +92,7 @@ describe("OriginSourceVerificationExecutor", () => {
     const assessor = vi.fn().mockResolvedValue({
       claim: "The service has a free tier.",
       sourceUrl: "https://example.com/docs",
-      sourceDigest: supportedDigest,
+      sourceDigest: unsupportedDigest,
       support: "not-supported",
       actualCostUsd: 0,
       attempts: 1,
