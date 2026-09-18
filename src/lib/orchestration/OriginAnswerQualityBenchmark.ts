@@ -79,6 +79,7 @@ export function aggregateOriginAnswerQualityBenchmark(
   }
 
   const repairCases = observations.filter((item) => item.repairSucceeded !== undefined);
+  const verifierCases = observations.filter((item) => item.unsupportedMaterialClaimCount > 0);
   const result: OriginAnswerQualityBenchmarkAggregate = {
     schemaVersion: "origin.aq-benchmark.v1",
     caseCount: observations.length,
@@ -91,9 +92,9 @@ export function aggregateOriginAnswerQualityBenchmark(
       (sum, item) => sum + item.unsupportedMaterialClaimCount,
       0,
     ),
-    verifierRejectionRate: mean(
-      observations.map((item) => item.verifierRejectedUnsupportedClaim ? 1 : 0),
-    ),
+    verifierRejectionRate: verifierCases.length === 0
+      ? 1
+      : mean(verifierCases.map((item) => item.verifierRejectedUnsupportedClaim ? 1 : 0)),
     repairSuccessRate: repairCases.length === 0
       ? null
       : mean(repairCases.map((item) => item.repairSucceeded ? 1 : 0)),
