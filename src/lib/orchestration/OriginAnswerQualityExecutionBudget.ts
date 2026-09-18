@@ -37,7 +37,10 @@ export type OriginAnswerQualityBudgetCheck =
 export const DEFAULT_ORIGIN_AQ_EXECUTION_BUDGET: OriginAnswerQualityExecutionBudget =
   Object.freeze({
     schemaVersion: "origin.aq-budget.v1",
-    maxProviderExecutions: 3,
+    // Maximum derived from the current bounded AQ path:
+    // 8 source claim assessments + claim extraction + coverage review
+    // + independent review + one reserved repair/provider execution.
+    maxProviderExecutions: 12,
     maxSourceFetches: 8,
     maxRepairActions: 3,
     maxWallTimeMs: 90_000,
