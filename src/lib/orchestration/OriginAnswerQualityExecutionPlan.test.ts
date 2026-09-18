@@ -15,8 +15,10 @@ describe("OriginAnswerQualityExecutionPlan", () => {
       tracePersistenceRequired: false,
     });
 
-    expect(plan.stages.filter((stage) => stage.required).map((stage) => stage.stage))
-      .toEqual(["verifier", "repair", "reverification", "presenter"]);
+    expect(plan.stages.filter((stage) => stage.activation === "required").map((stage) => stage.stage))
+      .toEqual(["verifier", "presenter"]);
+    expect(plan.stages.filter((stage) => stage.activation === "conditional").map((stage) => stage.stage))
+      .toEqual(["repair", "reverification"]);
     expect(validateOriginAnswerQualityExecutionPlan(plan)).toEqual({ ok: true });
   });
 
@@ -29,18 +31,18 @@ describe("OriginAnswerQualityExecutionPlan", () => {
       tracePersistenceRequired: true,
     });
 
-    expect(plan.stages.filter((stage) => stage.required).map((stage) => stage.stage))
+    expect(plan.stages.filter((stage) => stage.activation === "required").map((stage) => stage.stage))
       .toEqual([
         "claim-extraction",
         "claim-coverage-review",
         "source-verification",
         "verifier",
         "independent-review",
-        "repair",
-        "reverification",
         "presenter",
         "trace",
       ]);
+    expect(plan.stages.filter((stage) => stage.activation === "conditional").map((stage) => stage.stage))
+      .toEqual(["repair", "reverification"]);
   });
 
   it("uses a fixed deterministic order", () => {
