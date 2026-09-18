@@ -59,9 +59,9 @@ describe("OriginAnswerQualityExecutionPlan", () => {
       "claim-coverage-review",
       "source-verification",
       "verifier",
-      "independent-review",
       "repair",
       "reverification",
+      "independent-review",
       "presenter",
       "trace",
     ]);
