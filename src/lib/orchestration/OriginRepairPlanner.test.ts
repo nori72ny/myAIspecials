@@ -43,6 +43,22 @@ describe("OriginRepairPlanner", () => {
     ]);
   });
 
+
+  it("routes conflicting evidence to one bounded retrieval action", () => {
+    const plan = buildOriginRepairPlan(result("REPAIR_REQUIRED", [
+      { claimId: "c1", code: "CONFLICTING_EVIDENCE", repairable: true },
+    ]));
+
+    expect(plan.actions).toEqual([
+      {
+        issueCode: "CONFLICTING_EVIDENCE",
+        claimId: "c1",
+        action: "retrieve-evidence",
+        maxAttempts: 1,
+      },
+    ]);
+  });
+
   it("keeps blocking review requirements blocked rather than pretending repair succeeded", () => {
     const plan = buildOriginRepairPlan(result("BLOCKED_UNVERIFIED", [
       { code: "INDEPENDENT_REVIEW_REQUIRED", repairable: false },

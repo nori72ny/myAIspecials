@@ -125,6 +125,22 @@ describe("OriginVerifier", () => {
     }));
   });
 
+
+  it("requires repair when supported evidence conflicts for a material claim", () => {
+    const result = verifyOriginAnswerEvidence(claims(), ledger(), {
+      ...policy,
+      conflictingClaimIds: ["claim-current"],
+    });
+
+    expect(result.decision).toBe("REPAIR_REQUIRED");
+    expect(result.verifiedClaimIds).not.toContain("claim-current");
+    expect(result.issues).toContainEqual({
+      claimId: "claim-current",
+      code: "CONFLICTING_EVIDENCE",
+      repairable: true,
+    });
+  });
+
   it("blocks rather than fabricating PASS when independent review is mandatory but absent", () => {
     const result = verifyOriginAnswerEvidence(claims(), ledger(), {
       ...policy,

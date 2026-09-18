@@ -69,6 +69,20 @@ describe("OriginVerificationPresenter", () => {
     expect(presented.nextActions[0]).toContain("再検証");
   });
 
+
+  it("shows conflicting evidence explicitly without presenting verification as passed", () => {
+    const presented = presentOriginVerification(result("REPAIR_REQUIRED", [
+      { claimId: "c1", code: "CONFLICTING_EVIDENCE", repairable: true },
+    ]), {
+      language: "ja",
+      independentReviewRequired: false,
+      independentReviewPerformed: false,
+    });
+
+    expect(presented.status).toBe("not-run");
+    expect(presented.summary).toContain("根拠の矛盾");
+  });
+
   it("presents blocked results without exposing hidden reasoning", () => {
     const presented = presentOriginVerification(result("BLOCKED_UNVERIFIED", [
       { code: "INDEPENDENT_REVIEW_REQUIRED", repairable: false },

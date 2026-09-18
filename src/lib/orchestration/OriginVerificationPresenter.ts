@@ -23,6 +23,7 @@ function issueLabel(code: string, language: "ja" | "en"): string {
     STALE_EVIDENCE: "根拠の鮮度不足",
     EXECUTION_EVIDENCE_REQUIRED: "実行証拠不足",
     USER_EVIDENCE_REQUIRED: "ユーザー提供根拠不足",
+    CONFLICTING_EVIDENCE: "根拠の矛盾",
     INDEPENDENT_REVIEW_REQUIRED: "独立レビュー未実施",
   };
   const en: Record<string, string> = {
@@ -31,6 +32,7 @@ function issueLabel(code: string, language: "ja" | "en"): string {
     STALE_EVIDENCE: "stale evidence",
     EXECUTION_EVIDENCE_REQUIRED: "execution evidence required",
     USER_EVIDENCE_REQUIRED: "user-provided evidence required",
+    CONFLICTING_EVIDENCE: "conflicting evidence",
     INDEPENDENT_REVIEW_REQUIRED: "independent review required",
   };
   return (language === "ja" ? ja : en)[code] ?? code;

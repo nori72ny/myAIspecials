@@ -23,7 +23,9 @@ export interface OriginRepairPlan {
 
 function actionFor(issue: OriginVerificationIssue): OriginRepairAction {
   const action: OriginRepairActionKind =
-    issue.code === "MISSING_EVIDENCE" || issue.code === "INSUFFICIENT_EVIDENCE_STATE"
+    issue.code === "MISSING_EVIDENCE"
+      || issue.code === "INSUFFICIENT_EVIDENCE_STATE"
+      || issue.code === "CONFLICTING_EVIDENCE"
       ? "retrieve-evidence"
       : issue.code === "STALE_EVIDENCE"
         ? "refresh-evidence"

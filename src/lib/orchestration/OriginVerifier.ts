@@ -9,6 +9,7 @@ export type OriginVerificationIssueCode =
   | "STALE_EVIDENCE"
   | "EXECUTION_EVIDENCE_REQUIRED"
   | "USER_EVIDENCE_REQUIRED"
+  | "CONFLICTING_EVIDENCE"
   | "INDEPENDENT_REVIEW_REQUIRED";
 
 export interface OriginVerificationIssue {
@@ -22,6 +23,7 @@ export interface OriginVerifierPolicy {
   readonly independentReviewPerformed: boolean;
   readonly currentEvidenceCutoffMs?: number;
   readonly realTimeEvidenceCutoffMs?: number;
+  readonly conflictingClaimIds?: readonly string[];
 }
 
 export interface OriginVerificationResult {
@@ -122,7 +124,18 @@ export function verifyOriginAnswerEvidence(
   const issues: OriginVerificationIssue[] = [];
   const verifiedClaimIds: string[] = [];
 
+  const conflicts = new Set(policy.conflictingClaimIds ?? []);
+
   for (const claim of claims.claims) {
+    if (conflicts.has(claim.id)) {
+      issues.push({
+        claimId: claim.id,
+        code: "CONFLICTING_EVIDENCE",
+        repairable: true,
+      });
+      continue;
+    }
+
     const issue = verifyClaim(claim, entriesForClaim(ledger, claim.id), policy);
     if (issue) issues.push(issue);
     else verifiedClaimIds.push(claim.id);
