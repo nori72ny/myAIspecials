@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { decideOriginAnswerQualityAdmission } from "./OriginAnswerQualityAdmissionController";
+import {
+  decideOriginAnswerQualityAdmission,
+  decideOriginAnswerQualityAdmissionFromMeter,
+} from "./OriginAnswerQualityAdmissionController";
+import {
+  appendOriginAnswerQualityUsageEvent,
+  createOriginAnswerQualityUsageMeter,
+} from "./OriginAnswerQualityUsageMeter";
 import type { OriginAnswerQualityPolicy } from "./OriginAnswerQualityPolicy";
 
 const basicPolicy: OriginAnswerQualityPolicy = {
@@ -105,6 +112,32 @@ describe("OriginAnswerQualityAdmissionController", () => {
 
     expect(result.admitted).toBe(false);
     expect(result.readiness.ready).toBe(true);
+    expect(result.budget).toEqual({
+      ok: false,
+      code: "AQ_PROVIDER_EXECUTION_BUDGET_EXCEEDED",
+    });
+  });
+
+  it("derives admission budget usage from immutable events", () => {
+    let meter = createOriginAnswerQualityUsageMeter(1_000);
+    for (let index = 0; index < 13; index += 1) {
+      meter = appendOriginAnswerQualityUsageEvent(meter, {
+        type: "provider-execution",
+        costUsd: 0,
+      });
+    }
+
+    const result = decideOriginAnswerQualityAdmissionFromMeter({
+      policy: researchPolicy,
+      claimExtractionCompleted: true,
+      claimCoverageReviewPassed: false,
+      sourceVerificationCompleted: true,
+      verificationDecision: "PASS",
+      independentReviewPerformed: false,
+      tracePersisted: true,
+    }, meter, 2_000);
+
+    expect(result.admitted).toBe(false);
     expect(result.budget).toEqual({
       ok: false,
       code: "AQ_PROVIDER_EXECUTION_BUDGET_EXCEEDED",
