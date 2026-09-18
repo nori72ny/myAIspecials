@@ -166,3 +166,44 @@ Final release report must include:
 - cost status;
 - known limitations;
 - rollback SHA.
+
+
+## AQ validated stack snapshot — 2026-09-18
+
+The following implementation slices are validated or in final validation and MUST remain separate from the official V1.4 final unseen corpus.
+
+Validated foundations:
+- Evidence Ledger / Material Claim / Deterministic Verifier stack: `5ef838ef23529c1a852eada948660cefa1fbee21`
+- Chat trace sink: `940700c2648117abcf70d30eaa40322689218498`
+- Terminal trace outcomes: `3dab92821cf0bbbf98d608f69d83673670044885`
+- DNS / SSRF public-network policy: `dbb7ce2d77f18939deea9474ecf810f7211b286e`
+- Pinned public-source fetch: `82e3841d015f559214bcd66ea26591714cdd72be`
+- Claim assessor: `665be6485e4a5f853b3f00cea11fed4bd3b8ce8d`
+- Source verification executor stack: validated through the later ESM-fixed head
+- Chat source-verification hook: validated through the later exact-head stack
+- Independent reviewer contract / identity: validated
+- Conflict-aware verifier: validated
+- Material claim extraction / coverage: validated
+- AQ runtime readiness / admission: validated
+- AQ verified release decision: `f994cffdc59b44859fa72bcd10479f0431aec68c`
+- Chat batched source verification: `183898d69bc04991d628e7ae4a4aad49ccad73d1` validated with Production Release and Vercel success.
+
+Final validation in progress:
+- Batched source usage events: `3da1b4fa0adc78dc9b3487015b86405476afd344`
+- AQ integration harness: `dabd9b1b0d45d1b74a016ca5fb60b71c0b2a073e`
+
+Post-held-out cutover order:
+1. Freeze and archive the official final unseen evidence.
+2. Create one fresh AQ integration branch from the exact approved production/main head.
+3. Integrate Claim Extraction + Coverage Review.
+4. Integrate Evidence Ledger + Safe Source Fetch + Batched Claim Support.
+5. Integrate Conflict-aware Verifier.
+6. Integrate Independent Reviewer with distinct execution/model identity.
+7. Integrate Repair + Reverification.
+8. Integrate Admission + Sanitized Audit + Verified Release Decision.
+9. Wire measured Usage Meter events and enforce the global zero-cost execution budget.
+10. Run the separate AQ baseline/candidate benchmark with the locked manifest/provenance.
+11. Run full CI, hosted sandbox, security, E2E, accessibility, and production release gates.
+12. Only then promote the exact validated SHA to `main` and Production.
+
+Do not merge validation PRs. Do not reuse official V1.4 final unseen tasks for AQ tuning or AQ benchmarking.
