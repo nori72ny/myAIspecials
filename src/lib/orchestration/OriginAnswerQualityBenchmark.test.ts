@@ -54,6 +54,28 @@ describe("OriginAnswerQualityBenchmark", () => {
     expect(result.value).not.toHaveProperty("winner");
   });
 
+
+  it("computes verifier rejection rate only across cases that actually contain unsupported claims", () => {
+    const result = aggregateOriginAnswerQualityBenchmark([
+      {
+        ...base,
+        caseId: "unsupported-rejected",
+        unsupportedMaterialClaimCount: 1,
+        verifierRejectedUnsupportedClaim: true,
+      },
+      {
+        ...base,
+        caseId: "no-unsupported",
+        unsupportedMaterialClaimCount: 0,
+        verifierRejectedUnsupportedClaim: false,
+      },
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok === false) return;
+    expect(result.value.verifierRejectionRate).toBe(1);
+  });
+
   it("rejects non-zero cost to preserve the ORIGIN free-only benchmark boundary", () => {
     expect(aggregateOriginAnswerQualityBenchmark([
       { ...base, costUsd: 0.01 },
