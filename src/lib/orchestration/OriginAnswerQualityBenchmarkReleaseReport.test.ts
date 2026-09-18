@@ -157,4 +157,79 @@ describe("OriginAnswerQualityBenchmarkReleaseReport", () => {
     expect(result.value.blockers).toContain("UNSUPPORTED_CLAIMS_REGRESSED");
     expect(result.value.blockers).toContain("CRITICAL_FAMILY_REGRESSION");
   });
+
+  it("blocks verification-integrity regression", () => {
+    const m = makeManifest();
+    const baseline = observations(m);
+    const candidate = observations(m, (item) =>
+      item.category === "current-factual"
+        ? { ...item, verificationIntegrityScore: 0.75 }
+        : item
+    );
+
+    const result = buildOriginAnswerQualityBenchmarkReleaseReport({
+      baselineManifest: m,
+      candidateManifest: m,
+      baselineRun: run(m, "a".repeat(40), "baseline"),
+      candidateRun: run(m, "b".repeat(40), "candidate"),
+      baselineObservations: baseline,
+      candidateObservations: candidate,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.promotionEligible).toBe(false);
+    expect(result.value.blockers).toContain("VERIFICATION_INTEGRITY_REGRESSED");
+    expect(result.value.regressionFamilies).toContain("current-factual");
+  });
+
+  it("blocks fail-closed accuracy regression", () => {
+    const m = makeManifest();
+    const baseline = observations(m);
+    const candidate = observations(m, (item) =>
+      item.category === "fail-closed"
+        ? { ...item, failClosedAccuracyScore: 0.75 }
+        : item
+    );
+
+    const result = buildOriginAnswerQualityBenchmarkReleaseReport({
+      baselineManifest: m,
+      candidateManifest: m,
+      baselineRun: run(m, "a".repeat(40), "baseline"),
+      candidateRun: run(m, "b".repeat(40), "candidate"),
+      baselineObservations: baseline,
+      candidateObservations: candidate,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.promotionEligible).toBe(false);
+    expect(result.value.blockers).toContain("FAIL_CLOSED_ACCURACY_REGRESSED");
+    expect(result.value.regressionFamilies).toContain("fail-closed");
+  });
+
+  it("treats user actionability regression as a critical family regression", () => {
+    const m = makeManifest();
+    const baseline = observations(m);
+    const candidate = observations(m, (item) =>
+      item.category === "professional-advice"
+        ? { ...item, userActionabilityScore: 2 }
+        : item
+    );
+
+    const result = buildOriginAnswerQualityBenchmarkReleaseReport({
+      baselineManifest: m,
+      candidateManifest: m,
+      baselineRun: run(m, "a".repeat(40), "baseline"),
+      candidateRun: run(m, "b".repeat(40), "candidate"),
+      baselineObservations: baseline,
+      candidateObservations: candidate,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.promotionEligible).toBe(false);
+    expect(result.value.blockers).toContain("CRITICAL_FAMILY_REGRESSION");
+    expect(result.value.regressionFamilies).toContain("professional-advice");
+  });
 });
