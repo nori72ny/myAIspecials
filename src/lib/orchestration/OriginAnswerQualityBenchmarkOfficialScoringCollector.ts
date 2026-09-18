@@ -53,7 +53,7 @@ function supportedClaimIdsFromLedger(
   observedAt: string,
 ): Set<string> {
   const bound = bindOriginAnswerEvidenceToClaims(claimSet, evidence, observedAt);
-  if (!bound.ok) throw new Error(bound.code);
+  if (bound.ok === false) throw new Error(bound.code);
 
   const supported = new Set<string>();
   for (const entry of bound.ledger.entries) {
@@ -130,7 +130,7 @@ export function createOriginAnswerQualityBenchmarkOfficialScoringCollector(
         ephemeral.answerText,
         options.materialClaimExtractor,
       );
-      if (!extracted.ok) throw new Error(extracted.code);
+      if (extracted.ok === false) throw new Error(extracted.code);
 
       const factualClaims = extracted.claimSet.claims.filter(
         (claim) => claim.kind === "factual",
@@ -141,7 +141,7 @@ export function createOriginAnswerQualityBenchmarkOfficialScoringCollector(
         prompt: item.prompt,
         claimSet: extracted.claimSet,
       }, options.promptClaimJudge);
-      if (!promptSupport.ok) throw new Error(promptSupport.code);
+      if (promptSupport.ok === false) throw new Error(promptSupport.code);
 
       const supportedClaimIds = new Set(promptSupport.value.supportedClaimIds);
       const explicitCitations = extractExplicitOriginClaimCitations(
@@ -186,7 +186,7 @@ export function createOriginAnswerQualityBenchmarkOfficialScoringCollector(
         prompt: item.prompt,
         answerText: ephemeral.answerText,
       }, options.semanticJudge);
-      if (!semantic.ok) throw new Error(semantic.code);
+      if (semantic.ok === false) throw new Error(semantic.code);
 
       const completionNeedsVerifiedExecution =
         item.category === "coding-generation"
