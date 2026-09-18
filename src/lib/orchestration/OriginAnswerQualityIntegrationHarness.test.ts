@@ -149,4 +149,117 @@ describe("OriginAnswerQualityIntegrationHarness", () => {
     expect(result.audit).toBeNull();
     expect(result.release).toEqual({ ok: false, code: "AQ_RELEASE_AUDIT_MISMATCH" });
   });
+
+  it("rejects an admitted research result when a required passed audit stage is missing", () => {
+    const result = runOriginAnswerQualityIntegrationHarness({
+      requestId: "origin-int-5",
+      answerDigest: digest("a"),
+      claimSetDigest: digest("b"),
+      evidenceLedgerDigest: digest("c"),
+      policy: {
+        answerMode: "research",
+        verificationLevel: "evidence-required",
+        creativeSpecRequired: false,
+        executiveReasoningRequired: true,
+      },
+      usage: {
+        providerExecutions: 2,
+        sourceFetches: 2,
+        repairActions: 0,
+        elapsedMs: 2_500,
+        costUsd: 0,
+      },
+      claimExtractionCompleted: true,
+      claimCoverageReviewPassed: false,
+      sourceVerificationCompleted: true,
+      verificationDecision: "PASS",
+      independentReviewPerformed: false,
+      tracePersisted: true,
+      stages: [
+        { stage: "claim-extraction", status: "passed" },
+        { stage: "source-verification", status: "passed" },
+        { stage: "verifier", status: "passed" },
+        { stage: "presenter", status: "passed" },
+      ],
+      createdAt: "2026-09-18T14:14:00.000Z",
+    });
+
+    expect(result.admission.admitted).toBe(true);
+    expect(result.audit).toBeNull();
+    expect(result.release).toEqual({ ok: false, code: "AQ_RELEASE_AUDIT_MISMATCH" });
+  });
+
+  it("rejects admitted evidence-required results without claim and evidence digests", () => {
+    const result = runOriginAnswerQualityIntegrationHarness({
+      requestId: "origin-int-6",
+      answerDigest: digest("a"),
+      policy: {
+        answerMode: "research",
+        verificationLevel: "evidence-required",
+        creativeSpecRequired: false,
+        executiveReasoningRequired: true,
+      },
+      usage: {
+        providerExecutions: 2,
+        sourceFetches: 2,
+        repairActions: 0,
+        elapsedMs: 2_500,
+        costUsd: 0,
+      },
+      claimExtractionCompleted: true,
+      claimCoverageReviewPassed: false,
+      sourceVerificationCompleted: true,
+      verificationDecision: "PASS",
+      independentReviewPerformed: false,
+      tracePersisted: true,
+      stages: [
+        { stage: "claim-extraction", status: "passed" },
+        { stage: "source-verification", status: "passed" },
+        { stage: "verifier", status: "passed" },
+        { stage: "presenter", status: "passed" },
+        { stage: "trace", status: "passed" },
+      ],
+      createdAt: "2026-09-18T14:15:00.000Z",
+    });
+
+    expect(result.admission.admitted).toBe(true);
+    expect(result.audit).toBeNull();
+    expect(result.release).toEqual({ ok: false, code: "AQ_RELEASE_AUDIT_MISMATCH" });
+  });
+
+  it("requires repair and reverification audit stages whenever repair actions were used", () => {
+    const result = runOriginAnswerQualityIntegrationHarness({
+      requestId: "origin-int-7",
+      answerDigest: digest("a"),
+      policy: {
+        answerMode: "direct",
+        verificationLevel: "basic",
+        creativeSpecRequired: false,
+        executiveReasoningRequired: false,
+      },
+      usage: {
+        providerExecutions: 2,
+        sourceFetches: 0,
+        repairActions: 1,
+        elapsedMs: 1_500,
+        costUsd: 0,
+      },
+      claimExtractionCompleted: false,
+      claimCoverageReviewPassed: false,
+      sourceVerificationCompleted: false,
+      verificationDecision: "PASS",
+      independentReviewPerformed: false,
+      tracePersisted: false,
+      stages: [
+        { stage: "verifier", status: "passed" },
+        { stage: "presenter", status: "passed" },
+        { stage: "repair", status: "passed" },
+      ],
+      createdAt: "2026-09-18T14:16:00.000Z",
+    });
+
+    expect(result.admission.admitted).toBe(true);
+    expect(result.audit).toBeNull();
+    expect(result.release).toEqual({ ok: false, code: "AQ_RELEASE_AUDIT_MISMATCH" });
+  });
 });

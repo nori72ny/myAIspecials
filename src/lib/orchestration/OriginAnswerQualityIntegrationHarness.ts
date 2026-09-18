@@ -5,6 +5,7 @@ import {
 } from "./OriginAnswerQualityAdmissionController.js";
 import {
   createOriginAnswerQualityAuditRecord,
+  type OriginAnswerQualityAuditStage,
   type OriginAnswerQualityAuditStageRecord,
   type OriginAnswerQualityAuditRecord,
 } from "./OriginAnswerQualityAuditRecord.js";
@@ -38,6 +39,50 @@ export interface OriginAnswerQualityIntegrationHarnessResult {
   readonly release: OriginAnswerQualityReleaseDecisionResult;
 }
 
+function hasPassedStage(
+  stages: readonly OriginAnswerQualityAuditStageRecord[],
+  stage: OriginAnswerQualityAuditStage,
+): boolean {
+  return stages.some((entry) => entry.stage === stage && entry.status === "passed");
+}
+
+function admittedExecutionMatchesAudit(
+  input: OriginAnswerQualityIntegrationHarnessInput,
+  admission: OriginAnswerQualityAdmissionDecision,
+): boolean {
+  if (!admission.admitted) return true;
+
+  const requiredStages: OriginAnswerQualityAuditStage[] = ["verifier", "presenter"];
+
+  if (admission.requirements.claimExtractionRequired) {
+    requiredStages.push("claim-extraction");
+    if (!input.claimSetDigest) return false;
+  }
+
+  if (admission.requirements.claimCoverageReviewRequired) {
+    requiredStages.push("claim-coverage-review");
+  }
+
+  if (admission.requirements.sourceVerificationRequired) {
+    requiredStages.push("source-verification");
+    if (!input.evidenceLedgerDigest) return false;
+  }
+
+  if (admission.requirements.independentReviewRequired) {
+    requiredStages.push("independent-review");
+  }
+
+  if (admission.requirements.tracePersistenceRequired) {
+    requiredStages.push("trace");
+  }
+
+  if (input.usage.repairActions > 0) {
+    requiredStages.push("repair", "reverification");
+  }
+
+  return requiredStages.every((stage) => hasPassedStage(input.stages, stage));
+}
+
 export function runOriginAnswerQualityIntegrationHarness(
   input: OriginAnswerQualityIntegrationHarnessInput,
 ): OriginAnswerQualityIntegrationHarnessResult {
@@ -51,6 +96,14 @@ export function runOriginAnswerQualityIntegrationHarness(
     independentReviewPerformed: input.independentReviewPerformed,
     tracePersisted: input.tracePersisted,
   });
+
+  if (!admittedExecutionMatchesAudit(input, admission)) {
+    return {
+      admission,
+      audit: null,
+      release: { ok: false, code: "AQ_RELEASE_AUDIT_MISMATCH" },
+    };
+  }
 
   const auditResult = createOriginAnswerQualityAuditRecord({
     requestId: input.requestId,
