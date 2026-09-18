@@ -22,13 +22,14 @@ Track previously PARTIAL / UNVERIFIED / INCOMPLETE areas and convert every autom
 | Material Claim Model AQ-2 | VERIFIED_AUTOMATED | Included in exact-head validated AQ stack `5ef838ef23529c1a852eada948660cefa1fbee21`. |
 | Deterministic Verifier AQ-3 | VERIFIED_AUTOMATED | Included in exact-head validated AQ stack `5ef838ef23529c1a852eada948660cefa1fbee21`; PASS / REPAIR_REQUIRED / BLOCKED_UNVERIFIED contract verified. |
 | Evidence adapters | VERIFIED_AUTOMATED | Exact-head validated in PR #336 stack; provider-presented citations remain unverified unless separately source-checked. |
-| Duplicate-submit race | IMPLEMENTED_VALIDATING | Browser E2E proves one network request + one user message for rapid duplicate submission; exact-head rerun in progress. |
+| Duplicate-submit race | VERIFIED_AUTOMATED | Exact head `64ad433528ba9f02e13780994d4f280c4bd9d583` passed Production Release, ACOS, CodeQL, OpenSSF, hosted sandbox, Vercel; browser E2E verifies one new network request and one user request for rapid duplicate submission. |
 | Provider-bound context minimization | VERIFIED_AUTOMATED | Authoritative chat and streaming paths call `minimizeOriginContext`; dedicated policy tests exist. Full production smoke still belongs to release gate. |
 | Routing / answer verification metadata integrity | VERIFIED_AUTOMATED | UI rejects conflicting verification states, missing routing verification, malformed envelopes, and withholds legacy content rather than showing unverifiable success. |
 | Sanitized execution trace schema/store | VERIFIED_AUTOMATED | Canonical PR #339 exact head `ab2ac0ad81eaa93f6c5d5d47de86474fa5455626` passed Production Release, ACOS, CodeQL, OpenSSF, hosted sandbox, Vercel. |
 | Durable trace production wiring | IMPLEMENTED_NOT_ENABLED | Store/migration foundation exists, but production DB migration and chat-route sink wiring are intentionally deferred until held-out/release integration. |
 | Independent answer reviewer | OPEN / POST-HELD-OUT | Deterministic verifier exists; separate live independent reviewer is not yet production-connected. Must respect $0/free-only eligibility. |
 | Final V1.4 unseen coding qualification | INDEPENDENT_EVALUATOR_REQUIRED | Engineering assistant must not author/inspect corpus or run contaminated evaluation. |
+| Main chat automated WCAG scan | VERIFIED_AUTOMATED | Exact head `8e7eb3ed6f7afd69ba13e4fade22dea0fd34a6fa` passed all gates; Axe WCAG 2 A/AA critical/serious violations are required to be zero after a rendered response. |
 | Real NVDA / JAWS / VoiceOver / TalkBack speech behavior | MANUAL_REQUIRED | Automated semantics/focus tests cannot prove native assistive-technology speech output. |
 | Owner hands-on acceptance | MANUAL_REQUIRED | Requires owner observation on actual device/browser; automation cannot substitute. |
 | Production SHA / health / runtime smoke | IMPLEMENTED_NOT_ENABLED | Must run only after qualified integration head is promoted. |
