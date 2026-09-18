@@ -29,12 +29,15 @@ Track previously PARTIAL / UNVERIFIED / INCOMPLETE areas and convert every autom
 | Chat trace sink wiring | IMPLEMENTED_VALIDATING | PR #346 adds optional injected sink, sanitized success trace, and explicit fail-closed behavior when trace persistence is required; production enablement remains off. |
 | Durable trace production wiring | IMPLEMENTED_NOT_ENABLED | Store/migration foundation and route wiring exist, but production DB migration and sink configuration remain intentionally disabled until held-out/release integration. |
 | Source verifier DNS / SSRF boundary | IMPLEMENTED_VALIDATING | PR #348 validates DNS results and rejects private/loopback/link-local/documentation/multicast targets before any future source fetch executor. |
+| Independent answer reviewer contract | VERIFIED_AUTOMATED | Digest-bound, $0, one-attempt, fail-closed reviewer contract passed GitHub validation; live reviewer remains unconnected until post-held-out integration. |
 | Independent answer reviewer | OPEN / POST-HELD-OUT | Deterministic verifier exists; separate live independent reviewer is not yet production-connected. Must respect $0/free-only eligibility. |
 | Final V1.4 unseen coding qualification | INDEPENDENT_EVALUATOR_REQUIRED | Engineering assistant must not author/inspect corpus or run contaminated evaluation. |
 | Main chat automated WCAG scan | VERIFIED_AUTOMATED | Exact head `8e7eb3ed6f7afd69ba13e4fade22dea0fd34a6fa` passed all gates; Axe WCAG 2 A/AA critical/serious violations are required to be zero after a rendered response. |
 | Real NVDA / JAWS / VoiceOver / TalkBack speech behavior | MANUAL_REQUIRED | Automated semantics/focus tests cannot prove native assistive-technology speech output. |
 | Owner hands-on acceptance | MANUAL_REQUIRED | Requires owner observation on actual device/browser; automation cannot substitute. |
 | Production SHA / health / runtime smoke | IMPLEMENTED_NOT_ENABLED | Must run only after qualified integration head is promoted. |
+| AQ Presenter / Repair Planner / Decision Controller | VERIFIED_AUTOMATED | Pure logic layers are exact-head validated; PASS/REPAIR/BLOCKED states cannot overclaim verification and repair never self-certifies success. |
+| Answer-quality benchmark harness | VERIFIED_AUTOMATED | Separate $0 raw-metric harness is implemented and validated; it is not the official V1.4 held-out corpus. |
 | Answer-quality benchmark before/after | POST-HELD-OUT | Benchmark specification frozen in planning; baseline/candidate runtime runs begin after official held-out evidence is frozen. |
 
 ## Closure priority
