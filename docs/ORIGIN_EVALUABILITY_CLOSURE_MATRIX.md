@@ -26,9 +26,25 @@ Track previously PARTIAL / UNVERIFIED / INCOMPLETE areas and convert every autom
 | Provider-bound context minimization | VERIFIED_AUTOMATED | Authoritative chat and streaming paths call `minimizeOriginContext`; dedicated policy tests exist. Full production smoke still belongs to release gate. |
 | Routing / answer verification metadata integrity | VERIFIED_AUTOMATED | UI rejects conflicting verification states, missing routing verification, malformed envelopes, and withholds legacy content rather than showing unverifiable success. |
 | Sanitized execution trace schema/store | VERIFIED_AUTOMATED | Canonical PR #339 exact head `ab2ac0ad81eaa93f6c5d5d47de86474fa5455626` passed Production Release, ACOS, CodeQL, OpenSSF, hosted sandbox, Vercel. |
-| Chat trace sink wiring | IMPLEMENTED_VALIDATING | PR #346 adds optional injected sink, sanitized success trace, and explicit fail-closed behavior when trace persistence is required; production enablement remains off. |
+| Chat trace sink wiring | VERIFIED_AUTOMATED | Exact-head validation passed GitHub release/security/sandbox gates; production enablement remains off. |
 | Durable trace production wiring | IMPLEMENTED_NOT_ENABLED | Store/migration foundation and route wiring exist, but production DB migration and sink configuration remain intentionally disabled until held-out/release integration. |
-| Source verifier DNS / SSRF boundary | IMPLEMENTED_VALIDATING | PR #348 validates DNS results and rejects private/loopback/link-local/documentation/multicast targets before any future source fetch executor. |
+| Source verifier DNS / SSRF boundary | VERIFIED_AUTOMATED | Exact-head validation passed; public-address-only DNS policy rejects private/loopback/link-local/documentation/multicast targets. |
+| Source pinned fetch + claim assessor | VERIFIED_AUTOMATED | DNS-pinned HTTPS fetch, bounded response handling, content digest binding, and claim-support assessor passed exact-head GitHub validation. |
+| Answer source verification pipeline / chat hook | VERIFIED_AUTOMATED | Explicit claim citations can be promoted only after successful source verification; failed checks remain unverified. |
+| Research evidence adapter | VERIFIED_AUTOMATED | Retrieval/page evidence is never promoted to claim verification without explicit verification. |
+| Independent reviewer identity | VERIFIED_AUTOMATED | Same execution ID or same model ID self-review is rejected; distinct reviewer identity is required. |
+| Conflict-aware verifier | VERIFIED_AUTOMATED | Conflicting material evidence prevents PASS and routes to bounded repair. |
+| Repair executor + reverification gate | VERIFIED_AUTOMATED | Safe repair actions are one-attempt/$0/no-mutation; repair can never self-certify success and must return to verifier. |
+| Material Claim Extractor | VERIFIED_AUTOMATED | Exact answer digest, exact answer spans, one-attempt and $0 constraints validated. |
+| Material Claim Coverage Review | VERIFIED_AUTOMATED | Distinct-model review detects omitted material claims and fails closed on incomplete coverage. |
+| Benchmark manifest + provenance | VERIFIED_AUTOMATED | Baseline/candidate must use identical case digests, manifest, provider/model and $0 run provenance. |
+| AQ Runtime Readiness Gate | VERIFIED_AUTOMATED | Missing required claim/source/reviewer/trace verification or non-zero cost blocks readiness. |
+| AQ Integration Manifest | VERIFIED_AUTOMATED | Ordered integration manifest blocks unvalidated required stages from production enablement. |
+| AQ Execution Budget | VERIFIED_AUTOMATED | Global provider/source/repair/wall-time/$0 budgets are bounded and fail closed on overflow. |
+| Sanitized AQ Audit Record | VERIFIED_AUTOMATED | Stores stage outcomes/digests/blockers/usage only; no prompt/messages/answer text/hidden reasoning. |
+| AQ Stage Policy | VERIFIED_AUTOMATED | Existing answer-quality levels resolve deterministically to required verification stages; runner-transient failure re-run passed. |
+| AQ Execution Plan | IMPLEMENTED_VALIDATING | Repair/reverification corrected to conditional stages; independent review ordered after final verification; exact-head validation running. |
+| AQ Stage Machine + Delivery Gate | IMPLEMENTED_VALIDATING | Required-stage skipping/self-certification blocked; conditional repair activation and final delivery gate implemented; exact-head validation running. |
 | Independent answer reviewer contract | VERIFIED_AUTOMATED | Digest-bound, $0, one-attempt, fail-closed reviewer contract passed GitHub validation; live reviewer remains unconnected until post-held-out integration. |
 | Independent answer reviewer | OPEN / POST-HELD-OUT | Deterministic verifier exists; separate live independent reviewer is not yet production-connected. Must respect $0/free-only eligibility. |
 | Final V1.4 unseen coding qualification | INDEPENDENT_EVALUATOR_REQUIRED | Engineering assistant must not author/inspect corpus or run contaminated evaluation. |
