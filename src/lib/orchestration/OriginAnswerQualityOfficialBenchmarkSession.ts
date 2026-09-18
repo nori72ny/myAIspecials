@@ -1,6 +1,24 @@
 import { createHash } from "node:crypto";
 
+import type { OriginClaimAssessor } from "./OriginClaimAssessor.js";
+import type { OriginMaterialClaimExtractor } from "./OriginMaterialClaimExtractor.js";
 import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import {
+  createOriginAnswerQualityBenchmarkEphemeralEvidenceVault,
+  type OriginAnswerQualityBenchmarkEphemeralEvidenceVault,
+} from "./OriginAnswerQualityBenchmarkEphemeralEvidenceVault.js";
+import {
+  createOriginAnswerQualityBenchmarkOfficialScoringCollector,
+} from "./OriginAnswerQualityBenchmarkOfficialScoringCollector.js";
+import type {
+  OriginAnswerQualityBenchmarkPromptClaimJudge,
+} from "./OriginAnswerQualityBenchmarkPromptClaimJudge.js";
+import type {
+  OriginAnswerQualityBenchmarkSemanticJudge,
+} from "./OriginAnswerQualityBenchmarkSemanticJudge.js";
+import {
+  createOriginSourceVerificationExecutor,
+} from "./OriginSourceVerificationExecutor.js";
 import { createOriginAnswerQualityBenchmarkCodingCheckoutAdapter } from "./OriginAnswerQualityBenchmarkCodingCheckoutAdapter.js";
 import {
   createOriginAnswerQualityBenchmarkArtifactHttpAdapter,
@@ -31,6 +49,7 @@ export interface OriginAnswerQualityOfficialBenchmarkSessionInput {
   readonly sourceRoot: string;
   readonly collectScoringEvidence: OriginAnswerQualityBenchmarkScoringEvidenceCollector;
   readonly scorerProvenance: OriginAnswerQualityOfficialBenchmarkScorerProvenance;
+  readonly evidenceVault?: OriginAnswerQualityBenchmarkEphemeralEvidenceVault;
   readonly fetchImpl?: typeof fetch;
   readonly env?: NodeJS.ProcessEnv;
   readonly nowMs?: () => number;
@@ -98,6 +117,7 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
     environmentProof: input.environmentProof,
     fetchImpl: input.fetchImpl,
     nowMs: input.nowMs,
+    evidenceVault: input.evidenceVault,
   };
 
   const coding = await createOriginAnswerQualityBenchmarkCodingCheckoutAdapter({
@@ -105,6 +125,7 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
     expectedGitSha: input.gitSha,
     env: input.env,
     nowMs: input.nowMs,
+    evidenceVault: input.evidenceVault,
   });
 
   const session = await runOriginAnswerQualityBenchmarkSession({
@@ -136,4 +157,62 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
       ),
     }),
   };
+}
+
+
+export interface OriginAnswerQualityOfficialEvidenceScoredSessionInput
+  extends Omit<
+    OriginAnswerQualityOfficialBenchmarkSessionInput,
+    "collectScoringEvidence" | "evidenceVault"
+  > {
+  readonly materialClaimExtractor: OriginMaterialClaimExtractor;
+  readonly promptClaimJudge: OriginAnswerQualityBenchmarkPromptClaimJudge;
+  readonly semanticJudge: OriginAnswerQualityBenchmarkSemanticJudge;
+  readonly claimAssessor: OriginClaimAssessor;
+}
+
+/**
+ * Preferred official AQ benchmark entrypoint.
+ *
+ * Raw answers/evidence exist only inside a consume-once in-memory vault.
+ * Execution adapters and the scoring collector are constructed internally.
+ * Public source verification is always composed through the pinned,
+ * public-address-only source verifier; callers cannot replace the collector.
+ */
+export async function runOriginAnswerQualityOfficialEvidenceScoredSession(
+  input: OriginAnswerQualityOfficialEvidenceScoredSessionInput,
+): Promise<OriginAnswerQualityOfficialBenchmarkSessionResult> {
+  const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
+  const sourceVerificationExecutor = createOriginSourceVerificationExecutor({
+    assessor: input.claimAssessor,
+    now: input.nowMs,
+  });
+
+  const collector = createOriginAnswerQualityBenchmarkOfficialScoringCollector({
+    evidenceVault,
+    materialClaimExtractor: input.materialClaimExtractor,
+    promptClaimJudge: input.promptClaimJudge,
+    semanticJudge: input.semanticJudge,
+    sourceVerificationExecutor,
+    nowMs: input.nowMs,
+  });
+
+  try {
+    return await runOriginAnswerQualityOfficialBenchmarkSession({
+      runId: input.runId,
+      gitSha: input.gitSha,
+      providerId: input.providerId,
+      modelId: input.modelId,
+      environmentProof: input.environmentProof,
+      sourceRoot: input.sourceRoot,
+      scorerProvenance: input.scorerProvenance,
+      fetchImpl: input.fetchImpl,
+      env: input.env,
+      nowMs: input.nowMs,
+      evidenceVault,
+      collectScoringEvidence: collector,
+    });
+  } finally {
+    evidenceVault.clear();
+  }
 }
