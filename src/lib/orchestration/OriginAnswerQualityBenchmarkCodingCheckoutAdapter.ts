@@ -17,6 +17,9 @@ import {
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
 } from "../../legacy/originProviderClient.js";
+import type {
+  OriginAnswerQualityBenchmarkEphemeralEvidenceVault,
+} from "./OriginAnswerQualityBenchmarkEphemeralEvidenceVault.js";
 import {
   createOriginAnswerQualityBenchmarkRuntimeAdapter,
   type OriginAnswerQualityBenchmarkRuntimeAdapter,
@@ -92,6 +95,7 @@ export interface OriginAnswerQualityBenchmarkCodingCheckoutAdapterOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly nowMs?: () => number;
   readonly gitExecutor?: OriginAnswerQualityBenchmarkGitExecutor;
+  readonly evidenceVault?: OriginAnswerQualityBenchmarkEphemeralEvidenceVault;
 }
 
 export async function createOriginAnswerQualityBenchmarkCodingCheckoutAdapter(
@@ -194,11 +198,21 @@ export async function createOriginAnswerQualityBenchmarkCodingCheckoutAdapter(
         : session.status === "repair_limit"
           ? "REPAIR_REQUIRED"
           : "BLOCKED_UNVERIFIED";
+      const finalAnswerRef = digest(finalSummary);
+      const evidenceLedgerRef = digest(session.audit);
+
+      options.evidenceVault?.put({
+        caseId: item.caseId,
+        finalAnswerRef,
+        evidenceLedgerRef,
+        answerText: JSON.stringify(finalSummary),
+        evidenceJson: session.audit,
+      });
 
       return {
         caseId: item.caseId,
-        finalAnswerRef: digest(finalSummary),
-        evidenceLedgerRef: digest(session.audit),
+        finalAnswerRef,
+        evidenceLedgerRef,
         verifierResult,
         providerRequests,
         toolCalls: toolCallCount(session.audit),
