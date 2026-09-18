@@ -9,6 +9,7 @@ import {
   type OriginPinnedFetchTransport,
 } from "./OriginPublicSourceFetch.js";
 import type { OriginDnsResolver } from "./OriginPublicNetworkPolicy.js";
+import type { OriginAnswerQualityUsageEvent } from "./OriginAnswerQualityUsageMeter.js";
 
 export interface OriginBatchAnswerSourceVerificationOptions {
   readonly assessor?: OriginBatchClaimAssessor;
@@ -17,6 +18,7 @@ export interface OriginBatchAnswerSourceVerificationOptions {
   readonly timeoutMs?: number;
   readonly maxBytes?: number;
   readonly now?: () => number;
+  readonly onUsageEvent?: (event: OriginAnswerQualityUsageEvent) => void;
 }
 
 export interface OriginBatchAnswerSourceVerificationSummary {
@@ -76,6 +78,7 @@ export async function verifyOriginAnswerSourcesBatch(
 
   const fetchResults = await Promise.all(
     eligible.map(async ({ item, index }) => {
+      options.onUsageEvent?.({ type: "source-fetch" });
       const result = await fetchOriginPublicSource(item.sourceUrl!, {
         resolver: options.resolver,
         transport: options.transport,
@@ -108,6 +111,7 @@ export async function verifyOriginAnswerSourcesBatch(
 
   if (fetchedItems.length > 0) {
     assessorExecutions = 1;
+    options.onUsageEvent?.({ type: "provider-execution", costUsd: 0 });
     const assessed = await assessOriginClaimsAgainstSourcesBatch(
       fetchedItems,
       options.assessor,
