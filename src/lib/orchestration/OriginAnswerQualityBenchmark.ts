@@ -18,9 +18,6 @@ export interface OriginAnswerQualityBenchmarkObservation {
   readonly citationPrecisionScore: number;
   readonly taskCompletionScore: number;
   readonly contradictionDetectionScore: number;
-  readonly verificationIntegrityScore: number;
-  readonly failClosedAccuracyScore: number;
-  readonly userActionabilityScore: 0 | 1 | 2 | 3;
   readonly verifierRejectedUnsupportedClaim: boolean;
   readonly repairSucceeded?: boolean;
   readonly providerRequests: number;
@@ -37,16 +34,11 @@ export interface OriginAnswerQualityBenchmarkAggregate {
   readonly meanCitationPrecision: number;
   readonly meanTaskCompletion: number;
   readonly meanContradictionDetection: number;
-  readonly meanVerificationIntegrity: number;
-  readonly meanFailClosedAccuracy: number;
-  readonly meanUserActionability: number;
   readonly unsupportedMaterialClaimCount: number;
   readonly verifierRejectionRate: number;
   readonly repairSuccessRate: number | null;
   readonly totalProviderRequests: number;
   readonly meanLatencyMs: number;
-  readonly medianLatencyMs: number;
-  readonly p95LatencyMs: number;
   readonly totalCostUsd: number;
 }
 
@@ -64,11 +56,6 @@ function validObservation(item: OriginAnswerQualityBenchmarkObservation): boolea
     && boundedScore(item.citationPrecisionScore)
     && boundedScore(item.taskCompletionScore)
     && boundedScore(item.contradictionDetectionScore)
-    && boundedScore(item.verificationIntegrityScore)
-    && boundedScore(item.failClosedAccuracyScore)
-    && Number.isInteger(item.userActionabilityScore)
-    && item.userActionabilityScore >= 0
-    && item.userActionabilityScore <= 3
     && Number.isInteger(item.providerRequests)
     && item.providerRequests >= 0
     && Number.isFinite(item.latencyMs)
@@ -83,12 +70,6 @@ function mean(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function percentile(values: readonly number[], p: number): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (sorted.length === 0) return 0;
-  const index = Math.ceil(p * sorted.length) - 1;
-  return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
-}
 
 export function aggregateOriginAnswerQualityBenchmark(
   observations: readonly OriginAnswerQualityBenchmarkObservation[],
@@ -108,9 +89,6 @@ export function aggregateOriginAnswerQualityBenchmark(
     meanCitationPrecision: mean(observations.map((item) => item.citationPrecisionScore)),
     meanTaskCompletion: mean(observations.map((item) => item.taskCompletionScore)),
     meanContradictionDetection: mean(observations.map((item) => item.contradictionDetectionScore)),
-    meanVerificationIntegrity: mean(observations.map((item) => item.verificationIntegrityScore)),
-    meanFailClosedAccuracy: mean(observations.map((item) => item.failClosedAccuracyScore)),
-    meanUserActionability: mean(observations.map((item) => item.userActionabilityScore)),
     unsupportedMaterialClaimCount: observations.reduce(
       (sum, item) => sum + item.unsupportedMaterialClaimCount,
       0,
@@ -123,8 +101,6 @@ export function aggregateOriginAnswerQualityBenchmark(
       : mean(repairCases.map((item) => item.repairSucceeded ? 1 : 0)),
     totalProviderRequests: observations.reduce((sum, item) => sum + item.providerRequests, 0),
     meanLatencyMs: mean(observations.map((item) => item.latencyMs)),
-    medianLatencyMs: percentile(observations.map((item) => item.latencyMs), 0.5),
-    p95LatencyMs: percentile(observations.map((item) => item.latencyMs), 0.95),
     totalCostUsd: observations.reduce((sum, item) => sum + item.costUsd, 0),
   };
 
@@ -136,16 +112,11 @@ export interface OriginAnswerQualityBenchmarkDelta {
   readonly citationPrecisionDelta: number;
   readonly taskCompletionDelta: number;
   readonly contradictionDetectionDelta: number;
-  readonly verificationIntegrityDelta: number;
-  readonly failClosedAccuracyDelta: number;
-  readonly userActionabilityDelta: number;
   readonly unsupportedMaterialClaimDelta: number;
   readonly verifierRejectionRateDelta: number;
   readonly repairSuccessRateDelta: number | null;
   readonly providerRequestDelta: number;
   readonly latencyMsDelta: number;
-  readonly medianLatencyMsDelta: number;
-  readonly p95LatencyMsDelta: number;
   readonly totalCostUsdDelta: number;
 }
 
@@ -162,17 +133,12 @@ export function compareOriginAnswerQualityBenchmark(
     citationPrecisionDelta: candidate.meanCitationPrecision - baseline.meanCitationPrecision,
     taskCompletionDelta: candidate.meanTaskCompletion - baseline.meanTaskCompletion,
     contradictionDetectionDelta: candidate.meanContradictionDetection - baseline.meanContradictionDetection,
-    verificationIntegrityDelta: candidate.meanVerificationIntegrity - baseline.meanVerificationIntegrity,
-    failClosedAccuracyDelta: candidate.meanFailClosedAccuracy - baseline.meanFailClosedAccuracy,
-    userActionabilityDelta: candidate.meanUserActionability - baseline.meanUserActionability,
     unsupportedMaterialClaimDelta:
       candidate.unsupportedMaterialClaimCount - baseline.unsupportedMaterialClaimCount,
     verifierRejectionRateDelta: candidate.verifierRejectionRate - baseline.verifierRejectionRate,
     repairSuccessRateDelta,
     providerRequestDelta: candidate.totalProviderRequests - baseline.totalProviderRequests,
     latencyMsDelta: candidate.meanLatencyMs - baseline.meanLatencyMs,
-    medianLatencyMsDelta: candidate.medianLatencyMs - baseline.medianLatencyMs,
-    p95LatencyMsDelta: candidate.p95LatencyMs - baseline.p95LatencyMs,
     totalCostUsdDelta: candidate.totalCostUsd - baseline.totalCostUsd,
   });
 }
