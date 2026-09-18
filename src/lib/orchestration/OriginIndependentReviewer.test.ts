@@ -10,6 +10,11 @@ const request = {
   answerDigest: `sha256:${"a".repeat(64)}`,
   claimSetDigest: `sha256:${"b".repeat(64)}`,
   evidenceLedgerDigest: `sha256:${"c".repeat(64)}`,
+  primaryExecution: {
+    executionId: "origin-primary-1",
+    providerId: "openrouter-free",
+    modelId: "primary/free-model:free",
+  },
   executionPolicy: {
     maxCostUsd: 0 as const,
     maxAttempts: 1 as const,
@@ -22,6 +27,11 @@ describe("OriginIndependentReviewer", () => {
       answerDigest: request.answerDigest,
       claimSetDigest: request.claimSetDigest,
       evidenceLedgerDigest: request.evidenceLedgerDigest,
+      reviewerExecution: {
+        executionId: "origin-review-1",
+        providerId: "openrouter-free",
+        modelId: "reviewer/free-model:free",
+      },
       verdict: "pass",
       actualCostUsd: 0,
       attempts: 1,
@@ -44,7 +54,14 @@ describe("OriginIndependentReviewer", () => {
     await expect(runOriginIndependentReview(
       request,
       vi.fn().mockResolvedValue({
-        ...request,
+        answerDigest: request.answerDigest,
+        claimSetDigest: request.claimSetDigest,
+        evidenceLedgerDigest: request.evidenceLedgerDigest,
+        reviewerExecution: {
+          executionId: "origin-review-2",
+          providerId: "openrouter-free",
+          modelId: "reviewer/free-model:free",
+        },
         verdict: "reject",
         actualCostUsd: 0,
         attempts: 1,
@@ -59,6 +76,11 @@ describe("OriginIndependentReviewer", () => {
         answerDigest: request.answerDigest,
         claimSetDigest: request.claimSetDigest,
         evidenceLedgerDigest: request.evidenceLedgerDigest,
+        reviewerExecution: {
+          executionId: "origin-review-3",
+          providerId: "openrouter-free",
+          modelId: "reviewer/free-model:free",
+        },
         verdict: "pass",
         actualCostUsd: 0.01,
         attempts: 1,
@@ -71,11 +93,54 @@ describe("OriginIndependentReviewer", () => {
         answerDigest: `sha256:${"d".repeat(64)}`,
         claimSetDigest: request.claimSetDigest,
         evidenceLedgerDigest: request.evidenceLedgerDigest,
+        reviewerExecution: {
+          executionId: "origin-review-4",
+          providerId: "openrouter-free",
+          modelId: "reviewer/free-model:free",
+        },
         verdict: "pass",
         actualCostUsd: 0,
         attempts: 1,
       }),
     )).resolves.toEqual({ ok: false, code: "INDEPENDENT_REVIEW_RECORD_MISMATCH" });
+  });
+
+
+
+  it("rejects self-review by the same execution or same model", async () => {
+    const sameExecution = vi.fn().mockResolvedValue({
+      answerDigest: request.answerDigest,
+      claimSetDigest: request.claimSetDigest,
+      evidenceLedgerDigest: request.evidenceLedgerDigest,
+      reviewerExecution: {
+        executionId: request.primaryExecution.executionId,
+        providerId: "openrouter-free",
+        modelId: "reviewer/free-model:free",
+      },
+      verdict: "pass",
+      actualCostUsd: 0,
+      attempts: 1,
+    });
+
+    await expect(runOriginIndependentReview(request, sameExecution))
+      .resolves.toEqual({ ok: false, code: "INDEPENDENT_REVIEW_IDENTITY_UNVERIFIED" });
+
+    const sameModel = vi.fn().mockResolvedValue({
+      answerDigest: request.answerDigest,
+      claimSetDigest: request.claimSetDigest,
+      evidenceLedgerDigest: request.evidenceLedgerDigest,
+      reviewerExecution: {
+        executionId: "origin-review-distinct",
+        providerId: "openrouter-free",
+        modelId: request.primaryExecution.modelId,
+      },
+      verdict: "pass",
+      actualCostUsd: 0,
+      attempts: 1,
+    });
+
+    await expect(runOriginIndependentReview(request, sameModel))
+      .resolves.toEqual({ ok: false, code: "INDEPENDENT_REVIEW_IDENTITY_UNVERIFIED" });
   });
 
   it("adds a blocking issue when required review did not pass", () => {
