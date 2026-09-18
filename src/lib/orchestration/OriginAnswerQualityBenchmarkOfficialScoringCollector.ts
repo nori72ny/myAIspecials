@@ -1,4 +1,5 @@
 import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope.js";
+import type { OriginClaimSet } from "./OriginClaimModel.js";
 import { extractExplicitOriginClaimCitations } from "./OriginClaimCitation.js";
 import { bindOriginAnswerEvidenceToClaims } from "./OriginClaimEvidenceBinder.js";
 import type { OriginSourceVerificationExecutor } from "./OriginSourceVerification.js";
@@ -48,7 +49,7 @@ function renderedCitationCount(answerText: string): number {
 
 function supportedClaimIdsFromLedger(
   evidence: readonly OriginAnswerEvidenceItem[],
-  claimSet: Awaited<ReturnType<typeof extractOriginMaterialClaims>> extends { ok: true; claimSet: infer T } ? T : never,
+  claimSet: OriginClaimSet,
   observedAt: string,
 ): Set<string> {
   const bound = bindOriginAnswerEvidenceToClaims(claimSet, evidence, observedAt);
