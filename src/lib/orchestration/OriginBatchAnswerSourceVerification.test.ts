@@ -22,6 +22,30 @@ const citation = (
 });
 
 describe("OriginBatchAnswerSourceVerification", () => {
+  it("does not fetch when the assessor is unavailable", async () => {
+    const evidence = [
+      citation("Source A", "Fact A.", "https://a.example.com/doc"),
+    ];
+    const resolver = vi.fn();
+    const transport = vi.fn();
+
+    const result = await verifyOriginAnswerSourcesBatch(evidence, {
+      resolver,
+      transport,
+    });
+
+    expect(result).toMatchObject({
+      attempted: 1,
+      fetched: 0,
+      verified: 0,
+      failed: 1,
+      assessorExecutions: 0,
+    });
+    expect(resolver).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+    expect(result.evidence[0].evidenceLevel).toBe("provided");
+  });
+
   it("fetches multiple public sources and verifies them in one assessor execution", async () => {
     const evidence = [
       citation("Source A", "Fact A.", "https://a.example.com/doc"),
