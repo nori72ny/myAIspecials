@@ -4,6 +4,11 @@ export interface OriginIndependentReviewRequest {
   readonly answerDigest: string;
   readonly claimSetDigest: string;
   readonly evidenceLedgerDigest: string;
+  readonly primaryExecution: {
+    readonly executionId: string;
+    readonly providerId: string;
+    readonly modelId: string;
+  };
   readonly executionPolicy: {
     readonly maxCostUsd: 0;
     readonly maxAttempts: 1;
@@ -14,6 +19,11 @@ export interface OriginIndependentReviewRecord {
   readonly answerDigest: string;
   readonly claimSetDigest: string;
   readonly evidenceLedgerDigest: string;
+  readonly reviewerExecution: {
+    readonly executionId: string;
+    readonly providerId: string;
+    readonly modelId: string;
+  };
   readonly verdict: "pass" | "reject";
   readonly actualCostUsd: 0;
   readonly attempts: 1;
@@ -32,11 +42,24 @@ export type OriginIndependentReviewResult =
         | "INDEPENDENT_REVIEW_FAILED"
         | "INDEPENDENT_REVIEW_RECORD_MISMATCH"
         | "INDEPENDENT_REVIEW_COST_UNVERIFIED"
+        | "INDEPENDENT_REVIEW_IDENTITY_UNVERIFIED"
         | "INDEPENDENT_REVIEW_REJECTED";
     };
 
+const ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,180}$/;
+
 function isDigest(value: string): boolean {
   return /^sha256:[a-f0-9]{64}$/.test(value);
+}
+
+function validExecutionIdentity(value: {
+  executionId: string;
+  providerId: string;
+  modelId: string;
+}): boolean {
+  return ID.test(value.executionId)
+    && ID.test(value.providerId)
+    && ID.test(value.modelId);
 }
 
 function isRecord(value: unknown): value is OriginIndependentReviewRecord {
@@ -45,6 +68,10 @@ function isRecord(value: unknown): value is OriginIndependentReviewRecord {
   return typeof r.answerDigest === "string"
     && typeof r.claimSetDigest === "string"
     && typeof r.evidenceLedgerDigest === "string"
+    && !!r.reviewerExecution
+    && typeof r.reviewerExecution.executionId === "string"
+    && typeof r.reviewerExecution.providerId === "string"
+    && typeof r.reviewerExecution.modelId === "string"
     && (r.verdict === "pass" || r.verdict === "reject")
     && r.attempts === 1
     && typeof r.actualCostUsd === "number";
@@ -58,6 +85,7 @@ export async function runOriginIndependentReview(
     !isDigest(request.answerDigest)
     || !isDigest(request.claimSetDigest)
     || !isDigest(request.evidenceLedgerDigest)
+    || !validExecutionIdentity(request.primaryExecution)
     || request.executionPolicy.maxCostUsd !== 0
     || request.executionPolicy.maxAttempts !== 1
   ) {
@@ -83,9 +111,17 @@ export async function runOriginIndependentReview(
     raw.answerDigest !== request.answerDigest
     || raw.claimSetDigest !== request.claimSetDigest
     || raw.evidenceLedgerDigest !== request.evidenceLedgerDigest
+    || !validExecutionIdentity(raw.reviewerExecution)
     || raw.attempts !== 1
   ) {
     return { ok: false, code: "INDEPENDENT_REVIEW_RECORD_MISMATCH" };
+  }
+
+  if (
+    raw.reviewerExecution.executionId === request.primaryExecution.executionId
+    || raw.reviewerExecution.modelId === request.primaryExecution.modelId
+  ) {
+    return { ok: false, code: "INDEPENDENT_REVIEW_IDENTITY_UNVERIFIED" };
   }
 
   if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
