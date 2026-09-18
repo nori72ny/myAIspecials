@@ -7,6 +7,7 @@ import {
 
 export interface OriginAnswerQualityBenchmarkEnvironmentProof {
   readonly schemaVersion: "origin.aq-benchmark-environment-proof.v1";
+  readonly baseUrl: string;
   readonly expectedGitSha: string;
   readonly observedReleaseSha: string;
   readonly freeOnly: true;
@@ -146,6 +147,7 @@ export async function probeOriginAnswerQualityBenchmarkEnvironment(
     ok: true,
     value: Object.freeze({
       schemaVersion: "origin.aq-benchmark-environment-proof.v1",
+      baseUrl: base.href,
       expectedGitSha,
       observedReleaseSha: health.releaseSha,
       freeOnly: true,
