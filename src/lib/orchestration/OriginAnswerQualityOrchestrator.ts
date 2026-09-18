@@ -60,19 +60,12 @@ export async function runOriginAnswerQualityOrchestrator(
     const blockedVerification: OriginVerificationResult = Object.freeze({
       ...input.verification,
       decision: "BLOCKED_UNVERIFIED" as const,
-      issues: Object.freeze([
-        ...input.verification.issues,
-        ...(
-          input.verification.issues.some((issue) => issue.code === "INDEPENDENT_REVIEW_REQUIRED")
-            ? []
-            : [{ code: "INDEPENDENT_REVIEW_REQUIRED" as const, repairable: false }]
-        ),
-      ]),
+      issues: Object.freeze([...input.verification.issues]),
     });
     const final = decideOriginAnswerQuality(blockedVerification, {
       language: input.language,
-      independentReviewRequired: true,
-      independentReviewPerformed: false,
+      independentReviewRequired: input.independentReviewRequired,
+      independentReviewPerformed: input.independentReviewPerformed,
     });
 
     return Object.freeze({
