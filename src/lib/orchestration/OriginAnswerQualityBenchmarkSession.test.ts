@@ -49,9 +49,11 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
       providerId: "openrouter-free",
       modelId: "example/free-model:free",
       executors: adapters,
-      collectScoringEvidence: async (item) => ({
+      collectScoringEvidence: async (item, execution) => ({
         caseId: item.caseId,
         category: item.category,
+        finalAnswerRef: execution.finalAnswerRef,
+        evidenceLedgerRef: execution.evidenceLedgerRef,
         totalMaterialClaims: 1,
         supportedMaterialClaims: 1,
         totalRenderedCitations: item.category === "current-factual" ? 1 : 0,
@@ -159,9 +161,11 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
         coding: paidCodingAdapter,
         artifact: adapters.artifact,
       },
-      collectScoringEvidence: async (item) => ({
+      collectScoringEvidence: async (item, execution) => ({
         caseId: item.caseId,
         category: item.category,
+        finalAnswerRef: execution.finalAnswerRef,
+        evidenceLedgerRef: execution.evidenceLedgerRef,
         totalMaterialClaims: 0,
         supportedMaterialClaims: 0,
         totalRenderedCitations: 0,
