@@ -50,6 +50,8 @@ export interface OriginAnswerQualityBenchmarkQualificationReport {
     readonly zeroCost: true;
     readonly unsupportedClaimsNotWorse: boolean;
     readonly verifierRejectionRateNotWorse: boolean;
+    readonly verificationIntegrityNotWorse: boolean;
+    readonly failClosedAccuracyNotWorse: boolean;
   };
 }
 
@@ -149,6 +151,8 @@ export function qualifyOriginAnswerQualityBenchmark(
         zeroCost: true,
         unsupportedClaimsNotWorse: delta.unsupportedMaterialClaimDelta <= 0,
         verifierRejectionRateNotWorse: delta.verifierRejectionRateDelta >= 0,
+        verificationIntegrityNotWorse: delta.verificationIntegrityDelta >= 0,
+        failClosedAccuracyNotWorse: delta.failClosedAccuracyDelta >= 0,
       }),
     }),
   };
