@@ -143,6 +143,50 @@ describe("OriginBatchClaimAssessor", () => {
       });
   });
 
+  it("rejects duplicate output IDs that omit another requested claim", async () => {
+    const items = [
+      {
+        id: "claim-1",
+        claim: "Fact A.",
+        source: source("https://example.com/a", "a", "Fact A."),
+      },
+      {
+        id: "claim-2",
+        claim: "Fact B.",
+        source: source("https://example.com/b", "b", "Fact B."),
+      },
+    ];
+
+    const duplicate = vi.fn(async (request) => ({
+      items: [
+        {
+          id: request.items[0].id,
+          claim: request.items[0].claim,
+          sourceUrl: request.items[0].sourceUrl,
+          sourceDigest: request.items[0].sourceDigest,
+          support: "supported",
+          supportingExcerpt: "Fact A.",
+        },
+        {
+          id: request.items[0].id,
+          claim: request.items[0].claim,
+          sourceUrl: request.items[0].sourceUrl,
+          sourceDigest: request.items[0].sourceDigest,
+          support: "supported",
+          supportingExcerpt: "Fact A.",
+        },
+      ],
+      actualCostUsd: 0,
+      attempts: 1,
+    }));
+
+    await expect(assessOriginClaimsAgainstSourcesBatch(items, duplicate))
+      .resolves.toEqual({
+        ok: false,
+        code: "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH",
+      });
+  });
+
   it("rejects secret-bearing claims, duplicates, more than eight items and paid output", async () => {
     const safe = {
       id: "claim-1",
