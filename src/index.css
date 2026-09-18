@@ -340,3 +340,8 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
 .origin-answer-actions { margin-top: 1rem; border-top: 1px solid var(--border-default); padding-top: 0.4rem; font-size: 0.85rem; }
 .origin-answer-refinements { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
 .origin-answer-refinements button { border: 1px solid var(--border-default); background: var(--bg-surface-muted); }
+
+
+.origin-mobile-agent-controls {
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+}
