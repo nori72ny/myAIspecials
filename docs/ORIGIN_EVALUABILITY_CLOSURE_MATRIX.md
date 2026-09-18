@@ -32,8 +32,8 @@ Track previously PARTIAL / UNVERIFIED / INCOMPLETE areas and convert every autom
 | Source pinned fetch + claim assessor | VERIFIED_AUTOMATED | DNS-pinned HTTPS fetch, bounded response handling, content digest binding, and claim-support assessor passed exact-head GitHub validation. |
 | Answer source verification pipeline / chat hook | VERIFIED_AUTOMATED | Explicit claim citations can be promoted only after successful source verification; failed checks remain unverified. |
 | Research evidence adapter | VERIFIED_AUTOMATED | Retrieval/page evidence is never promoted to claim verification without explicit verification. |
-| Independent reviewer identity | VERIFIED_AUTOMATED | Same execution ID or same model ID self-review is rejected; distinct reviewer identity is required. |
-| Conflict-aware verifier | VERIFIED_AUTOMATED | Conflicting material evidence prevents PASS and routes to bounded repair. |
+| Independent reviewer identity | VERIFIED_AUTOMATED | Same-execution and same-model self-review are rejected; exact-head GitHub gates passed. |
+| Conflict-aware verifier | VERIFIED_AUTOMATED | Conflicting evidence forces REPAIR_REQUIRED and cannot be presented as verified; exact-head GitHub gates passed. |
 | Repair executor + reverification gate | VERIFIED_AUTOMATED | Safe repair actions are one-attempt/$0/no-mutation; repair can never self-certify success and must return to verifier. |
 | Material Claim Extractor | VERIFIED_AUTOMATED | Exact answer digest, exact answer spans, one-attempt and $0 constraints validated. |
 | Material Claim Coverage Review | VERIFIED_AUTOMATED | Distinct-model review detects omitted material claims and fails closed on incomplete coverage. |
@@ -89,3 +89,11 @@ Track previously PARTIAL / UNVERIFIED / INCOMPLETE areas and convert every autom
 ## Rule
 
 No item may be promoted from PARTIAL/UNVERIFIED to verified based on documentation alone. It needs reproducible code/test/runtime evidence appropriate to the claim.
+
+| Benchmark manifest / provenance | VERIFIED_AUTOMATED | Before/after runs require the same manifest, model identity, exact Git SHA provenance, and zero cost. |
+| Material claim extraction / coverage | VERIFIED_AUTOMATED | Claim extraction is answer-digest bound; independent coverage review blocks omitted material claims. |
+| AQ runtime readiness / admission | VERIFIED_AUTOMATED | Required stages, zero-cost budget, verifier state, trace and review requirements are composed into a fail-closed admission decision. |
+| AQ verified release decision | VERIFIED_AUTOMATED | Verified release requires admitted AQ state, blocker-free sanitized audit, answer digest, and zero cost. |
+| Batched claim/source verification | VERIFIED_AUTOMATED | Up to eight explicit citations can be safely fetched and assessed in one bounded zero-cost assessor call; Chat batch hook exact-head validation passed. |
+| Batch usage event metering | IMPLEMENTED_VALIDATING | Batch source verification emits measured source-fetch and provider-execution usage events; exact-head revalidation is in progress. |
+| AQ end-to-end integration harness | IMPLEMENTED_VALIDATING | Admission → sanitized audit → verified release is covered by an integration harness; exact-head validation is in progress. |
