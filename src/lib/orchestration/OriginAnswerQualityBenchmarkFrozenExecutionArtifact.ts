@@ -104,13 +104,13 @@ const CATEGORIES = new Set([
   "current-factual",
   "multi-source-comparison",
   "contradiction-detection",
+  "user-document-reasoning",
   "professional-advice",
-  "user-document",
   "coding-generation",
   "coding-repair",
   "fail-closed",
   "artifact-generation",
-  "multi-turn-context",
+  "ambiguity-handling",
 ]);
 const VERIFIER_RESULTS = new Set(["PASS", "REPAIR_REQUIRED", "BLOCKED_UNVERIFIED"]);
 
@@ -120,6 +120,14 @@ function sha256(value: string): string {
 
 function validReference(value: string | null): boolean {
   return value === null || SHA256.test(value);
+}
+
+function nullableReference(value: unknown): string | null | undefined {
+  return value === null
+    ? null
+    : typeof value === "string"
+      ? value
+      : undefined;
 }
 
 function canonicalCase(item: OriginAnswerQualityBenchmarkFrozenExecutionArtifactCase): string {
@@ -234,8 +242,10 @@ export function parseOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
       || seen.has(item.caseId)
       || typeof item.category !== "string" || !CATEGORIES.has(item.category)
       || typeof item.caseDigest !== "string" || !SHA256.test(item.caseDigest)
-      || !validReference(typeof item.finalAnswerRef === "string" || item.finalAnswerRef === null ? item.finalAnswerRef : "__invalid__")
-      || !validReference(typeof item.evidenceLedgerRef === "string" || item.evidenceLedgerRef === null ? item.evidenceLedgerRef : "__invalid__")
+      || nullableReference(item.finalAnswerRef) === undefined
+      || !validReference(nullableReference(item.finalAnswerRef)!)
+      || nullableReference(item.evidenceLedgerRef) === undefined
+      || !validReference(nullableReference(item.evidenceLedgerRef)!)
       || typeof item.verifierResult !== "string" || !VERIFIER_RESULTS.has(item.verifierResult)
       || !nonNegativeInteger(item.providerRequests)
       || !nonNegativeInteger(item.toolCalls)
@@ -411,14 +421,22 @@ function executionFromArtifact(
   });
 }
 
+export type OriginAnswerQualityBenchmarkFrozenExecutionArtifactRestoreResult =
+  | { ok: true; value: OriginAnswerQualityBenchmarkFrozenExecutionSession }
+  | {
+      ok: false;
+      code:
+        | "AQ_BENCHMARK_FROZEN_ARTIFACT_DIGEST_MISMATCH"
+        | "AQ_BENCHMARK_FROZEN_ARTIFACT_CORPUS_MISMATCH"
+        | "AQ_BENCHMARK_FROZEN_ARTIFACT_ENVIRONMENT_MISMATCH"
+        | "AQ_BENCHMARK_FROZEN_ARTIFACT_EXECUTION_MISMATCH";
+    };
+
 export function restoreOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
   artifact: OriginAnswerQualityBenchmarkFrozenExecutionArtifact,
   corpus: OriginAnswerQualityBenchmarkFrozenCorpus,
   environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof,
-): OriginAnswerQualityBenchmarkFrozenExecutionArtifactResult | {
-  ok: true;
-  value: OriginAnswerQualityBenchmarkFrozenExecutionSession;
-} {
+): OriginAnswerQualityBenchmarkFrozenExecutionArtifactRestoreResult {
   const { artifactDigest: _artifactDigest, ...withoutDigest } = artifact;
   if (
     !SHA256.test(artifact.artifactDigest)
