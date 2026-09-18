@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from "./OriginFreeModelCatalog.js";
 import {
   buildOriginExecutionPlan,
   type OriginExecutionPlanningOptions,
@@ -48,6 +49,8 @@ const SCORER_SOURCE = [
   "origin.aq-prompt-claim-support.v1",
   "origin.material-claim-extractor.v1",
   "origin.claim-assessor.v1",
+  ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
+  "openrouter-free",
   "required-tool-only",
   "zero-cost-one-attempt",
 ].join("\n");
