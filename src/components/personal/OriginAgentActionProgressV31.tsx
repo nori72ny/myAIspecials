@@ -125,7 +125,7 @@ export default function OriginAgentActionProgressV31({ status, cancelRequested =
 
     {active && <>
       <div className="h-20 md:hidden" aria-hidden="true" />
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-3 pt-3 shadow-lg backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }} aria-label="Agent mobile controls">
+      <div className="origin-mobile-agent-controls fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-3 pt-3 shadow-lg backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden" aria-label="Agent mobile controls">
         <div className="mx-auto flex max-w-xl items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">Agent</p>
