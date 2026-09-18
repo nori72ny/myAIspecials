@@ -3,7 +3,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
-import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
+import { createOriginChatRouter, type OriginChatExecutor, type OriginChatTraceSink } from "./originChatRouter";
 import { OriginProviderError } from "./originProviderClient";
 
 const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
@@ -35,6 +35,99 @@ describe("createOriginChatRouter", () => {
   it("preserves provided HTTPS evidence without claiming verification", async () => { executeMock.mockResolvedValueOnce({ ...defaultExecutionResult, text: "詳細は[公式資料](https://example.com/current)を参照してください。" }); const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "候補の資料を調査してください" }] }); expect(response.status).toBe(200); expect(response.body.answer.evidence).toEqual([expect.objectContaining({ label: "公式資料", sourceUrl: "https://example.com/current", evidenceLevel: "provided", checks: { safeUrl: "passed", content: "not-run", freshness: "not-run", claimSupport: "not-run" } })]); });
   it("warns when a research answer has no usable HTTPS source", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "候補を比較調査してください" }] }); expect(response.status).toBe(200); expect(response.body.answer.evidence).toEqual([]); expect(response.body.answer.limitations).toContain("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。"); expect(response.body.answer.nextActions).toContain("一次情報の出典を確認してから判断してください。"); });
   it("sends only the latest coherent context window", async () => { const response = await request(createApp(execute, undefined, undefined, { version: 1, maxMessages: 3, maxCharacters: 12_000 })).post("/api/chat").send({ messages: [{ role: "ai", content: "初期案内" }, { role: "user", content: "古い依頼" }, { role: "ai", content: "古い回答" }, { role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }] }); expect(response.status).toBe(200); const call = executeMock.mock.calls[0]?.[0]; expect(call?.messages).toEqual([{ role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }]); });
+
+
+  it("persists only sanitized zero-cost trace metadata when a sink is supplied", async () => {
+    const append = vi.fn().mockResolvedValue(true);
+    const traceSink: OriginChatTraceSink = { append };
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      execute,
+      now: (() => { let current = 10_000; return () => { current += 25; return current; }; })(),
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-test-trace",
+      traceSink,
+      traceRequired: false,
+    }));
+
+    const response = await request(app).post("/api/chat").send({
+      messages: [{ role: "user", content: "認証処理をレビューしてください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(append).toHaveBeenCalledTimes(1);
+    const record = append.mock.calls[0][0];
+    expect(record).toMatchObject({
+      traceId: "origin-test-trace",
+      route: "/api/chat",
+      freeOnly: true,
+      actualCostUsd: 0,
+      outcome: "success",
+      reviewRequired: true,
+      independentReviewPerformed: false,
+      verificationStatus: "not-run",
+    });
+    expect(JSON.stringify(record)).not.toContain("認証処理をレビューしてください");
+    expect(record).not.toHaveProperty("prompt");
+    expect(record).not.toHaveProperty("messages");
+    expect(record).not.toHaveProperty("answer");
+    expect(record).not.toHaveProperty("content");
+  });
+
+  it("keeps trace persistence optional unless explicitly required", async () => {
+    const append = vi.fn().mockRejectedValue(new Error("trace unavailable"));
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      execute,
+      now: (() => { let current = 20_000; return () => { current += 25; return current; }; })(),
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-test-trace",
+      traceSink: { append },
+      traceRequired: false,
+    }));
+
+    const response = await request(app).post("/api/chat").send({
+      messages: [{ role: "user", content: "短い案内文を整えてください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe("安全な確認結果です。");
+    expect(append).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed and withholds the answer when required trace persistence fails", async () => {
+    const append = vi.fn().mockResolvedValue(false);
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      execute,
+      now: (() => { let current = 30_000; return () => { current += 25; return current; }; })(),
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-test-trace",
+      traceSink: { append },
+      traceRequired: true,
+    }));
+
+    const response = await request(app).post("/api/chat").send({
+      messages: [{ role: "user", content: "短い案内文を整えてください" }],
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.body).toMatchObject({
+      code: "TRACE_PERSISTENCE_FAILED",
+      retryable: false,
+      requestId: "origin-test-trace",
+    });
+    expect(response.body.content).toBeUndefined();
+    expect(response.body.answer).toBeUndefined();
+    expect(append).toHaveBeenCalledTimes(1);
+  });
+
   it("sanitizes non-retryable authentication failures", async () => { executeMock.mockRejectedValueOnce(new OriginProviderError("PROVIDER_NOT_CONFIGURED", "内部詳細", 401, false, undefined, { upstreamStatus: 401 })); const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "文章を作ってください" }] }); expect(response.status).toBe(401); expect(JSON.stringify(response.body)).not.toContain("内部詳細"); expect(executeMock).toHaveBeenCalledTimes(1); });
   it.each([
     ["PROVIDER_RATE_LIMITED", 429], ["PROVIDER_TIMEOUT", 504],
