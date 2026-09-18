@@ -94,13 +94,13 @@ export async function runOriginAnswerQualityBenchmarkSession(
     score: async (item, evidence) => {
       const rawEvidence = await input.collectScoringEvidence(item, evidence);
       const measured = scoreOriginAnswerQualityBenchmarkEvidence(evidence, rawEvidence);
-      if (!measured.ok) throw new Error(measured.code);
+      if (measured.ok === false) throw new Error(measured.code);
       measuredById.set(item.caseId, measured.value);
       return measured.value;
     },
   });
 
-  if (!execution.ok) {
+  if (execution.ok === false) {
     return {
       ok: false,
       code: "AQ_BENCHMARK_SESSION_EXECUTION_FAILED",
@@ -123,12 +123,12 @@ export async function runOriginAnswerQualityBenchmarkSession(
     completedAt: new Date(completedAtMs).toISOString(),
   }, corpus.manifest);
 
-  if (!provenance.ok) {
+  if (provenance.ok === false) {
     return { ok: false, code: "AQ_BENCHMARK_SESSION_PROVENANCE_INVALID" };
   }
 
   const boundRun = bindOriginAnswerQualityBenchmarkRun(provenance.value, execution.value);
-  if (!boundRun.ok) {
+  if (boundRun.ok === false) {
     return {
       ok: false,
       code: "AQ_BENCHMARK_SESSION_RUN_BINDING_FAILED",
@@ -143,7 +143,7 @@ export async function runOriginAnswerQualityBenchmarkSession(
     corpus.manifest,
     measuredObservations,
   );
-  if (!scorecard.ok) {
+  if (scorecard.ok === false) {
     return {
       ok: false,
       code: "AQ_BENCHMARK_SESSION_SCORECARD_INVALID",
@@ -155,7 +155,7 @@ export async function runOriginAnswerQualityBenchmarkSession(
     boundRun.value,
     measuredObservations,
   );
-  if (!measuredRun.ok) {
+  if (measuredRun.ok === false) {
     return {
       ok: false,
       code: "AQ_BENCHMARK_SESSION_MEASURED_BINDING_FAILED",
