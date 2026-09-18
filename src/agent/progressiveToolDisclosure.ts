@@ -8,19 +8,19 @@ export interface OriginToolDescriptor {
   readonly requiresApproval: true;
 }
 
-const CAPABILITY_TOOLS: Readonly<Record<OriginCapability, readonly ToolName[]>> = Object.freeze({
-  answer: Object.freeze(["document_generator"]),
-  research: Object.freeze(["web_search_grounding", "document_generator"]),
-  coding: Object.freeze([
+const CAPABILITY_TOOLS: Readonly<Record<OriginCapability, readonly ToolName[]>> = {
+  answer: ["document_generator"],
+  research: ["web_search_grounding", "document_generator"],
+  coding: [
     "repository_explorer",
     "file_reader",
     "file_writer",
     "verification_runner",
     "code_interpreter",
-  ]),
-  writing: Object.freeze(["document_generator"]),
-  analysis: Object.freeze(["code_interpreter", "document_generator"]),
-});
+  ],
+  writing: ["document_generator"],
+  analysis: ["code_interpreter", "document_generator"],
+} as const;
 
 const MAX_DISCLOSED_TOOLS = 6;
 
