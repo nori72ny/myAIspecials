@@ -69,6 +69,50 @@ const SHA40 = /^[a-f0-9]{40}$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,180}$/;
 const FAILURE_CODE = /^[A-Z0-9][A-Z0-9_:-]{0,127}$/;
+const ARTIFACT_KEYS = new Set([
+  "schemaVersion",
+  "runId",
+  "gitSha",
+  "manifestDigest",
+  "providerId",
+  "modelId",
+  "startedAt",
+  "completedAt",
+  "caseCount",
+  "totalProviderRequests",
+  "totalToolCalls",
+  "totalLatencyMs",
+  "totalCostUsd",
+  "executionOnlyDigest",
+  "executionSessionDigest",
+  "cases",
+  "artifactDigest",
+]);
+const CASE_KEYS = new Set([
+  "caseId",
+  "category",
+  "caseDigest",
+  "finalAnswerRef",
+  "evidenceLedgerRef",
+  "verifierResult",
+  "providerRequests",
+  "toolCalls",
+  "latencyMs",
+  "failureCode",
+]);
+const CATEGORIES = new Set([
+  "current-factual",
+  "multi-source-comparison",
+  "contradiction-detection",
+  "professional-advice",
+  "user-document",
+  "coding-generation",
+  "coding-repair",
+  "fail-closed",
+  "artifact-generation",
+  "multi-turn-context",
+]);
+const VERIFIER_RESULTS = new Set(["PASS", "REPAIR_REQUIRED", "BLOCKED_UNVERIFIED"]);
 
 function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
@@ -120,6 +164,129 @@ export function digestOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
   input: Omit<OriginAnswerQualityBenchmarkFrozenExecutionArtifact, "artifactDigest">,
 ): string {
   return sha256(canonicalArtifact(input));
+}
+
+
+function exactKeys(value: Record<string, unknown>, allowed: Set<string>): boolean {
+  const keys = Object.keys(value);
+  return keys.length === allowed.size && keys.every((key) => allowed.has(key));
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+function finiteNonNegative(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function validIsoDate(value: unknown): value is string {
+  return typeof value === "string"
+    && Number.isFinite(Date.parse(value))
+    && new Date(value).toISOString() === value;
+}
+
+export function parseOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
+  input: unknown,
+): OriginAnswerQualityBenchmarkFrozenExecutionArtifactResult {
+  const value = record(input);
+  if (!value || !exactKeys(value, ARTIFACT_KEYS)) {
+    return { ok: false, code: "AQ_BENCHMARK_FROZEN_ARTIFACT_EXECUTION_MISMATCH" };
+  }
+  if (
+    value.schemaVersion !== "origin.aq-benchmark-frozen-execution-artifact.v1"
+    || typeof value.runId !== "string" || !SAFE_ID.test(value.runId)
+    || typeof value.gitSha !== "string" || !SHA40.test(value.gitSha)
+    || typeof value.manifestDigest !== "string" || !SHA256.test(value.manifestDigest)
+    || typeof value.providerId !== "string" || !SAFE_ID.test(value.providerId)
+    || typeof value.modelId !== "string" || !SAFE_ID.test(value.modelId)
+    || !validIsoDate(value.startedAt)
+    || !validIsoDate(value.completedAt)
+    || !nonNegativeInteger(value.caseCount)
+    || !nonNegativeInteger(value.totalProviderRequests)
+    || !nonNegativeInteger(value.totalToolCalls)
+    || !finiteNonNegative(value.totalLatencyMs)
+    || value.totalCostUsd !== 0
+    || typeof value.executionOnlyDigest !== "string" || !SHA256.test(value.executionOnlyDigest)
+    || typeof value.executionSessionDigest !== "string" || !SHA256.test(value.executionSessionDigest)
+    || typeof value.artifactDigest !== "string" || !SHA256.test(value.artifactDigest)
+    || !Array.isArray(value.cases)
+    || value.cases.length !== value.caseCount
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_FROZEN_ARTIFACT_EXECUTION_MISMATCH" };
+  }
+
+  const cases: OriginAnswerQualityBenchmarkFrozenExecutionArtifactCase[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.cases) {
+    const item = record(raw);
+    if (!item || !exactKeys(item, CASE_KEYS)) {
+      return { ok: false, code: "AQ_BENCHMARK_FROZEN_ARTIFACT_EXECUTION_MISMATCH" };
+    }
+    if (
+      typeof item.caseId !== "string" || !SAFE_ID.test(item.caseId)
+      || seen.has(item.caseId)
+      || typeof item.category !== "string" || !CATEGORIES.has(item.category)
+      || typeof item.caseDigest !== "string" || !SHA256.test(item.caseDigest)
+      || !validReference(typeof item.finalAnswerRef === "string" || item.finalAnswerRef === null ? item.finalAnswerRef : "__invalid__")
+      || !validReference(typeof item.evidenceLedgerRef === "string" || item.evidenceLedgerRef === null ? item.evidenceLedgerRef : "__invalid__")
+      || typeof item.verifierResult !== "string" || !VERIFIER_RESULTS.has(item.verifierResult)
+      || !nonNegativeInteger(item.providerRequests)
+      || !nonNegativeInteger(item.toolCalls)
+      || !finiteNonNegative(item.latencyMs)
+      || !(
+        item.failureCode === null
+        || (typeof item.failureCode === "string" && FAILURE_CODE.test(item.failureCode))
+      )
+    ) {
+      return { ok: false, code: "AQ_BENCHMARK_FROZEN_ARTIFACT_EXECUTION_MISMATCH" };
+    }
+    seen.add(item.caseId);
+    cases.push(Object.freeze({
+      caseId: item.caseId,
+      category: item.category as OriginAnswerQualityBenchmarkExecutedCase["category"],
+      caseDigest: item.caseDigest,
+      finalAnswerRef: item.finalAnswerRef as string | null,
+      evidenceLedgerRef: item.evidenceLedgerRef as string | null,
+      verifierResult: item.verifierResult as OriginAnswerQualityBenchmarkExecutedCase["execution"]["verifierResult"],
+      providerRequests: item.providerRequests,
+      toolCalls: item.toolCalls,
+      latencyMs: item.latencyMs,
+      failureCode: item.failureCode as string | null,
+    }));
+  }
+
+  const parsed: OriginAnswerQualityBenchmarkFrozenExecutionArtifact = Object.freeze({
+    schemaVersion: "origin.aq-benchmark-frozen-execution-artifact.v1",
+    runId: value.runId,
+    gitSha: value.gitSha,
+    manifestDigest: value.manifestDigest,
+    providerId: value.providerId,
+    modelId: value.modelId,
+    startedAt: value.startedAt,
+    completedAt: value.completedAt,
+    caseCount: value.caseCount,
+    totalProviderRequests: value.totalProviderRequests,
+    totalToolCalls: value.totalToolCalls,
+    totalLatencyMs: value.totalLatencyMs,
+    totalCostUsd: 0,
+    executionOnlyDigest: value.executionOnlyDigest,
+    executionSessionDigest: value.executionSessionDigest,
+    cases: Object.freeze(cases),
+    artifactDigest: value.artifactDigest,
+  });
+
+  const { artifactDigest, ...withoutDigest } = parsed;
+  if (digestOriginAnswerQualityBenchmarkFrozenExecutionArtifact(withoutDigest) !== artifactDigest) {
+    return { ok: false, code: "AQ_BENCHMARK_FROZEN_ARTIFACT_DIGEST_MISMATCH" };
+  }
+  return { ok: true, value: parsed };
 }
 
 export function createOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
