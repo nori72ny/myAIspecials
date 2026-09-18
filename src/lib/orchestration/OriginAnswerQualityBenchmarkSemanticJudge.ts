@@ -7,6 +7,7 @@ import type {
 export interface OriginAnswerQualityBenchmarkSemanticJudgeRequest {
   readonly caseId: string;
   readonly category: OriginAnswerQualityBenchmarkCategory;
+  readonly rubricVersion: "origin.aq-semantic-rubric.v1";
   readonly promptDigest: string;
   readonly answerDigest: string;
   readonly prompt: string;
@@ -20,6 +21,7 @@ export interface OriginAnswerQualityBenchmarkSemanticJudgeRequest {
 export interface OriginAnswerQualityBenchmarkSemanticJudgeRecord {
   readonly caseId: string;
   readonly category: OriginAnswerQualityBenchmarkCategory;
+  readonly rubricVersion: "origin.aq-semantic-rubric.v1";
   readonly promptDigest: string;
   readonly answerDigest: string;
   readonly deliverableCompleted: boolean;
@@ -67,6 +69,7 @@ function isRecord(value: unknown): value is OriginAnswerQualityBenchmarkSemantic
   const item = value as Partial<OriginAnswerQualityBenchmarkSemanticJudgeRecord>;
   return typeof item.caseId === "string"
     && typeof item.category === "string"
+    && item.rubricVersion === "origin.aq-semantic-rubric.v1"
     && typeof item.promptDigest === "string"
     && typeof item.answerDigest === "string"
     && typeof item.deliverableCompleted === "boolean"
@@ -108,6 +111,7 @@ export async function judgeOriginAnswerQualityBenchmarkSemantics(
   const request: OriginAnswerQualityBenchmarkSemanticJudgeRequest = Object.freeze({
     caseId: input.caseId,
     category: input.category,
+    rubricVersion: "origin.aq-semantic-rubric.v1",
     promptDigest,
     answerDigest,
     prompt,
@@ -131,6 +135,7 @@ export async function judgeOriginAnswerQualityBenchmarkSemantics(
   if (
     raw.caseId !== request.caseId
     || raw.category !== request.category
+    || raw.rubricVersion !== request.rubricVersion
     || raw.promptDigest !== request.promptDigest
     || raw.answerDigest !== request.answerDigest
     || raw.attempts !== 1
