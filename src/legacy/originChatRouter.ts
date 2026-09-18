@@ -29,6 +29,10 @@ import { Router } from "express";
 import { createOriginAnswerEnvelope, type OriginAnswerEnvelope, type OriginAnswerEvidenceItem, type OriginAnswerVerificationStatus } from "../lib/orchestration/OriginAnswerEnvelope.js";
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
 import { verifyOriginAnswerSources } from "../lib/orchestration/OriginAnswerSourceVerificationPipeline.js";
+import {
+  verifyOriginAnswerSourcesBatch,
+  type OriginBatchAnswerSourceVerificationOptions,
+} from "../lib/orchestration/OriginBatchAnswerSourceVerification.js";
 import type { OriginSourceVerificationExecutor } from "../lib/orchestration/OriginSourceVerification.js";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
@@ -43,7 +47,7 @@ import { executeOriginProvider, assertOriginZeroCostExecutionResult, OriginProvi
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
-export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; sourceVerificationExecutor?: OriginSourceVerificationExecutor; }
+export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; sourceVerificationExecutor?: OriginSourceVerificationExecutor; batchSourceVerification?: OriginBatchAnswerSourceVerificationOptions; }
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";
 const RETRYABLE_PROVIDER_CODES = new Set(["PROVIDER_RATE_LIMITED", "PROVIDER_TIMEOUT", "PROVIDER_UNAVAILABLE", "PROVIDER_INTERNAL_ERROR"]);
@@ -86,7 +90,7 @@ function firstAnswerBlock(content: string): string { const firstBlock = content.
 function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions }); if (result.ok === false) throw new Error(result.code); return result.value; }
 
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
-  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env)); const sourceVerificationExecutor = options.sourceVerificationExecutor;
+  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env)); const sourceVerificationExecutor = options.sourceVerificationExecutor; const batchSourceVerification = options.batchSourceVerification;
   router.post("/api/chat", async (req, res) => {
     const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");
     if (wantsStreaming) {
@@ -137,11 +141,16 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const result = await executeWithRetry(execute, providerRequest); assertOriginZeroCostExecutionResult(result, planningResult.plan.modelId);
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       const providedEvidence = extractProvidedOriginEvidence(result.text);
-      const sourceVerification = await verifyOriginAnswerSources(
-        providedEvidence,
-        sourceVerificationExecutor,
-        now(),
-      );
+      const sourceVerification = batchSourceVerification
+        ? await verifyOriginAnswerSourcesBatch(providedEvidence, {
+            ...batchSourceVerification,
+            now: batchSourceVerification.now ?? now,
+          })
+        : await verifyOriginAnswerSources(
+            providedEvidence,
+            sourceVerificationExecutor,
+            now(),
+          );
       const evidence = sourceVerification.evidence;
       const sourceEvidenceExpected = planningResult.plan.taskType === "research";
       if (evidence.length > 0) {

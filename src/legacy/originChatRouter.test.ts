@@ -5,6 +5,7 @@ import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPoli
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
 import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
 import type { OriginSourceVerificationExecutor } from "../lib/orchestration/OriginSourceVerification";
+import type { OriginBatchAnswerSourceVerificationOptions } from "../lib/orchestration/OriginBatchAnswerSourceVerification";
 import { OriginProviderError } from "./originProviderClient";
 
 const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
@@ -17,10 +18,10 @@ const defaultExecutionResult = {
   usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 as const },
 };
 
-function createApp(execute: OriginChatExecutor, env: NodeJS.ProcessEnv = { OPENROUTER_API_KEY: "synthetic-test-key" }, catalogNow: () => number = () => verifiedCatalogTime, contextPolicy?: OriginContextPolicy, sourceVerificationExecutor?: OriginSourceVerificationExecutor) {
+function createApp(execute: OriginChatExecutor, env: NodeJS.ProcessEnv = { OPENROUTER_API_KEY: "synthetic-test-key" }, catalogNow: () => number = () => verifiedCatalogTime, contextPolicy?: OriginContextPolicy, sourceVerificationExecutor?: OriginSourceVerificationExecutor, batchSourceVerification?: OriginBatchAnswerSourceVerificationOptions) {
   const app = express();
   app.use(express.json());
-  app.use(createOriginChatRouter({ env, execute, now: (() => { let current = 1_000; return () => { current += 25; return current; }; })(), catalogNow, contextPolicy, createRequestId: () => "origin-test-trace", sourceVerificationExecutor }));
+  app.use(createOriginChatRouter({ env, execute, now: (() => { let current = 1_000; return () => { current += 25; return current; }; })(), catalogNow, contextPolicy, createRequestId: () => "origin-test-trace", sourceVerificationExecutor, batchSourceVerification }));
   return app;
 }
 
@@ -81,6 +82,66 @@ describe("createOriginChatRouter", () => {
     expect(response.body.answer.limitations).not.toContain(
       "表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。",
     );
+  });
+
+
+  it("verifies two explicit citations with one batched assessor execution", async () => {
+    executeMock.mockResolvedValueOnce({
+      ...defaultExecutionResult,
+      text: [
+        "Fact A. 〔Source: [Source A](https://a.example.com/doc)〕",
+        "Fact B. 〔Source: [Source B](https://b.example.com/doc)〕",
+      ].join("\n"),
+    });
+
+    const assessor = vi.fn(async (request) => ({
+      items: request.items.map((item) => ({
+        id: item.id,
+        claim: item.claim,
+        sourceUrl: item.sourceUrl,
+        sourceDigest: item.sourceDigest,
+        support: "supported",
+        supportingExcerpt: item.claim,
+      })),
+      actualCostUsd: 0,
+      attempts: 1,
+    }));
+
+    const batchSourceVerification: OriginBatchAnswerSourceVerificationOptions = {
+      assessor,
+      resolver: vi.fn(async () => [{
+        address: "93.184.216.34",
+        family: 4 as const,
+      }]),
+      transport: vi.fn(async (url) => ({
+        status: 200,
+        headers: { "content-type": "text/plain" },
+        body: Buffer.from(url.includes("a.example.com") ? "Fact A." : "Fact B."),
+      })),
+    };
+
+    const response = await request(
+      createApp(
+        execute,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        batchSourceVerification,
+      ),
+    ).post("/api/chat").send({
+      messages: [{ role: "user", content: "Please explain both facts." }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(assessor).toHaveBeenCalledTimes(1);
+    expect(response.body.answer.evidence).toHaveLength(2);
+    expect(response.body.answer.evidence.every((item: { evidenceLevel: string }) =>
+      item.evidenceLevel === "source-checked"
+    )).toBe(true);
+    expect(response.body.answer.evidence.every((item: { checks: { freshness: string } }) =>
+      item.checks.freshness === "not-applicable"
+    )).toBe(true);
   });
 
   it("keeps an explicit citation unverified when source verification fails", async () => {
