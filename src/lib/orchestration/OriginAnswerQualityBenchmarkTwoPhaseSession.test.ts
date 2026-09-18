@@ -198,7 +198,7 @@ describe("OriginAnswerQualityBenchmarkTwoPhaseSession", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok === true) return;
     expect(result.code).toBe("AQ_BENCHMARK_SESSION_EXECUTION_FAILED");
   });
 });
