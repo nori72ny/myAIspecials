@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope";
