@@ -11,6 +11,7 @@ import {
   runOriginAnswerQualityBenchmarkSession,
   type OriginAnswerQualityBenchmarkScoringEvidenceCollector,
   type OriginAnswerQualityBenchmarkSessionResult,
+  type OriginAnswerQualityBenchmarkSessionSuccess,
 } from "./OriginAnswerQualityBenchmarkSession.js";
 
 export interface OriginAnswerQualityOfficialBenchmarkScorerProvenance {
@@ -35,8 +36,15 @@ export interface OriginAnswerQualityOfficialBenchmarkSessionInput {
   readonly nowMs?: () => number;
 }
 
+export interface OriginAnswerQualityOfficialBenchmarkSessionSuccess
+  extends OriginAnswerQualityBenchmarkSessionSuccess {
+  readonly scorerProvenance: OriginAnswerQualityOfficialBenchmarkScorerProvenance;
+  readonly scorerProvenanceDigest: string;
+}
+
 export type OriginAnswerQualityOfficialBenchmarkSessionResult =
-  | OriginAnswerQualityBenchmarkSessionResult
+  | { ok: true; value: OriginAnswerQualityOfficialBenchmarkSessionSuccess }
+  | Exclude<OriginAnswerQualityBenchmarkSessionResult, { ok: true }>
   | { ok: false; code: "AQ_BENCHMARK_OFFICIAL_SCORER_PROVENANCE_INVALID" };
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
@@ -45,6 +53,18 @@ export function digestOriginAnswerQualityOfficialScorerRevision(
   source: string,
 ): string {
   return `sha256:${createHash("sha256").update(source, "utf8").digest("hex")}`;
+}
+
+function canonicalScorerProvenance(
+  value: OriginAnswerQualityOfficialBenchmarkScorerProvenance,
+): string {
+  return [
+    value.schemaVersion,
+    value.scorerId,
+    value.scorerRevision,
+    value.corpusId,
+    value.corpusVersion,
+  ].join("\n");
 }
 
 function validScorerProvenance(
@@ -87,7 +107,7 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
     nowMs: input.nowMs,
   });
 
-  return runOriginAnswerQualityBenchmarkSession({
+  const session = await runOriginAnswerQualityBenchmarkSession({
     runId: input.runId,
     gitSha: input.gitSha,
     providerId: input.providerId,
@@ -102,4 +122,18 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
     collectScoringEvidence: input.collectScoringEvidence,
     nowMs: input.nowMs,
   });
+
+  if (!session.ok) return session;
+
+  const scorerProvenance = Object.freeze({ ...input.scorerProvenance });
+  return {
+    ok: true,
+    value: Object.freeze({
+      ...session.value,
+      scorerProvenance,
+      scorerProvenanceDigest: digestOriginAnswerQualityOfficialScorerRevision(
+        canonicalScorerProvenance(scorerProvenance),
+      ),
+    }),
+  };
 }
