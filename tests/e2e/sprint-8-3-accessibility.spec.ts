@@ -77,6 +77,29 @@ test.describe('ORIGIN Personal 2.0 accessibility', () => {
     await expect(page.getByRole('article', { name: 'あなたの依頼' })).toBeVisible();
   });
 
+
+  test('main chat surface has no serious automated WCAG violations after a response', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/plain; charset=utf-8',
+        body: '## 結論\n\n確認結果です。\n\n- 項目A\n- 項目B',
+      });
+    });
+    await page.goto('/');
+    await openConversation(page);
+
+    const accessibility = await new AxeBuilder({ page })
+      .include('main')
+      .withTags(['wcag2a', 'wcag2aa'])
+      .analyze();
+
+    expect(
+      accessibility.violations.filter((item) => ['critical', 'serious'].includes(item.impact ?? '')),
+    ).toEqual([]);
+    await expect(page.getByRole('article', { name: 'ORIGINの回答' })).toBeVisible();
+  });
+
   test('personal data is blocked locally and announced without an API request', async ({ page }) => {
     let requests = 0;
     await page.route('**/api/chat', async (route) => {
