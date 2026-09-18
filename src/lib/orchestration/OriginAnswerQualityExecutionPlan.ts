@@ -11,9 +11,11 @@ export type OriginAnswerQualityExecutionPlanStage =
   | "presenter"
   | "trace";
 
+export type OriginAnswerQualityStageActivation = "required" | "conditional" | "optional";
+
 export interface OriginAnswerQualityExecutionPlanStageRecord {
   readonly stage: OriginAnswerQualityExecutionPlanStage;
-  readonly required: boolean;
+  readonly activation: OriginAnswerQualityStageActivation;
   readonly onFailure: "stop" | "continue-unverified";
 }
 
@@ -38,6 +40,10 @@ export function buildOriginAnswerQualityExecutionPlan(
   requirements: OriginAnswerQualityStageRequirements,
 ): OriginAnswerQualityExecutionPlan {
   const required = new Set<OriginAnswerQualityExecutionPlanStage>();
+  const conditional = new Set<OriginAnswerQualityExecutionPlanStage>([
+    "repair",
+    "reverification",
+  ]);
 
   if (requirements.claimExtractionRequired) required.add("claim-extraction");
   if (requirements.claimCoverageReviewRequired) required.add("claim-coverage-review");
@@ -45,23 +51,26 @@ export function buildOriginAnswerQualityExecutionPlan(
 
   required.add("verifier");
   if (requirements.independentReviewRequired) required.add("independent-review");
-
-  // Repair/reverification are conditional stages: they must exist in the plan,
-  // but they execute only if the verifier returns REPAIR_REQUIRED.
-  required.add("repair");
-  required.add("reverification");
   required.add("presenter");
 
   if (requirements.tracePersistenceRequired) required.add("trace");
 
-  const stages = ORDER.map((stage) => Object.freeze({
-    stage,
-    required: required.has(stage),
-    onFailure:
-      stage === "presenter" || (!required.has(stage) && stage === "trace")
-        ? "continue-unverified" as const
-        : "stop" as const,
-  }));
+  const stages = ORDER.map((stage) => {
+    const activation: OriginAnswerQualityStageActivation = required.has(stage)
+      ? "required"
+      : conditional.has(stage)
+        ? "conditional"
+        : "optional";
+
+    return Object.freeze({
+      stage,
+      activation,
+      onFailure:
+        stage === "presenter" || (activation === "optional" && stage === "trace")
+          ? "continue-unverified" as const
+          : "stop" as const,
+    });
+  });
 
   return Object.freeze({
     schemaVersion: "origin.aq-execution-plan.v1",
@@ -88,7 +97,14 @@ export function validateOriginAnswerQualityExecutionPlan(
 
   const verifier = plan.stages.find((stage) => stage.stage === "verifier");
   const presenter = plan.stages.find((stage) => stage.stage === "presenter");
-  if (!verifier?.required || !presenter?.required) {
+  const repair = plan.stages.find((stage) => stage.stage === "repair");
+  const reverification = plan.stages.find((stage) => stage.stage === "reverification");
+  if (
+    verifier?.activation !== "required"
+    || presenter?.activation !== "required"
+    || repair?.activation !== "conditional"
+    || reverification?.activation !== "conditional"
+  ) {
     return { ok: false, code: "AQ_EXECUTION_PLAN_INVALID" };
   }
 
