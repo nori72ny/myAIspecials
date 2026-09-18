@@ -23,6 +23,8 @@ describe("OriginAnswerQualityBenchmarkScoring", () => {
     const result = scoreOriginAnswerQualityBenchmarkEvidence(execution(), {
       caseId: "case-1",
       category: "multi-source-comparison",
+      finalAnswerRef: "answer:1",
+      evidenceLedgerRef: "ledger:1",
       totalMaterialClaims: 4,
       supportedMaterialClaims: 3,
       totalRenderedCitations: 5,
@@ -53,6 +55,8 @@ describe("OriginAnswerQualityBenchmarkScoring", () => {
     const result = scoreOriginAnswerQualityBenchmarkEvidence(execution(), {
       caseId: "case-1",
       category: "current-factual",
+      finalAnswerRef: "answer:1",
+      evidenceLedgerRef: "ledger:1",
       totalMaterialClaims: 0,
       supportedMaterialClaims: 0,
       totalRenderedCitations: 0,
@@ -80,6 +84,8 @@ describe("OriginAnswerQualityBenchmarkScoring", () => {
     const result = scoreOriginAnswerQualityBenchmarkEvidence(execution(), {
       caseId: "case-1",
       category: "current-factual",
+      finalAnswerRef: "answer:1",
+      evidenceLedgerRef: "ledger:1",
       totalMaterialClaims: 2,
       supportedMaterialClaims: 3,
       totalRenderedCitations: 1,
@@ -102,6 +108,8 @@ describe("OriginAnswerQualityBenchmarkScoring", () => {
     expect(scoreOriginAnswerQualityBenchmarkEvidence(execution(), {
       caseId: "case-1",
       category: "coding-repair",
+      finalAnswerRef: "answer:1",
+      evidenceLedgerRef: "ledger:1",
       totalMaterialClaims: 1,
       supportedMaterialClaims: 1,
       totalRenderedCitations: 0,
@@ -120,6 +128,8 @@ describe("OriginAnswerQualityBenchmarkScoring", () => {
     expect(scoreOriginAnswerQualityBenchmarkEvidence(execution(), {
       caseId: "case-1",
       category: "fail-closed",
+      finalAnswerRef: "answer:1",
+      evidenceLedgerRef: "ledger:1",
       totalMaterialClaims: 0,
       supportedMaterialClaims: 0,
       totalRenderedCitations: 0,
@@ -140,6 +150,8 @@ describe("OriginAnswerQualityBenchmarkScoring", () => {
     const result = scoreOriginAnswerQualityBenchmarkEvidence(execution({ costUsd: 0.01 }), {
       caseId: "case-1",
       category: "professional-advice",
+      finalAnswerRef: "answer:1",
+      evidenceLedgerRef: "ledger:1",
       totalMaterialClaims: 0,
       supportedMaterialClaims: 0,
       totalRenderedCitations: 0,
@@ -157,4 +169,31 @@ describe("OriginAnswerQualityBenchmarkScoring", () => {
 
     expect(result).toEqual({ ok: false, code: "AQ_BENCHMARK_SCORING_NON_ZERO_COST" });
   });
+  it("rejects scoring evidence from a different executed answer", () => {
+    const result = scoreOriginAnswerQualityBenchmarkEvidence(execution(), {
+      caseId: "case-1",
+      category: "professional-advice",
+      finalAnswerRef: "answer:other",
+      evidenceLedgerRef: "ledger:1",
+      totalMaterialClaims: 0,
+      supportedMaterialClaims: 0,
+      totalRenderedCitations: 0,
+      supportingRenderedCitations: 0,
+      citationsRequired: false,
+      materialContradictionsPresent: 0,
+      materialContradictionsSurfaced: 0,
+      deliverableCompleted: true,
+      verifierRejectedUnsupportedClaim: false,
+      repairRequired: false,
+      verificationIntegrityAccurate: true,
+      failClosedDesigned: false,
+      userActionabilityScore: 3,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_SCORING_EVIDENCE_REF_MISMATCH",
+    });
+  });
+
 });

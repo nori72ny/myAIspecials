@@ -9,6 +9,8 @@ import type {
 export interface OriginAnswerQualityBenchmarkScoringEvidence {
   readonly caseId: string;
   readonly category: OriginAnswerQualityBenchmarkCategory;
+  readonly finalAnswerRef: string | null;
+  readonly evidenceLedgerRef: string | null;
   readonly totalMaterialClaims: number;
   readonly supportedMaterialClaims: number;
   readonly totalRenderedCitations: number;
@@ -32,6 +34,7 @@ export type OriginAnswerQualityBenchmarkScoringResult =
       ok: false;
       code:
         | "AQ_BENCHMARK_SCORING_IDENTITY_MISMATCH"
+        | "AQ_BENCHMARK_SCORING_EVIDENCE_REF_MISMATCH"
         | "AQ_BENCHMARK_SCORING_INVALID_COUNTS"
         | "AQ_BENCHMARK_SCORING_INVALID_REPAIR"
         | "AQ_BENCHMARK_SCORING_INVALID_FAIL_CLOSED"
@@ -52,6 +55,12 @@ export function scoreOriginAnswerQualityBenchmarkEvidence(
 ): OriginAnswerQualityBenchmarkScoringResult {
   if (execution.caseId !== evidence.caseId) {
     return { ok: false, code: "AQ_BENCHMARK_SCORING_IDENTITY_MISMATCH" };
+  }
+  if (
+    execution.finalAnswerRef !== evidence.finalAnswerRef
+    || execution.evidenceLedgerRef !== evidence.evidenceLedgerRef
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_SCORING_EVIDENCE_REF_MISMATCH" };
   }
   if (execution.costUsd !== 0) {
     return { ok: false, code: "AQ_BENCHMARK_SCORING_NON_ZERO_COST" };
