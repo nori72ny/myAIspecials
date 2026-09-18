@@ -1,45 +1,44 @@
-import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { createOriginAnswerQualityBenchmarkCodingCheckoutAdapter } from "./OriginAnswerQualityBenchmarkCodingCheckoutAdapter";
+import {
+  createOriginAnswerQualityBenchmarkCodingCheckoutAdapter,
+  type OriginAnswerQualityBenchmarkGitExecutor,
+} from "./OriginAnswerQualityBenchmarkCodingCheckoutAdapter";
 import { readOriginAnswerQualityBenchmarkRuntimeAdapterMetadata } from "./OriginAnswerQualityBenchmarkRuntimeAdapter";
 
-const executeFile = promisify(execFile);
 const roots: string[] = [];
-let originalPath: string | undefined;
 
-beforeEach(() => {
-  originalPath = process.env.PATH;
-  if (process.platform !== "win32") {
-    process.env.PATH = ["/usr/local/bin", "/usr/bin", "/bin", originalPath]
-      .filter(Boolean)
-      .join(":");
-  }
-});
-
-async function repo(): Promise<{ root: string; sha: string }> {
+async function repo(): Promise<{
+  root: string;
+  sha: string;
+  gitExecutor: OriginAnswerQualityBenchmarkGitExecutor;
+}> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "origin-aq-coding-adapter-test-"));
   roots.push(root);
-  await executeFile("git", ["init"], { cwd: root });
-  await executeFile("git", ["config", "user.email", "test@example.com"], { cwd: root });
-  await executeFile("git", ["config", "user.name", "ORIGIN Test"], { cwd: root });
+  const sha = "a".repeat(40);
   await fs.writeFile(path.join(root, "tracked.txt"), "baseline\n", "utf8");
   await fs.mkdir(path.join(root, "node_modules"));
-  await executeFile("git", ["add", "tracked.txt"], { cwd: root });
-  await executeFile("git", ["commit", "-m", "baseline"], { cwd: root });
-  const { stdout } = await executeFile("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
-  return { root, sha: stdout.trim() };
+
+  const gitExecutor: OriginAnswerQualityBenchmarkGitExecutor = async (args, cwd) => {
+    expect(cwd).toBe(root);
+    if (args.join(" ") === "rev-parse --verify HEAD") return { stdout: `${sha}\n` };
+    if (args.join(" ") === "diff-index --quiet HEAD --") {
+      const tracked = await fs.readFile(path.join(root, "tracked.txt"), "utf8");
+      if (tracked !== "baseline\n") throw new Error("dirty");
+      return { stdout: "" };
+    }
+    throw new Error(`unexpected git args: ${args.join(" ")}`);
+  };
+
+  return { root, sha, gitExecutor };
 }
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
-  if (originalPath === undefined) delete process.env.PATH;
-  else process.env.PATH = originalPath;
 });
 
 describe("OriginAnswerQualityBenchmarkCodingCheckoutAdapter", () => {
@@ -49,6 +48,7 @@ describe("OriginAnswerQualityBenchmarkCodingCheckoutAdapter", () => {
       sourceRoot: fixture.root,
       expectedGitSha: fixture.sha,
       env: {},
+      gitExecutor: fixture.gitExecutor,
     });
 
     expect(readOriginAnswerQualityBenchmarkRuntimeAdapterMetadata(adapter)).toEqual({
@@ -65,6 +65,7 @@ describe("OriginAnswerQualityBenchmarkCodingCheckoutAdapter", () => {
       sourceRoot: fixture.root,
       expectedGitSha: "b".repeat(40),
       env: {},
+      gitExecutor: fixture.gitExecutor,
     })).rejects.toThrow("AQ_BENCHMARK_CODING_SOURCE_SHA_MISMATCH");
   });
 
@@ -76,15 +77,24 @@ describe("OriginAnswerQualityBenchmarkCodingCheckoutAdapter", () => {
       sourceRoot: fixture.root,
       expectedGitSha: fixture.sha,
       env: {},
+      gitExecutor: fixture.gitExecutor,
     })).rejects.toThrow("AQ_BENCHMARK_CODING_CHECKOUT_DIRTY");
   });
 
-  it("rejects malformed expected revisions", async () => {
+  it("rejects malformed expected revisions before invoking git", async () => {
     const fixture = await repo();
+    let gitCalled = false;
+    const gitExecutor: OriginAnswerQualityBenchmarkGitExecutor = async () => {
+      gitCalled = true;
+      return { stdout: fixture.sha };
+    };
+
     await expect(createOriginAnswerQualityBenchmarkCodingCheckoutAdapter({
       sourceRoot: fixture.root,
       expectedGitSha: "not-a-sha",
       env: {},
+      gitExecutor,
     })).rejects.toThrow("AQ_BENCHMARK_CODING_SHA_INVALID");
+    expect(gitCalled).toBe(false);
   });
 });
