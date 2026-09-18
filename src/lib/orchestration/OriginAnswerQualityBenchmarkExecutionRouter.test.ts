@@ -92,10 +92,8 @@ describe("OriginAnswerQualityBenchmarkExecutionRouter", () => {
       chat: createOriginAnswerQualityBenchmarkRuntimeAdapter("chat", "origin-chat", chat),
     });
 
-    const result = await execute(item("professional-advice"));
-
-    expect(result.verifierResult).toBe("BLOCKED_UNVERIFIED");
-    expect(result.failureCode).toBe("AQ_BENCHMARK_LANE_CASE_MISMATCH:chat");
+    await expect(execute(item("professional-advice")))
+      .rejects.toThrow("AQ_BENCHMARK_LANE_CASE_MISMATCH:chat");
   });
 
   it("fails closed if a lane reports non-zero cost", async () => {
@@ -114,10 +112,7 @@ describe("OriginAnswerQualityBenchmarkExecutionRouter", () => {
       coding: createOriginAnswerQualityBenchmarkRuntimeAdapter("coding", "coding-v1.4", coding),
     });
 
-    const result = await execute(item("coding-generation"));
-
-    expect(result.verifierResult).toBe("BLOCKED_UNVERIFIED");
-    expect(result.costUsd).toBe(0);
-    expect(result.failureCode).toBe("AQ_BENCHMARK_LANE_NON_ZERO_COST:coding");
+    await expect(execute(item("coding-generation")))
+      .rejects.toThrow("AQ_BENCHMARK_LANE_NON_ZERO_COST:coding");
   });
 });
