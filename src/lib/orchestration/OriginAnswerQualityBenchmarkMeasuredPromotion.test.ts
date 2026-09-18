@@ -93,8 +93,6 @@ describe("OriginAnswerQualityBenchmarkMeasuredPromotion", () => {
       candidateManifest: m,
       baselineRun: run(m, "a".repeat(40), "baseline"),
       candidateRun: run(m, "b".repeat(40), "candidate"),
-      baselineObservations: baseline,
-      candidateObservations: candidate,
       baselineMeasuredObservations: measured(baseline),
       candidateMeasuredObservations: measured(candidate),
     });
@@ -124,8 +122,6 @@ describe("OriginAnswerQualityBenchmarkMeasuredPromotion", () => {
       candidateManifest: m,
       baselineRun: run(m, "a".repeat(40), "baseline"),
       candidateRun: run(m, "b".repeat(40), "candidate"),
-      baselineObservations: baseline,
-      candidateObservations: candidate,
       baselineMeasuredObservations: measured(baseline),
       candidateMeasuredObservations: candidateMeasured,
     });
@@ -155,8 +151,6 @@ describe("OriginAnswerQualityBenchmarkMeasuredPromotion", () => {
       candidateManifest: m,
       baselineRun: run(m, "a".repeat(40), "baseline"),
       candidateRun: run(m, "b".repeat(40), "candidate"),
-      baselineObservations: baseline,
-      candidateObservations: candidate,
       baselineMeasuredObservations: measured(baseline),
       candidateMeasuredObservations: candidateMeasured,
     });
@@ -185,8 +179,6 @@ describe("OriginAnswerQualityBenchmarkMeasuredPromotion", () => {
       candidateManifest: m,
       baselineRun: run(m, "a".repeat(40), "baseline"),
       candidateRun: run(m, "b".repeat(40), "candidate"),
-      baselineObservations: baseline,
-      candidateObservations: candidate,
       baselineMeasuredObservations: measured(baseline),
       candidateMeasuredObservations: candidateMeasured,
     });
