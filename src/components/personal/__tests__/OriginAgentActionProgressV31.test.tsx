@@ -55,4 +55,11 @@ describe('OriginAgentActionProgressV31', () => {
     expect(screen.getAllByRole('button').every(button => button.hasAttribute('disabled'))).toBe(true);
     expect(screen.queryByText(/server側の停止確認を待っています/)).not.toBeNull();
   });
+
+  it('respects the mobile safe area for fixed Agent controls', () => {
+    render(<OriginAgentActionProgressV31 status="running" onStop={() => undefined} />);
+
+    const controls = screen.getByLabelText('Agent mobile controls');
+    expect(controls.getAttribute('style')).toContain('safe-area-inset-bottom');
+  });
 });
