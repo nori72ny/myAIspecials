@@ -185,3 +185,98 @@ Measure before/after on the same separate benchmark:
 ## Release boundary
 
 No runtime implementation from this document may land in main before V1.4 final unseen qualification is completed and its evidence is frozen.
+
+
+## Implementation slices after held-out
+
+### Slice A — Intent & Evidence Contract
+
+Add a request classifier that decides:
+- task family;
+- freshness requirement;
+- whether external evidence is mandatory;
+- whether code execution/tests are mandatory;
+- whether user confirmation is required;
+- maximum free-provider/tool budget.
+
+Output must be structured and testable. It must not expose chain-of-thought.
+
+### Slice B — Planner Contract
+
+Planner output should contain:
+- objective;
+- ordered actions;
+- required evidence;
+- stop conditions;
+- verification criteria;
+- allowed tools/providers;
+- explicit unknowns.
+
+Planner must not be considered completion evidence.
+
+### Slice C — Evidence Ledger
+
+Create an append-only execution evidence ledger for:
+- tool/provider call;
+- timestamp;
+- source/file identifier;
+- result status;
+- cost USD;
+- verification relationship;
+- failure reason.
+
+No secrets or raw private reasoning may be written to the ledger.
+
+### Slice D — Independent Verifier
+
+Verifier receives:
+- user request;
+- proposed answer/artifact;
+- evidence ledger;
+- completion criteria.
+
+Verifier can return only:
+- PASS;
+- REPAIR_REQUIRED;
+- BLOCKED_UNVERIFIED.
+
+Verifier must not silently rewrite evidence or turn an unsupported claim into a supported one.
+
+### Slice E — Repair Loop
+
+If REPAIR_REQUIRED:
+- produce explicit repair targets;
+- execute only the missing or failed work;
+- append new evidence;
+- re-run verification.
+
+Bound repair rounds and fail closed when the free execution budget is exhausted.
+
+### Slice F — Presenter
+
+Presenter must distinguish:
+- verified fact;
+- user-provided fact;
+- inference;
+- assumption;
+- unresolved uncertainty.
+
+When citations are required, every material externally sourced claim must map to evidence.
+
+### Slice G — Answer Quality Benchmark Harness
+
+Build a benchmark runner that:
+- uses a separate corpus from official V1.4 held-out tasks;
+- stores raw outputs and evidence;
+- computes support/citation/completion/repair metrics;
+- preserves exact benchmark version and runtime SHA;
+- permits before/after comparison without leaking official held-out content.
+
+### Slice H — Release Integration
+
+Only after benchmark improvement is measured:
+- stack answer-quality implementation on the validated UI/UX head;
+- run the full release gate;
+- promote to main;
+- verify production SHA and health;
+- verify production answer-quality pipeline is active.
