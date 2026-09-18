@@ -152,6 +152,96 @@ describe("createOriginChatRouter", () => {
     expect(JSON.stringify(response.body)).not.toContain("secret-internal-detail");
     expect(executeMock).toHaveBeenCalledTimes(1);
   });
+
+
+  it("records a sanitized blocked trace without persisting the secret-bearing input", async () => {
+    const append = vi.fn().mockResolvedValue(true);
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      execute,
+      now: (() => { let current = 40_000; return () => { current += 25; return current; }; })(),
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-test-trace",
+      traceSink: { append },
+    }));
+
+    const response = await request(app).post("/api/chat").send({
+      messages: [{ role: "user", content: "Authorization: Bearer synthetic_token_value_123456" }],
+    });
+
+    expect(response.status).toBe(422);
+    expect(append).toHaveBeenCalledTimes(1);
+    const record = append.mock.calls[0][0];
+    expect(record).toMatchObject({
+      outcome: "blocked",
+      failureCode: "SENSITIVE_INPUT_BLOCKED",
+      taskType: "sensitive-input",
+      actualCostUsd: 0,
+      freeOnly: true,
+    });
+    expect(JSON.stringify(record)).not.toContain("synthetic_token_value_123456");
+  });
+
+  it("records policy rejection without provider execution", async () => {
+    const append = vi.fn().mockResolvedValue(true);
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      execute,
+      now: (() => { let current = 50_000; return () => { current += 25; return current; }; })(),
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-test-trace",
+      traceSink: { append },
+    }));
+
+    const response = await request(app).post("/api/chat").send({
+      messages: [{ role: "user", content: "文章を確認してください" }],
+      executionPolicy: { timeoutMs: 0 },
+    });
+
+    expect(response.status).toBe(400);
+    expect(executeMock).not.toHaveBeenCalled();
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: "policy-rejected",
+      failureCode: "INVALID_EXECUTION_POLICY",
+      taskType: "execution-policy",
+    }));
+  });
+
+  it("records sanitized provider failures without upstream diagnostic content", async () => {
+    executeMock.mockRejectedValueOnce(
+      new OriginProviderError("PROVIDER_TIMEOUT", "secret-upstream-body", 504, true),
+    );
+    const append = vi.fn().mockResolvedValue(true);
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      execute,
+      now: (() => { let current = 60_000; return () => { current += 25; return current; }; })(),
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-test-trace",
+      traceSink: { append },
+    }));
+
+    const response = await request(app).post("/api/chat").send({
+      messages: [{ role: "user", content: "文章を確認してください" }],
+    });
+
+    expect(response.status).toBe(504);
+    const record = append.mock.calls[0][0];
+    expect(record).toMatchObject({
+      outcome: "provider-failure",
+      failureCode: "PROVIDER_TIMEOUT",
+      actualCostUsd: 0,
+      freeOnly: true,
+    });
+    expect(JSON.stringify(record)).not.toContain("secret-upstream-body");
+  });
+
   it("does not use Gemini when no explicitly free primary provider is configured", async () => { const response = await request(createApp(execute, { GEMINI_API_KEY: "synthetic-gemini-key" })).post("/api/chat").send({ messages: [{ role: "user", content: "文章を確認してください" }] }); expect(response.status).toBe(503); expect(response.body.code).toBe("FREE_PROVIDER_NOT_CONFIGURED"); expect(executeMock).not.toHaveBeenCalled(); });
   it("fails closed after free-model evidence expires", async () => { const response = await request(createApp(execute, { OPENROUTER_API_KEY: "synthetic-test-key" }, () => Date.parse(verifiedEvidence.reviewAfter) + 1)).post("/api/chat").send({ messages: [{ role: "user", content: "文章を確認してください" }] }); expect(response.status).toBe(503); expect(response.body.code).toBe("FREE_MODEL_EVIDENCE_STALE"); expect(executeMock).not.toHaveBeenCalled(); });
   it("handles weather clarification locally", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "今日の天気は？" }] }); expect(response.status).toBe(200); expect(response.body.content).toBe("どの地域の天気をお調べしますか？"); expect(executeMock).not.toHaveBeenCalled(); });
