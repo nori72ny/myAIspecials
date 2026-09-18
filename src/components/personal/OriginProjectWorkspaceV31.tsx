@@ -78,7 +78,7 @@ export default function OriginProjectWorkspaceV31({
           id="origin-project-view"
           value={activeView}
           onChange={(event) => onViewChange(event.target.value as OriginProjectViewV31)}
-          className="mt-1 min-h-11 w-full rounded-lg border border-origin-border bg-transparent px-3 text-sm font-semibold"
+          className="origin-interactive-target mt-1 min-h-11 w-full rounded-lg border border-origin-border bg-transparent px-3 text-sm font-semibold"
         >
           {views.filter((view) => view.available).map((view) => <option key={view.id} value={view.id}>{view.label}</option>)}
         </select>

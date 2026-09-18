@@ -213,7 +213,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
                 <div className="min-w-0"><p className="m-0 text-xs font-black text-indigo-500">{source.id}</p><h3 className="mt-1 break-words text-sm font-bold">{source.title}</h3><p className="mt-1 text-xs text-slate-500">{source.domain}</p></div>
                 <div className="flex shrink-0 flex-wrap gap-1 text-[10px]"><span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-700">{source.evidenceLevel}</span><span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-700">{source.freshness}</span><span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-700">score {source.score}/100</span></div>
               </div>
-              {href ? <a href={href} target="_blank" rel="noreferrer" className="mt-3 inline-flex min-h-11 items-center break-all text-sm font-semibold text-indigo-600 underline dark:text-indigo-300">原文を開く</a> : <p className="mt-3 text-xs font-semibold text-amber-700 dark:text-amber-300">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
+              {href ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-3 inline-flex min-h-11 items-center break-all text-sm font-semibold text-indigo-600 underline dark:text-indigo-300">原文を開く</a> : <p className="mt-3 text-xs font-semibold text-amber-700 dark:text-amber-300">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
             </article>;
           })}</div>
         </section>
