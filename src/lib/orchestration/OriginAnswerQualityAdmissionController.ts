@@ -13,6 +13,10 @@ import {
   type OriginAnswerQualityStageRequirements,
 } from "./OriginAnswerQualityStagePolicy.js";
 import type { OriginVerificationDecision } from "./OriginVerifier.js";
+import {
+  readOriginAnswerQualityExecutionUsage,
+  type OriginAnswerQualityUsageMeter,
+} from "./OriginAnswerQualityUsageMeter.js";
 
 export interface OriginAnswerQualityAdmissionInput {
   readonly policy: OriginAnswerQualityPolicy;
@@ -64,4 +68,20 @@ export function decideOriginAnswerQualityAdmission(
     readiness,
     budget: budgetResult,
   });
+}
+
+
+export function decideOriginAnswerQualityAdmissionFromMeter(
+  input: Omit<OriginAnswerQualityAdmissionInput, "usage">,
+  meter: OriginAnswerQualityUsageMeter,
+  nowMs: number,
+  budget?: OriginAnswerQualityExecutionBudget,
+): OriginAnswerQualityAdmissionDecision {
+  return decideOriginAnswerQualityAdmission(
+    {
+      ...input,
+      usage: readOriginAnswerQualityExecutionUsage(meter, nowMs),
+    },
+    budget,
+  );
 }
