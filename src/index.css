@@ -345,3 +345,30 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
 .origin-mobile-agent-controls {
   padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
 }
+
+
+.origin-interactive-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+summary:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+a[href]:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  summary,
+  select,
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  a[href].origin-touch-link {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
