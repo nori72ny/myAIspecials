@@ -82,12 +82,24 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
           <span className="origin-muted text-xs">Workspace</span>
           <span className="origin-badge inline-flex min-h-8 items-center border px-3 text-xs font-bold">Personal</span>
         </div>
-        <div aria-label="Model Tools Agent" className="flex max-w-full gap-2 overflow-x-auto pb-1">
+        <div aria-label="Model Tools Agent" className="hidden max-w-full gap-2 overflow-x-auto pb-1 md:flex">
           <ModelDetails />
           <CapabilityDetails mode={mode} />
           <AgentDetails mode={mode} />
         </div>
       </div>
+
+      <details className="origin-card border px-3 py-2 md:hidden" aria-label="ORIGIN mobile controls">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold">
+          <span>Controls</span>
+          <span className="origin-muted text-xs">Model · Tools · Agent</span>
+        </summary>
+        <div className="grid gap-2 border-t border-origin-border pt-3 text-xs">
+          <div className="flex min-h-11 items-center justify-between gap-3"><span className="origin-muted">Model</span><strong>ORIGIN Auto</strong></div>
+          <div className="flex min-h-11 items-center justify-between gap-3"><span className="origin-muted">Tools</span><strong>自動管理</strong></div>
+          <div className="flex min-h-11 items-center justify-between gap-3"><span className="origin-muted">Agent</span><strong>{mode === 'coding' ? '実行可能' : '通常応答'}</strong></div>
+        </div>
+      </details>
 
       <nav aria-label="Mode" className="flex max-w-full items-center gap-2 overflow-x-auto border-t border-origin-border pt-3">
         <span className="origin-muted shrink-0 px-1 text-xs font-bold uppercase tracking-wide">Mode</span>
