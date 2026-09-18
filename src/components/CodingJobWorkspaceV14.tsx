@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import OriginAgentActionProgressV31 from './personal/OriginAgentActionProgressV31';
 import OriginCodingWorkspaceV31 from './personal/OriginCodingWorkspaceV31';
 
-type CodingJobStatus = 'queued' | 'leased' | 'running' | 'repairing' | 'verified' | 'blocked' | 'failed' | 'cancelled';
+export type CodingJobStatus = 'queued' | 'leased' | 'running' | 'repairing' | 'verified' | 'blocked' | 'failed' | 'cancelled';
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 type CodingJobAuthorizationMode = 'coding-operator' | 'legacy-agent-compat' | 'unconfigured';
 
@@ -167,7 +167,16 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
   </span>;
 }
 
-export default function CodingJobWorkspaceV14() {
+export type CodingProjectEvidence = {
+  jobId: string | null;
+  status: CodingJobStatus | null;
+  changedPaths: readonly string[];
+  verificationChecks: readonly { kind: 'typecheck' | 'lint' | 'test' | 'build'; ok: boolean; exitCode: number | null; timedOut: boolean; attempt: number }[];
+};
+
+type CodingJobWorkspaceV14Props = { onProjectEvidenceChange?: (evidence: CodingProjectEvidence) => void };
+
+export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: CodingJobWorkspaceV14Props) {
   const [goal, setGoal] = useState('');
   const [existingJobId, setExistingJobId] = useState('');
   const [capability, setCapability] = useState<CapabilityResponse | null>(null);
@@ -311,6 +320,15 @@ export default function CodingJobWorkspaceV14() {
     } catch { if (epoch === requestEpochRef.current) setError('CODING_UI_CANCEL_UNAVAILABLE'); }
     finally { if (epoch === requestEpochRef.current) setBusy(false); }
   }, [applyResponse, busy, job]);
+
+  useEffect(() => {
+    onProjectEvidenceChange?.({
+      jobId: job?.jobId ?? null,
+      status: job?.status ?? null,
+      changedPaths: job?.changedPaths ?? [],
+      verificationChecks: result?.verificationChecks ?? [],
+    });
+  }, [job?.jobId, job?.status, job?.changedPaths, result?.verificationChecks, onProjectEvidenceChange]);
 
   const ready = capability?.ready === true;
   const dedicatedAuthorizationReady = capability?.authorizationReady === true && capability.authorizationMode === 'coding-operator';

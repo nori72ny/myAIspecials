@@ -194,4 +194,28 @@ describe('PersonalEditionApp production wrapper', () => {
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} />);
     expect(document.querySelector('[data-testid="mock-origin-app"]')?.textContent).toBe('ORIGIN');
   });
+
+  it('keeps Project navigation independent from Mode and opens only grounded artifacts', async () => {
+    const artifacts = [{ id: 'a-project', type: 'markdown' as const, title: 'Project artifact', language: 'markdown', content: '# Project', isComplete: true }];
+    render(<PersonalEditionApp artifacts={artifacts} />);
+
+    expect(screen.getByRole('region', { name: 'Project Workspace' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Research' }));
+    expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
+    expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
+    expect(window.location.search).toBe('?workspace=research');
+    expect(screen.getByRole('complementary', { name: '成果物ワークスペース' }).textContent).toContain('Project artifact');
+  });
+
+  it('keeps Project Files, Tasks, and Sources unavailable until real backing evidence is connected', () => {
+    render(<PersonalEditionApp />);
+
+    expect((screen.getByRole('button', { name: 'Project Files unavailable' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Project Tasks unavailable' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Project Sources unavailable' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
 });
