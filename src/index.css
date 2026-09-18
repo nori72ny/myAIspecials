@@ -211,7 +211,7 @@
 }
 .origin-surface { background: var(--bg-surface); border-color: var(--border-default); border-radius: var(--radius-card); box-shadow: 0 16px 36px var(--shadow-color); }
 .origin-surface-muted { background: var(--bg-surface-muted); border-color: var(--border-default); border-radius: var(--radius-card); }
-.origin-card { background: color-mix(in oklch, var(--bg-surface) 92%, transparent); border-color: var(--border-default); border-radius: var(--radius-card); color: var(--text-primary); }
+.origin-card { background: color-mix(in oklch, var(--bg-surface) 92%, transparent); border-color: var(--border-default); border-radius: var(--radius-card); color: var(--text-primary); transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
 .origin-card:hover { background: var(--bg-surface-muted); border-color: var(--accent-border); }
 .origin-input { color: var(--text-primary); caret-color: var(--accent-primary); }
 .origin-input::placeholder { color: var(--text-placeholder); opacity: 1; }
@@ -230,16 +230,16 @@
 .origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-primary); }
 .origin-chat-user { background: var(--accent-primary); color: var(--text-on-accent); }
 .origin-chat-assistant { background: var(--bg-surface); color: var(--text-primary); }
-.origin-answer-markdown { min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); }
+.origin-answer-markdown { min-width: 0; max-width: 52rem; margin-inline: auto; overflow-wrap: anywhere; color: var(--text-primary); }
 .origin-answer-markdown > :first-child { margin-top: 0; }
 .origin-answer-markdown > :last-child { margin-bottom: 0; }
 .origin-answer-markdown h1,
 .origin-answer-markdown h2,
-.origin-answer-markdown h3 { margin: 1.5rem 0 0.6rem; font-weight: 750; line-height: 1.35; letter-spacing: -0.015em; }
+.origin-answer-markdown h3 { margin: 1.5rem 0 0.6rem; scroll-margin-top: 5rem; font-weight: 750; line-height: 1.35; letter-spacing: -0.015em; text-wrap: balance; }
 .origin-answer-markdown h1 { font-size: 1.35rem; }
 .origin-answer-markdown h2 { font-size: 1.18rem; }
 .origin-answer-markdown h3 { font-size: 1.05rem; }
-.origin-answer-markdown p { margin: 0 0 1rem; line-height: 1.8; }
+.origin-answer-markdown p { margin: 0 0 1rem; line-height: 1.8; text-wrap: pretty; }
 .origin-answer-markdown ul,
 .origin-answer-markdown ol { margin: 0.5rem 0 1rem; padding-left: 1.35rem; }
 .origin-answer-markdown ul { list-style: disc; }
@@ -252,7 +252,7 @@
 .origin-answer-markdown hr { margin: 1.5rem 0; border: 0; border-top: 1px solid var(--border-default); }
 .origin-answer-markdown pre { max-width: 100%; overflow: auto; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-primary); padding: 1rem; font-size: 0.875rem; line-height: 1.65; }
 .origin-answer-markdown :not(pre) > code { border-radius: 0.35rem; background: var(--bg-surface-muted); padding: 0.1rem 0.35rem; font-size: 0.9em; }
-.origin-answer-table-scroll { max-width: 100%; overflow-x: auto; margin: 1rem 0; border: 1px solid var(--border-default); border-radius: var(--radius-control); }
+.origin-answer-table-scroll { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; margin: 1rem 0; border: 1px solid var(--border-default); border-radius: var(--radius-control); }
 .origin-answer-table-scroll table { width: 100%; min-width: 34rem; border-collapse: collapse; }
 .origin-answer-table-scroll th,
 .origin-answer-table-scroll td { border-bottom: 1px solid var(--border-default); padding: 0.7rem 0.8rem; text-align: left; vertical-align: top; }
