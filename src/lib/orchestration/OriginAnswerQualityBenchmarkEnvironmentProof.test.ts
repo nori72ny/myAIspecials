@@ -65,6 +65,7 @@ describe("OriginAnswerQualityBenchmarkEnvironmentProof", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.value.baseUrl).toBe("https://candidate.example/");
     expect(result.value.observedReleaseSha).toBe(sha);
     expect(result.value.codingReady).toBe(true);
     expect(result.value.runtimeIds).toEqual({
