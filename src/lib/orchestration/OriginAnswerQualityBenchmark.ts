@@ -2,7 +2,9 @@ export type OriginAnswerQualityBenchmarkCategory =
   | "current-factual"
   | "multi-source-comparison"
   | "contradiction-detection"
+  | "user-document-reasoning"
   | "professional-advice"
+  | "coding-generation"
   | "coding-repair"
   | "artifact-generation"
   | "ambiguity-handling"
@@ -16,6 +18,9 @@ export interface OriginAnswerQualityBenchmarkObservation {
   readonly citationPrecisionScore: number;
   readonly taskCompletionScore: number;
   readonly contradictionDetectionScore: number;
+  readonly verificationIntegrityScore: number;
+  readonly failClosedAccuracyScore: number;
+  readonly userActionabilityScore: number;
   readonly verifierRejectedUnsupportedClaim: boolean;
   readonly repairSucceeded?: boolean;
   readonly providerRequests: number;
@@ -32,6 +37,9 @@ export interface OriginAnswerQualityBenchmarkAggregate {
   readonly meanCitationPrecision: number;
   readonly meanTaskCompletion: number;
   readonly meanContradictionDetection: number;
+  readonly meanVerificationIntegrity: number;
+  readonly meanFailClosedAccuracy: number;
+  readonly meanUserActionability: number;
   readonly unsupportedMaterialClaimCount: number;
   readonly verifierRejectionRate: number;
   readonly repairSuccessRate: number | null;
@@ -54,6 +62,11 @@ function validObservation(item: OriginAnswerQualityBenchmarkObservation): boolea
     && boundedScore(item.citationPrecisionScore)
     && boundedScore(item.taskCompletionScore)
     && boundedScore(item.contradictionDetectionScore)
+    && boundedScore(item.verificationIntegrityScore)
+    && boundedScore(item.failClosedAccuracyScore)
+    && Number.isInteger(item.userActionabilityScore)
+    && item.userActionabilityScore >= 0
+    && item.userActionabilityScore <= 3
     && Number.isInteger(item.providerRequests)
     && item.providerRequests >= 0
     && Number.isFinite(item.latencyMs)
@@ -68,6 +81,7 @@ function mean(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+
 export function aggregateOriginAnswerQualityBenchmark(
   observations: readonly OriginAnswerQualityBenchmarkObservation[],
 ): OriginAnswerQualityBenchmarkResult {
@@ -77,6 +91,7 @@ export function aggregateOriginAnswerQualityBenchmark(
   }
 
   const repairCases = observations.filter((item) => item.repairSucceeded !== undefined);
+  const verifierCases = observations.filter((item) => item.unsupportedMaterialClaimCount > 0);
   const result: OriginAnswerQualityBenchmarkAggregate = {
     schemaVersion: "origin.aq-benchmark.v1",
     caseCount: observations.length,
@@ -85,13 +100,16 @@ export function aggregateOriginAnswerQualityBenchmark(
     meanCitationPrecision: mean(observations.map((item) => item.citationPrecisionScore)),
     meanTaskCompletion: mean(observations.map((item) => item.taskCompletionScore)),
     meanContradictionDetection: mean(observations.map((item) => item.contradictionDetectionScore)),
+    meanVerificationIntegrity: mean(observations.map((item) => item.verificationIntegrityScore)),
+    meanFailClosedAccuracy: mean(observations.map((item) => item.failClosedAccuracyScore)),
+    meanUserActionability: mean(observations.map((item) => item.userActionabilityScore)),
     unsupportedMaterialClaimCount: observations.reduce(
       (sum, item) => sum + item.unsupportedMaterialClaimCount,
       0,
     ),
-    verifierRejectionRate: mean(
-      observations.map((item) => item.verifierRejectedUnsupportedClaim ? 1 : 0),
-    ),
+    verifierRejectionRate: verifierCases.length === 0
+      ? 1
+      : mean(verifierCases.map((item) => item.verifierRejectedUnsupportedClaim ? 1 : 0)),
     repairSuccessRate: repairCases.length === 0
       ? null
       : mean(repairCases.map((item) => item.repairSucceeded ? 1 : 0)),
@@ -108,6 +126,9 @@ export interface OriginAnswerQualityBenchmarkDelta {
   readonly citationPrecisionDelta: number;
   readonly taskCompletionDelta: number;
   readonly contradictionDetectionDelta: number;
+  readonly verificationIntegrityDelta: number;
+  readonly failClosedAccuracyDelta: number;
+  readonly userActionabilityDelta: number;
   readonly unsupportedMaterialClaimDelta: number;
   readonly verifierRejectionRateDelta: number;
   readonly repairSuccessRateDelta: number | null;
@@ -129,6 +150,9 @@ export function compareOriginAnswerQualityBenchmark(
     citationPrecisionDelta: candidate.meanCitationPrecision - baseline.meanCitationPrecision,
     taskCompletionDelta: candidate.meanTaskCompletion - baseline.meanTaskCompletion,
     contradictionDetectionDelta: candidate.meanContradictionDetection - baseline.meanContradictionDetection,
+    verificationIntegrityDelta: candidate.meanVerificationIntegrity - baseline.meanVerificationIntegrity,
+    failClosedAccuracyDelta: candidate.meanFailClosedAccuracy - baseline.meanFailClosedAccuracy,
+    userActionabilityDelta: candidate.meanUserActionability - baseline.meanUserActionability,
     unsupportedMaterialClaimDelta:
       candidate.unsupportedMaterialClaimCount - baseline.unsupportedMaterialClaimCount,
     verifierRejectionRateDelta: candidate.verifierRejectionRate - baseline.verifierRejectionRate,

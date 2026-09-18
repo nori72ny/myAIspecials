@@ -13,6 +13,9 @@ const base: OriginAnswerQualityBenchmarkObservation = {
   citationPrecisionScore: 0.9,
   taskCompletionScore: 0.8,
   contradictionDetectionScore: 0.7,
+  verificationIntegrityScore: 1,
+  failClosedAccuracyScore: 1,
+  userActionabilityScore: 3,
   verifierRejectedUnsupportedClaim: true,
   providerRequests: 2,
   latencyMs: 1_000,
@@ -52,6 +55,28 @@ describe("OriginAnswerQualityBenchmark", () => {
     });
     expect(result.value).not.toHaveProperty("overallScore");
     expect(result.value).not.toHaveProperty("winner");
+  });
+
+
+  it("computes verifier rejection rate only across cases that actually contain unsupported claims", () => {
+    const result = aggregateOriginAnswerQualityBenchmark([
+      {
+        ...base,
+        caseId: "unsupported-rejected",
+        unsupportedMaterialClaimCount: 1,
+        verifierRejectedUnsupportedClaim: true,
+      },
+      {
+        ...base,
+        caseId: "no-unsupported",
+        unsupportedMaterialClaimCount: 0,
+        verifierRejectedUnsupportedClaim: false,
+      },
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok === false) return;
+    expect(result.value.verifierRejectionRate).toBe(1);
   });
 
   it("rejects non-zero cost to preserve the ORIGIN free-only benchmark boundary", () => {
