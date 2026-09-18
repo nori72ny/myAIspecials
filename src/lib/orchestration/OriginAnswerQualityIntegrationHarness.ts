@@ -12,8 +12,11 @@ import {
   createOriginAnswerQualityReleaseDecision,
   type OriginAnswerQualityReleaseDecisionResult,
 } from "./OriginAnswerQualityReleaseDecision.js";
-import type { OriginAnswerQualityExecutionUsage } from "./OriginAnswerQualityExecutionBudget.js";
 import type { OriginVerificationDecision } from "./OriginVerifier.js";
+import {
+  readOriginAnswerQualityExecutionUsage,
+  type OriginAnswerQualityUsageMeter,
+} from "./OriginAnswerQualityUsageMeter.js";
 
 export interface OriginAnswerQualityIntegrationHarnessInput {
   readonly requestId: string;
@@ -21,7 +24,8 @@ export interface OriginAnswerQualityIntegrationHarnessInput {
   readonly claimSetDigest?: string;
   readonly evidenceLedgerDigest?: string;
   readonly policy: OriginAnswerQualityPolicy;
-  readonly usage: OriginAnswerQualityExecutionUsage;
+  readonly meter: OriginAnswerQualityUsageMeter;
+  readonly nowMs: number;
   readonly claimExtractionCompleted: boolean;
   readonly claimCoverageReviewPassed: boolean;
   readonly sourceVerificationCompleted: boolean;
@@ -41,9 +45,11 @@ export interface OriginAnswerQualityIntegrationHarnessResult {
 export function runOriginAnswerQualityIntegrationHarness(
   input: OriginAnswerQualityIntegrationHarnessInput,
 ): OriginAnswerQualityIntegrationHarnessResult {
+  const usage = readOriginAnswerQualityExecutionUsage(input.meter, input.nowMs);
+
   const admission = decideOriginAnswerQualityAdmission({
     policy: input.policy,
-    usage: input.usage,
+    usage,
     claimExtractionCompleted: input.claimExtractionCompleted,
     claimCoverageReviewPassed: input.claimCoverageReviewPassed,
     sourceVerificationCompleted: input.sourceVerificationCompleted,
@@ -59,11 +65,11 @@ export function runOriginAnswerQualityIntegrationHarness(
     ...(input.evidenceLedgerDigest ? { evidenceLedgerDigest: input.evidenceLedgerDigest } : {}),
     stages: input.stages,
     blockers: admission.readiness.blockers,
-    providerExecutions: input.usage.providerExecutions,
-    sourceFetches: input.usage.sourceFetches,
-    repairActions: input.usage.repairActions,
-    elapsedMs: input.usage.elapsedMs,
-    costUsd: input.usage.costUsd as 0,
+    providerExecutions: usage.providerExecutions,
+    sourceFetches: usage.sourceFetches,
+    repairActions: usage.repairActions,
+    elapsedMs: usage.elapsedMs,
+    costUsd: usage.costUsd as 0,
     createdAt: input.createdAt,
   });
 
