@@ -4,13 +4,23 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createOriginAnswerQualityBenchmarkCodingCheckoutAdapter } from "./OriginAnswerQualityBenchmarkCodingCheckoutAdapter";
 import { readOriginAnswerQualityBenchmarkRuntimeAdapterMetadata } from "./OriginAnswerQualityBenchmarkRuntimeAdapter";
 
 const executeFile = promisify(execFile);
 const roots: string[] = [];
+let originalPath: string | undefined;
+
+beforeEach(() => {
+  originalPath = process.env.PATH;
+  if (process.platform !== "win32") {
+    process.env.PATH = ["/usr/local/bin", "/usr/bin", "/bin", originalPath]
+      .filter(Boolean)
+      .join(":");
+  }
+});
 
 async function repo(): Promise<{ root: string; sha: string }> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "origin-aq-coding-adapter-test-"));
@@ -28,6 +38,8 @@ async function repo(): Promise<{ root: string; sha: string }> {
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
 });
 
 describe("OriginAnswerQualityBenchmarkCodingCheckoutAdapter", () => {
