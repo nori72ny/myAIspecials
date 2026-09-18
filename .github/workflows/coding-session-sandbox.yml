@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'src/agent/**'
+      - 'src/agent/codingIsolatedVerificationV14.ts'
       - 'src/components/CodingJobWorkspaceV14*'
       - 'src/components/personal/CodingWorkspaceV31*'
       - 'src/components/personal/OriginCodingWorkspaceV31*'
