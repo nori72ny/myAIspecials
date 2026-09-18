@@ -43,6 +43,7 @@ export interface OriginAnswerQualityBenchmarkSessionInput {
   readonly gitSha: string;
   readonly providerId: string;
   readonly modelId: string;
+  readonly environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof;
   readonly executors: OriginAnswerQualityBenchmarkLaneExecutors;
   readonly collectScoringEvidence: OriginAnswerQualityBenchmarkScoringEvidenceCollector;
   readonly nowMs?: () => number;
@@ -60,6 +61,7 @@ export type OriginAnswerQualityBenchmarkSessionResult =
   | {
       ok: false;
       code:
+        | "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID"
         | "AQ_BENCHMARK_SESSION_RUNTIME_NOT_READY"
         | "AQ_BENCHMARK_SESSION_EXECUTION_FAILED"
         | "AQ_BENCHMARK_SESSION_PROVENANCE_INVALID"
@@ -72,6 +74,21 @@ export type OriginAnswerQualityBenchmarkSessionResult =
 export async function runOriginAnswerQualityBenchmarkSession(
   input: OriginAnswerQualityBenchmarkSessionInput,
 ): Promise<OriginAnswerQualityBenchmarkSessionResult> {
+  if (
+    input.environmentProof.schemaVersion !== "origin.aq-benchmark-environment-proof.v1"
+    || input.environmentProof.expectedGitSha !== input.gitSha
+    || input.environmentProof.observedReleaseSha !== input.gitSha
+    || input.environmentProof.freeOnly !== true
+    || input.environmentProof.costUsd !== 0
+    || input.environmentProof.paidFallbackEnabled !== false
+    || input.environmentProof.codingReady !== true
+    || input.environmentProof.runtimeIds.research !== "grounded-research-v1.1"
+    || input.environmentProof.runtimeIds.coding !== "coding-v1.4"
+    || input.environmentProof.runtimeIds.artifact !== "artifact-v1.2"
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID" };
+  }
+
   try {
     assertOriginAnswerQualityBenchmarkRuntimeReady(input.executors);
   } catch (error) {
