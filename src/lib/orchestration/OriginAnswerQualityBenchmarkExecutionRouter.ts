@@ -72,16 +72,10 @@ export function createOriginAnswerQualityBenchmarkLaneExecutor(
 
     const result = await executor(item);
     if (result.caseId !== item.caseId) {
-      return Object.freeze({
-        ...unavailableEvidence(item, lane),
-        failureCode: `AQ_BENCHMARK_LANE_CASE_MISMATCH:${lane}`,
-      });
+      throw new Error(`AQ_BENCHMARK_LANE_CASE_MISMATCH:${lane}`);
     }
     if (result.costUsd !== 0) {
-      return Object.freeze({
-        ...unavailableEvidence(item, lane),
-        failureCode: `AQ_BENCHMARK_LANE_NON_ZERO_COST:${lane}`,
-      });
+      throw new Error(`AQ_BENCHMARK_LANE_NON_ZERO_COST:${lane}`);
     }
     return result;
   };
