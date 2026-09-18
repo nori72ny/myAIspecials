@@ -39,9 +39,36 @@ import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from
 import { originServiceAssignmentInstruction, resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { executeOriginProvider, assertOriginZeroCostExecutionResult, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
+import type { OriginExecutionTraceRecordV1 } from "../agent/originExecutionTraceStoreV1.js";
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
-export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; }
+export interface OriginChatTraceSink {
+  append(record: OriginExecutionTraceRecordV1): Promise<boolean>;
+}
+export interface OriginChatRouterOptions {
+  env?: NodeJS.ProcessEnv;
+  execute?: OriginChatExecutor;
+  now?: () => number;
+  catalogNow?: () => number;
+  freeModelCatalog?: readonly OriginFreeModelEvidence[];
+  contextPolicy?: OriginContextPolicy;
+  createRequestId?: () => string;
+  traceSink?: OriginChatTraceSink;
+  traceRequired?: boolean;
+}
+async function appendOriginChatTrace(
+  sink: OriginChatTraceSink | undefined,
+  required: boolean,
+  record: OriginExecutionTraceRecordV1,
+): Promise<boolean> {
+  if (!sink) return !required;
+  try {
+    return await sink.append(record);
+  } catch {
+    return false;
+  }
+}
+
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";
 const RETRYABLE_PROVIDER_CODES = new Set(["PROVIDER_RATE_LIMITED", "PROVIDER_TIMEOUT", "PROVIDER_UNAVAILABLE", "PROVIDER_INTERNAL_ERROR"]);
@@ -84,7 +111,7 @@ function firstAnswerBlock(content: string): string { const firstBlock = content.
 function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions }); if (result.ok === false) throw new Error(result.code); return result.value; }
 
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
-  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env));
+  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env)); const traceSink = options.traceSink; const traceRequired = options.traceRequired === true;
   router.post("/api/chat", async (req, res) => {
     const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");
     if (wantsStreaming) {
@@ -136,8 +163,40 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       const evidence = extractProvidedOriginEvidence(result.text); const sourceEvidenceExpected = planningResult.plan.taskType === "research";
       if (evidence.length > 0) { limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。"); if (evidence.some((item) => item.claim === undefined)) limitations.push("一部の出典は、回答内のどの主張に対応するか明示されていません。"); nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。"); } else if (sourceEvidenceExpected) { limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。"); nextActions.push("一次情報の出典を確認してから判断してください。"); }
-      console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), modelId: planningResult.plan.modelId, costUsd: result.actualCostUsd });
-      return res.json({ content: result.text, answer: answerEnvelope(result.text, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerRetryAttempted ? 2 : 1 } });
+      const completedAt = now();
+      const tracePersisted = await appendOriginChatTrace(traceSink, traceRequired, {
+        traceId: requestId,
+        route: "/api/chat",
+        taskType: planningResult.plan.taskType,
+        verificationStatus: verificationStatus === "not-required" ? "not-required" : "not-run",
+        reviewRequired: reviewDecision.required,
+        independentReviewPerformed: false,
+        providerId: planningResult.plan.providerId,
+        modelId: planningResult.plan.modelId,
+        freeOnly: true,
+        actualCostUsd: 0,
+        outcome: "success",
+        includedMessageCount: contextResult.window.includedMessageCount,
+        includedCharacterCount: contextResult.window.includedCharacterCount,
+        omittedMessageCount: contextResult.window.omittedMessageCount,
+        omittedCharacterCount: contextResult.window.omittedCharacterCount,
+        createdAt: startedAt,
+        expiresAt: completedAt + 7 * 24 * 60 * 60 * 1000,
+      });
+      if (!tracePersisted && traceRequired) {
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(503).json({
+          code: "TRACE_PERSISTENCE_FAILED",
+          message: "監査記録を安全に保存できなかったため、回答を表示しません。",
+          retryable: false,
+          requestId,
+        });
+      }
+      if (!tracePersisted) {
+        console.warn("[origin-chat] optional trace persistence failed", { requestId });
+      }
+      console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, completedAt - startedAt), modelId: planningResult.plan.modelId, costUsd: result.actualCostUsd });
+      return res.json({ content: result.text, answer: answerEnvelope(result.text, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, completedAt - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerRetryAttempted ? 2 : 1 } });
     } catch (error) {
       if (error instanceof OriginProviderError) {
         console.warn("[origin-chat] provider request failed", { requestId, durationMs: Math.max(0, now() - startedAt), code: error.code, status: error.status, retryable: error.retryable, diagnostic: error.diagnostic });
