@@ -8,7 +8,7 @@ import {
 describe("OriginAnswerQualityExecutionBudget", () => {
   it("accepts a bounded zero-cost AQ execution", () => {
     expect(checkOriginAnswerQualityExecutionBudget({
-      providerExecutions: 3,
+      providerExecutions: 12,
       sourceFetches: 8,
       repairActions: 3,
       elapsedMs: 90_000,
@@ -18,7 +18,7 @@ describe("OriginAnswerQualityExecutionBudget", () => {
 
   it("fails closed when provider, source, repair or time budgets are exceeded", () => {
     expect(checkOriginAnswerQualityExecutionBudget({
-      providerExecutions: 4,
+      providerExecutions: 13,
       sourceFetches: 0,
       repairActions: 0,
       elapsedMs: 1,
@@ -63,7 +63,7 @@ describe("OriginAnswerQualityExecutionBudget", () => {
   it("uses conservative finite defaults", () => {
     expect(DEFAULT_ORIGIN_AQ_EXECUTION_BUDGET).toEqual({
       schemaVersion: "origin.aq-budget.v1",
-      maxProviderExecutions: 3,
+      maxProviderExecutions: 12,
       maxSourceFetches: 8,
       maxRepairActions: 3,
       maxWallTimeMs: 90_000,
