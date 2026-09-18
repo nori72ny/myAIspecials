@@ -23,7 +23,7 @@ function claims() {
       risk: "high",
     },
   ]);
-  if (!result.ok) throw new Error(result.code);
+  if (result.ok === false) throw new Error(result.code);
   return result.value;
 }
 
@@ -50,7 +50,7 @@ function ledger(observedAt = "2026-09-18T08:00:00.000Z") {
       costUsd: 0,
     },
   ]);
-  if (!result.ok) throw new Error(result.code);
+  if (result.ok === false) throw new Error(result.code);
   return result.value;
 }
 
@@ -71,7 +71,7 @@ describe("OriginVerifier", () => {
 
   it("requests repair when evidence is missing", () => {
     const empty = createOriginEvidenceLedger([]);
-    if (!empty.ok) throw new Error(empty.code);
+    if (empty.ok === false) throw new Error(empty.code);
     const result = verifyOriginAnswerEvidence(claims(), empty.value, policy);
     expect(result.decision).toBe("REPAIR_REQUIRED");
     expect(result.issues).toEqual(expect.arrayContaining([
@@ -115,7 +115,7 @@ describe("OriginVerifier", () => {
         costUsd: 0,
       },
     ]);
-    if (!l.ok) throw new Error(l.code);
+    if (l.ok === false) throw new Error(l.code);
 
     const result = verifyOriginAnswerEvidence(claims(), l.value, policy);
     expect(result.decision).toBe("REPAIR_REQUIRED");
