@@ -113,8 +113,8 @@ describe('CodingJobWorkspaceV14', () => {
 
     await screen.findByText('src/existing.ts');
     expect(credentialInput.value).toBe('');
-    expect(screen.getByText('export const value = 1;')).toBeTruthy();
-    expect(screen.getByText('export const value = 2;')).toBeTruthy();
+    expect(await screen.findByText('export const value = 1;')).toBeTruthy();
+    expect(await screen.findByText('export const value = 2;')).toBeTruthy();
     expect(screen.getAllByText('PASS')).toHaveLength(4);
     expect(screen.getByText('CODING_CHECKS_PASSED')).toBeTruthy();
 

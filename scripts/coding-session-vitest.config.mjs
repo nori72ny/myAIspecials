@@ -24,6 +24,11 @@ export default {
       'src/agent/codingJobLiveReadinessV14.test.ts',
       'src/agent/codingJobResultRouterV14.test.ts',
       'src/components/CodingJobWorkspaceV14.test.tsx',
+      'src/components/personal/__tests__/OriginAgentActionProgressV31.test.tsx',
+      'src/components/personal/__tests__/CodingWorkspaceV31.test.tsx',
+      'src/components/personal/__tests__/OriginCodingWorkspaceV31.test.tsx',
+      'src/components/personal/__tests__/ResearchWorkspaceV31.test.tsx',
+      'src/components/personal/__tests__/OriginProjectWorkspaceV31.test.tsx',
     ],
   },
 };
