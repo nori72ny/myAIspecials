@@ -32,7 +32,6 @@ describe("OriginSourceVerificationExecutor", () => {
         body: Buffer.from(supportedBody),
       }),
       now: () => Date.parse("2026-09-18T10:30:00.000Z"),
-      freshness: "passed",
     });
 
     const result = await executor({
@@ -57,7 +56,7 @@ describe("OriginSourceVerificationExecutor", () => {
       actualCostUsd: 0,
       checks: {
         content: "passed",
-        freshness: "passed",
+        freshness: "not-applicable",
         claimSupport: "passed",
       },
     });
