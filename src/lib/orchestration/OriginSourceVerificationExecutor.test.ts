@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createOriginSourceVerificationExecutor } from "./OriginSourceVerificationExecutor";
+import type { OriginSourceVerificationRecord } from "./OriginSourceVerification";
 
 describe("OriginSourceVerificationExecutor", () => {
   it("combines pinned public fetch and claim support assessment into a verification record", async () => {
@@ -40,7 +41,8 @@ describe("OriginSourceVerificationExecutor", () => {
       },
     });
 
-    expect(result).toMatchObject({
+    const record = result as OriginSourceVerificationRecord;
+    expect(record).toMatchObject({
       verificationId: "verify-1",
       sourceUrl: "https://example.com/docs",
       finalUrl: "https://example.com/docs",
@@ -53,7 +55,7 @@ describe("OriginSourceVerificationExecutor", () => {
         claimSupport: "passed",
       },
     });
-    expect(result.contentDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(record.contentDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(assessor).toHaveBeenCalledTimes(1);
   });
 
