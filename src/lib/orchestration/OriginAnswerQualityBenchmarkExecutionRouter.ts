@@ -6,6 +6,9 @@ import type {
   OriginAnswerQualityBenchmarkExecutableCase,
   OriginAnswerQualityBenchmarkExecutionEvidence,
 } from "./OriginAnswerQualityBenchmarkRunner.js";
+import type {
+  OriginAnswerQualityBenchmarkRuntimeAdapter,
+} from "./OriginAnswerQualityBenchmarkRuntimeAdapter.js";
 
 export type OriginAnswerQualityBenchmarkExecutionLane =
   | "research"
@@ -36,10 +39,10 @@ export function resolveOriginAnswerQualityBenchmarkExecutionLane(
 }
 
 export interface OriginAnswerQualityBenchmarkLaneExecutors {
-  readonly research?: OriginAnswerQualityBenchmarkCaseExecutor;
-  readonly chat?: OriginAnswerQualityBenchmarkCaseExecutor;
-  readonly coding?: OriginAnswerQualityBenchmarkCaseExecutor;
-  readonly artifact?: OriginAnswerQualityBenchmarkCaseExecutor;
+  readonly research?: OriginAnswerQualityBenchmarkRuntimeAdapter;
+  readonly chat?: OriginAnswerQualityBenchmarkRuntimeAdapter;
+  readonly coding?: OriginAnswerQualityBenchmarkRuntimeAdapter;
+  readonly artifact?: OriginAnswerQualityBenchmarkRuntimeAdapter;
 }
 
 function unavailableEvidence(
