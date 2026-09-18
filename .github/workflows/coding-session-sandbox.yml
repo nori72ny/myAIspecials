@@ -82,3 +82,8 @@ jobs:
           # Disposable local service only. Never uses repository/production secrets.
           ORIGIN_CODING_TEST_POSTGRES_URL: postgres://postgres:coding-test-only@127.0.0.1:5432/origin_coding_test
         run: node --import tsx --test scripts/coding-postgres.integration.ts
+      - name: Exercise sanitized execution trace persistence
+        env:
+          # Reuse the same disposable loopback-only Postgres service. Never production.
+          ORIGIN_CODING_TEST_POSTGRES_URL: postgres://postgres:coding-test-only@127.0.0.1:5432/origin_coding_test
+        run: node --import tsx --test scripts/trace-postgres.integration.ts
