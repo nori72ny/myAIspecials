@@ -25,6 +25,7 @@ export interface OriginBatchAnswerSourceVerificationSummary {
   readonly fetched: number;
   readonly verified: number;
   readonly failed: number;
+  readonly sourceFetches: number;
   readonly assessorExecutions: number;
 }
 
@@ -59,6 +60,7 @@ export async function verifyOriginAnswerSourcesBatch(
       fetched: 0,
       verified: 0,
       failed: 0,
+      sourceFetches: 0,
       assessorExecutions: 0,
     });
   }
@@ -70,6 +72,7 @@ export async function verifyOriginAnswerSourcesBatch(
       fetched: 0,
       verified: 0,
       failed: eligible.length,
+      sourceFetches: 0,
       assessorExecutions: 0,
     });
   }
@@ -143,6 +146,7 @@ export async function verifyOriginAnswerSourcesBatch(
     fetched,
     verified,
     failed,
+    sourceFetches: eligible.length,
     assessorExecutions,
   });
 }
