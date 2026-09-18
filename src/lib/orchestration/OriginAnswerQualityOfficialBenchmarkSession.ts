@@ -123,7 +123,7 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
     nowMs: input.nowMs,
   });
 
-  if (!session.ok) return session;
+  if (session.ok === false) return session;
 
   const scorerProvenance = Object.freeze({ ...input.scorerProvenance });
   return {
