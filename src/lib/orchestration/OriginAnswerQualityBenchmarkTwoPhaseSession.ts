@@ -20,6 +20,7 @@ import {
 } from "./OriginAnswerQualityBenchmarkRunProvenance.js";
 import { assertOriginAnswerQualityBenchmarkRuntimeReady } from "./OriginAnswerQualityBenchmarkRuntimeReadiness.js";
 import {
+  digestOriginAnswerQualityBenchmarkExecutionOnly,
   runOriginAnswerQualityBenchmarkExecutionOnly,
   scoreOriginAnswerQualityBenchmarkExecution,
   type OriginAnswerQualityBenchmarkExecutionOnlySuccess,
@@ -134,6 +135,18 @@ function frozenSessionValid(
     || frozen.provenance.totalCostUsd !== 0
     || frozen.execution.totalCostUsd !== 0
   ) return false;
+
+  const executionOnlyDigest = digestOriginAnswerQualityBenchmarkExecutionOnly({
+    schemaVersion: frozen.execution.schemaVersion,
+    manifestDigest: frozen.execution.manifestDigest,
+    caseCount: frozen.execution.caseCount,
+    executedCases: frozen.execution.executedCases,
+    totalProviderRequests: frozen.execution.totalProviderRequests,
+    totalToolCalls: frozen.execution.totalToolCalls,
+    totalLatencyMs: frozen.execution.totalLatencyMs,
+    totalCostUsd: 0,
+  });
+  if (executionOnlyDigest !== frozen.execution.executionOnlyDigest) return false;
 
   const expected = digestOriginAnswerQualityBenchmarkExecutionSession({
     schemaVersion: frozen.schemaVersion,
