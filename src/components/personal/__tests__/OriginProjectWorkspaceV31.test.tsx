@@ -14,6 +14,7 @@ describe('OriginProjectWorkspaceV31', () => {
       sessions={[]}
       artifacts={[]}
       sources={[]}
+      codingEvidence={{ jobId: null, status: null, changedPaths: [], verificationChecks: [] }}
       activeView="overview"
       onViewChange={() => undefined}
     />);
@@ -33,6 +34,7 @@ describe('OriginProjectWorkspaceV31', () => {
       sessions={[]}
       artifacts={[{ id: 'a1', type: 'markdown', title: 'Report', language: 'markdown', content: '# Report', isComplete: true }]}
       sources={[]}
+      codingEvidence={{ jobId: null, status: null, changedPaths: [], verificationChecks: [] }}
       activeView="overview"
       onViewChange={onViewChange}
     />);
@@ -49,6 +51,7 @@ describe('OriginProjectWorkspaceV31', () => {
       sessions={[]}
       artifacts={[]}
       sources={[]}
+      codingEvidence={{ jobId: null, status: null, changedPaths: [], verificationChecks: [] }}
       activeView="overview"
       onViewChange={onViewChange}
     />);
@@ -75,6 +78,7 @@ describe('OriginProjectWorkspaceV31', () => {
         scoreScope: 'retrieval-evidence-only',
         citation: '[S1]',
       }]}
+      codingEvidence={{ jobId: null, status: null, changedPaths: [], verificationChecks: [] }}
       activeView="sources"
       onViewChange={() => undefined}
     />);
@@ -82,5 +86,43 @@ describe('OriginProjectWorkspaceV31', () => {
     expect(screen.getByRole('button', { name: 'Project Sources' }).hasAttribute('disabled')).toBe(false);
     expect(screen.getByRole('region', { name: 'Project Sources' }).textContent).toContain('Verified source');
     expect(screen.getByRole('region', { name: 'Project Sources' }).textContent).toContain('example.com');
+  });
+
+  it('enables Files and Tasks only from real coding evidence', () => {
+    const evidence = {
+      jobId: 'coding-abcdefghijklmnopqrstuv',
+      status: 'verified' as const,
+      changedPaths: ['src/a.ts', 'src/b.ts'],
+      verificationChecks: [{ kind: 'test' as const, ok: true, exitCode: 0, timedOut: false, attempt: 1 }],
+    };
+
+    const { rerender } = render(<OriginProjectWorkspaceV31
+      mode="coding"
+      messages={[]}
+      sessions={[]}
+      artifacts={[]}
+      sources={[]}
+      codingEvidence={evidence}
+      activeView="files"
+      onViewChange={() => undefined}
+    />);
+
+    expect(screen.getByRole('button', { name: 'Project Files' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('region', { name: 'Project Files' }).textContent).toContain('src/a.ts');
+
+    rerender(<OriginProjectWorkspaceV31
+      mode="coding"
+      messages={[]}
+      sessions={[]}
+      artifacts={[]}
+      sources={[]}
+      codingEvidence={evidence}
+      activeView="tasks"
+      onViewChange={() => undefined}
+    />);
+
+    expect(screen.getByRole('button', { name: 'Project Tasks' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('region', { name: 'Project Tasks' }).textContent).toContain('verified');
+    expect(screen.getByRole('region', { name: 'Project Tasks' }).textContent).toContain('test');
   });
 });
