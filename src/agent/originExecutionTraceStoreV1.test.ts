@@ -37,7 +37,7 @@ describe("OriginExecutionTraceStoreV1", () => {
   });
 
   it("rejects paid, inconsistent review, secret-bearing, and invalid retention records", () => {
-    expect(validateOriginExecutionTraceRecordV1({ ...record, actualCostUsd: 1 } as OriginExecutionTraceRecordV1)).toBe(false);
+    expect(validateOriginExecutionTraceRecordV1({ ...record, actualCostUsd: 1 } as unknown as OriginExecutionTraceRecordV1)).toBe(false);
     expect(validateOriginExecutionTraceRecordV1({
       ...record,
       verificationStatus: "passed",
