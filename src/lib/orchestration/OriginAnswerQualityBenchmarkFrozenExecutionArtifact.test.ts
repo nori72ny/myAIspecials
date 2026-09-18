@@ -4,6 +4,7 @@ import { createOriginAnswerQualityFrozenCorpus } from "./OriginAnswerQualityBenc
 import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
 import {
   createOriginAnswerQualityBenchmarkFrozenExecutionArtifact,
+  parseOriginAnswerQualityBenchmarkFrozenExecutionArtifact,
   restoreOriginAnswerQualityBenchmarkFrozenExecutionArtifact,
 } from "./OriginAnswerQualityBenchmarkFrozenExecutionArtifact";
 import { createOriginAnswerQualityBenchmarkRuntimeAdapter } from "./OriginAnswerQualityBenchmarkRuntimeAdapter";
@@ -204,6 +205,68 @@ describe("OriginAnswerQualityBenchmarkFrozenExecutionArtifact", () => {
     )).toEqual({
       ok: false,
       code: "AQ_BENCHMARK_FROZEN_ARTIFACT_CORPUS_MISMATCH",
+    });
+  });
+
+  it("parses a serialized artifact from unknown JSON and preserves the exact digest", async () => {
+    const frozen = await frozenSession();
+    const artifact = createOriginAnswerQualityBenchmarkFrozenExecutionArtifact(frozen);
+    if (!artifact.ok) throw new Error("artifact fixture failed");
+
+    const parsed = parseOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
+      JSON.parse(JSON.stringify(artifact.value)),
+    );
+
+    expect(parsed).toEqual(artifact);
+  });
+
+  it("rejects unknown top-level fields so raw content cannot be smuggled beside digests", async () => {
+    const frozen = await frozenSession();
+    const artifact = createOriginAnswerQualityBenchmarkFrozenExecutionArtifact(frozen);
+    if (!artifact.ok) throw new Error("artifact fixture failed");
+
+    const contaminated = {
+      ...artifact.value,
+      rawAnswer: "secret or answer text",
+    };
+
+    expect(parseOriginAnswerQualityBenchmarkFrozenExecutionArtifact(contaminated)).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_FROZEN_ARTIFACT_EXECUTION_MISMATCH",
+    });
+  });
+
+  it("rejects unknown per-case fields so prompts or messages cannot be embedded", async () => {
+    const frozen = await frozenSession();
+    const artifact = createOriginAnswerQualityBenchmarkFrozenExecutionArtifact(frozen);
+    if (!artifact.ok) throw new Error("artifact fixture failed");
+
+    const contaminated = {
+      ...artifact.value,
+      cases: artifact.value.cases.map((item, index) =>
+        index === 0 ? { ...item, prompt: "must not persist" } : item
+      ),
+    };
+
+    expect(parseOriginAnswerQualityBenchmarkFrozenExecutionArtifact(contaminated)).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_FROZEN_ARTIFACT_EXECUTION_MISMATCH",
+    });
+  });
+
+  it("rejects duplicate case IDs from external JSON", async () => {
+    const frozen = await frozenSession();
+    const artifact = createOriginAnswerQualityBenchmarkFrozenExecutionArtifact(frozen);
+    if (!artifact.ok) throw new Error("artifact fixture failed");
+
+    const duplicate = JSON.parse(JSON.stringify(artifact.value)) as {
+      cases: Array<{ caseId: string }>;
+    } & Record<string, unknown>;
+    duplicate.cases[1].caseId = duplicate.cases[0].caseId;
+
+    expect(parseOriginAnswerQualityBenchmarkFrozenExecutionArtifact(duplicate)).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_FROZEN_ARTIFACT_EXECUTION_MISMATCH",
     });
   });
 });
