@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
 import {
+  runOriginAnswerQualityOfficialBenchmarkSession,
   runOriginAnswerQualityOfficialEvidenceScoredSession,
 } from "./OriginAnswerQualityOfficialBenchmarkSession";
 
@@ -22,6 +23,11 @@ const proof: OriginAnswerQualityBenchmarkEnvironmentProof = {
 };
 
 describe("OriginAnswerQualityOfficialBenchmarkSession", () => {
+  it("keeps the legacy evidence-scored name as an alias of the canonical official entrypoint", () => {
+    expect(runOriginAnswerQualityOfficialEvidenceScoredSession)
+      .toBe(runOriginAnswerQualityOfficialBenchmarkSession);
+  });
+
   it("fails on invalid scorer provenance before checkout or evaluator execution", async () => {
     const materialClaimExtractor = vi.fn();
     const promptClaimJudge = vi.fn();
@@ -29,7 +35,7 @@ describe("OriginAnswerQualityOfficialBenchmarkSession", () => {
     const claimAssessor = vi.fn();
     const fetchImpl = vi.fn();
 
-    const result = await runOriginAnswerQualityOfficialEvidenceScoredSession({
+    const result = await runOriginAnswerQualityOfficialBenchmarkSession({
       runId: "official-invalid-scorer",
       gitSha: "a".repeat(40),
       providerId: "openrouter-free",
