@@ -35,7 +35,7 @@ export function createOriginSourceVerificationExecutor(
       now: options.now,
     });
 
-    if (!fetched.ok) {
+    if (fetched.ok === false) {
       throw new Error(fetched.code);
     }
 
@@ -45,7 +45,7 @@ export function createOriginSourceVerificationExecutor(
       options.assessor,
     );
 
-    if (!assessed.ok) {
+    if (assessed.ok === false) {
       throw new Error(assessed.code);
     }
 
