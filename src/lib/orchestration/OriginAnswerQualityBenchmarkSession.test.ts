@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
 import { createOriginAnswerQualityBenchmarkRuntimeAdapter } from "./OriginAnswerQualityBenchmarkRuntimeAdapter";
 import { runOriginAnswerQualityBenchmarkSession } from "./OriginAnswerQualityBenchmarkSession";
 import type { OriginAnswerQualityBenchmarkCaseExecutor } from "./OriginAnswerQualityBenchmarkRunner";
@@ -16,6 +17,21 @@ const executor: OriginAnswerQualityBenchmarkCaseExecutor = async (item) => ({
   failureCode: null,
 });
 
+const environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof = {
+  schemaVersion: "origin.aq-benchmark-environment-proof.v1",
+  expectedGitSha: "a".repeat(40),
+  observedReleaseSha: "a".repeat(40),
+  freeOnly: true,
+  costUsd: 0,
+  paidFallbackEnabled: false,
+  runtimeIds: {
+    research: "grounded-research-v1.1",
+    coding: "coding-v1.4",
+    artifact: "artifact-v1.2",
+  },
+  codingReady: true,
+};
+
 const adapters = {
   research: createOriginAnswerQualityBenchmarkRuntimeAdapter("research", "grounded-research-v1.1", executor),
   chat: createOriginAnswerQualityBenchmarkRuntimeAdapter("chat", "origin-chat", executor),
@@ -29,6 +45,7 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
     const result = await runOriginAnswerQualityBenchmarkSession({
       runId: "aq-session-1",
       gitSha: "a".repeat(40),
+      environmentProof,
       providerId: "openrouter-free",
       modelId: "example/free-model:free",
       executors: adapters,
@@ -70,6 +87,7 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
     const result = await runOriginAnswerQualityBenchmarkSession({
       runId: "aq-session-2",
       gitSha: "a".repeat(40),
+      environmentProof,
       providerId: "openrouter-free",
       modelId: "example/free-model:free",
       executors: {
@@ -85,6 +103,29 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
     if (result.ok === true) return;
     expect(result.code).toBe("AQ_BENCHMARK_SESSION_RUNTIME_NOT_READY");
     expect(result.detail).toContain("coding,artifact");
+  });
+
+  it("refuses a benchmark session when the environment proof belongs to another SHA", async () => {
+    const result = await runOriginAnswerQualityBenchmarkSession({
+      runId: "aq-session-sha-mismatch",
+      gitSha: "a".repeat(40),
+      environmentProof: {
+        ...environmentProof,
+        expectedGitSha: "b".repeat(40),
+        observedReleaseSha: "b".repeat(40),
+      },
+      providerId: "openrouter-free",
+      modelId: "example/free-model:free",
+      executors: adapters,
+      collectScoringEvidence: async () => {
+        throw new Error("must not score");
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID",
+    });
   });
 
   it("fails closed if any lane reports non-zero cost", async () => {
@@ -109,6 +150,7 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
     const result = await runOriginAnswerQualityBenchmarkSession({
       runId: "aq-session-3",
       gitSha: "a".repeat(40),
+      environmentProof,
       providerId: "openrouter-free",
       modelId: "example/free-model:free",
       executors: {
