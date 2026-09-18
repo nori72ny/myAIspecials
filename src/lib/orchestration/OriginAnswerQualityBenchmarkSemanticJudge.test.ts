@@ -7,6 +7,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
     const judge = vi.fn().mockImplementation(async (request) => ({
       caseId: request.caseId,
       category: request.category,
+      rubricVersion: request.rubricVersion,
       promptDigest: request.promptDigest,
       answerDigest: request.answerDigest,
       deliverableCompleted: true,
@@ -27,6 +28,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
 
     expect(result.ok).toBe(true);
     expect(judge).toHaveBeenCalledTimes(1);
+    expect(judge.mock.calls[0][0].rubricVersion).toBe("origin.aq-semantic-rubric.v1");
     expect(judge.mock.calls[0][0].executionPolicy).toEqual({
       maxCostUsd: 0,
       maxAttempts: 1,
@@ -42,6 +44,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
     }, vi.fn().mockImplementation(async (request) => ({
       caseId: request.caseId,
       category: request.category,
+      rubricVersion: request.rubricVersion,
       promptDigest: request.promptDigest,
       answerDigest: `sha256:${"f".repeat(64)}`,
       deliverableCompleted: true,
@@ -66,6 +69,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
     }, vi.fn().mockImplementation(async (request) => ({
       caseId: request.caseId,
       category: request.category,
+      rubricVersion: request.rubricVersion,
       promptDigest: request.promptDigest,
       answerDigest: request.answerDigest,
       deliverableCompleted: true,
@@ -92,6 +96,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
     }, vi.fn().mockImplementation(async (request) => ({
       caseId: request.caseId,
       category: request.category,
+      rubricVersion: request.rubricVersion,
       promptDigest: request.promptDigest,
       answerDigest: request.answerDigest,
       deliverableCompleted: true,
@@ -116,6 +121,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
     }, vi.fn().mockImplementation(async (request) => ({
       caseId: request.caseId,
       category: request.category,
+      rubricVersion: request.rubricVersion,
       promptDigest: request.promptDigest,
       answerDigest: request.answerDigest,
       deliverableCompleted: true,
@@ -143,6 +149,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
     }, vi.fn().mockImplementation(async (request) => ({
       caseId: request.caseId,
       category: request.category,
+      rubricVersion: request.rubricVersion,
       promptDigest: request.promptDigest,
       answerDigest: request.answerDigest,
       deliverableCompleted: true,
