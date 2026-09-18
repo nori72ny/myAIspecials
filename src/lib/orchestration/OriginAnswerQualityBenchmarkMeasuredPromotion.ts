@@ -12,11 +12,14 @@ import {
 } from "./OriginAnswerQualityBenchmarkScorecard.js";
 import type { OriginAnswerQualityBenchmarkQualificationInput } from "./OriginAnswerQualityBenchmarkQualification.js";
 
-export interface OriginAnswerQualityBenchmarkMeasuredPromotionInput
-  extends OriginAnswerQualityBenchmarkQualificationInput {
-  readonly baselineMeasuredObservations: readonly OriginAnswerQualityBenchmarkMeasuredObservation[];
-  readonly candidateMeasuredObservations: readonly OriginAnswerQualityBenchmarkMeasuredObservation[];
-}
+export type OriginAnswerQualityBenchmarkMeasuredPromotionInput =
+  Omit<
+    OriginAnswerQualityBenchmarkQualificationInput,
+    "baselineObservations" | "candidateObservations"
+  > & {
+    readonly baselineMeasuredObservations: readonly OriginAnswerQualityBenchmarkMeasuredObservation[];
+    readonly candidateMeasuredObservations: readonly OriginAnswerQualityBenchmarkMeasuredObservation[];
+  };
 
 export interface OriginAnswerQualityBenchmarkMeasuredPromotionDecision {
   readonly schemaVersion: "origin.aq-benchmark-measured-promotion.v1";
@@ -47,7 +50,14 @@ export type OriginAnswerQualityBenchmarkMeasuredPromotionResult =
 export function decideOriginAnswerQualityBenchmarkMeasuredPromotion(
   input: OriginAnswerQualityBenchmarkMeasuredPromotionInput,
 ): OriginAnswerQualityBenchmarkMeasuredPromotionResult {
-  const report = buildOriginAnswerQualityBenchmarkReleaseReport(input);
+  const report = buildOriginAnswerQualityBenchmarkReleaseReport({
+    baselineManifest: input.baselineManifest,
+    candidateManifest: input.candidateManifest,
+    baselineRun: input.baselineRun,
+    candidateRun: input.candidateRun,
+    baselineObservations: input.baselineMeasuredObservations,
+    candidateObservations: input.candidateMeasuredObservations,
+  });
   if (!report.ok) return { ok: false, code: "AQ_BENCHMARK_RELEASE_REPORT_INVALID" };
 
   const baselineScorecard = buildOriginAnswerQualityBenchmarkScorecard(
