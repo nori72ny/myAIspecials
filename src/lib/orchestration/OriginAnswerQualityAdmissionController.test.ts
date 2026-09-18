@@ -94,7 +94,7 @@ describe("OriginAnswerQualityAdmissionController", () => {
   it("blocks admission when the global AQ budget is exceeded even if readiness passes", () => {
     const result = decideOriginAnswerQualityAdmission({
       policy: researchPolicy,
-      usage: { ...usage, providerExecutions: 4 },
+      usage: { ...usage, providerExecutions: 13 },
       claimExtractionCompleted: true,
       claimCoverageReviewPassed: false,
       sourceVerificationCompleted: true,
