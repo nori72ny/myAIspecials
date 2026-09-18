@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildOriginAnswerQualityExecutionPlan } from "./OriginAnswerQualityExecutionPlan";
 import {
+  activateOriginAnswerQualityConditionalStages,
   createOriginAnswerQualityExecutionState,
   transitionOriginAnswerQualityStage,
 } from "./OriginAnswerQualityStageMachine";
@@ -17,14 +18,18 @@ function fullPlan() {
 }
 
 describe("OriginAnswerQualityStageMachine", () => {
-  it("initializes required stages pending and optional stages not-required", () => {
+  it("initializes required stages pending and conditional/optional stages inactive", () => {
     const state = createOriginAnswerQualityExecutionState(fullPlan());
-    expect(state.stages.every((stage) =>
-      stage.required ? stage.status === "pending" : stage.status === "not-required"
-    )).toBe(true);
+
+    expect(state.stages.find((stage) => stage.stage === "claim-extraction"))
+      .toEqual(expect.objectContaining({ activation: "required", active: true, status: "pending" }));
+    expect(state.stages.find((stage) => stage.stage === "repair"))
+      .toEqual(expect.objectContaining({ activation: "conditional", active: false, status: "not-required" }));
+    expect(state.stages.find((stage) => stage.stage === "reverification"))
+      .toEqual(expect.objectContaining({ activation: "conditional", active: false, status: "not-required" }));
   });
 
-  it("prevents skipping required stages", () => {
+  it("prevents skipping active prerequisite stages", () => {
     const state = createOriginAnswerQualityExecutionState(fullPlan());
 
     expect(() => transitionOriginAnswerQualityStage(
@@ -60,20 +65,35 @@ describe("OriginAnswerQualityStageMachine", () => {
     )).toThrow("AQ_STAGE_TRANSITION_INVALID");
   });
 
-  it("prevents execution of non-required stages", () => {
-    const plan = buildOriginAnswerQualityExecutionPlan({
-      claimExtractionRequired: false,
-      claimCoverageReviewRequired: false,
-      sourceVerificationRequired: false,
-      independentReviewRequired: false,
-      tracePersistenceRequired: false,
-    });
-    const state = createOriginAnswerQualityExecutionState(plan);
+  it("keeps repair inactive on the normal pass path", () => {
+    const state = createOriginAnswerQualityExecutionState(fullPlan());
 
     expect(() => transitionOriginAnswerQualityStage(
       state,
-      "claim-extraction",
+      "repair",
       "running",
-    )).toThrow("AQ_STAGE_NOT_REQUIRED");
+    )).toThrow("AQ_STAGE_NOT_ACTIVE");
+  });
+
+  it("activates repair and reverification only when explicitly required", () => {
+    const state = createOriginAnswerQualityExecutionState(fullPlan());
+    const activated = activateOriginAnswerQualityConditionalStages(
+      state,
+      ["repair", "reverification"],
+    );
+
+    expect(activated.stages.find((stage) => stage.stage === "repair"))
+      .toEqual(expect.objectContaining({ active: true, status: "pending" }));
+    expect(activated.stages.find((stage) => stage.stage === "reverification"))
+      .toEqual(expect.objectContaining({ active: true, status: "pending" }));
+  });
+
+  it("prevents activation of required or optional stages as conditionals", () => {
+    const state = createOriginAnswerQualityExecutionState(fullPlan());
+
+    expect(() => activateOriginAnswerQualityConditionalStages(
+      state,
+      ["verifier"],
+    )).toThrow("AQ_STAGE_NOT_CONDITIONAL");
   });
 });
