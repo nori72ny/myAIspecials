@@ -150,6 +150,7 @@ export async function assessOriginClaimsAgainstSourcesBatch(
   }
 
   const byId = new Map(request.items.map((item) => [item.id, item]));
+  const seenOutputIds = new Set<string>();
   for (const output of raw.items) {
     if (!isItem(output)) {
       return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH" };
@@ -157,13 +158,15 @@ export async function assessOriginClaimsAgainstSourcesBatch(
 
     const input = byId.get(output.id);
     if (
-      !input
+      seenOutputIds.has(output.id)
+      || !input
       || output.claim !== input.claim
       || output.sourceUrl !== input.sourceUrl
       || output.sourceDigest !== input.sourceDigest
     ) {
       return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH" };
     }
+    seenOutputIds.add(output.id);
 
     if (output.support !== "supported") {
       return { ok: false, code: "BATCH_CLAIM_NOT_SUPPORTED" };
@@ -176,6 +179,10 @@ export async function assessOriginClaimsAgainstSourcesBatch(
     if (!excerpt || !input.sourceText.includes(excerpt)) {
       return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH" };
     }
+  }
+
+  if (seenOutputIds.size !== request.items.length) {
+    return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH" };
   }
 
   return {
