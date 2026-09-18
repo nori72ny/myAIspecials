@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
+import { createOriginAnswerQualityBenchmarkEphemeralEvidenceVault } from "./OriginAnswerQualityBenchmarkEphemeralEvidenceVault";
 import {
   createOriginAnswerQualityBenchmarkArtifactHttpAdapter,
   createOriginAnswerQualityBenchmarkChatHttpAdapter,
@@ -49,13 +50,16 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
       paidFallbackUsed: false,
     }));
     let now = 100;
+    const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
     const adapter = createOriginAnswerQualityBenchmarkResearchHttpAdapter({
       environmentProof: proof,
       fetchImpl: fetchImpl as typeof fetch,
       nowMs: () => (now += 10),
+      evidenceVault,
     });
 
-    const result = await adapter(item("current-factual"));
+    const researchItem = item("current-factual");
+    const result = await adapter(researchItem);
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(String(fetchImpl.mock.calls[0][0])).toBe("https://candidate.example/api/research/v1.1/query");
@@ -65,6 +69,18 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     expect(result.costUsd).toBe(0);
     expect(result.finalAnswerRef).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(result.evidenceLedgerRef).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(evidenceVault.consume(
+      researchItem.caseId,
+      result.finalAnswerRef!,
+      result.evidenceLedgerRef!,
+    )).toMatchObject({
+      caseId: researchItem.caseId,
+      answerText: "# report",
+      evidenceJson: {
+        sources: [{ id: "S1", url: "https://example.com/a" }],
+        conflicts: [],
+      },
+    });
   });
 
   it("fails closed when Research reports any non-zero or non-free route", async () => {
@@ -100,25 +116,38 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
         verificationStatus: "passed",
       },
     }));
+    const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
     const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
       environmentProof: proof,
       fetchImpl: fetchImpl as typeof fetch,
+      evidenceVault,
     });
 
-    const result = await adapter(item("professional-advice"));
+    const chatItem = item("professional-advice");
+    const result = await adapter(chatItem);
     expect(result.verifierResult).toBe("PASS");
     expect(result.providerRequests).toBe(2);
     expect(result.costUsd).toBe(0);
     expect(result.finalAnswerRef).toMatch(/^sha256:/);
+    expect(evidenceVault.consume(
+      chatItem.caseId,
+      result.finalAnswerRef!,
+      result.evidenceLedgerRef!,
+    )).toMatchObject({
+      answerText: "回答です",
+      evidenceJson: [{ label: "source" }],
+    });
   });
 
   it("does not retry a failed Chat request and reports it as blocked", async () => {
     const fetchImpl = vi.fn(async () => json({
       code: "PROVIDER_UNAVAILABLE",
     }, 503));
+    const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
     const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
       environmentProof: proof,
       fetchImpl: fetchImpl as typeof fetch,
+      evidenceVault,
     });
 
     const result = await adapter(item("professional-advice"));
@@ -126,6 +155,7 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     expect(result.verifierResult).toBe("BLOCKED_UNVERIFIED");
     expect(result.failureCode).toBe("PROVIDER_UNAVAILABLE");
     expect(result.costUsd).toBe(0);
+    expect(evidenceVault.size()).toBe(0);
   });
 
   it("creates artifacts only after real Chat content and verifies artifact headers", async () => {
@@ -162,21 +192,35 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
       }
       return json({}, 404);
     });
+    const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
     const adapter = createOriginAnswerQualityBenchmarkArtifactHttpAdapter({
       environmentProof: proof,
       fetchImpl: fetchImpl as typeof fetch,
+      evidenceVault,
     });
 
-    const result = await adapter({
+    const artifactItem = {
       ...item("artifact-generation"),
       prompt: "提案書をdocxで作成してください",
-    });
+    };
+    const result = await adapter(artifactItem);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(result.verifierResult).toBe("PASS");
     expect(result.providerRequests).toBe(1);
     expect(result.toolCalls).toBe(2);
     expect(result.finalAnswerRef).toBe(`sha256:${"b".repeat(64)}`);
     expect(result.costUsd).toBe(0);
+    expect(evidenceVault.consume(
+      artifactItem.caseId,
+      result.finalAnswerRef!,
+      result.evidenceLedgerRef!,
+    )).toMatchObject({
+      answerText: "提案書本文",
+      evidenceJson: {
+        artifactSha256: "b".repeat(64),
+        verified: true,
+      },
+    });
   });
 
   it("rejects artifact success without verified zero-cost headers", async () => {
