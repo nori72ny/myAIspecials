@@ -69,6 +69,15 @@ async function appendOriginChatTrace(
   }
 }
 
+async function requireTraceOrFail(
+  sink: OriginChatTraceSink | undefined,
+  required: boolean,
+  record: OriginExecutionTraceRecordV1,
+): Promise<boolean> {
+  const persisted = await appendOriginChatTrace(sink, required, record);
+  return persisted || !required;
+}
+
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";
 const RETRYABLE_PROVIDER_CODES = new Set(["PROVIDER_RATE_LIMITED", "PROVIDER_TIMEOUT", "PROVIDER_UNAVAILABLE", "PROVIDER_INTERNAL_ERROR"]);
@@ -149,12 +158,78 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     if (messages[messages.length - 1].role !== "user") return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "最後のメッセージはユーザーからのものである必要があります。", retryable: false, requestId });
     const lastUserMessage = messages[messages.length - 1].content; const futureReleaseInformationRequired = requiresFutureReleaseInformation(lastUserMessage); const currentInformationRequired = requiresCurrentInformation(lastUserMessage);
     if (isOriginWeatherRequest(lastUserMessage)) { const isEnglish = /[a-zA-Z]/.test(lastUserMessage); if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) { const content = isEnglish ? "Which location would you like to know the weather for?" : "どの地域の天気をお調べしますか？"; const reason = "地域確認のため外部AIを呼びませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason), routing: applicationRouting(requestId, reason) }); } const content = isEnglish ? "Currently, no service is connected to retrieve the latest weather information." : "現在、最新の天気情報を取得するサービスが接続されていません。"; const reason = "最新データ取得サービスが未接続のため推測を実行しませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: applicationRouting(requestId, reason, "not-run") }); }
-    const sensitiveKinds = detectSensitiveConversation(messages); if (sensitiveKinds.length > 0) return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", messageKey: "errors.sensitiveInputBlocked", message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。", retryable: false, requestId, sensitiveKinds });
-    const contextResult = minimizeOriginContext(messages, contextPolicy); if (contextResult.ok === false) return res.status(contextResult.code === "LATEST_MESSAGE_TOO_LARGE" ? 413 : 500).json({ code: contextResult.code, message: contextResult.message, retryable: false, requestId });
+    const sensitiveKinds = detectSensitiveConversation(messages); if (sensitiveKinds.length > 0) {
+      const createdAt = now();
+      const traceOk = await requireTraceOrFail(traceSink, traceRequired, {
+        traceId: requestId,
+        route: "/api/chat",
+        taskType: "sensitive-input",
+        verificationStatus: "blocked",
+        reviewRequired: false,
+        independentReviewPerformed: false,
+        freeOnly: true,
+        actualCostUsd: 0,
+        outcome: "blocked",
+        failureCode: "SENSITIVE_INPUT_BLOCKED",
+        includedMessageCount: 0,
+        includedCharacterCount: 0,
+        omittedMessageCount: messages.length,
+        omittedCharacterCount: messages.reduce((sum, message) => sum + message.content.length, 0),
+        createdAt,
+        expiresAt: createdAt + 7 * 24 * 60 * 60 * 1000,
+      });
+      if (!traceOk) return res.status(503).json({ code: "TRACE_PERSISTENCE_FAILED", message: "監査記録を安全に保存できなかったため、処理を継続しません。", retryable: false, requestId });
+      return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", messageKey: "errors.sensitiveInputBlocked", message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。", retryable: false, requestId, sensitiveKinds });
+    }
+    const contextResult = minimizeOriginContext(messages, contextPolicy); if (contextResult.ok === false) {
+      const createdAt = now();
+      const traceOk = await requireTraceOrFail(traceSink, traceRequired, {
+        traceId: requestId,
+        route: "/api/chat",
+        taskType: "context-policy",
+        verificationStatus: "blocked",
+        reviewRequired: false,
+        independentReviewPerformed: false,
+        freeOnly: true,
+        actualCostUsd: 0,
+        outcome: "policy-rejected",
+        failureCode: contextResult.code,
+        includedMessageCount: 0,
+        includedCharacterCount: 0,
+        omittedMessageCount: messages.length,
+        omittedCharacterCount: messages.reduce((sum, message) => sum + message.content.length, 0),
+        createdAt,
+        expiresAt: createdAt + 7 * 24 * 60 * 60 * 1000,
+      });
+      if (!traceOk) return res.status(503).json({ code: "TRACE_PERSISTENCE_FAILED", message: "監査記録を安全に保存できなかったため、処理を継続しません。", retryable: false, requestId });
+      return res.status(contextResult.code === "LATEST_MESSAGE_TOO_LARGE" ? 413 : 500).json({ code: contextResult.code, message: contextResult.message, retryable: false, requestId });
+    }
     if (currentInformationRequired) { const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage); const content = futureReleaseInformationRequired ? futureAiDirectionGuidance(isEnglish) : (isEnglish ? "ORIGIN cannot verify current information in this release because live search is not connected. It will not answer from potentially outdated knowledge." : "この版では最新情報を確認する検索機能が接続されていないため、古い可能性がある知識だけでは回答しません。"); const reason = futureReleaseInformationRequired ? (isEnglish ? "Live search is not connected. No specific future product was verified; only clearly labeled general trends were provided." : "最新情報の検索機能が未接続のため、個別製品は確認せず、一般的な技術動向だけを明示して回答しました。") : (isEnglish ? "Live search is not connected, so current facts were not verified." : "最新情報の検索機能が未接続のため、現在の事実確認を実施しませんでした。"); const limitations = [futureReleaseInformationRequired ? (isEnglish ? "No specific upcoming product name or release date was retrieved or checked." : "今後登場する個別製品名や公開時期は取得・確認していません。") : (isEnglish ? "Current facts, prices, news, and other time-sensitive information were not retrieved or checked." : "現在の事実、料金、ニュースなど、時点に依存する情報は取得・確認していません。")] ; const nextActions = [futureReleaseInformationRequired ? (isEnglish ? "After live search is connected, add a dated release list verified against primary sources." : "ライブ検索接続後、確認日付きで一次情報を照合した公開予定一覧を追加します。") : (isEnglish ? "Paste the relevant text from an official source and ORIGIN can organize or compare that supplied content." : "公式情報の本文または必要部分を貼り付けると、その内容を整理・比較できます。")]; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason, [], limitations, nextActions), routing: applicationRouting(requestId, reason, "not-run") }); }
     if (isOriginCapabilityQuestion(lastUserMessage)) { const guide = createOriginCapabilityGuide(lastUserMessage); const reason = guide.language === "ja" ? "現在の公開版で利用できる機能と未接続機能を、ORIGINの製品仕様に基づいて案内しました。" : "Explained the current and unconnected capabilities from ORIGIN's product specification."; return res.json({ content: guide.content, answer: answerEnvelope(guide.content, guide.language, "not-required", reason, [], guide.limitations, guide.nextActions), routing: applicationRouting(requestId, reason) }); }
     const planningResult = buildOriginExecutionPlan({ goal: lastUserMessage.trim(), requiresCodeChanges: /実装|修正|コード|implement|fix/i.test(lastUserMessage), requiresFreshResearch: false, containsSecrets: false }, { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) }, originClientPolicy(body), { freeModelCatalog: options.freeModelCatalog, nowMs: catalogNow() });
-    if (planningResult.ok === false) return res.status(planningResult.code === "INVALID_EXECUTION_POLICY" ? 400 : 503).json({ code: planningResult.code, message: planningResult.message, retryable: false, requestId });
+    if (planningResult.ok === false) {
+      const createdAt = now();
+      const traceOk = await requireTraceOrFail(traceSink, traceRequired, {
+        traceId: requestId,
+        route: "/api/chat",
+        taskType: "execution-policy",
+        verificationStatus: "blocked",
+        reviewRequired: false,
+        independentReviewPerformed: false,
+        freeOnly: true,
+        actualCostUsd: 0,
+        outcome: "policy-rejected",
+        failureCode: planningResult.code,
+        includedMessageCount: contextResult.window.includedMessageCount,
+        includedCharacterCount: contextResult.window.includedCharacterCount,
+        omittedMessageCount: contextResult.window.omittedMessageCount,
+        omittedCharacterCount: contextResult.window.omittedCharacterCount,
+        createdAt,
+        expiresAt: createdAt + 7 * 24 * 60 * 60 * 1000,
+      });
+      if (!traceOk) return res.status(503).json({ code: "TRACE_PERSISTENCE_FAILED", message: "監査記録を安全に保存できなかったため、処理を継続しません。", retryable: false, requestId });
+      return res.status(planningResult.code === "INVALID_EXECUTION_POLICY" ? 400 : 503).json({ code: planningResult.code, message: planningResult.message, retryable: false, requestId });
+    }
     const startedAt = now(); let providerRetryAttempted = false;
     try {
       const requestIntent = classifyOriginRequestIntent(lastUserMessage, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required });
@@ -199,7 +274,32 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       return res.json({ content: result.text, answer: answerEnvelope(result.text, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, completedAt - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerRetryAttempted ? 2 : 1 } });
     } catch (error) {
       if (error instanceof OriginProviderError) {
-        console.warn("[origin-chat] provider request failed", { requestId, durationMs: Math.max(0, now() - startedAt), code: error.code, status: error.status, retryable: error.retryable, diagnostic: error.diagnostic });
+        const completedAt = now();
+        const traceOk = await requireTraceOrFail(traceSink, traceRequired, {
+          traceId: requestId,
+          route: "/api/chat",
+          taskType: planningResult.plan.taskType,
+          verificationStatus: "not-run",
+          reviewRequired: false,
+          independentReviewPerformed: false,
+          providerId: planningResult.plan.providerId,
+          modelId: planningResult.plan.modelId,
+          freeOnly: true,
+          actualCostUsd: 0,
+          outcome: "provider-failure",
+          failureCode: error.code,
+          includedMessageCount: contextResult.window.includedMessageCount,
+          includedCharacterCount: contextResult.window.includedCharacterCount,
+          omittedMessageCount: contextResult.window.omittedMessageCount,
+          omittedCharacterCount: contextResult.window.omittedCharacterCount,
+          createdAt: startedAt,
+          expiresAt: completedAt + 7 * 24 * 60 * 60 * 1000,
+        });
+        if (!traceOk) {
+          res.setHeader("Cache-Control", "no-store");
+          return res.status(503).json({ code: "TRACE_PERSISTENCE_FAILED", message: "監査記録を安全に保存できなかったため、処理を継続しません。", retryable: false, requestId });
+        }
+        console.warn("[origin-chat] provider request failed", { requestId, durationMs: Math.max(0, completedAt - startedAt), code: error.code, status: error.status, retryable: error.retryable, diagnostic: error.diagnostic });
         res.setHeader("Cache-Control", "no-store");
         return res.status(error.status).json({
           code: error.code,
