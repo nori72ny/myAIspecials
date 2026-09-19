@@ -121,6 +121,10 @@ const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const SAFE_FAILURE_DETAIL = /^[A-Z][A-Z0-9_:.-]{0,160}$/;
 
 function safeFailureDetail(error: unknown): string | undefined {
+  if (error && typeof error === "object") {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && SAFE_FAILURE_DETAIL.test(code)) return code;
+  }
   return error instanceof Error && SAFE_FAILURE_DETAIL.test(error.message)
     ? error.message
     : undefined;
