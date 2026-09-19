@@ -107,6 +107,21 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(answer.getByRole('img')).toHaveCount(0);
     await expect(answer.getByRole('note')).toContainText('外部画像は自動表示しません');
     await expect(page.getByTestId('response-verification-details')).toContainText('$0配信を確認');
+    const typography = await answer.evaluate((element) => {
+      const heading = element.querySelector('h2');
+      const paragraph = element.querySelector('p');
+      if (!heading || !paragraph) return null;
+      const headingStyle = getComputedStyle(heading);
+      const paragraphStyle = getComputedStyle(paragraph);
+      return {
+        headingPx: Number.parseFloat(headingStyle.fontSize),
+        paragraphPx: Number.parseFloat(paragraphStyle.fontSize),
+        paragraphLineHeightPx: Number.parseFloat(paragraphStyle.lineHeight),
+      };
+    });
+    expect(typography).not.toBeNull();
+    expect(typography!.headingPx).toBeGreaterThan(typography!.paragraphPx * 1.2);
+    expect(typography!.paragraphLineHeightPx).toBeGreaterThan(typography!.paragraphPx * 1.7);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
