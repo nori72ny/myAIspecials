@@ -212,6 +212,20 @@ describe("createOriginApp provider isolation", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["/api/research/v1.1/query", { query: "public research topic" }],
+    ["/api/artifacts/v1.2/generate", { type: "markdown", title: "test", content: "safe" }],
+  ])("blocks cross-origin submission on %s before route execution", async (path, body) => {
+    const response = await request(createOriginApp())
+      .post(path)
+      .set("Origin", "https://attacker.example")
+      .send(body);
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe("CROSS_ORIGIN_REQUEST_BLOCKED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("returns a sanitized error for malformed JSON", async () => {
     const response = await request(createOriginApp())
       .post("/api/chat")

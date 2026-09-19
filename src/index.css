@@ -211,7 +211,7 @@
 }
 .origin-surface { background: var(--bg-surface); border-color: var(--border-default); border-radius: var(--radius-card); box-shadow: 0 16px 36px var(--shadow-color); }
 .origin-surface-muted { background: var(--bg-surface-muted); border-color: var(--border-default); border-radius: var(--radius-card); }
-.origin-card { background: color-mix(in oklch, var(--bg-surface) 92%, transparent); border-color: var(--border-default); border-radius: var(--radius-card); color: var(--text-primary); }
+.origin-card { background: color-mix(in oklch, var(--bg-surface) 92%, transparent); border-color: var(--border-default); border-radius: var(--radius-card); color: var(--text-primary); transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
 .origin-card:hover { background: var(--bg-surface-muted); border-color: var(--accent-border); }
 .origin-input { color: var(--text-primary); caret-color: var(--accent-primary); }
 .origin-input::placeholder { color: var(--text-placeholder); opacity: 1; }
@@ -229,22 +229,30 @@
 .origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface)); border-color: color-mix(in oklch, var(--danger) 46%, var(--border-default)); color: var(--danger); }
 .origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-primary); }
 .origin-chat-user { background: var(--accent-primary); color: var(--text-on-accent); }
-.origin-chat-assistant { background: var(--bg-surface); color: var(--text-primary); }
-.origin-answer-markdown { min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); }
+.origin-chat-assistant {
+  width: 100%;
+  max-width: 52rem;
+  margin-inline: auto;
+  background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary));
+  border-color: color-mix(in oklch, var(--border-default) 88%, var(--accent-primary));
+  color: var(--text-primary);
+  box-shadow: 0 14px 38px color-mix(in oklch, var(--shadow-color) 42%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent);
+}
+.origin-answer-markdown { min-width: 0; max-width: 52rem; margin-inline: auto; overflow-wrap: anywhere; color: var(--text-primary); }
 .origin-answer-markdown > :first-child { margin-top: 0; }
 .origin-answer-markdown > :last-child { margin-bottom: 0; }
 .origin-answer-markdown h1,
 .origin-answer-markdown h2,
-.origin-answer-markdown h3 { margin: 1.5rem 0 0.6rem; font-weight: 750; line-height: 1.35; letter-spacing: -0.015em; }
-.origin-answer-markdown h1 { font-size: 1.35rem; }
-.origin-answer-markdown h2 { font-size: 1.18rem; }
-.origin-answer-markdown h3 { font-size: 1.05rem; }
-.origin-answer-markdown p { margin: 0 0 1rem; line-height: 1.8; }
+.origin-answer-markdown h3 { margin: 1.8rem 0 0.72rem; scroll-margin-top: 5rem; font-weight: 760; line-height: 1.28; letter-spacing: -0.018em; text-wrap: balance; }
+.origin-answer-markdown h1 { font-size: clamp(1.48rem, 2.4vw, 1.68rem); }
+.origin-answer-markdown h2 { font-size: clamp(1.28rem, 2vw, 1.42rem); }
+.origin-answer-markdown h3 { font-size: clamp(1.1rem, 1.6vw, 1.2rem); }
+.origin-answer-markdown p { margin: 0 0 1.05rem; line-height: 1.84; text-wrap: pretty; }
 .origin-answer-markdown ul,
 .origin-answer-markdown ol { margin: 0.5rem 0 1rem; padding-left: 1.35rem; }
 .origin-answer-markdown ul { list-style: disc; }
 .origin-answer-markdown ol { list-style: decimal; }
-.origin-answer-markdown li { margin: 0.35rem 0; padding-left: 0.15rem; line-height: 1.7; }
+.origin-answer-markdown li { margin: 0.42rem 0; padding-left: 0.18rem; line-height: 1.76; }
 .origin-answer-markdown li::marker { color: var(--accent-primary); font-weight: 700; }
 .origin-answer-markdown strong { color: var(--text-primary); font-weight: 750; }
 .origin-answer-markdown a { color: var(--accent-primary); font-weight: 650; text-decoration: underline; text-underline-offset: 0.18em; }
@@ -252,7 +260,7 @@
 .origin-answer-markdown hr { margin: 1.5rem 0; border: 0; border-top: 1px solid var(--border-default); }
 .origin-answer-markdown pre { max-width: 100%; overflow: auto; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-primary); padding: 1rem; font-size: 0.875rem; line-height: 1.65; }
 .origin-answer-markdown :not(pre) > code { border-radius: 0.35rem; background: var(--bg-surface-muted); padding: 0.1rem 0.35rem; font-size: 0.9em; }
-.origin-answer-table-scroll { max-width: 100%; overflow-x: auto; margin: 1rem 0; border: 1px solid var(--border-default); border-radius: var(--radius-control); }
+.origin-answer-table-scroll { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; margin: 1rem 0; border: 1px solid var(--border-default); border-radius: var(--radius-control); }
 .origin-answer-table-scroll table { width: 100%; min-width: 34rem; border-collapse: collapse; }
 .origin-answer-table-scroll th,
 .origin-answer-table-scroll td { border-bottom: 1px solid var(--border-default); padding: 0.7rem 0.8rem; text-align: left; vertical-align: top; }
@@ -271,7 +279,7 @@
 .origin-composer--compact textarea { min-height: 52px; }
 .origin-verification summary::-webkit-details-marker { display: none; }
 .origin-verification summary { cursor: pointer; }
-.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: 1rem; line-height: 1.75; }
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: clamp(1rem, 1.1vw, 1.04rem); line-height: 1.8; }
 
 .safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 @media (min-width: 640px) { .safe-area-bottom { padding-bottom: 1.25rem; } }
@@ -337,6 +345,39 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
 .origin-answer-code-toolbar button:hover, .origin-answer-actions button:hover { color: var(--text-primary); background: var(--bg-surface-muted); }
 .origin-answer-code-toolbar button:focus-visible, .origin-answer-actions button:focus-visible, .origin-answer-code pre:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
 .origin-answer-code-toolbar button[aria-pressed="true"] { color: var(--accent-primary); }
-.origin-answer-actions { margin-top: 1rem; border-top: 1px solid var(--border-default); padding-top: 0.4rem; font-size: 0.85rem; }
-.origin-answer-refinements { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
+.origin-answer-actions { display: grid; gap: 0.55rem; margin-top: 1.35rem; border-top: 1px solid var(--border-default); padding-top: 0.85rem; font-size: 0.85rem; }
+.origin-answer-refinements { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0; }
+.origin-verification { max-width: 52rem; margin-inline: auto; }
 .origin-answer-refinements button { border: 1px solid var(--border-default); background: var(--bg-surface-muted); }
+
+
+.origin-mobile-agent-controls {
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+}
+
+
+.origin-interactive-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+summary:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+a[href]:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  summary,
+  select,
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  a[href].origin-touch-link {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

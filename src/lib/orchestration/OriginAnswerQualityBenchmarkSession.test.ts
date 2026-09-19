@@ -1,0 +1,191 @@
+import { describe, expect, it } from "vitest";
+
+import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
+import { createOriginAnswerQualityBenchmarkRuntimeAdapter } from "./OriginAnswerQualityBenchmarkRuntimeAdapter";
+import { runOriginAnswerQualityBenchmarkSession } from "./OriginAnswerQualityBenchmarkSession";
+import type { OriginAnswerQualityBenchmarkCaseExecutor } from "./OriginAnswerQualityBenchmarkRunner";
+
+const executor: OriginAnswerQualityBenchmarkCaseExecutor = async (item) => ({
+  caseId: item.caseId,
+  finalAnswerRef: `answer:${item.caseId}`,
+  evidenceLedgerRef: `ledger:${item.caseId}`,
+  verifierResult: "PASS",
+  providerRequests: 1,
+  toolCalls: 1,
+  latencyMs: 50,
+  costUsd: 0,
+  failureCode: null,
+});
+
+const environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof = {
+  schemaVersion: "origin.aq-benchmark-environment-proof.v1",
+  baseUrl: "https://candidate.example/",
+  expectedGitSha: "a".repeat(40),
+  observedReleaseSha: "a".repeat(40),
+  freeOnly: true,
+  costUsd: 0,
+  paidFallbackEnabled: false,
+  runtimeIds: {
+    research: "grounded-research-v1.1",
+    coding: "coding-v1.4",
+    artifact: "artifact-v1.2",
+  },
+  codingReady: true,
+};
+
+const adapters = {
+  research: createOriginAnswerQualityBenchmarkRuntimeAdapter("research", "grounded-research-v1.1", executor),
+  chat: createOriginAnswerQualityBenchmarkRuntimeAdapter("chat", "origin-chat", executor),
+  coding: createOriginAnswerQualityBenchmarkRuntimeAdapter("coding", "coding-v1.4", executor),
+  artifact: createOriginAnswerQualityBenchmarkRuntimeAdapter("artifact", "artifact-v1.2", executor),
+};
+
+describe("OriginAnswerQualityBenchmarkSession", () => {
+  it("runs the frozen forty-case corpus into one measured bound session", async () => {
+    let now = 1_789_761_600_000;
+    const result = await runOriginAnswerQualityBenchmarkSession({
+      runId: "aq-session-1",
+      gitSha: "a".repeat(40),
+      environmentProof,
+      providerId: "openrouter-free",
+      modelId: "example/free-model:free",
+      executors: adapters,
+      collectScoringEvidence: async (item, execution) => ({
+        caseId: item.caseId,
+        category: item.category,
+        finalAnswerRef: execution.finalAnswerRef,
+        evidenceLedgerRef: execution.evidenceLedgerRef,
+        totalMaterialClaims: 1,
+        supportedMaterialClaims: 1,
+        totalRenderedCitations: item.category === "current-factual" ? 1 : 0,
+        supportingRenderedCitations: item.category === "current-factual" ? 1 : 0,
+        citationsRequired: item.category === "current-factual",
+        materialContradictionsPresent: item.category === "contradiction-detection" ? 1 : 0,
+        materialContradictionsSurfaced: item.category === "contradiction-detection" ? 1 : 0,
+        deliverableCompleted: true,
+        verifierRejectedUnsupportedClaim: true,
+        repairRequired: item.category === "coding-repair",
+        repairSucceeded: item.category === "coding-repair" ? true : undefined,
+        verificationIntegrityAccurate: true,
+        failClosedDesigned: item.category === "fail-closed",
+        failClosedCorrect: item.category === "fail-closed" ? true : undefined,
+        userActionabilityScore: 3,
+      }),
+      nowMs: () => {
+        const value = now;
+        now += 1000;
+        return value;
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok === false) return;
+    expect(result.value.corpus.cases).toHaveLength(40);
+    expect(result.value.measuredRun.boundRun.caseCount).toBe(40);
+    expect(result.value.measuredRun.boundRun.totalProviderRequests).toBe(40);
+    expect(result.value.measuredRun.measuredObservations).toHaveLength(40);
+  });
+
+  it("refuses to start before all four execution lanes are configured", async () => {
+    const result = await runOriginAnswerQualityBenchmarkSession({
+      runId: "aq-session-2",
+      gitSha: "a".repeat(40),
+      environmentProof,
+      providerId: "openrouter-free",
+      modelId: "example/free-model:free",
+      executors: {
+        research: adapters.research,
+        chat: adapters.chat,
+      },
+      collectScoringEvidence: async () => {
+        throw new Error("must not score");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok === true) return;
+    expect(result.code).toBe("AQ_BENCHMARK_SESSION_RUNTIME_NOT_READY");
+    expect(result.detail).toContain("coding,artifact");
+  });
+
+  it("refuses a benchmark session when the environment proof belongs to another SHA", async () => {
+    const result = await runOriginAnswerQualityBenchmarkSession({
+      runId: "aq-session-sha-mismatch",
+      gitSha: "a".repeat(40),
+      environmentProof: {
+        ...environmentProof,
+        expectedGitSha: "b".repeat(40),
+        observedReleaseSha: "b".repeat(40),
+      },
+      providerId: "openrouter-free",
+      modelId: "example/free-model:free",
+      executors: adapters,
+      collectScoringEvidence: async () => {
+        throw new Error("must not score");
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID",
+      detail: "AQ_BENCHMARK_SESSION_ENV_SHA_MISMATCH",
+    });
+  });
+
+  it("fails closed if any lane reports non-zero cost", async () => {
+    const paidCoding: OriginAnswerQualityBenchmarkCaseExecutor = async (item) => ({
+      caseId: item.caseId,
+      finalAnswerRef: "answer",
+      evidenceLedgerRef: null,
+      verifierResult: "PASS",
+      providerRequests: 1,
+      toolCalls: 1,
+      latencyMs: 10,
+      costUsd: 0.01,
+      failureCode: null,
+    });
+
+    const paidCodingAdapter = createOriginAnswerQualityBenchmarkRuntimeAdapter(
+      "coding",
+      "coding-v1.4",
+      paidCoding,
+    );
+
+    const result = await runOriginAnswerQualityBenchmarkSession({
+      runId: "aq-session-3",
+      gitSha: "a".repeat(40),
+      environmentProof,
+      providerId: "openrouter-free",
+      modelId: "example/free-model:free",
+      executors: {
+        research: adapters.research,
+        chat: adapters.chat,
+        coding: paidCodingAdapter,
+        artifact: adapters.artifact,
+      },
+      collectScoringEvidence: async (item, execution) => ({
+        caseId: item.caseId,
+        category: item.category,
+        finalAnswerRef: execution.finalAnswerRef,
+        evidenceLedgerRef: execution.evidenceLedgerRef,
+        totalMaterialClaims: 0,
+        supportedMaterialClaims: 0,
+        totalRenderedCitations: 0,
+        supportingRenderedCitations: 0,
+        citationsRequired: false,
+        materialContradictionsPresent: 0,
+        materialContradictionsSurfaced: 0,
+        deliverableCompleted: true,
+        verifierRejectedUnsupportedClaim: false,
+        repairRequired: false,
+        verificationIntegrityAccurate: true,
+        failClosedDesigned: false,
+        userActionabilityScore: 3,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok === true) return;
+    expect(result.code).toBe("AQ_BENCHMARK_SESSION_EXECUTION_FAILED");
+  });
+});

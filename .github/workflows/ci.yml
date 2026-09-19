@@ -61,6 +61,11 @@ jobs:
           ${{ runner.os }}-node-${{ matrix.node-version }}-playwright-
     - name: Install Playwright Browsers
       run: npx playwright install --force chromium
+    - name: Install Japanese fonts for visual QA
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+        fc-cache -f
     - name: Run E2E tests
       run: npm run test:e2e
     - name: Exercise production browser release gates without live inference

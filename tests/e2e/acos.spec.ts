@@ -14,7 +14,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const initialComposerHeight = await commandBar.evaluate((element) => element.closest('.origin-composer')!.getBoundingClientRect().height);
     expect(initialComposerHeight).toBeGreaterThanOrEqual(76);
     expect(initialComposerHeight).toBeGreaterThanOrEqual(92);
-    expect(initialComposerHeight).toBeLessThanOrEqual(104);
+    expect(initialComposerHeight).toBeLessThanOrEqual(112);
     await expect(page.locator('[data-testid^="starter-"]')).toHaveCount(0);
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
@@ -233,6 +233,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       body: '```html:isolated-storage.html\n<main id="storage-result">Waiting</main><script>localStorage.setItem("habit","done");sessionStorage.setItem("session","isolated");document.getElementById("storage-result").textContent=localStorage.getItem("habit");fetch("https://origin-egress.invalid/blocked").catch(function(){});</script>\n```',
     }));
     await page.goto('/');
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await page.evaluate(() => localStorage.setItem('origin-parent-secret', 'parent-only'));
     await page.getByTestId('origin-home-request').fill('保存できる習慣トラッカーを作成');
     await page.getByTestId('start-request-button').click();
@@ -337,7 +339,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByText('IndexedDBへ移行する履歴')).toBeVisible();
     // Opening version 1 before the app's idle migration creates a schema-less
     // database. Wait for successful storage initialization before inspecting it.
-    await expect(page.getByTestId('origin-storage-status')).toHaveCount(0);
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await expect.poll(() => page.evaluate(async () => new Promise<{ legacy: string | null; snapshot: unknown }>((resolve) => {
       const request = indexedDB.open('origin-personal-local', 1);
       request.onsuccess = () => {

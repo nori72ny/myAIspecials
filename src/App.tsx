@@ -107,8 +107,8 @@ export const completeArtifactClosingTag = (content: string, cursor: number): { c
 };
 
 export const getOriginSystemPrompt = (language: OriginLanguage): string => language === 'en'
-  ? 'You are ORIGIN Personal, an executive-grade decision and creation partner. Lead with a decisive one-sentence recommendation, then present evidence, trade-offs, risks, and the next action in concise native English. Match depth to complexity, cover every explicit requirement, and use professional domain-appropriate language without flattening important nuance. For artifacts, use fenced blocks in the exact format ```language:title and deliver production-ready output.'
-  : 'あなたは ORIGIN Personal です。結論を1文で先に示し、根拠、比較、リスク、次の行動を論理的に整理してください。簡潔さを情報不足と取り違えず、複雑な依頼では明示された要件をすべて扱い、重要なニュアンスを落とさない専門的で実用的な回答にしてください。成果物は ```language:title 形式で、本番利用できる品質に仕上げてください。';
+  ? 'You are ORIGIN Personal, an executive-grade decision and creation partner. Lead with a decisive one-sentence recommendation, then present evidence, trade-offs, risks, and the next action in concise native English. Match depth to complexity, cover every explicit requirement, and use professional domain-appropriate language without flattening important nuance. Distinguish verified facts from inference and assumptions, never invent sources or completed work, and label material unknowns explicitly. When current or external facts materially affect the answer, ground them in available evidence; when evidence is unavailable, say what remains unverified. For complex requests, do not stop at a terse overview: provide enough detail, conditions, verification, and execution guidance for the user to act. For simple requests, stay brief. For artifacts, use fenced blocks in the exact format ```language:title and deliver production-ready output.'
+  : 'あなたは ORIGIN Personal です。結論を1文で先に示し、根拠、比較、リスク、次の行動を論理的に整理してください。簡潔さを情報不足と取り違えず、複雑な依頼では明示された要件をすべて扱い、重要なニュアンスを落とさない専門的で実用的な回答にしてください。確認済みの事実と推論・仮定を区別し、出典や完了実績を創作せず、重要な未確認点は明示してください。最新情報や外部事実が結論に影響する場合は利用可能な根拠に結び付け、確認できない場合は未確認と明記してください。複雑な依頼では短い概要だけで打ち切らず、実行に必要な詳細、条件、検証方法、具体的な進め方まで十分に示し、単純な依頼は簡潔にしてください。成果物は ```language:title 形式で、本番利用できる品質に仕上げてください。';
 
 const splitArtifactVisualUnits = (content: string): string[] => content
   .replace(/>\s*</g, '>\n<')
@@ -579,8 +579,18 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; artifa
     }).catch(() => { /* Keep the in-memory history available if durable storage cannot be read. */ });
     return () => { active = false; };
   }, [isOpen]);
-  const searchableSessions = storedSessions ?? sessions;
-  const searchableArtifacts = storedArtifacts ?? artifacts;
+  const searchableSessions = useMemo(() => {
+    if (storedSessions === null) return sessions;
+    const merged = new Map(storedSessions.map((session) => [session.id, session] as const));
+    sessions.forEach((session) => merged.set(session.id, session));
+    return Array.from(merged.values());
+  }, [sessions, storedSessions]);
+  const searchableArtifacts = useMemo(() => {
+    if (storedArtifacts === null) return artifacts;
+    const merged = new Map(storedArtifacts.map((artifact) => [artifact.id, artifact] as const));
+    artifacts.forEach((artifact) => merged.set(artifact.id, artifact));
+    return Array.from(merged.values());
+  }, [artifacts, storedArtifacts]);
   const results = useMemo(() => searchOriginLocalSnapshot(deferredQuery, searchableSessions, searchableArtifacts), [deferredQuery, searchableArtifacts, searchableSessions]);
   return <>
     <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[15px] font-semibold sm:w-auto sm:min-w-11 sm:px-3 sm:text-[13px]"><span aria-hidden="true">☰</span><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
