@@ -105,9 +105,10 @@ function materialClaimCandidates(answerText: string): readonly MaterialClaimCand
   const segments = Array.from(
     normalized.matchAll(/[^.!?。！？\n]+[.!?。！？]?/gu),
     (match) => match[0].trim(),
-  )
-    .filter((value) => value.length >= 8)
-    .slice(0, 64);
+  ).filter((value) => value.length >= 8);
+  if (segments.length > 64) {
+    throw new Error("AQ_BENCHMARK_EVALUATOR_CANDIDATE_LIMIT");
+  }
   return Object.freeze(segments.map((text, index) => Object.freeze({
     candidateId: `candidate-${index + 1}`,
     text,
