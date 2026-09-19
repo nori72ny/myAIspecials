@@ -24,7 +24,7 @@ async function readSnapshot(page: Page) {
 async function seed(page: Page) {
   await page.goto('/');
   await expect(page.getByTestId('origin-home-request')).toBeVisible();
-  await expect(page.getByTestId('origin-storage-status')).toHaveCount(0);
+  await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
   // Let the initial empty-state save complete before installing the durable fixture.
   await expect.poll(() => readSnapshot(page)).toMatchObject({ version: 1 });
   await page.evaluate((snapshot) => new Promise<void>((resolve, reject) => {
@@ -53,7 +53,7 @@ test('preserves durable sessions across two reloads without legacy storage or em
   });
   for (let reload = 0; reload < 2; reload++) {
     await page.reload();
-    await expect(page.getByTestId('origin-storage-status')).toHaveCount(0);
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await expect(page.getByText('保存済みの会話を保持', { exact: true })).toBeVisible();
     await expect.poll(() => page.evaluate(() => (window as any).__storageWrites.length)).toBeGreaterThan(0);
     const writes = await page.evaluate(() => (window as any).__storageWrites);
