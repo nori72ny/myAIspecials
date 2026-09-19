@@ -51,14 +51,11 @@ export interface OriginAnswerQualityBenchmarkProviderEvaluators {
 
 const SEMANTIC_RUBRIC_SPEC = [
   "origin.aq-semantic-rubric.v1.depth-explicit-r1",
-  "deliverableCompleted=true only when every material explicit requirement in the user prompt is addressed or safely failed closed; a polished partial answer is incomplete.",
-  "verificationIntegrityAccurate=true only when the answer distinguishes verified facts, inference, assumptions, and unverified or unexecuted claims without overstating evidence.",
-  "userActionabilityScore=0: unusable, materially wrong, unsafe, or missing the requested deliverable.",
-  "userActionabilityScore=1: partially useful but generic, under-specified, or missing multiple material requirements, conditions, or next steps.",
-  "userActionabilityScore=2: substantially useful and mostly complete, but missing one material decision/execution detail, verification step, condition, or relevant trade-off.",
-  "userActionabilityScore=3: complete and directly actionable at professional working depth; covers all material requirements with appropriate conditions, trade-offs, risks, verification/next steps when relevant, and no filler added merely for length.",
-  "Do not reward verbosity by itself; reward sufficient task-specific depth, requirement coverage, truthful uncertainty, and usability.",
-].join("\n");
+  "deliverableCompleted=true iff all material explicit requirements are addressed or safely fail-closed; polished partial work is incomplete.",
+  "verificationIntegrityAccurate=true iff verified facts, inference, assumptions, unknowns, and unexecuted claims are distinguished without overclaiming.",
+  "Actionability 0=unusable/wrong/unsafe/missing deliverable; 1=generic or partial with multiple material gaps; 2=mostly complete with one material decision, execution, condition, trade-off, or verification gap; 3=complete and directly actionable at professional working depth, covering all material requirements plus relevant conditions, trade-offs, risks, verification, and next steps.",
+  "Do not reward verbosity or filler; reward task-specific depth, requirement coverage, truthful uncertainty, and usability.",
+].join("\n");;
 
 const SCORER_SOURCE = [
   "origin-aq-provider-evaluator.v1",
