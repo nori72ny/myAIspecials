@@ -20,6 +20,20 @@ export interface OriginAnswerQualityBenchmarkEnvironmentProof {
   readonly codingReady: true;
 }
 
+export interface OriginAnswerQualityBenchmarkChunkEnvironmentProof {
+  readonly schemaVersion: "origin.aq-benchmark-chunk-environment-proof.v1";
+  readonly baseUrl: string;
+  readonly expectedGitSha: string;
+  readonly observedReleaseSha: string;
+  readonly freeOnly: true;
+  readonly costUsd: 0;
+  readonly paidFallbackEnabled: false;
+  readonly requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[];
+  readonly researchReady: boolean;
+  readonly codingReady: boolean;
+  readonly artifactReady: boolean;
+}
+
 export type OriginAnswerQualityBenchmarkEnvironmentProofResult =
   | { ok: true; value: OriginAnswerQualityBenchmarkEnvironmentProof }
   | {
@@ -76,6 +90,119 @@ function zeroCost(value: JsonRecord): boolean {
   return value.freeOnly === true
     && value.costUsd === 0
     && value.paidFallbackEnabled === false;
+}
+
+
+export type OriginAnswerQualityBenchmarkChunkEnvironmentProofResult =
+  | { ok: true; value: OriginAnswerQualityBenchmarkChunkEnvironmentProof }
+  | {
+      ok: false;
+      code:
+        | "AQ_BENCHMARK_CHUNK_ENV_INVALID_LANES"
+        | "AQ_BENCHMARK_ENV_INVALID_BASE_URL"
+        | "AQ_BENCHMARK_ENV_FETCH_FAILED"
+        | "AQ_BENCHMARK_ENV_HEALTH_INVALID"
+        | "AQ_BENCHMARK_ENV_SHA_MISMATCH"
+        | "AQ_BENCHMARK_ENV_RESEARCH_INVALID"
+        | "AQ_BENCHMARK_ENV_ARTIFACT_INVALID"
+        | "AQ_BENCHMARK_ENV_CODING_NOT_READY";
+    };
+
+export async function probeOriginAnswerQualityBenchmarkChunkEnvironment(
+  baseUrl: string,
+  expectedGitSha: string,
+  requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<OriginAnswerQualityBenchmarkChunkEnvironmentProofResult> {
+  const lanes = [...new Set(requiredLanes)];
+  if (
+    lanes.length === 0
+    || lanes.some((lane) => !["research", "chat", "coding", "artifact"].includes(lane))
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_CHUNK_ENV_INVALID_LANES" };
+  }
+
+  const base = validBaseUrl(baseUrl);
+  if (!base) return { ok: false, code: "AQ_BENCHMARK_ENV_INVALID_BASE_URL" };
+  if (!SHA40.test(expectedGitSha)) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_SHA_MISMATCH" };
+  }
+
+  const needsResearch = lanes.includes("research");
+  const needsCoding = lanes.includes("coding");
+  const needsArtifact = lanes.includes("artifact");
+
+  const [health, research, artifact, coding] = await Promise.all([
+    getJson(fetchImpl, base, "/api/health"),
+    needsResearch ? getJson(fetchImpl, base, "/api/research/v1.1/status") : Promise.resolve(null),
+    needsArtifact ? getJson(fetchImpl, base, "/api/artifacts/v1.2/status") : Promise.resolve(null),
+    needsCoding ? getJson(fetchImpl, base, "/api/coding/v1.4/status") : Promise.resolve(null),
+  ]);
+
+  if (!health) return { ok: false, code: "AQ_BENCHMARK_ENV_FETCH_FAILED" };
+  if (
+    health.status !== "ok"
+    || health.service !== "acos-2"
+    || !zeroCost(health)
+    || typeof health.releaseSha !== "string"
+    || !SHA40.test(health.releaseSha)
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_HEALTH_INVALID" };
+  }
+  if (health.releaseSha !== expectedGitSha) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_SHA_MISMATCH" };
+  }
+
+  if (needsResearch && (
+    !research
+    || research.ok !== true
+    || research.version !== "1.1"
+    || research.capability !== "grounded-research"
+    || !zeroCost(research)
+  )) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_RESEARCH_INVALID" };
+  }
+
+  if (needsArtifact && (
+    !artifact
+    || artifact.ok !== true
+    || artifact.version !== "1.2"
+    || artifact.capability !== "real-artifact-generation"
+    || artifact.ready !== true
+    || !zeroCost(artifact)
+  )) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_ARTIFACT_INVALID" };
+  }
+
+  if (needsCoding && (
+    !coding
+    || coding.ok !== true
+    || coding.version !== "1.4"
+    || coding.capability !== "durable-agentic-coding-jobs"
+    || coding.ready !== true
+    || coding.freeOnly !== true
+    || coding.costUsd !== 0
+    || coding.paidFallbackEnabled !== false
+  )) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_CODING_NOT_READY" };
+  }
+
+  return {
+    ok: true,
+    value: Object.freeze({
+      schemaVersion: "origin.aq-benchmark-chunk-environment-proof.v1",
+      baseUrl: base.href,
+      expectedGitSha,
+      observedReleaseSha: health.releaseSha,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
+      requiredLanes: Object.freeze(lanes),
+      researchReady: needsResearch,
+      codingReady: needsCoding,
+      artifactReady: needsArtifact,
+    }),
+  };
 }
 
 export async function probeOriginAnswerQualityBenchmarkEnvironment(
