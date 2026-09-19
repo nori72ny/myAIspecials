@@ -76,18 +76,36 @@ export type OriginAnswerQualityBenchmarkSessionResult =
       detail?: string;
     };
 
-export function isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
+export type OriginAnswerQualityBenchmarkEnvironmentProofValidationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code:
+        | "AQ_BENCHMARK_SESSION_ENV_SHA_MISMATCH"
+        | "AQ_BENCHMARK_SESSION_ENV_ZERO_COST_INVALID"
+        | "AQ_BENCHMARK_SESSION_ENV_CODING_READINESS_INVALID"
+        | "AQ_BENCHMARK_SESSION_ENV_REQUIRED_LANES_MISMATCH"
+        | "AQ_BENCHMARK_SESSION_ENV_RUNTIME_ID_MISMATCH";
+    };
+
+export function validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
   proof: OriginAnswerQualityBenchmarkAnyEnvironmentProof,
   gitSha: string,
   requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[],
-): boolean {
+): OriginAnswerQualityBenchmarkEnvironmentProofValidationResult {
   if (
     proof.expectedGitSha !== gitSha
     || proof.observedReleaseSha !== gitSha
-    || proof.freeOnly !== true
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_SHA_MISMATCH" };
+  }
+  if (
+    proof.freeOnly !== true
     || proof.costUsd !== 0
     || proof.paidFallbackEnabled !== false
-  ) return false;
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_ZERO_COST_INVALID" };
+  }
 
   const expectedRuntimeIds: Partial<Record<
     OriginAnswerQualityBenchmarkExecutionLane,
@@ -100,12 +118,20 @@ export function isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
   };
 
   if (proof.schemaVersion === "origin.aq-benchmark-environment-proof.v1") {
-    return proof.codingReady === true
-      && requiredLanes.every((lane) =>
-        lane === "chat"
-          ? true
-          : proof.runtimeIds[lane] === expectedRuntimeIds[lane]
-      );
+    if (requiredLanes.includes("coding") && proof.codingReady !== true) {
+      return {
+        ok: false,
+        code: "AQ_BENCHMARK_SESSION_ENV_CODING_READINESS_INVALID",
+      };
+    }
+    const runtimeMismatch = requiredLanes.some((lane) =>
+      lane === "chat"
+        ? false
+        : proof.runtimeIds[lane] !== expectedRuntimeIds[lane]
+    );
+    return runtimeMismatch
+      ? { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_RUNTIME_ID_MISMATCH" }
+      : { ok: true };
   }
 
   const normalizedRequired = (["research", "chat", "coding", "artifact"] as const)
@@ -113,11 +139,30 @@ export function isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
   if (
     proof.requiredLanes.length !== normalizedRequired.length
     || !normalizedRequired.every((lane, index) => proof.requiredLanes[index] === lane)
-  ) return false;
+  ) {
+    return {
+      ok: false,
+      code: "AQ_BENCHMARK_SESSION_ENV_REQUIRED_LANES_MISMATCH",
+    };
+  }
 
-  return normalizedRequired.every(
-    (lane) => proof.runtimeIds[lane] === expectedRuntimeIds[lane],
-  );
+  return normalizedRequired.some(
+    (lane) => proof.runtimeIds[lane] !== expectedRuntimeIds[lane],
+  )
+    ? { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_RUNTIME_ID_MISMATCH" }
+    : { ok: true };
+}
+
+export function isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
+  proof: OriginAnswerQualityBenchmarkAnyEnvironmentProof,
+  gitSha: string,
+  requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[],
+): boolean {
+  return validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
+    proof,
+    gitSha,
+    requiredLanes,
+  ).ok;
 }
 
 export async function runOriginAnswerQualityBenchmarkSession(
@@ -126,12 +171,18 @@ export async function runOriginAnswerQualityBenchmarkSession(
   const corpus = input.corpus ?? createOriginAnswerQualityFrozenCorpus();
   const requiredLanes = resolveOriginAnswerQualityBenchmarkRequiredLanes(corpus.cases);
 
-  if (!isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
-    input.environmentProof,
-    input.gitSha,
-    requiredLanes,
-  )) {
-    return { ok: false, code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID" };
+  const environmentValidation =
+    validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
+      input.environmentProof,
+      input.gitSha,
+      requiredLanes,
+    );
+  if (environmentValidation.ok === false) {
+    return {
+      ok: false,
+      code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID",
+      detail: environmentValidation.code,
+    };
   }
 
   try {
