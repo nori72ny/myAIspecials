@@ -242,4 +242,25 @@ describe("OriginBatchClaimAssessor", () => {
         code: "BATCH_CLAIM_ASSESSMENT_COST_UNVERIFIED",
       });
   });
+  it("preserves only allowlisted provider diagnostics from batch assessment", async () => {
+    const items = [{
+      id: "claim-1",
+      claim: "A safe claim.",
+      source: source("https://example.com/a", "a", "A safe claim."),
+    }];
+
+    await expect(assessOriginClaimsAgainstSourcesBatch(
+      items,
+      vi.fn().mockRejectedValue({ code: "PROVIDER_RATE_LIMITED", message: "secret" }),
+    )).resolves.toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_EVALUATOR_PROVIDER_RATE_LIMITED",
+    });
+
+    await expect(assessOriginClaimsAgainstSourcesBatch(
+      items,
+      vi.fn().mockRejectedValue(new Error("raw body")),
+    )).resolves.toEqual({ ok: false, code: "BATCH_CLAIM_ASSESSMENT_FAILED" });
+  });
+
 });
