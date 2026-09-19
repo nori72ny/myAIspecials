@@ -91,6 +91,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     const controls = [
       screen.getByTestId('history-drawer-toggle'),
+      screen.getByTestId('owner-improvement-toggle'),
       screen.getByRole('button', { name: '設定を開く' }),
       screen.getByRole('button', { name: '新規対話を開始' }),
       within(document.querySelector('.origin-composer') as HTMLElement).getByRole('button', { name: 'ファイルを添付' }),
@@ -103,7 +104,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     }
 
     const header = document.querySelector('.origin-header') as HTMLElement;
-    expect(within(header).getAllByRole('button')).toHaveLength(3);
+    expect(within(header).getAllByRole('button')).toHaveLength(4);
     for (const control of within(header).getAllByRole('button')) {
       expect(control.className).toContain('whitespace-nowrap');
       expect(control.className).toContain('shrink-0');

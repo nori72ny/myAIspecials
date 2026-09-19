@@ -284,7 +284,8 @@
   .origin-header > div:first-child > span:nth-child(3) { padding-inline: 0.25rem; }
   .origin-header > div:last-child { gap: 0.25rem; }
 }
-@media (max-width: 379px) {
+/* Four 44px actions plus the brand need compact spacing on small phones. */
+@media (max-width: 419px) {
   .origin-header { gap: 0; padding-inline: 0; }
   .origin-header > div:first-child { gap: 0; }
   .origin-header > div:first-child > span:first-child { width: 1.5rem; height: 1.5rem; }
@@ -315,7 +316,8 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
   bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 7.5rem);
 }
 
-@media (max-width: 379px) {
+/* Match the compact spacing breakpoint for the nested header wrappers. */
+@media (max-width: 419px) {
   .origin-header > div { width: 100%; min-width: 0; }
   .origin-header > div > div { width: 100%; min-width: 0; justify-content: space-between; }
   .origin-header > div > div > div:first-child { min-width: 0; flex: 1 1 auto; overflow: hidden; }
