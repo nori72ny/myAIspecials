@@ -66,6 +66,22 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(entrypoint).not.toContain("useAppState");
   });
 
+  it("locks provider egress to one request and keeps upstream diagnostics metadata-only", () => {
+    const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
+    const providerSecurityRegression = readRepositoryFile("src/legacy/originProviderClient.security-regression.test.ts");
+
+    expect(providerClient).toContain("const RETRY: readonly number[] = []");
+    expect(providerClient).toContain("const MAX_SEGMENTS = 1");
+    expect(providerClient).toContain("attempt: 1");
+    expect(providerClient).toContain("fallbackUsed: false");
+    expect(providerClient).not.toContain("response.text(");
+    expect(providerClient).toContain("upstreamStatus?: number");
+    expect(providerClient).toContain("upstreamErrorType?: string");
+    expect(providerClient).toContain('transportFailure?: "timeout" | "network"');
+    expect(providerSecurityRegression).toContain("preserves Retry-After without exposing upstream content or credentials");
+    expect(providerSecurityRegression).toContain("private upstream body");
+  });
+
   it("keeps untrusted-source data away from external sinks unless an explicit approved boundary exists", () => {
     const tools = readRepositoryFile("src/agent/toolRegistry.ts");
     const server = readRepositoryFile("src/server/createOriginApp.ts");
