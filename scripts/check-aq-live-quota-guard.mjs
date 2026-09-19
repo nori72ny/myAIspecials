@@ -99,9 +99,19 @@ export async function checkLiveQuota({
 
   const candidates = [unified, legacy].filter(Boolean).sort();
   const previous = candidates.at(-1) ?? null;
+  const previousMs = previous === null ? null : Date.parse(previous);
+  const nextAllowedAt = previousMs === null
+    ? null
+    : new Date(previousMs + WINDOW_SECONDS * 1000).toISOString();
+  const remainingSeconds = previousMs === null
+    ? 0
+    : Math.max(0, Math.ceil((previousMs + WINDOW_SECONDS * 1000 - nowMs) / 1000));
+
   return Object.freeze({
     allowed: previous === null,
     previousReservedAt: previous,
+    nextAllowedAt,
+    remainingSeconds,
   });
 }
 
@@ -113,11 +123,13 @@ async function main() {
 
   const result = await checkLiveQuota({ repository, currentRunId, token });
   await appendFile(output, `allowed=${result.allowed ? "true" : "false"}\n`, "utf8");
+  await appendFile(output, `next_allowed_at=${result.nextAllowedAt ?? ""}\n`, "utf8");
+  await appendFile(output, `remaining_seconds=${result.remainingSeconds}\n`, "utf8");
 
   if (result.allowed) {
     process.stdout.write("Live AQ provider quota is available.\n");
   } else {
-    process.stdout.write("Live AQ provider execution skipped: a prior quota reservation is less than 24h old.\n");
+    process.stdout.write(`Live AQ provider execution skipped until ${result.nextAllowedAt}; ${result.remainingSeconds}s remain.\n`);
   }
 }
 
