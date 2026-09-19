@@ -276,4 +276,48 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
 
     expect(execute).toHaveBeenCalledTimes(1);
   });
+
+  it("splits Japanese punctuation into exact immutable claim candidates", async () => {
+    let capturedCandidates: Array<{ candidateId: string; text: string }> = [];
+    const execute = vi.fn().mockImplementation(async (request: OriginProviderExecutionRequest) => {
+      const payload = JSON.parse(request.messages[0].content) as {
+        answerDigest: string;
+        candidates: Array<{ candidateId: string; text: string }>;
+      };
+      capturedCandidates = payload.candidates;
+      return result(request, {
+        answerDigest: payload.answerDigest,
+        claims: [{
+          candidateId: payload.candidates[1].candidateId,
+          id: "claim-b",
+          kind: "factual",
+          freshness: "stable",
+          evidenceRequirement: "supporting-evidence",
+          risk: "low",
+        }],
+        actualCostUsd: 0,
+        attempts: 1,
+      });
+    });
+
+    const evaluators = createOriginAnswerQualityBenchmarkProviderEvaluators({
+      env: { OPENROUTER_API_KEY: "test-only" },
+      nowMs: () => now,
+      openRouterConfigured: true,
+      execute,
+    });
+
+    const extracted = await evaluators.materialClaimExtractor({
+      answerDigest: `sha256:${"a".repeat(64)}`,
+      answerText: "第一の事実です。第二の事実です。",
+      executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
+    });
+
+    expect(capturedCandidates.map((item) => item.text)).toEqual([
+      "第一の事実です。",
+      "第二の事実です。",
+    ]);
+    expect((extracted as { claims: Array<{ text: string }> }).claims[0].text)
+      .toBe("第二の事実です。");
+  });
 });
