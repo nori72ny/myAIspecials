@@ -122,6 +122,13 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(typography).not.toBeNull();
     expect(typography!.headingPx).toBeGreaterThan(typography!.paragraphPx * 1.2);
     expect(typography!.paragraphLineHeightPx).toBeGreaterThan(typography!.paragraphPx * 1.7);
+    const answerSurface = page.locator('.origin-chat-assistant');
+    const verification = page.getByTestId('response-verification-details');
+    const answerBox = await answerSurface.boundingBox();
+    const verificationBox = await verification.boundingBox();
+    expect(answerBox?.width).toBeLessThanOrEqual(832);
+    expect(verificationBox?.width).toBeLessThanOrEqual(832);
+    expect(Math.abs((answerBox?.width ?? 0) - (verificationBox?.width ?? 0))).toBeLessThanOrEqual(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
