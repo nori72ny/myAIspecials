@@ -149,7 +149,7 @@ describe("OriginBatchAnswerSourceVerification", () => {
     expect(result.evidence[1].evidenceLevel).toBe("provided");
   });
 
-  it("promotes nothing when the batch assessor rejects any fetched claim", async () => {
+  it("credits only supported items when a batch contains conflicting evidence", async () => {
     const evidence = [
       citation("Source A", "Fact A.", "https://a.example.com/doc"),
       citation("Source B", "Fact B.", "https://b.example.com/doc"),
@@ -178,9 +178,10 @@ describe("OriginBatchAnswerSourceVerification", () => {
       })),
     });
 
-    expect(result.verified).toBe(0);
-    expect(result.failed).toBe(2);
-    expect(result.evidence.every((item) => item.evidenceLevel === "provided")).toBe(true);
+    expect(result.verified).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.evidence[0].evidenceLevel).toBe("source-checked");
+    expect(result.evidence[1].evidenceLevel).toBe("provided");
   });
 
   it("does not exceed eight verification candidates", async () => {
