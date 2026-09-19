@@ -91,7 +91,7 @@ export const OwnerImprovementInbox: React.FC<{
       aria-label={isJa ? "ORIGINを改善" : "Improve ORIGIN"}
       aria-pressed={isOpen}
       onClick={() => setIsOpen((value) => !value)}
-      className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-[10px] px-0 text-[13px] font-semibold sm:w-auto sm:px-3"
+      className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold sm:w-auto sm:px-3"
     >
       <span aria-hidden="true">✦</span><span className="hidden sm:ml-1.5 sm:inline">{isJa ? "改善" : "Improve"}</span>
     </button>
