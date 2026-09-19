@@ -57,7 +57,10 @@ export interface OriginAnswerQualityOfficialShardedComparison {
     readonly verifierRejectionRateNotWorse: boolean;
     readonly verificationIntegrityNotWorse: boolean;
     readonly failClosedAccuracyNotWorse: boolean;
+    readonly userActionabilityNotWorse: boolean;
+    readonly userActionabilityFamiliesNotWorse: boolean;
   };
+  readonly userActionabilityRegressionFamilies: readonly OriginAnswerQualityBenchmarkMeasuredObservation["category"][];
   readonly shardDigests: readonly string[];
   readonly aggregateDigest: string;
 }
@@ -247,6 +250,20 @@ export function aggregateOriginAnswerQualityOfficialShards(
         === candidateScorecard.value.failClosedAccuracy
       : scorecardDelta.failClosedAccuracyDelta >= 0;
 
+  const userActionabilityRegressionFamilies = Object.freeze(
+    Object.entries(baselineScorecard.value.perFamily).flatMap(([category, baselineFamily]) => {
+      const candidateFamily = candidateScorecard.value.perFamily[
+        category as OriginAnswerQualityBenchmarkMeasuredObservation["category"]
+      ];
+      if (!candidateFamily) {
+        return [category as OriginAnswerQualityBenchmarkMeasuredObservation["category"]];
+      }
+      return candidateFamily.meanUserActionability < baselineFamily.meanUserActionability
+        ? [category as OriginAnswerQualityBenchmarkMeasuredObservation["category"]]
+        : [];
+    }),
+  );
+
   const shardDigests = Object.freeze(ordered.map((shard) => shard.shardDigest));
   const canonical = [
     "origin.aq-official-sharded-comparison.v1",
@@ -301,7 +318,12 @@ export function aggregateOriginAnswerQualityOfficialShards(
         verificationIntegrityNotWorse:
           scorecardDelta.verificationIntegrityRateDelta >= 0,
         failClosedAccuracyNotWorse,
+        userActionabilityNotWorse:
+          scorecardDelta.meanUserActionabilityDelta >= 0,
+        userActionabilityFamiliesNotWorse:
+          userActionabilityRegressionFamilies.length === 0,
       }),
+      userActionabilityRegressionFamilies,
       shardDigests,
       aggregateDigest: sha256(canonical),
     }),
