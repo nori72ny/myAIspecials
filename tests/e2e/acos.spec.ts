@@ -233,6 +233,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       body: '```html:isolated-storage.html\n<main id="storage-result">Waiting</main><script>localStorage.setItem("habit","done");sessionStorage.setItem("session","isolated");document.getElementById("storage-result").textContent=localStorage.getItem("habit");fetch("https://origin-egress.invalid/blocked").catch(function(){});</script>\n```',
     }));
     await page.goto('/');
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await page.evaluate(() => localStorage.setItem('origin-parent-secret', 'parent-only'));
     await page.getByTestId('origin-home-request').fill('保存できる習慣トラッカーを作成');
     await page.getByTestId('start-request-button').click();
