@@ -42,6 +42,10 @@ test.describe('ORIGIN visual QA evidence', () => {
 
       await page.goto('/');
       await expect(page.getByTestId('origin-home-request')).toBeVisible();
+      const projectWorkspace = page.getByRole('region', { name: 'Project Workspace' });
+      const projectBox = await projectWorkspace.boundingBox();
+      expect(projectBox).not.toBeNull();
+      if (viewport.name === 'mobile-390') expect(projectBox!.height).toBeLessThanOrEqual(300);
       await testInfo.attach(`origin-home-${viewport.name}.png`, {
         body: await page.screenshot({ fullPage: true }),
         contentType: 'image/png',
