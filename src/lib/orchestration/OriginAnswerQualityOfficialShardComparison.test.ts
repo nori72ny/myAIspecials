@@ -181,6 +181,8 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
     expect(result.value.caseIds).toEqual(caseIds);
     expect(result.value.baselineObservations).toHaveLength(2);
     expect(result.value.candidateObservations).toHaveLength(2);
+    expect(result.value.baselineEvaluatorRequests).toBe(0);
+    expect(result.value.candidateEvaluatorRequests).toBe(0);
     expect(result.value.shardDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
     const persisted = JSON.stringify(result.value);
     expect(persisted).not.toContain(full.cases[0].prompt);
@@ -262,5 +264,37 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
     });
     expect(probeEnvironment).not.toHaveBeenCalled();
     expect(runSession).not.toHaveBeenCalled();
+  });
+
+  it("hard-stops evaluator requests before exceeding the shard scorer budget", async () => {
+    let baselineCalls = 0;
+    let candidateCalls = 0;
+
+    const result = await runOriginAnswerQualityOfficialShardComparison(input(), {
+      probeEnvironment: vi.fn(async (
+        baseUrl: string,
+        gitSha: string,
+        requiredLanes: readonly ("research" | "chat" | "coding" | "artifact")[],
+      ) => proof(baseUrl, gitSha, requiredLanes)),
+      runSession: vi.fn(async (value) => {
+        const hook = value.beforeEvaluatorRequest;
+        if (value.runId.startsWith("baseline")) {
+          for (let index = 0; index < 9; index += 1) {
+            hook?.();
+            baselineCalls += 1;
+          }
+        } else {
+          candidateCalls += 1;
+        }
+        return { ok: true as const, value: await session(value.gitSha, value.runId) };
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(baselineCalls).toBe(8);
+    expect(candidateCalls).toBe(0);
+    if (result.ok === true) return;
+    expect(result.code).toBe("AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED");
+    expect(result.detail).toContain("AQ_BENCHMARK_SHARD_EVALUATOR_BUDGET_EXCEEDED");
   });
 });
