@@ -78,8 +78,14 @@ export type OriginAnswerQualityOfficialQuotaChunkResult =
       detail?: string;
     };
 
-export async function runOriginAnswerQualityOfficialQuotaChunk(
+export interface OriginAnswerQualityOfficialQuotaChunkDependencies {
+  readonly createEvaluators?: typeof createOriginAnswerQualityBenchmarkProviderEvaluators;
+  readonly createCodingAdapter?: typeof createOriginAnswerQualityBenchmarkCodingCheckoutAdapter;
+}
+
+export async function runOriginAnswerQualityOfficialQuotaChunkHarness(
   input: OriginAnswerQualityOfficialQuotaChunkInput,
+  dependencies: OriginAnswerQualityOfficialQuotaChunkDependencies = {},
 ): Promise<OriginAnswerQualityOfficialQuotaChunkResult> {
   if (!isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
     input.environmentProof,
@@ -109,7 +115,9 @@ export async function runOriginAnswerQualityOfficialQuotaChunk(
   const startedAt = new Date(now()).toISOString();
 
   try {
-    const evaluators = createOriginAnswerQualityBenchmarkProviderEvaluators({
+    const createEvaluators = dependencies.createEvaluators
+      ?? createOriginAnswerQualityBenchmarkProviderEvaluators;
+    const evaluators = createEvaluators({
       env: input.env,
       nowMs: input.nowMs,
       planningOptions: input.evaluatorPlanningOptions,
@@ -139,7 +147,9 @@ export async function runOriginAnswerQualityOfficialQuotaChunk(
       expectedModelId: input.modelId,
     };
 
-    const coding = await createOriginAnswerQualityBenchmarkCodingCheckoutAdapter({
+    const createCodingAdapter = dependencies.createCodingAdapter
+      ?? createOriginAnswerQualityBenchmarkCodingCheckoutAdapter;
+    const coding = await createCodingAdapter({
       sourceRoot: input.sourceRoot,
       expectedGitSha: input.gitSha,
       env: input.env,
@@ -236,4 +246,11 @@ export async function runOriginAnswerQualityOfficialQuotaChunk(
   } finally {
     vault.clear();
   }
+}
+
+
+export async function runOriginAnswerQualityOfficialQuotaChunk(
+  input: OriginAnswerQualityOfficialQuotaChunkInput,
+): Promise<OriginAnswerQualityOfficialQuotaChunkResult> {
+  return runOriginAnswerQualityOfficialQuotaChunkHarness(input);
 }
