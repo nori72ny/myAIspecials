@@ -101,4 +101,21 @@ describe("OriginClaimAssessor", () => {
     expect(result).toEqual({ ok: false, code: "INVALID_CLAIM_ASSESSMENT_REQUEST" });
     expect(assess).not.toHaveBeenCalled();
   });
+  it("preserves only allowlisted provider diagnostics from source assessment", async () => {
+    await expect(assessOriginClaimAgainstSource(
+      "The service has a free tier.",
+      source,
+      vi.fn().mockRejectedValue({ code: "PROVIDER_REQUIRED_TOOL_MISSING", message: "secret" }),
+    )).resolves.toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_EVALUATOR_PROVIDER_REQUIRED_TOOL_MISSING",
+    });
+
+    await expect(assessOriginClaimAgainstSource(
+      "The service has a free tier.",
+      source,
+      vi.fn().mockRejectedValue(new Error("raw body")),
+    )).resolves.toEqual({ ok: false, code: "CLAIM_ASSESSMENT_FAILED" });
+  });
+
 });
