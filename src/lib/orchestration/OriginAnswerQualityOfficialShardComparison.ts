@@ -599,10 +599,10 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     env: input.env,
     nowMs: input.nowMs,
     evaluatorPlanningOptions: input.evaluatorPlanningOptions,
-    beforeEvaluatorRequest,
   };
 
   const baseline = await runSession({
+    ...shared,
     runId: input.baseline.runId,
     gitSha: input.baseline.gitSha,
     environmentProof: baselineEnvironment.value,
@@ -611,9 +611,9 @@ export async function runOriginAnswerQualityOfficialShardComparison(
       if (baselineEvaluatorRequests >= evaluatorRequestsPerSideMax) {
         throw new Error("AQ_BENCHMARK_SHARD_EVALUATOR_BUDGET_EXCEEDED");
       }
+      beforeEvaluatorRequest();
       baselineEvaluatorRequests += 1;
     },
-    ...shared,
   });
   if (baseline.ok === false) {
     return {
@@ -624,6 +624,7 @@ export async function runOriginAnswerQualityOfficialShardComparison(
   }
 
   const candidate = await runSession({
+    ...shared,
     runId: input.candidate.runId,
     gitSha: input.candidate.gitSha,
     environmentProof: candidateEnvironment.value,
@@ -632,9 +633,9 @@ export async function runOriginAnswerQualityOfficialShardComparison(
       if (candidateEvaluatorRequests >= evaluatorRequestsPerSideMax) {
         throw new Error("AQ_BENCHMARK_SHARD_EVALUATOR_BUDGET_EXCEEDED");
       }
+      beforeEvaluatorRequest();
       candidateEvaluatorRequests += 1;
     },
-    ...shared,
   });
   if (candidate.ok === false) {
     return {
