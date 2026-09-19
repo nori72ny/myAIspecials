@@ -1,0 +1,108 @@
+name: AQ official quota chunk 0 comparison
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-aq-official-quota-chunk-0
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
+      CANDIDATE_SHA: HEAD_PLACEHOLDER
+      ORIGIN_AQ_CHUNK_INDEX: "0"
+      ORIGIN_AQ_BASELINE_PORT: "4411"
+      ORIGIN_AQ_CANDIDATE_PORT: "4412"
+      ORIGIN_AQ_OUTPUT_PATH: test-results/aq-quota-chunk-0.json
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+    steps:
+      - name: Checkout candidate exact SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Checkout frozen baseline exact SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+
+      - name: Install candidate dependencies
+        working-directory: candidate
+        run: npm ci
+
+      - name: Install baseline dependencies
+        working-directory: baseline
+        run: npm ci
+
+      - name: Verify zero-cost credential boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          test -z "${GEMINI_API_KEY:-}"
+
+      - name: Run exact-SHA chunk 0 comparison
+        working-directory: candidate
+        shell: bash
+        env:
+          ORIGIN_AQ_BASELINE_ROOT: ${{ github.workspace }}/baseline
+          ORIGIN_AQ_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
+          ORIGIN_AQ_BASELINE_SHA: ${{ env.BASELINE_SHA }}
+          ORIGIN_AQ_CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          npm run eval:aq-quota-chunk-comparison
+
+      - name: Validate sanitized output
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s test-results/aq-quota-chunk-0.json
+          node <<'NODE'
+          const fs = require('fs');
+          const p = 'test-results/aq-quota-chunk-0.json';
+          const raw = fs.readFileSync(p, 'utf8');
+          const value = JSON.parse(raw);
+          const banned = ['prompt','answerText','messages','chain-of-thought','OPENROUTER_API_KEY'];
+          if (banned.some((needle) => raw.includes(needle))) process.exit(1);
+          if (value?.schemaVersion !== 'origin.aq-quota-chunk-comparison.v1') process.exit(1);
+          if (value?.chunkIndex !== 0) process.exit(1);
+          for (const side of ['baseline','candidate']) {
+            const artifact = value?.[side];
+            if (artifact?.schemaVersion !== 'origin.aq-benchmark-quota-chunk-artifact.v1') process.exit(1);
+            if (!/^sha256:[a-f0-9]{64}$/.test(artifact?.artifactDigest || '')) process.exit(1);
+            if (artifact?.totalCostUsd !== 0) process.exit(1);
+            if (!Array.isArray(artifact?.cases) || artifact.cases.length !== 4) process.exit(1);
+          }
+          NODE
+
+      - name: Upload sanitized chunk evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: aq-official-quota-chunk-0
+          path: candidate/test-results/aq-quota-chunk-0.json
+          if-no-files-found: error
+          retention-days: 7
