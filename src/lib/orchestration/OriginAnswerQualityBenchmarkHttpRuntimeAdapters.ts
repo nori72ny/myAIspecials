@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { OriginAnswerQualityBenchmarkAnyEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import type { OriginAnswerQualityBenchmarkAnyEnvironmentProof } from "./OriginAnswerQualityBenchmarkAnyEnvironmentProof.js";
 import type {
   OriginAnswerQualityBenchmarkEphemeralEvidenceVault,
 } from "./OriginAnswerQualityBenchmarkEphemeralEvidenceVault.js";
@@ -58,7 +58,7 @@ function safeCode(value: unknown, fallback: string): string {
     : fallback;
 }
 
-function canonicalBase(proof: OriginAnswerQualityBenchmarkEnvironmentProof): URL {
+function canonicalBase(proof: OriginAnswerQualityBenchmarkAnyEnvironmentProof): URL {
   const base = new URL(proof.baseUrl);
   if (base.href !== proof.baseUrl) throw new Error("AQ_BENCHMARK_HTTP_BASE_URL_MISMATCH");
   if (base.username || base.password || base.search || base.hash) {
