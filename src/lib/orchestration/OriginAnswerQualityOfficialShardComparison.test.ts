@@ -96,23 +96,35 @@ async function session(
   };
 }
 
-function proof(baseUrl: string, gitSha: string) {
+function proof(
+  baseUrl: string,
+  gitSha: string,
+  requiredLanes: readonly ("research" | "chat" | "coding" | "artifact")[],
+) {
+  const runtimeIds = Object.fromEntries(
+    requiredLanes.map((lane) => [
+      lane,
+      lane === "research"
+        ? "grounded-research-v1.1"
+        : lane === "coding"
+          ? "coding-v1.4"
+          : lane === "artifact"
+            ? "artifact-v1.2"
+            : "origin-chat",
+    ]),
+  );
   return {
     ok: true as const,
     value: {
-      schemaVersion: "origin.aq-benchmark-environment-proof.v1" as const,
+      schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v1" as const,
       baseUrl,
       expectedGitSha: gitSha,
       observedReleaseSha: gitSha,
       freeOnly: true as const,
       costUsd: 0 as const,
       paidFallbackEnabled: false as const,
-      runtimeIds: {
-        research: "grounded-research-v1.1" as const,
-        coding: "coding-v1.4" as const,
-        artifact: "artifact-v1.2" as const,
-      },
-      codingReady: true as const,
+      requiredLanes,
+      runtimeIds,
     },
   };
 }
@@ -146,7 +158,11 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
   it("runs the same exact subset for baseline and candidate and emits content-free measurements", async () => {
     const calls: Array<{ runId: string; ids: string[] }> = [];
     const result = await runOriginAnswerQualityOfficialShardComparison(input(), {
-      probeEnvironment: vi.fn(async (baseUrl: string, gitSha: string) => proof(baseUrl, gitSha)),
+      probeEnvironment: vi.fn(async (
+        baseUrl: string,
+        gitSha: string,
+        requiredLanes: readonly ("research" | "chat" | "coding" | "artifact")[],
+      ) => proof(baseUrl, gitSha, requiredLanes)),
       runSession: vi.fn(async (value) => {
         calls.push({
           runId: value.runId,
@@ -175,7 +191,11 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
   it("stops before candidate when baseline scoring fails", async () => {
     let calls = 0;
     const result = await runOriginAnswerQualityOfficialShardComparison(input(), {
-      probeEnvironment: vi.fn(async (baseUrl: string, gitSha: string) => proof(baseUrl, gitSha)),
+      probeEnvironment: vi.fn(async (
+        baseUrl: string,
+        gitSha: string,
+        requiredLanes: readonly ("research" | "chat" | "coding" | "artifact")[],
+      ) => proof(baseUrl, gitSha, requiredLanes)),
       runSession: vi.fn(async () => {
         calls += 1;
         return {
@@ -197,7 +217,11 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
   it("rejects scorer revision drift across the paired shard", async () => {
     let calls = 0;
     const result = await runOriginAnswerQualityOfficialShardComparison(input(), {
-      probeEnvironment: vi.fn(async (baseUrl: string, gitSha: string) => proof(baseUrl, gitSha)),
+      probeEnvironment: vi.fn(async (
+        baseUrl: string,
+        gitSha: string,
+        requiredLanes: readonly ("research" | "chat" | "coding" | "artifact")[],
+      ) => proof(baseUrl, gitSha, requiredLanes)),
       runSession: vi.fn(async (value) => {
         calls += 1;
         return {
