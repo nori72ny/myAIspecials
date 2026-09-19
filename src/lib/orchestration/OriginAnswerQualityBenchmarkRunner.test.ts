@@ -302,4 +302,77 @@ describe("OriginAnswerQualityBenchmarkRunner", () => {
 
     expect(twoPhase).toEqual(legacy);
   });
+
+  it("distinguishes scorer failure from executor failure and preserves only safe AQ codes", async () => {
+    const { items, manifest } = fixture();
+
+    const safe = await runOriginAnswerQualityBenchmark({
+      manifest,
+      cases: items,
+      execute: async (item) => ({
+        caseId: item.caseId,
+        finalAnswerRef: null,
+        evidenceLedgerRef: null,
+        verifierResult: "BLOCKED_UNVERIFIED",
+        providerRequests: 0,
+        toolCalls: 1,
+        latencyMs: 10,
+        costUsd: 0,
+        failureCode: "AQ_BENCHMARK_RESEARCH_HTTP_503",
+      }),
+      score: async () => {
+        throw new Error("AQ_BENCHMARK_OFFICIAL_SCORER_EPHEMERAL_EVIDENCE_MISSING");
+      },
+    });
+
+    expect(safe).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_SCORING_FAILED",
+      failedCaseId: "case-1",
+      failureDetail: "AQ_BENCHMARK_OFFICIAL_SCORER_EPHEMERAL_EVIDENCE_MISSING",
+    });
+
+    const unsafe = await runOriginAnswerQualityBenchmark({
+      manifest,
+      cases: items,
+      execute: async (item) => ({
+        caseId: item.caseId,
+        finalAnswerRef: null,
+        evidenceLedgerRef: null,
+        verifierResult: "BLOCKED_UNVERIFIED",
+        providerRequests: 0,
+        toolCalls: 1,
+        latencyMs: 10,
+        costUsd: 0,
+        failureCode: "AQ_BENCHMARK_RESEARCH_HTTP_503",
+      }),
+      score: async () => {
+        throw new Error("provider said secret=should-not-escape");
+      },
+    });
+
+    expect(unsafe).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_SCORING_FAILED",
+      failedCaseId: "case-1",
+    });
+  });
+
+  it("preserves a safe AQ executor failure code without exposing arbitrary details", async () => {
+    const { items, manifest } = fixture();
+    const result = await runOriginAnswerQualityBenchmarkExecutionOnly({
+      manifest,
+      cases: items,
+      execute: async () => {
+        throw new Error("AQ_BENCHMARK_RESEARCH_ZERO_COST_INVALID");
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_EXECUTION_FAILED",
+      failedCaseId: "case-1",
+      failureDetail: "AQ_BENCHMARK_RESEARCH_ZERO_COST_INVALID",
+    });
+  });
 });
