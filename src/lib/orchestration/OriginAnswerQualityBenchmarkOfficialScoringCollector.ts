@@ -2,8 +2,8 @@ import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope.js";
 import type { OriginClaimSet } from "./OriginClaimModel.js";
 import { extractExplicitOriginClaimCitations } from "./OriginClaimCitation.js";
 import { bindOriginAnswerEvidenceToClaims } from "./OriginClaimEvidenceBinder.js";
-import type { OriginSourceVerificationExecutor } from "./OriginSourceVerification.js";
-import { executeOriginSourceVerification } from "./OriginSourceVerification.js";
+import type { OriginBatchClaimAssessor } from "./OriginBatchClaimAssessor.js";
+import { verifyOriginAnswerSourcesBatch } from "./OriginBatchAnswerSourceVerification.js";
 import {
   extractOriginMaterialClaims,
   type OriginMaterialClaimExtractor,
@@ -28,7 +28,7 @@ export interface OriginAnswerQualityBenchmarkOfficialScoringCollectorOptions {
   readonly materialClaimExtractor: OriginMaterialClaimExtractor;
   readonly promptClaimJudge: OriginAnswerQualityBenchmarkPromptClaimJudge;
   readonly semanticJudge: OriginAnswerQualityBenchmarkSemanticJudge;
-  readonly sourceVerificationExecutor: OriginSourceVerificationExecutor;
+  readonly batchClaimAssessor: OriginBatchClaimAssessor;
   readonly nowMs?: () => number;
   readonly maxSourceVerifications?: number;
 }
@@ -147,21 +147,19 @@ export function createOriginAnswerQualityBenchmarkOfficialScoringCollector(
       const explicitCitations = extractExplicitOriginClaimCitations(
         ephemeral.answerText,
       );
-      const verifiedEvidence: OriginAnswerEvidenceItem[] = [];
-
-      for (
-        let index = 0;
-        index < explicitCitations.length && index < maxSourceVerifications;
-        index += 1
-      ) {
-        const citation = explicitCitations[index];
-        const verified = await executeOriginSourceVerification({
-          verificationId: `aq-${item.caseId}-citation-${index + 1}`,
-          evidence: citation,
-        }, options.sourceVerificationExecutor, options.nowMs?.() ?? Date.now());
-
-        if (verified.ok) verifiedEvidence.push(verified.evidence);
-      }
+      const batchVerification = await verifyOriginAnswerSourcesBatch(
+        explicitCitations.slice(0, maxSourceVerifications),
+        {
+          assessor: options.batchClaimAssessor,
+          now: options.nowMs,
+        },
+      );
+      const verifiedEvidence: OriginAnswerEvidenceItem[] =
+        batchVerification.evidence.filter((evidence) =>
+          evidence.evidenceLevel === "source-checked"
+          && evidence.checks.content === "passed"
+          && evidence.checks.claimSupport === "passed"
+        );
 
       const observedAt = new Date(options.nowMs?.() ?? Date.now()).toISOString();
       const citationSupportedClaimIds = supportedClaimIdsFromLedger(
