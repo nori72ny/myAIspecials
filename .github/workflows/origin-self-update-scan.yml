@@ -1,0 +1,66 @@
+name: ORIGIN Self-Evolution Scan
+
+on:
+  schedule:
+    # Daily deterministic security/free-model evidence scan at 06:27 JST.
+    - cron: "27 21 * * *"
+    # Monday 09:17 JST full external scan + one bounded ORIGIN judgment.
+    - cron: "17 0 * * 1"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "security or full"
+        required: false
+        default: "full"
+        type: choice
+        options:
+          - security
+          - full
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: origin-self-evolution-scan
+  cancel-in-progress: false
+
+jobs:
+  scan-and-propose:
+    if: ${{ vars.ORIGIN_SELF_UPDATE_DISABLED != 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      ORIGIN_CHAT_ENDPOINT: https://origin-personal.vercel.app/api/chat
+      ORIGIN_SELF_UPDATE_DISABLED: ${{ vars.ORIGIN_SELF_UPDATE_DISABLED || 'false' }}
+      ORIGIN_SELF_UPDATE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || (github.event.schedule == '27 21 * * *' && 'security' || 'full') }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout exact repository revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Collect evidence and ask ORIGIN for a bounded proposal
+        run: node scripts/origin-self-update/collect-and-judge.mjs
+
+      - name: Retain sanitized self-evolution evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-self-evolution-evidence
+          path: |
+            origin-self-update-report.md
+            origin-self-update-snapshot.json
+          if-no-files-found: warn
+          retention-days: 14
