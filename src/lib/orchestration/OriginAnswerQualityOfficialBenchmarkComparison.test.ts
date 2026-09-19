@@ -92,21 +92,19 @@ async function session(
 
 function input() {
   return {
+    providerId: "openrouter-free",
+    modelId: "example/free-model:free",
     baseline: {
       runId: "baseline-run",
       gitSha: "a".repeat(40),
       baseUrl: "http://127.0.0.1:4101/",
       sourceRoot: "/tmp/baseline",
-      providerId: "openrouter-free",
-      modelId: "example/free-model:free",
     },
     candidate: {
       runId: "candidate-run",
       gitSha: "b".repeat(40),
       baseUrl: "http://127.0.0.1:4102/",
       sourceRoot: "/tmp/candidate",
-      providerId: "openrouter-free",
-      modelId: "example/free-model:free",
     },
   };
 }
@@ -159,6 +157,62 @@ describe("OriginAnswerQualityOfficialBenchmarkComparison", () => {
     );
     expect(result.value.evaluation.officialBundleDigest)
       .toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  it("rejects changing provider or model identity between compared runs by construction", async () => {
+    const value = input();
+    const runSession = vi.fn()
+      .mockResolvedValueOnce({ ok: false, code: "AQ_BENCHMARK_OFFICIAL_SCORER_PROVENANCE_INVALID" });
+
+    await runOriginAnswerQualityOfficialComparisonHarness(
+      value,
+      {
+        probeEnvironment: vi.fn(async (baseUrl: string, gitSha: string) => ({
+          ok: true as const,
+          value: {
+            schemaVersion: "origin.aq-benchmark-environment-proof.v1" as const,
+            baseUrl,
+            expectedGitSha: gitSha,
+            observedReleaseSha: gitSha,
+            freeOnly: true as const,
+            costUsd: 0 as const,
+            paidFallbackEnabled: false as const,
+            runtimeIds: {
+              research: "grounded-research-v1.1" as const,
+              coding: "coding-v1.4" as const,
+              artifact: "artifact-v1.2" as const,
+            },
+            codingReady: true as const,
+          },
+        })),
+        runSession,
+      },
+    );
+
+    expect(runSession).toHaveBeenCalledTimes(1);
+    expect(runSession.mock.calls[0][0].providerId).toBe(value.providerId);
+    expect(runSession.mock.calls[0][0].modelId).toBe(value.modelId);
+  });
+
+  it("rejects duplicate run IDs before probing or scoring", async () => {
+    const value = input();
+    const probeEnvironment = vi.fn();
+    const runSession = vi.fn();
+
+    const result = await runOriginAnswerQualityOfficialComparisonHarness({
+      ...value,
+      candidate: {
+        ...value.candidate,
+        runId: value.baseline.runId,
+      },
+    }, { probeEnvironment, runSession });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_OFFICIAL_COMPARISON_INVALID_INPUT",
+    });
+    expect(probeEnvironment).not.toHaveBeenCalled();
+    expect(runSession).not.toHaveBeenCalled();
   });
 
   it("rejects comparing a SHA to itself before probing or scoring", async () => {
