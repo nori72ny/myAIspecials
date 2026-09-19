@@ -19,13 +19,17 @@ The self-evolution system is not allowed to weaken ORIGIN's fixed boundaries in 
 
 ## Phase 1 — ACTIVE DESIGN
 
-The scheduled system may:
+The scheduled system has two modes:
+
+- Daily security mode: deterministic dependency + fixed-free-model evidence checks only. It does not call an LLM.
+- Weekly full mode: broader official-source collection plus one bounded ORIGIN judgment over sanitized evidence.
+
+Both modes may:
 
 1. collect bounded machine-readable signals;
 2. inspect the current repository configuration read-only;
-3. ask ORIGIN to judge only the supplied sanitized evidence;
-4. generate a Markdown proposal;
-5. open a GitHub Issue.
+3. generate a Markdown proposal when evidence is actionable;
+4. open a GitHub Issue.
 
 The scheduled system may NOT:
 
