@@ -148,37 +148,6 @@ function claimSelectionTool(candidateIds: readonly string[]) {
   );
 }
 
-const CLAIM_EXTRACTION_TOOL = tool(
-  "submit_material_claims",
-  "Return only material claims explicitly present in the supplied answer. Do not invent or paraphrase claim text.",
-  objectSchema({
-    answerDigest: digest,
-    claims: {
-      type: "array",
-      maxItems: 64,
-      items: objectSchema({
-        id: { type: "string", pattern: "^claim-[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$" },
-        text: { type: "string", minLength: 1, maxLength: 2000 },
-        kind: {
-          type: "string",
-          enum: ["factual", "inference", "assumption", "recommendation", "execution-claim"],
-        },
-        freshness: {
-          type: "string",
-          enum: ["not-applicable", "stable", "current", "real-time"],
-        },
-        evidenceRequirement: {
-          type: "string",
-          enum: ["none", "user-provided", "supporting-evidence", "deterministic-execution"],
-        },
-        risk: { type: "string", enum: ["low", "medium", "high"] },
-      }, ["id", "text", "kind", "freshness", "evidenceRequirement", "risk"]),
-    },
-    actualCostUsd: zero,
-    attempts: one,
-  }, ["answerDigest", "claims", "actualCostUsd", "attempts"]),
-);
-
 const PROMPT_CLAIM_TOOL = tool(
   "submit_prompt_claim_support",
   "Judge whether each supplied factual claim is entailed by the supplied user prompt. Calculations directly implied by prompt facts may count. Do not use outside knowledge.",
@@ -358,7 +327,6 @@ function evaluator(
 export function createOriginAnswerQualityBenchmarkProviderEvaluators(
   options: OriginAnswerQualityBenchmarkProviderEvaluatorOptions = {},
 ): OriginAnswerQualityBenchmarkProviderEvaluators {
-  const legacyExtract = evaluator("material-claim-extraction", CLAIM_EXTRACTION_TOOL, options);
   const prompt = evaluator("prompt-claim-support", PROMPT_CLAIM_TOOL, options);
   const semantic = evaluator("semantic-rubric", SEMANTIC_TOOL, options);
   const support = evaluator("claim-source-support", CLAIM_SUPPORT_TOOL, options);
