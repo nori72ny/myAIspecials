@@ -2,11 +2,11 @@ import {
   createOriginAnswerQualityFrozenCorpus,
 } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.js";
 import {
+  selectOriginAnswerQualityBenchmarkQuotaShardForLanes,
+} from "../src/lib/orchestration/OriginAnswerQualityBenchmarkLaneShardSelector.js";
+import {
   planOriginAnswerQualityBenchmarkQuotaShards,
 } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.js";
-import {
-  resolveOriginAnswerQualityBenchmarkRequiredLanes,
-} from "../src/lib/orchestration/OriginAnswerQualityBenchmarkExecutionRouter.js";
 
 const corpus = createOriginAnswerQualityFrozenCorpus();
 const plan = planOriginAnswerQualityBenchmarkQuotaShards(corpus, 45);
@@ -14,14 +14,13 @@ if (plan.ok === false) {
   throw new Error(`AQ_RESEARCH_SHARD_PLAN_FAILED:${plan.code}`);
 }
 
-for (const shard of plan.value.shards) {
-  const caseSet = new Set(shard.caseIds);
-  const cases = corpus.cases.filter((item) => caseSet.has(item.caseId));
-  const lanes = resolveOriginAnswerQualityBenchmarkRequiredLanes(cases);
-  if (lanes.length === 1 && lanes[0] === "research") {
-    process.stdout.write(String(shard.shardIndex));
-    process.exit(0);
-  }
+const selected = selectOriginAnswerQualityBenchmarkQuotaShardForLanes(
+  corpus,
+  plan.value,
+  ["research"],
+);
+if (selected.ok === false) {
+  throw new Error(selected.code);
 }
 
-throw new Error("AQ_RESEARCH_SHARD_NOT_FOUND");
+process.stdout.write(String(selected.value.shardIndex));
