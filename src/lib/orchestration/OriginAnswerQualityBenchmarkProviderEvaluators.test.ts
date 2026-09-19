@@ -158,7 +158,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
     expect(semanticDescription).toContain("complete and directly actionable at professional working depth");
     expect(semanticDescription).toContain("Do not reward verbosity or filler");
     expect(semanticDescription).toContain("all material explicit requirements");
-    expect(Buffer.byteLength(semanticDescription, "utf8")).toBeLessThanOrEqual(1000);
+    expect(Buffer.byteLength(semanticDescription, "utf8")).toBeLessThanOrEqual(950);
     expect(evaluators.scorerProvenance.scorerRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect((extracted as { claims: Array<{ text: string }> }).claims[0].text)
       .toBe("Answer sentence.");
