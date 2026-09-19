@@ -34,6 +34,7 @@ export interface OriginAnswerQualityBenchmarkProviderEvaluatorOptions {
     env?: NodeJS.ProcessEnv,
   ) => Promise<OriginProviderExecutionResult>;
   readonly openRouterConfigured?: boolean;
+  readonly beforeProviderRequest?: () => void;
 }
 
 export interface OriginAnswerQualityBenchmarkProviderEvaluators {
@@ -291,6 +292,7 @@ function evaluator(
       systemInstruction: systemInstruction(kind),
       requiredTool,
     };
+    options.beforeProviderRequest?.();
     const result = await execute(request, env);
     if (result.actualCostUsd !== 0 || result.usage.costUsd !== 0) {
       throw new Error("AQ_BENCHMARK_EVALUATOR_NON_ZERO_COST");
