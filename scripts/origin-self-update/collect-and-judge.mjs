@@ -233,6 +233,19 @@ function sourceSummary(snapshot) {
   }));
 }
 
+function safeIssueText(value, max) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/https:\/\//gi, "hxxps://")
+    .replace(/http:\/\//gi, "hxxp://")
+    .replace(/@/g, "@\u200b")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
 export function validateJudgeFindings(value) {
   if (!Array.isArray(value)) throw new Error("JUDGE_OUTPUT_NOT_ARRAY");
   return value.slice(0, MAX_FINDINGS).map((item) => {
@@ -240,7 +253,7 @@ export function validateJudgeFindings(value) {
     const risk = ["low", "medium", "high"].includes(item.risk) ? item.risk : null;
     const category = ["security", "dependency", "design", "architecture", "ai", "system", "other"].includes(item.category) ? item.category : null;
     if (!risk || !category) throw new Error("JUDGE_ENUM_INVALID");
-    const field = (name, max) => typeof item[name] === "string" ? item[name].trim().slice(0, max) : "";
+    const field = (name, max) => typeof item[name] === "string" ? safeIssueText(item[name], max) : "";
     const title = field("title", 180);
     if (!title) throw new Error("JUDGE_TITLE_INVALID");
     return {
@@ -362,6 +375,8 @@ export function buildReport(snapshot, findings, judgeStatus) {
   const reportWithoutFingerprint = lines.join("\n");
   const fingerprint = sha256(JSON.stringify({
     sha: snapshot.sha,
+    audit: snapshot.audit,
+    outdated: snapshot.outdated,
     runtime: snapshot.runtime,
     openrouter: {
       ok: snapshot.openrouter.ok,
@@ -370,8 +385,7 @@ export function buildReport(snapshot, findings, judgeStatus) {
       freeModelCount: snapshot.openrouter.freeModels.length,
     },
     officialSources: snapshot.officialSources.map((source) => ({ id: source.id, ok: source.ok, status: source.status, fingerprint: source.fingerprint })),
-    findings,
-    judgeStatus,
+    judgeClass: judgeStatus === "success" ? "success" : "failed",
   }));
   return `${reportWithoutFingerprint}\n<!-- origin-self-update-fingerprint:${fingerprint} -->\n`;
 }
@@ -386,7 +400,7 @@ async function createProposalIssue(report, highestRisk) {
   const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json" };
 
   if (fingerprint) {
-    const existing = await fetch(`https://api.github.com/repos/${owner}/${name}/issues?state=open&per_page=30`, { headers });
+    const existing = await fetch(`https://api.github.com/repos/${owner}/${name}/issues?state=all&per_page=100&sort=created&direction=desc`, { headers });
     if (existing.ok) {
       const issues = await existing.json();
       if (Array.isArray(issues) && issues.some((issue) => typeof issue?.body === "string" && issue.body.includes(fingerprint))) {
