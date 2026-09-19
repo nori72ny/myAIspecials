@@ -6,66 +6,25 @@ import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContex
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
 import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy.js";
-import { classifyOriginRequestIntent, originRequestIntentInstruction, type OriginRequestIntent } from "../lib/orchestration/OriginRequestIntent.js";
-import { buildOriginAgentWorkPlan, originAgentWorkPlanInstruction, type OriginAgentWorkPlan } from "../lib/orchestration/OriginAgentWorkPlan.js";
+import { classifyOriginRequestIntent, type OriginRequestIntent } from "../lib/orchestration/OriginRequestIntent.js";
+import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orchestration/OriginAgentWorkPlan.js";
 import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
-import { originServiceAssignmentInstruction, resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
+import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { executeOriginProvider, assertOriginZeroCostExecutionResult, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { originChatSystemInstruction, requiresOriginCurrentInformation, requiresOriginFutureReleaseInformation } from "./originChatResponsePolicy.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; }
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 function systemInstruction(intent?: OriginRequestIntent, workPlan?: OriginAgentWorkPlan, resolvedPlan?: OriginResolvedWorkPlan, answerQualityInstruction?: string): string {
-  const requestGuidance = intent ? `\n\n${originRequestIntentInstruction(intent)}` : "";
-  const workPlanGuidance = workPlan ? `\n\n${originAgentWorkPlanInstruction(workPlan)}` : "";
-  const assignmentGuidance = resolvedPlan ? `\n\n${originServiceAssignmentInstruction(resolvedPlan)}` : "";
-  const qualityGuidance = answerQualityInstruction ? `\n\n${answerQualityInstruction}` : "";
-  return `You are ORIGIN Personal AI.
-- Reply in the language used by the user.
-- Start with the direct answer or usable deliverable. Do not begin with generic background or a description of your capabilities.
-- Identify the real objective and improve the result with missing decision criteria, practical risks, and the next action when useful.
-- Follow explicit user constraints over generic helpfulness. For rewriting, summarization, or formatting, preserve the supplied meaning and do not add urgency, importance, actions, owners, deadlines, channels, or other facts that were not provided. Preserve ambiguity or mark a placeholder instead of resolving it as fact.
-- When the user asks only for a transformed deliverable, return that deliverable without extra analysis, risks, or follow-up questions unless they explicitly request commentary.
-- Produce requested content now. Ask one concise question only when a missing fact would materially change the result; otherwise state minimal assumptions.
-- For routine explanatory or comparison answers, default to a one-to-three sentence bottom line followed by three to five prioritized key points. For complex multi-part requests, use as many distinct points as needed—within the six-section limit—to cover every material requirement without filler. Put the most decision-relevant information first.
-- Write for a phone screen: use short descriptive headings, one idea per paragraph, and compact bullet lists. Do not use a Markdown table unless the user explicitly asks for a table.
-- Use at most six main sections. Remove duplicated headings, repeated claims, generic filler, and repeated summaries.
-- Calibrate depth to complexity. Simple requests may be brief; multi-part, technical, planning, or consequential requests must address every explicit requirement with enough reasoning, constraints, examples, and execution detail to be decision-ready.
-- Use professional, domain-appropriate language. Do not oversimplify important nuance unless the user asks for a beginner explanation.
-- Prefer specific recommendations, examples, and ready-to-use wording over generic advice.
-- Silently use three passes before answering: draft the answer, challenge its factual support and omissions as a skeptic, then edit for priority, clarity, and completeness. Output only the final answer; this is self-review, not an independent external-AI review.
-- Fit the answer within the available output budget by prioritizing essential content instead of expanding indefinitely. Never restart the answer, repeat an earlier section, or end with a fragment.
-- Before sending, silently check goal fit, completeness, internal consistency, usability, factual support, mobile readability, and unnecessary repetition.
-- Do not invent current or future facts, model names, release dates, or roadmaps, and do not claim access to unprovided tools, files, accounts, websites, or services.
-- Separate confirmed facts from assumptions, inferences, and recommendations.
-- Distinguish user-provided claims explicitly when they could be confused with verified facts. State meaningful uncertainty.
-- Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence.
-- Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
-- When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line.
-- Do not use that citation format when the source does not directly support the statement.
-- For consequential decisions, state what the user must independently confirm before acting.${requestGuidance}${workPlanGuidance}${assignmentGuidance}${qualityGuidance}`;
+  return originChatSystemInstruction(intent, workPlan, resolvedPlan, answerQualityInstruction);
 }
 function applicationRouting(requestId: string, reason: string, verificationStatus: OriginAnswerVerificationStatus = "not-required") { return { model: "ORIGIN アプリ内処理", reason, score: null, timeMs: 0, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, freeOnly: true, traceId: requestId, verificationStatus }; }
-function requiresFutureReleaseInformation(message: string): boolean { return /(?:今後|これから|次に).{0,18}(?:登場|出てくる|発売|公開|リリース|提供開始|予定)|(?:登場|発売|公開|リリース|提供開始)予定|次世代.{0,12}(?:AI|モデル)/.test(message) || /\b(?:upcoming|forthcoming)\s+(?:AI|models?|releases?)\b/i.test(message) || /\b(?:future|next[- ]generation)\s+(?:AI|models?)\b/i.test(message); }
+function requiresFutureReleaseInformation(message: string): boolean { return requiresOriginFutureReleaseInformation(message); }
 function futureAiDirectionGuidance(isEnglish: boolean): string { return isEnglish ? `Bottom line: specific upcoming product names and release dates cannot be confirmed without current official-source search. However, five broad directions are worth watching. These are technology trends, not a confirmed release schedule.\n\n## Five important directions\n\n1. **Autonomous AI agents:** systems that plan multi-step work, use tools, and complete tasks with human approval.\n2. **Real-time multimodal AI:** unified understanding and generation across text, voice, images, video, and screen context.\n3. **Smaller on-device models:** faster and more private AI that runs on phones, PCs, vehicles, and business devices.\n4. **Physical AI:** models that connect perception and reasoning to robots, vehicles, and industrial equipment.\n5. **Verification and governance:** source checking, permission controls, audit trails, and human approval becoming part of the product itself.\n\n## What matters most for ORIGIN\n\n- **Official-source search:** verify current announcements before naming products or dates.\n- **Capability-based routing:** select models by search, reasoning, coding, media, cost, and privacy rather than by brand name.\n- **Cross-checking:** separate answer generation, criticism, source validation, and final editing.\n- **Replaceable integrations:** add or remove future models without redesigning ORIGIN.\n\n## Confidence\n\n- **Confirmed product releases:** none were checked in this answer.\n- **Trend analysis:** the five directions above are general technical expectations.\n- **Rumors:** intentionally excluded.\n\nOnce live search is connected, ORIGIN should add a dated, primary-source-verified release list above this trend analysis.` : `結論：今後登場する具体的な製品名や公開時期は、最新の公式情報を検索しなければ確定できません。一方、今後のAIで特に重要になる方向性は5つあります。以下は「発売予定一覧」ではなく、一般的な技術動向です。\n\n## 注目すべき5つの方向性\n\n1. **自律型AIエージェント**：複数工程を計画し、ツールを使い、人の承認を受けながら仕事を完了するAI\n2. **リアルタイム・マルチモーダルAI**：文章・音声・画像・動画・画面情報を一体で理解、生成するAI\n3. **小型・オンデバイスAI**：スマホ、PC、車、業務端末の中で高速かつプライバシーを保って動くAI\n4. **フィジカルAI**：認識と推論をロボット、自動車、製造設備などの物理動作へつなぐAI\n5. **検証・統制AI**：出典確認、権限管理、監査記録、人間の承認を製品機能として組み込むAI\n\n## ORIGINで最優先にすべきこと\n\n- **公式情報を検索する機能**：製品名や公開日を回答する前に、開発元の最新発表を確認する\n- **能力ベースのAI選択**：ブランド名ではなく、検索・推論・コード・画像・費用・プライバシーで選ぶ\n- **役割を分けた検証**：回答生成、批判、出典確認、最終編集を分離する\n- **交換可能な接続方式**：新しいAIが登場してもORIGIN全体を作り直さず追加・削除できるようにする\n\n## 情報の確度\n\n- **確認済みの個別製品**：この回答では確認していません\n- **技術動向**：上記5項目は一般的な将来予測です\n- **噂・未確認モデル名**：誤認防止のため掲載していません\n\nライブ検索を接続した後は、この技術動向の前に「確認日付き・一次情報確認済みの公開予定一覧」を追加するのが適切です。`; }
-function isTransformOnlyRequest(message: string): boolean {
-  return /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
-    || /\b(?:summari[sz]e|shorten|rewrite|translate|proofread|reformat)\b.{0,40}\b(?:this|following|provided|text|passage|document)\b/is.test(message);
-}
-function isHypotheticalFreshnessFailureRequest(message: string): boolean {
-  return /(?:仮定|想定).{0,80}(?:検索できない|検索不可|取得できない|タイムアウト|接続できない)/s.test(message)
-    || /\b(?:assume|suppose|hypothetical)\b.{0,100}\b(?:timed?\s*out|unavailable|cannot\s+(?:search|retrieve|access)|no\s+(?:search|source))\b/is.test(message);
-}
-function requiresCurrentInformation(message: string): boolean {
-  if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
-  return requiresFutureReleaseInformation(message)
-    || /最新(?:の)?(?:情報|ニュース|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果)|今日の(?:ニュース|天気|料金|価格|株価|相場|結果)|現在の(?:ニュース|天気|料金|価格|株価|相場|仕様|バージョン|状況)|リアルタイム/.test(message)
-    || /(?:料金|価格)(?:は|を|が|について|って|\?|？|$)|(?:いくら|費用).{0,12}(?:ですか|教えて|知りたい|比較|確認)/.test(message)
-    || /\b(?:news|pricing|prices?|weather|real[- ]time)\b/i.test(message)
-    || /\b(?:latest|current|today'?s?)\s+(?:information|news|weather|pricing|prices?|rates?|status|results?|version|model)\b/i.test(message);
-}
+function requiresCurrentInformation(message: string): boolean { return requiresOriginCurrentInformation(message); }
 function firstAnswerBlock(content: string): string { const firstBlock = content.split(/\n\s*\n|\n/).map((part) => part.trim()).find(Boolean) ?? content.trim(); const withoutHeading = firstBlock.replace(/^#{1,6}\s+/, "").trim(); if (withoutHeading.length <= 500) return withoutHeading; const candidate = withoutHeading.slice(0, 500); const sentenceEnd = Math.max(candidate.lastIndexOf("。") + 1, candidate.lastIndexOf("！") + 1, candidate.lastIndexOf("？") + 1, candidate.lastIndexOf(". ") + 1); return sentenceEnd >= 40 ? candidate.slice(0, sentenceEnd).trim() : `${candidate.slice(0, 499).trimEnd()}…`; }
 function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions }); if (result.ok === false) throw new Error(result.code); return result.value; }
 
