@@ -150,7 +150,7 @@ function canonicalObservation(item: OriginAnswerQualityBenchmarkMeasuredObservat
   ].join("\t");
 }
 
-function digestShard(
+export function digestOriginAnswerQualityOfficialShardComparison(
   value: Omit<OriginAnswerQualityOfficialShardComparison, "shardDigest">,
 ): string {
   const baseline = [...value.baselineObservations]
@@ -355,7 +355,7 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     ok: true,
     value: Object.freeze({
       ...base,
-      shardDigest: digestShard(base),
+      shardDigest: digestOriginAnswerQualityOfficialShardComparison(base),
     }),
   };
 }
