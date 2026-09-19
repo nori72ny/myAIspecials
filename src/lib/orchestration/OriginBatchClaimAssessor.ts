@@ -42,8 +42,7 @@ export interface OriginBatchClaimAssessor {
   (request: OriginBatchClaimAssessmentRequest): Promise<unknown>;
 }
 
-export type OriginBatchClaimAssessmentResult =
-  | { readonly ok: true; readonly record: OriginBatchClaimAssessmentRecord }
+export type OriginBatchClaimAssessmentValidationFailure =
   | {
       readonly ok: false;
       readonly code:
@@ -51,9 +50,17 @@ export type OriginBatchClaimAssessmentResult =
         | "BATCH_CLAIM_ASSESSOR_NOT_AVAILABLE"
         | "BATCH_CLAIM_ASSESSMENT_FAILED"
         | "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH"
-        | "BATCH_CLAIM_ASSESSMENT_COST_UNVERIFIED"
-        | "BATCH_CLAIM_NOT_SUPPORTED";
+        | "BATCH_CLAIM_ASSESSMENT_COST_UNVERIFIED";
     };
+
+export type OriginBatchClaimAssessmentDetailedResult =
+  | { readonly ok: true; readonly record: OriginBatchClaimAssessmentRecord }
+  | OriginBatchClaimAssessmentValidationFailure;
+
+export type OriginBatchClaimAssessmentResult =
+  | { readonly ok: true; readonly record: OriginBatchClaimAssessmentRecord }
+  | OriginBatchClaimAssessmentValidationFailure
+  | { readonly ok: false; readonly code: "BATCH_CLAIM_NOT_SUPPORTED" };
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
@@ -86,10 +93,10 @@ function isItem(value: unknown): value is OriginBatchClaimAssessmentRecordItem {
     && (item.supportingExcerpt === undefined || typeof item.supportingExcerpt === "string");
 }
 
-export async function assessOriginClaimsAgainstSourcesBatch(
+export async function assessOriginClaimsAgainstSourcesBatchDetailed(
   items: readonly OriginBatchClaimAssessmentItem[],
   assessor?: OriginBatchClaimAssessor,
-): Promise<OriginBatchClaimAssessmentResult> {
+): Promise<OriginBatchClaimAssessmentDetailedResult> {
   if (items.length === 0 || items.length > MAX_ITEMS) {
     return { ok: false, code: "INVALID_BATCH_CLAIM_ASSESSMENT_REQUEST" };
   }
@@ -151,6 +158,8 @@ export async function assessOriginClaimsAgainstSourcesBatch(
 
   const byId = new Map(request.items.map((item) => [item.id, item]));
   const seenOutputIds = new Set<string>();
+  const normalized: OriginBatchClaimAssessmentRecordItem[] = [];
+
   for (const output of raw.items) {
     if (!isItem(output)) {
       return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH" };
@@ -168,17 +177,26 @@ export async function assessOriginClaimsAgainstSourcesBatch(
     }
     seenOutputIds.add(output.id);
 
-    if (output.support !== "supported") {
-      return { ok: false, code: "BATCH_CLAIM_NOT_SUPPORTED" };
-    }
-
     const excerpt = output.supportingExcerpt
       ? clean(output.supportingExcerpt, MAX_EXCERPT)
       : null;
 
-    if (!excerpt || !input.sourceText.includes(excerpt)) {
+    if (output.support === "supported") {
+      if (!excerpt || !input.sourceText.includes(excerpt)) {
+        return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH" };
+      }
+    } else if (excerpt && !input.sourceText.includes(excerpt)) {
       return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH" };
     }
+
+    normalized.push(Object.freeze({
+      id: output.id,
+      claim: output.claim,
+      sourceUrl: output.sourceUrl,
+      sourceDigest: output.sourceDigest,
+      support: output.support,
+      ...(excerpt ? { supportingExcerpt: excerpt } : {}),
+    }));
   }
 
   if (seenOutputIds.size !== request.items.length) {
@@ -188,9 +206,21 @@ export async function assessOriginClaimsAgainstSourcesBatch(
   return {
     ok: true,
     record: Object.freeze({
-      items: Object.freeze(raw.items.map((item) => Object.freeze({ ...item }))),
+      items: Object.freeze(normalized),
       actualCostUsd: 0,
       attempts: 1,
     }),
   };
+}
+
+export async function assessOriginClaimsAgainstSourcesBatch(
+  items: readonly OriginBatchClaimAssessmentItem[],
+  assessor?: OriginBatchClaimAssessor,
+): Promise<OriginBatchClaimAssessmentResult> {
+  const detailed = await assessOriginClaimsAgainstSourcesBatchDetailed(items, assessor);
+  if (detailed.ok === false) return detailed;
+  if (detailed.record.items.some((item) => item.support !== "supported")) {
+    return { ok: false, code: "BATCH_CLAIM_NOT_SUPPORTED" };
+  }
+  return detailed;
 }
