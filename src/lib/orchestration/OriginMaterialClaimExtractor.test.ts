@@ -129,4 +129,19 @@ describe("OriginMaterialClaimExtractor", () => {
     expect(result).toEqual({ ok: false, code: "INVALID_CLAIM_EXTRACTION_INPUT" });
     expect(extractor).not.toHaveBeenCalled();
   });
+  it("preserves allowlisted provider failure codes without leaking arbitrary messages", async () => {
+    await expect(extractOriginMaterialClaims(
+      "A factual answer.",
+      vi.fn().mockRejectedValue({ code: "PROVIDER_RATE_LIMITED", message: "secret" }),
+    )).resolves.toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_EVALUATOR_PROVIDER_RATE_LIMITED",
+    });
+
+    await expect(extractOriginMaterialClaims(
+      "A factual answer.",
+      vi.fn().mockRejectedValue(new Error("secret provider body")),
+    )).resolves.toEqual({ ok: false, code: "CLAIM_EXTRACTION_FAILED" });
+  });
+
 });
