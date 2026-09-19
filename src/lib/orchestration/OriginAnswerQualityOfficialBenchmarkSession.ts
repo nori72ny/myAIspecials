@@ -8,6 +8,9 @@ import {
 import type { OriginExecutionPlanningOptions } from "./OriginExecutionPolicy.js";
 import type { OriginMaterialClaimExtractor } from "./OriginMaterialClaimExtractor.js";
 import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import type {
+  OriginAnswerQualityBenchmarkFrozenCorpus,
+} from "./OriginAnswerQualityBenchmarkCorpus.js";
 import {
   createOriginAnswerQualityBenchmarkEphemeralEvidenceVault,
   type OriginAnswerQualityBenchmarkEphemeralEvidenceVault,
@@ -51,6 +54,7 @@ export interface OriginAnswerQualityOfficialBenchmarkHarnessInput {
   readonly sourceRoot: string;
   readonly collectScoringEvidence: OriginAnswerQualityBenchmarkScoringEvidenceCollector;
   readonly scorerProvenance: OriginAnswerQualityOfficialBenchmarkScorerProvenance;
+  readonly corpus?: OriginAnswerQualityBenchmarkFrozenCorpus;
   readonly evidenceVault?: OriginAnswerQualityBenchmarkEphemeralEvidenceVault;
   readonly fetchImpl?: typeof fetch;
   readonly env?: NodeJS.ProcessEnv;
@@ -146,6 +150,7 @@ export async function runOriginAnswerQualityOfficialBenchmarkSessionHarness(
     },
     collectScoringEvidence: input.collectScoringEvidence,
     nowMs: input.nowMs,
+    corpus: input.corpus,
   });
 
   if (session.ok === false) return session;
@@ -210,6 +215,7 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
       fetchImpl: input.fetchImpl,
       env: input.env,
       nowMs: input.nowMs,
+      corpus: input.corpus,
       evidenceVault,
       collectScoringEvidence: collector,
     });
