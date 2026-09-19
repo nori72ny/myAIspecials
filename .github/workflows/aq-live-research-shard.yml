@@ -126,6 +126,16 @@ jobs:
           } else {
             if (typeof value?.code !== 'string' || !/^AQ_[A-Z0-9_:.-]+$/.test(value.code)) process.exit(1);
             if (value?.detail !== undefined && (typeof value.detail !== 'string' || !/^[A-Z0-9_:.-]+$/.test(value.detail))) process.exit(1);
+            if (value?.plannedPairedRequestsMax !== undefined && (!Number.isInteger(value.plannedPairedRequestsMax) || value.plannedPairedRequestsMax < 1 || value.plannedPairedRequestsMax > 50)) process.exit(1);
+            for (const key of ['baselineEvaluatorRequests','candidateEvaluatorRequests','evaluatorRequestsTotal']) {
+              if (value?.[key] !== undefined && (!Number.isInteger(value[key]) || value[key] < 0)) process.exit(1);
+            }
+            if (
+              value?.evaluatorRequestsTotal !== undefined
+              && value?.baselineEvaluatorRequests !== undefined
+              && value?.candidateEvaluatorRequests !== undefined
+              && value.evaluatorRequestsTotal !== value.baselineEvaluatorRequests + value.candidateEvaluatorRequests
+            ) process.exit(1);
           }
           NODE
           chmod 600 aq-results/research-shard.json
