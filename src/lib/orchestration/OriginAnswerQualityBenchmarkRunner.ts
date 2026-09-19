@@ -76,6 +76,7 @@ export type OriginAnswerQualityBenchmarkExecutionOnlyResult =
         | "AQ_BENCHMARK_EXECUTION_INVALID_EVIDENCE"
         | "AQ_BENCHMARK_EXECUTION_FAILED";
       failedCaseId?: string;
+      failureDetail?: string;
     };
 
 export interface OriginAnswerQualityBenchmarkScoringPhaseInput {
