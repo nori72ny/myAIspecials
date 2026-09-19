@@ -1,0 +1,107 @@
+name: AQ live quota chunk 0
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/aq-live-quota-chunk-0.yml'
+      - 'scripts/run-aq-official-quota-chunk-comparison.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaChunk*.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityBenchmarkOfficialScoringCollector.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityBenchmarkProviderEvaluators.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityBenchmarkHttpRuntimeAdapters.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityBenchmarkCodingCheckoutAdapter.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityOfficialBenchmarkSession.ts'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aq-live-quota-chunk-0
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: github.event.pull_request.head.ref == 'ci/aq-live-chunk-0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout frozen baseline
+        uses: actions/checkout@v4
+        with:
+          ref: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
+          path: baseline
+          persist-credentials: false
+
+      - name: Checkout candidate exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            baseline/package-lock.json
+            candidate/package-lock.json
+
+      - name: Install baseline dependencies
+        working-directory: baseline
+        run: npm ci --ignore-scripts
+
+      - name: Install candidate dependencies
+        working-directory: candidate
+        run: npm ci --ignore-scripts
+
+      - name: Run exact-SHA AQ quota chunk 0 comparison
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ORIGIN_AQ_CHUNK_INDEX: '0'
+          ORIGIN_AQ_BASELINE_ROOT: ${{ github.workspace }}/baseline
+          ORIGIN_AQ_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
+          ORIGIN_AQ_BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
+          ORIGIN_AQ_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+          ORIGIN_AQ_OUTPUT_PATH: ${{ github.workspace }}/aq-results/chunk-0.json
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          npm run eval:aq-quota-chunk-comparison
+
+      - name: Validate sanitized evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'aq-results/chunk-0.json';
+          const raw = fs.readFileSync(path, 'utf8');
+          const value = JSON.parse(raw);
+          if (value?.schemaVersion !== 'origin.aq-quota-chunk-comparison.v1') process.exit(1);
+          if (value?.chunkIndex !== 0) process.exit(1);
+          for (const side of ['baseline', 'candidate']) {
+            const artifact = value?.[side];
+            if (artifact?.schemaVersion !== 'origin.aq-benchmark-quota-chunk-artifact.v1') process.exit(1);
+            if (!/^sha256:[a-f0-9]{64}$/.test(String(artifact?.artifactDigest || ''))) process.exit(1);
+            if (artifact?.totalCostUsd !== 0) process.exit(1);
+            if (!Array.isArray(artifact?.cases) || artifact.cases.length !== 4) process.exit(1);
+          }
+          for (const forbidden of ['answerText', '"prompt"', '"messages"', 'chain-of-thought', 'OPENROUTER_API_KEY']) {
+            if (raw.includes(forbidden)) process.exit(1);
+          }
+          NODE
+          chmod 600 aq-results/chunk-0.json
+
+      - name: Upload sanitized AQ chunk evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: aq-quota-chunk-0
+          path: aq-results/chunk-0.json
+          if-no-files-found: error
+          retention-days: 7
