@@ -162,3 +162,159 @@ export async function probeOriginAnswerQualityBenchmarkEnvironment(
     }),
   };
 }
+
+
+export interface OriginAnswerQualityBenchmarkScopedEnvironmentProof {
+  readonly schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v1";
+  readonly baseUrl: string;
+  readonly expectedGitSha: string;
+  readonly observedReleaseSha: string;
+  readonly freeOnly: true;
+  readonly costUsd: 0;
+  readonly paidFallbackEnabled: false;
+  readonly requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[];
+  readonly runtimeIds: Readonly<Partial<Record<
+    OriginAnswerQualityBenchmarkExecutionLane,
+    OriginAnswerQualityBenchmarkRuntimeId
+  >>>;
+}
+
+export type OriginAnswerQualityBenchmarkAnyEnvironmentProof =
+  | OriginAnswerQualityBenchmarkEnvironmentProof
+  | OriginAnswerQualityBenchmarkScopedEnvironmentProof;
+
+export type OriginAnswerQualityBenchmarkScopedEnvironmentProofResult =
+  | { ok: true; value: OriginAnswerQualityBenchmarkScopedEnvironmentProof }
+  | {
+      ok: false;
+      code:
+        | "AQ_BENCHMARK_ENV_INVALID_BASE_URL"
+        | "AQ_BENCHMARK_ENV_FETCH_FAILED"
+        | "AQ_BENCHMARK_ENV_HEALTH_INVALID"
+        | "AQ_BENCHMARK_ENV_SHA_MISMATCH"
+        | "AQ_BENCHMARK_ENV_RESEARCH_INVALID"
+        | "AQ_BENCHMARK_ENV_ARTIFACT_INVALID"
+        | "AQ_BENCHMARK_ENV_CODING_NOT_READY"
+        | "AQ_BENCHMARK_ENV_REQUIRED_LANES_INVALID";
+    };
+
+function normalizedRequiredLanes(
+  lanes: readonly OriginAnswerQualityBenchmarkExecutionLane[],
+): readonly OriginAnswerQualityBenchmarkExecutionLane[] | null {
+  const allowed: readonly OriginAnswerQualityBenchmarkExecutionLane[] = [
+    "research",
+    "chat",
+    "coding",
+    "artifact",
+  ];
+  const seen = new Set<OriginAnswerQualityBenchmarkExecutionLane>();
+  for (const lane of lanes) {
+    if (!allowed.includes(lane) || seen.has(lane)) return null;
+    seen.add(lane);
+  }
+  return Object.freeze(allowed.filter((lane) => seen.has(lane)));
+}
+
+export async function probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
+  baseUrl: string,
+  expectedGitSha: string,
+  requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<OriginAnswerQualityBenchmarkScopedEnvironmentProofResult> {
+  const base = validBaseUrl(baseUrl);
+  if (!base) return { ok: false, code: "AQ_BENCHMARK_ENV_INVALID_BASE_URL" };
+  if (!SHA40.test(expectedGitSha)) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_SHA_MISMATCH" };
+  }
+
+  const normalized = normalizedRequiredLanes(requiredLanes);
+  if (!normalized || normalized.length === 0) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_REQUIRED_LANES_INVALID" };
+  }
+
+  const health = await getJson(fetchImpl, base, "/api/health");
+  if (!health) return { ok: false, code: "AQ_BENCHMARK_ENV_FETCH_FAILED" };
+
+  if (
+    health.status !== "ok"
+    || health.service !== "acos-2"
+    || !zeroCost(health)
+    || typeof health.releaseSha !== "string"
+    || !SHA40.test(health.releaseSha)
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_HEALTH_INVALID" };
+  }
+  if (health.releaseSha !== expectedGitSha) {
+    return { ok: false, code: "AQ_BENCHMARK_ENV_SHA_MISMATCH" };
+  }
+
+  const runtimeIds: Partial<Record<
+    OriginAnswerQualityBenchmarkExecutionLane,
+    OriginAnswerQualityBenchmarkRuntimeId
+  >> = {};
+
+  if (normalized.includes("research")) {
+    const research = await getJson(fetchImpl, base, "/api/research/v1.1/status");
+    if (!research) return { ok: false, code: "AQ_BENCHMARK_ENV_FETCH_FAILED" };
+    if (
+      research.ok !== true
+      || research.version !== "1.1"
+      || research.capability !== "grounded-research"
+      || !zeroCost(research)
+    ) {
+      return { ok: false, code: "AQ_BENCHMARK_ENV_RESEARCH_INVALID" };
+    }
+    runtimeIds.research = "grounded-research-v1.1";
+  }
+
+  if (normalized.includes("artifact")) {
+    const artifact = await getJson(fetchImpl, base, "/api/artifacts/v1.2/status");
+    if (!artifact) return { ok: false, code: "AQ_BENCHMARK_ENV_FETCH_FAILED" };
+    if (
+      artifact.ok !== true
+      || artifact.version !== "1.2"
+      || artifact.capability !== "real-artifact-generation"
+      || artifact.ready !== true
+      || !zeroCost(artifact)
+    ) {
+      return { ok: false, code: "AQ_BENCHMARK_ENV_ARTIFACT_INVALID" };
+    }
+    runtimeIds.artifact = "artifact-v1.2";
+  }
+
+  if (normalized.includes("coding")) {
+    const coding = await getJson(fetchImpl, base, "/api/coding/v1.4/status");
+    if (!coding) return { ok: false, code: "AQ_BENCHMARK_ENV_FETCH_FAILED" };
+    if (
+      coding.ok !== true
+      || coding.version !== "1.4"
+      || coding.capability !== "durable-agentic-coding-jobs"
+      || coding.ready !== true
+      || coding.freeOnly !== true
+      || coding.costUsd !== 0
+      || coding.paidFallbackEnabled !== false
+    ) {
+      return { ok: false, code: "AQ_BENCHMARK_ENV_CODING_NOT_READY" };
+    }
+    runtimeIds.coding = "coding-v1.4";
+  }
+
+  if (normalized.includes("chat")) {
+    runtimeIds.chat = "origin-chat";
+  }
+
+  return {
+    ok: true,
+    value: Object.freeze({
+      schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v1",
+      baseUrl: base.href,
+      expectedGitSha,
+      observedReleaseSha: health.releaseSha,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
+      requiredLanes: normalized,
+      runtimeIds: Object.freeze(runtimeIds),
+    }),
+  };
+}
