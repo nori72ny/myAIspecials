@@ -195,9 +195,7 @@ async function main(): Promise<void> {
   const candidateRoot = await fs.realpath(requiredEnv("ORIGIN_AQ_CANDIDATE_ROOT"));
   const baselineSha = requiredEnv("ORIGIN_AQ_BASELINE_SHA");
   const candidateSha = requiredEnv("ORIGIN_AQ_CANDIDATE_SHA");
-  const outputPath = path.resolve(
-    process.env.ORIGIN_AQ_OUTPUT_PATH?.trim() || "test-results/aq-official-comparison.json",
-  );
+  const configuredOutputPath = process.env.ORIGIN_AQ_OUTPUT_PATH?.trim();
 
   const baseline: LocalTarget = {
     label: "baseline",
@@ -223,6 +221,9 @@ async function main(): Promise<void> {
   }
   const shardIndex = parseShardIndex(quotaPlan.value.shards.length);
   const shard = quotaPlan.value.shards[shardIndex];
+  const outputPath = path.resolve(
+    configuredOutputPath || `test-results/aq-official-shard-${shardIndex}.json`,
+  );
 
   await validateTarget(baseline);
   await validateTarget(candidate);
