@@ -43,7 +43,8 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || /最新(?:の)?(?:情報|ニュース|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果)|今日の(?:ニュース|天気|料金|価格|株価|相場|結果)|現在の(?:ニュース|天気|料金|価格|株価|相場|仕様|バージョン|状況)|リアルタイム/.test(message)
     || /(?:料金|価格)(?:は|を|が|について|って|\?|？|$)|(?:いくら|費用).{0,12}(?:ですか|教えて|知りたい|比較|確認)/.test(message)
     || /\b(?:news|pricing|prices?|weather|real[- ]time)\b/i.test(message)
-    || /\b(?:latest|current|today'?s?)\s+(?:information|news|weather|pricing|prices?|rates?|status|results?|version|model)\b/i.test(message);
+    || /\b(?:latest|current|today'?s?)\b.{0,48}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|version|model)\b/i.test(message)
+    || /(?:最新|今日|現在).{0,24}(?:為替|レート)/.test(message);
 }
 
 export function originChatSystemInstruction(
