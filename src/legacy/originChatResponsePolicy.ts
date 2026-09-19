@@ -23,8 +23,19 @@ function isTransformOnlyRequest(message: string): boolean {
 }
 
 function isHypotheticalFreshnessFailureRequest(message: string): boolean {
-  return /(?:仮定|想定).{0,80}(?:検索できない|検索不可|取得できない|タイムアウト|接続できない)/s.test(message)
-    || /\b(?:assume|suppose|hypothetical)\b.{0,100}\b(?:timed?\s*out|unavailable|cannot\s+(?:search|retrieve|access)|no\s+(?:search|source))\b/is.test(message);
+  const japaneseAssumption = /(?:仮定|想定)/;
+  const japaneseFailure = /(?:検索できない|検索不可|取得できない|タイムアウト|接続できない)/;
+  const englishAssumption = /\b(?:assume|suppose|hypothetical)\b/i;
+  const englishFailure = /\b(?:timed?\s*out|unavailable|cannot\s+(?:search|retrieve|access)|no\s+(?:search|source))\b/i;
+  return (
+    japaneseAssumption.test(message)
+    && japaneseFailure.test(message)
+    && /(?:仮定|想定).{0,120}(?:検索できない|検索不可|取得できない|タイムアウト|接続できない)|(?:検索できない|検索不可|取得できない|タイムアウト|接続できない).{0,120}(?:仮定|想定)/s.test(message)
+  ) || (
+    englishAssumption.test(message)
+    && englishFailure.test(message)
+    && /(?:\b(?:assume|suppose|hypothetical)\b.{0,160}\b(?:timed?\s*out|unavailable|cannot\s+(?:search|retrieve|access)|no\s+(?:search|source))\b|\b(?:timed?\s*out|unavailable|cannot\s+(?:search|retrieve|access)|no\s+(?:search|source))\b.{0,160}\b(?:assume|suppose|hypothetical)\b)/is.test(message)
+  );
 }
 
 function isStablePricingConceptRequest(message: string): boolean {
