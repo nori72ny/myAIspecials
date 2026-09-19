@@ -5,6 +5,9 @@ import type {
   OriginAnswerQualityBenchmarkCorpusCase,
   OriginAnswerQualityBenchmarkFrozenCorpus,
 } from "./OriginAnswerQualityBenchmarkCorpus.js";
+import {
+  createOriginAnswerQualityBenchmarkManifest,
+} from "./OriginAnswerQualityBenchmarkManifest.js";
 
 export interface OriginAnswerQualityBenchmarkQuotaCaseBudget {
   readonly caseId: string;
@@ -110,6 +113,24 @@ export function planOriginAnswerQualityBenchmarkQuotaShards(
     || corpus.cases.length === 0
     || corpus.manifest.cases.length !== corpus.cases.length
     || new Set(corpus.cases.map((item) => item.caseId)).size !== corpus.cases.length
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_QUOTA_CORPUS_INVALID" };
+  }
+
+  const reconstructedManifest = createOriginAnswerQualityBenchmarkManifest(
+    corpus.benchmarkId,
+    corpus.benchmarkVersion,
+    corpus.cases.map(({ caseId, category, caseDigest }) => ({
+      caseId,
+      category,
+      caseDigest,
+    })),
+  );
+  if (
+    reconstructedManifest.ok === false
+    || corpus.manifest.benchmarkId !== corpus.benchmarkId
+    || corpus.manifest.benchmarkVersion !== corpus.benchmarkVersion
+    || reconstructedManifest.value.manifestDigest !== corpus.manifest.manifestDigest
   ) {
     return { ok: false, code: "AQ_BENCHMARK_QUOTA_CORPUS_INVALID" };
   }
