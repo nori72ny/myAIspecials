@@ -41,7 +41,6 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
           candidates: Array<{ candidateId: string; text: string }>;
         };
         return result(request, {
-          answerDigest: payload.answerDigest,
           claims: [{
             candidateId: payload.candidates[0].candidateId,
             id: "claim-a",
@@ -50,8 +49,6 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
             evidenceRequirement: "supporting-evidence",
             risk: "low",
           }],
-          actualCostUsd: 0,
-          attempts: 1,
         });
       }
       if (name === "submit_prompt_claim_support") {
@@ -182,6 +179,11 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
     expect(evaluators.scorerProvenance.scorerRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect((extracted as { claims: Array<{ text: string }> }).claims[0].text)
       .toBe("Answer sentence.");
+    expect(extracted).toMatchObject({
+      answerDigest: `sha256:${"a".repeat(64)}`,
+      actualCostUsd: 0,
+      attempts: 1,
+    });
   });
 
   it("rejects non-JSON required-tool output", async () => {
@@ -244,10 +246,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
   it("invokes the request meter before provider execution and can stop the call", async () => {
     const execute = vi.fn().mockImplementation(async (request: OriginProviderExecutionRequest) =>
       result(request, {
-        answerDigest: `sha256:${"a".repeat(64)}`,
         claims: [],
-        actualCostUsd: 0,
-        attempts: 1,
       })
     );
     let remaining = 1;
@@ -286,7 +285,6 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       };
       capturedCandidates = payload.candidates;
       return result(request, {
-        answerDigest: payload.answerDigest,
         claims: [{
           candidateId: payload.candidates[1].candidateId,
           id: "claim-b",
@@ -295,8 +293,6 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
           evidenceRequirement: "supporting-evidence",
           risk: "low",
         }],
-        actualCostUsd: 0,
-        attempts: 1,
       });
     });
 
