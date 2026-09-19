@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
+import type { OriginAnswerQualityBenchmarkChunkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
 import {
   createOriginAnswerQualityBenchmarkRuntimeAdapter,
 } from "./OriginAnswerQualityBenchmarkRuntimeAdapter";
@@ -11,20 +11,18 @@ import {
 const MODEL = "inclusionai/ling-3.0-flash-sante:free";
 const SCORER_REVISION = `sha256:${"d".repeat(64)}`;
 
-const proof: OriginAnswerQualityBenchmarkEnvironmentProof = {
-  schemaVersion: "origin.aq-benchmark-environment-proof.v1",
+const proof: OriginAnswerQualityBenchmarkChunkEnvironmentProof = {
+  schemaVersion: "origin.aq-benchmark-chunk-environment-proof.v1",
   baseUrl: "https://candidate.example/",
   expectedGitSha: "a".repeat(40),
   observedReleaseSha: "a".repeat(40),
   freeOnly: true,
   costUsd: 0,
   paidFallbackEnabled: false,
-  runtimeIds: {
-    research: "grounded-research-v1.1",
-    coding: "coding-v1.4",
-    artifact: "artifact-v1.2",
-  },
-  codingReady: true,
+  requiredLanes: ["research"],
+  researchReady: true,
+  codingReady: false,
+  artifactReady: false,
 };
 
 function json(body: unknown): Response {
