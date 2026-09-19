@@ -18,7 +18,10 @@ import type {
   OriginMaterialClaimExtractor,
 } from "./OriginMaterialClaimExtractor.js";
 import type { OriginClaimAssessor } from "./OriginClaimAssessor.js";
-import type { OriginBatchClaimAssessor } from "./OriginBatchClaimAssessor.js";
+import type {
+  OriginBatchClaimAssessor,
+  OriginBatchClaimAssessmentRequestItem,
+} from "./OriginBatchClaimAssessor.js";
 import {
   executeOriginProvider,
   type OriginProviderExecutionRequest,
@@ -506,7 +509,9 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
       if (!Array.isArray(record.items) || record.items.length !== request.items.length) {
         throw new Error("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
       }
-      const inputs = new Map(request.items.map((item) => [item.id, item] as const));
+      const inputs = new Map<string, OriginBatchClaimAssessmentRequestItem>(
+        request.items.map((item) => [item.id, item] as const),
+      );
       const seen = new Set<string>();
       const items = record.items.map((value) => {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
