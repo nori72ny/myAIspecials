@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  classifyOriginAnswerQualityEvaluatorFailure,
+  type OriginAnswerQualitySafeEvaluatorFailureCode,
+} from "./OriginAnswerQualityEvaluatorFailure.js";
 
 import type {
   OriginAnswerQualityBenchmarkCategory,
@@ -48,7 +52,8 @@ export type OriginAnswerQualityBenchmarkSemanticJudgeResult =
         | "AQ_BENCHMARK_SEMANTIC_JUDGE_FAILED"
         | "AQ_BENCHMARK_SEMANTIC_JUDGE_RECORD_MISMATCH"
         | "AQ_BENCHMARK_SEMANTIC_JUDGE_COST_UNVERIFIED"
-        | "AQ_BENCHMARK_SEMANTIC_JUDGE_INVALID_SCORE";
+        | "AQ_BENCHMARK_SEMANTIC_JUDGE_INVALID_SCORE"
+        | OriginAnswerQualitySafeEvaluatorFailureCode;
     };
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
@@ -125,8 +130,12 @@ export async function judgeOriginAnswerQualityBenchmarkSemantics(
   let raw: unknown;
   try {
     raw = await judge(request);
-  } catch {
-    return { ok: false, code: "AQ_BENCHMARK_SEMANTIC_JUDGE_FAILED" };
+  } catch (error) {
+    return {
+      ok: false,
+      code: classifyOriginAnswerQualityEvaluatorFailure(error)
+        ?? "AQ_BENCHMARK_SEMANTIC_JUDGE_FAILED",
+    };
   }
 
   if (!isRecord(raw)) {

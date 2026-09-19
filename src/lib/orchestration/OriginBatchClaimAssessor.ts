@@ -1,5 +1,9 @@
 import { containsSensitiveInput } from "./SensitiveInputDetector.js";
 import type { OriginFetchedPublicSource } from "./OriginPublicSourceFetch.js";
+import {
+  classifyOriginAnswerQualityEvaluatorFailure,
+  type OriginAnswerQualitySafeEvaluatorFailureCode,
+} from "./OriginAnswerQualityEvaluatorFailure.js";
 
 export interface OriginBatchClaimAssessmentItem {
   readonly id: string;
@@ -50,7 +54,8 @@ export type OriginBatchClaimAssessmentValidationFailure =
         | "BATCH_CLAIM_ASSESSOR_NOT_AVAILABLE"
         | "BATCH_CLAIM_ASSESSMENT_FAILED"
         | "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH"
-        | "BATCH_CLAIM_ASSESSMENT_COST_UNVERIFIED";
+        | "BATCH_CLAIM_ASSESSMENT_COST_UNVERIFIED"
+        | OriginAnswerQualitySafeEvaluatorFailureCode;
     };
 
 export type OriginBatchClaimAssessmentDetailedResult =
@@ -144,8 +149,12 @@ export async function assessOriginClaimsAgainstSourcesBatchDetailed(
   let raw: unknown;
   try {
     raw = await assessor(request);
-  } catch {
-    return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_FAILED" };
+  } catch (error) {
+    return {
+      ok: false,
+      code: classifyOriginAnswerQualityEvaluatorFailure(error)
+        ?? "BATCH_CLAIM_ASSESSMENT_FAILED",
+    };
   }
 
   if (!isRecord(raw) || raw.items.length !== request.items.length) {

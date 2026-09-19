@@ -128,4 +128,28 @@ describe("OriginAnswerQualityBenchmarkPromptClaimJudge", () => {
       code: "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_NOT_AVAILABLE",
     });
   });
+  it("preserves safe provider diagnostics and drops arbitrary error text", async () => {
+    const input = {
+      caseId: "case-1",
+      prompt: "Prompt evidence.",
+      claimSet: claims(),
+    };
+
+    await expect(judgeOriginAnswerQualityClaimsAgainstPrompt(
+      input,
+      vi.fn().mockRejectedValue({ code: "PROVIDER_TIMEOUT", message: "secret" }),
+    )).resolves.toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_EVALUATOR_PROVIDER_TIMEOUT",
+    });
+
+    await expect(judgeOriginAnswerQualityClaimsAgainstPrompt(
+      input,
+      vi.fn().mockRejectedValue(new Error("Authorization: Bearer hidden")),
+    )).resolves.toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_FAILED",
+    });
+  });
+
 });

@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  classifyOriginAnswerQualityEvaluatorFailure,
+  type OriginAnswerQualitySafeEvaluatorFailureCode,
+} from "./OriginAnswerQualityEvaluatorFailure.js";
 
 import {
   createOriginClaimSet,
@@ -38,7 +42,8 @@ export type OriginMaterialClaimExtractionResult =
         | "CLAIM_EXTRACTION_FAILED"
         | "CLAIM_EXTRACTION_RECORD_MISMATCH"
         | "CLAIM_EXTRACTION_COST_UNVERIFIED"
-        | "INVALID_EXTRACTED_CLAIMS";
+        | "INVALID_EXTRACTED_CLAIMS"
+        | OriginAnswerQualitySafeEvaluatorFailureCode;
     };
 
 const MAX_ANSWER_CHARS = 32_000;
@@ -87,8 +92,12 @@ export async function extractOriginMaterialClaims(
   let raw: unknown;
   try {
     raw = await extractor(request);
-  } catch {
-    return { ok: false, code: "CLAIM_EXTRACTION_FAILED" };
+  } catch (error) {
+    return {
+      ok: false,
+      code: classifyOriginAnswerQualityEvaluatorFailure(error)
+        ?? "CLAIM_EXTRACTION_FAILED",
+    };
   }
 
   if (!isRecord(raw) || raw.answerDigest !== digest || raw.attempts !== 1) {

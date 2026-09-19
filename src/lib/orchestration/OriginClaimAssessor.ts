@@ -1,5 +1,9 @@
 import { containsSensitiveInput } from "./SensitiveInputDetector.js";
 import type { OriginFetchedPublicSource } from "./OriginPublicSourceFetch.js";
+import {
+  classifyOriginAnswerQualityEvaluatorFailure,
+  type OriginAnswerQualitySafeEvaluatorFailureCode,
+} from "./OriginAnswerQualityEvaluatorFailure.js";
 
 export interface OriginClaimAssessmentRequest {
   claim: string;
@@ -36,7 +40,8 @@ export type OriginClaimAssessmentResult =
         | "CLAIM_ASSESSMENT_FAILED"
         | "CLAIM_ASSESSMENT_RECORD_MISMATCH"
         | "CLAIM_ASSESSMENT_COST_UNVERIFIED"
-        | "CLAIM_NOT_SUPPORTED";
+        | "CLAIM_NOT_SUPPORTED"
+        | OriginAnswerQualitySafeEvaluatorFailureCode;
     };
 
 const MAX_CLAIM = 1_000;
@@ -92,8 +97,12 @@ export async function assessOriginClaimAgainstSource(
   let raw: unknown;
   try {
     raw = await assess(request);
-  } catch {
-    return { ok: false, code: "CLAIM_ASSESSMENT_FAILED" };
+  } catch (error) {
+    return {
+      ok: false,
+      code: classifyOriginAnswerQualityEvaluatorFailure(error)
+        ?? "CLAIM_ASSESSMENT_FAILED",
+    };
   }
 
   if (!isRecord(raw)) {
