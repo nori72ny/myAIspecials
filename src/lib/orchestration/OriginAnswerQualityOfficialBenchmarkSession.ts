@@ -257,17 +257,27 @@ export interface OriginAnswerQualityOfficialProviderScoredSessionInput
  * source verification, and the consume-once evidence vault are constructed
  * internally from ORIGIN's current $0/ZDR execution policy.
  */
-export async function runOriginAnswerQualityOfficialProviderScoredSession(
+export interface OriginAnswerQualityOfficialProviderScoredSessionDependencies {
+  readonly createEvaluators?: typeof createOriginAnswerQualityBenchmarkProviderEvaluators;
+  readonly runEvidenceScoredSession?: typeof runOriginAnswerQualityOfficialEvidenceScoredSession;
+}
+
+export async function runOriginAnswerQualityOfficialProviderScoredSessionHarness(
   input: OriginAnswerQualityOfficialProviderScoredSessionInput,
+  dependencies: OriginAnswerQualityOfficialProviderScoredSessionDependencies = {},
 ): Promise<OriginAnswerQualityOfficialBenchmarkSessionResult> {
-  const evaluators = createOriginAnswerQualityBenchmarkProviderEvaluators({
+  const createEvaluators = dependencies.createEvaluators
+    ?? createOriginAnswerQualityBenchmarkProviderEvaluators;
+  const runEvidenceScoredSession = dependencies.runEvidenceScoredSession
+    ?? runOriginAnswerQualityOfficialEvidenceScoredSession;
+  const evaluators = createEvaluators({
     env: input.env,
     nowMs: input.nowMs,
     planningOptions: input.evaluatorPlanningOptions,
     beforeProviderRequest: input.beforeEvaluatorRequest,
   });
 
-  return runOriginAnswerQualityOfficialEvidenceScoredSession({
+  return runEvidenceScoredSession({
     runId: input.runId,
     gitSha: input.gitSha,
     providerId: input.providerId,
@@ -285,4 +295,11 @@ export async function runOriginAnswerQualityOfficialProviderScoredSession(
     claimAssessor: evaluators.claimAssessor,
     batchClaimAssessor: evaluators.batchClaimAssessor,
   });
+}
+
+
+export async function runOriginAnswerQualityOfficialProviderScoredSession(
+  input: OriginAnswerQualityOfficialProviderScoredSessionInput,
+): Promise<OriginAnswerQualityOfficialBenchmarkSessionResult> {
+  return runOriginAnswerQualityOfficialProviderScoredSessionHarness(input);
 }
