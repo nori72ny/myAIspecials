@@ -50,7 +50,7 @@ const SCORER_SOURCE = [
   "origin-aq-provider-evaluator.v1",
   "origin.aq-semantic-rubric.v1",
   "origin.aq-prompt-claim-support.v1",
-  "origin.material-claim-extractor.exact-span.v4",
+  "origin.material-claim-extractor.exact-span.v5-local-metadata",
   "origin.material-claim-candidate-segmentation.jp-en-punctuation.v2",
   "origin.material-claim-candidate-limit.64-fail-closed.v1",
   "origin.claim-assessor.v1",
@@ -122,7 +122,6 @@ function claimSelectionTool(candidateIds: readonly string[]) {
     "submit_material_claim_selection",
     "Select only material claims from the supplied exact answer spans. Never rewrite span text. Return candidate IDs plus classifications; ORIGIN will bind IDs back to exact answer text.",
     objectSchema({
-      answerDigest: digest,
       claims: {
         type: "array",
         maxItems: 64,
@@ -144,9 +143,7 @@ function claimSelectionTool(candidateIds: readonly string[]) {
           risk: { type: "string", enum: ["low", "medium", "high"] },
         }, ["candidateId", "id", "kind", "freshness", "evidenceRequirement", "risk"]),
       },
-      actualCostUsd: zero,
-      attempts: one,
-    }, ["answerDigest", "claims", "actualCostUsd", "attempts"]),
+    }, ["claims"]),
   );
 }
 
@@ -397,10 +394,10 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
       });
 
       return {
-        answerDigest: record.answerDigest,
+        answerDigest: request.answerDigest,
         claims,
-        actualCostUsd: record.actualCostUsd,
-        attempts: record.attempts,
+        actualCostUsd: 0,
+        attempts: 1,
       };
     },
     promptClaimJudge: async (request) => prompt(request),
