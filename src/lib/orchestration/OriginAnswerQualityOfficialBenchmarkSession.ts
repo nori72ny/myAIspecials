@@ -274,6 +274,7 @@ export async function runOriginAnswerQualityOfficialProviderScoredSession(
     modelId: input.modelId,
     environmentProof: input.environmentProof,
     sourceRoot: input.sourceRoot,
+    corpus: input.corpus,
     fetchImpl: input.fetchImpl,
     env: input.env,
     nowMs: input.nowMs,
