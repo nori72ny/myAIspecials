@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import type { OriginAnswerQualityBenchmarkAnyEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import type {
   OriginAnswerQualityBenchmarkEphemeralEvidenceVault,
 } from "./OriginAnswerQualityBenchmarkEphemeralEvidenceVault.js";
@@ -16,7 +16,7 @@ import type {
 type JsonRecord = Record<string, unknown>;
 
 export interface OriginAnswerQualityBenchmarkHttpAdapterOptions {
-  readonly environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof;
+  readonly environmentProof: OriginAnswerQualityBenchmarkAnyEnvironmentProof;
   readonly fetchImpl?: typeof fetch;
   readonly nowMs?: () => number;
   readonly evidenceVault?: OriginAnswerQualityBenchmarkEphemeralEvidenceVault;
