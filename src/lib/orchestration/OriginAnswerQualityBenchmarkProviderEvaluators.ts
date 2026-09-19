@@ -102,9 +102,10 @@ interface MaterialClaimCandidate {
 
 function materialClaimCandidates(answerText: string): readonly MaterialClaimCandidate[] {
   const normalized = answerText.replace(/\r\n/g, "\n").trim();
-  const segments = normalized
-    .split(/(?<=[.!?。！？])\s+|\n+/u)
-    .map((value) => value.trim())
+  const segments = Array.from(
+    normalized.matchAll(/[^.!?。！？\n]+[.!?。！？]?/gu),
+    (match) => match[0].trim(),
+  )
     .filter((value) => value.length >= 8)
     .slice(0, 64);
   return Object.freeze(segments.map((text, index) => Object.freeze({
