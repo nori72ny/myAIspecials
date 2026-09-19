@@ -50,7 +50,7 @@ const SCORER_SOURCE = [
   "origin-aq-provider-evaluator.v1",
   "origin.aq-semantic-rubric.v1",
   "origin.aq-prompt-claim-support.v1",
-  "origin.material-claim-extractor.v1",
+  "origin.material-claim-extractor.exact-span.v2",
   "origin.claim-assessor.v1",
   "origin.batch-claim-assessor.v1",
   ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
@@ -94,6 +94,57 @@ function objectSchema(
 const digest = { type: "string", pattern: "^sha256:[a-f0-9]{64}$" };
 const zero = { type: "number", enum: [0] };
 const one = { type: "integer", enum: [1] };
+
+interface MaterialClaimCandidate {
+  readonly candidateId: string;
+  readonly text: string;
+}
+
+function materialClaimCandidates(answerText: string): readonly MaterialClaimCandidate[] {
+  const normalized = answerText.replace(/\r\n/g, "\n").trim();
+  const segments = normalized
+    .split(/(?<=[.!?。！？])\s+|\n+/u)
+    .map((value) => value.trim())
+    .filter((value) => value.length >= 8)
+    .slice(0, 64);
+  return Object.freeze(segments.map((text, index) => Object.freeze({
+    candidateId: `candidate-${index + 1}`,
+    text,
+  })));
+}
+
+function claimSelectionTool(candidateIds: readonly string[]) {
+  return tool(
+    "submit_material_claim_selection",
+    "Select only material claims from the supplied exact answer spans. Never rewrite span text. Return candidate IDs plus classifications; ORIGIN will bind IDs back to exact answer text.",
+    objectSchema({
+      answerDigest: digest,
+      claims: {
+        type: "array",
+        maxItems: 64,
+        items: objectSchema({
+          candidateId: { type: "string", enum: [...candidateIds] },
+          id: { type: "string", pattern: "^claim-[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$" },
+          kind: {
+            type: "string",
+            enum: ["factual", "inference", "assumption", "recommendation", "execution-claim"],
+          },
+          freshness: {
+            type: "string",
+            enum: ["not-applicable", "stable", "current", "real-time"],
+          },
+          evidenceRequirement: {
+            type: "string",
+            enum: ["none", "user-provided", "supporting-evidence", "deterministic-execution"],
+          },
+          risk: { type: "string", enum: ["low", "medium", "high"] },
+        }, ["candidateId", "id", "kind", "freshness", "evidenceRequirement", "risk"]),
+      },
+      actualCostUsd: zero,
+      attempts: one,
+    }, ["answerDigest", "claims", "actualCostUsd", "attempts"]),
+  );
+}
 
 const CLAIM_EXTRACTION_TOOL = tool(
   "submit_material_claims",
@@ -242,6 +293,7 @@ function systemInstruction(kind: string): string {
     "Do not reveal chain-of-thought. Return exactly one required tool call.",
     "Use no outside facts unless the requested evaluator contract explicitly asks for semantic entailment.",
     "Never claim cost other than the contract-required zero value.",
+    "For material-claim extraction, select only supplied candidate IDs; never rewrite or paraphrase answer text.",
     `Evaluator contract: ${kind}.`,
   ].join("\n");
 }
@@ -304,7 +356,7 @@ function evaluator(
 export function createOriginAnswerQualityBenchmarkProviderEvaluators(
   options: OriginAnswerQualityBenchmarkProviderEvaluatorOptions = {},
 ): OriginAnswerQualityBenchmarkProviderEvaluators {
-  const extract = evaluator("material-claim-extraction", CLAIM_EXTRACTION_TOOL, options);
+  const legacyExtract = evaluator("material-claim-extraction", CLAIM_EXTRACTION_TOOL, options);
   const prompt = evaluator("prompt-claim-support", PROMPT_CLAIM_TOOL, options);
   const semantic = evaluator("semantic-rubric", SEMANTIC_TOOL, options);
   const support = evaluator("claim-source-support", CLAIM_SUPPORT_TOOL, options);
@@ -315,7 +367,70 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
   );
 
   return Object.freeze({
-    materialClaimExtractor: async (request) => extract(request),
+    materialClaimExtractor: async (request) => {
+      const candidates = materialClaimCandidates(request.answerText);
+      if (candidates.length === 0) {
+        return {
+          answerDigest: request.answerDigest,
+          claims: [],
+          actualCostUsd: 0,
+          attempts: 1,
+        };
+      }
+
+      const dynamic = evaluator(
+        "material-claim-extraction-by-exact-span",
+        claimSelectionTool(candidates.map((item) => item.candidateId)),
+        options,
+      );
+      const raw = await dynamic({
+        answerDigest: request.answerDigest,
+        candidates,
+        executionPolicy: request.executionPolicy,
+      });
+      if (!raw || typeof raw !== "object") {
+        throw new Error("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
+      }
+      const record = raw as {
+        answerDigest?: unknown;
+        claims?: unknown;
+        actualCostUsd?: unknown;
+        attempts?: unknown;
+      };
+      if (!Array.isArray(record.claims)) {
+        throw new Error("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
+      }
+
+      const byId = new Map(candidates.map((item) => [item.candidateId, item.text] as const));
+      const seen = new Set<string>();
+      const claims = record.claims.map((claim) => {
+        if (!claim || typeof claim !== "object") {
+          throw new Error("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
+        }
+        const item = claim as Record<string, unknown>;
+        const candidateId = typeof item.candidateId === "string" ? item.candidateId : "";
+        const text = byId.get(candidateId);
+        if (!text || seen.has(candidateId)) {
+          throw new Error("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
+        }
+        seen.add(candidateId);
+        return {
+          id: item.id,
+          text,
+          kind: item.kind,
+          freshness: item.freshness,
+          evidenceRequirement: item.evidenceRequirement,
+          risk: item.risk,
+        };
+      });
+
+      return {
+        answerDigest: record.answerDigest,
+        claims,
+        actualCostUsd: record.actualCostUsd,
+        attempts: record.attempts,
+      };
+    },
     promptClaimJudge: async (request) => prompt(request),
     semanticJudge: async (request) => semantic(request),
     claimAssessor: async (request) => support(request),
