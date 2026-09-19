@@ -189,7 +189,7 @@ function semanticTool(category: string) {
   }
   return tool(
     "submit_benchmark_semantics",
-    `Apply the fixed ORIGIN AQ benchmark rubric below. Return only semantic judgments; ORIGIN binds case/category/rubric/digests/cost/attempt metadata locally.\n\n${SEMANTIC_RUBRIC_SPEC}`,
+    `Apply this fixed ORIGIN AQ semantic rubric. Return exactly one semantic judgment tool call.\n\n${SEMANTIC_RUBRIC_SPEC}`,
     objectSchema(properties, required),
   );
 }
