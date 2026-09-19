@@ -120,6 +120,8 @@ export async function runOriginAnswerQualityOfficialBenchmarkSessionHarness(
     fetchImpl: input.fetchImpl,
     nowMs: input.nowMs,
     evidenceVault: input.evidenceVault,
+    expectedProviderId: input.providerId,
+    expectedModelId: input.modelId,
   };
 
   const coding = await createOriginAnswerQualityBenchmarkCodingCheckoutAdapter({
