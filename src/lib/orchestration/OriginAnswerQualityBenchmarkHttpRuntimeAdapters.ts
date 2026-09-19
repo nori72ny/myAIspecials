@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { OriginAnswerQualityBenchmarkAnyEnvironmentProof } from "./OriginAnswerQualityBenchmarkAnyEnvironmentProof.js";
+import type { OriginAnswerQualityBenchmarkAnyEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import type {
   OriginAnswerQualityBenchmarkEphemeralEvidenceVault,
 } from "./OriginAnswerQualityBenchmarkEphemeralEvidenceVault.js";
