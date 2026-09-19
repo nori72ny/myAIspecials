@@ -23,12 +23,12 @@ concurrency:
 
 jobs:
   compare:
-    if: github.event.pull_request.head.ref == 'ci/aq-live-research-shard'
+    if: github.event.pull_request.head.ref == 'ci/aq-live-research-shard-v2'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     env:
       BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
-      CANDIDATE_SHA: ca2a956979096207971ebc8e739e66eb523fc69c
+      CANDIDATE_SHA: 63be71719e188527f8c95ef12c4f3f173064929a
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ORIGIN_AQ_BASELINE_PORT: '4511'
       ORIGIN_AQ_CANDIDATE_PORT: '4512'
@@ -97,25 +97,35 @@ jobs:
           set -euo pipefail
           npm run eval:aq-local-comparison-shard
 
-      - name: Validate sanitized Research shard evidence
+      - name: Inspect sanitized Research shard output
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
+          if [ ! -s aq-results/research-shard.json ]; then
+            echo "No sanitized shard result file was produced."
+            exit 0
+          fi
           node <<'NODE'
           const fs = require('fs');
           const raw = fs.readFileSync('aq-results/research-shard.json', 'utf8');
           const value = JSON.parse(raw);
-          if (value?.schemaVersion !== 'origin.aq-local-shard-result.v1' || value?.ok !== true) process.exit(1);
-          const shard = value?.shard;
-          if (shard?.schemaVersion !== 'origin.aq-official-shard-comparison.v1') process.exit(1);
-          if (!/^sha256:[a-f0-9]{64}$/.test(String(shard?.shardDigest || ''))) process.exit(1);
-          if (shard?.baselineGitSha !== process.env.BASELINE_SHA) process.exit(1);
-          if (shard?.candidateGitSha !== process.env.CANDIDATE_SHA) process.exit(1);
-          if (!Array.isArray(shard?.baselineObservations) || shard.baselineObservations.length === 0) process.exit(1);
-          if (shard.baselineObservations.some((x) => !['current-factual','multi-source-comparison','contradiction-detection'].includes(x.category))) process.exit(1);
-          if (shard.candidateObservations.some((x) => !['current-factual','multi-source-comparison','contradiction-detection'].includes(x.category))) process.exit(1);
+          if (value?.schemaVersion !== 'origin.aq-local-shard-result.v1') process.exit(1);
           for (const forbidden of ['answerText','"prompt"','"messages"','chain-of-thought','OPENROUTER_API_KEY']) {
             if (raw.includes(forbidden)) process.exit(1);
+          }
+          if (value?.ok === true) {
+            const shard = value?.shard;
+            if (shard?.schemaVersion !== 'origin.aq-official-shard-comparison.v1') process.exit(1);
+            if (!/^sha256:[a-f0-9]{64}$/.test(String(shard?.shardDigest || ''))) process.exit(1);
+            if (shard?.baselineGitSha !== process.env.BASELINE_SHA) process.exit(1);
+            if (shard?.candidateGitSha !== process.env.CANDIDATE_SHA) process.exit(1);
+            if (!Array.isArray(shard?.baselineObservations) || shard.baselineObservations.length === 0) process.exit(1);
+            if (shard.baselineObservations.some((x) => !['current-factual','multi-source-comparison','contradiction-detection'].includes(x.category))) process.exit(1);
+            if (shard.candidateObservations.some((x) => !['current-factual','multi-source-comparison','contradiction-detection'].includes(x.category))) process.exit(1);
+          } else {
+            if (typeof value?.code !== 'string' || !/^AQ_[A-Z0-9_:.-]+$/.test(value.code)) process.exit(1);
+            if (value?.detail !== undefined && (typeof value.detail !== 'string' || !/^[A-Z0-9_:.-]+$/.test(value.detail))) process.exit(1);
           }
           NODE
           chmod 600 aq-results/research-shard.json
@@ -123,10 +133,18 @@ jobs:
           BASELINE_SHA: ${{ env.BASELINE_SHA }}
           CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
 
+      - name: Require successful Research shard evidence
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const v=require('./aq-results/research-shard.json'); if(v?.ok!==true) process.exit(1)"
+
       - name: Upload sanitized Research shard evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aq-live-research-shard
+          name: aq-live-research-shard-v2
           path: aq-results/research-shard.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
