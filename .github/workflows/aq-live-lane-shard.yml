@@ -64,13 +64,309 @@ jobs:
           current="${GITHUB_RUN_ID}"
           now="$(date -u +%s)"
 
-          latest_from_workflow() {
+          latest_reserved_from_workflow() {
             local workflow="$1"
-            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?event=pull_request&per_page=30"               --jq "[.workflow_runs[] | select((.id|tostring) != \"$current\" and .conclusion != \"skipped\") | .created_at] | sort | reverse | .[0] // \"\""               2>/dev/null || true
+            local artifact_pattern="$2"
+            local latest=""
+            while IFS=
+      - name: Checkout frozen baseline
+        if: steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Checkout validated candidate exact SHA
+        if: steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Set up Node 24
+        if: steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            baseline/package-lock.json
+            candidate/package-lock.json
+
+      - name: Install exact dependencies
+        if: steps.quota_guard.outputs.allowed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd baseline && npm ci --ignore-scripts)
+          (cd candidate && npm ci --ignore-scripts)
+
+      - name: Verify credential boundary
+        if: steps.quota_guard.outputs.allowed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          test -z "${GEMINI_API_KEY:-}"
+
+      - name: Select deterministic lane-only shard
+        if: steps.quota_guard.outputs.allowed == 'true'
+        id: shard
+        working-directory: candidate
+        shell: bash
+        env:
+          AQ_LANE: ${{ steps.lane.outputs.lane }}
+        run: |
+          set -euo pipefail
+          shard_index="$(npx tsx scripts/select-aq-lane-shard.ts "$AQ_LANE")"
+          test "$shard_index" -ge 0
+          echo "index=$shard_index" >> "$GITHUB_OUTPUT"
+
+      - name: Run exact-SHA lane shard comparison
+        if: steps.quota_guard.outputs.allowed == 'true'
+        working-directory: candidate
+        shell: bash
+        env:
+          ORIGIN_AQ_SHARD_INDEX: ${{ steps.shard.outputs.index }}
+          ORIGIN_AQ_BASELINE_ROOT: ${{ github.workspace }}/baseline
+          ORIGIN_AQ_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
+          ORIGIN_AQ_BASELINE_SHA: ${{ env.BASELINE_SHA }}
+          ORIGIN_AQ_CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+          ORIGIN_AQ_OUTPUT_PATH: ${{ github.workspace }}/aq-results/lane-shard.json
+        run: |
+          set -euo pipefail
+          npm run eval:aq-local-comparison-shard
+
+      - name: Inspect sanitized lane shard output
+        if: steps.quota_guard.outputs.allowed == 'true' && always()
+        shell: bash
+        env:
+          AQ_LANE: ${{ steps.lane.outputs.lane }}
+          BASELINE_SHA: ${{ env.BASELINE_SHA }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+        run: |
+          set -euo pipefail
+          if [ ! -s aq-results/lane-shard.json ]; then
+            echo "No sanitized shard result file was produced."
+            exit 0
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const raw = fs.readFileSync('aq-results/lane-shard.json', 'utf8');
+          const value = JSON.parse(raw);
+          const forbidden = ['answerText','"prompt"','"messages"','chain-of-thought','OPENROUTER_API_KEY'];
+          if (forbidden.some((needle) => raw.includes(needle))) process.exit(1);
+          if (value?.schemaVersion !== 'origin.aq-local-shard-result.v1') process.exit(1);
+
+          const laneCategories = {
+            research: new Set(['current-factual','multi-source-comparison','contradiction-detection']),
+            chat: new Set(['professional-advice','user-document','fail-closed','multi-turn-context']),
+            coding: new Set(['coding-generation','coding-repair']),
+            artifact: new Set(['artifact-generation']),
+          };
+          const allowed = laneCategories[process.env.AQ_LANE];
+          if (!allowed) process.exit(1);
+
+          if (value?.ok === true) {
+            const shard = value?.shard;
+            if (shard?.schemaVersion !== 'origin.aq-official-shard-comparison.v1') process.exit(1);
+            if (!/^sha256:[a-f0-9]{64}$/.test(String(shard?.shardDigest || ''))) process.exit(1);
+            if (shard?.baselineGitSha !== process.env.BASELINE_SHA) process.exit(1);
+            if (shard?.candidateGitSha !== process.env.CANDIDATE_SHA) process.exit(1);
+            for (const side of ['baselineObservations','candidateObservations']) {
+              if (!Array.isArray(shard?.[side]) || shard[side].length === 0) process.exit(1);
+              if (shard[side].some((x) => !allowed.has(x.category))) process.exit(1);
+            }
+          } else {
+            if (typeof value?.code !== 'string' || !/^AQ_[A-Z0-9_:.-]+$/.test(value.code)) process.exit(1);
+            if (value?.detail !== undefined && (typeof value.detail !== 'string' || !/^[A-Z0-9_:.-]+$/.test(value.detail))) process.exit(1);
+            if (value?.plannedPairedRequestsMax !== undefined && (!Number.isInteger(value.plannedPairedRequestsMax) || value.plannedPairedRequestsMax < 1 || value.plannedPairedRequestsMax > 50)) process.exit(1);
+            for (const key of ['baselineEvaluatorRequests','candidateEvaluatorRequests','evaluatorRequestsTotal']) {
+              if (value?.[key] !== undefined && (!Number.isInteger(value[key]) || value[key] < 0)) process.exit(1);
+            }
+          }
+          NODE
+          chmod 600 aq-results/lane-shard.json
+
+      - name: Require successful lane shard evidence
+        if: steps.quota_guard.outputs.allowed == 'true' && success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const v=require('./aq-results/lane-shard.json'); if(v?.ok!==true) process.exit(1)"
+
+      - name: Upload sanitized lane shard evidence
+        if: steps.quota_guard.outputs.allowed == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aq-live-${{ steps.lane.outputs.lane }}-shard
+          path: aq-results/lane-shard.json
+          if-no-files-found: warn
+          retention-days: 7
+\t' read -r run_id created_at; do
+              [ -n "$run_id" ] || continue
+              [ "$run_id" != "$current" ] || continue
+              created_epoch="$(date -u -d "$created_at" +%s 2>/dev/null || echo 0)"
+              age="$((now - created_epoch))"
+              [ "$age" -lt 86400 ] || continue
+
+              names="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100"                 --jq '.artifacts[].name' 2>/dev/null || true)"
+              if printf '%s\n' "$names" | grep -Eq "$artifact_pattern"; then
+                if [ -z "$latest" ] || [[ "$created_at" > "$latest" ]]; then
+                  latest="$created_at"
+                fi
+              fi
+            done < <(
+              gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?event=pull_request&per_page=30"                 --jq '.workflow_runs[] | [.id, .created_at] | @tsv' 2>/dev/null || true
+            )
+            printf '%s' "$latest"
           }
 
-          unified="$(latest_from_workflow aq-live-lane-shard.yml)"
-          legacy_research="$(latest_from_workflow aq-live-research-shard.yml)"
+          unified="$(latest_reserved_from_workflow aq-live-lane-shard.yml '^aq-live-quota-reservation
+      - name: Checkout frozen baseline
+        if: steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Checkout validated candidate exact SHA
+        if: steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Set up Node 24
+        if: steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            baseline/package-lock.json
+            candidate/package-lock.json
+
+      - name: Install exact dependencies
+        if: steps.quota_guard.outputs.allowed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd baseline && npm ci --ignore-scripts)
+          (cd candidate && npm ci --ignore-scripts)
+
+      - name: Verify credential boundary
+        if: steps.quota_guard.outputs.allowed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          test -z "${GEMINI_API_KEY:-}"
+
+      - name: Select deterministic lane-only shard
+        if: steps.quota_guard.outputs.allowed == 'true'
+        id: shard
+        working-directory: candidate
+        shell: bash
+        env:
+          AQ_LANE: ${{ steps.lane.outputs.lane }}
+        run: |
+          set -euo pipefail
+          shard_index="$(npx tsx scripts/select-aq-lane-shard.ts "$AQ_LANE")"
+          test "$shard_index" -ge 0
+          echo "index=$shard_index" >> "$GITHUB_OUTPUT"
+
+      - name: Run exact-SHA lane shard comparison
+        if: steps.quota_guard.outputs.allowed == 'true'
+        working-directory: candidate
+        shell: bash
+        env:
+          ORIGIN_AQ_SHARD_INDEX: ${{ steps.shard.outputs.index }}
+          ORIGIN_AQ_BASELINE_ROOT: ${{ github.workspace }}/baseline
+          ORIGIN_AQ_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
+          ORIGIN_AQ_BASELINE_SHA: ${{ env.BASELINE_SHA }}
+          ORIGIN_AQ_CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+          ORIGIN_AQ_OUTPUT_PATH: ${{ github.workspace }}/aq-results/lane-shard.json
+        run: |
+          set -euo pipefail
+          npm run eval:aq-local-comparison-shard
+
+      - name: Inspect sanitized lane shard output
+        if: steps.quota_guard.outputs.allowed == 'true' && always()
+        shell: bash
+        env:
+          AQ_LANE: ${{ steps.lane.outputs.lane }}
+          BASELINE_SHA: ${{ env.BASELINE_SHA }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+        run: |
+          set -euo pipefail
+          if [ ! -s aq-results/lane-shard.json ]; then
+            echo "No sanitized shard result file was produced."
+            exit 0
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const raw = fs.readFileSync('aq-results/lane-shard.json', 'utf8');
+          const value = JSON.parse(raw);
+          const forbidden = ['answerText','"prompt"','"messages"','chain-of-thought','OPENROUTER_API_KEY'];
+          if (forbidden.some((needle) => raw.includes(needle))) process.exit(1);
+          if (value?.schemaVersion !== 'origin.aq-local-shard-result.v1') process.exit(1);
+
+          const laneCategories = {
+            research: new Set(['current-factual','multi-source-comparison','contradiction-detection']),
+            chat: new Set(['professional-advice','user-document','fail-closed','multi-turn-context']),
+            coding: new Set(['coding-generation','coding-repair']),
+            artifact: new Set(['artifact-generation']),
+          };
+          const allowed = laneCategories[process.env.AQ_LANE];
+          if (!allowed) process.exit(1);
+
+          if (value?.ok === true) {
+            const shard = value?.shard;
+            if (shard?.schemaVersion !== 'origin.aq-official-shard-comparison.v1') process.exit(1);
+            if (!/^sha256:[a-f0-9]{64}$/.test(String(shard?.shardDigest || ''))) process.exit(1);
+            if (shard?.baselineGitSha !== process.env.BASELINE_SHA) process.exit(1);
+            if (shard?.candidateGitSha !== process.env.CANDIDATE_SHA) process.exit(1);
+            for (const side of ['baselineObservations','candidateObservations']) {
+              if (!Array.isArray(shard?.[side]) || shard[side].length === 0) process.exit(1);
+              if (shard[side].some((x) => !allowed.has(x.category))) process.exit(1);
+            }
+          } else {
+            if (typeof value?.code !== 'string' || !/^AQ_[A-Z0-9_:.-]+$/.test(value.code)) process.exit(1);
+            if (value?.detail !== undefined && (typeof value.detail !== 'string' || !/^[A-Z0-9_:.-]+$/.test(value.detail))) process.exit(1);
+            if (value?.plannedPairedRequestsMax !== undefined && (!Number.isInteger(value.plannedPairedRequestsMax) || value.plannedPairedRequestsMax < 1 || value.plannedPairedRequestsMax > 50)) process.exit(1);
+            for (const key of ['baselineEvaluatorRequests','candidateEvaluatorRequests','evaluatorRequestsTotal']) {
+              if (value?.[key] !== undefined && (!Number.isInteger(value[key]) || value[key] < 0)) process.exit(1);
+            }
+          }
+          NODE
+          chmod 600 aq-results/lane-shard.json
+
+      - name: Require successful lane shard evidence
+        if: steps.quota_guard.outputs.allowed == 'true' && success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const v=require('./aq-results/lane-shard.json'); if(v?.ok!==true) process.exit(1)"
+
+      - name: Upload sanitized lane shard evidence
+        if: steps.quota_guard.outputs.allowed == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aq-live-${{ steps.lane.outputs.lane }}-shard
+          path: aq-results/lane-shard.json
+          if-no-files-found: warn
+          retention-days: 7
+)"
+          legacy_research="$(latest_reserved_from_workflow aq-live-research-shard.yml '^aq-live-research-shard')"
           previous="$(printf '%s\n%s\n' "$unified" "$legacy_research" | grep -E '.+' | sort | tail -n 1 || true)"
 
           if [ -n "$previous" ]; then
@@ -78,12 +374,41 @@ jobs:
             age="$((now - previous_epoch))"
             if [ "$age" -lt 86400 ]; then
               echo "allowed=false" >> "$GITHUB_OUTPUT"
-              echo "Live AQ provider execution skipped: a prior non-skipped AQ lane run is less than 24h old."
+              echo "Live AQ provider execution skipped: a prior quota reservation is less than 24h old."
               exit 0
             fi
           fi
 
           echo "allowed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create sanitized quota reservation
+        if: steps.quota_guard.outputs.allowed == 'true'
+        shell: bash
+        env:
+          AQ_LANE: ${{ steps.lane.outputs.lane }}
+        run: |
+          set -euo pipefail
+          mkdir -p aq-quota
+          node <<'NODE'
+          const fs = require('fs');
+          const value = {
+            schemaVersion: 'origin.aq-live-quota-reservation.v1',
+            runId: process.env.GITHUB_RUN_ID,
+            lane: process.env.AQ_LANE,
+            candidateSha: process.env.CANDIDATE_SHA,
+            createdAt: new Date().toISOString(),
+          };
+          fs.writeFileSync('aq-quota/reservation.json', JSON.stringify(value) + '\n', { mode: 0o600 });
+          NODE
+
+      - name: Reserve 24-hour provider quota
+        if: steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aq-live-quota-reservation
+          path: aq-quota/reservation.json
+          if-no-files-found: error
+          retention-days: 2
 
       - name: Checkout frozen baseline
         if: steps.quota_guard.outputs.allowed == 'true'
