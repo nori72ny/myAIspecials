@@ -4,29 +4,31 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const workflowPath = ".github/workflows/aq-live-lane-shard.yml";
+const guardPath = "scripts/check-aq-live-quota-guard.mjs";
 
-function workflow(): string {
-  return readFileSync(resolve(process.cwd(), workflowPath), "utf8");
+function read(path: string): string {
+  return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
 describe("AQ live unified lane quota workflow", () => {
   it("uses reservation artifacts rather than workflow conclusion as the 24-hour quota signal", () => {
-    const value = workflow();
+    const workflow = read(workflowPath);
+    const guard = read(guardPath);
 
-    expect(value).toContain("latest_reserved_from_workflow()");
-    expect(value).toContain("actions/runs/${run_id}/artifacts?per_page=100");
-    expect(value).toContain("^aq-live-quota-reservation$");
-    expect(value).toContain("^aq-live-research-shard");
-    expect(value).not.toContain('.conclusion != "skipped"');
-    expect(value).not.toContain("prior non-skipped AQ lane run");
+    expect(workflow).toContain("node guard/scripts/check-aq-live-quota-guard.mjs");
+    expect(guard).toContain("actions/runs/${run.id}/artifacts?per_page=100");
+    expect(guard).toContain('name === "aq-live-quota-reservation"');
+    expect(guard).toContain('name.startsWith("aq-live-research-shard")');
+    expect(guard).not.toContain('.conclusion != "skipped"');
+    expect(workflow).not.toContain("prior non-skipped AQ lane run");
   });
 
-  it("creates the reservation before any provider-capable checkout or comparison step", () => {
-    const value = workflow();
-    const create = value.indexOf("- name: Create sanitized quota reservation");
-    const reserve = value.indexOf("- name: Reserve 24-hour provider quota");
-    const baselineCheckout = value.indexOf("- name: Checkout frozen baseline");
-    const comparison = value.indexOf("- name: Run exact-SHA lane shard comparison");
+  it("reserves quota before provider-capable baseline/candidate execution", () => {
+    const value = read(workflowPath);
+    const create = value.indexOf("\n      - name: Create sanitized quota reservation");
+    const reserve = value.indexOf("\n      - name: Reserve 24-hour provider quota");
+    const baselineCheckout = value.indexOf("\n      - name: Checkout frozen baseline");
+    const comparison = value.indexOf("\n      - name: Run exact-SHA lane shard comparison");
 
     expect(create).toBeGreaterThan(0);
     expect(reserve).toBeGreaterThan(create);
@@ -35,7 +37,7 @@ describe("AQ live unified lane quota workflow", () => {
   });
 
   it("persists only minimal sanitized reservation metadata", () => {
-    const value = workflow();
+    const value = read(workflowPath);
 
     expect(value).toContain("origin.aq-live-quota-reservation.v1");
     expect(value).toContain("runId: process.env.GITHUB_RUN_ID");
@@ -47,7 +49,7 @@ describe("AQ live unified lane quota workflow", () => {
   });
 
   it("still keeps one global concurrency group across every live lane", () => {
-    const value = workflow();
+    const value = read(workflowPath);
 
     expect(value).toContain("group: origin-aq-live-unified-lane-shard");
     expect(value).toContain("cancel-in-progress: false");
