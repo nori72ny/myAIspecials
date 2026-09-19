@@ -99,27 +99,27 @@ function dependencies(options: {
     attempts: 1,
   }));
 
-  const sourceVerificationExecutor = vi.fn().mockImplementation(async (request) => {
+  const resolver = vi.fn().mockResolvedValue([
+    { address: "93.184.216.34", family: 4 as const },
+  ]);
+  const transport = vi.fn().mockResolvedValue({
+    status: 200,
+    headers: { "content-type": "text/plain" },
+    body: Buffer.from("The service has a free tier. Official source body.", "utf8"),
+  });
+  const batchClaimAssessor = vi.fn().mockImplementation(async (request) => {
     if (options.sourceThrows) throw new Error("source unavailable");
     return {
-      verificationId: request.verificationId,
-      sourceUrl: request.sourceUrl,
-      finalUrl: request.sourceUrl,
-      claim: request.claim,
-      fetchedAt: new Date(now).toISOString(),
-      httpStatus: 200,
-      contentDigest: ref("c"),
-      externalFetchPerformed: true,
+      items: request.items.map((entry) => ({
+        id: entry.id,
+        claim: entry.claim,
+        sourceUrl: entry.sourceUrl,
+        sourceDigest: entry.sourceDigest,
+        support: "supported",
+        supportingExcerpt: "The service has a free tier.",
+      })),
       actualCostUsd: 0,
-      networkPolicy: {
-        publicAddressOnly: true,
-        redirectsFollowed: false,
-      },
-      checks: {
-        content: "passed",
-        freshness: "not-applicable",
-        claimSupport: "passed",
-      },
+      attempts: 1,
     };
   });
 
@@ -127,7 +127,9 @@ function dependencies(options: {
     materialClaimExtractor,
     promptClaimJudge,
     semanticJudge,
-    sourceVerificationExecutor,
+    batchClaimAssessor,
+    resolver,
+    transport,
   };
 }
 
@@ -158,7 +160,8 @@ describe("OriginAnswerQualityBenchmarkOfficialScoringCollector", () => {
     expect(result.citationsRequired).toBe(true);
     expect(result.verificationIntegrityAccurate).toBe(true);
     expect(vault.size()).toBe(0);
-    expect(deps.sourceVerificationExecutor).toHaveBeenCalledTimes(1);
+    expect(deps.batchClaimAssessor).toHaveBeenCalledTimes(1);
+    expect(deps.transport).toHaveBeenCalledTimes(1);
   });
 
   it("credits factual claims entailed by the user prompt without requiring an external citation", async () => {
