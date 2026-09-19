@@ -49,7 +49,7 @@ export interface OriginAnswerQualityBenchmarkProviderEvaluators {
 const SCORER_SOURCE = [
   "origin-aq-provider-evaluator.v1",
   "origin.aq-semantic-rubric.v1",
-  "origin.aq-prompt-claim-support.v1",
+  "origin.aq-prompt-claim-support.v1-local-metadata",
   "origin.material-claim-extractor.exact-span.v5-local-metadata",
   "origin.material-claim-candidate-segmentation.jp-en-punctuation.v2",
   "origin.material-claim-candidate-limit.64-fail-closed.v1",
@@ -147,31 +147,19 @@ function claimSelectionTool(candidateIds: readonly string[]) {
   );
 }
 
-const PROMPT_CLAIM_TOOL = tool(
-  "submit_prompt_claim_support",
-  "Judge whether each supplied factual claim is entailed by the supplied user prompt. Calculations directly implied by prompt facts may count. Do not use outside knowledge.",
-  objectSchema({
-    caseId: { type: "string" },
-    rubricVersion: { type: "string", enum: ["origin.aq-prompt-claim-support.v1"] },
-    promptDigest: digest,
-    claimSetDigest: digest,
-    supportedClaimIds: {
-      type: "array",
-      uniqueItems: true,
-      items: { type: "string", pattern: "^claim-[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$" },
-    },
-    actualCostUsd: zero,
-    attempts: one,
-  }, [
-    "caseId",
-    "rubricVersion",
-    "promptDigest",
-    "claimSetDigest",
-    "supportedClaimIds",
-    "actualCostUsd",
-    "attempts",
-  ]),
-);
+function promptClaimSupportTool(claimIds: readonly string[]) {
+  return tool(
+    "submit_prompt_claim_support",
+    "Judge whether each supplied factual claim is entailed by the supplied user prompt. Calculations directly implied by prompt facts may count. Do not use outside knowledge. Return only supported claim IDs; ORIGIN binds benchmark metadata locally.",
+    objectSchema({
+      supportedClaimIds: {
+        type: "array",
+        uniqueItems: true,
+        items: { type: "string", enum: [...claimIds] },
+      },
+    }, ["supportedClaimIds"]),
+  );
+}
 
 const SEMANTIC_TOOL = tool(
   "submit_benchmark_semantics",
@@ -326,7 +314,6 @@ function evaluator(
 export function createOriginAnswerQualityBenchmarkProviderEvaluators(
   options: OriginAnswerQualityBenchmarkProviderEvaluatorOptions = {},
 ): OriginAnswerQualityBenchmarkProviderEvaluators {
-  const prompt = evaluator("prompt-claim-support", PROMPT_CLAIM_TOOL, options);
   const semantic = evaluator("semantic-rubric", SEMANTIC_TOOL, options);
   const support = evaluator("claim-source-support", CLAIM_SUPPORT_TOOL, options);
   const batchSupport = evaluator(
@@ -400,7 +387,56 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
         attempts: 1,
       };
     },
-    promptClaimJudge: async (request) => prompt(request),
+    promptClaimJudge: async (request) => {
+      const validIds = request.claims.map((claim) => claim.id);
+      if (validIds.length === 0) {
+        return {
+          caseId: request.caseId,
+          rubricVersion: request.rubricVersion,
+          promptDigest: request.promptDigest,
+          claimSetDigest: request.claimSetDigest,
+          supportedClaimIds: [],
+          actualCostUsd: 0,
+          attempts: 1,
+        };
+      }
+
+      const dynamic = evaluator(
+        "prompt-claim-support-local-metadata",
+        promptClaimSupportTool(validIds),
+        options,
+      );
+      const raw = await dynamic({
+        prompt: request.prompt,
+        claims: request.claims,
+        executionPolicy: request.executionPolicy,
+      });
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        throw new Error("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
+      }
+      const record = raw as { supportedClaimIds?: unknown };
+      if (!Array.isArray(record.supportedClaimIds)) {
+        throw new Error("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
+      }
+      const allowed = new Set(validIds);
+      const seen = new Set<string>();
+      for (const id of record.supportedClaimIds) {
+        if (typeof id !== "string" || !allowed.has(id) || seen.has(id)) {
+          throw new Error("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
+        }
+        seen.add(id);
+      }
+
+      return {
+        caseId: request.caseId,
+        rubricVersion: request.rubricVersion,
+        promptDigest: request.promptDigest,
+        claimSetDigest: request.claimSetDigest,
+        supportedClaimIds: [...record.supportedClaimIds],
+        actualCostUsd: 0,
+        attempts: 1,
+      };
+    },
     semanticJudge: async (request) => semantic(request),
     claimAssessor: async (request) => support(request),
     batchClaimAssessor: async (request) => batchSupport(request),
