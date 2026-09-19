@@ -58,43 +58,26 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       }
       if (name === "submit_benchmark_semantics") {
         return result(request, {
-          caseId: "case-1",
-          category: "professional-advice",
-          rubricVersion: "origin.aq-semantic-rubric.v1",
-          promptDigest: `sha256:${"b".repeat(64)}`,
-          answerDigest: `sha256:${"a".repeat(64)}`,
           deliverableCompleted: true,
           materialContradictionsPresent: 0,
           materialContradictionsSurfaced: 0,
           verificationIntegrityAccurate: true,
           userActionabilityScore: 3,
-          actualCostUsd: 0,
-          attempts: 1,
         });
       }
       if (name === "submit_claim_source_support") {
         return result(request, {
-          claim: "Claim",
-          sourceUrl: "https://example.com/",
-          sourceDigest: `sha256:${"d".repeat(64)}`,
           support: "supported",
           supportingExcerpt: "Claim",
-          actualCostUsd: 0,
-          attempts: 1,
         });
       }
       if (name === "submit_batch_claim_source_support") {
         return result(request, {
           items: [{
             id: "source-1",
-            claim: "Claim",
-            sourceUrl: "https://example.com/",
-            sourceDigest: `sha256:${"d".repeat(64)}`,
             support: "supported",
             supportingExcerpt: "Claim",
           }],
-          actualCostUsd: 0,
-          attempts: 1,
         });
       }
       throw new Error("unexpected tool");
