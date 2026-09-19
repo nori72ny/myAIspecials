@@ -230,6 +230,9 @@
 .origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-primary); }
 .origin-chat-user { background: var(--accent-primary); color: var(--text-on-accent); }
 .origin-chat-assistant {
+  width: 100%;
+  max-width: 52rem;
+  margin-inline: auto;
   background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary));
   border-color: color-mix(in oklch, var(--border-default) 88%, var(--accent-primary));
   color: var(--text-primary);
