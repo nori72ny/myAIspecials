@@ -20,7 +20,7 @@ import {
 
 const full = createOriginAnswerQualityFrozenCorpus();
 const planResult = planOriginAnswerQualityBenchmarkQuotaShards(full, 45);
-if (!planResult.ok) throw new Error("quota plan fixture failed");
+if (planResult.ok === false) throw new Error("quota plan fixture failed");
 const plan = planResult.value;
 
 const scorerProvenance = {
@@ -121,7 +121,7 @@ describe("OriginAnswerQualityOfficialShardedComparison", () => {
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (result.ok === false) return;
     expect(result.value.baseline.caseCount).toBe(40);
     expect(result.value.candidate.caseCount).toBe(40);
     expect(result.value.delta.factualSupportDelta).toBeCloseTo(0.1);
@@ -160,7 +160,7 @@ describe("OriginAnswerQualityOfficialShardedComparison", () => {
 
     const result = aggregateOriginAnswerQualityOfficialShards(full, plan, tampered);
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok === true) return;
     expect(result.code).toBe("AQ_BENCHMARK_SHARDED_SHARD_DIGEST_MISMATCH");
   });
 
@@ -187,7 +187,7 @@ describe("OriginAnswerQualityOfficialShardedComparison", () => {
 
     const result = aggregateOriginAnswerQualityOfficialShards(full, plan, changed);
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok === true) return;
     expect(result.code).toBe("AQ_BENCHMARK_SHARDED_IDENTITY_MISMATCH");
   });
 
@@ -214,7 +214,7 @@ describe("OriginAnswerQualityOfficialShardedComparison", () => {
 
     const result = aggregateOriginAnswerQualityOfficialShards(full, plan, next);
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok === true) return;
     expect(result.code).toBe("AQ_BENCHMARK_SHARDED_CASESET_MISMATCH");
   });
 });
