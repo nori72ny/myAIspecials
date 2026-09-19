@@ -53,13 +53,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       }
       if (name === "submit_prompt_claim_support") {
         return result(request, {
-          caseId: "case-1",
-          rubricVersion: "origin.aq-prompt-claim-support.v1",
-          promptDigest: `sha256:${"b".repeat(64)}`,
-          claimSetDigest: `sha256:${"c".repeat(64)}`,
-          supportedClaimIds: [],
-          actualCostUsd: 0,
-          attempts: 1,
+          supportedClaimIds: ["claim-a"],
         });
       }
       if (name === "submit_benchmark_semantics") {
@@ -118,13 +112,13 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       answerText: "Answer sentence.",
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
     });
-    await evaluators.promptClaimJudge({
+    const promptJudged = await evaluators.promptClaimJudge({
       caseId: "case-1",
       rubricVersion: "origin.aq-prompt-claim-support.v1",
       promptDigest: `sha256:${"b".repeat(64)}`,
       claimSetDigest: `sha256:${"c".repeat(64)}`,
       prompt: "Prompt",
-      claims: [],
+      claims: [{ id: "claim-a", text: "Claim" }],
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1 },
     });
     await evaluators.semanticJudge({
@@ -181,6 +175,15 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       .toBe("Answer sentence.");
     expect(extracted).toMatchObject({
       answerDigest: `sha256:${"a".repeat(64)}`,
+      actualCostUsd: 0,
+      attempts: 1,
+    });
+    expect(promptJudged).toEqual({
+      caseId: "case-1",
+      rubricVersion: "origin.aq-prompt-claim-support.v1",
+      promptDigest: `sha256:${"b".repeat(64)}`,
+      claimSetDigest: `sha256:${"c".repeat(64)}`,
+      supportedClaimIds: ["claim-a"],
       actualCostUsd: 0,
       attempts: 1,
     });
@@ -337,4 +340,62 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
     })).rejects.toThrow("AQ_BENCHMARK_EVALUATOR_CANDIDATE_LIMIT");
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it("binds prompt-claim metadata locally and rejects unsupported IDs", async () => {
+    const execute = vi.fn().mockImplementation(async (request: OriginProviderExecutionRequest) =>
+      result(request, { supportedClaimIds: ["claim-a"] })
+    );
+    const evaluators = createOriginAnswerQualityBenchmarkProviderEvaluators({
+      env: { OPENROUTER_API_KEY: "test-only" },
+      nowMs: () => now,
+      openRouterConfigured: true,
+      execute,
+    });
+
+    const judged = await evaluators.promptClaimJudge({
+      caseId: "case-local",
+      rubricVersion: "origin.aq-prompt-claim-support.v1",
+      promptDigest: `sha256:${"1".repeat(64)}`,
+      claimSetDigest: `sha256:${"2".repeat(64)}`,
+      prompt: "Prompt evidence.",
+      claims: [{ id: "claim-a", text: "Claim A." }],
+      executionPolicy: { maxCostUsd: 0, maxAttempts: 1 },
+    });
+
+    expect(judged).toEqual({
+      caseId: "case-local",
+      rubricVersion: "origin.aq-prompt-claim-support.v1",
+      promptDigest: `sha256:${"1".repeat(64)}`,
+      claimSetDigest: `sha256:${"2".repeat(64)}`,
+      supportedClaimIds: ["claim-a"],
+      actualCostUsd: 0,
+      attempts: 1,
+    });
+    const payload = JSON.parse((execute.mock.calls[0][0] as OriginProviderExecutionRequest).messages[0].content);
+    expect(payload).not.toHaveProperty("caseId");
+    expect(payload).not.toHaveProperty("promptDigest");
+    expect(payload).not.toHaveProperty("claimSetDigest");
+    expect(payload).not.toHaveProperty("actualCostUsd");
+    expect(payload).not.toHaveProperty("attempts");
+
+    const bad = createOriginAnswerQualityBenchmarkProviderEvaluators({
+      env: { OPENROUTER_API_KEY: "test-only" },
+      nowMs: () => now,
+      openRouterConfigured: true,
+      execute: vi.fn().mockImplementation(async (request: OriginProviderExecutionRequest) =>
+        result(request, { supportedClaimIds: ["claim-x"] })
+      ),
+    });
+
+    await expect(bad.promptClaimJudge({
+      caseId: "case-local",
+      rubricVersion: "origin.aq-prompt-claim-support.v1",
+      promptDigest: `sha256:${"1".repeat(64)}`,
+      claimSetDigest: `sha256:${"2".repeat(64)}`,
+      prompt: "Prompt evidence.",
+      claims: [{ id: "claim-a", text: "Claim A." }],
+      executionPolicy: { maxCostUsd: 0, maxAttempts: 1 },
+    })).rejects.toThrow("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
+  });
+
 });
