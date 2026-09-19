@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  classifyOriginAnswerQualityEvaluatorFailure,
+  type OriginAnswerQualitySafeEvaluatorFailureCode,
+} from "./OriginAnswerQualityEvaluatorFailure.js";
 
 import type { OriginClaimSet } from "./OriginClaimModel.js";
 
@@ -41,7 +45,8 @@ export type OriginAnswerQualityBenchmarkPromptClaimJudgeResult =
         | "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_NOT_AVAILABLE"
         | "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_FAILED"
         | "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_RECORD_MISMATCH"
-        | "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_COST_UNVERIFIED";
+        | "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_COST_UNVERIFIED"
+        | OriginAnswerQualitySafeEvaluatorFailureCode;
     };
 
 const CASE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$/;
@@ -120,8 +125,12 @@ export async function judgeOriginAnswerQualityClaimsAgainstPrompt(
   let raw: unknown;
   try {
     raw = await judge(request);
-  } catch {
-    return { ok: false, code: "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_FAILED" };
+  } catch (error) {
+    return {
+      ok: false,
+      code: classifyOriginAnswerQualityEvaluatorFailure(error)
+        ?? "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_FAILED",
+    };
   }
 
   if (!isRecord(raw)) {
