@@ -57,8 +57,10 @@ describe("ORIGIN Personal release 1 gate", () => {
     for (const source of [chat, streaming]) {
       expect(source).not.toContain("executeWithRetry");
       expect(source).not.toContain("MAX_RETRIES");
-      expect(source).toContain("providerAttempts: 1");
     }
+    expect(chat).toContain("providerAttempts: 1");
+    expect(streaming).toContain("const result = await streamExecute(providerRequest");
+    expect(streaming).toContain("retryAttempted: false");
     expect(server).not.toContain("OpenRouterPlugin");
     expect(server).not.toContain("initMissionEngine");
     expect(entrypoint).not.toContain("useAppState");
