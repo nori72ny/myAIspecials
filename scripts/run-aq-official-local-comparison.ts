@@ -74,11 +74,17 @@ async function validateTarget(target: LocalTarget): Promise<void> {
 }
 
 async function buildTarget(target: LocalTarget): Promise<void> {
+  const buildEnv = { ...process.env };
+  delete buildEnv.OPENROUTER_API_KEY;
+  delete buildEnv.GEMINI_API_KEY;
+  delete buildEnv.ANTHROPIC_API_KEY;
+  delete buildEnv.OPENAI_API_KEY;
+
   try {
     await exec("npm", ["run", "build"], {
       cwd: target.root,
       env: {
-        ...process.env,
+        ...buildEnv,
         NODE_ENV: "production",
         ORIGIN_RELEASE_SHA: target.sha,
       },
