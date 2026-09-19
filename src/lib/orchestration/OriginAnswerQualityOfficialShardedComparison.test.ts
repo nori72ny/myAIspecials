@@ -99,6 +99,8 @@ function shards(): OriginAnswerQualityOfficialShardComparison[] {
         (sum, item) => sum + item.providerRequests,
         0,
       ),
+      baselineEvaluatorRequests: 0,
+      candidateEvaluatorRequests: 0,
       scorerProvenance,
       scorerProvenanceDigest: `sha256:${"d".repeat(64)}`,
       baselineObservations,
