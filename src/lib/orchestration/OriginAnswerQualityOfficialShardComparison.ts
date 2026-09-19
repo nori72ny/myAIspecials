@@ -15,8 +15,9 @@ import type {
 import {
   resolveOriginAnswerQualityBenchmarkRequiredLanes,
 } from "./OriginAnswerQualityBenchmarkExecutionRouter.js";
-import type {
-  OriginAnswerQualityBenchmarkQuotaShard,
+import {
+  getOriginAnswerQualityBenchmarkQuotaCaseBudget,
+  type OriginAnswerQualityBenchmarkQuotaShard,
 } from "./OriginAnswerQualityBenchmarkQuotaPlan.js";
 import {
   runOriginAnswerQualityOfficialProviderScoredSession,
@@ -539,6 +540,26 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     };
   }
 
+  const executionRequestsPairedMax = shardCorpus.value.cases.reduce(
+    (sum, item) => sum
+      + 2 * getOriginAnswerQualityBenchmarkQuotaCaseBudget(item)
+        .executionRequestsPerRuntimeMax,
+    0,
+  );
+  const evaluatorRequestsPairedMax =
+    input.shard.pairedRequestsMax - executionRequestsPairedMax;
+  if (evaluatorRequestsPairedMax < 0) {
+    return { ok: false, code: "AQ_BENCHMARK_SHARD_COMPARISON_INVALID_INPUT" };
+  }
+
+  let evaluatorRequests = 0;
+  const beforeEvaluatorRequest = () => {
+    if (evaluatorRequests >= evaluatorRequestsPairedMax) {
+      throw new Error("AQ_BENCHMARK_SHARD_EVALUATOR_REQUEST_BUDGET_EXCEEDED");
+    }
+    evaluatorRequests += 1;
+  };
+
   const shared = {
     providerId: input.providerId,
     modelId: input.modelId,
@@ -547,6 +568,7 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     env: input.env,
     nowMs: input.nowMs,
     evaluatorPlanningOptions: input.evaluatorPlanningOptions,
+    beforeEvaluatorRequest,
   };
 
   const baseline = await runSession({
