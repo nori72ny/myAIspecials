@@ -212,6 +212,10 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
       ok: false,
       code: "AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED",
       detail: "AQ_BENCHMARK_SESSION_EXECUTION_FAILED:scorer unavailable",
+      plannedPairedRequestsMax: 16,
+      baselineEvaluatorRequests: 0,
+      candidateEvaluatorRequests: 0,
+      evaluatorRequestsTotal: 0,
     });
     expect(calls).toBe(1);
   });
@@ -304,5 +308,9 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
     if (result.ok === true) return;
     expect(result.code).toBe("AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED");
     expect(result.detail).toContain("AQ_BENCHMARK_SHARD_EVALUATOR_BUDGET_EXCEEDED");
+    expect(result.plannedPairedRequestsMax).toBe(16);
+    expect(result.baselineEvaluatorRequests).toBe(8);
+    expect(result.candidateEvaluatorRequests).toBe(0);
+    expect(result.evaluatorRequestsTotal).toBe(8);
   });
 });
