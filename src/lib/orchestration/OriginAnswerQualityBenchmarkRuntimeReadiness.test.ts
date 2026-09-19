@@ -69,4 +69,29 @@ describe("OriginAnswerQualityBenchmarkRuntimeReadiness", () => {
     expect(readiness.ready).toBe(false);
     expect(readiness.configuredLanes).toEqual([]);
   });
+
+  it("accepts only the lanes required by a research-only shard", () => {
+    const readiness = evaluateOriginAnswerQualityBenchmarkRuntimeReadiness(
+      { research: adapters.research },
+      ["research"],
+    );
+
+    expect(readiness.ready).toBe(true);
+    expect(readiness.configuredLanes).toEqual(["research"]);
+    expect(readiness.missingLanes).toEqual([]);
+    expect(readiness.runtimeIds).toEqual({
+      research: "grounded-research-v1.1",
+    });
+    expect(() => assertOriginAnswerQualityBenchmarkRuntimeReady(
+      { research: adapters.research },
+      ["research"],
+    )).not.toThrow();
+  });
+
+  it("still fails closed if a required shard lane is missing", () => {
+    expect(() => assertOriginAnswerQualityBenchmarkRuntimeReady(
+      { research: adapters.research },
+      ["research", "coding"],
+    )).toThrow("AQ_BENCHMARK_RUNTIME_NOT_READY:coding");
+  });
 });
