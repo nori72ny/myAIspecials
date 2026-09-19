@@ -18,11 +18,11 @@ export interface OriginAnswerQualityOfficialComparisonTarget {
   readonly gitSha: string;
   readonly baseUrl: string;
   readonly sourceRoot: string;
-  readonly providerId: string;
-  readonly modelId: string;
 }
 
 export interface OriginAnswerQualityOfficialComparisonInput {
+  readonly providerId: string;
+  readonly modelId: string;
   readonly baseline: OriginAnswerQualityOfficialComparisonTarget;
   readonly candidate: OriginAnswerQualityOfficialComparisonTarget;
   readonly fetchImpl?: typeof fetch;
@@ -63,14 +63,13 @@ export interface OriginAnswerQualityOfficialComparisonDependencies {
 }
 
 const SHA40 = /^[a-f0-9]{40}$/;
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,180}$/;
 
 function validTarget(target: OriginAnswerQualityOfficialComparisonTarget): boolean {
   return SHA40.test(target.gitSha)
-    && target.runId.trim().length > 0
+    && SAFE_ID.test(target.runId)
     && target.baseUrl.trim().length > 0
-    && target.sourceRoot.trim().length > 0
-    && target.providerId.trim().length > 0
-    && target.modelId.trim().length > 0;
+    && target.sourceRoot.trim().length > 0;
 }
 
 function sessionDetail(result: Exclude<OriginAnswerQualityOfficialBenchmarkSessionResult, { ok: true }>): string {
@@ -85,8 +84,11 @@ export async function runOriginAnswerQualityOfficialComparisonHarness(
   dependencies: OriginAnswerQualityOfficialComparisonDependencies = {},
 ): Promise<OriginAnswerQualityOfficialComparisonResult> {
   if (
-    !validTarget(input.baseline)
+    !SAFE_ID.test(input.providerId)
+    || !SAFE_ID.test(input.modelId)
+    || !validTarget(input.baseline)
     || !validTarget(input.candidate)
+    || input.baseline.runId === input.candidate.runId
     || input.baseline.gitSha === input.candidate.gitSha
   ) {
     return { ok: false, code: "AQ_BENCHMARK_OFFICIAL_COMPARISON_INVALID_INPUT" };
@@ -133,8 +135,8 @@ export async function runOriginAnswerQualityOfficialComparisonHarness(
   const baseline = await runSession({
     runId: input.baseline.runId,
     gitSha: input.baseline.gitSha,
-    providerId: input.baseline.providerId,
-    modelId: input.baseline.modelId,
+    providerId: input.providerId,
+    modelId: input.modelId,
     environmentProof: baselineEnvironment.value,
     sourceRoot: input.baseline.sourceRoot,
     ...shared,
@@ -150,8 +152,8 @@ export async function runOriginAnswerQualityOfficialComparisonHarness(
   const candidate = await runSession({
     runId: input.candidate.runId,
     gitSha: input.candidate.gitSha,
-    providerId: input.candidate.providerId,
-    modelId: input.candidate.modelId,
+    providerId: input.providerId,
+    modelId: input.modelId,
     environmentProof: candidateEnvironment.value,
     sourceRoot: input.candidate.sourceRoot,
     ...shared,
