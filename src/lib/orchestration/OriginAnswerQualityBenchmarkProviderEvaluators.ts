@@ -93,10 +93,6 @@ function objectSchema(
   };
 }
 
-const digest = { type: "string", pattern: "^sha256:[a-f0-9]{64}$" };
-const zero = { type: "number", enum: [0] };
-const one = { type: "integer", enum: [1] };
-
 interface MaterialClaimCandidate {
   readonly candidateId: string;
   readonly text: string;
@@ -286,8 +282,6 @@ function evaluator(
 export function createOriginAnswerQualityBenchmarkProviderEvaluators(
   options: OriginAnswerQualityBenchmarkProviderEvaluatorOptions = {},
 ): OriginAnswerQualityBenchmarkProviderEvaluators {
-
-
   return Object.freeze({
     materialClaimExtractor: async (request) => {
       const candidates = materialClaimCandidates(request.answerText);
