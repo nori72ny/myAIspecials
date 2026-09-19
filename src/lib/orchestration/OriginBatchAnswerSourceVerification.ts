@@ -1,6 +1,6 @@
 import type { OriginAnswerEvidenceItem } from "./OriginAnswerEnvelope.js";
 import {
-  assessOriginClaimsAgainstSourcesBatch,
+  assessOriginClaimsAgainstSourcesBatchDetailed,
   type OriginBatchClaimAssessor,
   type OriginBatchClaimAssessmentItem,
 } from "./OriginBatchClaimAssessor.js";
@@ -111,13 +111,14 @@ export async function verifyOriginAnswerSourcesBatch(
 
   if (fetchedItems.length > 0) {
     assessorExecutions = 1;
-    const assessed = await assessOriginClaimsAgainstSourcesBatch(
+    const assessed = await assessOriginClaimsAgainstSourcesBatchDetailed(
       fetchedItems,
       options.assessor,
     );
 
     if (assessed.ok) {
       for (const output of assessed.record.items) {
+        if (output.support !== "supported") continue;
         const index = fetchedIndex.get(output.id);
         if (index === undefined) continue;
         const original = next[index];
