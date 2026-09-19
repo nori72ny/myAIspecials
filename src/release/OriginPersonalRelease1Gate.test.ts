@@ -66,6 +66,25 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(entrypoint).not.toContain("useAppState");
   });
 
+  it("keeps untrusted-source data away from external sinks unless an explicit approved boundary exists", () => {
+    const tools = readRepositoryFile("src/agent/toolRegistry.ts");
+    const server = readRepositoryFile("src/server/createOriginApp.ts");
+
+    expect(tools).toContain("web_search_grounding");
+    expect(tools).toContain("Network capability intentionally disabled in the zero-cost local execution kernel.");
+    expect(tools).toContain("Network capability is disabled; no request was made.");
+    expect(tools).toContain("requiresApproval: true");
+    expect(tools).toContain("if (!approval.approved) throw new Error('HUMAN_APPROVAL_REQUIRED')");
+    expect(tools).toContain("if (!securityPolicyPassed) throw new Error('SAFETY_POLICY_BLOCKED')");
+    expect(tools).toContain("if (approval.costInUSD !== undefined && approval.costInUSD !== 0) throw new Error('ZERO_COST_BOUNDARY_BLOCKED')");
+    expect(tools).toContain("containsLikelySecret(edit.previous)");
+    expect(tools).toContain("CHECKPOINT_SECRET_SNAPSHOT_BLOCKED");
+    expect(tools).not.toContain("curl ");
+    expect(tools).not.toContain("wget ");
+    expect(tools).not.toContain("fetch(");
+    expect(server).not.toContain("web_search_grounding");
+  });
+
   it("keeps AI Studio direct runtime and fallback out of the release", () => {
     const metadata = JSON.parse(readRepositoryFile("metadata.json")) as { majorCapabilities?: string[] };
     const app = readRepositoryFile("src/server/createOriginApp.ts");
