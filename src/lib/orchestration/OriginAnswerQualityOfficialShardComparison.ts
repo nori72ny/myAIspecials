@@ -187,6 +187,279 @@ export function digestOriginAnswerQualityOfficialShardComparison(
   ].join("\n"));
 }
 
+
+const SHARD_KEYS = new Set([
+  "schemaVersion",
+  "benchmarkId",
+  "benchmarkVersion",
+  "fullManifestDigest",
+  "shardIndex",
+  "caseIds",
+  "shardManifestDigest",
+  "plannedPairedRequestsMax",
+  "providerId",
+  "modelId",
+  "baselineGitSha",
+  "candidateGitSha",
+  "baselineRunId",
+  "candidateRunId",
+  "baselineMeasuredDigest",
+  "candidateMeasuredDigest",
+  "baselineRuntimeProviderRequests",
+  "candidateRuntimeProviderRequests",
+  "scorerProvenance",
+  "scorerProvenanceDigest",
+  "baselineObservations",
+  "candidateObservations",
+  "shardDigest",
+]);
+const SCORER_KEYS = new Set([
+  "schemaVersion",
+  "scorerId",
+  "scorerRevision",
+  "corpusId",
+  "corpusVersion",
+]);
+const OBSERVATION_KEYS = new Set([
+  "caseId",
+  "category",
+  "factualSupportScore",
+  "citationPrecisionScore",
+  "taskCompletionScore",
+  "contradictionDetectionScore",
+  "verifierRejectedUnsupportedClaim",
+  "repairSucceeded",
+  "providerRequests",
+  "latencyMs",
+  "costUsd",
+  "unsupportedMaterialClaimCount",
+  "verificationIntegrityAccurate",
+  "failClosedCorrect",
+  "userActionabilityScore",
+]);
+const CATEGORIES = new Set([
+  "current-factual",
+  "multi-source-comparison",
+  "contradiction-detection",
+  "user-document-reasoning",
+  "professional-advice",
+  "coding-generation",
+  "coding-repair",
+  "artifact-generation",
+  "ambiguity-handling",
+  "fail-closed",
+  "citation-precision",
+]);
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function exactKeys(
+  value: Record<string, unknown>,
+  expected: Set<string>,
+): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.size && keys.every((key) => expected.has(key));
+}
+
+function score(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+    && value >= 0 && value <= 1;
+}
+
+function nonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+function parseObservation(
+  value: unknown,
+): OriginAnswerQualityBenchmarkMeasuredObservation | null {
+  const item = record(value);
+  if (!item || !exactKeys(item, OBSERVATION_KEYS)) return null;
+  if (
+    typeof item.caseId !== "string"
+    || !SAFE_ID.test(item.caseId)
+    || typeof item.category !== "string"
+    || !CATEGORIES.has(item.category)
+    || !score(item.factualSupportScore)
+    || !score(item.citationPrecisionScore)
+    || !score(item.taskCompletionScore)
+    || !score(item.contradictionDetectionScore)
+    || typeof item.verifierRejectedUnsupportedClaim !== "boolean"
+    || !(
+      item.repairSucceeded === undefined
+      || typeof item.repairSucceeded === "boolean"
+    )
+    || !nonNegativeInteger(item.providerRequests)
+    || typeof item.latencyMs !== "number"
+    || !Number.isFinite(item.latencyMs)
+    || item.latencyMs < 0
+    || item.costUsd !== 0
+    || !nonNegativeInteger(item.unsupportedMaterialClaimCount)
+    || typeof item.verificationIntegrityAccurate !== "boolean"
+    || !(
+      item.failClosedCorrect === undefined
+      || typeof item.failClosedCorrect === "boolean"
+    )
+    || !nonNegativeInteger(item.userActionabilityScore)
+    || item.userActionabilityScore > 3
+  ) return null;
+
+  return Object.freeze({
+    caseId: item.caseId,
+    category: item.category as OriginAnswerQualityBenchmarkMeasuredObservation["category"],
+    factualSupportScore: item.factualSupportScore,
+    citationPrecisionScore: item.citationPrecisionScore,
+    taskCompletionScore: item.taskCompletionScore,
+    contradictionDetectionScore: item.contradictionDetectionScore,
+    verifierRejectedUnsupportedClaim: item.verifierRejectedUnsupportedClaim,
+    repairSucceeded: item.repairSucceeded as boolean | undefined,
+    providerRequests: item.providerRequests,
+    latencyMs: item.latencyMs,
+    costUsd: 0,
+    unsupportedMaterialClaimCount: item.unsupportedMaterialClaimCount,
+    verificationIntegrityAccurate: item.verificationIntegrityAccurate,
+    failClosedCorrect: item.failClosedCorrect as boolean | undefined,
+    userActionabilityScore: item.userActionabilityScore as 0 | 1 | 2 | 3,
+  });
+}
+
+export type OriginAnswerQualityOfficialShardParseResult =
+  | { ok: true; value: OriginAnswerQualityOfficialShardComparison }
+  | { ok: false; code: "AQ_BENCHMARK_SHARD_JSON_INVALID" | "AQ_BENCHMARK_SHARD_JSON_DIGEST_MISMATCH" };
+
+export function parseOriginAnswerQualityOfficialShardComparison(
+  input: unknown,
+): OriginAnswerQualityOfficialShardParseResult {
+  const value = record(input);
+  if (!value || !exactKeys(value, SHARD_KEYS)) {
+    return { ok: false, code: "AQ_BENCHMARK_SHARD_JSON_INVALID" };
+  }
+
+  const scorer = record(value.scorerProvenance);
+  if (!scorer || !exactKeys(scorer, SCORER_KEYS)) {
+    return { ok: false, code: "AQ_BENCHMARK_SHARD_JSON_INVALID" };
+  }
+
+  const caseIds = Array.isArray(value.caseIds)
+    ? value.caseIds.filter((item): item is string =>
+        typeof item === "string" && SAFE_ID.test(item)
+      )
+    : [];
+  const baseline = Array.isArray(value.baselineObservations)
+    ? value.baselineObservations.map(parseObservation)
+    : [];
+  const candidate = Array.isArray(value.candidateObservations)
+    ? value.candidateObservations.map(parseObservation)
+    : [];
+
+  if (
+    value.schemaVersion !== "origin.aq-official-shard-comparison.v1"
+    || value.benchmarkId !== "aq-post-heldout-public"
+    || value.benchmarkVersion !== "v1"
+    || typeof value.fullManifestDigest !== "string"
+    || !/^sha256:[a-f0-9]{64}$/.test(value.fullManifestDigest)
+    || !nonNegativeInteger(value.shardIndex)
+    || caseIds.length === 0
+    || caseIds.length !== (value.caseIds as unknown[]).length
+    || new Set(caseIds).size !== caseIds.length
+    || typeof value.shardManifestDigest !== "string"
+    || !/^sha256:[a-f0-9]{64}$/.test(value.shardManifestDigest)
+    || !nonNegativeInteger(value.plannedPairedRequestsMax)
+    || value.plannedPairedRequestsMax < 1
+    || value.plannedPairedRequestsMax > 50
+    || typeof value.providerId !== "string"
+    || !SAFE_ID.test(value.providerId)
+    || typeof value.modelId !== "string"
+    || !SAFE_ID.test(value.modelId)
+    || typeof value.baselineGitSha !== "string"
+    || !SHA40.test(value.baselineGitSha)
+    || typeof value.candidateGitSha !== "string"
+    || !SHA40.test(value.candidateGitSha)
+    || typeof value.baselineRunId !== "string"
+    || !SAFE_ID.test(value.baselineRunId)
+    || typeof value.candidateRunId !== "string"
+    || !SAFE_ID.test(value.candidateRunId)
+    || typeof value.baselineMeasuredDigest !== "string"
+    || !/^sha256:[a-f0-9]{64}$/.test(value.baselineMeasuredDigest)
+    || typeof value.candidateMeasuredDigest !== "string"
+    || !/^sha256:[a-f0-9]{64}$/.test(value.candidateMeasuredDigest)
+    || !nonNegativeInteger(value.baselineRuntimeProviderRequests)
+    || !nonNegativeInteger(value.candidateRuntimeProviderRequests)
+    || scorer.schemaVersion !== "origin.aq-benchmark-scorer.v1"
+    || scorer.scorerId !== "origin-aq-public-deterministic-v1"
+    || typeof scorer.scorerRevision !== "string"
+    || !/^sha256:[a-f0-9]{64}$/.test(scorer.scorerRevision)
+    || scorer.corpusId !== "aq-post-heldout-public"
+    || scorer.corpusVersion !== "v1"
+    || typeof value.scorerProvenanceDigest !== "string"
+    || !/^sha256:[a-f0-9]{64}$/.test(value.scorerProvenanceDigest)
+    || baseline.length !== caseIds.length
+    || candidate.length !== caseIds.length
+    || baseline.some((item) => item === null)
+    || candidate.some((item) => item === null)
+    || typeof value.shardDigest !== "string"
+    || !/^sha256:[a-f0-9]{64}$/.test(value.shardDigest)
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_SHARD_JSON_INVALID" };
+  }
+
+  const parsed: OriginAnswerQualityOfficialShardComparison = Object.freeze({
+    schemaVersion: "origin.aq-official-shard-comparison.v1",
+    benchmarkId: "aq-post-heldout-public",
+    benchmarkVersion: "v1",
+    fullManifestDigest: value.fullManifestDigest,
+    shardIndex: value.shardIndex,
+    caseIds: Object.freeze(caseIds),
+    shardManifestDigest: value.shardManifestDigest,
+    plannedPairedRequestsMax: value.plannedPairedRequestsMax,
+    providerId: value.providerId,
+    modelId: value.modelId,
+    baselineGitSha: value.baselineGitSha,
+    candidateGitSha: value.candidateGitSha,
+    baselineRunId: value.baselineRunId,
+    candidateRunId: value.candidateRunId,
+    baselineMeasuredDigest: value.baselineMeasuredDigest,
+    candidateMeasuredDigest: value.candidateMeasuredDigest,
+    baselineRuntimeProviderRequests: value.baselineRuntimeProviderRequests,
+    candidateRuntimeProviderRequests: value.candidateRuntimeProviderRequests,
+    scorerProvenance: Object.freeze({
+      schemaVersion: "origin.aq-benchmark-scorer.v1",
+      scorerId: "origin-aq-public-deterministic-v1",
+      scorerRevision: scorer.scorerRevision,
+      corpusId: "aq-post-heldout-public",
+      corpusVersion: "v1",
+    }),
+    scorerProvenanceDigest: value.scorerProvenanceDigest,
+    baselineObservations: Object.freeze(
+      baseline as OriginAnswerQualityBenchmarkMeasuredObservation[],
+    ),
+    candidateObservations: Object.freeze(
+      candidate as OriginAnswerQualityBenchmarkMeasuredObservation[],
+    ),
+    shardDigest: value.shardDigest,
+  });
+
+  if (
+    digestOriginAnswerQualityOfficialShardComparison(stripShardDigest(parsed))
+    !== parsed.shardDigest
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_SHARD_JSON_DIGEST_MISMATCH" };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function stripShardDigest(
+  shard: OriginAnswerQualityOfficialShardComparison,
+): Omit<OriginAnswerQualityOfficialShardComparison, "shardDigest"> {
+  const { shardDigest: _shardDigest, ...rest } = shard;
+  return rest;
+}
+
 export async function runOriginAnswerQualityOfficialShardComparison(
   input: OriginAnswerQualityOfficialShardComparisonInput,
   dependencies: OriginAnswerQualityOfficialShardComparisonDependencies = {},
