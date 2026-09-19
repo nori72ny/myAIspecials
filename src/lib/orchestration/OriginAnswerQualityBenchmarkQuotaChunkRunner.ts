@@ -211,17 +211,7 @@ export async function runOriginAnswerQualityOfficialQuotaChunk(
       gitSha: input.gitSha,
       providerId: input.providerId,
       modelId: input.modelId,
-      scorerProvenanceDigest: evaluators.scorerProvenance
-        ? `sha256:${await import("node:crypto").then(({ createHash }) =>
-          createHash("sha256").update([
-            evaluators.scorerProvenance.schemaVersion,
-            evaluators.scorerProvenance.scorerId,
-            evaluators.scorerProvenance.scorerRevision,
-            evaluators.scorerProvenance.corpusId,
-            evaluators.scorerProvenance.corpusVersion,
-          ].join("\n"), "utf8").digest("hex")
-        )}`
-        : "",
+      scorerProvenanceDigest: evaluators.scorerProvenance.scorerRevision,
       startedAt,
       completedAt: new Date(now()).toISOString(),
       evaluatorRequests,
