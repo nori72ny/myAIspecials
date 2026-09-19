@@ -1,0 +1,45 @@
+import { describe, expect, it } from "vitest";
+import {
+  originChatSystemInstruction,
+  requiresOriginCurrentInformation,
+  requiresOriginFutureReleaseInformation,
+} from "./originChatResponsePolicy";
+
+describe("originChatResponsePolicy", () => {
+  it.each([
+    ["今日のニュースを教えて", true],
+    ["現在のVercel料金を教えて", true],
+    ["Vercelの料金について教えて", true],
+    ["What is the current USD/JPY rate?", true],
+    ["Show me today's pricing", true],
+    ["この文章を200字以内に短くして。『詳細料金は来週確定します。』", false],
+    ["最新の為替レートを検索できない状態だと仮定します。断定せず安全な次の行動を示してください。", false],
+    ["価格弾力性の意味を説明してください", false],
+    ["価格戦略の基本を教えて", false],
+    ["What does price elasticity mean?", false],
+    ["Explain pricing strategy for a SaaS product", false],
+    ["今日の予定を整理してください", false],
+  ])("classifies freshness need for %s", (message, expected) => {
+    expect(requiresOriginCurrentInformation(message)).toBe(expected);
+  });
+
+  it.each([
+    ["今後登場するAIモデルを教えて", true],
+    ["upcoming AI releases", true],
+    ["AIエージェントの仕組みを教えて", false],
+  ])("classifies future-release intent for %s", (message, expected) => {
+    expect(requiresOriginFutureReleaseInformation(message)).toBe(expected);
+  });
+
+  it("locks the professional-depth and truthfulness instruction contract", () => {
+    const instruction = originChatSystemInstruction();
+    for (const phrase of [
+      "For complex multi-part requests, use as many distinct points as needed",
+      "address every explicit requirement",
+      "challenge its factual support and omissions as a skeptic",
+      "Separate confirmed facts from assumptions, inferences, and recommendations",
+      "Distinguish user-provided claims explicitly",
+      "Do not claim code, deployment, purchase, configuration, search, file creation",
+    ]) expect(instruction).toContain(phrase);
+  });
+});
