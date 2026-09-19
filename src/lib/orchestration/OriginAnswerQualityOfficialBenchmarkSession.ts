@@ -228,7 +228,14 @@ export const runOriginAnswerQualityOfficialEvidenceScoredSession =
 export interface OriginAnswerQualityOfficialProviderScoredSessionInput
   extends Omit<
     OriginAnswerQualityOfficialBenchmarkSessionInput,
-    "collectScoringEvidence" | "evidenceVault" | "scorerProvenance"
+    | "collectScoringEvidence"
+    | "evidenceVault"
+    | "scorerProvenance"
+    | "materialClaimExtractor"
+    | "promptClaimJudge"
+    | "semanticJudge"
+    | "claimAssessor"
+    | "batchClaimAssessor"
   > {
   readonly evaluatorPlanningOptions?: Omit<OriginExecutionPlanningOptions, "nowMs">;
 }
