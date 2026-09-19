@@ -279,9 +279,17 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
       runSession: vi.fn(async (value) => {
         const hook = value.beforeEvaluatorRequest;
         if (value.runId.startsWith("baseline")) {
-          for (let index = 0; index < 9; index += 1) {
-            hook?.();
-            baselineCalls += 1;
+          try {
+            for (let index = 0; index < 9; index += 1) {
+              hook?.();
+              baselineCalls += 1;
+            }
+          } catch (error) {
+            return {
+              ok: false as const,
+              code: "AQ_BENCHMARK_SESSION_EXECUTION_FAILED" as const,
+              detail: error instanceof Error ? error.message : "AQ_BENCHMARK_SHARD_EVALUATOR_BUDGET_EXCEEDED",
+            };
           }
         } else {
           candidateCalls += 1;
