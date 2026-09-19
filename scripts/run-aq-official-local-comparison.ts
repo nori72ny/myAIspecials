@@ -69,6 +69,11 @@ async function validateTarget(target: LocalTarget): Promise<void> {
     throw new Error(`AQ_LOCAL_COMPARISON_DIRTY_CHECKOUT:${target.label}`);
   }
 
+  const porcelain = await git(["status", "--porcelain=v1", "--untracked-files=all"], root);
+  if (porcelain.length > 0) {
+    throw new Error(`AQ_LOCAL_COMPARISON_DIRTY_CHECKOUT:${target.label}`);
+  }
+
   await fs.access(path.join(root, "package.json"));
   await fs.access(path.join(root, "node_modules"));
 }
