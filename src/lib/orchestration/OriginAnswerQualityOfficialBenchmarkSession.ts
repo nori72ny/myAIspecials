@@ -246,6 +246,7 @@ export interface OriginAnswerQualityOfficialProviderScoredSessionInput
     | "batchClaimAssessor"
   > {
   readonly evaluatorPlanningOptions?: Omit<OriginExecutionPlanningOptions, "nowMs">;
+  readonly beforeEvaluatorRequest?: () => void;
 }
 
 /**
@@ -263,6 +264,7 @@ export async function runOriginAnswerQualityOfficialProviderScoredSession(
     env: input.env,
     nowMs: input.nowMs,
     planningOptions: input.evaluatorPlanningOptions,
+    beforeProviderRequest: input.beforeEvaluatorRequest,
   });
 
   return runOriginAnswerQualityOfficialEvidenceScoredSession({
