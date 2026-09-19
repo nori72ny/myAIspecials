@@ -89,7 +89,7 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
         </div>
       </div>
 
-      <details className="origin-card border px-3 py-2 md:hidden" aria-label="ORIGIN mobile controls">
+      <details className="origin-card border px-3 py-1 md:hidden" aria-label="ORIGIN mobile controls">
         <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold">
           <span>Controls</span>
           <span className="origin-muted text-xs">Model · Tools · Agent</span>
@@ -116,10 +116,10 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
             onClick={() => {
               if (item.id === 'chat' || item.id === 'research' || item.id === 'coding' || item.id === 'creative') onModeChange(item.id);
             }}
-            className={`min-h-11 shrink-0 rounded-lg border px-4 text-left text-sm font-semibold transition-colors ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:opacity-60`}
+            className={`min-h-11 shrink-0 rounded-lg border px-3 text-left text-sm font-semibold transition-colors sm:px-4 ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:opacity-60`}
           >
             <span className="block">{item.label}</span>
-            <span className={`block text-xs font-normal ${selected ? 'opacity-90' : 'origin-muted'}`}>{item.available ? item.description : '準備中'}</span>
+            <span className={`hidden text-xs font-normal sm:block ${selected ? 'opacity-90' : 'origin-muted'}`}>{item.available ? item.description : '準備中'}</span>
           </button>;
         })}
       </nav>
