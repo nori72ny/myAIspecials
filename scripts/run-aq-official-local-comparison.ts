@@ -161,8 +161,8 @@ function sanitizedResult(
   return {
     schemaVersion: "origin.aq-local-comparison-result.v1",
     ok: true,
-    baselineGitSha: result.value.baselineSession.measuredRun.boundRun.provenance.gitSha,
-    candidateGitSha: result.value.candidateSession.measuredRun.boundRun.provenance.gitSha,
+    baselineGitSha: result.value.baselineSession.measuredRun.boundRun.gitSha,
+    candidateGitSha: result.value.candidateSession.measuredRun.boundRun.gitSha,
     scorerProvenance: result.value.evaluation.scorerProvenance,
     scorerProvenanceDigest: result.value.evaluation.scorerProvenanceDigest,
     officialBundleDigest: result.value.evaluation.officialBundleDigest,
