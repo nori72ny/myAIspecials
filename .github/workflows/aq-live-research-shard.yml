@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 50
     env:
       BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
-      CANDIDATE_SHA: 6c18e22694cf88b6fdc17a501f28e9ec7fafa0a4
+      CANDIDATE_SHA: 2145e20abe7de53d790c14262d1e21dc3eb60da3
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ORIGIN_AQ_BASELINE_PORT: '4511'
       ORIGIN_AQ_CANDIDATE_PORT: '4512'
