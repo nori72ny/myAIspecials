@@ -79,7 +79,9 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).toContain("upstreamErrorType?: string");
     expect(providerClient).toContain('transportFailure?: "timeout" | "network"');
     expect(providerSecurityRegression).toContain("preserves Retry-After without exposing upstream content or credentials");
-    expect(providerSecurityRegression).toContain("private upstream body");
+    expect(providerSecurityRegression).toContain("Authorization: Bearer upstream-secret-value");
+    expect(providerSecurityRegression).toContain("expect(String(error)).not.toContain(body)");
+    expect(providerSecurityRegression).toContain('expect(String(error)).not.toContain("synthetic-key")');
   });
 
   it("keeps untrusted-source data away from external sinks unless an explicit approved boundary exists", () => {
