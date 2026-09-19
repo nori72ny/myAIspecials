@@ -235,16 +235,16 @@
 .origin-answer-markdown > :last-child { margin-bottom: 0; }
 .origin-answer-markdown h1,
 .origin-answer-markdown h2,
-.origin-answer-markdown h3 { margin: 1.5rem 0 0.6rem; scroll-margin-top: 5rem; font-weight: 750; line-height: 1.35; letter-spacing: -0.015em; text-wrap: balance; }
-.origin-answer-markdown h1 { font-size: 1.35rem; }
-.origin-answer-markdown h2 { font-size: 1.18rem; }
-.origin-answer-markdown h3 { font-size: 1.05rem; }
-.origin-answer-markdown p { margin: 0 0 1rem; line-height: 1.8; text-wrap: pretty; }
+.origin-answer-markdown h3 { margin: 1.8rem 0 0.72rem; scroll-margin-top: 5rem; font-weight: 760; line-height: 1.28; letter-spacing: -0.018em; text-wrap: balance; }
+.origin-answer-markdown h1 { font-size: clamp(1.48rem, 2.4vw, 1.68rem); }
+.origin-answer-markdown h2 { font-size: clamp(1.28rem, 2vw, 1.42rem); }
+.origin-answer-markdown h3 { font-size: clamp(1.1rem, 1.6vw, 1.2rem); }
+.origin-answer-markdown p { margin: 0 0 1.05rem; line-height: 1.84; text-wrap: pretty; }
 .origin-answer-markdown ul,
 .origin-answer-markdown ol { margin: 0.5rem 0 1rem; padding-left: 1.35rem; }
 .origin-answer-markdown ul { list-style: disc; }
 .origin-answer-markdown ol { list-style: decimal; }
-.origin-answer-markdown li { margin: 0.35rem 0; padding-left: 0.15rem; line-height: 1.7; }
+.origin-answer-markdown li { margin: 0.42rem 0; padding-left: 0.18rem; line-height: 1.76; }
 .origin-answer-markdown li::marker { color: var(--accent-primary); font-weight: 700; }
 .origin-answer-markdown strong { color: var(--text-primary); font-weight: 750; }
 .origin-answer-markdown a { color: var(--accent-primary); font-weight: 650; text-decoration: underline; text-underline-offset: 0.18em; }
@@ -271,7 +271,7 @@
 .origin-composer--compact textarea { min-height: 52px; }
 .origin-verification summary::-webkit-details-marker { display: none; }
 .origin-verification summary { cursor: pointer; }
-.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: 1rem; line-height: 1.75; }
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: clamp(1rem, 1.1vw, 1.04rem); line-height: 1.8; }
 
 .safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 @media (min-width: 640px) { .safe-area-bottom { padding-bottom: 1.25rem; } }
