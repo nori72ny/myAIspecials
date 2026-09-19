@@ -375,4 +375,38 @@ describe("OriginAnswerQualityBenchmarkRunner", () => {
       failureDetail: "AQ_BENCHMARK_RESEARCH_ZERO_COST_INVALID",
     });
   });
+
+  it("preserves a safe provider error code but not its arbitrary message", async () => {
+    const { items, manifest } = fixture();
+    const providerError = Object.assign(
+      new Error("rate limited with provider response that must stay private"),
+      { code: "PROVIDER_RATE_LIMITED" },
+    );
+
+    const result = await runOriginAnswerQualityBenchmark({
+      manifest,
+      cases: items,
+      execute: async (item) => ({
+        caseId: item.caseId,
+        finalAnswerRef: null,
+        evidenceLedgerRef: null,
+        verifierResult: "BLOCKED_UNVERIFIED",
+        providerRequests: 0,
+        toolCalls: 1,
+        latencyMs: 10,
+        costUsd: 0,
+        failureCode: "AQ_BENCHMARK_RESEARCH_HTTP_503",
+      }),
+      score: async () => {
+        throw providerError;
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_SCORING_FAILED",
+      failedCaseId: "case-1",
+      failureDetail: "PROVIDER_RATE_LIMITED",
+    });
+  });
 });
