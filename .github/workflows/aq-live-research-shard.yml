@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: origin-aq-live-research-shard
@@ -34,7 +35,31 @@ jobs:
       ORIGIN_AQ_CANDIDATE_PORT: '4512'
 
     steps:
+      - name: Enforce 24-hour live quota guard
+        id: quota_guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current="${GITHUB_RUN_ID}"
+          now="$(date -u +%s)"
+          previous="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/aq-live-research-shard.yml/runs?event=pull_request&per_page=30"               --jq "[.workflow_runs[] | select((.id|tostring) != \"$current\" and .conclusion != \"skipped\") | {id, created_at}] | sort_by(.created_at) | reverse | .[0].created_at // \"\""
+          )"
+          if [ -n "$previous" ]; then
+            previous_epoch="$(date -u -d "$previous" +%s)"
+            age="$((now - previous_epoch))"
+            if [ "$age" -lt 86400 ]; then
+              echo "allowed=false" >> "$GITHUB_OUTPUT"
+              echo "Live AQ provider execution skipped: prior non-skipped research shard is less than 24h old."
+              exit 0
+            fi
+          fi
+          echo "allowed=true" >> "$GITHUB_OUTPUT"
+
       - name: Checkout frozen baseline
+        if: steps.quota_guard.outputs.allowed == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ env.BASELINE_SHA }}
@@ -42,6 +67,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout candidate exact feature SHA
+        if: steps.quota_guard.outputs.allowed == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ env.CANDIDATE_SHA }}
@@ -49,6 +75,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node 24
+        if: steps.quota_guard.outputs.allowed == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -58,6 +85,7 @@ jobs:
             candidate/package-lock.json
 
       - name: Install exact dependencies
+        if: steps.quota_guard.outputs.allowed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -65,6 +93,7 @@ jobs:
           (cd candidate && npm ci --ignore-scripts)
 
       - name: Verify credential boundary
+        if: steps.quota_guard.outputs.allowed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -74,6 +103,7 @@ jobs:
           test -z "${GEMINI_API_KEY:-}"
 
       - name: Select deterministic Research-only shard
+        if: steps.quota_guard.outputs.allowed == 'true'
         id: shard
         working-directory: candidate
         shell: bash
@@ -84,6 +114,7 @@ jobs:
           echo "index=$shard_index" >> "$GITHUB_OUTPUT"
 
       - name: Run exact-SHA Research shard comparison
+        if: steps.quota_guard.outputs.allowed == 'true'
         working-directory: candidate
         shell: bash
         env:
@@ -98,7 +129,7 @@ jobs:
           npm run eval:aq-local-comparison-shard
 
       - name: Inspect sanitized Research shard output
-        if: always()
+        if: steps.quota_guard.outputs.allowed == 'true' && always()
         shell: bash
         run: |
           set -euo pipefail
@@ -144,14 +175,14 @@ jobs:
           CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
 
       - name: Require successful Research shard evidence
-        if: success()
+        if: steps.quota_guard.outputs.allowed == 'true' && success()
         shell: bash
         run: |
           set -euo pipefail
           node -e "const v=require('./aq-results/research-shard.json'); if(v?.ok!==true) process.exit(1)"
 
       - name: Upload sanitized Research shard evidence
-        if: always()
+        if: steps.quota_guard.outputs.allowed == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
           name: aq-live-research-shard-v9
