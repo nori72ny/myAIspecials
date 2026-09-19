@@ -16,6 +16,7 @@ import { createArtifactV12Router } from "../artifacts/artifactV12Router.js";
 import { createWebAppBuilderV13Router } from "../builder/webAppBuilderV13Router.js";
 import { createWebPublicationStoreFromEnv } from "../builder/webPublicationStoreV131.js";
 import { createWebPublicationV131Router } from "../builder/webPublicationV131Router.js";
+import { createVisualArtifactV15Router } from "../creative/visualArtifactV15Router.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): string { const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA; return candidate && FULL_GIT_SHA.test(candidate) ? candidate.toLowerCase() : "unknown"; }
@@ -30,6 +31,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.use("/api/artifacts/v1.2", createOriginChatRateLimiter());
   app.use("/api/builder", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
   app.use("/api/coding/v1.4", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
+  app.use("/api/creative/v1.5", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
   app.use(express.json({ limit: "64kb", strict: true, type: ["application/json", "application/*+json"] }));
 
   const invalidJsonHandler: ErrorRequestHandler = (error, _req, res, next) => {
@@ -39,9 +41,9 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   };
   app.use(invalidJsonHandler);
 
-  // Image generation is not implemented in the current $0 release. Keep the route
-  // explicit and fail closed rather than returning an optimized prompt as if an image
-  // had actually been generated.
+  // Raster/model image generation is not implemented in the current $0 release. Keep
+  // the legacy route explicit and fail closed rather than returning an optimized prompt
+  // or a vector artifact as if a model-generated raster image had been produced.
   app.all("/api/generate-image", (_req, res) => res.status(503).json({ code: "ORIGIN_PROVIDER_PATH_DISABLED", message: "このAI実行経路はORIGINの安全・無料実行ポリシーへ未移行のため停止しています。", retryable: false, requestId: "UNKNOWN" }));
 
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
@@ -65,6 +67,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   app.use(createWebPublicationV131Router(env, webPublicationStore));
   app.use(createCodingJobSmokeV14Router(env));
   app.use(createCodingJobV14Router(env, codingStores.jobStore, undefined, codingStores.resultStore));
+  app.use(createVisualArtifactV15Router());
   app.use(createOriginResearchRouter());
   // Browser clients request text/event-stream. Handle provider-eligible requests here
   // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router

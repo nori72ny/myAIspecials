@@ -88,6 +88,26 @@ describe("createOriginStreamingChatRouter", () => {
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["supplied pricing transformation", "この文章を200字以内に短くして。『新サービスは10月開始予定で、詳細料金は来週確定します。』"],
+    ["hypothetical freshness failure", "最新の為替レートを検索できない状態だと仮定します。1ドルが何円か断定せず、安全な次の行動を示してください。"],
+    ["stable pricing concept", "価格弾力性の意味を実務向けに説明してください。"],
+  ])("keeps %s on the upstream streaming path", async (_label, prompt) => {
+    const streamExecute = vi.fn(async (providerRequest, handlers) => {
+      expect(providerRequest.systemInstruction).toContain("For complex multi-part requests, use as many distinct points as needed");
+      expect(providerRequest.systemInstruction).toContain("Distinguish user-provided claims explicitly");
+      handlers.onDelta("streamed");
+      return result("streamed");
+    }) as unknown as OriginProviderStreamExecutor;
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: prompt }] });
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('"type":"complete"');
+    expect(streamExecute).toHaveBeenCalledTimes(1);
+  });
+
   it("ends a failed partial stream without a completion proof or DONE", async () => {
     const streamExecute = vi.fn(async (_providerRequest, handlers) => {
       handlers.onDelta("unverified partial");

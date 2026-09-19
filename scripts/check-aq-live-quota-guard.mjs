@@ -1,0 +1,129 @@
+import { appendFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
+
+const WINDOW_SECONDS = 86_400;
+const UNIFIED_WORKFLOW = "aq-live-lane-shard.yml";
+const LEGACY_WORKFLOW = "aq-live-research-shard.yml";
+
+function required(name) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`AQ_LIVE_QUOTA_ENV_MISSING:${name}`);
+  return value;
+}
+
+function headers(token) {
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+}
+
+async function githubJson(url, token, fetchImpl = fetch) {
+  const response = await fetchImpl(url, {
+    headers: headers(token),
+    redirect: "error",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`AQ_LIVE_QUOTA_GITHUB_HTTP_${response.status}`);
+  return response.json();
+}
+
+function reservedArtifact(name, workflow) {
+  if (workflow === UNIFIED_WORKFLOW) return name === "aq-live-quota-reservation";
+  if (workflow === LEGACY_WORKFLOW) return name.startsWith("aq-live-research-shard");
+  return false;
+}
+
+export async function latestReservedAt({
+  repository,
+  workflow,
+  currentRunId,
+  token,
+  nowMs = Date.now(),
+  fetchImpl = fetch,
+}) {
+  const runsUrl = `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?event=pull_request&per_page=30`;
+  const runsPayload = await githubJson(runsUrl, token, fetchImpl);
+  const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+  let latest = null;
+
+  for (const run of runs) {
+    if (!run || String(run.id) === String(currentRunId)) continue;
+    const createdAt = typeof run.created_at === "string" ? run.created_at : "";
+    const createdMs = Date.parse(createdAt);
+    if (!Number.isFinite(createdMs)) continue;
+    const ageSeconds = Math.floor((nowMs - createdMs) / 1000);
+    if (ageSeconds < 0 || ageSeconds >= WINDOW_SECONDS) continue;
+
+    const artifactsUrl = `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`;
+    const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
+    const artifacts = Array.isArray(artifactsPayload?.artifacts) ? artifactsPayload.artifacts : [];
+    if (!artifacts.some((artifact) =>
+      artifact && typeof artifact.name === "string" && reservedArtifact(artifact.name, workflow)
+    )) {
+      continue;
+    }
+
+    if (latest === null || createdMs > Date.parse(latest)) latest = createdAt;
+  }
+
+  return latest;
+}
+
+export async function checkLiveQuota({
+  repository,
+  currentRunId,
+  token,
+  nowMs = Date.now(),
+  fetchImpl = fetch,
+}) {
+  const [unified, legacy] = await Promise.all([
+    latestReservedAt({
+      repository,
+      workflow: UNIFIED_WORKFLOW,
+      currentRunId,
+      token,
+      nowMs,
+      fetchImpl,
+    }),
+    latestReservedAt({
+      repository,
+      workflow: LEGACY_WORKFLOW,
+      currentRunId,
+      token,
+      nowMs,
+      fetchImpl,
+    }),
+  ]);
+
+  const candidates = [unified, legacy].filter(Boolean).sort();
+  const previous = candidates.at(-1) ?? null;
+  return Object.freeze({
+    allowed: previous === null,
+    previousReservedAt: previous,
+  });
+}
+
+async function main() {
+  const repository = required("GITHUB_REPOSITORY");
+  const currentRunId = required("GITHUB_RUN_ID");
+  const token = required("GITHUB_TOKEN");
+  const output = required("GITHUB_OUTPUT");
+
+  const result = await checkLiveQuota({ repository, currentRunId, token });
+  await appendFile(output, `allowed=${result.allowed ? "true" : "false"}\n`, "utf8");
+
+  if (result.allowed) {
+    process.stdout.write("Live AQ provider quota is available.\n");
+  } else {
+    process.stdout.write("Live AQ provider execution skipped: a prior quota reservation is less than 24h old.\n");
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : "AQ_LIVE_QUOTA_GUARD_FAILED"}\n`);
+    process.exitCode = 1;
+  });
+}
