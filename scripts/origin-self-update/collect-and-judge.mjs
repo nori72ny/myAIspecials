@@ -16,8 +16,14 @@ const OFFICIAL_SOURCES = Object.freeze([
   { id: "openai-news", category: "ai", url: "https://openai.com/news/" },
   { id: "anthropic-news", category: "ai", url: "https://www.anthropic.com/news" },
   { id: "google-ai", category: "ai", url: "https://blog.google/technology/ai/" },
+  { id: "microsoft-copilot", category: "ai", url: "https://www.microsoft.com/en-us/copilot/blog/" },
   { id: "github-changelog", category: "system", url: "https://github.blog/changelog/" },
   { id: "vercel-changelog", category: "system", url: "https://vercel.com/changelog" },
+  { id: "supabase-changelog", category: "system", url: "https://supabase.com/changelog" },
+  { id: "cloudflare-developer-changelog", category: "system", url: "https://developers.cloudflare.com/changelog/product-group/developer-platform/" },
+  { id: "react-blog", category: "system", url: "https://react.dev/blog" },
+  { id: "vite-blog", category: "system", url: "https://vite.dev/blog" },
+  { id: "node-releases", category: "security", url: "https://nodejs.org/en/blog/release" },
   { id: "w3c-wai-news", category: "design", url: "https://www.w3.org/WAI/news/" },
 ]);
 
@@ -78,11 +84,10 @@ async function fetchText(url, timeoutMs = 10_000, maxChars = 100_000) {
 }
 
 async function collectOfficialSources() {
-  const rows = [];
-  for (const source of OFFICIAL_SOURCES) {
+  return Promise.all(OFFICIAL_SOURCES.map(async (source) => {
     const response = await fetchText(source.url);
     const excerpt = normalizeEvidenceText(response.text);
-    rows.push({
+    return {
       ...source,
       ok: response.ok,
       status: response.status,
@@ -90,9 +95,8 @@ async function collectOfficialSources() {
       lastModified: response.lastModified,
       fingerprint: excerpt ? sha256(excerpt) : null,
       excerpt,
-    });
-  }
-  return rows;
+    };
+  }));
 }
 
 async function collectOpenRouter(runtime) {
