@@ -7,6 +7,7 @@ import {
 } from "./OriginAnswerQualityBenchmarkCorpus.js";
 import {
   createOriginAnswerQualityBenchmarkLaneExecutor,
+  resolveOriginAnswerQualityBenchmarkRequiredLanes,
   type OriginAnswerQualityBenchmarkLaneExecutors,
 } from "./OriginAnswerQualityBenchmarkExecutionRouter.js";
 import {
@@ -161,15 +162,19 @@ function frozenSessionValid(
 export async function runOriginAnswerQualityBenchmarkExecutionSession(
   input: OriginAnswerQualityBenchmarkExecutionSessionInput,
 ): Promise<OriginAnswerQualityBenchmarkExecutionSessionResult> {
+  const corpus = input.corpus ?? createOriginAnswerQualityFrozenCorpus();
+  const requiredLanes = resolveOriginAnswerQualityBenchmarkRequiredLanes(corpus.cases);
+
   if (!isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
     input.environmentProof,
     input.gitSha,
+    requiredLanes,
   )) {
     return { ok: false, code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID" };
   }
 
   try {
-    assertOriginAnswerQualityBenchmarkRuntimeReady(input.executors);
+    assertOriginAnswerQualityBenchmarkRuntimeReady(input.executors, requiredLanes);
   } catch (error) {
     return {
       ok: false,
@@ -178,7 +183,6 @@ export async function runOriginAnswerQualityBenchmarkExecutionSession(
     };
   }
 
-  const corpus = input.corpus ?? createOriginAnswerQualityFrozenCorpus();
   const nowMs = input.nowMs ?? Date.now;
   const startedAtMs = nowMs();
 
