@@ -29,15 +29,12 @@ import {
 } from "./OriginAnswerQualityBenchmarkCodingCheckoutAdapter.js";
 import {
   createOriginAnswerQualityBenchmarkLaneExecutor,
+  resolveOriginAnswerQualityBenchmarkExecutionLane,
+  type OriginAnswerQualityBenchmarkExecutionLane,
+  type OriginAnswerQualityBenchmarkLaneExecutors,
 } from "./OriginAnswerQualityBenchmarkExecutionRouter.js";
-import {
-  assertOriginAnswerQualityBenchmarkRuntimeReady,
-} from "./OriginAnswerQualityBenchmarkRuntimeReadiness.js";
-import {
-  isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid,
-} from "./OriginAnswerQualityBenchmarkSession.js";
 import type {
-  OriginAnswerQualityBenchmarkEnvironmentProof,
+  OriginAnswerQualityBenchmarkChunkEnvironmentProof,
 } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
   runOriginAnswerQualityBenchmark,
@@ -57,7 +54,7 @@ export interface OriginAnswerQualityOfficialQuotaChunkInput {
   readonly gitSha: string;
   readonly providerId: string;
   readonly modelId: string;
-  readonly environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof;
+  readonly environmentProof: OriginAnswerQualityBenchmarkChunkEnvironmentProof;
   readonly sourceRoot: string;
   readonly fetchImpl?: typeof fetch;
   readonly env?: NodeJS.ProcessEnv;
@@ -83,17 +80,37 @@ export interface OriginAnswerQualityOfficialQuotaChunkDependencies {
   readonly createCodingAdapter?: typeof createOriginAnswerQualityBenchmarkCodingCheckoutAdapter;
 }
 
+
+function sameLaneSet(
+  actual: readonly OriginAnswerQualityBenchmarkExecutionLane[],
+  expected: ReadonlySet<OriginAnswerQualityBenchmarkExecutionLane>,
+): boolean {
+  const unique = new Set(actual);
+  return unique.size === expected.size
+    && [...expected].every((lane) => unique.has(lane));
+}
+
+function validChunkEnvironment(
+  proof: OriginAnswerQualityBenchmarkChunkEnvironmentProof,
+  gitSha: string,
+  requiredLanes: ReadonlySet<OriginAnswerQualityBenchmarkExecutionLane>,
+): boolean {
+  return proof.schemaVersion === "origin.aq-benchmark-chunk-environment-proof.v1"
+    && proof.expectedGitSha === gitSha
+    && proof.observedReleaseSha === gitSha
+    && proof.freeOnly === true
+    && proof.costUsd === 0
+    && proof.paidFallbackEnabled === false
+    && sameLaneSet(proof.requiredLanes, requiredLanes)
+    && (!requiredLanes.has("research") || proof.researchReady)
+    && (!requiredLanes.has("coding") || proof.codingReady)
+    && (!requiredLanes.has("artifact") || proof.artifactReady);
+}
+
 export async function runOriginAnswerQualityOfficialQuotaChunkHarness(
   input: OriginAnswerQualityOfficialQuotaChunkInput,
   dependencies: OriginAnswerQualityOfficialQuotaChunkDependencies = {},
 ): Promise<OriginAnswerQualityOfficialQuotaChunkResult> {
-  if (!isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
-    input.environmentProof,
-    input.gitSha,
-  )) {
-    return { ok: false, code: "AQ_BENCHMARK_QUOTA_CHUNK_ENVIRONMENT_INVALID" };
-  }
-
   const corpus = createOriginAnswerQualityFrozenCorpus();
   const plan = createOriginAnswerQualityBenchmarkQuotaChunkPlan(
     corpus,
@@ -105,6 +122,15 @@ export async function runOriginAnswerQualityOfficialQuotaChunkHarness(
       code: "AQ_BENCHMARK_QUOTA_CHUNK_PLAN_INVALID",
       detail: plan.code,
     };
+  }
+
+  const requiredLanes = new Set(
+    plan.value.cases.map((item) =>
+      resolveOriginAnswerQualityBenchmarkExecutionLane(item.category)
+    ),
+  );
+  if (!validChunkEnvironment(input.environmentProof, input.gitSha, requiredLanes)) {
+    return { ok: false, code: "AQ_BENCHMARK_QUOTA_CHUNK_ENVIRONMENT_INVALID" };
   }
 
   const vault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
@@ -147,31 +173,37 @@ export async function runOriginAnswerQualityOfficialQuotaChunkHarness(
       expectedModelId: input.modelId,
     };
 
-    const createCodingAdapter = dependencies.createCodingAdapter
-      ?? createOriginAnswerQualityBenchmarkCodingCheckoutAdapter;
-    const coding = await createCodingAdapter({
-      sourceRoot: input.sourceRoot,
-      expectedGitSha: input.gitSha,
-      env: input.env,
-      nowMs: input.nowMs,
-      evidenceVault: vault,
-    });
+    const executors: OriginAnswerQualityBenchmarkLaneExecutors = {};
 
-    const executors = {
-      research: createOriginAnswerQualityBenchmarkResearchHttpAdapter(httpOptions),
-      chat: createOriginAnswerQualityBenchmarkChatHttpAdapter(httpOptions),
-      coding,
-      artifact: createOriginAnswerQualityBenchmarkArtifactHttpAdapter(httpOptions),
-    };
+    if (requiredLanes.has("research")) {
+      executors.research = createOriginAnswerQualityBenchmarkResearchHttpAdapter(httpOptions);
+    }
+    if (requiredLanes.has("chat")) {
+      executors.chat = createOriginAnswerQualityBenchmarkChatHttpAdapter(httpOptions);
+    }
+    if (requiredLanes.has("artifact")) {
+      executors.artifact = createOriginAnswerQualityBenchmarkArtifactHttpAdapter(httpOptions);
+    }
+    if (requiredLanes.has("coding")) {
+      const createCodingAdapter = dependencies.createCodingAdapter
+        ?? createOriginAnswerQualityBenchmarkCodingCheckoutAdapter;
+      executors.coding = await createCodingAdapter({
+        sourceRoot: input.sourceRoot,
+        expectedGitSha: input.gitSha,
+        env: input.env,
+        nowMs: input.nowMs,
+        evidenceVault: vault,
+      });
+    }
 
-    try {
-      assertOriginAnswerQualityBenchmarkRuntimeReady(executors);
-    } catch (error) {
-      return {
-        ok: false,
-        code: "AQ_BENCHMARK_QUOTA_CHUNK_RUNTIME_NOT_READY",
-        detail: error instanceof Error ? error.message : undefined,
-      };
+    for (const lane of requiredLanes) {
+      if (!executors[lane]) {
+        return {
+          ok: false,
+          code: "AQ_BENCHMARK_QUOTA_CHUNK_RUNTIME_NOT_READY",
+          detail: lane,
+        };
+      }
     }
 
     const measuredById =
