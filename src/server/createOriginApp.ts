@@ -27,8 +27,8 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
   if (env.NODE_ENV === "production") app.set("trust proxy", 1);
   app.use(applyOriginSecurityHeaders(env));
   app.use("/api/chat", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
-  app.use("/api/research/v1.1", createOriginChatRateLimiter());
-  app.use("/api/artifacts/v1.2", createOriginChatRateLimiter());
+  app.use("/api/research/v1.1", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
+  app.use("/api/artifacts/v1.2", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
   app.use("/api/builder", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
   app.use("/api/coding/v1.4", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
   app.use("/api/creative/v1.5", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
