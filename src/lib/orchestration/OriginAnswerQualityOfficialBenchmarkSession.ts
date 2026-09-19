@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { OriginClaimAssessor } from "./OriginClaimAssessor.js";
+import type { OriginBatchClaimAssessor } from "./OriginBatchClaimAssessor.js";
 import {
   createOriginAnswerQualityBenchmarkProviderEvaluators,
 } from "./OriginAnswerQualityBenchmarkProviderEvaluators.js";
@@ -20,9 +21,6 @@ import type {
 import type {
   OriginAnswerQualityBenchmarkSemanticJudge,
 } from "./OriginAnswerQualityBenchmarkSemanticJudge.js";
-import {
-  createOriginSourceVerificationExecutor,
-} from "./OriginSourceVerificationExecutor.js";
 import { createOriginAnswerQualityBenchmarkCodingCheckoutAdapter } from "./OriginAnswerQualityBenchmarkCodingCheckoutAdapter.js";
 import {
   createOriginAnswerQualityBenchmarkArtifactHttpAdapter,
@@ -173,6 +171,7 @@ export interface OriginAnswerQualityOfficialBenchmarkSessionInput
   readonly promptClaimJudge: OriginAnswerQualityBenchmarkPromptClaimJudge;
   readonly semanticJudge: OriginAnswerQualityBenchmarkSemanticJudge;
   readonly claimAssessor: OriginClaimAssessor;
+  readonly batchClaimAssessor: OriginBatchClaimAssessor;
 }
 
 /**
@@ -187,17 +186,13 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
   input: OriginAnswerQualityOfficialBenchmarkSessionInput,
 ): Promise<OriginAnswerQualityOfficialBenchmarkSessionResult> {
   const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
-  const sourceVerificationExecutor = createOriginSourceVerificationExecutor({
-    assessor: input.claimAssessor,
-    now: input.nowMs,
-  });
 
   const collector = createOriginAnswerQualityBenchmarkOfficialScoringCollector({
     evidenceVault,
     materialClaimExtractor: input.materialClaimExtractor,
     promptClaimJudge: input.promptClaimJudge,
     semanticJudge: input.semanticJudge,
-    sourceVerificationExecutor,
+    batchClaimAssessor: input.batchClaimAssessor,
     nowMs: input.nowMs,
   });
 
@@ -270,5 +265,6 @@ export async function runOriginAnswerQualityOfficialProviderScoredSession(
     promptClaimJudge: evaluators.promptClaimJudge,
     semanticJudge: evaluators.semanticJudge,
     claimAssessor: evaluators.claimAssessor,
+    batchClaimAssessor: evaluators.batchClaimAssessor,
   });
 }
