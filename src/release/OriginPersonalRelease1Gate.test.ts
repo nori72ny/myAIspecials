@@ -48,6 +48,22 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(modelCatalog).not.toContain('"openrouter/free"');
   });
 
+  it("keeps production chat single-attempt and excludes legacy retry runtimes", () => {
+    const chat = readRepositoryFile("src/legacy/originChatRouter.ts");
+    const streaming = readRepositoryFile("src/legacy/originStreamingChatRouter.ts");
+    const server = readRepositoryFile("src/server/createOriginApp.ts");
+    const entrypoint = readRepositoryFile("src/main.tsx");
+
+    for (const source of [chat, streaming]) {
+      expect(source).not.toContain("executeWithRetry");
+      expect(source).not.toContain("MAX_RETRIES");
+      expect(source).toContain("providerAttempts: 1");
+    }
+    expect(server).not.toContain("OpenRouterPlugin");
+    expect(server).not.toContain("initMissionEngine");
+    expect(entrypoint).not.toContain("useAppState");
+  });
+
   it("keeps AI Studio direct runtime and fallback out of the release", () => {
     const metadata = JSON.parse(readRepositoryFile("metadata.json")) as { majorCapabilities?: string[] };
     const app = readRepositoryFile("src/server/createOriginApp.ts");
