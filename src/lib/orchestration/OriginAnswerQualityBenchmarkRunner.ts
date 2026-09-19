@@ -110,11 +110,20 @@ export type OriginAnswerQualityBenchmarkRunnerResult =
         | "AQ_BENCHMARK_EXECUTION_CASE_DIGEST_MISMATCH"
         | "AQ_BENCHMARK_EXECUTION_INVALID_EVIDENCE"
         | "AQ_BENCHMARK_EXECUTION_INVALID_SCORE"
-        | "AQ_BENCHMARK_EXECUTION_FAILED";
+        | "AQ_BENCHMARK_EXECUTION_FAILED"
+        | "AQ_BENCHMARK_SCORING_FAILED";
       failedCaseId?: string;
+      failureDetail?: string;
     };
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
+const SAFE_FAILURE_DETAIL = /^[A-Z][A-Z0-9_:.-]{0,160}$/;
+
+function safeFailureDetail(error: unknown): string | undefined {
+  return error instanceof Error && SAFE_FAILURE_DETAIL.test(error.message)
+    ? error.message
+    : undefined;
+}
 
 function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
@@ -235,8 +244,13 @@ export async function runOriginAnswerQualityBenchmarkExecutionOnly(
     let execution: OriginAnswerQualityBenchmarkExecutionEvidence;
     try {
       execution = await input.execute(item);
-    } catch {
-      return { ok: false, code: "AQ_BENCHMARK_EXECUTION_FAILED", failedCaseId: item.caseId };
+    } catch (error) {
+      return {
+        ok: false,
+        code: "AQ_BENCHMARK_EXECUTION_FAILED",
+        failedCaseId: item.caseId,
+        ...(safeFailureDetail(error) ? { failureDetail: safeFailureDetail(error) } : {}),
+      };
     }
 
     if (!validExecution(item, execution)) {
@@ -333,8 +347,13 @@ export async function scoreOriginAnswerQualityBenchmarkExecution(
     let observation: OriginAnswerQualityBenchmarkObservation;
     try {
       observation = await input.score(item, execution);
-    } catch {
-      return { ok: false, code: "AQ_BENCHMARK_EXECUTION_FAILED", failedCaseId: item.caseId };
+    } catch (error) {
+      return {
+        ok: false,
+        code: "AQ_BENCHMARK_SCORING_FAILED",
+        failedCaseId: item.caseId,
+        ...(safeFailureDetail(error) ? { failureDetail: safeFailureDetail(error) } : {}),
+      };
     }
 
     if (!validScore(item, execution, observation)) {
