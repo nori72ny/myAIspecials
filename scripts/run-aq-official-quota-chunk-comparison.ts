@@ -5,8 +5,17 @@ import { promisify } from "node:util";
 
 import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from "../src/lib/orchestration/OriginFreeModelCatalog.js";
 import {
-  probeOriginAnswerQualityBenchmarkEnvironment,
+  probeOriginAnswerQualityBenchmarkChunkEnvironment,
 } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import {
+  createOriginAnswerQualityFrozenCorpus,
+} from "../src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.js";
+import {
+  createOriginAnswerQualityBenchmarkQuotaChunkPlan,
+} from "../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaChunk.js";
+import {
+  resolveOriginAnswerQualityBenchmarkExecutionLane,
+} from "../src/lib/orchestration/OriginAnswerQualityBenchmarkExecutionRouter.js";
 import {
   runOriginAnswerQualityOfficialQuotaChunk,
 } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaChunkRunner.js";
@@ -156,6 +165,15 @@ async function main(): Promise<void> {
   }
 
   const index = chunkIndex();
+  const corpus = createOriginAnswerQualityFrozenCorpus();
+  const plan = createOriginAnswerQualityBenchmarkQuotaChunkPlan(corpus, index);
+  if (!plan.ok) throw new Error(`AQ_QUOTA_CHUNK_PLAN_INVALID:${plan.code}`);
+  const requiredLanes = [...new Set(
+    plan.value.cases.map((item) =>
+      resolveOriginAnswerQualityBenchmarkExecutionLane(item.category)
+    ),
+  )];
+
   const baseline: Target = {
     label: "baseline",
     root: await fs.realpath(requiredEnv("ORIGIN_AQ_BASELINE_ROOT")),
@@ -193,17 +211,19 @@ async function main(): Promise<void> {
       waitHealthy(candidate, candidateServer),
     ]);
 
-    const baselineEnvironment = await probeOriginAnswerQualityBenchmarkEnvironment(
+    const baselineEnvironment = await probeOriginAnswerQualityBenchmarkChunkEnvironment(
       `http://127.0.0.1:${baseline.port}/`,
       baseline.sha,
+      requiredLanes,
     );
     if (!baselineEnvironment.ok) {
       throw new Error(`AQ_QUOTA_CHUNK_BASELINE_ENV_INVALID:${baselineEnvironment.code}`);
     }
 
-    const candidateEnvironment = await probeOriginAnswerQualityBenchmarkEnvironment(
+    const candidateEnvironment = await probeOriginAnswerQualityBenchmarkChunkEnvironment(
       `http://127.0.0.1:${candidate.port}/`,
       candidate.sha,
+      requiredLanes,
     );
     if (!candidateEnvironment.ok) {
       throw new Error(`AQ_QUOTA_CHUNK_CANDIDATE_ENV_INVALID:${candidateEnvironment.code}`);
