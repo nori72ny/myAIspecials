@@ -2,9 +2,20 @@ name: ORIGIN Self-Evolution Scan
 
 on:
   schedule:
-    # Monday 09:17 JST. Avoid the top-of-hour GitHub Actions schedule surge.
+    # Daily deterministic security/free-model evidence scan at 06:27 JST.
+    - cron: "27 21 * * *"
+    # Monday 09:17 JST full external scan + one bounded ORIGIN judgment.
     - cron: "17 0 * * 1"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "security or full"
+        required: false
+        default: "full"
+        type: choice
+        options:
+          - security
+          - full
 
 permissions:
   contents: read
@@ -22,6 +33,7 @@ jobs:
     env:
       ORIGIN_CHAT_ENDPOINT: https://origin-personal.vercel.app/api/chat
       ORIGIN_SELF_UPDATE_DISABLED: ${{ vars.ORIGIN_SELF_UPDATE_DISABLED || 'false' }}
+      ORIGIN_SELF_UPDATE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || (github.event.schedule == '27 21 * * *' && 'security' || 'full') }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
