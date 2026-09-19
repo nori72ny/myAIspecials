@@ -130,8 +130,34 @@ describe("OriginAnswerQualityOfficialShardedComparison", () => {
     expect(result.value.hardGates.exactCorpusCoverage).toBe(true);
     expect(result.value.hardGates.sameScorer).toBe(true);
     expect(result.value.hardGates.zeroCost).toBe(true);
+    expect(result.value.hardGates.userActionabilityNotWorse).toBe(true);
+    expect(result.value.hardGates.userActionabilityFamiliesNotWorse).toBe(true);
+    expect(result.value.userActionabilityRegressionFamilies).toEqual([]);
     expect(result.value.aggregateDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(result.value.shardDigests).toHaveLength(plan.shards.length);
+  });
+
+  it("surfaces a per-family actionability regression as an official hard-gate failure", () => {
+    const values = shards();
+    const targetCategory = "professional-advice";
+    const modified = values.map((shard) => {
+      const candidateObservations = shard.candidateObservations.map((item) =>
+        item.category === targetCategory ? { ...item, userActionabilityScore: 2 as const } : item
+      );
+      if (candidateObservations.every((item, index) =>
+        item.userActionabilityScore === shard.candidateObservations[index].userActionabilityScore
+      )) return shard;
+      const next = { ...shard, candidateObservations };
+      const { shardDigest: _digest, ...rest } = next;
+      return { ...next, shardDigest: digestOriginAnswerQualityOfficialShardComparison(rest) };
+    });
+
+    const result = aggregateOriginAnswerQualityOfficialShards(full, plan, modified);
+    expect(result.ok).toBe(true);
+    if (result.ok === false) return;
+    expect(result.value.hardGates.userActionabilityNotWorse).toBe(false);
+    expect(result.value.hardGates.userActionabilityFamiliesNotWorse).toBe(false);
+    expect(result.value.userActionabilityRegressionFamilies).toContain(targetCategory);
   });
 
   it("rejects a missing shard instead of calculating a partial 40-case score", () => {
