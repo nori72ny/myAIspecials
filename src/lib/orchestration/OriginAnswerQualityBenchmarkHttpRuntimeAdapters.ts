@@ -20,6 +20,8 @@ export interface OriginAnswerQualityBenchmarkHttpAdapterOptions {
   readonly fetchImpl?: typeof fetch;
   readonly nowMs?: () => number;
   readonly evidenceVault?: OriginAnswerQualityBenchmarkEphemeralEvidenceVault;
+  readonly expectedProviderId: string;
+  readonly expectedModelId: string;
 }
 
 interface ChatExecution {
@@ -101,6 +103,8 @@ async function executeChat(
   item: OriginAnswerQualityBenchmarkExecutableCase,
   base: URL,
   fetchImpl: typeof fetch,
+  expectedProviderId: string,
+  expectedModelId: string,
 ): Promise<ChatExecution> {
   let response: Response;
   try {
@@ -143,6 +147,29 @@ async function executeChat(
       : "";
   if (!content || !routing || routing.freeOnly !== true || routing.actualCostUsd !== 0) {
     throw new Error("AQ_BENCHMARK_CHAT_ZERO_COST_OR_RESPONSE_INVALID");
+  }
+
+  const providerUsed = routing.providerId !== undefined || routing.modelId !== undefined;
+  if (providerUsed) {
+    const providerRouting = record(routing.providerRouting);
+    const usage = record(routing.usage);
+    const policy = record(routing.providerDataPolicy);
+    if (
+      routing.providerId !== expectedProviderId
+      || routing.modelId !== expectedModelId
+      || !providerRouting
+      || providerRouting.requestedModel !== expectedModelId
+      || providerRouting.servedModel !== expectedModelId
+      || providerRouting.fallbackUsed !== false
+      || !usage
+      || usage.costUsd !== 0
+      || !policy
+      || policy.allowProviderFallbacks !== false
+      || policy.dataCollection !== "deny"
+      || policy.requireZeroDataRetention !== true
+    ) {
+      throw new Error("AQ_BENCHMARK_CHAT_PROVIDER_IDENTITY_INVALID");
+    }
   }
 
   const attempts = routing.providerAttempts;
@@ -256,7 +283,13 @@ export function createOriginAnswerQualityBenchmarkChatHttpAdapter(
     "origin-chat",
     async (item): Promise<OriginAnswerQualityBenchmarkExecutionEvidence> => {
       const startedAt = nowMs();
-      const result = await executeChat(item, base, fetchImpl);
+      const result = await executeChat(
+        item,
+        base,
+        fetchImpl,
+        options.expectedProviderId,
+        options.expectedModelId,
+      );
       if (result.ok && result.answerRef && result.evidenceRef) {
         options.evidenceVault?.put({
           caseId: item.caseId,
@@ -322,7 +355,13 @@ export function createOriginAnswerQualityBenchmarkArtifactHttpAdapter(
     "artifact-v1.2",
     async (item): Promise<OriginAnswerQualityBenchmarkExecutionEvidence> => {
       const startedAt = nowMs();
-      const chat = await executeChat(item, base, fetchImpl);
+      const chat = await executeChat(
+        item,
+        base,
+        fetchImpl,
+        options.expectedProviderId,
+        options.expectedModelId,
+      );
       if (!chat.ok) {
         return {
           caseId: item.caseId,

@@ -8,6 +8,35 @@ import {
   createOriginAnswerQualityBenchmarkResearchHttpAdapter,
 } from "./OriginAnswerQualityBenchmarkHttpRuntimeAdapters";
 
+const EXPECTED_PROVIDER = "openrouter-free";
+const EXPECTED_MODEL = "inclusionai/ling-3.0-flash-sante:free";
+
+function providerRouting(
+  verificationStatus: string,
+  providerAttempts = 1,
+  servedModel = EXPECTED_MODEL,
+) {
+  return {
+    freeOnly: true,
+    actualCostUsd: 0,
+    providerId: EXPECTED_PROVIDER,
+    modelId: EXPECTED_MODEL,
+    providerAttempts,
+    verificationStatus,
+    providerDataPolicy: {
+      allowProviderFallbacks: false,
+      dataCollection: "deny",
+      requireZeroDataRetention: true,
+    },
+    providerRouting: {
+      requestedModel: EXPECTED_MODEL,
+      servedModel,
+      fallbackUsed: false,
+    },
+    usage: { costUsd: 0 },
+  };
+}
+
 const proof: OriginAnswerQualityBenchmarkEnvironmentProof = {
   schemaVersion: "origin.aq-benchmark-environment-proof.v1",
   baseUrl: "https://candidate.example/",
@@ -53,6 +82,8 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
     const adapter = createOriginAnswerQualityBenchmarkResearchHttpAdapter({
       environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
       fetchImpl: fetchImpl as typeof fetch,
       nowMs: () => (now += 10),
       evidenceVault,
@@ -86,6 +117,8 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
   it("fails closed when Research reports any non-zero or non-free route", async () => {
     const adapter = createOriginAnswerQualityBenchmarkResearchHttpAdapter({
       environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
       fetchImpl: vi.fn(async () => json({
         ok: true,
         report: "# report",
@@ -108,17 +141,13 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
         evidence: [{ label: "source" }],
         verification: { status: "passed" },
       },
-      routing: {
-        freeOnly: true,
-        actualCostUsd: 0,
-        providerId: "openrouter-free",
-        providerAttempts: 2,
-        verificationStatus: "passed",
-      },
+      routing: providerRouting("passed", 2),
     }));
     const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
     const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
       environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
       fetchImpl: fetchImpl as typeof fetch,
       evidenceVault,
     });
@@ -139,6 +168,26 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     });
   });
 
+  it("rejects a served model that differs from the comparison identity", async () => {
+    const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
+      environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
+      fetchImpl: vi.fn(async () => json({
+        content: "回答です",
+        answer: {
+          answer: "回答です",
+          evidence: [],
+          verification: { status: "passed" },
+        },
+        routing: providerRouting("passed", 1, "other/model:free"),
+      })) as typeof fetch,
+    });
+
+    await expect(adapter(item("professional-advice")))
+      .rejects.toThrow("AQ_BENCHMARK_CHAT_PROVIDER_IDENTITY_INVALID");
+  });
+
   it("does not retry a failed Chat request and reports it as blocked", async () => {
     const fetchImpl = vi.fn(async () => json({
       code: "PROVIDER_UNAVAILABLE",
@@ -146,6 +195,8 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
     const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
       environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
       fetchImpl: fetchImpl as typeof fetch,
       evidenceVault,
     });
@@ -169,13 +220,7 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
             evidence: [],
             verification: { status: "not-required" },
           },
-          routing: {
-            freeOnly: true,
-            actualCostUsd: 0,
-            providerId: "openrouter-free",
-            providerAttempts: 1,
-            verificationStatus: "not-required",
-          },
+          routing: providerRouting("not-required"),
         });
       }
       if (path === "/api/artifacts/v1.2/generate") {
@@ -195,6 +240,8 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
     const adapter = createOriginAnswerQualityBenchmarkArtifactHttpAdapter({
       environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
       fetchImpl: fetchImpl as typeof fetch,
       evidenceVault,
     });
@@ -230,13 +277,7 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
         return json({
           content: "content",
           answer: { answer: "content", evidence: [], verification: { status: "not-required" } },
-          routing: {
-            freeOnly: true,
-            actualCostUsd: 0,
-            providerId: "openrouter-free",
-            providerAttempts: 1,
-            verificationStatus: "not-required",
-          },
+          routing: providerRouting("not-required"),
         });
       }
       return new Response(new Uint8Array([1]), {
@@ -251,6 +292,8 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     });
     const adapter = createOriginAnswerQualityBenchmarkArtifactHttpAdapter({
       environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
       fetchImpl: fetchImpl as typeof fetch,
     });
 
