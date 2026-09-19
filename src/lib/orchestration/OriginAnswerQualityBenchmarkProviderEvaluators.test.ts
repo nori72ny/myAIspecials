@@ -81,6 +81,20 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
           attempts: 1,
         });
       }
+      if (name === "submit_batch_claim_source_support") {
+        return result(request, {
+          items: [{
+            id: "source-1",
+            claim: "Claim",
+            sourceUrl: "https://example.com/",
+            sourceDigest: `sha256:${"d".repeat(64)}`,
+            support: "supported",
+            supportingExcerpt: "Claim",
+          }],
+          actualCostUsd: 0,
+          attempts: 1,
+        });
+      }
       throw new Error("unexpected tool");
     });
 
@@ -122,14 +136,25 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       sourceText: "Claim appears here.",
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1 },
     });
+    await evaluators.batchClaimAssessor({
+      items: [{
+        id: "source-1",
+        claim: "Claim",
+        sourceUrl: "https://example.com/",
+        sourceDigest: `sha256:${"d".repeat(64)}`,
+        sourceText: "Claim appears here.",
+      }],
+      executionPolicy: { maxCostUsd: 0, maxAttempts: 1 },
+    });
 
-    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenCalledTimes(5);
     const requests = execute.mock.calls.map(([request]) => request as OriginProviderExecutionRequest);
     expect(requests.map((request) => request.requiredTool?.name)).toEqual([
       "submit_material_claims",
       "submit_prompt_claim_support",
       "submit_benchmark_semantics",
       "submit_claim_source_support",
+      "submit_batch_claim_source_support",
     ]);
     for (const request of requests) {
       expect(request.plan.freeOnly).toBe(true);
