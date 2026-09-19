@@ -284,7 +284,8 @@
   .origin-header > div:first-child > span:nth-child(3) { padding-inline: 0.25rem; }
   .origin-header > div:last-child { gap: 0.25rem; }
 }
-@media (max-width: 379px) {
+/* Four 44px actions plus the brand need compact spacing on small phones. */
+@media (max-width: 419px) {
   .origin-header { gap: 0; padding-inline: 0; }
   .origin-header > div:first-child { gap: 0; }
   .origin-header > div:first-child > span:first-child { width: 1.5rem; height: 1.5rem; }
