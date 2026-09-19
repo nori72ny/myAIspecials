@@ -1,29 +1,3 @@
-const TOTAL_BUDGET_MS = 100_000;
-const DEFAULT_RETRY_DELAYS_MS = [200, 500, 1000];
-const MAX_RETRIES = 0;
-
-async function executeWithRetry(executeFn, request) {
-  const startTime = Date.now();
-  let lastError;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const elapsed = Date.now() - startTime;
-    const remainingBudget = Math.max(5000, TOTAL_BUDGET_MS - elapsed);
-    const timeoutForAttempt = Math.min(25_000, remainingBudget);
-    try { return await executeFn(request, timeoutForAttempt); } catch (err) {
-      lastError = err;
-      const status = err?.status ?? err?.statusCode ?? 0;
-      const code = err?.code ?? "";
-      const retryable = status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_TIMEOUT" || code === "PROVIDER_UNAVAILABLE" || code === "PROVIDER_INTERNAL_ERROR";
-      if (retryable && attempt < MAX_RETRIES) {
-        const delay = Math.min(err?.retryAfterSeconds ? err.retryAfterSeconds * 1000 : DEFAULT_RETRY_DELAYS_MS[attempt], 10_000);
-        if (elapsed + delay + 1000 < TOTAL_BUDGET_MS) { await new Promise((resolve) => setTimeout(resolve, delay)); continue; }
-      }
-      throw err;
-    }
-  }
-  throw lastError;
-}
-
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { createOriginAnswerEnvelope, type OriginAnswerEnvelope, type OriginAnswerEvidenceItem, type OriginAnswerVerificationStatus } from "../lib/orchestration/OriginAnswerEnvelope.js";
@@ -43,9 +17,6 @@ import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherR
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; }
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
-const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持したまま再試行していますが、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";
-const RETRYABLE_PROVIDER_CODES = new Set(["PROVIDER_RATE_LIMITED", "PROVIDER_TIMEOUT", "PROVIDER_UNAVAILABLE", "PROVIDER_INTERNAL_ERROR"]);
-function shouldRetryProvider(error: unknown): boolean { return error instanceof OriginProviderError && error.retryable && RETRYABLE_PROVIDER_CODES.has(error.code); }
 function systemInstruction(intent?: OriginRequestIntent, workPlan?: OriginAgentWorkPlan, resolvedPlan?: OriginResolvedWorkPlan, answerQualityInstruction?: string): string {
   const requestGuidance = intent ? `\n\n${originRequestIntentInstruction(intent)}` : "";
   const workPlanGuidance = workPlan ? `\n\n${originAgentWorkPlanInstruction(workPlan)}` : "";
@@ -58,7 +29,7 @@ function systemInstruction(intent?: OriginRequestIntent, workPlan?: OriginAgentW
 - Follow explicit user constraints over generic helpfulness. For rewriting, summarization, or formatting, preserve the supplied meaning and do not add urgency, importance, actions, owners, deadlines, channels, or other facts that were not provided. Preserve ambiguity or mark a placeholder instead of resolving it as fact.
 - When the user asks only for a transformed deliverable, return that deliverable without extra analysis, risks, or follow-up questions unless they explicitly request commentary.
 - Produce requested content now. Ask one concise question only when a missing fact would materially change the result; otherwise state minimal assumptions.
-- For explanatory or comparison answers, make the opening block a one-to-three sentence bottom line, followed by three to five prioritized key points. Put the most decision-relevant information first.
+- For routine explanatory or comparison answers, default to a one-to-three sentence bottom line followed by three to five prioritized key points. For complex multi-part requests, use as many distinct points as needed—within the six-section limit—to cover every material requirement without filler. Put the most decision-relevant information first.
 - Write for a phone screen: use short descriptive headings, one idea per paragraph, and compact bullet lists. Do not use a Markdown table unless the user explicitly asks for a table.
 - Use at most six main sections. Remove duplicated headings, repeated claims, generic filler, and repeated summaries.
 - Calibrate depth to complexity. Simple requests may be brief; multi-part, technical, planning, or consequential requests must address every explicit requirement with enough reasoning, constraints, examples, and execution detail to be decision-ready.
@@ -128,16 +99,16 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     if (isOriginCapabilityQuestion(lastUserMessage)) { const guide = createOriginCapabilityGuide(lastUserMessage); const reason = guide.language === "ja" ? "現在の公開版で利用できる機能と未接続機能を、ORIGINの製品仕様に基づいて案内しました。" : "Explained the current and unconnected capabilities from ORIGIN's product specification."; return res.json({ content: guide.content, answer: answerEnvelope(guide.content, guide.language, "not-required", reason, [], guide.limitations, guide.nextActions), routing: applicationRouting(requestId, reason) }); }
     const planningResult = buildOriginExecutionPlan({ goal: lastUserMessage.trim(), requiresCodeChanges: /実装|修正|コード|implement|fix/i.test(lastUserMessage), requiresFreshResearch: false, containsSecrets: false }, { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) }, originClientPolicy(body), { freeModelCatalog: options.freeModelCatalog, nowMs: catalogNow() });
     if (planningResult.ok === false) return res.status(planningResult.code === "INVALID_EXECUTION_POLICY" ? 400 : 503).json({ code: planningResult.code, message: planningResult.message, retryable: false, requestId });
-    const startedAt = now(); let providerRetryAttempted = false;
+    const startedAt = now();
     try {
       const requestIntent = classifyOriginRequestIntent(lastUserMessage, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required });
       const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) };
-      const result = await executeWithRetry(execute, providerRequest); assertOriginZeroCostExecutionResult(result, planningResult.plan.modelId);
+      const result = await execute(providerRequest); assertOriginZeroCostExecutionResult(result, planningResult.plan.modelId);
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       const evidence = extractProvidedOriginEvidence(result.text); const sourceEvidenceExpected = planningResult.plan.taskType === "research";
       if (evidence.length > 0) { limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。"); if (evidence.some((item) => item.claim === undefined)) limitations.push("一部の出典は、回答内のどの主張に対応するか明示されていません。"); nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。"); } else if (sourceEvidenceExpected) { limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。"); nextActions.push("一次情報の出典を確認してから判断してください。"); }
       console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), modelId: planningResult.plan.modelId, costUsd: result.actualCostUsd });
-      return res.json({ content: result.text, answer: answerEnvelope(result.text, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerRetryAttempted ? 2 : 1 } });
+      return res.json({ content: result.text, answer: answerEnvelope(result.text, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: 1 } });
     } catch (error) {
       if (error instanceof OriginProviderError) {
         console.warn("[origin-chat] provider request failed", { requestId, durationMs: Math.max(0, now() - startedAt), code: error.code, status: error.status, retryable: error.retryable, diagnostic: error.diagnostic });
