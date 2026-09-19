@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { probeOriginAnswerQualityBenchmarkEnvironment } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
+import {
+  probeOriginAnswerQualityBenchmarkEnvironment,
+  probeOriginAnswerQualityBenchmarkEnvironmentForLanes,
+} from "./OriginAnswerQualityBenchmarkEnvironmentProof";
 
 const sha = "a".repeat(40);
 
@@ -105,5 +108,62 @@ describe("OriginAnswerQualityBenchmarkEnvironmentProof", () => {
       sha,
       fetchFor() as typeof fetch,
     )).toEqual({ ok: false, code: "AQ_BENCHMARK_ENV_INVALID_BASE_URL" });
+  });
+
+  it("allows a research-only shard without probing coding or artifact readiness", async () => {
+    const fetchImpl = fetchFor({
+      coding: { ready: false },
+      artifact: { ready: false },
+    });
+
+    const result = await probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
+      "https://candidate.example/",
+      sha,
+      ["research"],
+      fetchImpl as typeof fetch,
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok === false) return;
+    expect(result.value.requiredLanes).toEqual(["research"]);
+    expect(result.value.runtimeIds).toEqual({
+      research: "grounded-research-v1.1",
+    });
+
+    const requestedPaths = fetchImpl.mock.calls.map((call) =>
+      new URL(String(call[0])).pathname
+    );
+    expect(requestedPaths).toEqual([
+      "/api/health",
+      "/api/research/v1.1/status",
+    ]);
+  });
+
+  it("still fails closed when the required research lane is invalid", async () => {
+    const result = await probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
+      "https://candidate.example/",
+      sha,
+      ["research"],
+      fetchFor({ research: { ok: false } }) as typeof fetch,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_ENV_RESEARCH_INVALID",
+    });
+  });
+
+  it("requires coding readiness when coding is actually part of the shard", async () => {
+    const result = await probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
+      "https://candidate.example/",
+      sha,
+      ["coding"],
+      fetchFor({ coding: { ready: false } }) as typeof fetch,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_ENV_CODING_NOT_READY",
+    });
   });
 });
