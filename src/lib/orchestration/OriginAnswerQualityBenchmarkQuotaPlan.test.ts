@@ -57,7 +57,7 @@ describe("OriginAnswerQualityBenchmarkQuotaPlan", () => {
 
     expect(first).toEqual(second);
     expect(first.ok).toBe(true);
-    if (!first.ok) return;
+    if (first.ok === false) return;
 
     const plannedIds = first.value.shards.flatMap((shard) => shard.caseIds);
     expect(plannedIds).toHaveLength(40);
