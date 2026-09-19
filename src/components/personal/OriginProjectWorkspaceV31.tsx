@@ -84,21 +84,21 @@ export default function OriginProjectWorkspaceV31({
         </select>
       </div>
 
-      {activeView === 'overview' && <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <article className="origin-card border p-3">
-          <p className="origin-muted m-0 text-xs font-bold">Conversation</p>
+      {activeView === 'overview' && <div className="mt-3 grid grid-cols-3 gap-2">
+        <article className="origin-card min-w-0 border p-2 sm:p-3">
+          <p className="origin-muted m-0 truncate text-[11px] font-bold sm:text-xs">Conversation</p>
           <p className="m-0 mt-1 text-lg font-black">{messages.length}</p>
-          <p className="origin-muted m-0 mt-1 text-xs">current messages · {sessions.length} archived sessions</p>
+          <p className="origin-muted m-0 mt-1 hidden text-xs sm:block">current messages · {sessions.length} archived sessions</p>
         </article>
-        <article className="origin-card border p-3">
-          <p className="origin-muted m-0 text-xs font-bold">Artifacts</p>
+        <article className="origin-card min-w-0 border p-2 sm:p-3">
+          <p className="origin-muted m-0 truncate text-[11px] font-bold sm:text-xs">Artifacts</p>
           <p className="m-0 mt-1 text-lg font-black">{artifacts.length}</p>
-          <p className="origin-muted m-0 mt-1 text-xs">{completedArtifacts} complete · {artifacts.length - completedArtifacts} generating</p>
+          <p className="origin-muted m-0 mt-1 hidden text-xs sm:block">{completedArtifacts} complete · {artifacts.length - completedArtifacts} generating</p>
         </article>
-        <article className="origin-card border p-3">
-          <p className="origin-muted m-0 text-xs font-bold">Mode</p>
-          <p className="m-0 mt-1 text-lg font-black">{mode === 'coding' ? 'Code' : mode === 'research' ? 'Research' : mode === 'creative' ? 'Create' : 'Chat'}</p>
-          <p className="origin-muted m-0 mt-1 text-xs">Project view does not change Mode automatically.</p>
+        <article className="origin-card min-w-0 border p-2 sm:p-3">
+          <p className="origin-muted m-0 truncate text-[11px] font-bold sm:text-xs">Mode</p>
+          <p className="m-0 mt-1 truncate text-base font-black sm:text-lg">{mode === 'coding' ? 'Code' : mode === 'research' ? 'Research' : mode === 'creative' ? 'Create' : 'Chat'}</p>
+          <p className="origin-muted m-0 mt-1 hidden text-xs sm:block">Project view does not change Mode automatically.</p>
         </article>
       </div>}
       {activeView === 'files' && codingEvidence.changedPaths.length > 0 && <section aria-label="Project Files" className="mt-3 origin-card border p-3">
