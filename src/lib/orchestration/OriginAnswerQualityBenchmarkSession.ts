@@ -217,7 +217,11 @@ export async function runOriginAnswerQualityBenchmarkSession(
       ok: false,
       code: "AQ_BENCHMARK_SESSION_EXECUTION_FAILED",
       detail: execution.failedCaseId
-        ? `${execution.code}:${execution.failedCaseId}`
+        ? [
+            execution.code,
+            execution.failedCaseId,
+            execution.failureDetail,
+          ].filter(Boolean).join(":")
         : execution.code,
     };
   }
