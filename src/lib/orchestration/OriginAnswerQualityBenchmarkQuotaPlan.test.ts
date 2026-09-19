@@ -90,7 +90,7 @@ describe("OriginAnswerQualityBenchmarkQuotaPlan", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok === true) return;
     expect(result.code).toBe("AQ_BENCHMARK_QUOTA_CASE_TOO_LARGE");
     expect(result.caseId).toMatch(/^b[67]-/);
   });
