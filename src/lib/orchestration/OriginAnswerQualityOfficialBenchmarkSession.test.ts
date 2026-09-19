@@ -33,6 +33,7 @@ describe("OriginAnswerQualityOfficialBenchmarkSession", () => {
     const promptClaimJudge = vi.fn();
     const semanticJudge = vi.fn();
     const claimAssessor = vi.fn();
+    const batchClaimAssessor = vi.fn();
     const fetchImpl = vi.fn();
 
     const result = await runOriginAnswerQualityOfficialBenchmarkSession({
@@ -53,6 +54,7 @@ describe("OriginAnswerQualityOfficialBenchmarkSession", () => {
       promptClaimJudge,
       semanticJudge,
       claimAssessor,
+      batchClaimAssessor,
       fetchImpl: fetchImpl as typeof fetch,
     });
 
@@ -64,6 +66,7 @@ describe("OriginAnswerQualityOfficialBenchmarkSession", () => {
     expect(promptClaimJudge).not.toHaveBeenCalled();
     expect(semanticJudge).not.toHaveBeenCalled();
     expect(claimAssessor).not.toHaveBeenCalled();
+    expect(batchClaimAssessor).not.toHaveBeenCalled();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
