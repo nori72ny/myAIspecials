@@ -23,12 +23,12 @@ concurrency:
 
 jobs:
   compare:
-    if: github.event.pull_request.head.ref == 'ci/aq-live-research-shard-v3'
+    if: github.event.pull_request.head.ref == 'ci/aq-live-research-shard-v4'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     env:
       BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
-      CANDIDATE_SHA: e175513c4b1b7171f4daba783e9c0ee8cde87af2
+      CANDIDATE_SHA: c1b8a7cf08ed03234ec6a194eea530916f255bcb
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ORIGIN_AQ_BASELINE_PORT: '4511'
       ORIGIN_AQ_CANDIDATE_PORT: '4512'
@@ -144,7 +144,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aq-live-research-shard-v3
+          name: aq-live-research-shard-v4
           path: aq-results/research-shard.json
           if-no-files-found: warn
           retention-days: 7
