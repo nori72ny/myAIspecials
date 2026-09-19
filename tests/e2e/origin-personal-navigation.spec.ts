@@ -170,20 +170,21 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(attempts).toBe(1);
   });
 
-  test('keeps the mobile header on one line with three 44px action targets', async ({ page }) => {
+  test('keeps the mobile header on one line with four 44px action targets', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
     await page.goto('/');
 
     const header = page.locator('header.origin-header');
     const history = page.getByTestId('history-drawer-toggle');
+    const improve = page.getByTestId('owner-improvement-toggle');
     const settings = page.getByRole('button', { name: '設定を開く' });
     const newConversation = page.getByRole('button', { name: '新規対話を開始' });
 
     await expect(header).toContainText('ORIGIN');
     await expect(header).toContainText('Personal 2.0');
-    await expect(header.getByRole('button')).toHaveCount(3);
+    await expect(header.getByRole('button')).toHaveCount(4);
     await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
-    for (const button of [history, settings, newConversation]) {
+    for (const button of [history, improve, settings, newConversation]) {
       const box = await button.boundingBox();
       expect(box?.height).toBeGreaterThanOrEqual(44);
       expect(box?.width).toBeGreaterThanOrEqual(44);
@@ -191,6 +192,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(await button.evaluate((element) => getComputedStyle(element).flexShrink)).toBe('0');
     }
     await expect(history).toContainText('☰');
+    await expect(improve).toContainText('✦');
     await expect(settings).toContainText('⚙️');
     await expect(newConversation).toContainText('＋');
     for (const brand of await header.locator(':scope > div:first-child > span').all()) {
