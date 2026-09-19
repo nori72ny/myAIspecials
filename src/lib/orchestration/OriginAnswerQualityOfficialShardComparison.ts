@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
-  probeOriginAnswerQualityBenchmarkEnvironment,
-  type OriginAnswerQualityBenchmarkEnvironmentProof,
+  probeOriginAnswerQualityBenchmarkEnvironmentForLanes,
 } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
   createOriginAnswerQualityBenchmarkShardCorpus,
@@ -13,6 +12,9 @@ import type {
 import type {
   OriginAnswerQualityBenchmarkMeasuredObservation,
 } from "./OriginAnswerQualityBenchmarkScorecard.js";
+import {
+  resolveOriginAnswerQualityBenchmarkRequiredLanes,
+} from "./OriginAnswerQualityBenchmarkExecutionRouter.js";
 import type {
   OriginAnswerQualityBenchmarkQuotaShard,
 } from "./OriginAnswerQualityBenchmarkQuotaPlan.js";
@@ -86,7 +88,7 @@ export type OriginAnswerQualityOfficialShardComparisonResult =
     };
 
 export interface OriginAnswerQualityOfficialShardComparisonDependencies {
-  readonly probeEnvironment?: typeof probeOriginAnswerQualityBenchmarkEnvironment;
+  readonly probeEnvironment?: typeof probeOriginAnswerQualityBenchmarkEnvironmentForLanes;
   readonly runSession?: (
     input: OriginAnswerQualityOfficialProviderScoredSessionInput,
   ) => Promise<OriginAnswerQualityOfficialBenchmarkSessionResult>;
@@ -501,13 +503,18 @@ export async function runOriginAnswerQualityOfficialShardComparison(
   }
 
   const probe = dependencies.probeEnvironment
-    ?? probeOriginAnswerQualityBenchmarkEnvironment;
+    ?? probeOriginAnswerQualityBenchmarkEnvironmentForLanes;
   const runSession = dependencies.runSession
     ?? runOriginAnswerQualityOfficialProviderScoredSession;
+
+  const requiredLanes = resolveOriginAnswerQualityBenchmarkRequiredLanes(
+    shardCorpus.value.cases,
+  );
 
   const baselineEnvironment = await probe(
     input.baseline.baseUrl,
     input.baseline.gitSha,
+    requiredLanes,
     input.fetchImpl,
   );
   if (baselineEnvironment.ok === false) {
@@ -521,6 +528,7 @@ export async function runOriginAnswerQualityOfficialShardComparison(
   const candidateEnvironment = await probe(
     input.candidate.baseUrl,
     input.candidate.gitSha,
+    requiredLanes,
     input.fetchImpl,
   );
   if (candidateEnvironment.ok === false) {
