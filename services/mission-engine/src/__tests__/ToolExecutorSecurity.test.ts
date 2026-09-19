@@ -2,7 +2,30 @@ import { describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { FileTool } from "../application/agent/ToolExecutor";
+import { FileTool, validateSecureFetchUrl } from "../application/agent/ToolExecutor";
+
+
+describe("ToolExecutor network egress boundary", () => {
+  it.each([
+    "http://wikipedia.org/wiki/Test",
+    "https://user:secret@wikipedia.org/wiki/Test",
+    "https://wikipedia.org:8443/wiki/Test",
+    "https://api.github.com/repos/example/demo?token=synthetic",
+    "https://api.github.com/repos/example/demo?api_key=synthetic",
+    "https://duckduckgo.com/?access-token=synthetic",
+  ])("rejects a risky outbound URL before DNS/network access: %s", (url) => {
+    expect(() => validateSecureFetchUrl(url)).toThrow(/Access denied/);
+  });
+
+  it("accepts a whitelisted public HTTPS URL and strips the fragment", () => {
+    expect(validateSecureFetchUrl("https://api.github.com/repos/example/demo#readme").toString())
+      .toBe("https://api.github.com/repos/example/demo");
+  });
+
+  it("still rejects a non-allowlisted public hostname", () => {
+    expect(() => validateSecureFetchUrl("https://example.com/public")).toThrow(/not whitelisted/);
+  });
+});
 
 describe("ToolExecutor legacy FileTool security boundary", () => {
   it("disables the legacy write primitive without touching the filesystem", async () => {
