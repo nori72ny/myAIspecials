@@ -227,4 +227,40 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
     })).rejects.toThrow("AQ_BENCHMARK_EVALUATOR_PLAN_UNAVAILABLE:FREE_PROVIDER_NOT_CONFIGURED");
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it("invokes the request meter before provider execution and can stop the call", async () => {
+    const execute = vi.fn().mockImplementation(async (request: OriginProviderExecutionRequest) =>
+      result(request, {
+        answerDigest: `sha256:${"a".repeat(64)}`,
+        claims: [],
+        actualCostUsd: 0,
+        attempts: 1,
+      })
+    );
+    let remaining = 1;
+    const evaluators = createOriginAnswerQualityBenchmarkProviderEvaluators({
+      env: { OPENROUTER_API_KEY: "test-only" },
+      nowMs: () => now,
+      openRouterConfigured: true,
+      execute,
+      beforeProviderRequest: () => {
+        if (remaining <= 0) throw new Error("AQ_TEST_REQUEST_BUDGET_EXCEEDED");
+        remaining -= 1;
+      },
+    });
+
+    await evaluators.materialClaimExtractor({
+      answerDigest: `sha256:${"a".repeat(64)}`,
+      answerText: "Answer",
+      executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
+    });
+
+    await expect(evaluators.materialClaimExtractor({
+      answerDigest: `sha256:${"a".repeat(64)}`,
+      answerText: "Answer",
+      executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
+    })).rejects.toThrow("AQ_TEST_REQUEST_BUDGET_EXCEEDED");
+
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
 });
