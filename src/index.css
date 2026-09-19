@@ -229,7 +229,12 @@
 .origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface)); border-color: color-mix(in oklch, var(--danger) 46%, var(--border-default)); color: var(--danger); }
 .origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-primary); }
 .origin-chat-user { background: var(--accent-primary); color: var(--text-on-accent); }
-.origin-chat-assistant { background: var(--bg-surface); color: var(--text-primary); }
+.origin-chat-assistant {
+  background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary));
+  border-color: color-mix(in oklch, var(--border-default) 88%, var(--accent-primary));
+  color: var(--text-primary);
+  box-shadow: 0 14px 38px color-mix(in oklch, var(--shadow-color) 42%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent);
+}
 .origin-answer-markdown { min-width: 0; max-width: 52rem; margin-inline: auto; overflow-wrap: anywhere; color: var(--text-primary); }
 .origin-answer-markdown > :first-child { margin-top: 0; }
 .origin-answer-markdown > :last-child { margin-bottom: 0; }
@@ -337,8 +342,9 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
 .origin-answer-code-toolbar button:hover, .origin-answer-actions button:hover { color: var(--text-primary); background: var(--bg-surface-muted); }
 .origin-answer-code-toolbar button:focus-visible, .origin-answer-actions button:focus-visible, .origin-answer-code pre:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
 .origin-answer-code-toolbar button[aria-pressed="true"] { color: var(--accent-primary); }
-.origin-answer-actions { margin-top: 1rem; border-top: 1px solid var(--border-default); padding-top: 0.4rem; font-size: 0.85rem; }
-.origin-answer-refinements { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
+.origin-answer-actions { display: grid; gap: 0.55rem; margin-top: 1.35rem; border-top: 1px solid var(--border-default); padding-top: 0.85rem; font-size: 0.85rem; }
+.origin-answer-refinements { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0; }
+.origin-verification { max-width: 52rem; margin-inline: auto; }
 .origin-answer-refinements button { border: 1px solid var(--border-default); background: var(--bg-surface-muted); }
 
 
