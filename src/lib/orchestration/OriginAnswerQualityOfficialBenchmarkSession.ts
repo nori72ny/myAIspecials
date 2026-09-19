@@ -7,7 +7,7 @@ import {
 } from "./OriginAnswerQualityBenchmarkProviderEvaluators.js";
 import type { OriginExecutionPlanningOptions } from "./OriginExecutionPolicy.js";
 import type { OriginMaterialClaimExtractor } from "./OriginMaterialClaimExtractor.js";
-import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import type { OriginAnswerQualityBenchmarkAnyEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import type {
   OriginAnswerQualityBenchmarkFrozenCorpus,
 } from "./OriginAnswerQualityBenchmarkCorpus.js";
@@ -50,7 +50,7 @@ export interface OriginAnswerQualityOfficialBenchmarkHarnessInput {
   readonly gitSha: string;
   readonly providerId: string;
   readonly modelId: string;
-  readonly environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof;
+  readonly environmentProof: OriginAnswerQualityBenchmarkAnyEnvironmentProof;
   readonly sourceRoot: string;
   readonly collectScoringEvidence: OriginAnswerQualityBenchmarkScoringEvidenceCollector;
   readonly scorerProvenance: OriginAnswerQualityOfficialBenchmarkScorerProvenance;
