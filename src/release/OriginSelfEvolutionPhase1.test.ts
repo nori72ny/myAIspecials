@@ -1,10 +1,15 @@
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("ORIGIN self-evolution phase 1 safety boundary", () => {
+  it("keeps the collector syntactically valid under the release Node runtime", () => {
+    expect(() => execFileSync(process.execPath, ["--check", "scripts/origin-self-update/collect-and-judge.mjs"], { stdio: "pipe" })).not.toThrow();
+  });
+
   it("keeps the scheduled workflow read-only for repository contents", () => {
     const workflow = read(".github/workflows/origin-self-update-scan.yml");
     expect(workflow).toContain("contents: read");
@@ -61,6 +66,8 @@ describe("ORIGIN self-evolution phase 1 safety boundary", () => {
     expect(collector).toContain("MAX_JUDGE_INPUT");
     expect(collector).toContain("MAX_FINDINGS");
     expect(collector).toContain("validateJudgeFindings");
+    expect(collector).toContain("safeIssueText");
+    expect(collector).toContain('replace(/https:\\/\\//gi, "hxxps://")');
   });
 
   it("locks future self-modification behind explicit later phases", () => {
