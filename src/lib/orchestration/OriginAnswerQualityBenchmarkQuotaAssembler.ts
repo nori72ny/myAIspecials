@@ -1,4 +1,5 @@
 import {
+  ORIGIN_AQ_CHUNK_MAX_CASES,
   createOriginAnswerQualityBenchmarkQuotaChunkPlan,
 } from "./OriginAnswerQualityBenchmarkQuotaChunk.js";
 import {
@@ -18,6 +19,9 @@ import {
 import type {
   OriginAnswerQualityBenchmarkFrozenCorpus,
 } from "./OriginAnswerQualityBenchmarkCorpus.js";
+import type {
+  OriginAnswerQualityBenchmarkMeasuredObservation,
+} from "./OriginAnswerQualityBenchmarkScorecard.js";
 import type {
   OriginAnswerQualityBenchmarkRunnerSuccess,
   OriginAnswerQualityBenchmarkScoredCase,
@@ -70,7 +74,9 @@ export function assembleOriginAnswerQualityBenchmarkQuotaChunks(input: {
   readonly corpus: OriginAnswerQualityBenchmarkFrozenCorpus;
   readonly artifacts: readonly OriginAnswerQualityBenchmarkQuotaChunkArtifact[];
 }): OriginAnswerQualityBenchmarkQuotaAssemblyResult {
-  const expectedChunkCount = Math.ceil(input.corpus.cases.length / 4);
+  const expectedChunkCount = Math.ceil(
+    input.corpus.cases.length / ORIGIN_AQ_CHUNK_MAX_CASES,
+  );
   if (input.artifacts.length !== expectedChunkCount || input.artifacts.length === 0) {
     return { ok: false, code: "AQ_BENCHMARK_CHUNK_SET_INCOMPLETE" };
   }
@@ -80,7 +86,7 @@ export function assembleOriginAnswerQualityBenchmarkQuotaChunks(input: {
   const seenChunkIndexes = new Set<number>();
   const seenCaseIds = new Set<string>();
   const scoredCases: OriginAnswerQualityBenchmarkScoredCase[] = [];
-  const measuredObservations = [];
+  const measuredObservations: OriginAnswerQualityBenchmarkMeasuredObservation[] = [];
 
   let totalProviderRequests = 0;
   let totalToolCalls = 0;
