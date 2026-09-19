@@ -26,18 +26,23 @@ export interface OriginAnswerQualityBenchmarkRuntimeReadiness {
 
 export function evaluateOriginAnswerQualityBenchmarkRuntimeReadiness(
   executors: OriginAnswerQualityBenchmarkLaneExecutors,
+  requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[] =
+    ORIGIN_AQ_BENCHMARK_REQUIRED_LANES,
 ): OriginAnswerQualityBenchmarkRuntimeReadiness {
+  const normalizedRequired = ORIGIN_AQ_BENCHMARK_REQUIRED_LANES.filter(
+    (lane) => requiredLanes.includes(lane),
+  );
   const metadataByLane = Object.fromEntries(
-    ORIGIN_AQ_BENCHMARK_REQUIRED_LANES.map((lane) => [
+    normalizedRequired.map((lane) => [
       lane,
       readOriginAnswerQualityBenchmarkRuntimeAdapterMetadata(executors[lane]),
     ]),
   ) as Record<OriginAnswerQualityBenchmarkExecutionLane, ReturnType<typeof readOriginAnswerQualityBenchmarkRuntimeAdapterMetadata>>;
 
-  const configuredLanes = ORIGIN_AQ_BENCHMARK_REQUIRED_LANES.filter(
+  const configuredLanes = normalizedRequired.filter(
     (lane) => metadataByLane[lane]?.lane === lane,
   );
-  const missingLanes = ORIGIN_AQ_BENCHMARK_REQUIRED_LANES.filter(
+  const missingLanes = normalizedRequired.filter(
     (lane) => metadataByLane[lane]?.lane !== lane,
   );
   const runtimeIds = Object.fromEntries(
@@ -57,8 +62,13 @@ export function evaluateOriginAnswerQualityBenchmarkRuntimeReadiness(
 
 export function assertOriginAnswerQualityBenchmarkRuntimeReady(
   executors: OriginAnswerQualityBenchmarkLaneExecutors,
+  requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[] =
+    ORIGIN_AQ_BENCHMARK_REQUIRED_LANES,
 ): void {
-  const readiness = evaluateOriginAnswerQualityBenchmarkRuntimeReadiness(executors);
+  const readiness = evaluateOriginAnswerQualityBenchmarkRuntimeReadiness(
+    executors,
+    requiredLanes,
+  );
   if (!readiness.ready) {
     throw new Error(
       `AQ_BENCHMARK_RUNTIME_NOT_READY:${readiness.missingLanes.join(",")}`,

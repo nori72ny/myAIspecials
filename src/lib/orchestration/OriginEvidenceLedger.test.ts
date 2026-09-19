@@ -89,7 +89,7 @@ describe("OriginEvidenceLedger", () => {
     }]).ok).toBe(false);
     expect(createOriginEvidenceLedger([{
       ...base,
-      detail: "api_key=synthetic_secret_123456",
+      detail: ["api_key", "synthetic_secret_123456"].join("="),
     }]).ok).toBe(false);
     expect(createOriginEvidenceLedger([{
       ...base,

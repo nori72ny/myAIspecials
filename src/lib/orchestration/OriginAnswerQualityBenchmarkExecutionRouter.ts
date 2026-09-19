@@ -38,6 +38,19 @@ export function resolveOriginAnswerQualityBenchmarkExecutionLane(
   }
 }
 
+export function resolveOriginAnswerQualityBenchmarkRequiredLanes(
+  items: readonly Pick<OriginAnswerQualityBenchmarkExecutableCase, "category">[],
+): readonly OriginAnswerQualityBenchmarkExecutionLane[] {
+  const lanes = new Set<OriginAnswerQualityBenchmarkExecutionLane>();
+  for (const item of items) {
+    lanes.add(resolveOriginAnswerQualityBenchmarkExecutionLane(item.category));
+  }
+  return Object.freeze(
+    (["research", "chat", "coding", "artifact"] as const)
+      .filter((lane) => lanes.has(lane)),
+  );
+}
+
 export interface OriginAnswerQualityBenchmarkLaneExecutors {
   readonly research?: OriginAnswerQualityBenchmarkRuntimeAdapter;
   readonly chat?: OriginAnswerQualityBenchmarkRuntimeAdapter;

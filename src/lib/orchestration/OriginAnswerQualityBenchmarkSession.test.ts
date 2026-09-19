@@ -128,6 +128,7 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
     expect(result).toEqual({
       ok: false,
       code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID",
+      detail: "AQ_BENCHMARK_SESSION_ENV_SHA_MISMATCH",
     });
   });
 

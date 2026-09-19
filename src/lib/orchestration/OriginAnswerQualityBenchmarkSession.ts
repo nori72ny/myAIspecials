@@ -1,10 +1,14 @@
-import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import type {
+  OriginAnswerQualityBenchmarkAnyEnvironmentProof,
+} from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
   createOriginAnswerQualityFrozenCorpus,
   type OriginAnswerQualityBenchmarkFrozenCorpus,
 } from "./OriginAnswerQualityBenchmarkCorpus.js";
 import {
   createOriginAnswerQualityBenchmarkLaneExecutor,
+  resolveOriginAnswerQualityBenchmarkRequiredLanes,
+  type OriginAnswerQualityBenchmarkExecutionLane,
   type OriginAnswerQualityBenchmarkLaneExecutors,
 } from "./OriginAnswerQualityBenchmarkExecutionRouter.js";
 import {
@@ -44,7 +48,7 @@ export interface OriginAnswerQualityBenchmarkSessionInput {
   readonly gitSha: string;
   readonly providerId: string;
   readonly modelId: string;
-  readonly environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof;
+  readonly environmentProof: OriginAnswerQualityBenchmarkAnyEnvironmentProof;
   readonly executors: OriginAnswerQualityBenchmarkLaneExecutors;
   readonly collectScoringEvidence: OriginAnswerQualityBenchmarkScoringEvidenceCollector;
   readonly nowMs?: () => number;
@@ -72,34 +76,117 @@ export type OriginAnswerQualityBenchmarkSessionResult =
       detail?: string;
     };
 
-export function isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
-  proof: OriginAnswerQualityBenchmarkEnvironmentProof,
+export type OriginAnswerQualityBenchmarkEnvironmentProofValidationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code:
+        | "AQ_BENCHMARK_SESSION_ENV_SHA_MISMATCH"
+        | "AQ_BENCHMARK_SESSION_ENV_ZERO_COST_INVALID"
+        | "AQ_BENCHMARK_SESSION_ENV_CODING_READINESS_INVALID"
+        | "AQ_BENCHMARK_SESSION_ENV_REQUIRED_LANES_MISMATCH"
+        | "AQ_BENCHMARK_SESSION_ENV_RUNTIME_ID_MISMATCH";
+    };
+
+export function validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
+  proof: OriginAnswerQualityBenchmarkAnyEnvironmentProof,
   gitSha: string,
+  requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[],
+): OriginAnswerQualityBenchmarkEnvironmentProofValidationResult {
+  if (
+    proof.expectedGitSha !== gitSha
+    || proof.observedReleaseSha !== gitSha
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_SHA_MISMATCH" };
+  }
+  if (
+    proof.freeOnly !== true
+    || proof.costUsd !== 0
+    || proof.paidFallbackEnabled !== false
+  ) {
+    return { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_ZERO_COST_INVALID" };
+  }
+
+  const expectedRuntimeIds: Partial<Record<
+    OriginAnswerQualityBenchmarkExecutionLane,
+    string
+  >> = {
+    research: "grounded-research-v1.1",
+    chat: "origin-chat",
+    coding: "coding-v1.4",
+    artifact: "artifact-v1.2",
+  };
+
+  if (proof.schemaVersion === "origin.aq-benchmark-environment-proof.v1") {
+    if (requiredLanes.includes("coding") && proof.codingReady !== true) {
+      return {
+        ok: false,
+        code: "AQ_BENCHMARK_SESSION_ENV_CODING_READINESS_INVALID",
+      };
+    }
+    const runtimeMismatch = requiredLanes.some((lane) =>
+      lane === "chat"
+        ? false
+        : proof.runtimeIds[lane] !== expectedRuntimeIds[lane]
+    );
+    return runtimeMismatch
+      ? { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_RUNTIME_ID_MISMATCH" }
+      : { ok: true };
+  }
+
+  const normalizedRequired = (["research", "chat", "coding", "artifact"] as const)
+    .filter((lane) => requiredLanes.includes(lane));
+  if (
+    proof.requiredLanes.length !== normalizedRequired.length
+    || !normalizedRequired.every((lane, index) => proof.requiredLanes[index] === lane)
+  ) {
+    return {
+      ok: false,
+      code: "AQ_BENCHMARK_SESSION_ENV_REQUIRED_LANES_MISMATCH",
+    };
+  }
+
+  return normalizedRequired.some(
+    (lane) => proof.runtimeIds[lane] !== expectedRuntimeIds[lane],
+  )
+    ? { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_RUNTIME_ID_MISMATCH" }
+    : { ok: true };
+}
+
+export function isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
+  proof: OriginAnswerQualityBenchmarkAnyEnvironmentProof,
+  gitSha: string,
+  requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[],
 ): boolean {
-  return proof.schemaVersion === "origin.aq-benchmark-environment-proof.v1"
-    && proof.expectedGitSha === gitSha
-    && proof.observedReleaseSha === gitSha
-    && proof.freeOnly === true
-    && proof.costUsd === 0
-    && proof.paidFallbackEnabled === false
-    && proof.codingReady === true
-    && proof.runtimeIds.research === "grounded-research-v1.1"
-    && proof.runtimeIds.coding === "coding-v1.4"
-    && proof.runtimeIds.artifact === "artifact-v1.2";
+  return validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
+    proof,
+    gitSha,
+    requiredLanes,
+  ).ok;
 }
 
 export async function runOriginAnswerQualityBenchmarkSession(
   input: OriginAnswerQualityBenchmarkSessionInput,
 ): Promise<OriginAnswerQualityBenchmarkSessionResult> {
-  if (!isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
-    input.environmentProof,
-    input.gitSha,
-  )) {
-    return { ok: false, code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID" };
+  const corpus = input.corpus ?? createOriginAnswerQualityFrozenCorpus();
+  const requiredLanes = resolveOriginAnswerQualityBenchmarkRequiredLanes(corpus.cases);
+
+  const environmentValidation =
+    validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
+      input.environmentProof,
+      input.gitSha,
+      requiredLanes,
+    );
+  if (environmentValidation.ok === false) {
+    return {
+      ok: false,
+      code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID",
+      detail: environmentValidation.code,
+    };
   }
 
   try {
-    assertOriginAnswerQualityBenchmarkRuntimeReady(input.executors);
+    assertOriginAnswerQualityBenchmarkRuntimeReady(input.executors, requiredLanes);
   } catch (error) {
     return {
       ok: false,
@@ -108,7 +195,6 @@ export async function runOriginAnswerQualityBenchmarkSession(
     };
   }
 
-  const corpus = input.corpus ?? createOriginAnswerQualityFrozenCorpus();
   const nowMs = input.nowMs ?? Date.now;
   const startedAtMs = nowMs();
   const measuredById = new Map<string, OriginAnswerQualityBenchmarkMeasuredObservation>();
@@ -131,7 +217,11 @@ export async function runOriginAnswerQualityBenchmarkSession(
       ok: false,
       code: "AQ_BENCHMARK_SESSION_EXECUTION_FAILED",
       detail: execution.failedCaseId
-        ? `${execution.code}:${execution.failedCaseId}`
+        ? [
+            execution.code,
+            execution.failedCaseId,
+            execution.failureDetail,
+          ].filter(Boolean).join(":")
         : execution.code,
     };
   }

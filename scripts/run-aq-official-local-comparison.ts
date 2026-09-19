@@ -5,8 +5,14 @@ import { promisify } from "node:util";
 
 import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from "../src/lib/orchestration/OriginFreeModelCatalog.js";
 import {
-  runOriginAnswerQualityOfficialComparison,
-} from "../src/lib/orchestration/OriginAnswerQualityOfficialBenchmarkComparison.js";
+  createOriginAnswerQualityFrozenCorpus,
+} from "../src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.js";
+import {
+  planOriginAnswerQualityBenchmarkQuotaShards,
+} from "../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.js";
+import {
+  runOriginAnswerQualityOfficialShardComparison,
+} from "../src/lib/orchestration/OriginAnswerQualityOfficialShardComparison.js";
 
 const exec = promisify(execFile);
 const SHA40 = /^[a-f0-9]{40}$/;
@@ -25,6 +31,20 @@ interface LocalTarget {
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`AQ_LOCAL_COMPARISON_ENV_MISSING:${name}`);
+  return value;
+}
+
+function parseShardIndex(maxExclusive: number): number {
+  const raw = requiredEnv("ORIGIN_AQ_SHARD_INDEX");
+  const value = Number.parseInt(raw, 10);
+  if (
+    !/^\d+$/.test(raw)
+    || !Number.isInteger(value)
+    || value < 0
+    || value >= maxExclusive
+  ) {
+    throw new Error("AQ_LOCAL_COMPARISON_SHARD_INDEX_INVALID");
+  }
   return value;
 }
 
@@ -152,11 +172,11 @@ async function stop(child: ChildProcess | undefined): Promise<void> {
 }
 
 function sanitizedResult(
-  result: Awaited<ReturnType<typeof runOriginAnswerQualityOfficialComparison>>,
+  result: Awaited<ReturnType<typeof runOriginAnswerQualityOfficialShardComparison>>,
 ) {
   if (result.ok === false) {
     return {
-      schemaVersion: "origin.aq-local-comparison-result.v1",
+      schemaVersion: "origin.aq-local-shard-result.v1",
       ok: false,
       code: result.code,
       ...(result.detail ? { detail: result.detail } : {}),
@@ -164,14 +184,9 @@ function sanitizedResult(
   }
 
   return {
-    schemaVersion: "origin.aq-local-comparison-result.v1",
+    schemaVersion: "origin.aq-local-shard-result.v1",
     ok: true,
-    baselineGitSha: result.value.baselineSession.measuredRun.boundRun.gitSha,
-    candidateGitSha: result.value.candidateSession.measuredRun.boundRun.gitSha,
-    scorerProvenance: result.value.evaluation.scorerProvenance,
-    scorerProvenanceDigest: result.value.evaluation.scorerProvenanceDigest,
-    officialBundleDigest: result.value.evaluation.officialBundleDigest,
-    evaluation: result.value.evaluation.evaluation,
+    shard: result.value,
   };
 }
 
@@ -180,9 +195,7 @@ async function main(): Promise<void> {
   const candidateRoot = await fs.realpath(requiredEnv("ORIGIN_AQ_CANDIDATE_ROOT"));
   const baselineSha = requiredEnv("ORIGIN_AQ_BASELINE_SHA");
   const candidateSha = requiredEnv("ORIGIN_AQ_CANDIDATE_SHA");
-  const outputPath = path.resolve(
-    process.env.ORIGIN_AQ_OUTPUT_PATH?.trim() || "test-results/aq-official-comparison.json",
-  );
+  const configuredOutputPath = process.env.ORIGIN_AQ_OUTPUT_PATH?.trim();
 
   const baseline: LocalTarget = {
     label: "baseline",
@@ -201,6 +214,17 @@ async function main(): Promise<void> {
     throw new Error("AQ_LOCAL_COMPARISON_TARGETS_NOT_DISTINCT");
   }
 
+  const fullCorpus = createOriginAnswerQualityFrozenCorpus();
+  const quotaPlan = planOriginAnswerQualityBenchmarkQuotaShards(fullCorpus, 45);
+  if (quotaPlan.ok === false) {
+    throw new Error(`AQ_LOCAL_COMPARISON_QUOTA_PLAN_FAILED:${quotaPlan.code}`);
+  }
+  const shardIndex = parseShardIndex(quotaPlan.value.shards.length);
+  const shard = quotaPlan.value.shards[shardIndex];
+  const outputPath = path.resolve(
+    configuredOutputPath || `test-results/aq-official-shard-${shardIndex}.json`,
+  );
+
   await validateTarget(baseline);
   await validateTarget(candidate);
   await buildTarget(baseline);
@@ -217,17 +241,19 @@ async function main(): Promise<void> {
       waitUntilHealthy(candidate, candidateServer),
     ]);
 
-    const result = await runOriginAnswerQualityOfficialComparison({
+    const result = await runOriginAnswerQualityOfficialShardComparison({
+      fullCorpus,
+      shard,
       providerId: "openrouter-free",
       modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
       baseline: {
-        runId: `baseline-${baseline.sha.slice(0, 12)}`,
+        runId: `baseline-${baseline.sha.slice(0, 12)}-s${shardIndex}`,
         gitSha: baseline.sha,
         baseUrl: `http://127.0.0.1:${baseline.port}/`,
         sourceRoot: baseline.root,
       },
       candidate: {
-        runId: `candidate-${candidate.sha.slice(0, 12)}`,
+        runId: `candidate-${candidate.sha.slice(0, 12)}-s${shardIndex}`,
         gitSha: candidate.sha,
         baseUrl: `http://127.0.0.1:${candidate.port}/`,
         sourceRoot: candidate.root,
@@ -243,11 +269,16 @@ async function main(): Promise<void> {
     );
 
     if (result.ok === false) {
-      throw new Error(`AQ_LOCAL_COMPARISON_FAILED:${result.code}`);
+      const detail = "detail" in result && typeof result.detail === "string"
+        ? result.detail
+        : "";
+      throw new Error(
+        `AQ_LOCAL_COMPARISON_FAILED:${result.code}${detail ? `:${detail}` : ""}`,
+      );
     }
 
     process.stdout.write(
-      `AQ official comparison completed: ${result.value.evaluation.officialBundleDigest}\n`,
+      `AQ official shard ${shardIndex}/${quotaPlan.value.shards.length - 1} completed: ${result.value.shardDigest}\n`,
     );
   } finally {
     await Promise.all([stop(candidateServer), stop(baselineServer)]);

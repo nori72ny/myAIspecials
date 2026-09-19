@@ -7,7 +7,10 @@ import {
 } from "./OriginAnswerQualityBenchmarkProviderEvaluators.js";
 import type { OriginExecutionPlanningOptions } from "./OriginExecutionPolicy.js";
 import type { OriginMaterialClaimExtractor } from "./OriginMaterialClaimExtractor.js";
-import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import type { OriginAnswerQualityBenchmarkAnyEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import type {
+  OriginAnswerQualityBenchmarkFrozenCorpus,
+} from "./OriginAnswerQualityBenchmarkCorpus.js";
 import {
   createOriginAnswerQualityBenchmarkEphemeralEvidenceVault,
   type OriginAnswerQualityBenchmarkEphemeralEvidenceVault,
@@ -47,10 +50,11 @@ export interface OriginAnswerQualityOfficialBenchmarkHarnessInput {
   readonly gitSha: string;
   readonly providerId: string;
   readonly modelId: string;
-  readonly environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof;
+  readonly environmentProof: OriginAnswerQualityBenchmarkAnyEnvironmentProof;
   readonly sourceRoot: string;
   readonly collectScoringEvidence: OriginAnswerQualityBenchmarkScoringEvidenceCollector;
   readonly scorerProvenance: OriginAnswerQualityOfficialBenchmarkScorerProvenance;
+  readonly corpus?: OriginAnswerQualityBenchmarkFrozenCorpus;
   readonly evidenceVault?: OriginAnswerQualityBenchmarkEphemeralEvidenceVault;
   readonly fetchImpl?: typeof fetch;
   readonly env?: NodeJS.ProcessEnv;
@@ -146,6 +150,7 @@ export async function runOriginAnswerQualityOfficialBenchmarkSessionHarness(
     },
     collectScoringEvidence: input.collectScoringEvidence,
     nowMs: input.nowMs,
+    corpus: input.corpus,
   });
 
   if (session.ok === false) return session;
@@ -210,6 +215,7 @@ export async function runOriginAnswerQualityOfficialBenchmarkSession(
       fetchImpl: input.fetchImpl,
       env: input.env,
       nowMs: input.nowMs,
+      corpus: input.corpus,
       evidenceVault,
       collectScoringEvidence: collector,
     });
@@ -240,6 +246,7 @@ export interface OriginAnswerQualityOfficialProviderScoredSessionInput
     | "batchClaimAssessor"
   > {
   readonly evaluatorPlanningOptions?: Omit<OriginExecutionPlanningOptions, "nowMs">;
+  readonly beforeEvaluatorRequest?: () => void;
 }
 
 /**
@@ -250,22 +257,34 @@ export interface OriginAnswerQualityOfficialProviderScoredSessionInput
  * source verification, and the consume-once evidence vault are constructed
  * internally from ORIGIN's current $0/ZDR execution policy.
  */
-export async function runOriginAnswerQualityOfficialProviderScoredSession(
+export interface OriginAnswerQualityOfficialProviderScoredSessionDependencies {
+  readonly createEvaluators?: typeof createOriginAnswerQualityBenchmarkProviderEvaluators;
+  readonly runEvidenceScoredSession?: typeof runOriginAnswerQualityOfficialEvidenceScoredSession;
+}
+
+export async function runOriginAnswerQualityOfficialProviderScoredSessionHarness(
   input: OriginAnswerQualityOfficialProviderScoredSessionInput,
+  dependencies: OriginAnswerQualityOfficialProviderScoredSessionDependencies = {},
 ): Promise<OriginAnswerQualityOfficialBenchmarkSessionResult> {
-  const evaluators = createOriginAnswerQualityBenchmarkProviderEvaluators({
+  const createEvaluators = dependencies.createEvaluators
+    ?? createOriginAnswerQualityBenchmarkProviderEvaluators;
+  const runEvidenceScoredSession = dependencies.runEvidenceScoredSession
+    ?? runOriginAnswerQualityOfficialEvidenceScoredSession;
+  const evaluators = createEvaluators({
     env: input.env,
     nowMs: input.nowMs,
     planningOptions: input.evaluatorPlanningOptions,
+    beforeProviderRequest: input.beforeEvaluatorRequest,
   });
 
-  return runOriginAnswerQualityOfficialEvidenceScoredSession({
+  return runEvidenceScoredSession({
     runId: input.runId,
     gitSha: input.gitSha,
     providerId: input.providerId,
     modelId: input.modelId,
     environmentProof: input.environmentProof,
     sourceRoot: input.sourceRoot,
+    corpus: input.corpus,
     fetchImpl: input.fetchImpl,
     env: input.env,
     nowMs: input.nowMs,
@@ -276,4 +295,11 @@ export async function runOriginAnswerQualityOfficialProviderScoredSession(
     claimAssessor: evaluators.claimAssessor,
     batchClaimAssessor: evaluators.batchClaimAssessor,
   });
+}
+
+
+export async function runOriginAnswerQualityOfficialProviderScoredSession(
+  input: OriginAnswerQualityOfficialProviderScoredSessionInput,
+): Promise<OriginAnswerQualityOfficialBenchmarkSessionResult> {
+  return runOriginAnswerQualityOfficialProviderScoredSessionHarness(input);
 }
