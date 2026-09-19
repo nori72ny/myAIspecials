@@ -47,10 +47,10 @@ export interface OriginAnswerQualityBenchmarkProviderEvaluators {
 }
 
 const SCORER_SOURCE = [
-  "origin-aq-provider-evaluator.v1",
+  "origin-aq-provider-evaluator.v2",
   "origin.aq-semantic-rubric.v1",
   "origin.aq-prompt-claim-support.v1",
-  "origin.material-claim-extractor.v1",
+  "origin.material-claim-extractor.v2-candidate-selection",
   "origin.claim-assessor.v1",
   "origin.batch-claim-assessor.v1",
   ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
@@ -95,36 +95,46 @@ const digest = { type: "string", pattern: "^sha256:[a-f0-9]{64}$" };
 const zero = { type: "number", enum: [0] };
 const one = { type: "integer", enum: [1] };
 
-const CLAIM_EXTRACTION_TOOL = tool(
-  "submit_material_claims",
-  "Return only material claims explicitly present in the supplied answer. Do not invent or paraphrase claim text.",
-  objectSchema({
-    answerDigest: digest,
-    claims: {
-      type: "array",
-      maxItems: 64,
-      items: objectSchema({
-        id: { type: "string", pattern: "^claim-[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$" },
-        text: { type: "string", minLength: 1, maxLength: 2000 },
-        kind: {
-          type: "string",
-          enum: ["factual", "inference", "assumption", "recommendation", "execution-claim"],
-        },
-        freshness: {
-          type: "string",
-          enum: ["not-applicable", "stable", "current", "real-time"],
-        },
-        evidenceRequirement: {
-          type: "string",
-          enum: ["none", "user-provided", "supporting-evidence", "deterministic-execution"],
-        },
-        risk: { type: "string", enum: ["low", "medium", "high"] },
-      }, ["id", "text", "kind", "freshness", "evidenceRequirement", "risk"]),
-    },
-    actualCostUsd: zero,
-    attempts: one,
-  }, ["answerDigest", "claims", "actualCostUsd", "attempts"]),
-);
+function claimExtractionTool(candidateIds: readonly string[]) {
+  if (
+    candidateIds.length < 1
+    || candidateIds.length > 64
+    || new Set(candidateIds).size !== candidateIds.length
+    || candidateIds.some((id) => !/^claim-[1-9][0-9]{0,2}$/.test(id))
+  ) {
+    throw new Error("AQ_BENCHMARK_EVALUATOR_CLAIM_CANDIDATES_INVALID");
+  }
+
+  return tool(
+    "submit_material_claims",
+    "Select only candidate IDs that are material claims. Classify each selected candidate without rewriting its text. Never create a new claim ID.",
+    objectSchema({
+      answerDigest: digest,
+      claims: {
+        type: "array",
+        maxItems: 64,
+        items: objectSchema({
+          id: { type: "string", enum: [...candidateIds] },
+          kind: {
+            type: "string",
+            enum: ["factual", "inference", "assumption", "recommendation", "execution-claim"],
+          },
+          freshness: {
+            type: "string",
+            enum: ["not-applicable", "stable", "current", "real-time"],
+          },
+          evidenceRequirement: {
+            type: "string",
+            enum: ["none", "user-provided", "supporting-evidence", "deterministic-execution"],
+          },
+          risk: { type: "string", enum: ["low", "medium", "high"] },
+        }, ["id", "kind", "freshness", "evidenceRequirement", "risk"]),
+      },
+      actualCostUsd: zero,
+      attempts: one,
+    }, ["answerDigest", "claims", "actualCostUsd", "attempts"]),
+  );
+}
 
 const PROMPT_CLAIM_TOOL = tool(
   "submit_prompt_claim_support",
@@ -304,7 +314,6 @@ function evaluator(
 export function createOriginAnswerQualityBenchmarkProviderEvaluators(
   options: OriginAnswerQualityBenchmarkProviderEvaluatorOptions = {},
 ): OriginAnswerQualityBenchmarkProviderEvaluators {
-  const extract = evaluator("material-claim-extraction", CLAIM_EXTRACTION_TOOL, options);
   const prompt = evaluator("prompt-claim-support", PROMPT_CLAIM_TOOL, options);
   const semantic = evaluator("semantic-rubric", SEMANTIC_TOOL, options);
   const support = evaluator("claim-source-support", CLAIM_SUPPORT_TOOL, options);
@@ -315,7 +324,12 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
   );
 
   return Object.freeze({
-    materialClaimExtractor: async (request) => extract(request),
+    materialClaimExtractor: async (request) =>
+      evaluator(
+        "material-claim-extraction",
+        claimExtractionTool(request.candidates.map((item) => item.id)),
+        options,
+      )(request),
     promptClaimJudge: async (request) => prompt(request),
     semanticJudge: async (request) => semantic(request),
     claimAssessor: async (request) => support(request),
