@@ -1,10 +1,14 @@
-import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
+import type {
+  OriginAnswerQualityBenchmarkAnyEnvironmentProof,
+} from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
   createOriginAnswerQualityFrozenCorpus,
   type OriginAnswerQualityBenchmarkFrozenCorpus,
 } from "./OriginAnswerQualityBenchmarkCorpus.js";
 import {
   createOriginAnswerQualityBenchmarkLaneExecutor,
+  resolveOriginAnswerQualityBenchmarkRequiredLanes,
+  type OriginAnswerQualityBenchmarkExecutionLane,
   type OriginAnswerQualityBenchmarkLaneExecutors,
 } from "./OriginAnswerQualityBenchmarkExecutionRouter.js";
 import {
@@ -44,7 +48,7 @@ export interface OriginAnswerQualityBenchmarkSessionInput {
   readonly gitSha: string;
   readonly providerId: string;
   readonly modelId: string;
-  readonly environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof;
+  readonly environmentProof: OriginAnswerQualityBenchmarkAnyEnvironmentProof;
   readonly executors: OriginAnswerQualityBenchmarkLaneExecutors;
   readonly collectScoringEvidence: OriginAnswerQualityBenchmarkScoringEvidenceCollector;
   readonly nowMs?: () => number;
@@ -73,33 +77,65 @@ export type OriginAnswerQualityBenchmarkSessionResult =
     };
 
 export function isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
-  proof: OriginAnswerQualityBenchmarkEnvironmentProof,
+  proof: OriginAnswerQualityBenchmarkAnyEnvironmentProof,
   gitSha: string,
+  requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[],
 ): boolean {
-  return proof.schemaVersion === "origin.aq-benchmark-environment-proof.v1"
-    && proof.expectedGitSha === gitSha
-    && proof.observedReleaseSha === gitSha
-    && proof.freeOnly === true
-    && proof.costUsd === 0
-    && proof.paidFallbackEnabled === false
-    && proof.codingReady === true
-    && proof.runtimeIds.research === "grounded-research-v1.1"
-    && proof.runtimeIds.coding === "coding-v1.4"
-    && proof.runtimeIds.artifact === "artifact-v1.2";
+  if (
+    proof.expectedGitSha !== gitSha
+    || proof.observedReleaseSha !== gitSha
+    || proof.freeOnly !== true
+    || proof.costUsd !== 0
+    || proof.paidFallbackEnabled !== false
+  ) return false;
+
+  const expectedRuntimeIds: Partial<Record<
+    OriginAnswerQualityBenchmarkExecutionLane,
+    string
+  >> = {
+    research: "grounded-research-v1.1",
+    chat: "origin-chat",
+    coding: "coding-v1.4",
+    artifact: "artifact-v1.2",
+  };
+
+  if (proof.schemaVersion === "origin.aq-benchmark-environment-proof.v1") {
+    return proof.codingReady === true
+      && requiredLanes.every((lane) =>
+        lane === "chat"
+          ? true
+          : proof.runtimeIds[lane] === expectedRuntimeIds[lane]
+      );
+  }
+
+  const normalizedRequired = (["research", "chat", "coding", "artifact"] as const)
+    .filter((lane) => requiredLanes.includes(lane));
+  if (
+    proof.requiredLanes.length !== normalizedRequired.length
+    || !normalizedRequired.every((lane, index) => proof.requiredLanes[index] === lane)
+  ) return false;
+
+  return normalizedRequired.every(
+    (lane) => proof.runtimeIds[lane] === expectedRuntimeIds[lane],
+  );
 }
 
 export async function runOriginAnswerQualityBenchmarkSession(
   input: OriginAnswerQualityBenchmarkSessionInput,
 ): Promise<OriginAnswerQualityBenchmarkSessionResult> {
+  const corpus = input.corpus ?? createOriginAnswerQualityFrozenCorpus();
+  const requiredLanes = resolveOriginAnswerQualityBenchmarkRequiredLanes(corpus.cases);
+
   if (!isOriginAnswerQualityBenchmarkSessionEnvironmentProofValid(
     input.environmentProof,
     input.gitSha,
+    requiredLanes,
   )) {
     return { ok: false, code: "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID" };
   }
 
   try {
-    assertOriginAnswerQualityBenchmarkRuntimeReady(input.executors);
+    assertOriginAnswerQualityBenchmarkRuntimeReady(input.executors, requiredLanes);
   } catch (error) {
     return {
       ok: false,
@@ -108,7 +144,6 @@ export async function runOriginAnswerQualityBenchmarkSession(
     };
   }
 
-  const corpus = input.corpus ?? createOriginAnswerQualityFrozenCorpus();
   const nowMs = input.nowMs ?? Date.now;
   const startedAtMs = nowMs();
   const measuredById = new Map<string, OriginAnswerQualityBenchmarkMeasuredObservation>();
