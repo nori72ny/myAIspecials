@@ -269,7 +269,12 @@ async function main(): Promise<void> {
     );
 
     if (result.ok === false) {
-      throw new Error(`AQ_LOCAL_COMPARISON_FAILED:${result.code}`);
+      const detail = "detail" in result && typeof result.detail === "string"
+        ? result.detail
+        : "";
+      throw new Error(
+        `AQ_LOCAL_COMPARISON_FAILED:${result.code}${detail ? `:${detail}` : ""}`,
+      );
     }
 
     process.stdout.write(
