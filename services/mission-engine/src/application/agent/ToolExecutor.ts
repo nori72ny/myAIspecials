@@ -111,7 +111,7 @@ export async function secureFetch(urlStr: string): Promise<string> {
         res.on("data", (chunk) => { body += chunk; if (body.length > 1_000_000) { req.destroy(); reject(new Error("Access denied: Response payload size exceeds limit.")); } });
         res.on("end", () => resolve(body));
       });
-      req.on("error", (err) => reject(new Error(`Secure fetch failed: ${err.message}`));
+      req.on("error", (err) => reject(new Error(`Secure fetch failed: ${err.message}`)));
       req.on("timeout", () => { req.destroy(); reject(new Error("Secure fetch request timed out.")); });
       req.end();
     });
