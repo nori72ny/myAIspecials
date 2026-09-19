@@ -120,7 +120,7 @@ async function collectOpenRouter(runtime) {
   };
 }
 
-export async function collectSnapshot(now = new Date()) {
+export async function collectSnapshot(now = new Date(), mode = "full") {
   const auditCommand = commandJson(["audit", "--json", "--ignore-scripts"]);
   const outdatedCommand = commandJson(["outdated", "--json"]);
   const audit = parseJson(auditCommand.raw, {});
@@ -128,10 +128,11 @@ export async function collectSnapshot(now = new Date()) {
   const runtime = readRuntimeEvidence();
   const [openrouter, officialSources] = await Promise.all([
     collectOpenRouter(runtime),
-    collectOfficialSources(),
+    mode === "security" ? Promise.resolve([]) : collectOfficialSources(),
   ]);
   return {
     generatedAt: now.toISOString(),
+    mode,
     repository: process.env.GITHUB_REPOSITORY ?? "nori72ny/myAIspecials",
     sha: process.env.GITHUB_SHA ?? "unknown",
     audit: {
@@ -287,6 +288,7 @@ async function askOrigin(snapshot) {
     generatedAt: snapshot.generatedAt,
     repository: snapshot.repository,
     sha: snapshot.sha,
+    mode: snapshot.mode,
     audit: snapshot.audit,
     outdated: snapshot.outdated,
     runtime: snapshot.runtime,
@@ -355,6 +357,7 @@ export function buildReport(snapshot, findings, judgeStatus) {
     `- generatedAt: ${snapshot.generatedAt}`,
     `- repository: ${snapshot.repository}`,
     `- exact SHA: ${snapshot.sha}`,
+    `- scan mode: ${snapshot.mode}`,
     `- judge: ${judgeStatus}`,
     `- fixed model: ${snapshot.runtime.model ?? "unknown"}`,
     `- fixed model present in public list: ${String(snapshot.openrouter.fixedModelPresent)}`,
@@ -430,25 +433,28 @@ async function main() {
     return;
   }
 
-  const snapshot = await collectSnapshot();
+  const mode = process.env.ORIGIN_SELF_UPDATE_MODE === "security" ? "security" : "full";
+  const snapshot = await collectSnapshot(new Date(), mode);
   const deterministic = deterministicFindings(snapshot, Date.parse(snapshot.generatedAt));
   let judged = [];
-  let judgeStatus = "not-run";
-  try {
-    judged = await askOrigin(snapshot);
-    judgeStatus = "success";
-  } catch (error) {
-    judgeStatus = `failed:${error instanceof Error ? error.message : "unknown"}`;
-    deterministic.push({
-      title: "ORIGIN judgment step failed closed",
-      category: "other",
-      risk: "medium",
-      source: "self-update judge",
-      affected_component: "self-evolution",
-      reason: "The scheduled collector could not obtain a valid structured ORIGIN judgment.",
-      recommended_action: "Review the deterministic evidence and the judge failure; do not auto-apply any update.",
-      limitation: "No AI judgment is treated as evidence from this run.",
-    });
+  let judgeStatus = mode === "security" ? "skipped:security-mode" : "not-run";
+  if (mode === "full") {
+    try {
+      judged = await askOrigin(snapshot);
+      judgeStatus = "success";
+    } catch (error) {
+      judgeStatus = `failed:${error instanceof Error ? error.message : "unknown"}`;
+      deterministic.push({
+        title: "ORIGIN judgment step failed closed",
+        category: "other",
+        risk: "medium",
+        source: "self-update judge",
+        affected_component: "self-evolution",
+        reason: "The scheduled collector could not obtain a valid structured ORIGIN judgment.",
+        recommended_action: "Review the deterministic evidence and the judge failure; do not auto-apply any update.",
+        limitation: "No AI judgment is treated as evidence from this run.",
+      });
+    }
   }
 
   const findings = mergeFindings(deterministic, judged);
@@ -462,6 +468,7 @@ async function main() {
   if (process.env.GITHUB_STEP_SUMMARY) {
     writeFileSync(process.env.GITHUB_STEP_SUMMARY, [
       "## ORIGIN Self-Evolution",
+      `- mode: ${mode}`,
       `- findings: ${findings.length}`,
       `- highest risk: ${highestRisk}`,
       `- judge: ${judgeStatus}`,
