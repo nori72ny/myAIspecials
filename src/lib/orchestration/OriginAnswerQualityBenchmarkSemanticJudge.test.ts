@@ -178,4 +178,29 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
       code: "AQ_BENCHMARK_SEMANTIC_JUDGE_NOT_AVAILABLE",
     });
   });
+  it("preserves safe provider diagnostics for semantic evaluation", async () => {
+    const input = {
+      caseId: "case-1",
+      category: "professional-advice" as const,
+      prompt: "Prompt",
+      answerText: "Answer",
+    };
+
+    await expect(judgeOriginAnswerQualityBenchmarkSemantics(
+      input,
+      vi.fn().mockRejectedValue({ code: "PROVIDER_UNAVAILABLE", message: "secret" }),
+    )).resolves.toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_EVALUATOR_PROVIDER_UNAVAILABLE",
+    });
+
+    await expect(judgeOriginAnswerQualityBenchmarkSemantics(
+      input,
+      vi.fn().mockRejectedValue(new Error("raw response must not escape")),
+    )).resolves.toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_SEMANTIC_JUDGE_FAILED",
+    });
+  });
+
 });
