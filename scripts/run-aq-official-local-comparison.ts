@@ -180,6 +180,18 @@ function sanitizedResult(
       ok: false,
       code: result.code,
       ...(result.detail ? { detail: result.detail } : {}),
+      ...(result.plannedPairedRequestsMax !== undefined
+        ? { plannedPairedRequestsMax: result.plannedPairedRequestsMax }
+        : {}),
+      ...(result.baselineEvaluatorRequests !== undefined
+        ? { baselineEvaluatorRequests: result.baselineEvaluatorRequests }
+        : {}),
+      ...(result.candidateEvaluatorRequests !== undefined
+        ? { candidateEvaluatorRequests: result.candidateEvaluatorRequests }
+        : {}),
+      ...(result.evaluatorRequestsTotal !== undefined
+        ? { evaluatorRequestsTotal: result.evaluatorRequestsTotal }
+        : {}),
     };
   }
 

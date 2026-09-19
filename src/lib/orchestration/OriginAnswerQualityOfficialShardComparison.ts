@@ -88,6 +88,10 @@ export type OriginAnswerQualityOfficialShardComparisonResult =
         | "AQ_BENCHMARK_SHARD_SCORER_MISMATCH"
         | "AQ_BENCHMARK_SHARD_SESSION_IDENTITY_MISMATCH";
       detail?: string;
+      plannedPairedRequestsMax?: number;
+      baselineEvaluatorRequests?: number;
+      candidateEvaluatorRequests?: number;
+      evaluatorRequestsTotal?: number;
     };
 
 export interface OriginAnswerQualityOfficialShardComparisonDependencies {
@@ -620,6 +624,10 @@ export async function runOriginAnswerQualityOfficialShardComparison(
       ok: false,
       code: "AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED",
       detail: sessionDetail(baseline),
+      plannedPairedRequestsMax: input.shard.pairedRequestsMax,
+      baselineEvaluatorRequests,
+      candidateEvaluatorRequests,
+      evaluatorRequestsTotal: evaluatorRequests,
     };
   }
 
@@ -642,6 +650,10 @@ export async function runOriginAnswerQualityOfficialShardComparison(
       ok: false,
       code: "AQ_BENCHMARK_SHARD_CANDIDATE_SESSION_FAILED",
       detail: sessionDetail(candidate),
+      plannedPairedRequestsMax: input.shard.pairedRequestsMax,
+      baselineEvaluatorRequests,
+      candidateEvaluatorRequests,
+      evaluatorRequestsTotal: evaluatorRequests,
     };
   }
 
