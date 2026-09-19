@@ -53,8 +53,8 @@ export class OriginProviderError extends Error {
 
 export type OriginFetch = typeof fetch;
 const RETRY: readonly number[] = [];
-const TIMEOUT = 6000;
-const MAX_SEGMENTS = 3;
+const MAX_PROVIDER_REQUEST_TIMEOUT_MS = 52_000;
+const MAX_SEGMENTS = 1;
 const MAX_TOOL_SCHEMA_BYTES = 32 * 1024;
 const MAX_TOOL_ARGUMENT_BYTES = 256 * 1024;
 const REQUIRED_TOOL_REASONING = { effort: "minimal", exclude: true } as const;
@@ -108,9 +108,9 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
 export function originCompletionTokenBudget(taskType: OriginExecutionPlan["taskType"], requiredTool = false): number {
   if (requiredTool) return 8192;
   switch (taskType) {
-    case "implementation": case "documentation": return 3600;
-    case "research": case "review": case "architecture": case "security": case "current-information": case "operations": case "ux": return 2600;
-    default: return 1600;
+    case "implementation": case "documentation": return 6144;
+    case "research": case "review": case "architecture": case "security": case "current-information": case "operations": case "ux": return 4096;
+    default: return 2400;
   }
 }
 const msgs = (messages: OriginChatMessage[], systemInstruction: string) => [
@@ -148,12 +148,12 @@ async function json(response: Response): Promise<unknown> {
   try { return await response.json(); }
   catch { throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true); }
 }
-async function request(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit): Promise<Response> {
+async function request(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit, timeoutMs: number): Promise<Response> {
   let last: unknown;
   for (let index = 0; index <= RETRY.length; index += 1) {
     if (index) await new Promise((resolve) => setTimeout(resolve, RETRY[index - 1]));
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetchImpl(input, { ...init, signal: controller.signal });
       if ([401, 402, 429].includes(response.status)) throw http(response.status, retryAfter(response.headers.get("Retry-After")));
@@ -262,11 +262,15 @@ async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderE
     ...(requestData.requiredTool ? { reasoning: REQUIRED_TOOL_REASONING } : {}),
     ...structured,
   };
+  const timeoutMs = Math.min(
+    MAX_PROVIDER_REQUEST_TIMEOUT_MS,
+    Math.max(5_000, Number(requestData.plan.timeoutMs) || MAX_PROVIDER_REQUEST_TIMEOUT_MS),
+  );
   return request(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" },
     body: JSON.stringify(sanitizePreEgressPayload(body)),
-  });
+  }, timeoutMs);
 }
 export async function executeOriginProvider(providerRequest: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv = process.env, fetchImpl: OriginFetch = fetch): Promise<OriginProviderExecutionResult> {
   validate(providerRequest.plan);

@@ -13,7 +13,7 @@ export default defineConfig({
   },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: 0,
   workers: 1, // Sequential for complex state
   reporter: [
     ['html', { outputFolder: 'playwright-report' }],
@@ -22,7 +22,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: E2E_BASE_URL,
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     video: 'retain-on-failure',
   },
   webServer: {
