@@ -15,6 +15,8 @@ describe("originChatResponsePolicy", () => {
     ["Show me today's pricing", true],
     ["この文章を200字以内に短くして。『詳細料金は来週確定します。』", false],
     ["最新の為替レートを検索できない状態だと仮定します。断定せず安全な次の行動を示してください。", false],
+    ["Assume the only external source timed out. Explain how to handle a current-price question safely.", false],
+    ["The only external source timed out; suppose this is a fail-closed test case.", false],
     ["価格弾力性の意味を説明してください", false],
     ["価格戦略の基本を教えて", false],
     ["What does price elasticity mean?", false],
