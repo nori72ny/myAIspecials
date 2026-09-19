@@ -579,8 +579,18 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; artifa
     }).catch(() => { /* Keep the in-memory history available if durable storage cannot be read. */ });
     return () => { active = false; };
   }, [isOpen]);
-  const searchableSessions = storedSessions ?? sessions;
-  const searchableArtifacts = storedArtifacts ?? artifacts;
+  const searchableSessions = useMemo(() => {
+    if (storedSessions === null) return sessions;
+    const merged = new Map(storedSessions.map((session) => [session.id, session] as const));
+    sessions.forEach((session) => merged.set(session.id, session));
+    return Array.from(merged.values());
+  }, [sessions, storedSessions]);
+  const searchableArtifacts = useMemo(() => {
+    if (storedArtifacts === null) return artifacts;
+    const merged = new Map(storedArtifacts.map((artifact) => [artifact.id, artifact] as const));
+    artifacts.forEach((artifact) => merged.set(artifact.id, artifact));
+    return Array.from(merged.values());
+  }, [artifacts, storedArtifacts]);
   const results = useMemo(() => searchOriginLocalSnapshot(deferredQuery, searchableSessions, searchableArtifacts), [deferredQuery, searchableArtifacts, searchableSessions]);
   return <>
     <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[15px] font-semibold sm:w-auto sm:min-w-11 sm:px-3 sm:text-[13px]"><span aria-hidden="true">☰</span><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
