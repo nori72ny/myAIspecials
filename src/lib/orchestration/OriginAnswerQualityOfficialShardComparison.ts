@@ -66,6 +66,8 @@ export interface OriginAnswerQualityOfficialShardComparison {
   readonly candidateMeasuredDigest: string;
   readonly baselineRuntimeProviderRequests: number;
   readonly candidateRuntimeProviderRequests: number;
+  readonly baselineEvaluatorRequests: number;
+  readonly candidateEvaluatorRequests: number;
   readonly scorerProvenance: OriginAnswerQualityOfficialBenchmarkScorerProvenance;
   readonly scorerProvenanceDigest: string;
   readonly baselineObservations: readonly OriginAnswerQualityBenchmarkMeasuredObservation[];
@@ -184,6 +186,8 @@ export function digestOriginAnswerQualityOfficialShardComparison(
     value.candidateMeasuredDigest,
     value.baselineRuntimeProviderRequests,
     value.candidateRuntimeProviderRequests,
+    value.baselineEvaluatorRequests,
+    value.candidateEvaluatorRequests,
     value.scorerProvenanceDigest,
     baseline,
     candidate,
@@ -210,6 +214,8 @@ const SHARD_KEYS = new Set([
   "candidateMeasuredDigest",
   "baselineRuntimeProviderRequests",
   "candidateRuntimeProviderRequests",
+  "baselineEvaluatorRequests",
+  "candidateEvaluatorRequests",
   "scorerProvenance",
   "scorerProvenanceDigest",
   "baselineObservations",
@@ -400,6 +406,8 @@ export function parseOriginAnswerQualityOfficialShardComparison(
     || !/^sha256:[a-f0-9]{64}$/.test(value.candidateMeasuredDigest)
     || !nonNegativeInteger(value.baselineRuntimeProviderRequests)
     || !nonNegativeInteger(value.candidateRuntimeProviderRequests)
+    || !nonNegativeInteger(value.baselineEvaluatorRequests)
+    || !nonNegativeInteger(value.candidateEvaluatorRequests)
     || scorer.schemaVersion !== "origin.aq-benchmark-scorer.v1"
     || scorer.scorerId !== "origin-aq-public-deterministic-v1"
     || typeof scorer.scorerRevision !== "string"
@@ -437,6 +445,8 @@ export function parseOriginAnswerQualityOfficialShardComparison(
     candidateMeasuredDigest: value.candidateMeasuredDigest,
     baselineRuntimeProviderRequests: value.baselineRuntimeProviderRequests,
     candidateRuntimeProviderRequests: value.candidateRuntimeProviderRequests,
+    baselineEvaluatorRequests: value.baselineEvaluatorRequests,
+    candidateEvaluatorRequests: value.candidateEvaluatorRequests,
     scorerProvenance: Object.freeze({
       schemaVersion: "origin.aq-benchmark-scorer.v1",
       scorerId: "origin-aq-public-deterministic-v1",
@@ -560,6 +570,27 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     evaluatorRequests += 1;
   };
 
+  const budgetByCaseId = new Map(
+    input.fullCorpus.cases.map((item) => [
+      item.caseId,
+      getOriginAnswerQualityBenchmarkQuotaCaseBudget(item),
+    ] as const),
+  );
+  const shardBudgets = input.shard.caseIds.map((caseId) => budgetByCaseId.get(caseId));
+  if (shardBudgets.some((item) => item === undefined)) {
+    return {
+      ok: false,
+      code: "AQ_BENCHMARK_SHARD_COMPARISON_INVALID_INPUT",
+      detail: "AQ_BENCHMARK_SHARD_CASE_BUDGET_MISSING",
+    };
+  }
+  const evaluatorRequestsPerSideMax = shardBudgets.reduce(
+    (sum, item) => sum + item!.scorerRequestsPerRuntimeMax,
+    0,
+  );
+  let baselineEvaluatorRequests = 0;
+  let candidateEvaluatorRequests = 0;
+
   const shared = {
     providerId: input.providerId,
     modelId: input.modelId,
@@ -576,6 +607,12 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     gitSha: input.baseline.gitSha,
     environmentProof: baselineEnvironment.value,
     sourceRoot: input.baseline.sourceRoot,
+    beforeEvaluatorRequest: () => {
+      if (baselineEvaluatorRequests >= evaluatorRequestsPerSideMax) {
+        throw new Error("AQ_BENCHMARK_SHARD_EVALUATOR_BUDGET_EXCEEDED");
+      }
+      baselineEvaluatorRequests += 1;
+    },
     ...shared,
   });
   if (baseline.ok === false) {
@@ -591,6 +628,12 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     gitSha: input.candidate.gitSha,
     environmentProof: candidateEnvironment.value,
     sourceRoot: input.candidate.sourceRoot,
+    beforeEvaluatorRequest: () => {
+      if (candidateEvaluatorRequests >= evaluatorRequestsPerSideMax) {
+        throw new Error("AQ_BENCHMARK_SHARD_EVALUATOR_BUDGET_EXCEEDED");
+      }
+      candidateEvaluatorRequests += 1;
+    },
     ...shared,
   });
   if (candidate.ok === false) {
@@ -630,6 +673,26 @@ export async function runOriginAnswerQualityOfficialShardComparison(
       (item) => Object.freeze({ ...item }),
     ),
   );
+  const baselineRuntimeProviderRequests = baselineObservations.reduce(
+    (sum, item) => sum + item.providerRequests,
+    0,
+  );
+  const candidateRuntimeProviderRequests = candidateObservations.reduce(
+    (sum, item) => sum + item.providerRequests,
+    0,
+  );
+  const measuredPairedRequests =
+    baselineRuntimeProviderRequests
+    + candidateRuntimeProviderRequests
+    + baselineEvaluatorRequests
+    + candidateEvaluatorRequests;
+  if (measuredPairedRequests > input.shard.pairedRequestsMax) {
+    return {
+      ok: false,
+      code: "AQ_BENCHMARK_SHARD_SESSION_IDENTITY_MISMATCH",
+      detail: "AQ_BENCHMARK_SHARD_REQUEST_BUDGET_EXCEEDED",
+    };
+  }
 
   const base = {
     schemaVersion: "origin.aq-official-shard-comparison.v1" as const,
@@ -648,14 +711,10 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     candidateRunId: input.candidate.runId,
     baselineMeasuredDigest: baseline.value.measuredRun.measuredDigest,
     candidateMeasuredDigest: candidate.value.measuredRun.measuredDigest,
-    baselineRuntimeProviderRequests: baselineObservations.reduce(
-      (sum, item) => sum + item.providerRequests,
-      0,
-    ),
-    candidateRuntimeProviderRequests: candidateObservations.reduce(
-      (sum, item) => sum + item.providerRequests,
-      0,
-    ),
+    baselineRuntimeProviderRequests,
+    candidateRuntimeProviderRequests,
+    baselineEvaluatorRequests,
+    candidateEvaluatorRequests,
     scorerProvenance: Object.freeze({ ...baseline.value.scorerProvenance }),
     scorerProvenanceDigest: baseline.value.scorerProvenanceDigest,
     baselineObservations,
