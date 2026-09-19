@@ -59,7 +59,7 @@ function readRuntimeEvidence() {
   return { model, reviewAfter };
 }
 
-async function fetchText(url, timeoutMs = 10_000) {
+async function fetchText(url, timeoutMs = 10_000, maxChars = 100_000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -69,7 +69,7 @@ async function fetchText(url, timeoutMs = 10_000) {
       headers: { Accept: "text/html,application/atom+xml,application/rss+xml;q=0.9,*/*;q=0.1", "User-Agent": "ORIGIN-Self-Evolution/1.0" },
     });
     const text = await response.text();
-    return { ok: response.ok, status: response.status, text: bounded(text, 100_000), etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") };
+    return { ok: response.ok, status: response.status, text: bounded(text, maxChars), etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") };
   } catch {
     return { ok: false, status: 0, text: "", etag: null, lastModified: null };
   } finally {
@@ -96,9 +96,10 @@ async function collectOfficialSources() {
 }
 
 async function collectOpenRouter(runtime) {
-  const response = await fetchText("https://openrouter.ai/api/v1/models");
-  if (!response.ok) return { ok: false, status: response.status, freeModels: [], fixedModelPresent: null };
-  const payload = parseJson(response.text, {});
+  const response = await fetchText("https://openrouter.ai/api/v1/models", 10_000, 5_000_000);
+  if (!response.ok) return { ok: false, status: response.status, parsed: false, freeModels: [], fixedModelPresent: null };
+  const payload = parseJson(response.text, null);
+  if (!payload || !Array.isArray(payload.data)) return { ok: false, status: response.status, parsed: false, freeModels: [], fixedModelPresent: null };
   const freeModels = Array.isArray(payload?.data)
     ? payload.data
       .filter((model) => String(model?.pricing?.prompt ?? "") === "0" && String(model?.pricing?.completion ?? "") === "0")
@@ -109,6 +110,7 @@ async function collectOpenRouter(runtime) {
   return {
     ok: true,
     status: response.status,
+    parsed: true,
     freeModels: freeModels.slice(0, 500),
     fixedModelPresent: runtime.model ? freeModels.includes(runtime.model) : false,
   };
@@ -274,6 +276,7 @@ async function askOrigin(snapshot) {
     openrouter: {
       ok: snapshot.openrouter.ok,
       status: snapshot.openrouter.status,
+      parsed: snapshot.openrouter.parsed,
       fixedModelPresent: snapshot.openrouter.fixedModelPresent,
       freeModelCount: snapshot.openrouter.freeModels.length,
     },
@@ -357,7 +360,19 @@ export function buildReport(snapshot, findings, judgeStatus) {
     lines.push("");
   }
   const reportWithoutFingerprint = lines.join("\n");
-  const fingerprint = sha256(reportWithoutFingerprint);
+  const fingerprint = sha256(JSON.stringify({
+    sha: snapshot.sha,
+    runtime: snapshot.runtime,
+    openrouter: {
+      ok: snapshot.openrouter.ok,
+      parsed: snapshot.openrouter.parsed,
+      fixedModelPresent: snapshot.openrouter.fixedModelPresent,
+      freeModelCount: snapshot.openrouter.freeModels.length,
+    },
+    officialSources: snapshot.officialSources.map((source) => ({ id: source.id, ok: source.ok, status: source.status, fingerprint: source.fingerprint })),
+    findings,
+    judgeStatus,
+  }));
   return `${reportWithoutFingerprint}\n<!-- origin-self-update-fingerprint:${fingerprint} -->\n`;
 }
 
