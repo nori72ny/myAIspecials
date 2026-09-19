@@ -1,0 +1,150 @@
+name: AQ live research-only quota shard
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/aq-live-research-shard.yml'
+      - 'scripts/select-aq-research-shard.ts'
+      - 'scripts/run-aq-official-local-comparison.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityBenchmarkEnvironmentProof.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityBenchmarkRuntimeReadiness.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityBenchmarkSession.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityOfficialShardComparison.ts'
+      - 'src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.ts'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-aq-live-research-shard
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: github.event.pull_request.head.ref == 'ci/aq-live-research-shard-v5'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
+      CANDIDATE_SHA: d427dd82bcc517664bd3e473807cf1adbcd81d8c
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ORIGIN_AQ_BASELINE_PORT: '4511'
+      ORIGIN_AQ_CANDIDATE_PORT: '4512'
+
+    steps:
+      - name: Checkout frozen baseline
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Checkout candidate exact feature SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            baseline/package-lock.json
+            candidate/package-lock.json
+
+      - name: Install exact dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd baseline && npm ci --ignore-scripts)
+          (cd candidate && npm ci --ignore-scripts)
+
+      - name: Verify credential boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          test -z "${GEMINI_API_KEY:-}"
+
+      - name: Select deterministic Research-only shard
+        id: shard
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          shard_index="$(npx tsx scripts/select-aq-research-shard.ts)"
+          test "$shard_index" -ge 0
+          echo "index=$shard_index" >> "$GITHUB_OUTPUT"
+
+      - name: Run exact-SHA Research shard comparison
+        working-directory: candidate
+        shell: bash
+        env:
+          ORIGIN_AQ_SHARD_INDEX: ${{ steps.shard.outputs.index }}
+          ORIGIN_AQ_BASELINE_ROOT: ${{ github.workspace }}/baseline
+          ORIGIN_AQ_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
+          ORIGIN_AQ_BASELINE_SHA: ${{ env.BASELINE_SHA }}
+          ORIGIN_AQ_CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+          ORIGIN_AQ_OUTPUT_PATH: ${{ github.workspace }}/aq-results/research-shard.json
+        run: |
+          set -euo pipefail
+          npm run eval:aq-local-comparison-shard
+
+      - name: Inspect sanitized Research shard output
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s aq-results/research-shard.json ]; then
+            echo "No sanitized shard result file was produced."
+            exit 0
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const raw = fs.readFileSync('aq-results/research-shard.json', 'utf8');
+          const value = JSON.parse(raw);
+          if (value?.schemaVersion !== 'origin.aq-local-shard-result.v1') process.exit(1);
+          for (const forbidden of ['answerText','"prompt"','"messages"','chain-of-thought','OPENROUTER_API_KEY']) {
+            if (raw.includes(forbidden)) process.exit(1);
+          }
+          if (value?.ok === true) {
+            const shard = value?.shard;
+            if (shard?.schemaVersion !== 'origin.aq-official-shard-comparison.v1') process.exit(1);
+            if (!/^sha256:[a-f0-9]{64}$/.test(String(shard?.shardDigest || ''))) process.exit(1);
+            if (shard?.baselineGitSha !== process.env.BASELINE_SHA) process.exit(1);
+            if (shard?.candidateGitSha !== process.env.CANDIDATE_SHA) process.exit(1);
+            if (!Array.isArray(shard?.baselineObservations) || shard.baselineObservations.length === 0) process.exit(1);
+            if (shard.baselineObservations.some((x) => !['current-factual','multi-source-comparison','contradiction-detection'].includes(x.category))) process.exit(1);
+            if (shard.candidateObservations.some((x) => !['current-factual','multi-source-comparison','contradiction-detection'].includes(x.category))) process.exit(1);
+          } else {
+            if (typeof value?.code !== 'string' || !/^AQ_[A-Z0-9_:.-]+$/.test(value.code)) process.exit(1);
+            if (value?.detail !== undefined && (typeof value.detail !== 'string' || !/^[A-Z0-9_:.-]+$/.test(value.detail))) process.exit(1);
+          }
+          NODE
+          chmod 600 aq-results/research-shard.json
+        env:
+          BASELINE_SHA: ${{ env.BASELINE_SHA }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+
+      - name: Require successful Research shard evidence
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const v=require('./aq-results/research-shard.json'); if(v?.ok!==true) process.exit(1)"
+
+      - name: Upload sanitized Research shard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aq-live-research-shard-v5
+          path: aq-results/research-shard.json
+          if-no-files-found: warn
+          retention-days: 7
