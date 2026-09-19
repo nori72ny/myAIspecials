@@ -107,7 +107,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
 
     await evaluators.materialClaimExtractor({
       answerDigest: `sha256:${"a".repeat(64)}`,
-      answerText: "Answer",
+      candidates: [{ id: "claim-1", text: "Answer" }],
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
     });
     await evaluators.promptClaimJudge({
@@ -156,6 +156,21 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       "submit_claim_source_support",
       "submit_batch_claim_source_support",
     ]);
+    const claimTool = requests[0].requiredTool as {
+      parameters?: {
+        properties?: {
+          claims?: {
+            items?: {
+              properties?: Record<string, unknown>;
+            };
+          };
+        };
+      };
+    };
+    const claimProperties = claimTool.parameters?.properties?.claims?.items?.properties ?? {};
+    expect(claimProperties.id).toEqual({ type: "string", enum: ["claim-1"] });
+    expect(claimProperties).not.toHaveProperty("text");
+
     for (const request of requests) {
       expect(request.plan.freeOnly).toBe(true);
       expect(request.plan.estimatedCostUsd).toBe(0);
@@ -186,7 +201,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
 
     await expect(evaluators.materialClaimExtractor({
       answerDigest: `sha256:${"a".repeat(64)}`,
-      answerText: "Answer",
+      candidates: [{ id: "claim-1", text: "Answer" }],
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
     })).rejects.toThrow("AQ_BENCHMARK_EVALUATOR_TOOL_JSON_INVALID");
   });
@@ -206,7 +221,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
 
     await expect(evaluators.materialClaimExtractor({
       answerDigest: `sha256:${"a".repeat(64)}`,
-      answerText: "Answer",
+      candidates: [{ id: "claim-1", text: "Answer" }],
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
     })).rejects.toThrow("AQ_BENCHMARK_EVALUATOR_NON_ZERO_COST");
   });
@@ -222,7 +237,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
 
     await expect(evaluators.materialClaimExtractor({
       answerDigest: `sha256:${"a".repeat(64)}`,
-      answerText: "Answer",
+      candidates: [{ id: "claim-1", text: "Answer" }],
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
     })).rejects.toThrow("AQ_BENCHMARK_EVALUATOR_PLAN_UNAVAILABLE:FREE_PROVIDER_NOT_CONFIGURED");
     expect(execute).not.toHaveBeenCalled();
@@ -251,13 +266,13 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
 
     await evaluators.materialClaimExtractor({
       answerDigest: `sha256:${"a".repeat(64)}`,
-      answerText: "Answer",
+      candidates: [{ id: "claim-1", text: "Answer" }],
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
     });
 
     await expect(evaluators.materialClaimExtractor({
       answerDigest: `sha256:${"a".repeat(64)}`,
-      answerText: "Answer",
+      candidates: [{ id: "claim-1", text: "Answer" }],
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
     })).rejects.toThrow("AQ_TEST_REQUEST_BUDGET_EXCEEDED");
 
