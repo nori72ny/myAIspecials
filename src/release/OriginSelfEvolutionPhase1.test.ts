@@ -30,6 +30,17 @@ describe("ORIGIN self-evolution phase 1 safety boundary", () => {
     expect(workflow).toContain("npm ci --ignore-scripts");
   });
 
+  it("keeps daily security monitoring deterministic and reserves LLM judgment for weekly/full mode", () => {
+    const workflow = read(".github/workflows/origin-self-update-scan.yml");
+    const collector = read("scripts/origin-self-update/collect-and-judge.mjs");
+    expect(workflow).toContain('cron: "27 21 * * *"');
+    expect(workflow).toContain('cron: "17 0 * * 1"');
+    expect(workflow).toContain("ORIGIN_SELF_UPDATE_MODE");
+    expect(collector).toContain('mode === "security" ? Promise.resolve([]) : collectOfficialSources()');
+    expect(collector).toContain('judgeStatus = mode === "security" ? "skipped:security-mode" : "not-run"');
+    expect(collector).toContain('if (mode === "full")');
+  });
+
   it("keeps the ORIGIN judge on the approved production endpoint and user-message API contract", () => {
     const collector = read("scripts/origin-self-update/collect-and-judge.mjs");
     expect(collector).toContain('const ALLOWED_ENDPOINT = "https://origin-personal.vercel.app/api/chat"');
