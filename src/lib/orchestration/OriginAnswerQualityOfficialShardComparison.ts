@@ -220,7 +220,7 @@ const SCORER_KEYS = new Set([
   "corpusId",
   "corpusVersion",
 ]);
-const OBSERVATION_KEYS = new Set([
+const OBSERVATION_REQUIRED_KEYS = new Set([
   "caseId",
   "category",
   "factualSupportScore",
@@ -228,14 +228,17 @@ const OBSERVATION_KEYS = new Set([
   "taskCompletionScore",
   "contradictionDetectionScore",
   "verifierRejectedUnsupportedClaim",
-  "repairSucceeded",
   "providerRequests",
   "latencyMs",
   "costUsd",
   "unsupportedMaterialClaimCount",
   "verificationIntegrityAccurate",
-  "failClosedCorrect",
   "userActionabilityScore",
+]);
+const OBSERVATION_ALLOWED_KEYS = new Set([
+  ...OBSERVATION_REQUIRED_KEYS,
+  "repairSucceeded",
+  "failClosedCorrect",
 ]);
 const CATEGORIES = new Set([
   "current-factual",
@@ -278,7 +281,12 @@ function parseObservation(
   value: unknown,
 ): OriginAnswerQualityBenchmarkMeasuredObservation | null {
   const item = record(value);
-  if (!item || !exactKeys(item, OBSERVATION_KEYS)) return null;
+  if (!item) return null;
+  const observationKeys = Object.keys(item);
+  if (
+    observationKeys.some((key) => !OBSERVATION_ALLOWED_KEYS.has(key))
+    || [...OBSERVATION_REQUIRED_KEYS].some((key) => !(key in item))
+  ) return null;
   if (
     typeof item.caseId !== "string"
     || !SAFE_ID.test(item.caseId)
