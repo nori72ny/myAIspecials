@@ -337,7 +337,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByText('IndexedDBへ移行する履歴')).toBeVisible();
     // Opening version 1 before the app's idle migration creates a schema-less
     // database. Wait for successful storage initialization before inspecting it.
-    await expect(page.getByTestId('origin-storage-status')).toHaveCount(0);
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await expect.poll(() => page.evaluate(async () => new Promise<{ legacy: string | null; snapshot: unknown }>((resolve) => {
       const request = indexedDB.open('origin-personal-local', 1);
       request.onsuccess = () => {
