@@ -320,4 +320,25 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
     expect((extracted as { claims: Array<{ text: string }> }).claims[0].text)
       .toBe("第二の事実です。");
   });
+
+  it("fails closed instead of truncating answers with more than 64 claim candidates", async () => {
+    const execute = vi.fn();
+    const evaluators = createOriginAnswerQualityBenchmarkProviderEvaluators({
+      env: { OPENROUTER_API_KEY: "test-only" },
+      nowMs: () => now,
+      openRouterConfigured: true,
+      execute,
+    });
+    const answerText = Array.from(
+      { length: 65 },
+      (_, index) => `This is material sentence number ${index + 1}.`,
+    ).join(" ");
+
+    await expect(evaluators.materialClaimExtractor({
+      answerDigest: `sha256:${"a".repeat(64)}`,
+      answerText,
+      executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
+    })).rejects.toThrow("AQ_BENCHMARK_EVALUATOR_CANDIDATE_LIMIT");
+    expect(execute).not.toHaveBeenCalled();
+  });
 });
