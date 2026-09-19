@@ -49,9 +49,20 @@ export interface OriginAnswerQualityBenchmarkProviderEvaluators {
   readonly scorerProvenance: OriginAnswerQualityOfficialBenchmarkScorerProvenance;
 }
 
+const SEMANTIC_RUBRIC_SPEC = [
+  "origin.aq-semantic-rubric.v1.depth-explicit-r1",
+  "deliverableCompleted=true only when every material explicit requirement in the user prompt is addressed or safely failed closed; a polished partial answer is incomplete.",
+  "verificationIntegrityAccurate=true only when the answer distinguishes verified facts, inference, assumptions, and unverified or unexecuted claims without overstating evidence.",
+  "userActionabilityScore=0: unusable, materially wrong, unsafe, or missing the requested deliverable.",
+  "userActionabilityScore=1: partially useful but generic, under-specified, or missing multiple material requirements, conditions, or next steps.",
+  "userActionabilityScore=2: substantially useful and mostly complete, but missing one material decision/execution detail, verification step, condition, or relevant trade-off.",
+  "userActionabilityScore=3: complete and directly actionable at professional working depth; covers all material requirements with appropriate conditions, trade-offs, risks, verification/next steps when relevant, and no filler added merely for length.",
+  "Do not reward verbosity by itself; reward sufficient task-specific depth, requirement coverage, truthful uncertainty, and usability.",
+].join("\n");
+
 const SCORER_SOURCE = [
   "origin-aq-provider-evaluator.v1",
-  "origin.aq-semantic-rubric.v1-local-metadata",
+  SEMANTIC_RUBRIC_SPEC,
   "origin.aq-prompt-claim-support.v1-local-metadata",
   "origin.material-claim-extractor.exact-span.v5-local-metadata",
   "origin.material-claim-candidate-segmentation.jp-en-punctuation.v2",
@@ -181,7 +192,7 @@ function semanticTool(category: string) {
   }
   return tool(
     "submit_benchmark_semantics",
-    "Apply the fixed ORIGIN AQ benchmark rubric. Return only semantic judgments; ORIGIN binds case/category/rubric/digests/cost/attempt metadata locally.",
+    `Apply the fixed ORIGIN AQ benchmark rubric below. Return only semantic judgments; ORIGIN binds case/category/rubric/digests/cost/attempt metadata locally.\n\n${SEMANTIC_RUBRIC_SPEC}`,
     objectSchema(properties, required),
   );
 }
