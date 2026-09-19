@@ -4,6 +4,8 @@ import { extractExplicitOriginClaimCitations } from "./OriginClaimCitation.js";
 import { bindOriginAnswerEvidenceToClaims } from "./OriginClaimEvidenceBinder.js";
 import type { OriginBatchClaimAssessor } from "./OriginBatchClaimAssessor.js";
 import { verifyOriginAnswerSourcesBatch } from "./OriginBatchAnswerSourceVerification.js";
+import type { OriginDnsResolver } from "./OriginPublicNetworkPolicy.js";
+import type { OriginPinnedFetchTransport } from "./OriginPublicSourceFetch.js";
 import {
   extractOriginMaterialClaims,
   type OriginMaterialClaimExtractor,
@@ -29,6 +31,8 @@ export interface OriginAnswerQualityBenchmarkOfficialScoringCollectorOptions {
   readonly promptClaimJudge: OriginAnswerQualityBenchmarkPromptClaimJudge;
   readonly semanticJudge: OriginAnswerQualityBenchmarkSemanticJudge;
   readonly batchClaimAssessor: OriginBatchClaimAssessor;
+  readonly resolver?: OriginDnsResolver;
+  readonly transport?: OriginPinnedFetchTransport;
   readonly nowMs?: () => number;
   readonly maxSourceVerifications?: number;
 }
@@ -151,6 +155,8 @@ export function createOriginAnswerQualityBenchmarkOfficialScoringCollector(
         explicitCitations.slice(0, maxSourceVerifications),
         {
           assessor: options.batchClaimAssessor,
+          resolver: options.resolver,
+          transport: options.transport,
           now: options.nowMs,
         },
       );
