@@ -1,0 +1,88 @@
+// @vitest-environment node
+import { randomBytes } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
+import { createMcpProductionRuntimeFromEnv } from './mcpProductionRuntime.js';
+
+const owner = '11111111-1111-4111-8111-111111111111';
+
+function enabledEnv(): NodeJS.ProcessEnv {
+  const appOrigin = 'https://origin.example.com';
+  const pkceKey = randomBytes(32).toString('base64');
+  const tokenKey = randomBytes(32).toString('base64');
+  return {
+    ORIGIN_MCP_ENABLED: 'true',
+    FREE_ONLY: 'true',
+    APP_URL: appOrigin,
+    SUPABASE_URL: 'https://project.supabase.co/',
+    SUPABASE_PUBLISHABLE_KEY: 'publishable-fixture',
+    ORIGIN_OWNER_SUPABASE_USER_IDS: owner,
+    ORIGIN_MCP_DATABASE_URL: 'postgres://fixture:fixture@127.0.0.1:5432/origin_mcp_fixture',
+    ORIGIN_MCP_PKCE_KEY_BASE64: pkceKey,
+    ORIGIN_MCP_TOKEN_KEYRING_JSON: JSON.stringify({ activeKeyId: 'k1', keys: { k1: tokenKey } }),
+    ORIGIN_MCP_REVIEWED_SERVERS_JSON: JSON.stringify([{
+      id: 'docs',
+      label: 'Documents',
+      endpoint: 'https://mcp.example.com/mcp',
+      zeroCostApproved: true,
+      oauth: {
+        issuer: 'https://auth.example.com/',
+        authorizationEndpoint: 'https://auth.example.com/authorize',
+        tokenEndpoint: 'https://auth.example.com/token',
+        clientId: 'origin-fixture-client',
+        redirectUri: `${appOrigin}/api/mcp/oauth/docs/callback`,
+        resource: 'https://mcp.example.com/mcp',
+        scopes: ['mcp.read'],
+        revocationEndpoint: 'https://auth.example.com/revoke',
+        tokenEndpointAuthMethod: 'none',
+        pkceS256: true,
+        responseIssuer: true,
+        zeroCostApproved: true,
+      },
+    }]),
+  };
+}
+
+describe('MCP production runtime composition', () => {
+  it('remains disabled without an explicit enable flag', () => {
+    expect(createMcpProductionRuntimeFromEnv({})).toBeUndefined();
+    expect(createMcpProductionRuntimeFromEnv({ ...enabledEnv(), ORIGIN_MCP_ENABLED: 'false' })).toBeUndefined();
+  });
+
+  it('constructs only the reviewed OAuth runtime when every server-only prerequisite is present', () => {
+    const runtime = createMcpProductionRuntimeFromEnv(enabledEnv());
+    expect(runtime).toBeDefined();
+    expect(runtime?.appOrigin).toBe('https://origin.example.com');
+    expect(runtime?.oauth?.supports('docs')).toBe(true);
+    expect(runtime?.oauth?.supports('unknown')).toBe(false);
+  });
+
+  it.each([
+    ['FREE_ONLY', 'false'],
+    ['SUPABASE_PUBLISHABLE_KEY', ''],
+    ['ORIGIN_MCP_DATABASE_URL', 'https://not-postgres.example.com'],
+    ['ORIGIN_MCP_PKCE_KEY_BASE64', 'invalid'],
+    ['ORIGIN_MCP_TOKEN_KEYRING_JSON', '{}'],
+  ] as const)('fails closed when enabled configuration %s is invalid', (name, value) => {
+    expect(() => createMcpProductionRuntimeFromEnv({ ...enabledEnv(), [name]: value })).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+  });
+
+  it('requires the reviewed redirect URI to be the exact owner application callback', () => {
+    const env = enabledEnv();
+    const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
+    (config[0].oauth as Record<string, unknown>).redirectUri = 'https://evil.example.com/callback';
+    env.ORIGIN_MCP_REVIEWED_SERVERS_JSON = JSON.stringify(config);
+    expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+  });
+
+  it('requires an explicit server-side secret reference for reviewed confidential clients', () => {
+    const env = enabledEnv();
+    const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
+    const oauth = config[0].oauth as Record<string, unknown>;
+    oauth.tokenEndpointAuthMethod = 'client_secret_basic';
+    oauth.clientSecretEnv = 'ORIGIN_MCP_DOCS_CLIENT_SECRET';
+    env.ORIGIN_MCP_REVIEWED_SERVERS_JSON = JSON.stringify(config);
+    expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+    env.ORIGIN_MCP_DOCS_CLIENT_SECRET = 'fixture-secret';
+    expect(createMcpProductionRuntimeFromEnv(env)?.oauth?.supports('docs')).toBe(true);
+  });
+});
