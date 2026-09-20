@@ -4,6 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { createMcpProductionRuntimeFromEnv, createMcpProductionSessionRouterFromEnv } from './mcpProductionRuntime.js';
 
 const owner = '11111111-1111-4111-8111-111111111111';
+const fixtureCa = Buffer.from([
+  '-----BEGIN CERTIFICATE-----',
+  'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=',
+  '-----END CERTIFICATE-----',
+].join('\n')).toString('base64');
 
 function enabledEnv(): NodeJS.ProcessEnv {
   const appOrigin = 'https://origin.example.com';
@@ -17,6 +22,7 @@ function enabledEnv(): NodeJS.ProcessEnv {
     SUPABASE_PUBLISHABLE_KEY: 'publishable-fixture',
     ORIGIN_OWNER_SUPABASE_USER_IDS: owner,
     ORIGIN_MCP_DATABASE_URL: 'postgres://fixture:fixture@127.0.0.1:5432/origin_mcp_fixture',
+    ORIGIN_MCP_DATABASE_CA_BASE64: fixtureCa,
     ORIGIN_MCP_PKCE_KEY_BASE64: pkceKey,
     ORIGIN_MCP_TOKEN_KEYRING_JSON: JSON.stringify({ activeKeyId: 'k1', keys: { k1: tokenKey } }),
     ORIGIN_MCP_REVIEWED_SERVERS_JSON: JSON.stringify([{
@@ -64,6 +70,7 @@ describe('MCP production runtime composition', () => {
     ['FREE_ONLY', 'false'],
     ['SUPABASE_PUBLISHABLE_KEY', ''],
     ['ORIGIN_MCP_DATABASE_URL', 'https://not-postgres.example.com'],
+    ['ORIGIN_MCP_DATABASE_CA_BASE64', 'invalid'],
     ['ORIGIN_MCP_PKCE_KEY_BASE64', 'invalid'],
     ['ORIGIN_MCP_TOKEN_KEYRING_JSON', '{}'],
   ] as const)('fails closed when enabled configuration %s is invalid', (name, value) => {
@@ -71,6 +78,13 @@ describe('MCP production runtime composition', () => {
     expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
     if (name === 'FREE_ONLY' || name === 'SUPABASE_PUBLISHABLE_KEY') {
       expect(() => createMcpProductionSessionRouterFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+    }
+  });
+
+  it('rejects database URL SSL parameters so they cannot override the verified CA policy', () => {
+    for (const suffix of ['?sslmode=disable', '?sslmode=require', '?sslrootcert=/tmp/other.pem']) {
+      const env = { ...enabledEnv(), ORIGIN_MCP_DATABASE_URL: `postgres://fixture:fixture@db.example.com:5432/origin${suffix}` };
+      expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
     }
   });
 
