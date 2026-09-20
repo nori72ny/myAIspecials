@@ -250,17 +250,17 @@ describe('Coding V1.4 real Postgres boundaries', { timeout: 20000 }, () => {
 describe('MCP real PostgreSQL concurrency', { timeout: 20000 }, () => {
   it('observes a lock wait and counts the preceding committed insert', async () => {
     const ownerId = randomUUID();
-    const makeRecord = (serverId: string): McpConnectionRecord => {
-      const binding = { id: randomUUID(), ownerId, serverId, endpoint: 'https://mcp.example.test/mcp' };
-      return { ...binding, credential: sealMcpCredential('fixture', binding, randomBytes(32)), version: 1, status: 'registered', checkedAt: null };
-    };
+    const makeRecord = (serverId: string): McpConnectionRecord => ({
+      id: randomUUID(), ownerId, serverId, endpoint: 'https://mcp.example.test/mcp',
+      version: 1, status: 'registered', checkedAt: null,
+    });
     await raceClients(async (a, b) => {
       await a.query('begin');
       await a.query("select pg_advisory_xact_lock(hashtextextended('origin_mcp:' || $1, 0))", [ownerId]);
       const first = makeRecord('first');
       await a.query(`insert into public.origin_mcp_connections
-        (connection_id, owner_id, server_id, endpoint, credential_ciphertext)
-        values ($1, $2, $3, $4, $5)`, [first.id, ownerId, first.serverId, first.endpoint, first.credential]);
+        (connection_id, owner_id, server_id, endpoint)
+        values ($1, $2, $3, $4)`, [first.id, ownerId, first.serverId, first.endpoint]);
       const store = new PostgresMcpConnectionStore({
         query: db.query.bind(db),
         connect: async () => ({ query: b.query.bind(b), release: () => {} }),
