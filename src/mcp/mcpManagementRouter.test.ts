@@ -38,8 +38,8 @@ describe('MCP management ownership, credentials and concurrency', () => {
     expect(stored).not.toHaveProperty('credential'); expect(record).not.toHaveProperty('credential'); expect(record).not.toHaveProperty('ownerId');
     expect(f.resolveCredential).toHaveBeenCalledWith('alice', 'docs');
     const status = await request(f.app).get('/api/mcp/status').set('test-user', 'alice').expect(200);
-    expect(status.body.connections).toHaveLength(1); expect(status.text).not.toContain(f.token);
-    expect(status.headers['cache-control']).toBe('no-store');
+    expect(status.body.connections).toHaveLength(1); expect(status.body.servers).toEqual([{ id: 'docs', label: 'Documents', authMode: 'broker' }]);
+    expect(status.text).not.toContain(f.token); expect(status.headers['cache-control']).toBe('no-store');
   });
   it('requires authentication before reads and all writes', async () => {
     const f = fixture(); expect((await request(f.app).get('/api/mcp/status')).body).toEqual({ configured: true, authenticated: false });
@@ -103,18 +103,22 @@ describe('MCP management ownership, credentials and concurrency', () => {
     await request(f.app).delete(`/api/mcp/connections/${record.id}`).set(f.headers).send({ version: 1 }).expect(503);
     expect(f.records.has(record.id)).toBe(true);
   });
-  it('exposes OAuth start/callback only with a verified session binding and never returns broker secrets', async () => {
+  it('exposes OAuth capability, binds start/callback to the session and auto-registers metadata', async () => {
     const f = fixture();
+    const supports = vi.fn((serverId: string) => serverId === 'docs');
     const begin = vi.fn(async (_identity: { ownerId: string; sessionBinding: string }, _serverId: string) => ({ authorizationUrl: 'https://auth.example.com/authorize?state=public-state&code_challenge=challenge' }));
     const complete = vi.fn(async (_identity: { ownerId: string; sessionBinding: string }, _serverId: string, _query: URLSearchParams) => ({ linked: true as const, serverId: 'docs' }));
     const app = express(); app.use(express.json());
     app.use(createMcpManagementRouter({
       appOrigin: origin,
       service: f.service,
-      oauth: { begin, complete },
+      oauth: { begin, complete, supports },
       authenticate: async req => req.get('test-user') ? { subjectId: req.get('test-user')!, sessionBinding: req.get('test-session') ?? undefined } : null,
     }));
     const headers = { origin, 'x-origin-mcp-intent': 'manage', 'test-user': 'alice', 'test-session': '33333333-3333-4333-8333-333333333333' };
+    const status = await request(app).get('/api/mcp/status').set({ 'test-user': 'alice', 'test-session': headers['test-session'] }).expect(200);
+    expect(status.body.servers).toEqual([{ id: 'docs', label: 'Documents', authMode: 'oauth' }]);
+
     const started = await request(app).post('/api/mcp/oauth/docs/start').set(headers).send({}).expect(200);
     expect(started.body).toEqual({ ok: true, authorizationUrl: 'https://auth.example.com/authorize?state=public-state&code_challenge=challenge' });
     expect(begin).toHaveBeenCalledWith({ ownerId: 'alice', sessionBinding: headers['test-session'] }, 'docs');
@@ -127,8 +131,23 @@ describe('MCP management ownership, credentials and concurrency', () => {
     const [identity, callbackServer, query] = complete.mock.calls[0];
     expect(identity).toEqual({ ownerId: 'alice', sessionBinding: headers['test-session'] });
     expect(callbackServer).toBe('docs'); expect(query).toBeInstanceOf(URLSearchParams); expect(query.get('code')).toBe('code');
+    expect([...f.records.values()]).toEqual([expect.objectContaining({ ownerId: 'alice', serverId: 'docs', status: 'registered' })]);
+
+    // A fresh callback cannot duplicate metadata; real broker state consumption blocks
+    // replay earlier, while this route-level mock verifies idempotent registration logic.
+    await request(app).get('/api/mcp/oauth/docs/callback?iss=https%3A%2F%2Fauth.example.com%2F&state=next&code=next')
+      .set({ 'test-user': 'alice', 'test-session': headers['test-session'] }).expect(303);
+    expect(f.records.size).toBe(1);
 
     await request(app).post('/api/mcp/oauth/docs/start').set({ ...headers, 'test-session': '' }).send({}).expect(401);
+  });
+  it('rejects OAuth start for a server not reviewed by the broker', async () => {
+    const f = fixture();
+    const app = express(); app.use(express.json());
+    app.use(createMcpManagementRouter({ appOrigin: origin, service: f.service,
+      oauth: { supports: () => false, begin: vi.fn(), complete: vi.fn() },
+      authenticate: async () => ({ subjectId: 'alice', sessionBinding: '33333333-3333-4333-8333-333333333333' }) }));
+    await request(app).post('/api/mcp/oauth/docs/start').set({ origin, 'x-origin-mcp-intent': 'manage' }).send({}).expect(409);
   });
   it('keeps OAuth disabled when no server broker is configured', async () => {
     const f = fixture();
