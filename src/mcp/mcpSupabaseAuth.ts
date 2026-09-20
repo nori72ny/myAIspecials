@@ -24,6 +24,21 @@ function cookie(req: Request): string | undefined {
   return token.length <= 8_192 && JWT.test(token) ? token : undefined;
 }
 
+function verifiedJwtSession(token: string): { subjectId: string; sessionBinding: string } | undefined {
+  try {
+    const payloadPart = token.split('.')[1];
+    const bytes = Buffer.from(payloadPart, 'base64url');
+    if (!bytes.length || bytes.length > 8_192) return undefined;
+    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const claims = value as Record<string, unknown>;
+    const subjectId = typeof claims.sub === 'string' ? claims.sub.toLowerCase() : '';
+    const sessionBinding = typeof claims.session_id === 'string' ? claims.session_id.toLowerCase() : '';
+    if (!UUID.test(subjectId) || !UUID.test(sessionBinding)) return undefined;
+    return { subjectId, sessionBinding };
+  } catch { return undefined; }
+}
+
 async function boundedJson(response: Response): Promise<Record<string, unknown> | undefined> {
   const length = response.headers.get('content-length');
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_RESPONSE_BYTES)) return undefined;
@@ -56,6 +71,8 @@ async function boundedJson(response: Response): Promise<Record<string, unknown> 
 /**
  * Validate the browser's HttpOnly session against Supabase Auth on every MCP
  * management request. No user metadata or unsigned browser identity is trusted.
+ * The JWT session_id/sub are parsed only after the exact bearer token has been
+ * accepted by /auth/v1/user, then cross-checked against the returned user id.
  */
 export function createSupabaseMcpAuthenticator(options: {
   supabaseUrl: string;
@@ -75,7 +92,7 @@ export function createSupabaseMcpAuthenticator(options: {
   const fetchImpl = options.fetchImpl ?? fetch;
   const endpoint = `${origin}/auth/v1/user`;
 
-  return async (req: Request): Promise<{ subjectId: string } | null> => {
+  return async (req: Request): Promise<{ subjectId: string; sessionBinding: string } | null> => {
     const token = cookie(req);
     if (!token) return null;
     const abort = new AbortController();
@@ -89,8 +106,10 @@ export function createSupabaseMcpAuthenticator(options: {
       if (!response.ok || response.url && response.url !== endpoint) return null;
       const user = await boundedJson(response);
       const id = typeof user?.id === 'string' ? user.id.toLowerCase() : '';
-      if (!UUID.test(id) || user?.role !== 'authenticated' || !owners.has(id)) return null;
-      return { subjectId: `supabase:${id}` };
+      const verifiedSession = verifiedJwtSession(token);
+      if (!UUID.test(id) || user?.role !== 'authenticated' || !owners.has(id)
+        || !verifiedSession || verifiedSession.subjectId !== id) return null;
+      return { subjectId: `supabase:${id}`, sessionBinding: verifiedSession.sessionBinding };
     } catch { return null; }
     finally { clearTimeout(timer); }
   };
