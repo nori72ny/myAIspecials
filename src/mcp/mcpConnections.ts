@@ -3,9 +3,11 @@ import type { OriginMcpSession } from './mcpClient.js';
 
 export interface McpServerChoice { id: string; label: string; endpoint: string; zeroCostApproved: true }
 export interface McpConnectionRecord {
-  id: string; ownerId: string; serverId: string; endpoint: string; credential: string;
+  id: string; ownerId: string; serverId: string; endpoint: string;
   version: number; status: 'registered' | 'verified' | 'failed'; checkedAt: string | null;
 }
+export interface McpCredentialBinding { id: string; ownerId: string; serverId: string; endpoint: string }
+export interface McpSealedCredentialBinding extends McpCredentialBinding { credential: string }
 /** Implementations must enforce owner filtering and the insert limit/CAS atomically in shared durable storage. */
 export interface McpConnectionStore {
   list(ownerId: string): Promise<McpConnectionRecord[]>;
@@ -19,16 +21,16 @@ export class McpManagementError extends Error {
 }
 const reject = (code: string, status: number): never => { throw new McpManagementError(code, status); };
 const publicRecord = (record: McpConnectionRecord) => ({ id: record.id, serverId: record.serverId, version: record.version, status: record.status, checkedAt: record.checkedAt });
-function aad(record: Pick<McpConnectionRecord, 'id' | 'ownerId' | 'serverId' | 'endpoint'>): Buffer {
+function aad(record: McpCredentialBinding): Buffer {
   return Buffer.from(JSON.stringify(['origin-mcp-v1', record.ownerId, record.id, record.serverId, record.endpoint]));
 }
-export function sealMcpCredential(token: string, record: Parameters<typeof aad>[0], key: Buffer): string {
+export function sealMcpCredential(token: string, record: McpCredentialBinding, key: Buffer): string {
   if (key.length !== 32 || !token || Buffer.byteLength(token) > 8192 || /[\r\n]/.test(token)) return reject('MCP_CREDENTIAL_INVALID', 409);
   const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(aad(record));
   const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
   return ['v1', nonce.toString('base64'), cipher.getAuthTag().toString('base64'), ciphertext.toString('base64')].join('.');
 }
-export function openMcpCredential(record: McpConnectionRecord, key: Buffer): string {
+export function openMcpCredential(record: McpSealedCredentialBinding, key: Buffer): string {
   try {
     const [version, nonce, tag, value, extra] = record.credential.split('.');
     if (key.length !== 32 || version !== 'v1' || extra !== undefined || !value) throw new Error();
@@ -39,30 +41,39 @@ export function openMcpCredential(record: McpConnectionRecord, key: Buffer): str
   } catch { return reject('MCP_CREDENTIAL_UNAVAILABLE', 503); }
 }
 
+function validResolvedCredential(token: string | undefined): token is string {
+  return typeof token === 'string' && token.length > 0 && Buffer.byteLength(token) <= 8192 && !/[\r\n]/.test(token);
+}
+
 export class McpConnectionService {
   private readonly servers: readonly McpServerChoice[];
-  private readonly key: Buffer;
   constructor(private readonly options: {
     servers: readonly McpServerChoice[];
-    key: Buffer;
     store: McpConnectionStore;
-    /** Trusted credential broker: credentials are obtained server-side for this owner. */
+    /** Trusted credential broker: resolve immediately before any remote use. */
     resolveCredential: (ownerId: string, serverId: string) => Promise<string | undefined>;
+    /** Optional broker disconnect/revocation hook. When present, it runs before metadata deletion. */
+    disconnectCredential?: (ownerId: string, serverId: string) => Promise<void>;
     /** Must return an owner-scoped session with NO tool grants and the guarded transport. */
     createProbe: (ownerId: string, server: McpServerChoice, token: string) => Pick<OriginMcpSession, 'connect' | 'catalog' | 'close'>;
   }) {
-    if (options.key.length !== 32 || options.servers.length > 20 || new Set(options.servers.map(s => s.id)).size !== options.servers.length) reject('MCP_MANAGEMENT_CONFIG_INVALID', 503);
+    if (options.servers.length > 20 || new Set(options.servers.map(s => s.id)).size !== options.servers.length) reject('MCP_MANAGEMENT_CONFIG_INVALID', 503);
     for (const server of options.servers) {
       const url = new URL(server.endpoint);
       if (!/^[A-Za-z0-9-]{1,64}$/.test(server.id) || !server.label || server.label.length > 80 || server.zeroCostApproved !== true || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.port) reject('MCP_MANAGEMENT_CONFIG_INVALID', 503);
     }
-    this.servers = structuredClone(options.servers); this.key = Buffer.from(options.key);
+    this.servers = structuredClone(options.servers);
   }
   private async owned(ownerId: string, id: string, version: number) {
     const record = await this.options.store.get(ownerId, id);
     if (!record || record.ownerId !== ownerId || record.id !== id) return reject('MCP_CONNECTION_NOT_FOUND', 404);
     if (record.version !== version) return reject('MCP_CONNECTION_CHANGED', 409);
     return record;
+  }
+  private async credential(ownerId: string, serverId: string) {
+    const token = await this.options.resolveCredential(ownerId, serverId);
+    if (!validResolvedCredential(token)) return reject('MCP_CREDENTIAL_NOT_LINKED', 409);
+    return token;
   }
   async overview(ownerId: string) {
     const records = await this.options.store.list(ownerId);
@@ -72,10 +83,9 @@ export class McpConnectionService {
   async register(ownerId: string, serverId: string) {
     const server = this.servers.find(s => s.id === serverId);
     if (!server) return reject('MCP_SERVER_NOT_ALLOWED', 400);
-    const token = await this.options.resolveCredential(ownerId, serverId);
-    if (!token) return reject('MCP_CREDENTIAL_NOT_LINKED', 409);
-    const record: McpConnectionRecord = { id: randomUUID(), ownerId, serverId, endpoint: server.endpoint, credential: '', version: 1, status: 'registered', checkedAt: null };
-    record.credential = sealMcpCredential(token, record, this.key);
+    // Verify that a current broker credential exists, but never persist a copy here.
+    await this.credential(ownerId, serverId);
+    const record: McpConnectionRecord = { id: randomUUID(), ownerId, serverId, endpoint: server.endpoint, version: 1, status: 'registered', checkedAt: null };
     if (!await this.options.store.insert(record, 20)) return reject('MCP_CONNECTION_LIMIT_OR_DUPLICATE', 409);
     return publicRecord(record);
   }
@@ -83,7 +93,8 @@ export class McpConnectionService {
     const record = await this.owned(ownerId, id, version);
     const server = this.servers.find(s => s.id === record.serverId && s.endpoint === record.endpoint);
     if (!server) return reject('MCP_SERVER_NOT_ALLOWED', 409);
-    const session = this.options.createProbe(ownerId, structuredClone(server), openMcpCredential(record, this.key));
+    const token = await this.credential(ownerId, record.serverId);
+    const session = this.options.createProbe(ownerId, structuredClone(server), token);
     let timer: ReturnType<typeof setTimeout> | undefined;
     let verified = false; let toolCount = 0;
     try {
@@ -96,7 +107,8 @@ export class McpConnectionService {
     return { connection: publicRecord(next), toolCount: verified ? toolCount : 0, verified };
   }
   async remove(ownerId: string, id: string, version: number) {
-    await this.owned(ownerId, id, version);
+    const record = await this.owned(ownerId, id, version);
+    if (this.options.disconnectCredential) await this.options.disconnectCredential(ownerId, record.serverId);
     if (!await this.options.store.remove(ownerId, id, version)) return reject('MCP_CONNECTION_CHANGED', 409);
   }
 }
