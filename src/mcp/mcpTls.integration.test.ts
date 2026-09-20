@@ -3,12 +3,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import dns from 'node:dns';
 import https from 'node:https';
 import tls from 'node:tls';
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { generateKeyPairSync, sign, randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createNodeMcpFetch, createNodeMcpTransport } from './mcpNodeFetch.js';
 import { OriginMcpSession, toolAlias, toolFingerprint } from './mcpClient.js';
+import { McpOAuthTokenClient } from './mcpOAuthTokenClient.js';
 
 const endpoint = 'https://mcp.origin-test.invalid/mcp';
 const allowedOrigins = ['https://mcp.origin-test.invalid'];
@@ -100,6 +101,30 @@ const fetcher = (options: { timeoutMs?: number; maxResponseBytes?: number } = {}
   createNodeMcpFetch({ endpoint, allowedOrigins, ...options });
 
 describe('MCP guarded adapter over actual TLS sockets', () => {
+  it('exchanges, rotates and revokes OAuth tokens over guarded real TLS sockets', async () => {
+    const calls: { path: string; form: URLSearchParams }[] = [];
+    const first = randomBytes(32).toString('base64url'); const second = randomBytes(32).toString('base64url');
+    await peer((req, res) => {
+      let body = ''; req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        const form = new URLSearchParams(body); calls.push({ path: req.url!, form });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(req.url === '/revoke' ? '' : JSON.stringify({ access_token: randomBytes(32).toString('base64url'),
+          refresh_token: form.get('grant_type') === 'refresh_token' ? second : first, token_type: 'Bearer', expires_in: 3600, scope: 'read' }));
+      });
+    });
+    const origin = allowedOrigins[0];
+    const client = new McpOAuthTokenClient({ serverId: 'fixture', issuer: origin, authorizationEndpoint: `${origin}/authorize`, tokenEndpoint: `${origin}/token`,
+      revocationEndpoint: `${origin}/revoke`, clientId: 'origin', redirectUri: 'https://origin.example.test/callback', resource: endpoint,
+      scopes: ['read'], pkceS256: true, responseIssuer: true, zeroCostApproved: true });
+    const tokens = await client.exchange(new URLSearchParams({ grant_type: 'authorization_code', code: randomBytes(32).toString('hex'),
+      code_verifier: randomBytes(32).toString('base64url'), client_id: 'origin', redirect_uri: 'https://origin.example.test/callback', resource: endpoint }));
+    const fresh = await client.refresh(tokens); expect(fresh.refreshToken).toBe(second); expect(await client.revoke(fresh)).toBe(true);
+    expect(calls.map(call => call.path)).toEqual(['/token', '/token', '/revoke', '/revoke']);
+    expect(calls[1].form.get('refresh_token')).toBe(first);
+    expect(calls[1].form.get('resource')).toBe(endpoint);
+    expect(calls[2].form.get('token')).toBe(second);
+  });
   it.each(['json', 'sse'] as const)('runs initialize/discovery/authorized call over %s and TLS', async format => {
     const tool: Tool = { name: 'read_doc', description: 'Read an owned document', inputSchema: {
       type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false,

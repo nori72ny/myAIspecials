@@ -185,13 +185,11 @@ PostgreSQL persistence/concurrency implementation is retained unchanged.
   changed configuration, replay, expiration and tampered ciphertext. Denial also consumes
   the attempt. Unknown downstream exchange completion must never trigger code replay.
 - The internal callback result includes a secret token-exchange form. It MUST NOT be
-  serialized to the browser/model or logged. There is intentionally no HTTP route or
-  token request using this result yet. This increment is authorization preparation,
-  not a completed OAuth login or credential broker.
+  serialized to the browser/model or logged. It is now consumed internally by the
+  token broker described below; no public OAuth HTTP route is activated.
 
 Remaining OAuth integration: protected start/callback routes, verified-session binding
-from the actual login flow, guarded code exchange, encrypted access/refresh token store,
-refresh-rotation serialization, revocation and cleanup scheduling. The existing
+from the actual login flow, management/dispatch broker wiring and cleanup scheduling. The existing
 connection record's access-token snapshot is not sufficient for refreshable OAuth;
 probe/dispatch must resolve current broker credentials once that broker is implemented.
 Provider metadata/zero-cost evidence, Supabase login and live vendor E2E remain gates.
@@ -201,6 +199,54 @@ or live database verification is claimed. No environment, main or deployment cha
 References: https://www.rfc-editor.org/rfc/rfc7636 and
 https://www.rfc-editor.org/rfc/rfc9207 ; MCP resource binding requirements:
 https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization .
+
+### OAuth token lifecycle increment (2026-09-20)
+
+- `McpOAuthBroker` connects PKCE preparation to code exchange, encrypted token storage,
+  refresh rotation, disconnect and explicit re-encryption under a new key. All methods
+  are server-only. `complete` returns nonsecret metadata; `resolveCredential` is an
+  internal secret-bearing boundary and must never become a browser/model endpoint.
+- `McpOAuthTokenClient` uses the guarded Node transport for exact configured token and
+  revocation endpoints. Public clients and reviewed `client_secret_basic` clients are
+  supported. Secrets never enter query strings. No redirect or automatic retry occurs.
+  JSON is bounded to 32 KiB and the full request to 15 seconds. Scopes cannot expand
+  or silently lose required permissions. This initial profile requires Bearer tokens,
+  an integer lifetime of 1..86400 seconds and a new refresh token on every refresh.
+  Providers without rotation need a separate reviewed profile, not a permissive fallback.
+- Access/refresh tokens and expiry are encrypted together using AES-256-GCM. A key ID
+  selects from an explicit server-side ring (up to five keys); writes use the active key.
+  AAD binds owner, server, provider fingerprint and random grant generation. Rotation
+  decrypts with the old key and rewrites with the new key without extending token expiry.
+- The grant store commits `exchanging`/`refreshing` before network access. Only a single
+  compare-and-swap winner can use a refresh token. No database transaction spans a remote
+  request. Failures clear locally usable credentials and require fresh authorization.
+  Process crashes leave a durable unusable in-progress grant; explicit disconnect then
+  reauthorization is required. There is no timeout-based takeover or refresh replay.
+- Disconnect first clears local credentials and pending authorization, then attempts
+  revocation of both refresh and access tokens. It reports remote confirmation separately.
+  Generation/version fencing rejects late writes, including after a new authorization.
+  Known late-issued tokens are best-effort revoked. A crash, lost response or failed
+  revocation can leave upstream state unknown; this is never described as confirmed.
+  Already-dispatched remote work cannot be rolled back by disconnect.
+- The additive grant migration also adds a generation binding to pending PKCE records.
+  Pending attempts created by the earlier implementation must be restarted on upgrade.
+  RLS is enabled with no browser policies; browser roles are explicitly denied.
+- The controlled TLS fixture now tests code exchange, rotated refresh and two revocations
+  using actual TLS/HTTP sockets through the production guard. DNS/socket destination
+  routing and test CA trust are fixture-only. This is not live vendor/OAuth evidence.
+
+Activation still requires actual verified-login session binding, protected HTTP routes,
+provider metadata/client registration/zero-cost review, and live account E2E. The existing
+management `createNodeMcpManagement` is NOT wired to this broker yet: do not merely pass
+its resolver at registration, because current probes still use the stored token snapshot.
+Replace that path with current broker resolution (no snapshot fallback), tie disconnect
+to grant revocation, and preserve per-call authorization/cancellation before activation.
+The grant store requires a bounded server-side pool and explicit dependency injection.
+No migration is applied to production and no environment or connector is enabled.
+
+References: https://www.rfc-editor.org/rfc/rfc6749 (token endpoint),
+https://www.rfc-editor.org/rfc/rfc9700 (refresh-token security),
+https://www.rfc-editor.org/rfc/rfc7009 (revocation).
 
 - Base head d2afecc333781879dfd6ab1e10ae631d8a4b20eb: all six GitHub PR workflows
   completed successfully (verified 2026-09-20). This does not certify subsequent heads.
