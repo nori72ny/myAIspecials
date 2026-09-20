@@ -2,8 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { randomBytes } from 'node:crypto';
-import { McpConnectionService, openMcpCredential, sealMcpCredential, type McpConnectionRecord, type McpConnectionStore } from './mcpConnections.js';
+import { McpConnectionService, type McpConnectionRecord, type McpConnectionStore } from './mcpConnections.js';
 import { createMcpManagementRouter } from './mcpManagementRouter.js';
 
 const origin = 'https://origin.example.com';
@@ -18,27 +17,28 @@ function fixture(failProbe = false) {
     async replace(record, version) { const old = records.get(record.id); if (!old || old.ownerId !== record.ownerId || old.version !== version) return false; records.set(record.id, structuredClone(record)); return true; },
     async remove(owner, id, version) { const old = records.get(id); return old?.ownerId === owner && old.version === version ? records.delete(id) : false; },
   };
-  const key = randomBytes(32); const token = 'secret-service-token';
+  const token = 'secret-service-token';
   const close = vi.fn(async () => {}); const connect = vi.fn(async () => { if (failProbe) throw new Error(token); });
   const createProbe = vi.fn(() => ({ connect, close, catalog: () => [] }));
   const resolveCredential = vi.fn(async () => token as string | undefined);
-  const service = new McpConnectionService({ servers: [server], key, store, resolveCredential, createProbe });
+  const disconnectCredential = vi.fn(async () => {});
+  const service = new McpConnectionService({ servers: [server], store, resolveCredential, disconnectCredential, createProbe });
   const app = express(); app.use(express.json());
   // Header identity is ONLY a test adapter; never use this in production.
   app.use(createMcpManagementRouter({ appOrigin: origin, service, authenticate: async req => req.get('test-user') ? { subjectId: req.get('test-user')! } : null }));
   const headers = { origin, 'x-origin-mcp-intent': 'manage', 'test-user': 'alice' };
   async function register() { return (await request(app).post('/api/mcp/connections').set(headers).send({ serverId: 'docs' }).expect(201)).body.connection as McpConnectionRecord; }
-  return { app, records, store, key, token, service, close, connect, createProbe, resolveCredential, headers, register };
+  return { app, records, store, token, service, close, connect, createProbe, resolveCredential, disconnectCredential, headers, register };
 }
 
 describe('MCP management ownership, credentials and concurrency', () => {
-  it('registers encrypted credentials and returns no token or ciphertext', async () => {
+  it('stores connection metadata only and returns no broker credential', async () => {
     const f = fixture(); const record = await f.register();
     const stored = f.records.get(record.id)!;
-    expect(stored.credential).not.toContain(f.token); expect(openMcpCredential(stored, f.key)).toBe(f.token);
-    expect(record).not.toHaveProperty('credential'); expect(record).not.toHaveProperty('ownerId');
+    expect(stored).not.toHaveProperty('credential'); expect(record).not.toHaveProperty('credential'); expect(record).not.toHaveProperty('ownerId');
+    expect(f.resolveCredential).toHaveBeenCalledWith('alice', 'docs');
     const status = await request(f.app).get('/api/mcp/status').set('test-user', 'alice').expect(200);
-    expect(status.body.connections).toHaveLength(1); expect(status.text).not.toContain(f.token); expect(status.text).not.toContain(stored.credential);
+    expect(status.body.connections).toHaveLength(1); expect(status.text).not.toContain(f.token);
     expect(status.headers['cache-control']).toBe('no-store');
   });
   it('requires authentication before reads and all writes', async () => {
@@ -52,7 +52,7 @@ describe('MCP management ownership, credentials and concurrency', () => {
     const headers = { ...f.headers, 'test-user': 'bob' };
     await request(f.app).post(`/api/mcp/connections/${record.id}/check`).set(headers).send({ version: 1 }).expect(404);
     await request(f.app).delete(`/api/mcp/connections/${record.id}`).set(headers).send({ version: 1 }).expect(404);
-    expect(f.createProbe).not.toHaveBeenCalled(); expect(f.records.size).toBe(1);
+    expect(f.createProbe).not.toHaveBeenCalled(); expect(f.disconnectCredential).not.toHaveBeenCalled(); expect(f.records.size).toBe(1);
   });
   it.each(['https://evil.example.com', 'null', 'https://origin.example.com.evil.com'])('blocks cross-origin registration from %s', async unsafeOrigin => {
     const f = fixture(); await request(f.app).post('/api/mcp/connections').set({ ...f.headers, origin: unsafeOrigin }).send({ serverId: 'docs' }).expect(403);
@@ -67,14 +67,22 @@ describe('MCP management ownership, credentials and concurrency', () => {
     f.resolveCredential.mockResolvedValueOnce(undefined); await request(f.app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'docs' }).expect(409);
     await f.register(); await request(f.app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'docs' }).expect(409);
   });
-  it('probes only an owned connection, closes the session, and rejects stale deletion', async () => {
+  it('re-resolves the current broker credential before every probe and revokes before deletion', async () => {
     const f = fixture(); const record = await f.register();
+    f.resolveCredential.mockResolvedValueOnce('fresh-service-token');
     const checked = await request(f.app).post(`/api/mcp/connections/${record.id}/check`).set(f.headers).send({ version: 1 }).expect(200);
     expect(checked.body.verified).toBe(true); expect(checked.body.connection.version).toBe(2); expect(f.close).toHaveBeenCalledOnce();
-    expect(f.createProbe).toHaveBeenCalledWith('alice', server, f.token);
+    expect(f.createProbe).toHaveBeenCalledWith('alice', server, 'fresh-service-token');
     await request(f.app).delete(`/api/mcp/connections/${record.id}`).set(f.headers).send({ version: 1 }).expect(409);
+    expect(f.disconnectCredential).not.toHaveBeenCalled();
     await request(f.app).delete(`/api/mcp/connections/${record.id}`).set(f.headers).send({ version: 2 }).expect(200);
-    expect(f.records.size).toBe(0);
+    expect(f.disconnectCredential).toHaveBeenCalledWith('alice', 'docs'); expect(f.records.size).toBe(0);
+  });
+  it('never falls back to a persisted token when broker resolution fails', async () => {
+    const f = fixture(); const record = await f.register();
+    f.resolveCredential.mockResolvedValueOnce(undefined);
+    await request(f.app).post(`/api/mcp/connections/${record.id}/check`).set(f.headers).send({ version: 1 }).expect(409);
+    expect(f.createProbe).not.toHaveBeenCalled(); expect(f.records.get(record.id)?.version).toBe(1);
   });
   it('reports probe failure without leaking upstream messages', async () => {
     const f = fixture(true); const record = await f.register();
@@ -89,12 +97,11 @@ describe('MCP management ownership, credentials and concurrency', () => {
     await f.service.remove('alice', record.id, 1); finish();
     await expect(probe).rejects.toThrow('MCP_CONNECTION_CHANGED'); expect(f.records.size).toBe(0);
   });
-  it('rejects credential tampering or copying ciphertext to a different owner', async () => {
-    const f = fixture(); const record = await f.register(); const stored = f.records.get(record.id)!;
-    expect(() => openMcpCredential({ ...stored, ownerId: 'bob' }, f.key)).toThrow('MCP_CREDENTIAL_UNAVAILABLE');
-    expect(() => openMcpCredential({ ...stored, endpoint: 'https://evil.com/' }, f.key)).toThrow('MCP_CREDENTIAL_UNAVAILABLE');
-    expect(() => openMcpCredential(stored, randomBytes(32))).toThrow('MCP_CREDENTIAL_UNAVAILABLE');
-    expect(sealMcpCredential(f.token, stored, f.key)).not.toBe(stored.credential);
+  it('does not delete metadata when broker disconnect fails', async () => {
+    const f = fixture(); const record = await f.register();
+    f.disconnectCredential.mockRejectedValueOnce(new Error('remote unknown'));
+    await request(f.app).delete(`/api/mcp/connections/${record.id}`).set(f.headers).send({ version: 1 }).expect(503);
+    expect(f.records.has(record.id)).toBe(true);
   });
   it('exposes OAuth start/callback only with a verified session binding and never returns broker secrets', async () => {
     const f = fixture();
