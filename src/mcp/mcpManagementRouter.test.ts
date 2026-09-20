@@ -96,6 +96,37 @@ describe('MCP management ownership, credentials and concurrency', () => {
     expect(() => openMcpCredential(stored, randomBytes(32))).toThrow('MCP_CREDENTIAL_UNAVAILABLE');
     expect(sealMcpCredential(f.token, stored, f.key)).not.toBe(stored.credential);
   });
+  it('exposes OAuth start/callback only with a verified session binding and never returns broker secrets', async () => {
+    const f = fixture();
+    const begin = vi.fn(async () => ({ authorizationUrl: 'https://auth.example.com/authorize?state=public-state&code_challenge=challenge' }));
+    const complete = vi.fn(async () => ({ linked: true as const, serverId: 'docs' }));
+    const app = express(); app.use(express.json());
+    app.use(createMcpManagementRouter({
+      appOrigin: origin,
+      service: f.service,
+      oauth: { begin, complete },
+      authenticate: async req => req.get('test-user') ? { subjectId: req.get('test-user')!, sessionBinding: req.get('test-session') ?? undefined } : null,
+    }));
+    const headers = { origin, 'x-origin-mcp-intent': 'manage', 'test-user': 'alice', 'test-session': '33333333-3333-4333-8333-333333333333' };
+    const started = await request(app).post('/api/mcp/oauth/docs/start').set(headers).send({}).expect(200);
+    expect(started.body).toEqual({ ok: true, authorizationUrl: 'https://auth.example.com/authorize?state=public-state&code_challenge=challenge' });
+    expect(begin).toHaveBeenCalledWith({ ownerId: 'alice', sessionBinding: headers['test-session'] }, 'docs');
+    expect(started.text).not.toContain('refresh_token');
+
+    const callback = await request(app).get('/api/mcp/oauth/docs/callback?iss=https%3A%2F%2Fauth.example.com%2F&state=state&code=code')
+      .set({ 'test-user': 'alice', 'test-session': headers['test-session'] }).expect(303);
+    expect(callback.headers.location).toBe('https://origin.example.com/?mcp=linked');
+    expect(complete).toHaveBeenCalledOnce();
+    const [identity, callbackServer, query] = complete.mock.calls[0];
+    expect(identity).toEqual({ ownerId: 'alice', sessionBinding: headers['test-session'] });
+    expect(callbackServer).toBe('docs'); expect(query).toBeInstanceOf(URLSearchParams); expect(query.get('code')).toBe('code');
+
+    await request(app).post('/api/mcp/oauth/docs/start').set({ ...headers, 'test-session': '' }).send({}).expect(401);
+  });
+  it('keeps OAuth disabled when no server broker is configured', async () => {
+    const f = fixture();
+    await request(f.app).post('/api/mcp/oauth/docs/start').set({ ...f.headers, 'test-session': '33333333-3333-4333-8333-333333333333' }).send({}).expect(503);
+  });
   it('is disabled by default, without pretending the user is authenticated', async () => {
     const app = express(); app.use(express.json()); app.use(createMcpManagementRouter());
     expect((await request(app).get('/api/mcp/status')).body).toEqual({ configured: false, authenticated: false });
