@@ -7,6 +7,7 @@ import { PostgresMcpOAuthPendingStore } from './mcpOAuthPendingStore.js';
 import { McpOAuthTokenCipher } from './mcpOAuthTokens.js';
 import { PostgresMcpConnectionStore } from './mcpPostgresStore.js';
 import { createSupabaseMcpAuthenticatorFromEnv } from './mcpSupabaseAuth.js';
+import { createSupabaseMcpOwnerSessionRouterFromEnv } from './mcpOwnerSessionRouter.js';
 import type { McpManagementDependencies } from './mcpManagementRouter.js';
 import type { McpServerChoice } from './mcpConnections.js';
 
@@ -192,4 +193,17 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     resolveCredential: (ownerId, serverId) => broker.resolveCredential(ownerId, serverId),
     disconnectCredential: async (ownerId, serverId) => { await broker.disconnect(ownerId, serverId); },
   });
+}
+
+/**
+ * Browser-facing owner session routes are enabled under the same explicit MCP gate.
+ * If MCP is enabled but Auth/session configuration is incomplete, startup fails closed
+ * rather than exposing a partially configured login or refresh surface.
+ */
+export function createMcpProductionSessionRouterFromEnv(env: NodeJS.ProcessEnv = process.env) {
+  if (env.ORIGIN_MCP_ENABLED !== ENABLED) return undefined;
+  if (env.FREE_ONLY !== ENABLED) return invalid();
+  const router = createSupabaseMcpOwnerSessionRouterFromEnv(env);
+  if (!router) return invalid();
+  return router;
 }
