@@ -108,7 +108,7 @@ export class McpOAuthAuthorization {
     if (!record || Object.entries(binding).some(([key, value]) => record![key as keyof McpOAuthPending] !== value)) return fail('MCP_OAUTH_STATE_INVALID');
     if (error) return fail('MCP_OAUTH_ACCESS_DENIED');
     let verifier: string;
-    try { verifier = openMcpCredential({ ...encryptionBinding(record), credential: record.verifierCiphertext, version: 1, status: 'registered', checkedAt: null }, this.key); }
+    try { verifier = openMcpCredential({ ...encryptionBinding(record), credential: record.verifierCiphertext }, this.key); }
     catch { return fail('MCP_OAUTH_STATE_INVALID'); }
     if (!/^[A-Za-z0-9_-]{43}$/.test(verifier)) return fail('MCP_OAUTH_STATE_INVALID');
     return { tokenEndpoint: provider.tokenEndpoint, grantId: record.grantId, configHash, form: new URLSearchParams({ grant_type: 'authorization_code', code: code!,
