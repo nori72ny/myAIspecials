@@ -1,6 +1,6 @@
 # ORIGIN MCP implementation and document-insertion requirements
 
-Status: client foundation and guarded Node HTTP/SSE adapter implemented; not connected to application routes or deployed.
+Status: client foundation, guarded Node HTTP/SSE adapter and disabled-by-default connection management/settings implemented. No live connector or production deployment.
 Baseline: main f0c1bff22d3246d3eac3903b9def5d3aa7c1e498, 2026-09-20.
 Keep main frozen while the existing V1.4 final qualification remains pending.
 
@@ -51,8 +51,18 @@ has replaced its existing APIs. Standard support alone is not permission to exec
 - Limits request bodies to 64 KiB, response bodies to 1 MiB, and headers to 16 KiB.
   Limits can only be reduced. Streaming has backpressure and destroys sockets on
   cancellation, truncation, timeout or overflow. Errors expose stable codes only.
-- No route, settings UI, model switch, scheduled scanner, provider activation or production
-  environment change is included in this foundation.
+- Authenticated management routes and a Japanese/English settings section are implemented.
+  Default application construction injects no authentication/storage/credential broker;
+  status explicitly reports configured=false and all management writes fail closed.
+- Credential ciphertext uses AES-256-GCM with owner/connection/server/endpoint binding;
+  list and mutation responses return only allowlisted connection metadata.
+- Registration uses a server-side per-owner credential broker, never browser-supplied
+  service tokens or arbitrary URLs. Exact Origin plus a custom mutation header guards
+  POST and DELETE. Shared-store owner scoping and atomic version checks are required.
+- Check operations instantiate a guarded, owner-scoped session with no tool grants,
+  discover the catalog, then close it. They do not invoke remote tools. An unfinished
+  initialization can now be closed promptly. Failed checks are never shown as verified.
+- No model switch, scanner, provider activation or production environment change.
 
 ## Gates before end-user enablement
 
@@ -69,13 +79,21 @@ automatically reconnected; long-running remote jobs require a separately bounded
 The adapter is Node-only. Do not import it into browser or Worker bundles or assume
 Node CI certifies an edge runtime; add a separate reviewed runtime adapter if needed.
 
-Wire the current Express createOriginApp and provider boundary rather than adding the
-uploaded unprotected api/mcp/tools.ts sample. Confirm both Node and serverless/worker
-support before enabling a runtime. Keep credentials and MCP management server-side.
+The current Express createOriginApp accepts optional MCP dependencies and mounts the
+management router; api/index uses its unconfigured default. createNodeMcpManagement
+composes guarded discovery-only sessions with explicit verified-session, credential
+broker and shared-store adapters. There is no unsigned header identity adapter in
+production. Keep credential handling server-side and do not import the Node transport
+factory into the Worker or browser bundle.
 
-Add authenticated connection storage, encrypted credentials, explicit ownership,
-CSRF protection for settings mutations, revocation/disconnect and status views. Start
-with approved endpoints; do not accept arbitrary URLs from model tool arguments.
+Before activation, implement and connect a real verified-user session provider,
+a durable shared McpConnectionStore (atomic owner limits, duplicate prevention and
+compare-and-swap), and a per-owner credential broker. The only in-memory store added
+here is a test fixture, not a persistence implementation. Existing ORIGIN operator
+secrets are not repurposed as browser login credentials. Add encryption-key rotation
+and expiry/revocation handling with the durable credential integration. Start with
+reviewed, explicitly zero-cost-approved endpoints; a configuration flag is not evidence
+of a vendor billing plan or consent to run tools.
 OAuth for services such as Canva needs a real authorization flow, token audience,
 scopes, refresh/revocation and protected redirect handling. Do not request pasted
 production secrets in chat or claim static bearer tokens work for all providers.
@@ -139,14 +157,22 @@ Reference: https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/se
 
 - Base head d2afecc333781879dfd6ab1e10ae631d8a4b20eb: all six GitHub PR workflows
   completed successfully (verified 2026-09-20). This does not certify subsequent heads.
-- This increment: 93 MCP tests passed locally, including nine actual-TLS fixture tests
-  and four dispatch cancellation/deadline regressions. Typecheck and diff checks passed.
+- Incoming owner head 3921658: all six GitHub PR workflows passed; its TLS/cancellation
+  changes were retained when merging the connection-management increment.
+- Integrated increment: 130 tests passed (MCP, API, component and existing settings),
+  including the nine actual-TLS tests. Typecheck, design-token lint and production
+  build passed. Existing SettingsModal tests emit React act warnings but pass.
+- Two mobile browser tests were added: actual disabled-backend status and a simulated
+  authenticated registration/check/disconnect UI. Local browser execution is blocked
+  by unavailable browser binaries/download; agent-browser daemon also fails to start.
+  These tests must pass on exact-head CI; they are not live OAuth/vendor evidence.
 - Run current-head CI before treating the increment as release-verified.
 - No live third-party request, customer send, merge or deployment was performed.
 
-Next: implement reviewed zero-cost connector eligibility and operation-scoped
-authorization before exposing a settings or chat route. Then add owner-scoped
-credential storage/OAuth and real vendor E2E for each explicitly enabled connector.
+Next: connect the verified-user authentication and shared persistence adapters,
+review zero-cost connector eligibility and operation-scoped authorization before
+activating management or adding a chat route. Complete OAuth lifecycle and real vendor
+E2E for each explicitly enabled connector.
 An injected `authorize` callback remains a trusted integration boundary, not proof
 that a connector is free or that a customer send is approved. Enabling a connector,
 changing environment/permissions and publishing ORIGIN's MCP server still require

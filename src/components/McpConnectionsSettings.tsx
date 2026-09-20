@@ -1,0 +1,81 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+type Connection = { id: string; serverId: string; version: number; status: 'registered' | 'verified' | 'failed'; checkedAt: string | null };
+type Overview = { configured: boolean; authenticated: boolean; servers?: Array<{ id: string; label: string }>; connections?: Connection[] };
+const copy = {
+  ja: { title: '外部サービス接続', help: '許可されたサービスを登録し、接続を確認できます。', loading: '確認しています…', setup: '外部サービス接続は準備中です。認証と保存先の設定が完了すると利用できます。', login: '接続を管理するには、利用者認証が必要です。', choose: '接続するサービス', select: 'サービスを選択', add: '登録', check: '接続を確認', remove: '解除', refresh: '再読み込み', empty: '登録済みの接続はありません。', error: '操作を完了できませんでした。再読み込みしてお試しください。', credential: 'このサービスの認証連携がまだ完了していません。', changed: '接続情報が更新されています。再読み込みしてください。', saved: '接続を登録しました。', removed: '接続を解除しました。', verified: '接続を確認しました。', failed: '接続を確認できませんでした。認証連携やサービスの状態を確認してください。', registered: '未確認', checked: '接続確認済み', unavailable: '接続確認に失敗', notice: '接続確認ではサービス内のデータを変更しません。', unknown: 'サービス' },
+  en: { title: 'External services', help: 'Register an approved service and check its connection.', loading: 'Checking…', setup: 'External connections are being prepared. Authentication and storage must be configured first.', login: 'Sign in through a verified user session to manage connections.', choose: 'Service to connect', select: 'Select a service', add: 'Register', check: 'Check connection', remove: 'Disconnect', refresh: 'Refresh', empty: 'No connections registered.', error: 'The operation could not be completed. Refresh and try again.', credential: 'Authentication for this service has not been linked yet.', changed: 'The connection has changed. Refresh before trying again.', saved: 'Connection registered.', removed: 'Connection disconnected.', verified: 'Connection verified.', failed: 'Could not verify the connection. Check authentication and service availability.', registered: 'Not checked', checked: 'Connection verified', unavailable: 'Connection check failed', notice: 'Checking a connection does not modify service data.', unknown: 'Service' },
+};
+function parseOverview(value: unknown): Overview {
+  const v = value as Overview;
+  if (!v || typeof v.configured !== 'boolean' || typeof v.authenticated !== 'boolean') throw new Error();
+  if (v.configured && v.authenticated && (!Array.isArray(v.servers) || !Array.isArray(v.connections) || v.servers.length > 20 || v.connections.length > 20 ||
+    v.servers.some(s => !s || typeof s.id !== 'string' || typeof s.label !== 'string') ||
+    v.connections.some(c => !c || typeof c.id !== 'string' || typeof c.serverId !== 'string' || !Number.isSafeInteger(c.version) || !['registered', 'verified', 'failed'].includes(c.status)))) throw new Error();
+  return v;
+}
+export default function McpConnectionsSettings({ language }: { language: 'ja' | 'en' }) {
+  const t = copy[language];
+  const [expanded, setExpanded] = useState(false);
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [selected, setSelected] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const controller = useRef<AbortController | null>(null);
+  const generation = useRef(0);
+
+  const run = useCallback(async (action?: { path: string; method: 'POST' | 'DELETE'; body: object; success: string }) => {
+    controller.current?.abort(); const request = new AbortController(); controller.current = request;
+    const sequence = ++generation.current; const timer = window.setTimeout(() => request.abort(), 25_000);
+    setBusy(true); setMessage('');
+    try {
+      let note = '';
+      if (action) {
+        const response = await fetch(action.path, { method: action.method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Origin-MCP-Intent': 'manage' }, body: JSON.stringify(action.body), signal: request.signal });
+        const result = await response.json();
+        if (!response.ok || result.ok !== true) {
+          const message = result.code === 'MCP_CREDENTIAL_NOT_LINKED' ? t.credential : result.code === 'MCP_CONNECTION_CHANGED' ? t.changed : t.error;
+          throw new Error(message);
+        }
+        note = result.verified === false ? t.failed : action.success;
+      }
+      const response = await fetch('/api/mcp/status', { credentials: 'same-origin', cache: 'no-store', signal: request.signal });
+      if (!response.ok) throw new Error(t.error);
+      const data = parseOverview(await response.json());
+      if (generation.current === sequence) { setOverview(data); setMessage(note); }
+    } catch (error) {
+      if (generation.current === sequence) { setOverview(null); setMessage(error instanceof Error && [t.error, t.credential, t.changed].includes(error.message) ? error.message : t.error); }
+    } finally { window.clearTimeout(timer); if (generation.current === sequence) setBusy(false); }
+  }, [t]);
+  useEffect(() => {
+    if (expanded) void run();
+    return () => { generation.current += 1; controller.current?.abort(); };
+  }, [expanded, run]);
+  const choices = overview?.servers ?? [];
+  const connections = overview?.connections ?? [];
+  const ready = overview?.configured && overview.authenticated;
+  const button = 'origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold disabled:opacity-50';
+  return <section className="space-y-3 border-t border-[var(--border-default)] pt-5" onPointerDown={event => event.stopPropagation()}>
+    <button type="button" className="flex min-h-11 w-full items-center justify-between text-left text-sm font-bold" aria-expanded={expanded} aria-controls="mcp-settings-content" onClick={() => setExpanded(value => !value)}>{t.title}<span aria-hidden="true">{expanded ? '−' : '+'}</span></button>
+    {expanded && <div id="mcp-settings-content" className="space-y-3" aria-busy={busy}>
+      <p className="origin-muted text-sm">{t.help}</p>
+      {busy && <p role="status" className="origin-muted text-sm">{t.loading}</p>}
+      {overview && !overview.configured && <p className="origin-muted text-sm">{t.setup}</p>}
+      {overview?.configured && !overview.authenticated && <p className="origin-muted text-sm">{t.login}</p>}
+      {ready && <>
+        <label htmlFor="mcp-server-choice" className="block text-sm font-semibold">{t.choose}</label>
+        <div className="flex flex-wrap gap-2"><select id="mcp-server-choice" value={selected} disabled={busy} onChange={event => setSelected(event.target.value)} className="origin-surface min-h-11 min-w-0 flex-1 rounded-xl border px-3 text-sm"><option value="">{t.select}</option>{choices.map(server => <option key={server.id} value={server.id}>{server.label}</option>)}</select>
+        <button type="button" disabled={busy || !choices.some(s => s.id === selected)} className={button} onClick={() => void run({ path: '/api/mcp/connections', method: 'POST', body: { serverId: selected }, success: t.saved })}>{t.add}</button></div>
+        {connections.length === 0 && <p className="origin-muted text-sm">{t.empty}</p>}
+        <ul className="space-y-3">{connections.map(connection => <li key={connection.id} className="origin-surface-muted space-y-2 rounded-xl border p-3">
+          <p className="break-words text-sm font-semibold">{choices.find(s => s.id === connection.serverId)?.label ?? t.unknown}</p>
+          <p className="origin-muted text-sm">{connection.status === 'verified' ? t.checked : connection.status === 'failed' ? t.unavailable : t.registered}</p>
+          <div className="flex flex-wrap gap-2"><button type="button" className={button} disabled={busy} onClick={() => void run({ path: `/api/mcp/connections/${encodeURIComponent(connection.id)}/check`, method: 'POST', body: { version: connection.version }, success: t.verified })}>{t.check}</button>
+          <button type="button" className={button} disabled={busy} onClick={() => void run({ path: `/api/mcp/connections/${encodeURIComponent(connection.id)}`, method: 'DELETE', body: { version: connection.version }, success: t.removed })}>{t.remove}</button></div>
+        </li>)}</ul><p className="origin-muted text-sm">{t.notice}</p>
+      </>}
+      <p role="status" aria-live="polite" className="text-sm">{message}</p>
+      <button type="button" className={button} disabled={busy} onClick={() => void run()}>{t.refresh}</button>
+    </div>}
+  </section>;
+}

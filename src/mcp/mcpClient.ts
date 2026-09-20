@@ -41,6 +41,7 @@ export interface McpSessionOptions {
 /** One authenticated user's connection to one server. Never use a process-global singleton. */
 export class OriginMcpSession {
   private client?: Client;
+  private connectingClient?: Client;
   private pending?: Promise<void>;
   private closed = false;
   private tools = new Map<string, { tool: Tool; fingerprint: string }>();
@@ -63,6 +64,7 @@ export class OriginMcpSession {
 
   private async initialize(): Promise<void> {
     const client = new Client({ name: 'origin-mcp-client', version: '0.1.0' }, { capabilities: {} });
+    this.connectingClient = client;
     client.onclose = () => { if (this.client === client) { this.client = undefined; this.tools.clear(); } };
     let catalogChanged = false;
     client.setNotificationHandler(ToolListChangedNotificationSchema, () => { catalogChanged = true; this.tools.clear(); });
@@ -94,7 +96,7 @@ export class OriginMcpSession {
       this.tools.clear();
       if (error instanceof McpBoundaryError) throw error;
       fail('MCP_CONNECT_FAILED');
-    }
+    } finally { if (this.connectingClient === client) this.connectingClient = undefined; }
   }
 
   /** Admin review metadata only: remote descriptions are untrusted data, not instructions. */
@@ -174,6 +176,7 @@ export class OriginMcpSession {
 
   async close(): Promise<void> {
     this.closed = true;
+    await this.connectingClient?.close().catch(() => undefined);
     await this.pending?.catch(() => undefined);
     const client = this.client;
     this.client = undefined;

@@ -78,6 +78,14 @@ describe('MCP client boundary with the real SDK and in-memory MCP server', () =>
     expect(await f.session.dispatch(call())).toContain('MCP_TOOL_CATALOG_CHANGED');
     expect(f.calls).not.toHaveBeenCalled();
   });
+  it('cancels an in-flight initialization when the settings probe closes', async () => {
+    const f = await fixture();
+    const pending = f.session.connect();
+    const result = await Promise.allSettled([pending, f.session.close()]);
+    expect(result[1].status).toBe('fulfilled');
+    expect(f.session.catalog()).toEqual([]);
+    await expect(f.session.connect()).rejects.toThrow('MCP_SESSION_CLOSED');
+  });
   it('clears all tools and refuses reconnection after closing', async () => {
     const f = await fixture(); await f.session.connect(); await f.session.close();
     expect(f.session.catalog()).toEqual([]); await expect(f.session.connect()).rejects.toThrow('MCP_SESSION_CLOSED');

@@ -17,10 +17,12 @@ import { createWebAppBuilderV13Router } from "../builder/webAppBuilderV13Router.
 import { createWebPublicationStoreFromEnv } from "../builder/webPublicationStoreV131.js";
 import { createWebPublicationV131Router } from "../builder/webPublicationV131Router.js";
 
+import { createMcpManagementRouter, type McpManagementDependencies } from "../mcp/mcpManagementRouter.js";
+
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): string { const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA; return candidate && FULL_GIT_SHA.test(candidate) ? candidate.toLowerCase() : "unknown"; }
 
-export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
+export function createOriginApp(env: NodeJS.ProcessEnv = process.env, integrations: { mcp?: McpManagementDependencies } = {}): Express {
   const app = express();
   app.disable("x-powered-by");
   if (env.NODE_ENV === "production") app.set("trust proxy", 1);
@@ -59,6 +61,7 @@ export function createOriginApp(env: NodeJS.ProcessEnv = process.env): Express {
     paidFallbackEnabled: false,
     secretDelivery: "server-only",
   }));
+  app.use(createMcpManagementRouter(integrations.mcp));
   app.use(createGroundedResearchV11Router());
   app.use(createArtifactV12Router());
   app.use(createWebAppBuilderV13Router());
