@@ -11,7 +11,6 @@ type ConnectionRow = {
   owner_id: string;
   server_id: string;
   endpoint: string;
-  credential_ciphertext: string;
   version: number;
   status: string;
   checked_at: Date | string | null;
@@ -20,7 +19,6 @@ type ConnectionRow = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OWNER = /^[A-Za-z0-9:_-]{1,192}$/;
 const SERVER = /^[A-Za-z0-9-]{1,64}$/;
-const CREDENTIAL = /^v1\.[A-Za-z0-9+/]{16}\.[A-Za-z0-9+/]{22}==\.[A-Za-z0-9+/]+={0,2}$/;
 const STATUSES = new Set<McpConnectionRecord['status']>(['registered', 'verified', 'failed']);
 
 function validEndpoint(value: string): boolean {
@@ -32,7 +30,6 @@ function validEndpoint(value: string): boolean {
 
 function validateRecord(record: McpConnectionRecord): void {
   if (!UUID.test(record.id) || !OWNER.test(record.ownerId) || !SERVER.test(record.serverId) || !validEndpoint(record.endpoint)
-    || !CREDENTIAL.test(record.credential) || Buffer.byteLength(record.credential) > 12_000
     || !Number.isSafeInteger(record.version) || record.version < 1 || !STATUSES.has(record.status)
     || (record.checkedAt !== null && !Number.isFinite(Date.parse(record.checkedAt)))) throw new Error('MCP_STORE_RECORD_INVALID');
 }
@@ -44,7 +41,6 @@ function fromRow(row: ConnectionRow): McpConnectionRecord {
     ownerId: row.owner_id,
     serverId: row.server_id,
     endpoint: row.endpoint,
-    credential: row.credential_ciphertext,
     version: row.version,
     status: row.status as McpConnectionRecord['status'],
     checkedAt,
@@ -53,7 +49,7 @@ function fromRow(row: ConnectionRow): McpConnectionRecord {
   return record;
 }
 
-const COLUMNS = `connection_id, owner_id, server_id, endpoint, credential_ciphertext,
+const COLUMNS = `connection_id, owner_id, server_id, endpoint,
                   version, status, checked_at`;
 
 /** Shared durable store. Every read and mutation includes the authenticated owner. */
@@ -99,12 +95,12 @@ export class PostgresMcpConnectionStore implements McpConnectionStore {
       await client.query("select pg_advisory_xact_lock(hashtextextended('origin_mcp:' || $1, 0))", [record.ownerId]);
       const result = await client.query<{ connection_id: string }>(
         `insert into public.origin_mcp_connections
-           (connection_id, owner_id, server_id, endpoint, credential_ciphertext, version, status, checked_at)
-         select $1::uuid, $2, $3, $4, $5, $6, $7, $8::timestamptz
-         where (select count(*) from public.origin_mcp_connections where owner_id = $2) < $9
+           (connection_id, owner_id, server_id, endpoint, version, status, checked_at)
+         select $1::uuid, $2, $3, $4, $5, $6, $7::timestamptz
+         where (select count(*) from public.origin_mcp_connections where owner_id = $2) < $8
          on conflict do nothing
          returning connection_id::text`,
-        [record.id, record.ownerId, record.serverId, record.endpoint, record.credential, record.version, record.status, record.checkedAt, ownerLimit],
+        [record.id, record.ownerId, record.serverId, record.endpoint, record.version, record.status, record.checkedAt, ownerLimit],
       );
       await client.query('commit');
       return result.rowCount === 1;
@@ -119,18 +115,17 @@ export class PostgresMcpConnectionStore implements McpConnectionStore {
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || record.version !== expectedVersion + 1) return false;
     const result = await this.database.query<{ connection_id: string }>(
       `update public.origin_mcp_connections
-       set credential_ciphertext = $4,
-           version = $5,
-           status = $6,
-           checked_at = $7::timestamptz,
+       set version = $4,
+           status = $5,
+           checked_at = $6::timestamptz,
            updated_at = clock_timestamp()
        where owner_id = $1
          and connection_id = $2::uuid
          and server_id = $3
-         and endpoint = $8
-         and version = $9
+         and endpoint = $7
+         and version = $8
        returning connection_id::text`,
-      [record.ownerId, record.id, record.serverId, record.credential, record.version, record.status, record.checkedAt, record.endpoint, expectedVersion],
+      [record.ownerId, record.id, record.serverId, record.version, record.status, record.checkedAt, record.endpoint, expectedVersion],
     );
     return result.rowCount === 1;
   }
