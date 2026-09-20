@@ -1,12 +1,9 @@
 // @vitest-environment node
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import dns from 'node:dns';
 import https from 'node:https';
 import tls from 'node:tls';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -15,26 +12,44 @@ import { OriginMcpSession, toolAlias, toolFingerprint } from './mcpClient.js';
 
 const endpoint = 'https://mcp.origin-test.invalid/mcp';
 const allowedOrigins = ['https://mcp.origin-test.invalid'];
-let directory: string;
 let certificate: Buffer;
 let key: Buffer;
 const cleanup: Array<() => Promise<void>> = [];
 
+// Minimal test-only DER encoding for an ephemeral self-signed certificate.
+// Signing and key generation use Node crypto. No production certificate handling,
+// external executable, committed private key or sandbox permission is required.
+function der(tag: number, ...parts: Buffer[]): Buffer {
+  const body = Buffer.concat(parts);
+  const length = body.length < 128 ? Buffer.from([body.length])
+    : body.length < 256 ? Buffer.from([0x81, body.length])
+    : Buffer.from([0x82, body.length >> 8, body.length & 255]);
+  return Buffer.concat([Buffer.from([tag]), length, body]);
+}
+function testCertificate() {
+  const pair = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const algorithm = der(0x30, Buffer.from('06092a864886f70d01010b0500', 'hex'));
+  const name = der(0x30, der(0x31, der(0x30, Buffer.from('0603550403', 'hex'), der(0x0c, Buffer.from('mcp.origin-test.invalid')))));
+  const date = (offset: number) => der(0x18, Buffer.from(new Date(Date.now() + offset).toISOString().replace(/[-:]/g, '').replace('T', '').replace(/\.\d{3}Z$/, 'Z')));
+  const extensions = der(0xa3, der(0x30,
+    der(0x30, Buffer.from('0603551d130101ff', 'hex'), der(0x04, der(0x30, Buffer.from('0101ff', 'hex')))),
+    der(0x30, Buffer.from('0603551d11', 'hex'), der(0x04, der(0x30, der(0x82, Buffer.from('mcp.origin-test.invalid'))))),
+  ));
+  const body = der(0x30, der(0xa0, Buffer.from('020102', 'hex')), Buffer.from('020101', 'hex'),
+    algorithm, name, der(0x30, date(-86_400_000), date(86_400_000)), name,
+    pair.publicKey.export({ type: 'spki', format: 'der' }), extensions);
+  const signed = der(0x30, body, algorithm, der(0x03, Buffer.from([0]), sign('sha256', body, pair.privateKey)));
+  const pem = `-----BEGIN CERTIFICATE-----\n${signed.toString('base64').match(/.{1,64}/g)!.join('\n')}\n-----END CERTIFICATE-----\n`;
+  return { certificate: Buffer.from(pem), key: Buffer.from(pair.privateKey.export({ type: 'pkcs8', format: 'pem' })) };
+}
+
 beforeAll(() => {
-  directory = mkdtempSync(join(tmpdir(), 'origin-mcp-tls-'));
-  // Ephemeral test certificate/key only. Never committed or used by production.
-  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
-    '-keyout', join(directory, 'key.pem'), '-out', join(directory, 'cert.pem'),
-    '-days', '1', '-subj', '/CN=mcp.origin-test.invalid',
-    '-addext', 'subjectAltName=DNS:mcp.origin-test.invalid'], { stdio: 'pipe' });
-  key = readFileSync(join(directory, 'key.pem'));
-  certificate = readFileSync(join(directory, 'cert.pem'));
+  ({ certificate, key } = testCertificate());
 });
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
   vi.restoreAllMocks();
 });
-afterAll(() => { if (directory) rmSync(directory, { recursive: true, force: true }); });
 
 /**
  * Controlled TLS peer, NOT a live vendor or public-DNS test. Only DNS and socket
