@@ -262,7 +262,7 @@ must be requalified.
   the connection token snapshot was removed, fresh broker resolution/revocation was wired,
   Supabase `sub`/`session_id` binding and protected OAuth routes were added. ACOS lint,
   explicit typecheck, unit/API/build/runtime gates passed; PostgreSQL 16/18 passed.
-- Zero-cost evidence candidate: connector review
+- Zero-cost evidence checkpoint `13b8c16a4873b701792f3d4880d9d9fe692652a8`: connector review
   evidence became structured and expiring, with operation-time fail-closed checks before
   credential or network use. Local validation passed 1,878 tests, lint, typecheck,
   production build and the Node ESM API runtime; exact-head CI remains required.
