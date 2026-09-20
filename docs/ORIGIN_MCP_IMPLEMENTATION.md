@@ -31,6 +31,9 @@ has replaced its existing APIs. Standard support alone is not permission to exec
   and a fresh session is created. Catalog changes during authorization block execution.
 - Local JSON Schema validation before calling a tool.
 - Server-side per-call authorization receives authenticated owner and parsed arguments.
+- A single 15-second dispatch deadline covers authorization and execution. Caller
+  cancellation reaches both authorization and the SDK. Late approvals cannot start
+  a cancelled operation; remote cancellation never proves rollback or permits replay.
 - No automatic retry of mutations. Unknown remote completion must not be called success.
 - Remote exception messages and isError content are not returned to the model.
 - Configuration uses named server-side environment references, not raw string replacement.
@@ -51,9 +54,13 @@ has replaced its existing APIs. Standard support alone is not permission to exec
 ## Gates before end-user enablement
 
 Use createNodeMcpTransport for Node integrations; it always installs createNodeMcpFetch.
-The guarded adapter is implemented and covered by deterministic DNS/socket/stream tests
-and a real-SDK JSON/SSE integration test with simulated HTTPS responses. Actual TLS
-handshakes, OAuth and live vendor behavior remain unverified. No native-fetch fallback
+The guarded adapter is covered by deterministic DNS/socket/stream tests, real-SDK
+JSON/SSE tests, and actual TLS sockets against a controlled local HTTPS peer. The TLS
+fixture substitutes DNS and destination routing after the production DNS guard, and
+trusts an ephemeral test CA only inside the fixture. It verifies certificate/hostname
+rejection before credential transmission, JSON/SSE tool dispatch, DNS rebinding,
+redirect refusal, response limits, deadlines and cancellation. Public DNS routing,
+OAuth and live vendor behavior remain unverified. No native-fetch fallback
 is allowed. Long-lived SSE connections currently stop after 15 seconds and are not
 automatically reconnected; long-running remote jobs require a separately bounded design.
 The adapter is Node-only. Do not import it into browser or Worker bundles or assume
@@ -125,9 +132,20 @@ This client foundation does not certify those PRs, change main or claim their CI
 
 Reference: https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices
 
-## Validation of guarded transport increment
+## Validation and continuation
 
-- Prior head 1760f71: all six GitHub PR workflows completed successfully.
-- Current increment: 80 MCP regression tests, including real SDK over simulated HTTPS.
-- Repository-wide npm run typecheck passed locally for this increment.
+- Base head d2afecc333781879dfd6ab1e10ae631d8a4b20eb: all six GitHub PR workflows
+  completed successfully (verified 2026-09-20). This does not certify subsequent heads.
+- This increment: 93 MCP tests passed locally, including nine actual-TLS fixture tests
+  and four dispatch cancellation/deadline regressions. Typecheck and diff checks passed.
+- Run current-head CI before treating the increment as release-verified.
 - No live third-party request, customer send, merge or deployment was performed.
+
+Next: implement reviewed zero-cost connector eligibility and operation-scoped
+authorization before exposing a settings or chat route. Then add owner-scoped
+credential storage/OAuth and real vendor E2E for each explicitly enabled connector.
+An injected `authorize` callback remains a trusted integration boundary, not proof
+that a connector is free or that a customer send is approved. Enabling a connector,
+changing environment/permissions and publishing ORIGIN's MCP server still require
+Owner approval. Keep Self-Evolution's outstanding source-to-sink findings tracked
+separately; this MCP verification does not close them.

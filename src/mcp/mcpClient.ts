@@ -34,7 +34,7 @@ export interface McpSessionOptions {
   /** Trusted server-side grants pin the reviewed tool definition. */
   grants: readonly ToolGrant[];
   /** Must enforce resource ownership, cost policy and any required send/publish approval. */
-  authorize: (input: { subjectId: string; serverId: string; toolName: string; arguments: Record<string, unknown> }) => Promise<boolean>;
+  authorize: (input: { subjectId: string; serverId: string; toolName: string; arguments: Record<string, unknown>; signal: AbortSignal }) => Promise<boolean>;
   transport: () => Transport;
 }
 
@@ -113,8 +113,16 @@ export class OriginMcpSession {
     return this.options.grants.some(grant => grant.name === name && grant.fingerprint === fingerprint);
   }
 
-  async dispatch(call: { function: { name: string; arguments: string } }): Promise<string> {
+  async dispatch(call: { function: { name: string; arguments: string } }, options: { signal?: AbortSignal } = {}): Promise<string> {
+    // Bound the entire operation, including asynchronous authorization. Aborting
+    // locally never proves a remote mutation was rolled back; do not replay it.
+    const deadline = new AbortController();
+    const signal = options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal;
+    const timeout = setTimeout(() => deadline.abort(), REQUEST_TIMEOUT_MS);
+    const abortCode = () => options.signal?.aborted ? 'MCP_REQUEST_ABORTED' : 'MCP_TOOL_TIMEOUT';
+    let onAbort: (() => void) | undefined;
     try {
+      if (signal.aborted) fail(abortCode());
       if (!this.client || this.closed) fail('MCP_NOT_CONNECTED');
       const entry = this.tools.get(call?.function?.name);
       if (!entry || !this.isGranted(entry.tool.name, entry.fingerprint)) fail('MCP_TOOL_NOT_AUTHORIZED');
@@ -127,19 +135,34 @@ export class OriginMcpSession {
       const validator = new AjvJsonSchemaValidator().getValidator(entry.tool.inputSchema);
       if (!validator(args).valid) fail('MCP_ARGUMENTS_INVALID');
       const argumentsObject = args as Record<string, unknown>;
-      const allowed = await this.options.authorize({ subjectId: this.options.subjectId, serverId: this.options.serverId, toolName: entry.tool.name, arguments: structuredClone(argumentsObject) });
+      const interrupted = new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(new McpBoundaryError(abortCode()));
+        signal.addEventListener('abort', onAbort, { once: true });
+      });
+      const allowed = await Promise.race([
+        this.options.authorize({ subjectId: this.options.subjectId, serverId: this.options.serverId, toolName: entry.tool.name, arguments: structuredClone(argumentsObject), signal }),
+        interrupted,
+      ]);
+      if (signal.aborted) fail(abortCode());
       if (allowed !== true) fail('MCP_TOOL_NOT_AUTHORIZED');
       if (this.closed || !this.client) fail('MCP_NOT_CONNECTED');
       if (this.tools.get(call.function.name) !== entry) fail('MCP_TOOL_CATALOG_CHANGED');
       // No mutation retries: an interrupted response does not prove the tool was not executed.
-      const result = await this.client.callTool({ name: entry.tool.name, arguments: argumentsObject }, undefined, { timeout: REQUEST_TIMEOUT_MS });
+      const result = await Promise.race([
+        this.client.callTool({ name: entry.tool.name, arguments: argumentsObject }, undefined, { timeout: REQUEST_TIMEOUT_MS, signal }),
+        interrupted,
+      ]);
+      if (signal.aborted) fail(abortCode());
       if (result.isError) fail('MCP_REMOTE_TOOL_FAILED');
       const output = JSON.stringify(result);
       if (Buffer.byteLength(output) > MAX_RESULT_BYTES) fail('MCP_RESULT_TOO_LARGE');
       return output;
     } catch (error) {
       // SDK/upstream errors may contain tokens, headers or response bodies.
-      return JSON.stringify({ isError: true, code: error instanceof McpBoundaryError ? error.code : 'MCP_TOOL_FAILED' });
+      return JSON.stringify({ isError: true, code: signal.aborted ? abortCode() : error instanceof McpBoundaryError ? error.code : 'MCP_TOOL_FAILED' });
+    } finally {
+      clearTimeout(timeout);
+      if (onAbort) signal.removeEventListener('abort', onAbort);
     }
   }
 

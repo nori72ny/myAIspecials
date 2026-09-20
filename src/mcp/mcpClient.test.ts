@@ -83,6 +83,46 @@ describe('MCP client boundary with the real SDK and in-memory MCP server', () =>
     expect(f.session.catalog()).toEqual([]); await expect(f.session.connect()).rejects.toThrow('MCP_SESSION_CLOSED');
     expect(await f.session.dispatch(call())).toContain('MCP_NOT_CONNECTED');
   });
+  it('does not authorize or invoke a pre-cancelled dispatch', async () => {
+    const f = await fixture(); await f.session.connect();
+    const controller = new AbortController(); controller.abort();
+    expect(await f.session.dispatch(call(), { signal: controller.signal })).toContain('MCP_REQUEST_ABORTED');
+    expect(f.authorize).not.toHaveBeenCalled(); expect(f.calls).not.toHaveBeenCalled();
+  });
+  it('cancels pending authorization and cannot execute after a late approval', async () => {
+    const f = await fixture(); await f.session.connect();
+    let allow!: (value: boolean) => void;
+    f.authorize.mockImplementationOnce(() => new Promise<boolean>(resolve => { allow = resolve; }));
+    const controller = new AbortController();
+    const pending = f.session.dispatch(call(), { signal: controller.signal });
+    controller.abort();
+    expect(await pending).toContain('MCP_REQUEST_ABORTED');
+    expect(f.authorize.mock.calls[0][0].signal.aborted).toBe(true);
+    allow(true); await new Promise(resolve => setTimeout(resolve, 0));
+    expect(f.calls).not.toHaveBeenCalled();
+  });
+  it('bounds stalled authorization within the same operation deadline', async () => {
+    const f = await fixture(); await f.session.connect();
+    f.authorize.mockImplementationOnce(() => new Promise<boolean>(() => {}));
+    vi.useFakeTimers();
+    try {
+      const pending = f.session.dispatch(call());
+      await vi.advanceTimersByTimeAsync(15_001);
+      expect(await pending).toContain('MCP_TOOL_TIMEOUT');
+      expect(f.calls).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it('cancels an in-flight remote call without replay or a success claim', async () => {
+    const f = await fixture(); await f.session.connect();
+    let started!: () => void;
+    const reached = new Promise<void>(resolve => { started = resolve; });
+    f.calls.mockImplementationOnce(async () => { started(); return new Promise(() => {}); });
+    const controller = new AbortController();
+    const pending = f.session.dispatch(call(), { signal: controller.signal });
+    await reached; controller.abort();
+    expect(await pending).toContain('MCP_REQUEST_ABORTED');
+    expect(f.calls).toHaveBeenCalledTimes(1);
+  });
   it('rejects duplicate definitions atomically', async () => {
     const f = await fixture({ tools: [tool, tool] });
     await expect(f.session.connect()).rejects.toThrow('MCP_DUPLICATE_TOOL'); expect(f.session.catalog()).toEqual([]);
