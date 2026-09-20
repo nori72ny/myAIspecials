@@ -1,5 +1,7 @@
+import { PostgresMcpConnectionStore } from '../src/mcp/mcpPostgresStore.js';
+import { sealMcpCredential, type McpConnectionRecord } from '../src/mcp/mcpConnections.js';
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, describe, it } from 'node:test';
@@ -88,7 +90,7 @@ before(async () => {
   await admin.query(`create database ${databaseName}`);
   createdDatabase = true;
   for (let pass = 0; pass < 2; pass++) {
-    for (const migration of ['20260911_origin_coding_jobs_v14.sql', '20260912_origin_coding_job_results_v14.sql']) {
+    for (const migration of ['20260911_origin_coding_jobs_v14.sql', '20260912_origin_coding_job_results_v14.sql', '20260920100327_origin_mcp_connections.sql']) {
       await db.query(await readFile(new URL(`../supabase/migrations/${migration}`, import.meta.url), 'utf8'));
     }
   }
@@ -237,5 +239,41 @@ describe('Coding V1.4 real Postgres boundaries', { timeout: 20000 }, () => {
     assert.equal(await jobs.getJob(job.jobId, job.ownerHash), null);
     assert.equal(await jobs.deleteExpired(1), 1);
     assert.equal(await results.get(job.jobId), null);
+  });
+});
+
+
+describe('MCP real PostgreSQL concurrency', { timeout: 20000 }, () => {
+  it('observes a lock wait and counts the preceding committed insert', async () => {
+    const ownerId = randomUUID();
+    const makeRecord = (serverId: string): McpConnectionRecord => {
+      const binding = { id: randomUUID(), ownerId, serverId, endpoint: 'https://mcp.example.test/mcp' };
+      return { ...binding, credential: sealMcpCredential('fixture', binding, randomBytes(32)), version: 1, status: 'registered', checkedAt: null };
+    };
+    await raceClients(async (a, b) => {
+      await a.query('begin');
+      await a.query("select pg_advisory_xact_lock(hashtextextended('origin_mcp:' || $1, 0))", [ownerId]);
+      const first = makeRecord('first');
+      await a.query(`insert into public.origin_mcp_connections
+        (connection_id, owner_id, server_id, endpoint, credential_ciphertext)
+        values ($1, $2, $3, $4, $5)`, [first.id, ownerId, first.serverId, first.endpoint, first.credential]);
+      const store = new PostgresMcpConnectionStore({
+        query: db.query.bind(db),
+        connect: async () => ({ query: b.query.bind(b), release: () => {} }),
+      });
+      const contenderPid = await pid(b);
+      const blockerPid = await pid(a);
+      const pending = store.insert(makeRecord('second'), 1);
+      // Attach a rejection handler while observing the actual database lock.
+      const outcome = pending.then(value => ({ value }), error => ({ error }));
+      await waitForBlock(contenderPid, blockerPid);
+      await a.query('commit');
+      assert.deepEqual(await outcome, { value: false });
+      assert.equal((await store.list(ownerId)).length, 1);
+      assert.equal(await store.get('other-owner', first.id), undefined);
+      assert.equal(await store.remove('other-owner', first.id, 1), false);
+      assert.equal(await store.remove(ownerId, first.id, 2), false);
+      assert.equal(await store.remove(ownerId, first.id, 1), true);
+    });
   });
 });

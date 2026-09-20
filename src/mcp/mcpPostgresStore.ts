@@ -58,7 +58,7 @@ const COLUMNS = `connection_id, owner_id, server_id, endpoint, credential_cipher
 
 /** Shared durable store. Every read and mutation includes the authenticated owner. */
 export class PostgresMcpConnectionStore implements McpConnectionStore {
-  constructor(private readonly database: McpSqlExecutor) {}
+  constructor(private readonly database: McpSqlExecutor & { connect(): Promise<McpSqlExecutor & { release(error?: Error | boolean): void }> }) {}
 
   async list(ownerId: string): Promise<McpConnectionRecord[]> {
     if (!OWNER.test(ownerId)) throw new Error('MCP_STORE_OWNER_INVALID');
@@ -88,25 +88,30 @@ export class PostgresMcpConnectionStore implements McpConnectionStore {
   async insert(record: McpConnectionRecord, ownerLimit: number): Promise<boolean> {
     validateRecord(record);
     if (!Number.isSafeInteger(ownerLimit) || ownerLimit < 1 || ownerLimit > 20) throw new Error('MCP_STORE_LIMIT_INVALID');
-    const result = await this.database.query<{ connection_id: string }>(
-      `with owner_lock as materialized (
-         select pg_advisory_xact_lock(hashtextextended('origin_mcp:' || $2, 0)) as locked
-       ), capacity as materialized (
-         select count(*)::int as connection_count
-         from public.origin_mcp_connections, owner_lock
-         where owner_id = $2
-       ), inserted as (
-         insert into public.origin_mcp_connections
+    const client = await this.database.connect();
+    let discard = false;
+    try {
+      await client.query('begin isolation level read committed');
+      await client.query("set local lock_timeout = '3s'");
+      await client.query("set local statement_timeout = '5s'");
+      // A separate statement is essential: READ COMMITTED takes a fresh snapshot
+      // after the preceding lock wait, including the prior owner's insertion.
+      await client.query("select pg_advisory_xact_lock(hashtextextended('origin_mcp:' || $1, 0))", [record.ownerId]);
+      const result = await client.query<{ connection_id: string }>(
+        `insert into public.origin_mcp_connections
            (connection_id, owner_id, server_id, endpoint, credential_ciphertext, version, status, checked_at)
          select $1::uuid, $2, $3, $4, $5, $6, $7, $8::timestamptz
-         where (select connection_count from capacity) < $9
+         where (select count(*) from public.origin_mcp_connections where owner_id = $2) < $9
          on conflict do nothing
-         returning connection_id
-       )
-       select connection_id::text from inserted`,
-      [record.id, record.ownerId, record.serverId, record.endpoint, record.credential, record.version, record.status, record.checkedAt, ownerLimit],
-    );
-    return result.rowCount === 1;
+         returning connection_id::text`,
+        [record.id, record.ownerId, record.serverId, record.endpoint, record.credential, record.version, record.status, record.checkedAt, ownerLimit],
+      );
+      await client.query('commit');
+      return result.rowCount === 1;
+    } catch {
+      try { await client.query('rollback'); } catch { discard = true; }
+      throw new Error('MCP_STORE_UNAVAILABLE');
+    } finally { client.release(discard); }
   }
 
   async replace(record: McpConnectionRecord, expectedVersion: number): Promise<boolean> {

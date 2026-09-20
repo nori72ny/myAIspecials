@@ -7,11 +7,14 @@ class TestDatabase implements McpSqlExecutor {
   readonly calls: Array<{ text: string; values: readonly unknown[] }> = [];
   private readonly results: Array<Array<Record<string, unknown>>> = [];
 
+  async connect() { return this; }
+  release(_error?: Error | boolean) {}
+
   push(...rows: Array<Record<string, unknown>>) { this.results.push(rows); }
 
   async query<T extends Record<string, unknown>>(text: string, values: readonly unknown[] = []): Promise<QueryResult<T>> {
     this.calls.push({ text, values });
-    const rows = (this.results.shift() ?? []) as T[];
+    const rows = (/^(begin|set local|select pg_advisory|commit|rollback)/.test(text) ? [] : this.results.shift() ?? []) as T[];
     return { command: '', rowCount: rows.length, oid: 0, fields: [], rows };
   }
 }
@@ -54,12 +57,14 @@ describe('PostgresMcpConnectionStore', () => {
     expect(database.calls[0].values).toEqual([record().ownerId]);
   });
 
-  it('uses one locked statement for the owner limit and duplicate-safe insert', async () => {
+  it('locks before taking a fresh capacity snapshot and commits the insertion', async () => {
     const database = new TestDatabase(); database.push({ connection_id: record().id });
     const store = new PostgresMcpConnectionStore(database);
     expect(await store.insert(record(), 20)).toBe(true);
-    const call = database.calls[0];
-    expect(call.text).toContain('pg_advisory_xact_lock');
+    expect(database.calls[0].text).toBe('begin isolation level read committed');
+    expect(database.calls[3].text).toContain('pg_advisory_xact_lock');
+    expect(database.calls[5].text).toBe('commit');
+    const call = database.calls[4];
     expect(call.text).toContain('on conflict do nothing');
     expect(call.text).toContain('where owner_id = $2');
     expect(call.text).not.toContain(record().credential);
