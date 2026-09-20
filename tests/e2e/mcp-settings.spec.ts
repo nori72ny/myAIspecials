@@ -14,6 +14,50 @@ test('MCP settings reports its actual disabled backend without breaking the mobi
   expect(errors).toEqual([]);
 });
 
+test('MCP settings performs owner login and logout without retaining the password in the DOM', async ({ page }) => {
+  let authenticated = false;
+  const writes: Array<{ path: string; body: unknown }> = [];
+  await page.route('**/api/mcp/**', async route => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    if (req.method() === 'GET' && path === '/api/mcp/status') {
+      return route.fulfill({ json: authenticated
+        ? { configured: true, authenticated: true, servers: [{ id: 'docs', label: 'Documents', authMode: 'oauth' }], connections: [] }
+        : { configured: true, authenticated: false } });
+    }
+    expect(req.headers()['x-origin-mcp-intent']).toBe('manage');
+    writes.push({ path, body: req.postDataJSON() });
+    if (path === '/api/mcp/session/login') {
+      expect(req.postDataJSON()).toEqual({ email: 'owner@example.com', password: 'fixture-password' });
+      authenticated = true;
+      return route.fulfill({ json: { ok: true, authenticated: true } });
+    }
+    if (path === '/api/mcp/session/logout') {
+      expect(req.postDataJSON()).toEqual({});
+      authenticated = false;
+      return route.fulfill({ json: { ok: true, authenticated: false } });
+    }
+    return route.abort();
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
+  await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
+  await page.getByLabel('メールアドレス').fill('owner@example.com');
+  const password = page.getByLabel('パスワード');
+  await password.fill('fixture-password');
+  await page.getByRole('button', { name: 'ログイン', exact: true }).click();
+  await expect(password).toHaveValue('');
+  await expect(page.getByText('ログインしました。', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ログアウト', exact: true })).toBeVisible();
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
+  await expect(page.getByText('ログアウトしました。', { exact: true })).toBeVisible();
+  await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
+  expect(writes.map(write => write.path)).toEqual(['/api/mcp/session/login', '/api/mcp/session/logout']);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+});
+
 test('MCP settings handles register, check and disconnect with a simulated authenticated API', async ({ page }) => {
   const id = '11111111-1111-1111-1111-111111111111';
   let connections: Array<{ id: string; serverId: string; version: number; status: string; checkedAt: string | null }> = [];
