@@ -15,6 +15,7 @@ const ENABLED = 'true';
 const CLIENT_SECRET_ENV = /^ORIGIN_MCP_[A-Z0-9_]+_CLIENT_SECRET$/;
 const KEY_ID = /^[A-Za-z0-9_-]{1,32}$/;
 const SERVER_ID = /^[A-Za-z0-9-]{1,64}$/;
+const CERTIFICATE_BLOCK = /-----BEGIN CERTIFICATE-----\r?\n[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----/g;
 
 const invalid = (): never => { throw new Error('MCP_RUNTIME_CONFIG_INVALID'); };
 
@@ -38,9 +39,24 @@ function databaseUrl(raw: unknown): string {
   if (typeof raw !== 'string' || raw.length > 8192) return invalid();
   try {
     const url = new URL(raw);
-    if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.hostname || url.username.length > 256 || url.password.length > 2048) return invalid();
+    if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.hostname || !url.username || !url.password
+      || url.username.length > 256 || url.password.length > 2048 || url.hash) return invalid();
+    // node-postgres lets SSL query parameters replace the explicit TLS object. Reject
+    // them so the CA + rejectUnauthorized policy below cannot be weakened by the URL.
+    for (const key of url.searchParams.keys()) if (key.toLowerCase().startsWith('ssl')) return invalid();
     return raw;
   } catch { return invalid(); }
+}
+
+function databaseCa(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length < 64 || raw.length > 64 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(raw)) return invalid();
+  let decoded: string;
+  try { decoded = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(raw, 'base64')); }
+  catch { return invalid(); }
+  if (Buffer.byteLength(decoded) > 32 * 1024 || /\0/.test(decoded)) return invalid();
+  const blocks = decoded.match(CERTIFICATE_BLOCK);
+  if (!blocks || blocks.length < 1 || blocks.length > 4 || blocks.join('\n') !== decoded.trim()) return invalid();
+  return `${decoded.trim()}\n`;
 }
 
 type ReviewedOAuth = {
@@ -168,13 +184,20 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
   const authenticate = createSupabaseMcpAuthenticatorFromEnv(env);
   const configRaw = env.ORIGIN_MCP_REVIEWED_SERVERS_JSON;
   const databaseRaw = env.ORIGIN_MCP_DATABASE_URL;
+  const databaseCaRaw = env.ORIGIN_MCP_DATABASE_CA_BASE64;
   const pkceRaw = env.ORIGIN_MCP_PKCE_KEY_BASE64;
   const keyringRaw = env.ORIGIN_MCP_TOKEN_KEYRING_JSON;
-  if (!authenticate || !configRaw || !databaseRaw || !pkceRaw || !keyringRaw) return invalid();
+  if (!authenticate || !configRaw || !databaseRaw || !databaseCaRaw || !pkceRaw || !keyringRaw) return invalid();
 
   const reviewed = reviewedServers(configRaw, appOrigin, env);
-  const pool = new Pool({ connectionString: databaseUrl(databaseRaw.trim()), max: 2, idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 3_000, allowExitOnIdle: true });
+  const pool = new Pool({
+    connectionString: databaseUrl(databaseRaw.trim()),
+    ssl: { ca: databaseCa(databaseCaRaw.trim()), rejectUnauthorized: true },
+    max: 2,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 3_000,
+    allowExitOnIdle: true,
+  });
   const broker = new McpOAuthBroker({
     providers: reviewed.providers,
     pendingStore: new PostgresMcpOAuthPendingStore(pool),
