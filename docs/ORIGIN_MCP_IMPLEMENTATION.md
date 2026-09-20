@@ -1,6 +1,6 @@
 # ORIGIN MCP implementation and document-insertion requirements
 
-Status: client foundation implemented, not connected to application routes or deployed.
+Status: client foundation and guarded Node HTTP/SSE adapter implemented; not connected to application routes or deployed.
 Baseline: main f0c1bff22d3246d3eac3903b9def5d3aa7c1e498, 2026-09-20.
 Keep main frozen while the existing V1.4 final qualification remains pending.
 
@@ -36,16 +36,28 @@ has replaced its existing APIs. Standard support alone is not permission to exec
 - Configuration uses named server-side environment references, not raw string replacement.
 - HTTP transport requires an explicitly supplied guarded network adapter, checks an
   exact endpoint and allowlisted HTTPS origin, and rejects redirect following.
+- Node adapter checks DNS at socket connection time and passes only the checked
+  public addresses to the socket. A fresh agent per request prevents stale-socket reuse.
+- Rejects redirects, IP-literal endpoints, compressed responses and unsafe headers.
+  TLS certificate verification stays enabled; credential headers are never forwarded
+  to another URL. Caller cancellation and a total 15-second per-request deadline
+  cover DNS lookup, response headers and streaming bodies.
+- Limits request bodies to 64 KiB, response bodies to 1 MiB, and headers to 16 KiB.
+  Limits can only be reduced. Streaming has backpressure and destroys sockets on
+  cancellation, truncation, timeout or overflow. Errors expose stable codes only.
 - No route, settings UI, model switch, scheduled scanner, provider activation or production
   environment change is included in this foundation.
 
 ## Gates before end-user enablement
 
-Implement and test a reviewed network adapter with connect-time DNS/public-IP checks,
-redirect rejection, bounded JSON/SSE response streaming, request cancellation and a
-15-second execution budget. Native fetch is not an acceptable production adapter.
-URL allowlisting alone does not prevent DNS rebinding. The existing legacy secureFetch
-returns GET text, so it cannot simply be passed as the SDK fetch implementation.
+Use createNodeMcpTransport for Node integrations; it always installs createNodeMcpFetch.
+The guarded adapter is implemented and covered by deterministic DNS/socket/stream tests
+and a real-SDK JSON/SSE integration test with simulated HTTPS responses. Actual TLS
+handshakes, OAuth and live vendor behavior remain unverified. No native-fetch fallback
+is allowed. Long-lived SSE connections currently stop after 15 seconds and are not
+automatically reconnected; long-running remote jobs require a separately bounded design.
+The adapter is Node-only. Do not import it into browser or Worker bundles or assume
+Node CI certifies an edge runtime; add a separate reviewed runtime adapter if needed.
 
 Wire the current Express createOriginApp and provider boundary rather than adding the
 uploaded unprotected api/mcp/tools.ts sample. Confirm both Node and serverless/worker
@@ -112,3 +124,10 @@ Do not overwrite them with the uploaded scripts. V1.5 design PR #584 is a separa
 This client foundation does not certify those PRs, change main or claim their CI passes.
 
 Reference: https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices
+
+## Validation of guarded transport increment
+
+- Prior head 1760f71: all six GitHub PR workflows completed successfully.
+- Current increment: 80 MCP regression tests, including real SDK over simulated HTTPS.
+- Repository-wide npm run typecheck passed locally for this increment.
+- No live third-party request, customer send, merge or deployment was performed.
