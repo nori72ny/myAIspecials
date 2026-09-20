@@ -1,6 +1,6 @@
 # ORIGIN MCP implementation and document-insertion requirements
 
-Status: client foundation, guarded Node HTTP/SSE adapter and disabled-by-default connection management/settings implemented. No live connector or production deployment.
+Status: client foundation, guarded Node HTTP/SSE adapter, disabled-by-default connection management/settings and a durable PostgreSQL store adapter implemented. No migration has been applied, live connector enabled or production deployment performed.
 Baseline: main f0c1bff22d3246d3eac3903b9def5d3aa7c1e498, 2026-09-20.
 Keep main frozen while the existing V1.4 final qualification remains pending.
 
@@ -56,6 +56,12 @@ has replaced its existing APIs. Standard support alone is not permission to exec
   status explicitly reports configured=false and all management writes fail closed.
 - Credential ciphertext uses AES-256-GCM with owner/connection/server/endpoint binding;
   list and mutation responses return only allowlisted connection metadata.
+- The PostgreSQL connection store keeps only the encrypted envelope and allowlisted
+  metadata. Reads always include the authenticated owner. Inserts serialize by owner
+  before enforcing the 20-connection limit and owner/server uniqueness; checks and
+  deletes use compare-and-swap versions. Its Supabase migration revokes browser roles
+  and enables RLS without adding a browser policy. The adapter is not automatically
+  constructed or mounted by the default application.
 - Registration uses a server-side per-owner credential broker, never browser-supplied
   service tokens or arbitrary URLs. Exact Origin plus a custom mutation header guards
   POST and DELETE. Shared-store owner scoping and atomic version checks are required.
@@ -86,10 +92,9 @@ broker and shared-store adapters. There is no unsigned header identity adapter i
 production. Keep credential handling server-side and do not import the Node transport
 factory into the Worker or browser bundle.
 
-Before activation, implement and connect a real verified-user session provider,
-a durable shared McpConnectionStore (atomic owner limits, duplicate prevention and
-compare-and-swap), and a per-owner credential broker. The only in-memory store added
-here is a test fixture, not a persistence implementation. Existing ORIGIN operator
+Before activation, connect a real verified-user session provider, review and apply the
+durable shared McpConnectionStore migration, and implement a per-owner credential broker.
+The in-memory store remains a test fixture. Existing ORIGIN operator
 secrets are not repurposed as browser login credentials. Add encryption-key rotation
 and expiry/revocation handling with the durable credential integration. Start with
 reviewed, explicitly zero-cost-approved endpoints; a configuration flag is not evidence
@@ -162,6 +167,10 @@ Reference: https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/se
 - Integrated increment: 130 tests passed (MCP, API, component and existing settings),
   including the nine actual-TLS tests. Typecheck, design-token lint and production
   build passed. Existing SettingsModal tests emit React act warnings but pass.
+- Durable-store increment: 113 focused MCP tests and 1,791 full non-browser tests
+  passed locally. Typecheck, design-token lint, production build and the Node ESM
+  serverless runtime check passed. The migration was created with Supabase CLI 2.117.0
+  but was not applied; live PostgreSQL behavior and exact-head CI remain unverified.
 - Two mobile browser tests were added: actual disabled-backend status and a simulated
   authenticated registration/check/disconnect UI. Local browser execution is blocked
   by unavailable browser binaries/download; agent-browser daemon also fails to start.
