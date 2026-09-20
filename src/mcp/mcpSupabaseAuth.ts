@@ -1,11 +1,30 @@
 import type { Request } from 'express';
 
-const SESSION_COOKIE = '__Host-origin-session';
+export const MCP_ACCESS_SESSION_COOKIE = '__Host-origin-session';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const MAX_RESPONSE_BYTES = 32 * 1024;
 
-type AuthFetch = (input: string | URL | RequestInfo, init?: RequestInit) => Promise<Response>;
+export type McpSupabaseAuthFetch = (input: string | URL | RequestInfo, init?: RequestInit) => Promise<Response>;
+export interface McpSupabaseAuthOptions {
+  supabaseUrl: string;
+  publishableKey: string;
+  allowedOwnerIds: readonly string[];
+  fetchImpl?: McpSupabaseAuthFetch;
+  timeoutMs?: number;
+}
+export interface McpSupabaseVerifiedSession {
+  subjectId: string;
+  sessionBinding: string;
+}
+
+type NormalizedAuth = {
+  origin: string;
+  key: string;
+  owners: ReadonlySet<string>;
+  fetchImpl: McpSupabaseAuthFetch;
+  timeoutMs: number;
+};
 
 function exactProjectOrigin(raw: string): string | undefined {
   try {
@@ -15,12 +34,24 @@ function exactProjectOrigin(raw: string): string | undefined {
   } catch { return undefined; }
 }
 
+function normalize(options: McpSupabaseAuthOptions): NormalizedAuth {
+  const origin = exactProjectOrigin(options.supabaseUrl);
+  const key = options.publishableKey;
+  const owners = new Set(options.allowedOwnerIds.map(value => value.toLowerCase()));
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  if (!origin || !key || key.length > 2_048 || /[\r\n]/.test(key) || owners.size < 1 || owners.size > 20
+    || [...owners].some(value => !UUID.test(value)) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 10_000) {
+    throw new Error('MCP_AUTH_CONFIG_INVALID');
+  }
+  return { origin, key, owners, timeoutMs, fetchImpl: options.fetchImpl ?? fetch };
+}
+
 function cookie(req: Request): string | undefined {
   const header = req.get('cookie');
   if (!header || header.length > 16_384) return undefined;
-  const values = header.split(';').map(value => value.trim()).filter(value => value.startsWith(`${SESSION_COOKIE}=`));
+  const values = header.split(';').map(value => value.trim()).filter(value => value.startsWith(`${MCP_ACCESS_SESSION_COOKIE}=`));
   if (values.length !== 1) return undefined;
-  const token = values[0].slice(SESSION_COOKIE.length + 1);
+  const token = values[0].slice(MCP_ACCESS_SESSION_COOKIE.length + 1);
   return token.length <= 8_192 && JWT.test(token) ? token : undefined;
 }
 
@@ -68,61 +99,69 @@ async function boundedJson(response: Response): Promise<Record<string, unknown> 
   } catch { return undefined; }
 }
 
+async function verifyWithConfig(config: NormalizedAuth, token: string): Promise<McpSupabaseVerifiedSession | null> {
+  if (token.length > 8_192 || !JWT.test(token)) return null;
+  const verifiedSession = verifiedJwtSession(token);
+  if (!verifiedSession) return null;
+  const endpoint = `${config.origin}/auth/v1/user`;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), config.timeoutMs);
+  try {
+    const response = await config.fetchImpl(endpoint, {
+      method: 'GET',
+      headers: { accept: 'application/json', apikey: config.key, authorization: `Bearer ${token}`, 'accept-encoding': 'identity' },
+      cache: 'no-store', redirect: 'error', signal: abort.signal,
+    });
+    if (!response.ok || response.url && response.url !== endpoint) return null;
+    const user = await boundedJson(response);
+    const id = typeof user?.id === 'string' ? user.id.toLowerCase() : '';
+    if (!UUID.test(id) || user?.role !== 'authenticated' || !config.owners.has(id) || verifiedSession.subjectId !== id) return null;
+    return { subjectId: `supabase:${id}`, sessionBinding: verifiedSession.sessionBinding };
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
+/**
+ * Build a verifier for access tokens obtained only from the configured Supabase
+ * project. It checks the exact token at /auth/v1/user on every call, then binds
+ * the verified user id to the JWT session_id and the server-side owner allowlist.
+ */
+export function createSupabaseMcpAccessTokenVerifier(options: McpSupabaseAuthOptions) {
+  const config = normalize(options);
+  return (token: string): Promise<McpSupabaseVerifiedSession | null> => verifyWithConfig(config, token);
+}
+
 /**
  * Validate the browser's HttpOnly session against Supabase Auth on every MCP
  * management request. No user metadata or unsigned browser identity is trusted.
  * The JWT session_id/sub are parsed only after the exact bearer token has been
  * accepted by /auth/v1/user, then cross-checked against the returned user id.
  */
-export function createSupabaseMcpAuthenticator(options: {
-  supabaseUrl: string;
-  publishableKey: string;
-  allowedOwnerIds: readonly string[];
-  fetchImpl?: AuthFetch;
-  timeoutMs?: number;
-}) {
-  const origin = exactProjectOrigin(options.supabaseUrl);
-  const key = options.publishableKey;
-  const owners = new Set(options.allowedOwnerIds.map(value => value.toLowerCase()));
-  const timeoutMs = options.timeoutMs ?? 5_000;
-  if (!origin || !key || key.length > 2_048 || /[\r\n]/.test(key) || owners.size < 1 || owners.size > 20
-    || [...owners].some(value => !UUID.test(value)) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 10_000) {
-    throw new Error('MCP_AUTH_CONFIG_INVALID');
-  }
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const endpoint = `${origin}/auth/v1/user`;
-
-  return async (req: Request): Promise<{ subjectId: string; sessionBinding: string } | null> => {
+export function createSupabaseMcpAuthenticator(options: McpSupabaseAuthOptions) {
+  const verify = createSupabaseMcpAccessTokenVerifier(options);
+  return async (req: Request): Promise<McpSupabaseVerifiedSession | null> => {
     const token = cookie(req);
-    if (!token) return null;
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), timeoutMs);
-    try {
-      const response = await fetchImpl(endpoint, {
-        method: 'GET',
-        headers: { accept: 'application/json', apikey: key, authorization: `Bearer ${token}`, 'accept-encoding': 'identity' },
-        cache: 'no-store', redirect: 'error', signal: abort.signal,
-      });
-      if (!response.ok || response.url && response.url !== endpoint) return null;
-      const user = await boundedJson(response);
-      const id = typeof user?.id === 'string' ? user.id.toLowerCase() : '';
-      const verifiedSession = verifiedJwtSession(token);
-      if (!UUID.test(id) || user?.role !== 'authenticated' || !owners.has(id)
-        || !verifiedSession || verifiedSession.subjectId !== id) return null;
-      return { subjectId: `supabase:${id}`, sessionBinding: verifiedSession.sessionBinding };
-    } catch { return null; }
-    finally { clearTimeout(timer); }
+    return token ? verify(token) : null;
   };
+}
+
+export function readSupabaseMcpAuthOptionsFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl?: McpSupabaseAuthFetch,
+): McpSupabaseAuthOptions | undefined {
+  const supabaseUrl = env.SUPABASE_URL?.trim();
+  const publishableKey = env.SUPABASE_PUBLISHABLE_KEY?.trim();
+  const allowedOwnerIds = env.ORIGIN_OWNER_SUPABASE_USER_IDS?.split(',').map(value => value.trim()).filter(Boolean);
+  if (!supabaseUrl || !publishableKey || !allowedOwnerIds?.length) return undefined;
+  return { supabaseUrl, publishableKey, allowedOwnerIds, fetchImpl };
 }
 
 export function createSupabaseMcpAuthenticatorFromEnv(
   env: NodeJS.ProcessEnv = process.env,
-  fetchImpl?: AuthFetch,
+  fetchImpl?: McpSupabaseAuthFetch,
 ) {
-  const url = env.SUPABASE_URL?.trim();
-  const key = env.SUPABASE_PUBLISHABLE_KEY?.trim();
-  const ids = env.ORIGIN_OWNER_SUPABASE_USER_IDS?.split(',').map(value => value.trim()).filter(Boolean);
-  if (!url || !key || !ids?.length) return undefined;
-  try { return createSupabaseMcpAuthenticator({ supabaseUrl: url, publishableKey: key, allowedOwnerIds: ids, fetchImpl }); }
+  const options = readSupabaseMcpAuthOptionsFromEnv(env, fetchImpl);
+  if (!options) return undefined;
+  try { return createSupabaseMcpAuthenticator(options); }
   catch { return undefined; }
 }
