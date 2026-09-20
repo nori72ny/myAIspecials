@@ -5,14 +5,16 @@ import { createSupabaseMcpAuthenticator, createSupabaseMcpAuthenticatorFromEnv }
 
 const owner = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
-const token = ['header', 'payload', 'signature'].join('.');
+const session = '33333333-3333-4333-8333-333333333333';
+const jwt = (sub = owner, sessionId = session) => ['header', Buffer.from(JSON.stringify({ sub, session_id: sessionId })).toString('base64url'), 'signature'].join('.');
+const token = jwt();
 const request = (value?: string) => ({ get: (name: string) => name.toLowerCase() === 'cookie' ? value : undefined }) as Request;
 const response = (body: object, init: ResponseInit = {}) => new Response(JSON.stringify(body), {
   status: 200, headers: { 'content-type': 'application/json', ...init.headers }, ...init,
 });
 
 describe('Supabase MCP session authentication', () => {
-  it('verifies an HttpOnly cookie through the fixed Auth endpoint and binds the configured owner', async () => {
+  it('verifies an HttpOnly cookie through the fixed Auth endpoint and binds the configured owner/session', async () => {
     const fetchImpl = vi.fn(async (url: string | URL | RequestInfo, init?: RequestInit) => {
       expect(String(url)).toBe('https://project.supabase.co/auth/v1/user');
       expect(init).toMatchObject({ method: 'GET', redirect: 'error', cache: 'no-store' });
@@ -23,7 +25,7 @@ describe('Supabase MCP session authentication', () => {
       return response({ id: owner, role: 'authenticated', user_metadata: { owner: false } });
     });
     const authenticate = createSupabaseMcpAuthenticator({ supabaseUrl: 'https://project.supabase.co/', publishableKey: 'publishable-fixture', allowedOwnerIds: [owner], fetchImpl });
-    await expect(authenticate(request(`theme=dark; __Host-origin-session=${token}`))).resolves.toEqual({ subjectId: `supabase:${owner}` });
+    await expect(authenticate(request(`theme=dark; __Host-origin-session=${token}`))).resolves.toEqual({ subjectId: `supabase:${owner}`, sessionBinding: session });
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
@@ -40,6 +42,16 @@ describe('Supabase MCP session authentication', () => {
     const fetchImpl = vi.fn(async () => response({ id: other, role: 'authenticated', user_metadata: { owner: true } }));
     const authenticate = createSupabaseMcpAuthenticator({ supabaseUrl: 'https://project.supabase.co/', publishableKey: 'publishable-fixture', allowedOwnerIds: [owner], fetchImpl });
     await expect(authenticate(request(`__Host-origin-session=${token}`))).resolves.toBeNull();
+  });
+
+  it('requires a verified JWT sub/session_id binding and cross-checks sub against /user', async () => {
+    const authenticate = createSupabaseMcpAuthenticator({ supabaseUrl: 'https://project.supabase.co/', publishableKey: 'publishable-fixture', allowedOwnerIds: [owner], fetchImpl: async () => response({ id: owner, role: 'authenticated' }) });
+    const missingSession = ['header', Buffer.from(JSON.stringify({ sub: owner })).toString('base64url'), 'signature'].join('.');
+    const mismatchedSubject = jwt(other);
+    const badSession = jwt(owner, 'not-a-session');
+    await expect(authenticate(request(`__Host-origin-session=${missingSession}`))).resolves.toBeNull();
+    await expect(authenticate(request(`__Host-origin-session=${mismatchedSubject}`))).resolves.toBeNull();
+    await expect(authenticate(request(`__Host-origin-session=${badSession}`))).resolves.toBeNull();
   });
 
   it.each([
