@@ -105,8 +105,8 @@ describe('MCP management ownership, credentials and concurrency', () => {
   });
   it('exposes OAuth start/callback only with a verified session binding and never returns broker secrets', async () => {
     const f = fixture();
-    const begin = vi.fn(async () => ({ authorizationUrl: 'https://auth.example.com/authorize?state=public-state&code_challenge=challenge' }));
-    const complete = vi.fn(async () => ({ linked: true as const, serverId: 'docs' }));
+    const begin = vi.fn(async (_identity: { ownerId: string; sessionBinding: string }, _serverId: string) => ({ authorizationUrl: 'https://auth.example.com/authorize?state=public-state&code_challenge=challenge' }));
+    const complete = vi.fn(async (_identity: { ownerId: string; sessionBinding: string }, _serverId: string, _query: URLSearchParams) => ({ linked: true as const, serverId: 'docs' }));
     const app = express(); app.use(express.json());
     app.use(createMcpManagementRouter({
       appOrigin: origin,
