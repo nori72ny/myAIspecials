@@ -165,6 +165,43 @@ Reference: https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/se
 
 ## Validation and continuation
 
+### OAuth authorization-state increment (2026-09-20)
+
+Built on owner-provided head d2b70bb; the existing Supabase authentication and real
+PostgreSQL persistence/concurrency implementation is retained unchanged.
+
+- Server-only `McpOAuthAuthorization` prepares authorization-code requests with
+  random 256-bit state/verifier and S256 PKCE, explicit resource and reviewed scopes.
+- The first supported profile requires pre-reviewed, fixed HTTPS issuer/endpoints,
+  client ID/redirect URI, S256 and RFC 9207 response issuer support. No discovery,
+  dynamic client registration or provider compatibility is implied by these flags.
+- Pending requests bind owner, verified login session and a fingerprint of the entire
+  provider configuration. Only state/session hashes and an AES-GCM verifier envelope
+  are persisted. The verifier encryption uses a separate PKCE domain binding.
+- PostgreSQL enforces five-minute expiration and atomic delete-and-return consumption.
+  Repeated authorization replaces the previous owner/server attempt; owner locking
+  bounds outstanding attempts to 20. A bounded expired-record cleanup hook is included.
+- Callback handling rejects issuer mismatch, duplicate parameters, wrong owner/session,
+  changed configuration, replay, expiration and tampered ciphertext. Denial also consumes
+  the attempt. Unknown downstream exchange completion must never trigger code replay.
+- The internal callback result includes a secret token-exchange form. It MUST NOT be
+  serialized to the browser/model or logged. There is intentionally no HTTP route or
+  token request using this result yet. This increment is authorization preparation,
+  not a completed OAuth login or credential broker.
+
+Remaining OAuth integration: protected start/callback routes, verified-session binding
+from the actual login flow, guarded code exchange, encrypted access/refresh token store,
+refresh-rotation serialization, revocation and cleanup scheduling. The existing
+connection record's access-token snapshot is not sufficient for refreshable OAuth;
+probe/dispatch must resolve current broker credentials once that broker is implemented.
+Provider metadata/zero-cost evidence, Supabase login and live vendor E2E remain gates.
+The new migration is unapplied outside disposable CI databases; no production advisors
+or live database verification is claimed. No environment, main or deployment change.
+
+References: https://www.rfc-editor.org/rfc/rfc7636 and
+https://www.rfc-editor.org/rfc/rfc9207 ; MCP resource binding requirements:
+https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization .
+
 - Base head d2afecc333781879dfd6ab1e10ae631d8a4b20eb: all six GitHub PR workflows
   completed successfully (verified 2026-09-20). This does not certify subsequent heads.
 - Incoming owner head 3921658: all six GitHub PR workflows passed; its TLS/cancellation

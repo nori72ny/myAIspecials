@@ -1,0 +1,107 @@
+import { createHash, randomBytes } from 'node:crypto';
+import { isIP } from 'node:net';
+import { openMcpCredential, sealMcpCredential } from './mcpConnections.js';
+
+export interface McpOAuthProvider {
+  serverId: string; issuer: string; authorizationEndpoint: string; tokenEndpoint: string;
+  clientId: string; redirectUri: string; resource: string; scopes: readonly string[];
+  /** Reviewed metadata must advertise S256 and authorization_response_iss_parameter_supported. */
+  pkceS256: true; responseIssuer: true; zeroCostApproved: true;
+}
+export interface McpOAuthPending {
+  ownerId: string; serverId: string; stateHash: string; sessionHash: string;
+  configHash: string; verifierCiphertext: string;
+}
+export interface McpOAuthPendingStore {
+  /** Atomically replace this owner's pending attempt for this server; max 20/owner, TTL 5 minutes. */
+  put(record: McpOAuthPending): Promise<void>;
+  /** Atomic delete-and-return, only for an unexpired exact binding. Never retry a consumed callback. */
+  consume(binding: Omit<McpOAuthPending, 'verifierCiphertext'>): Promise<McpOAuthPending | undefined>;
+}
+export interface McpOAuthIdentity {
+  ownerId: string;
+  /** Server-verified login-session binding; never accept a browser-supplied arbitrary ID. */
+  sessionBinding: string;
+}
+export const oauthHash = (value: string): string => createHash('sha256').update(value).digest('hex');
+const fail = (code: string): never => { throw new Error(code); };
+function endpoint(raw: string): void {
+  try {
+    const url = new URL(raw);
+    if (raw.length > 2048 || url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash
+      || isIP(url.hostname.replace(/^\[|\]$/g, '')) || !url.hostname.includes('.')) throw new Error();
+  } catch { fail('MCP_OAUTH_CONFIG_INVALID'); }
+}
+function identity(value: McpOAuthIdentity): string {
+  if (!/^[A-Za-z0-9:_-]{1,192}$/.test(value.ownerId) || value.sessionBinding.length < 32 || value.sessionBinding.length > 8192) fail('MCP_OAUTH_IDENTITY_INVALID');
+  return oauthHash(JSON.stringify(['origin-mcp-session-v1', value.ownerId, value.sessionBinding]));
+}
+function encryptionBinding(record: McpOAuthPending) {
+  return { id: record.stateHash, ownerId: record.ownerId, serverId: record.serverId,
+    endpoint: JSON.stringify(['origin-mcp-pkce-v1', record.sessionHash, record.configHash]) };
+}
+
+/** Server-only authorization preparation. Does not exchange codes or expose verifiers over HTTP.
+ * Routes/login/token lifecycle are deliberately not activated by constructing this service.
+ */
+export class McpOAuthAuthorization {
+  private readonly providers: ReadonlyMap<string, { provider: McpOAuthProvider; configHash: string }>;
+  private readonly key: Buffer;
+  constructor(private readonly store: McpOAuthPendingStore, key: Buffer, providers: readonly McpOAuthProvider[]) {
+    if (key.length !== 32 || providers.length < 1 || providers.length > 20) fail('MCP_OAUTH_CONFIG_INVALID');
+    this.key = Buffer.from(key);
+    this.providers = new Map(providers.map(value => {
+      const provider = structuredClone(value);
+      for (const url of [provider.issuer, provider.authorizationEndpoint, provider.tokenEndpoint, provider.redirectUri, provider.resource]) endpoint(url);
+      if (!/^[A-Za-z0-9-]{1,64}$/.test(provider.serverId) || !provider.clientId || provider.clientId.length > 2048 || /[\x00-\x20\x7f]/.test(provider.clientId)
+        || provider.pkceS256 !== true || provider.responseIssuer !== true || provider.zeroCostApproved !== true
+        || !provider.scopes.length || provider.scopes.length > 20 || new Set(provider.scopes).size !== provider.scopes.length
+        || provider.scopes.some(scope => !/^[\x21\x23-\x5b\x5d-\x7e]{1,128}$/.test(scope))) fail('MCP_OAUTH_CONFIG_INVALID');
+      const configHash = oauthHash(JSON.stringify([provider.serverId, provider.issuer, provider.authorizationEndpoint, provider.tokenEndpoint,
+        provider.clientId, provider.redirectUri, provider.resource, [...provider.scopes].sort()]));
+      return [provider.serverId, { provider, configHash }];
+    }));
+    if (this.providers.size !== providers.length) fail('MCP_OAUTH_CONFIG_INVALID');
+  }
+  private configured(serverId: string) {
+    return this.providers.get(serverId) ?? fail('MCP_OAUTH_SERVER_NOT_ALLOWED');
+  }
+  async begin(who: McpOAuthIdentity, serverId: string): Promise<{ authorizationUrl: string }> {
+    const sessionHash = identity(who);
+    const { provider, configHash } = this.configured(serverId);
+    const state = randomBytes(32).toString('base64url');
+    const verifier = randomBytes(32).toString('base64url');
+    const record: McpOAuthPending = { ownerId: who.ownerId, serverId, stateHash: oauthHash(state), sessionHash, configHash, verifierCiphertext: '' };
+    record.verifierCiphertext = sealMcpCredential(verifier, encryptionBinding(record), this.key);
+    try { await this.store.put(record); } catch { return fail('MCP_OAUTH_STORE_UNAVAILABLE'); }
+    const url = new URL(provider.authorizationEndpoint);
+    url.search = new URLSearchParams({ response_type: 'code', client_id: provider.clientId, redirect_uri: provider.redirectUri,
+      scope: provider.scopes.join(' '), resource: provider.resource, state,
+      code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString();
+    return { authorizationUrl: url.href };
+  }
+  /** INTERNAL ONLY: the result contains secrets for a future guarded server-side exchange.
+   * Never serialize it to the browser, logs or model. Consumption precedes exchange so
+   * timeouts/unknown completion cannot lead to an automatic authorization-code replay.
+   */
+  async consumeCallback(who: McpOAuthIdentity, serverId: string, query: URLSearchParams): Promise<{ tokenEndpoint: string; form: URLSearchParams }> {
+    const sessionHash = identity(who);
+    const { provider, configHash } = this.configured(serverId);
+    if (query.toString().length > 16_384 || [...new Set(query.keys())].some(key => query.getAll(key).length !== 1)
+      || query.get('iss') !== provider.issuer) return fail('MCP_OAUTH_CALLBACK_INVALID');
+    const state = query.get('state') ?? ''; const code = query.get('code'); const error = query.get('error');
+    if (!/^[A-Za-z0-9_-]{43}$/.test(state) || query.has('code') === query.has('error') || (!code && !error)
+      || (code && (code.length > 8192 || /[\x00-\x20\x7f]/.test(code)))) return fail('MCP_OAUTH_CALLBACK_INVALID');
+    const binding = { ownerId: who.ownerId, serverId, stateHash: oauthHash(state), sessionHash, configHash };
+    let record: McpOAuthPending | undefined;
+    try { record = await this.store.consume(binding); } catch { return fail('MCP_OAUTH_STORE_UNAVAILABLE'); }
+    if (!record || Object.entries(binding).some(([key, value]) => record![key as keyof McpOAuthPending] !== value)) return fail('MCP_OAUTH_STATE_INVALID');
+    if (error) return fail('MCP_OAUTH_ACCESS_DENIED');
+    let verifier: string;
+    try { verifier = openMcpCredential({ ...encryptionBinding(record), credential: record.verifierCiphertext, version: 1, status: 'registered', checkedAt: null }, this.key); }
+    catch { return fail('MCP_OAUTH_STATE_INVALID'); }
+    if (!/^[A-Za-z0-9_-]{43}$/.test(verifier)) return fail('MCP_OAUTH_STATE_INVALID');
+    return { tokenEndpoint: provider.tokenEndpoint, form: new URLSearchParams({ grant_type: 'authorization_code', code: code!,
+      client_id: provider.clientId, redirect_uri: provider.redirectUri, resource: provider.resource, code_verifier: verifier }) };
+  }
+}

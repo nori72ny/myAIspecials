@@ -1,4 +1,6 @@
 import { PostgresMcpConnectionStore } from '../src/mcp/mcpPostgresStore.js';
+import { PostgresMcpOAuthPendingStore } from '../src/mcp/mcpOAuthPendingStore.js';
+import { oauthHash, type McpOAuthPending } from '../src/mcp/mcpOAuthAuthorization.js';
 import { sealMcpCredential, type McpConnectionRecord } from '../src/mcp/mcpConnections.js';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -90,7 +92,7 @@ before(async () => {
   await admin.query(`create database ${databaseName}`);
   createdDatabase = true;
   for (let pass = 0; pass < 2; pass++) {
-    for (const migration of ['20260911_origin_coding_jobs_v14.sql', '20260912_origin_coding_job_results_v14.sql', '20260920100327_origin_mcp_connections.sql']) {
+    for (const migration of ['20260911_origin_coding_jobs_v14.sql', '20260912_origin_coding_job_results_v14.sql', '20260920100327_origin_mcp_connections.sql', '20260920113517_origin_mcp_oauth_pending.sql']) {
       await db.query(await readFile(new URL(`../supabase/migrations/${migration}`, import.meta.url), 'utf8'));
     }
   }
@@ -275,5 +277,64 @@ describe('MCP real PostgreSQL concurrency', { timeout: 20000 }, () => {
       assert.equal(await store.remove(ownerId, first.id, 2), false);
       assert.equal(await store.remove(ownerId, first.id, 1), true);
     });
+  });
+});
+
+describe('MCP OAuth real PostgreSQL state', { timeout: 20000 }, () => {
+  const store = new PostgresMcpOAuthPendingStore(db);
+  const record = (ownerId: string = randomUUID(), serverId = 'reviewed'): McpOAuthPending => ({
+    ownerId, serverId, stateHash: oauthHash(randomBytes(32).toString('hex')),
+    sessionHash: oauthHash(randomBytes(32).toString('hex')), configHash: oauthHash('reviewed-config'),
+    verifierCiphertext: sealMcpCredential(randomBytes(32).toString('base64url'),
+      { id: randomUUID(), ownerId, serverId, endpoint: 'https://mcp.example.test' }, randomBytes(32)),
+  });
+  it('allows exactly one consumer across concurrent callbacks; wrong bindings do not consume', async () => {
+    const value = record(); await store.put(value);
+    for (const changed of [{ ownerId: 'other' }, { sessionHash: oauthHash('other') }, { configHash: oauthHash('other') }, { serverId: 'other' }]) {
+      assert.equal(await store.consume({ ...value, ...changed }), undefined);
+    }
+    const consumed = await Promise.all(Array.from({ length: 6 }, () => store.consume(value)));
+    assert.equal(consumed.filter(Boolean).length, 1);
+    assert.deepEqual(consumed.find(Boolean), value);
+  });
+  it('replaces old attempts, rejects expiration by database time and reuses expired capacity', async () => {
+    const first = record(); await store.put(first);
+    const second = record(first.ownerId); await store.put(second);
+    assert.equal(await store.consume(first), undefined);
+    await db.query("update public.origin_mcp_oauth_pending set expires_at = clock_timestamp() - interval '1 second' where owner_id = $1", [first.ownerId]);
+    assert.equal(await store.consume(second), undefined);
+    assert.equal(await store.deleteExpired(1), 1);
+    const third = record(first.ownerId); await store.put(third);
+    assert.deepEqual(await store.consume(third), third);
+  });
+  it('observes an owner lock wait and enforces the 20-attempt cap after commit', async () => {
+    const ownerId = randomUUID();
+    for (let i = 0; i < 19; i++) await store.put(record(ownerId, `server-${i}`));
+    await raceClients(async (a, b) => {
+      await a.query('begin');
+      await a.query("select pg_advisory_xact_lock(hashtextextended('origin_mcp_oauth:' || $1, 0))", [ownerId]);
+      const last = record(ownerId, 'last');
+      await a.query(`insert into public.origin_mcp_oauth_pending
+        (owner_id, server_id, state_hash, session_hash, config_hash, verifier_ciphertext, expires_at)
+        values ($1,$2,$3,$4,$5,$6,clock_timestamp() + interval '5 minutes')`,
+      [last.ownerId, last.serverId, last.stateHash, last.sessionHash, last.configHash, last.verifierCiphertext]);
+      const contender = new PostgresMcpOAuthPendingStore({ query: db.query.bind(db), connect: async () => ({ query: b.query.bind(b), release: () => {} }) });
+      const bPid = await pid(b); const aPid = await pid(a);
+      const outcome = contender.put(record(ownerId, 'overflow')).then(() => 'unexpected-success', error => error.message);
+      await waitForBlock(bPid, aPid); await a.query('commit');
+      assert.equal(await outcome, 'MCP_OAUTH_STORE_UNAVAILABLE');
+      assert.equal((await db.query('select count(*)::int as count from public.origin_mcp_oauth_pending where owner_id = $1', [ownerId])).rows[0].count, 20);
+    });
+    // Replacement is allowed at capacity, but does not increase the row count.
+    await store.put(record(ownerId, 'last'));
+  });
+  it('denies browser roles and enables RLS without public policies', async () => {
+    for (const role of ['anon', 'authenticated']) {
+      const rights = await db.query("select has_table_privilege($1, 'public.origin_mcp_oauth_pending', 'SELECT,INSERT,UPDATE,DELETE') as allowed", [role]);
+      assert.equal(rights.rows[0].allowed, false);
+    }
+    const table = await db.query("select relrowsecurity from pg_class where oid = 'public.origin_mcp_oauth_pending'::regclass");
+    assert.equal(table.rows[0].relrowsecurity, true);
+    assert.equal((await db.query("select * from pg_policies where schemaname = 'public' and tablename = 'origin_mcp_oauth_pending'")).rowCount, 0);
   });
 });
