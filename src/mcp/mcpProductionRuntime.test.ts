@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { createMcpProductionRuntimeFromEnv } from './mcpProductionRuntime.js';
+import { createMcpProductionRuntimeFromEnv, createMcpProductionSessionRouterFromEnv } from './mcpProductionRuntime.js';
 
 const owner = '11111111-1111-4111-8111-111111111111';
 
@@ -43,17 +43,21 @@ function enabledEnv(): NodeJS.ProcessEnv {
 }
 
 describe('MCP production runtime composition', () => {
-  it('remains disabled without an explicit enable flag', () => {
+  it('remains disabled without an explicit enable flag, including the owner-session surface', () => {
     expect(createMcpProductionRuntimeFromEnv({})).toBeUndefined();
+    expect(createMcpProductionSessionRouterFromEnv({})).toBeUndefined();
     expect(createMcpProductionRuntimeFromEnv({ ...enabledEnv(), ORIGIN_MCP_ENABLED: 'false' })).toBeUndefined();
+    expect(createMcpProductionSessionRouterFromEnv({ ...enabledEnv(), ORIGIN_MCP_ENABLED: 'false' })).toBeUndefined();
   });
 
-  it('constructs only the reviewed OAuth runtime when every server-only prerequisite is present', () => {
-    const runtime = createMcpProductionRuntimeFromEnv(enabledEnv());
+  it('constructs the reviewed OAuth runtime and owner-session router only when prerequisites are present', () => {
+    const env = enabledEnv();
+    const runtime = createMcpProductionRuntimeFromEnv(env);
     expect(runtime).toBeDefined();
     expect(runtime?.appOrigin).toBe('https://origin.example.com');
     expect(runtime?.oauth?.supports('docs')).toBe(true);
     expect(runtime?.oauth?.supports('unknown')).toBe(false);
+    expect(createMcpProductionSessionRouterFromEnv(env)).toBeDefined();
   });
 
   it.each([
@@ -63,7 +67,19 @@ describe('MCP production runtime composition', () => {
     ['ORIGIN_MCP_PKCE_KEY_BASE64', 'invalid'],
     ['ORIGIN_MCP_TOKEN_KEYRING_JSON', '{}'],
   ] as const)('fails closed when enabled configuration %s is invalid', (name, value) => {
-    expect(() => createMcpProductionRuntimeFromEnv({ ...enabledEnv(), [name]: value })).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+    const env = { ...enabledEnv(), [name]: value };
+    expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+    if (name === 'FREE_ONLY' || name === 'SUPABASE_PUBLISHABLE_KEY') {
+      expect(() => createMcpProductionSessionRouterFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+    }
+  });
+
+  it('requires an exact HTTPS application origin for owner-session cookies and OAuth callbacks', () => {
+    for (const appUrl of ['http://origin.example.com', 'https://origin.example.com/path', 'https://origin.example.com?x=1']) {
+      const env = { ...enabledEnv(), APP_URL: appUrl };
+      expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+      expect(() => createMcpProductionSessionRouterFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+    }
   });
 
   it('requires the reviewed redirect URI to be the exact owner application callback', () => {
