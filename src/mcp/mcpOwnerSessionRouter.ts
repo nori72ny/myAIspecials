@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response as ExpressResponse } from 'express';
 import { createOriginChatRateLimiter } from '../server/originSecurity.js';
 import {
   MCP_ACCESS_SESSION_COOKIE,
@@ -47,16 +47,16 @@ function authCookie(name: string, value: string): string {
 function expiredCookie(name: string): string {
   return `${name}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
 }
-function clearCookies(res: Response): void {
+function clearCookies(res: ExpressResponse): void {
   res.append('Set-Cookie', expiredCookie(MCP_ACCESS_SESSION_COOKIE));
   res.append('Set-Cookie', expiredCookie(REFRESH_COOKIE));
 }
-function setCookies(res: Response, tokens: TokenSet): void {
+function setCookies(res: ExpressResponse, tokens: TokenSet): void {
   res.append('Set-Cookie', authCookie(MCP_ACCESS_SESSION_COOKIE, tokens.accessToken));
   res.append('Set-Cookie', authCookie(REFRESH_COOKIE, tokens.refreshToken));
 }
 
-async function boundedJson(response: Response): Promise<Record<string, unknown> | undefined> {
+async function boundedJson(response: globalThis.Response): Promise<Record<string, unknown> | undefined> {
   const length = response.headers.get('content-length');
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_RESPONSE_BYTES)) return undefined;
   if (!response.headers.get('content-type')?.toLowerCase().startsWith('application/json') || !response.body) return undefined;
@@ -143,7 +143,7 @@ export function createSupabaseMcpOwnerSessionRouter(options: McpOwnerSessionRout
     finally { clearTimeout(timer); }
   }
 
-  function failure(res: Response, error: unknown) {
+  function failure(res: ExpressResponse, error: unknown) {
     if (error instanceof McpOwnerSessionError) return res.status(error.status).json({ ok: false, code: error.code });
     return res.status(503).json({ ok: false, code: 'MCP_SESSION_UNAVAILABLE' });
   }
