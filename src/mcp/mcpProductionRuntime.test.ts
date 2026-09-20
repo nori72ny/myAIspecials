@@ -14,6 +14,8 @@ function enabledEnv(): NodeJS.ProcessEnv {
   const appOrigin = 'https://origin.example.com';
   const pkceKey = randomBytes(32).toString('base64');
   const tokenKey = randomBytes(32).toString('base64');
+  const verifiedAt = new Date(Date.now() - 60_000).toISOString();
+  const expiresAt = new Date(Date.now() + 7 * 86400_000).toISOString();
   return {
     ORIGIN_MCP_ENABLED: 'true',
     FREE_ONLY: 'true',
@@ -30,6 +32,10 @@ function enabledEnv(): NodeJS.ProcessEnv {
       label: 'Documents',
       endpoint: 'https://mcp.example.com/mcp',
       zeroCostApproved: true,
+      zeroCostEvidence: {
+        evidenceId: 'fixture-current-free-plan', verifiedAt, expiresAt,
+        termsUrl: 'https://mcp.example.com/pricing', billingPlan: 'free', paidFallback: false,
+      },
       oauth: {
         issuer: 'https://auth.example.com/',
         authorizationEndpoint: 'https://auth.example.com/authorize',
@@ -114,5 +120,20 @@ describe('MCP production runtime composition', () => {
     expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
     env.ORIGIN_MCP_DOCS_CLIENT_SECRET = 'fixture-secret';
     expect(createMcpProductionRuntimeFromEnv(env)?.oauth?.supports('docs')).toBe(true);
+  });
+
+  it.each([
+    { expiresAt: new Date(Date.now() - 1_000).toISOString() },
+    { expiresAt: new Date(Date.now() + 40 * 86400_000).toISOString() },
+    { verifiedAt: new Date(Date.now() + 10 * 60_000).toISOString() },
+    { termsUrl: 'http://mcp.example.com/pricing' },
+    { billingPlan: 'trial' },
+    { paidFallback: true },
+  ])('rejects stale or non-free connector evidence (%#)', change => {
+    const env = enabledEnv();
+    const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
+    Object.assign(config[0].zeroCostEvidence as Record<string, unknown>, change);
+    env.ORIGIN_MCP_REVIEWED_SERVERS_JSON = JSON.stringify(config);
+    expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
   });
 });

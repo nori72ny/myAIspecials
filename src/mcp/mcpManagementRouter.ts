@@ -68,6 +68,7 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
       if (!deps?.oauth) throw new McpManagementError('MCP_OAUTH_NOT_CONFIGURED', 503);
       const requestedServerId = serverId(req);
       if (!deps.oauth.supports(requestedServerId)) throw new McpManagementError('MCP_OAUTH_NOT_CONFIGURED', 409);
+      if (!deps.service.allows(requestedServerId)) throw new McpManagementError('MCP_ZERO_COST_EVIDENCE_EXPIRED', 409);
       const who = await oauthIdentity(req); mutation(req); body(req, []);
       const result = await deps.oauth.begin(who, requestedServerId);
       const authorizationUrl = new URL(result.authorizationUrl);
@@ -80,6 +81,7 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
       if (!deps?.oauth) throw new McpManagementError('MCP_OAUTH_NOT_CONFIGURED', 503);
       const requestedServerId = serverId(req);
       if (!deps.oauth.supports(requestedServerId)) throw new McpManagementError('MCP_OAUTH_NOT_CONFIGURED', 409);
+      if (!deps.service.allows(requestedServerId)) throw new McpManagementError('MCP_ZERO_COST_EVIDENCE_EXPIRED', 409);
       const who = await oauthIdentity(req);
       const query = new URL(req.originalUrl, deps.appOrigin).searchParams;
       await deps.oauth.complete(who, requestedServerId, query);

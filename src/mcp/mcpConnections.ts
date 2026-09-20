@@ -1,7 +1,14 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
 import type { OriginMcpSession } from './mcpClient.js';
 
-export interface McpServerChoice { id: string; label: string; endpoint: string; zeroCostApproved: true }
+export interface McpZeroCostEvidence {
+  evidenceId: string; verifiedAt: string; expiresAt: string; termsUrl: string;
+  billingPlan: 'free'; paidFallback: false;
+}
+export interface McpServerChoice {
+  id: string; label: string; endpoint: string; zeroCostApproved: true;
+  zeroCostEvidence: McpZeroCostEvidence;
+}
 export interface McpConnectionRecord {
   id: string; ownerId: string; serverId: string; endpoint: string;
   version: number; status: 'registered' | 'verified' | 'failed'; checkedAt: string | null;
@@ -56,13 +63,33 @@ export class McpConnectionService {
     disconnectCredential?: (ownerId: string, serverId: string) => Promise<void>;
     /** Must return an owner-scoped session with NO tool grants and the guarded transport. */
     createProbe: (ownerId: string, server: McpServerChoice, token: string) => Pick<OriginMcpSession, 'connect' | 'catalog' | 'close'>;
+    now?: () => number;
   }) {
     if (options.servers.length > 20 || new Set(options.servers.map(s => s.id)).size !== options.servers.length) reject('MCP_MANAGEMENT_CONFIG_INVALID', 503);
     for (const server of options.servers) {
       const url = new URL(server.endpoint);
-      if (!/^[A-Za-z0-9-]{1,64}$/.test(server.id) || !server.label || server.label.length > 80 || server.zeroCostApproved !== true || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.port) reject('MCP_MANAGEMENT_CONFIG_INVALID', 503);
+      const evidence = server.zeroCostEvidence; let terms: URL;
+      try { terms = new URL(evidence?.termsUrl); } catch { return reject('MCP_MANAGEMENT_CONFIG_INVALID', 503); }
+      const verifiedAt = Date.parse(evidence?.verifiedAt); const expiresAt = Date.parse(evidence?.expiresAt);
+      const current = this.options.now?.() ?? Date.now();
+      if (!/^[A-Za-z0-9-]{1,64}$/.test(server.id) || !server.label || server.label.length > 80 || server.zeroCostApproved !== true
+        || !evidence || !/^[A-Za-z0-9:_-]{1,128}$/.test(evidence.evidenceId) || evidence.billingPlan !== 'free' || evidence.paidFallback !== false
+        || !Number.isFinite(verifiedAt) || !Number.isFinite(expiresAt) || verifiedAt > current + 5 * 60_000
+        || expiresAt <= verifiedAt || expiresAt - verifiedAt > 31 * 86400_000
+        || terms.protocol !== 'https:' || terms.username || terms.password || terms.hash || !terms.hostname.includes('.')
+        || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.port) reject('MCP_MANAGEMENT_CONFIG_INVALID', 503);
     }
     this.servers = structuredClone(options.servers);
+  }
+  allows(serverId: string): boolean {
+    const server = this.servers.find(candidate => candidate.id === serverId);
+    return Boolean(server && Date.parse(server.zeroCostEvidence.expiresAt) > (this.options.now?.() ?? Date.now()));
+  }
+  private server(serverId: string, endpoint?: string): McpServerChoice {
+    const server = this.servers.find(candidate => candidate.id === serverId && (endpoint === undefined || candidate.endpoint === endpoint));
+    if (!server) return reject('MCP_SERVER_NOT_ALLOWED', endpoint === undefined ? 400 : 409);
+    if (!this.allows(serverId)) return reject('MCP_ZERO_COST_EVIDENCE_EXPIRED', 409);
+    return server;
   }
   private async owned(ownerId: string, id: string, version: number) {
     const record = await this.options.store.get(ownerId, id);
@@ -78,11 +105,10 @@ export class McpConnectionService {
   async overview(ownerId: string) {
     const records = await this.options.store.list(ownerId);
     if (records.some(record => record.ownerId !== ownerId)) return reject('MCP_STORE_SCOPE_INVALID', 503);
-    return { servers: this.servers.map(({ id, label }) => ({ id, label })), connections: records.map(publicRecord) };
+    return { servers: this.servers.filter(server => this.allows(server.id)).map(({ id, label }) => ({ id, label })), connections: records.map(publicRecord) };
   }
   async register(ownerId: string, serverId: string) {
-    const server = this.servers.find(s => s.id === serverId);
-    if (!server) return reject('MCP_SERVER_NOT_ALLOWED', 400);
+    const server = this.server(serverId);
     // Verify that a current broker credential exists, but never persist a copy here.
     await this.credential(ownerId, serverId);
     const record: McpConnectionRecord = { id: randomUUID(), ownerId, serverId, endpoint: server.endpoint, version: 1, status: 'registered', checkedAt: null };
@@ -91,8 +117,7 @@ export class McpConnectionService {
   }
   async probe(ownerId: string, id: string, version: number) {
     const record = await this.owned(ownerId, id, version);
-    const server = this.servers.find(s => s.id === record.serverId && s.endpoint === record.endpoint);
-    if (!server) return reject('MCP_SERVER_NOT_ALLOWED', 409);
+    const server = this.server(record.serverId, record.endpoint);
     const token = await this.credential(ownerId, record.serverId);
     const session = this.options.createProbe(ownerId, structuredClone(server), token);
     let timer: ReturnType<typeof setTimeout> | undefined;

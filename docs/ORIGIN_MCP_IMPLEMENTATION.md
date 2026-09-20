@@ -22,6 +22,13 @@ MCP supplies protocol interoperability, not universal authentication, billing ac
 OAuth scope compatibility, UI parity or permission to execute. Each connector still needs
 provider-specific review, zero-cost evidence where required, and live end-to-end testing.
 
+Reviewed connector configuration requires structured zero-cost evidence rather than a
+boolean assertion alone: a bounded evidence ID, verification and expiry timestamps,
+an HTTPS terms/pricing source, `billingPlan: "free"` and `paidFallback: false`. Evidence
+can be valid for at most 31 days. Expired evidence removes the connector from status and
+blocks registration, probe, OAuth start and callback before credentials or network calls.
+Disconnect remains available so an expired connector can still be revoked and removed.
+
 ## Current MCP client boundary
 
 - Official MCP SDK is pinned to 1.30.0 with lockfile.
@@ -255,6 +262,10 @@ must be requalified.
   the connection token snapshot was removed, fresh broker resolution/revocation was wired,
   Supabase `sub`/`session_id` binding and protected OAuth routes were added. ACOS lint,
   explicit typecheck, unit/API/build/runtime gates passed; PostgreSQL 16/18 passed.
+- Zero-cost evidence candidate: connector review
+  evidence became structured and expiring, with operation-time fail-closed checks before
+  credential or network use. Local validation passed 1,878 tests, lint, typecheck,
+  production build and the Node ESM API runtime; exact-head CI remains required.
 - Current OAuth UI/callback-registration head must pass its own six exact-head workflows
   before it can be called release-verified. CI fixture success is still not live-vendor
   evidence.

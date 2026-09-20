@@ -6,7 +6,10 @@ import { McpConnectionService, type McpConnectionRecord, type McpConnectionStore
 import { createMcpManagementRouter } from './mcpManagementRouter.js';
 
 const origin = 'https://origin.example.com';
-const server = { id: 'docs', label: 'Documents', endpoint: 'https://mcp.example.com/mcp', zeroCostApproved: true as const };
+const clock = Date.parse('2026-09-20T00:00:00.000Z');
+const server = { id: 'docs', label: 'Documents', endpoint: 'https://mcp.example.com/mcp', zeroCostApproved: true as const,
+  zeroCostEvidence: { evidenceId: 'fixture-2026-09-20', verifiedAt: '2026-09-20T00:00:00.000Z', expiresAt: '2026-09-27T00:00:00.000Z',
+    termsUrl: 'https://mcp.example.com/pricing', billingPlan: 'free' as const, paidFallback: false as const } };
 /** Test-only store. Production must provide the durable atomic implementation. */
 function fixture(failProbe = false) {
   const records = new Map<string, McpConnectionRecord>();
@@ -22,7 +25,7 @@ function fixture(failProbe = false) {
   const createProbe = vi.fn(() => ({ connect, close, catalog: () => [] }));
   const resolveCredential = vi.fn(async () => token as string | undefined);
   const disconnectCredential = vi.fn(async () => {});
-  const service = new McpConnectionService({ servers: [server], store, resolveCredential, disconnectCredential, createProbe });
+  const service = new McpConnectionService({ servers: [server], store, resolveCredential, disconnectCredential, createProbe, now: () => clock });
   const app = express(); app.use(express.json());
   // Header identity is ONLY a test adapter; never use this in production.
   app.use(createMcpManagementRouter({ appOrigin: origin, service, authenticate: async req => req.get('test-user') ? { subjectId: req.get('test-user')! } : null }));
@@ -66,6 +69,23 @@ describe('MCP management ownership, credentials and concurrency', () => {
     const f = fixture(); await request(f.app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'evil' }).expect(400);
     f.resolveCredential.mockResolvedValueOnce(undefined); await request(f.app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'docs' }).expect(409);
     await f.register(); await request(f.app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'docs' }).expect(409);
+  });
+  it('removes expired free evidence from status and blocks register, probe and OAuth before credential or network use', async () => {
+    const f = fixture(); const existing = await f.register(); let current = clock;
+    const service = new McpConnectionService({ servers: [server], store: f.store, resolveCredential: f.resolveCredential,
+      disconnectCredential: f.disconnectCredential, createProbe: f.createProbe, now: () => current });
+    const begin = vi.fn(); const complete = vi.fn();
+    const app = express(); app.use(express.json()); app.use(createMcpManagementRouter({ appOrigin: origin, service,
+      oauth: { supports: () => true, begin, complete },
+      authenticate: async () => ({ subjectId: 'alice', sessionBinding: '33333333-3333-4333-8333-333333333333' }) }));
+    current = Date.parse(server.zeroCostEvidence.expiresAt);
+    expect((await request(app).get('/api/mcp/status').expect(200)).body.servers).toEqual([]);
+    await request(app).post('/api/mcp/connections').set({ origin, 'x-origin-mcp-intent': 'manage' }).send({ serverId: 'docs' }).expect(409);
+    await request(app).post(`/api/mcp/connections/${existing.id}/check`).set({ origin, 'x-origin-mcp-intent': 'manage' }).send({ version: 1 }).expect(409);
+    await request(app).post('/api/mcp/oauth/docs/start').set({ origin, 'x-origin-mcp-intent': 'manage' }).send({}).expect(409);
+    await request(app).get('/api/mcp/oauth/docs/callback?state=x&code=y').expect(409);
+    expect(begin).not.toHaveBeenCalled(); expect(complete).not.toHaveBeenCalled(); expect(f.createProbe).not.toHaveBeenCalled();
+    expect(f.resolveCredential).toHaveBeenCalledTimes(1);
   });
   it('re-resolves the current broker credential before every probe and revokes before deletion', async () => {
     const f = fixture(); const record = await f.register();

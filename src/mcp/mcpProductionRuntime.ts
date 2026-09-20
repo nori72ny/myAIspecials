@@ -80,6 +80,10 @@ type ReviewedServer = {
   label: string;
   endpoint: string;
   zeroCostApproved: true;
+  zeroCostEvidence: {
+    evidenceId: string; verifiedAt: string; expiresAt: string; termsUrl: string;
+    billingPlan: 'free'; paidFallback: false;
+  };
   oauth: ReviewedOAuth;
 };
 
@@ -97,12 +101,23 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
   for (const item of parsed) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return invalid();
     const value = item as Record<string, unknown>;
-    if (Object.keys(value).some(key => !['id', 'label', 'endpoint', 'zeroCostApproved', 'oauth'].includes(key))) return invalid();
+    if (Object.keys(value).some(key => !['id', 'label', 'endpoint', 'zeroCostApproved', 'zeroCostEvidence', 'oauth'].includes(key))) return invalid();
     const id = value.id;
     const label = value.label;
     if (typeof id !== 'string' || !SERVER_ID.test(id) || ids.has(id) || typeof label !== 'string' || !label.trim() || label.length > 80
-      || value.zeroCostApproved !== true || !value.oauth || typeof value.oauth !== 'object' || Array.isArray(value.oauth)) return invalid();
+      || value.zeroCostApproved !== true || !value.zeroCostEvidence || typeof value.zeroCostEvidence !== 'object' || Array.isArray(value.zeroCostEvidence)
+      || !value.oauth || typeof value.oauth !== 'object' || Array.isArray(value.oauth)) return invalid();
     ids.add(id);
+
+    const evidence = value.zeroCostEvidence as Record<string, unknown>;
+    if (Object.keys(evidence).some(key => !['evidenceId', 'verifiedAt', 'expiresAt', 'termsUrl', 'billingPlan', 'paidFallback'].includes(key))
+      || typeof evidence.evidenceId !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(evidence.evidenceId)
+      || typeof evidence.verifiedAt !== 'string' || typeof evidence.expiresAt !== 'string' || typeof evidence.termsUrl !== 'string'
+      || evidence.billingPlan !== 'free' || evidence.paidFallback !== false) return invalid();
+    const verifiedAt = Date.parse(evidence.verifiedAt); const expiresAt = Date.parse(evidence.expiresAt); const current = Date.now();
+    if (!Number.isFinite(verifiedAt) || !Number.isFinite(expiresAt) || verifiedAt > current + 5 * 60_000 || expiresAt <= current
+      || expiresAt <= verifiedAt || expiresAt - verifiedAt > 31 * 86400_000) return invalid();
+    const termsUrl = exactHttps(evidence.termsUrl);
 
     const endpoint = exactHttps(value.endpoint);
     const oauth = value.oauth as Record<string, unknown>;
@@ -128,7 +143,10 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
       clientSecrets[id] = secret;
     } else if (oauth.clientSecretEnv !== undefined) return invalid();
 
-    servers.push({ id, label: label.trim(), endpoint, zeroCostApproved: true });
+    servers.push({ id, label: label.trim(), endpoint, zeroCostApproved: true, zeroCostEvidence: {
+      evidenceId: evidence.evidenceId, verifiedAt: evidence.verifiedAt, expiresAt: evidence.expiresAt,
+      termsUrl, billingPlan: 'free', paidFallback: false,
+    } });
     providers.push({
       serverId: id,
       issuer: exactHttps(oauth.issuer),
