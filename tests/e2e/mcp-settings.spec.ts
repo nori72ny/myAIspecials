@@ -20,7 +20,7 @@ test('MCP settings handles register, check and disconnect with a simulated authe
   const writes: string[] = [];
   await page.route('**/api/mcp/**', async route => {
     const req = route.request(); const path = new URL(req.url()).pathname;
-    if (req.method() === 'GET') return route.fulfill({ json: { configured: true, authenticated: true, servers: [{ id: 'docs', label: 'Documents' }], connections } });
+    if (req.method() === 'GET') return route.fulfill({ json: { configured: true, authenticated: true, servers: [{ id: 'docs', label: 'Documents', authMode: 'broker' }], connections } });
     expect(req.headers()['x-origin-mcp-intent']).toBe('manage'); writes.push(req.method());
     if (path.endsWith('/check')) {
       expect(req.postDataJSON()).toEqual({ version: 1 });
@@ -47,4 +47,24 @@ test('MCP settings handles register, check and disconnect with a simulated authe
   await expect(page.getByText('接続を解除しました。')).toBeVisible();
   await expect(page.getByRole('dialog')).toBeVisible();
   expect(writes).toEqual(['POST', 'POST', 'DELETE']);
+});
+
+test('MCP settings starts reviewed OAuth without rendering service credentials', async ({ page }) => {
+  const authorizationUrl = 'https://auth.example.com/authorize?state=public-state&code_challenge=challenge';
+  await page.route('**/api/mcp/**', async route => {
+    const req = route.request(); const path = new URL(req.url()).pathname;
+    if (req.method() === 'GET') return route.fulfill({ json: { configured: true, authenticated: true, servers: [{ id: 'docs', label: 'Documents', authMode: 'oauth' }], connections: [] } });
+    expect(path).toBe('/api/mcp/oauth/docs/start'); expect(req.headers()['x-origin-mcp-intent']).toBe('manage'); expect(req.postDataJSON()).toEqual({});
+    return route.fulfill({ json: { ok: true, authorizationUrl } });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
+  await page.getByLabel('接続するサービス').selectOption('docs');
+  await page.getByRole('button', { name: '認証を開始', exact: true }).click();
+  const link = page.getByRole('link', { name: '公式の認証画面へ進む', exact: true });
+  await expect(link).toHaveAttribute('href', authorizationUrl);
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await expect(page.getByRole('dialog')).not.toContainText('refresh_token');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
