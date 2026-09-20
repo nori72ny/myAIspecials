@@ -3,7 +3,6 @@ create table if not exists public.origin_mcp_connections (
   owner_id text not null,
   server_id text not null,
   endpoint text not null,
-  credential_ciphertext text not null,
   version integer not null default 1,
   status text not null default 'registered',
   checked_at timestamptz,
@@ -16,11 +15,6 @@ create table if not exists public.origin_mcp_connections (
     check (server_id ~ '^[A-Za-z0-9-]{1,64}$'),
   constraint origin_mcp_connections_endpoint_size
     check (octet_length(endpoint) between 10 and 2048),
-  constraint origin_mcp_connections_credential_format
-    check (
-      credential_ciphertext ~ '^v1\.[A-Za-z0-9+/]{16}\.[A-Za-z0-9+/]{22}==\.[A-Za-z0-9+/]+={0,2}$'
-      and octet_length(credential_ciphertext) between 12 and 12000
-    ),
   constraint origin_mcp_connections_version_valid
     check (version >= 1),
   constraint origin_mcp_connections_status_valid
@@ -39,4 +33,4 @@ revoke all on table public.origin_mcp_connections from authenticated;
 grant select, insert, update, delete on table public.origin_mcp_connections to service_role;
 
 comment on table public.origin_mcp_connections is
-  'Server-only, owner-scoped MCP connection metadata and encrypted credential envelopes.';
+  'Server-only, owner-scoped MCP connection metadata. OAuth credentials live only in origin_mcp_oauth_grants.';
