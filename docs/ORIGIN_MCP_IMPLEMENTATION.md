@@ -62,6 +62,11 @@ has replaced its existing APIs. Standard support alone is not permission to exec
   deletes use compare-and-swap versions. Its Supabase migration revokes browser roles
   and enables RLS without adding a browser policy. The adapter is not automatically
   constructed or mounted by the default application.
+- A disabled-by-default Supabase Auth adapter validates the HttpOnly
+  `__Host-origin-session` cookie through the project's fixed `/auth/v1/user` endpoint.
+  It accepts only the server-configured Supabase user UUIDs, ignores editable user
+  metadata, bounds the response and deadline, refuses redirects and returns no token
+  or upstream error. The adapter is not yet a sign-in/session issuance flow.
 - Registration uses a server-side per-owner credential broker, never browser-supplied
   service tokens or arbitrary URLs. Exact Origin plus a custom mutation header guards
   POST and DELETE. Shared-store owner scoping and atomic version checks are required.
@@ -171,6 +176,16 @@ Reference: https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/se
   passed locally. Typecheck, design-token lint, production build and the Node ESM
   serverless runtime check passed. The migration was created with Supabase CLI 2.117.0
   but was not applied; live PostgreSQL behavior and exact-head CI remain unverified.
+- Concurrency correction `be7f892`: all six workflows passed. PostgreSQL 16 and 18
+  observed a real advisory-lock wait, then rejected the contender after counting the
+  preceding committed row. Owner-scoped reads/deletes and stale-version rejection also
+  passed against the disposable databases. This verifies the store implementation and
+  migration contract; it does not mean the production migration has been applied.
+- Supabase owner-auth increment: 1,800 full non-browser tests passed locally, including
+  malformed/duplicate cookie rejection, server-side owner allowlisting, response-size
+  and deadline bounds, and denial of a valid non-owner user even when editable metadata
+  claims owner status. Typecheck, design-token lint, production build and the Node ESM
+  serverless runtime check passed. Exact-head CI remains required.
 - Two mobile browser tests were added: actual disabled-backend status and a simulated
   authenticated registration/check/disconnect UI. Local browser execution is blocked
   by unavailable browser binaries/download; agent-browser daemon also fails to start.
