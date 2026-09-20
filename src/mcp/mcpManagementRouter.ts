@@ -14,7 +14,7 @@ export interface McpManagementDependencies {
   /** Resolve a verified server-side session; never trust request body/query/unsigned identity headers. */
   authenticate: (req: Request) => Promise<McpAuthenticatedPrincipal | null>;
   /** Disabled unless explicitly provided by the server composition. */
-  oauth?: Pick<McpOAuthBroker, 'begin' | 'complete'>;
+  oauth?: Pick<McpOAuthBroker, 'begin' | 'complete' | 'supports'>;
 }
 export function createMcpManagementRouter(deps?: McpManagementDependencies) {
   const router = Router();
@@ -55,7 +55,9 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
     if (!deps) return res.json({ configured: false, authenticated: false });
     try {
       const ownerId = await principal(req);
-      return res.json({ configured: true, authenticated: true, ...await deps.service.overview(ownerId) });
+      const overview = await deps.service.overview(ownerId);
+      return res.json({ configured: true, authenticated: true, ...overview,
+        servers: overview.servers.map(server => ({ ...server, authMode: deps.oauth?.supports(server.id) ? 'oauth' : 'broker' })) });
     } catch (error) {
       if (error instanceof McpManagementError && error.status === 401) return res.json({ configured: true, authenticated: false });
       return failure(res, error);
@@ -64,8 +66,10 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
   router.post('/api/mcp/oauth/:serverId/start', async (req, res) => {
     try {
       if (!deps?.oauth) throw new McpManagementError('MCP_OAUTH_NOT_CONFIGURED', 503);
+      const requestedServerId = serverId(req);
+      if (!deps.oauth.supports(requestedServerId)) throw new McpManagementError('MCP_OAUTH_NOT_CONFIGURED', 409);
       const who = await oauthIdentity(req); mutation(req); body(req, []);
-      const result = await deps.oauth.begin(who, serverId(req));
+      const result = await deps.oauth.begin(who, requestedServerId);
       const authorizationUrl = new URL(result.authorizationUrl);
       if (authorizationUrl.protocol !== 'https:' || result.authorizationUrl.length > 8192) throw new Error('MCP_OAUTH_AUTHORIZATION_URL_INVALID');
       return res.json({ ok: true, authorizationUrl: authorizationUrl.href });
@@ -74,9 +78,18 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
   router.get('/api/mcp/oauth/:serverId/callback', async (req, res) => {
     try {
       if (!deps?.oauth) throw new McpManagementError('MCP_OAUTH_NOT_CONFIGURED', 503);
+      const requestedServerId = serverId(req);
+      if (!deps.oauth.supports(requestedServerId)) throw new McpManagementError('MCP_OAUTH_NOT_CONFIGURED', 409);
       const who = await oauthIdentity(req);
       const query = new URL(req.originalUrl, deps.appOrigin).searchParams;
-      await deps.oauth.complete(who, serverId(req), query);
+      await deps.oauth.complete(who, requestedServerId, query);
+      // OAuth is the credential authority. Once exchange is durable, create only the
+      // metadata row needed by management/probe. Reauthorization of an existing row
+      // must not fail merely because that row already exists.
+      const overview = await deps.service.overview(who.ownerId);
+      if (!overview.connections.some(connection => connection.serverId === requestedServerId)) {
+        await deps.service.register(who.ownerId, requestedServerId);
+      }
       const destination = new URL('/', deps.appOrigin); destination.searchParams.set('mcp', 'linked');
       return res.redirect(303, destination.href);
     } catch (error) {
