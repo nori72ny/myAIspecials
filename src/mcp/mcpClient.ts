@@ -116,10 +116,15 @@ export class OriginMcpSession {
   async dispatch(call: { function: { name: string; arguments: string } }, options: { signal?: AbortSignal } = {}): Promise<string> {
     // Bound the entire operation, including asynchronous authorization. Aborting
     // locally never proves a remote mutation was rolled back; do not replay it.
-    const deadline = new AbortController();
-    const signal = options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal;
-    const timeout = setTimeout(() => deadline.abort(), REQUEST_TIMEOUT_MS);
-    const abortCode = () => options.signal?.aborted ? 'MCP_REQUEST_ABORTED' : 'MCP_TOOL_TIMEOUT';
+    const operation = new AbortController();
+    // The SDK transmits signal.reason in notifications/cancelled. Never forward
+    // an arbitrary caller reason, which may contain document text or credentials.
+    const onCallerAbort = () => operation.abort(new McpBoundaryError('MCP_REQUEST_ABORTED'));
+    options.signal?.addEventListener('abort', onCallerAbort, { once: true });
+    if (options.signal?.aborted) onCallerAbort();
+    const signal = operation.signal;
+    const timeout = setTimeout(() => operation.abort(new McpBoundaryError('MCP_TOOL_TIMEOUT')), REQUEST_TIMEOUT_MS);
+    const abortCode = () => (signal.reason as McpBoundaryError).code;
     let onAbort: (() => void) | undefined;
     try {
       if (signal.aborted) fail(abortCode());
@@ -162,6 +167,7 @@ export class OriginMcpSession {
       return JSON.stringify({ isError: true, code: signal.aborted ? abortCode() : error instanceof McpBoundaryError ? error.code : 'MCP_TOOL_FAILED' });
     } finally {
       clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', onCallerAbort);
       if (onAbort) signal.removeEventListener('abort', onAbort);
     }
   }

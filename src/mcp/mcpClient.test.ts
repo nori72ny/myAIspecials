@@ -114,14 +114,18 @@ describe('MCP client boundary with the real SDK and in-memory MCP server', () =>
   });
   it('cancels an in-flight remote call without replay or a success claim', async () => {
     const f = await fixture(); await f.session.connect();
+    const sent = vi.spyOn(f.transport.mock.results[0].value, 'send');
     let started!: () => void;
     const reached = new Promise<void>(resolve => { started = resolve; });
     f.calls.mockImplementationOnce(async () => { started(); return new Promise(() => {}); });
     const controller = new AbortController();
     const pending = f.session.dispatch(call(), { signal: controller.signal });
-    await reached; controller.abort();
+    await reached; controller.abort('private-document-and-credential-must-not-leave');
     expect(await pending).toContain('MCP_REQUEST_ABORTED');
     expect(f.calls).toHaveBeenCalledTimes(1);
+    const messages = sent.mock.calls.map(args => args[0]);
+    expect(JSON.stringify(messages)).not.toContain('private-document-and-credential');
+    expect(messages).toContainEqual(expect.objectContaining({ method: 'notifications/cancelled', params: expect.objectContaining({ reason: 'Error: MCP_REQUEST_ABORTED' }) }));
   });
   it('rejects duplicate definitions atomically', async () => {
     const f = await fixture({ tools: [tool, tool] });

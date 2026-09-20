@@ -34,6 +34,9 @@ has replaced its existing APIs. Standard support alone is not permission to exec
 - A single 15-second dispatch deadline covers authorization and execution. Caller
   cancellation reaches both authorization and the SDK. Late approvals cannot start
   a cancelled operation; remote cancellation never proves rollback or permits replay.
+  Caller-provided cancellation reasons are replaced with stable codes before the SDK
+  can transmit a cancellation notification; document text/credentials in those reasons
+  are not forwarded.
 - No automatic retry of mutations. Unknown remote completion must not be called success.
 - Remote exception messages and isError content are not returned to the model.
 - Configuration uses named server-side environment references, not raw string replacement.
