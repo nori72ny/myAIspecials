@@ -1,287 +1,273 @@
 # ORIGIN MCP implementation and document-insertion requirements
 
-Status: client foundation, guarded Node HTTP/SSE adapter, disabled-by-default connection management/settings and a durable PostgreSQL store adapter implemented. No migration has been applied, live connector enabled or production deployment performed.
-Baseline: main f0c1bff22d3246d3eac3903b9def5d3aa7c1e498, 2026-09-20.
-Keep main frozen while the existing V1.4 final qualification remains pending.
+Status: MCP client foundation, guarded Node HTTP/SSE transport, durable PostgreSQL stores,
+Supabase owner-session verification, server-side PKCE/OAuth token lifecycle, protected
+management routes and settings UI are implemented on PR #585. The default production
+application remains fail-closed and unconfigured. No MCP migration has been applied to
+the live Supabase project, no provider has been enabled, and main remains frozen at
+`f0c1bff22d3246d3eac3903b9def5d3aa7c1e498`.
+
+This document describes the current code, not a promise that a third-party service is
+available, free, authorized or production-ready.
 
 ## Accepted owner requirements and order
 
-1. MCP client: ORIGIN calls external MCP servers. Prioritize this.
+1. MCP client: ORIGIN calls approved external MCP servers. Prioritize this.
 2. MCP server: expose selected ORIGIN capabilities to other authenticated hosts.
-3. Document tools: insert_into_docx, insert_into_pptx, insert_into_xlsx, insert_into_pdf.
-4. Reuse the reviewed self-evolution trigger/proposal infrastructure where appropriate;
-   generating a document and sending it to a customer are separate operations.
+3. Document tools: `insert_into_docx`, `insert_into_pptx`, `insert_into_xlsx`, `insert_into_pdf`.
+4. Reuse reviewed self-evolution/approval infrastructure where appropriate; generation,
+   mutation and external delivery are separate operations.
 
-MCP provides common protocol primitives, not universal authentication, UI, paid-plan
-access or feature parity. An MCP server is a tool endpoint, not automatically a way
-of invoking another vendor's general-purpose chat model. Host-specific UI adapters,
-OAuth/scopes and provider-specific capabilities still require integration testing.
-Do not describe Apps SDK as a universally compatible superset or claim every provider
-has replaced its existing APIs. Standard support alone is not permission to execute.
+MCP supplies protocol interoperability, not universal authentication, billing access,
+OAuth scope compatibility, UI parity or permission to execute. Each connector still needs
+provider-specific review, zero-cost evidence where required, and live end-to-end testing.
 
-## This implementation
+## Current MCP client boundary
 
-- Official SDK pinned to 1.30.0 with lockfile.
-- One user/server session per instance; no credentialed global singleton.
-- SDK initialize, capability negotiation and paginated tools/list.
-- Concurrent initialization coalesced; bounded pages/tools/request timeouts.
-- Deterministic legal function aliases, preserving exact original tool names.
-- Tool grants pin the complete reviewed definition, including description/schema.
-- list-changed notification invalidates grants exposed by that session until reviewed
-  and a fresh session is created. Catalog changes during authorization block execution.
-- Local JSON Schema validation before calling a tool.
-- Server-side per-call authorization receives authenticated owner and parsed arguments.
+- Official MCP SDK is pinned to 1.30.0 with lockfile.
+- Sessions are owner/server scoped; there is no credentialed global singleton.
+- Initialization, capability negotiation, paginated `tools/list`, list-change invalidation,
+  schema validation and deterministic exact-tool routing are bounded and fail closed.
+- Grants pin the reviewed tool definition. A changed catalog invalidates the grant.
+- Server-side per-call authorization receives the authenticated owner and parsed arguments.
 - A single 15-second dispatch deadline covers authorization and execution. Caller
-  cancellation reaches both authorization and the SDK. Late approvals cannot start
-  a cancelled operation; remote cancellation never proves rollback or permits replay.
-  Caller-provided cancellation reasons are replaced with stable codes before the SDK
-  can transmit a cancellation notification; document text/credentials in those reasons
-  are not forwarded.
-- No automatic retry of mutations. Unknown remote completion must not be called success.
-- Remote exception messages and isError content are not returned to the model.
-- Configuration uses named server-side environment references, not raw string replacement.
-- HTTP transport requires an explicitly supplied guarded network adapter, checks an
-  exact endpoint and allowlisted HTTPS origin, and rejects redirect following.
-- Node adapter checks DNS at socket connection time and passes only the checked
-  public addresses to the socket. A fresh agent per request prevents stale-socket reuse.
-- Rejects redirects, IP-literal endpoints, compressed responses and unsafe headers.
-  TLS certificate verification stays enabled; credential headers are never forwarded
-  to another URL. Caller cancellation and a total 15-second per-request deadline
-  cover DNS lookup, response headers and streaming bodies.
-- Limits request bodies to 64 KiB, response bodies to 1 MiB, and headers to 16 KiB.
-  Limits can only be reduced. Streaming has backpressure and destroys sockets on
-  cancellation, truncation, timeout or overflow. Errors expose stable codes only.
-- Authenticated management routes and a Japanese/English settings section are implemented.
-  Default application construction injects no authentication/storage/credential broker;
-  status explicitly reports configured=false and all management writes fail closed.
-- Credential ciphertext uses AES-256-GCM with owner/connection/server/endpoint binding;
-  list and mutation responses return only allowlisted connection metadata.
-- The PostgreSQL connection store keeps only the encrypted envelope and allowlisted
-  metadata. Reads always include the authenticated owner. Inserts serialize by owner
-  before enforcing the 20-connection limit and owner/server uniqueness; checks and
-  deletes use compare-and-swap versions. Its Supabase migration revokes browser roles
-  and enables RLS without adding a browser policy. The adapter is not automatically
-  constructed or mounted by the default application.
-- A disabled-by-default Supabase Auth adapter validates the HttpOnly
-  `__Host-origin-session` cookie through the project's fixed `/auth/v1/user` endpoint.
-  It accepts only the server-configured Supabase user UUIDs, ignores editable user
-  metadata, bounds the response and deadline, refuses redirects and returns no token
-  or upstream error. The adapter is not yet a sign-in/session issuance flow.
-- Registration uses a server-side per-owner credential broker, never browser-supplied
-  service tokens or arbitrary URLs. Exact Origin plus a custom mutation header guards
-  POST and DELETE. Shared-store owner scoping and atomic version checks are required.
-- Check operations instantiate a guarded, owner-scoped session with no tool grants,
-  discover the catalog, then close it. They do not invoke remote tools. An unfinished
-  initialization can now be closed promptly. Failed checks are never shown as verified.
-- No model switch, scanner, provider activation or production environment change.
+  cancellation propagates through both boundaries and blocks late approvals.
+- No automatic retry of mutations. Unknown remote completion is never reported as success.
+- Remote exception text and MCP `isError` content are sanitized before model exposure.
+- Request bodies are capped at 64 KiB, responses at 1 MiB and headers at 16 KiB.
+  Streaming uses backpressure and destroys the socket on timeout, cancellation,
+  truncation or overflow.
 
-## Gates before end-user enablement
+## Guarded Node transport
 
-Use createNodeMcpTransport for Node integrations; it always installs createNodeMcpFetch.
-The guarded adapter is covered by deterministic DNS/socket/stream tests, real-SDK
-JSON/SSE tests, and actual TLS sockets against a controlled local HTTPS peer. The TLS
-fixture substitutes DNS and destination routing after the production DNS guard, and
-trusts an ephemeral test CA only inside the fixture. It verifies certificate/hostname
-rejection before credential transmission, JSON/SSE tool dispatch, DNS rebinding,
-redirect refusal, response limits, deadlines and cancellation. Public DNS routing,
-OAuth and live vendor behavior remain unverified. No native-fetch fallback
-is allowed. Long-lived SSE connections currently stop after 15 seconds and are not
-automatically reconnected; long-running remote jobs require a separately bounded design.
-The adapter is Node-only. Do not import it into browser or Worker bundles or assume
-Node CI certifies an edge runtime; add a separate reviewed runtime adapter if needed.
+`createNodeMcpTransport` always installs the guarded Node network adapter.
 
-The current Express createOriginApp accepts optional MCP dependencies and mounts the
-management router; api/index uses its unconfigured default. createNodeMcpManagement
-composes guarded discovery-only sessions with explicit verified-session, credential
-broker and shared-store adapters. There is no unsigned header identity adapter in
-production. Keep credential handling server-side and do not import the Node transport
-factory into the Worker or browser bundle.
+- Endpoint and HTTPS origin must be exact and pre-approved.
+- Redirects, IP-literal endpoints, compressed responses and unsafe headers are rejected.
+- DNS is checked at socket-connect time; only validated public destinations are passed to
+  the socket. A fresh agent prevents stale socket reuse.
+- TLS hostname/certificate verification remains enabled. Credential headers are not
+  forwarded to another URL.
+- The 15-second whole-request deadline includes DNS, headers and streaming body.
+- No native-fetch fallback exists.
+- The adapter is Node-only. Worker/browser runtimes need a separate reviewed adapter.
+- Long-lived SSE currently ends at the bounded deadline and is not automatically resumed.
 
-Before activation, connect a real verified-user session provider, review and apply the
-durable shared McpConnectionStore migration, and implement a per-owner credential broker.
-The in-memory store remains a test fixture. Existing ORIGIN operator
-secrets are not repurposed as browser login credentials. Add encryption-key rotation
-and expiry/revocation handling with the durable credential integration. Start with
-reviewed, explicitly zero-cost-approved endpoints; a configuration flag is not evidence
-of a vendor billing plan or consent to run tools.
-OAuth for services such as Canva needs a real authorization flow, token audience,
-scopes, refresh/revocation and protected redirect handling. Do not request pasted
-production secrets in chat or claim static bearer tokens work for all providers.
+Controlled actual-TLS tests exercise the production guard with fixture-only DNS/destination
+routing and an ephemeral test CA. They prove the local guard behavior, not live-vendor
+connectivity.
 
-Integrate bounded chat tool rounds through the existing free-only provider boundary.
-Preserve assistant tool_calls and corresponding tool messages, stop on cancellation,
-cap total calls/bytes/time and prevent parallel mutations to the same artifact.
-Do not use remote annotations as the sole authority for whether an operation writes.
-Authorize owner-approved existing-file edits under a scoped policy. Customer send,
-external publish and privileged operations require an operation-bound approval.
-OAuth grant consent is distinct from approval of a destructive tool operation.
-External service billing must satisfy the existing zero-cost policy before execution.
+## Connection persistence and credential authority
 
-Production release requires current exact-head CI and real authenticated end-to-end
-connector tests, then existing main-release gates. In-memory tests are not evidence of
-live Canva/GitHub connectivity or OAuth readiness.
+The connection store and OAuth grant store have intentionally separate responsibilities.
+
+### `origin_mcp_connections`
+
+The connection table is metadata-only. It contains owner/server/endpoint identity,
+version, status and timestamps. It does **not** store an access-token snapshot or OAuth
+refresh token.
+
+- Reads always include authenticated owner scope.
+- Inserts serialize by owner before enforcing the 20-connection limit and owner/server
+  uniqueness.
+- Probe updates and deletes use compare-and-swap versions.
+- Browser roles are revoked and RLS is enabled with no browser policy.
+- The migration is unapplied to production.
+
+`McpConnectionService` resolves a credential from the trusted broker immediately before
+registration and immediately before every probe. It never falls back to a token copied
+into the connection row. A probe opens a guarded owner-scoped session with no tool grants,
+discovers the catalog and closes without invoking a remote tool.
+
+Disconnect invokes the trusted credential broker/revocation hook before deleting metadata.
+If broker disconnect fails, metadata is retained rather than falsely reporting a completed
+disconnect.
+
+### `origin_mcp_oauth_grants`
+
+OAuth access/refresh tokens and expiry live only in the OAuth grant store, encrypted by
+AES-256-GCM under an explicit server-side key ring.
+
+- AAD binds owner, server, provider configuration fingerprint and random grant generation.
+- Writes use the active key; explicit re-encryption can rotate existing active grants.
+- `exchanging`/`refreshing` is committed before the network call so only one CAS winner
+  can use a code/refresh token generation.
+- No database transaction spans a remote request.
+- This initial profile requires Bearer tokens, expiry between 1 and 86400 seconds and a
+  rotated refresh token on refresh. Providers with different semantics require a reviewed
+  adapter, not a permissive fallback.
+- Failed or uncertain exchanges/refreshes require reauthorization rather than replay.
+- Disconnect clears locally usable credentials first, then attempts standards-based
+  revocation. Remote revocation confirmation is reported separately from local disconnect.
+
+### `origin_mcp_oauth_pending`
+
+PKCE pending state is server-only and five-minute bounded.
+
+- Random 256-bit state and verifier, S256 challenge.
+- State/session/configuration are hashed; the verifier is encrypted.
+- The pending attempt binds owner, verified login session, server, grant generation and
+  complete provider configuration fingerprint.
+- Consume is atomic delete-and-return, preventing callback replay.
+- Issuer mismatch, duplicate callback parameters, wrong session/owner, changed config,
+  expiry and ciphertext tampering fail closed.
+
+## Supabase owner authentication boundary
+
+`createSupabaseMcpAuthenticator` is disabled unless explicitly composed.
+
+- Reads only the HttpOnly `__Host-origin-session` cookie.
+- Sends that exact bearer token to the fixed project `/auth/v1/user` endpoint on every
+  management request, with redirect refusal, response-size bound and deadline.
+- Only after Supabase accepts the bearer token does the adapter parse the same JWT and
+  require valid `sub` plus `session_id` UUID claims.
+- JWT `sub` must equal `/auth/v1/user.id`.
+- Owner authorization comes from the server-side UUID allowlist, never `user_metadata`.
+- The verified Supabase `session_id` becomes the OAuth state/session binding.
+- Missing, duplicate, malformed or oversized cookies, non-owner users, invalid content,
+  redirects, timeouts and upstream errors all fail closed.
+
+This adapter does **not** issue the browser login session. The actual owner sign-in/session
+issuance flow remains an activation prerequisite.
+
+Live read-only observation on 2026-09-20: the connected ORIGIN Supabase project is healthy,
+but currently has zero Auth users and zero active sessions, and the three MCP tables are
+absent. No live migration or user creation was performed during this PR work.
+
+## Protected OAuth management flow
+
+The OAuth broker is not mounted unless explicitly provided by server composition.
+
+1. `GET /api/mcp/status` authenticates the owner and returns only allowlisted server and
+   connection metadata. Each server exposes `authMode: "oauth" | "broker"`; no OAuth
+   endpoint, client secret or token is exposed.
+2. For a reviewed OAuth server, `POST /api/mcp/oauth/:serverId/start` requires the verified
+   login session, exact application Origin, `X-Origin-MCP-Intent: manage`, JSON `{}` and
+   broker support for that server. It returns only a validated HTTPS authorization URL.
+3. The settings UI shows **Start authorization** for OAuth servers and **Register** for
+   non-OAuth brokered servers. It never renders a service password/token input.
+4. The UI accepts only HTTPS authorization URLs and exposes a normal link to the official
+   authorization page. Access tokens, refresh tokens, verifier and client secrets never
+   enter the browser DOM or model context.
+5. `GET /api/mcp/oauth/:serverId/callback` re-authenticates the owner/session, consumes the
+   one-time PKCE callback, performs guarded server-side code exchange and persists the
+   encrypted grant.
+6. After durable OAuth completion, the callback creates the metadata-only connection row
+   if one does not already exist. Reauthorization of an existing connection does not
+   duplicate metadata.
+7. Success redirects only to the fixed application origin with `?mcp=linked`.
+
+The callback is a GET because it is an OAuth redirect; state/session/issuer validation is
+the anti-CSRF/replay boundary. No browser-provided owner ID is accepted.
+
+## Node composition and current production state
+
+`createOriginApp` mounts the management router but its default integration object contains
+no MCP authentication, store or credential broker, so production currently reports
+`configured=false` and writes fail closed.
+
+`createNodeMcpManagement` composes the guarded probe session from explicit dependencies:
+verified authentication, durable store, reviewed servers, current credential resolver,
+disconnect/revocation hook and optional OAuth management broker. There is no production
+unsigned-header identity adapter.
+
+Still required before activation:
+
+- create the intended owner Auth user and implement/verify the browser session issuance
+  flow that sets `__Host-origin-session`;
+- configure the server-side owner UUID allowlist without exposing it to the browser;
+- review and apply the three MCP migrations to the intended database only after exact-head
+  review and security advisor checks;
+- compose the OAuth broker and stores in the production server runtime with bounded DB
+  pools and server-only encryption keys;
+- select a first connector only after its provider metadata, scopes, client registration,
+  billing/zero-cost eligibility and actual MCP endpoint are verified;
+- run live authenticated authorization, refresh, probe, disconnect/revocation and replay
+  failure E2E for that connector;
+- integrate bounded MCP tool rounds through ORIGIN's existing provider/authorization
+  boundary without parallel destructive mutations;
+- pass exact-head release gates before any main merge or production enablement.
+
+Do not repurpose ORIGIN operator secrets as browser login credentials, request production
+secrets in chat, or infer that a connector is free merely because configuration says so.
 
 ## Deterministic document insertion contract
 
 Natural language selects an anchor; deterministic code resolves the anchor and changes
-the artifact. Never let generated coordinates alone authorize a write.
+the artifact. Generated coordinates alone never authorize a write.
 
-Priority: explicit position > existing template/page geometry > format defaults for
-new documents. Preserve existing page/slide sizes, margins, fonts and branding. A4 with
-2.54 cm margins and 16:9 slides are defaults for new files, not conversions of originals.
+Priority: explicit position > existing template/page geometry > defaults for new files.
+Preserve existing page/slide sizes, margins, fonts and branding. A4 with 2.54 cm margins
+and 16:9 slides are defaults for new artifacts, not conversions of existing files.
 
-Common input: artifactId, expectedVersion, operationId, anchor, content and layoutPolicy.
-Resolve artifactId through owner-scoped storage; never accept arbitrary filesystem paths.
-Ambiguous/missing anchors must return a resolvable error instead of inserting elsewhere.
-Validate the expected version atomically; produce a recoverable new version and preview.
-Deduplicate operationId so retries cannot insert the same content twice. Audit metadata
-must avoid raw document contents/secrets. A successful API response alone is not success:
-reopen the file, render/check geometry and report any overflow or unsupported structure.
+Common input: `artifactId`, `expectedVersion`, `operationId`, `anchor`, `content` and
+`layoutPolicy`.
+
+- Resolve `artifactId` through owner-scoped storage; reject arbitrary filesystem paths.
+- Ambiguous/missing anchors return a resolvable error rather than inserting elsewhere.
+- Validate expected version atomically and produce a recoverable new version plus preview.
+- Deduplicate `operationId` so a retry cannot insert content twice.
+- Audit metadata must omit raw document content and secrets.
+- A successful write response is not sufficient: reopen/render/check the artifact and
+  report overflow or unsupported structure.
 
 | Tool | Deterministic anchor / checks |
 | --- | --- |
-| insert_into_docx | Heading/bookmark/table-cell anchor; preserve sections, styles, merged cells, headers/footers. Check floating shapes and unsupported tracked changes before mutation. |
-| insert_into_pptx | Slide ID and placeholder ID preferred; otherwise constrained rectangle within original slide dimensions. Measure text, preserve slide master, reject overlaps/overflow. |
-| insert_into_xlsx | Sheet and cell/named range; find the actual table bottom before append. Preserve formulas, merged cells, validations and chart ranges. Prevent unintended formula injection from plain text. |
-| insert_into_pdf | Page, crop/media box and rotation-aware rectangle. Overlay only in confirmed whitespace or add a page. Overlay does not reflow existing text; preserve the original, handle scans/OCR separately, and reject signed/encrypted mutations unless explicitly supported. |
+| `insert_into_docx` | Heading/bookmark/table-cell anchor; preserve sections, styles, merged cells, headers/footers. Check floating shapes and unsupported tracked changes before mutation. |
+| `insert_into_pptx` | Slide ID and placeholder ID preferred; otherwise constrained rectangle within original dimensions. Measure text, preserve slide master, reject overlaps/overflow. |
+| `insert_into_xlsx` | Sheet and cell/named range; find the real table bottom before append. Preserve formulas, merged cells, validations and chart ranges. Prevent unintended formula injection from plain text. |
+| `insert_into_pdf` | Page, crop/media box and rotation-aware rectangle. Overlay only in confirmed whitespace or add a page. Overlay does not reflow existing text; preserve the original, handle scans separately, and reject signed/encrypted mutation unless explicitly supported. |
 
-Existing-file edits may run automatically within owner-granted scope and version checks.
-New customer deliverables/final files may be generated automatically; sending externally
-requires human approval tied to the exact artifact version and recipients. Generation
-must not implicitly send, publish or weaken existing repository deployment controls.
+Existing-file edits may run automatically only inside owner-granted scope and version
+checks. Generating a customer deliverable is separate from sending/publishing it. External
+delivery and privileged operations require approval bound to the exact artifact version,
+operation and recipients.
 
-## Relationship to current work
+## Relationship to other ORIGIN work
 
-The uploaded bundle is a proposal, not the current application. It has a missing
-.github workflow, a global MCP singleton, an unprotected sample route, ambiguous
-separator-based routing, raw environment substitution, and a self-update script using
-a chat-response contract that does not match current ORIGIN.
+The originally uploaded MCP bundle is a proposal, not the current application. Its global
+singleton, unprotected sample route, separator-based tool routing, raw environment
+substitution and self-update script must not replace current ORIGIN architecture.
 
-Self-evolution PR #580 and Owner Inbox PR #582/#583 already supersede parts of the bundle.
-Do not overwrite them with the uploaded scripts. V1.5 design PR #584 is a separate track.
-This client foundation does not certify those PRs, change main or claim their CI passes.
+Self-evolution PR #580 and Owner Inbox PR #582/#583 remain separate tracks. V1.5 design
+PR #584 is also separate. PR #585 must not overwrite or claim to certify those changes.
 
-Reference: https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices
+## Validation chronology
 
-## Validation and continuation
+Historical checkpoints are useful only as evidence for the exact SHA tested; later commits
+must be requalified.
 
-### OAuth authorization-state increment (2026-09-20)
+- Base `d2afecc333781879dfd6ab1e10ae631d8a4b20eb`: all six PR workflows succeeded.
+- Connection-management checkpoint `e3cc346`: authenticated register/check/disconnect UI
+  and guarded owner-scoped probe passed the six workflows.
+- Durable-store checkpoint `3e020eb`: PostgreSQL connection-store migration and store
+  tests passed; production migration remained unapplied.
+- Concurrency correction `be7f892`: PostgreSQL 16/18 observed real advisory-lock blocking
+  and correct post-lock capacity behavior.
+- Supabase owner-auth checkpoint `d2b70bb3a30ddff341d9c793f5f3ff92bbd614ed`:
+  all six workflows succeeded; Node 22/24 ran the full test/E2E/Lighthouse gates.
+- PKCE checkpoint `636007d571dbae04a50d1f39ca383af713538a76`: all six workflows
+  succeeded; PostgreSQL 16/18 included the durable OAuth pending-state scenarios.
+- OAuth lifecycle checkpoint `9d19e87ebdb562a0beb19e93f65d0844718f852e`:
+  guarded code exchange, refresh rotation, encrypted grant persistence and revocation were
+  added; controlled TLS and real PostgreSQL scenarios passed.
+- Broker-resolution checkpoint `2509c30c76a70cdfcc251aca5dc5d3d6f3f4622b`:
+  the connection token snapshot was removed, fresh broker resolution/revocation was wired,
+  Supabase `sub`/`session_id` binding and protected OAuth routes were added. ACOS lint,
+  explicit typecheck, unit/API/build/runtime gates passed; PostgreSQL 16/18 passed.
+- Current OAuth UI/callback-registration head must pass its own six exact-head workflows
+  before it can be called release-verified. CI fixture success is still not live-vendor
+  evidence.
 
-Built on owner-provided head d2b70bb; the existing Supabase authentication and real
-PostgreSQL persistence/concurrency implementation is retained unchanged.
+No live third-party tool execution, customer send, main merge or production MCP deployment
+has been performed.
 
-- Server-only `McpOAuthAuthorization` prepares authorization-code requests with
-  random 256-bit state/verifier and S256 PKCE, explicit resource and reviewed scopes.
-- The first supported profile requires pre-reviewed, fixed HTTPS issuer/endpoints,
-  client ID/redirect URI, S256 and RFC 9207 response issuer support. No discovery,
-  dynamic client registration or provider compatibility is implied by these flags.
-- Pending requests bind owner, verified login session and a fingerprint of the entire
-  provider configuration. Only state/session hashes and an AES-GCM verifier envelope
-  are persisted. The verifier encryption uses a separate PKCE domain binding.
-- PostgreSQL enforces five-minute expiration and atomic delete-and-return consumption.
-  Repeated authorization replaces the previous owner/server attempt; owner locking
-  bounds outstanding attempts to 20. A bounded expired-record cleanup hook is included.
-- Callback handling rejects issuer mismatch, duplicate parameters, wrong owner/session,
-  changed configuration, replay, expiration and tampered ciphertext. Denial also consumes
-  the attempt. Unknown downstream exchange completion must never trigger code replay.
-- The internal callback result includes a secret token-exchange form. It MUST NOT be
-  serialized to the browser/model or logged. It is now consumed internally by the
-  token broker described below; no public OAuth HTTP route is activated.
+## References
 
-Remaining OAuth integration: protected start/callback routes, verified-session binding
-from the actual login flow, management/dispatch broker wiring and cleanup scheduling. The existing
-connection record's access-token snapshot is not sufficient for refreshable OAuth;
-probe/dispatch must resolve current broker credentials once that broker is implemented.
-Provider metadata/zero-cost evidence, Supabase login and live vendor E2E remain gates.
-The new migration is unapplied outside disposable CI databases; no production advisors
-or live database verification is claimed. No environment, main or deployment change.
-
-References: https://www.rfc-editor.org/rfc/rfc7636 and
-https://www.rfc-editor.org/rfc/rfc9207 ; MCP resource binding requirements:
-https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization .
-
-### OAuth token lifecycle increment (2026-09-20)
-
-- `McpOAuthBroker` connects PKCE preparation to code exchange, encrypted token storage,
-  refresh rotation, disconnect and explicit re-encryption under a new key. All methods
-  are server-only. `complete` returns nonsecret metadata; `resolveCredential` is an
-  internal secret-bearing boundary and must never become a browser/model endpoint.
-- `McpOAuthTokenClient` uses the guarded Node transport for exact configured token and
-  revocation endpoints. Public clients and reviewed `client_secret_basic` clients are
-  supported. Secrets never enter query strings. No redirect or automatic retry occurs.
-  JSON is bounded to 32 KiB and the full request to 15 seconds. Scopes cannot expand
-  or silently lose required permissions. This initial profile requires Bearer tokens,
-  an integer lifetime of 1..86400 seconds and a new refresh token on every refresh.
-  Providers without rotation need a separate reviewed profile, not a permissive fallback.
-- Access/refresh tokens and expiry are encrypted together using AES-256-GCM. A key ID
-  selects from an explicit server-side ring (up to five keys); writes use the active key.
-  AAD binds owner, server, provider fingerprint and random grant generation. Rotation
-  decrypts with the old key and rewrites with the new key without extending token expiry.
-- The grant store commits `exchanging`/`refreshing` before network access. Only a single
-  compare-and-swap winner can use a refresh token. No database transaction spans a remote
-  request. Failures clear locally usable credentials and require fresh authorization.
-  Process crashes leave a durable unusable in-progress grant; explicit disconnect then
-  reauthorization is required. There is no timeout-based takeover or refresh replay.
-- Disconnect first clears local credentials and pending authorization, then attempts
-  revocation of both refresh and access tokens. It reports remote confirmation separately.
-  Generation/version fencing rejects late writes, including after a new authorization.
-  Known late-issued tokens are best-effort revoked. A crash, lost response or failed
-  revocation can leave upstream state unknown; this is never described as confirmed.
-  Already-dispatched remote work cannot be rolled back by disconnect.
-- The additive grant migration also adds a generation binding to pending PKCE records.
-  Pending attempts created by the earlier implementation must be restarted on upgrade.
-  RLS is enabled with no browser policies; browser roles are explicitly denied.
-- The controlled TLS fixture now tests code exchange, rotated refresh and two revocations
-  using actual TLS/HTTP sockets through the production guard. DNS/socket destination
-  routing and test CA trust are fixture-only. This is not live vendor/OAuth evidence.
-
-Activation still requires actual verified-login session binding, protected HTTP routes,
-provider metadata/client registration/zero-cost review, and live account E2E. The existing
-management `createNodeMcpManagement` is NOT wired to this broker yet: do not merely pass
-its resolver at registration, because current probes still use the stored token snapshot.
-Replace that path with current broker resolution (no snapshot fallback), tie disconnect
-to grant revocation, and preserve per-call authorization/cancellation before activation.
-The grant store requires a bounded server-side pool and explicit dependency injection.
-No migration is applied to production and no environment or connector is enabled.
-
-References: https://www.rfc-editor.org/rfc/rfc6749 (token endpoint),
-https://www.rfc-editor.org/rfc/rfc9700 (refresh-token security),
-https://www.rfc-editor.org/rfc/rfc7009 (revocation).
-
-- Base head d2afecc333781879dfd6ab1e10ae631d8a4b20eb: all six GitHub PR workflows
-  completed successfully (verified 2026-09-20). This does not certify subsequent heads.
-- Incoming owner head 3921658: all six GitHub PR workflows passed; its TLS/cancellation
-  changes were retained when merging the connection-management increment.
-- Integrated increment: 130 tests passed (MCP, API, component and existing settings),
-  including the nine actual-TLS tests. Typecheck, design-token lint and production
-  build passed. Existing SettingsModal tests emit React act warnings but pass.
-- Durable-store increment: 113 focused MCP tests and 1,791 full non-browser tests
-  passed locally. Typecheck, design-token lint, production build and the Node ESM
-  serverless runtime check passed. The migration was created with Supabase CLI 2.117.0
-  but was not applied; live PostgreSQL behavior and exact-head CI remain unverified.
-- Concurrency correction `be7f892`: all six workflows passed. PostgreSQL 16 and 18
-  observed a real advisory-lock wait, then rejected the contender after counting the
-  preceding committed row. Owner-scoped reads/deletes and stale-version rejection also
-  passed against the disposable databases. This verifies the store implementation and
-  migration contract; it does not mean the production migration has been applied.
-- Supabase owner-auth increment: 1,800 full non-browser tests passed locally, including
-  malformed/duplicate cookie rejection, server-side owner allowlisting, response-size
-  and deadline bounds, and denial of a valid non-owner user even when editable metadata
-  claims owner status. Typecheck, design-token lint, production build and the Node ESM
-  serverless runtime check passed. Exact-head CI remains required.
-- Two mobile browser tests were added: actual disabled-backend status and a simulated
-  authenticated registration/check/disconnect UI. Local browser execution is blocked
-  by unavailable browser binaries/download; agent-browser daemon also fails to start.
-  These tests must pass on exact-head CI; they are not live OAuth/vendor evidence.
-- Run current-head CI before treating the increment as release-verified.
-- No live third-party request, customer send, merge or deployment was performed.
-
-Next: connect the verified-user authentication and shared persistence adapters,
-review zero-cost connector eligibility and operation-scoped authorization before
-activating management or adding a chat route. Complete OAuth lifecycle and real vendor
-E2E for each explicitly enabled connector.
-An injected `authorize` callback remains a trusted integration boundary, not proof
-that a connector is free or that a customer send is approved. Enabling a connector,
-changing environment/permissions and publishing ORIGIN's MCP server still require
-Owner approval. Keep Self-Evolution's outstanding source-to-sink findings tracked
-separately; this MCP verification does not close them.
+- MCP security best practices: https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices
+- MCP authorization: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+- PKCE: https://www.rfc-editor.org/rfc/rfc7636
+- Authorization response issuer: https://www.rfc-editor.org/rfc/rfc9207
+- OAuth 2.0: https://www.rfc-editor.org/rfc/rfc6749
+- OAuth 2.0 security BCP: https://www.rfc-editor.org/rfc/rfc9700
+- Token revocation: https://www.rfc-editor.org/rfc/rfc7009
