@@ -20,6 +20,10 @@ export class McpOAuthBroker {
         client: options.createTokenClient?.(provider) ?? new McpOAuthTokenClient(provider, options.clientSecrets?.[provider.serverId]) }];
     }));
   }
+  /** Public metadata only: lets management UI distinguish reviewed OAuth servers without exposing provider endpoints or credentials. */
+  supports(serverId: string): boolean {
+    return /^[A-Za-z0-9-]{1,64}$/.test(serverId) && this.providers.has(serverId);
+  }
   private provider(ownerId: string, serverId: string) {
     validateOAuthOwner(ownerId, serverId);
     return this.providers.get(serverId) ?? oauthFailure('MCP_OAUTH_SERVER_NOT_ALLOWED');
