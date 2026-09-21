@@ -32,7 +32,7 @@ function exactHttps(raw: unknown): string {
 }
 
 function verifiedReadOnlyExecutionEndpoint(endpoint: string, profile: unknown): boolean {
-  if (profile !== 'github-repos-readonly') return false;
+  if (profile !== 'github-file-readonly') return false;
   const url = new URL(endpoint);
   return url.origin === 'https://api.githubcopilot.com' && url.pathname === '/mcp';
 }
@@ -94,7 +94,7 @@ type ReviewedServer = {
   endpoint: string;
   zeroCostApproved: true;
   executionMode?: 'read-only';
-  transportProfile?: 'github-repos-readonly';
+  transportProfile?: 'github-file-readonly';
   zeroCostEvidence: {
     evidenceId: string; verifiedAt: string; expiresAt: string; termsUrl: string;
     billingPlan: 'free'; paidFallback: false;
@@ -121,8 +121,8 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     const label = value.label;
     if (typeof id !== 'string' || !SERVER_ID.test(id) || ids.has(id) || typeof label !== 'string' || !label.trim() || label.length > 80
       || value.zeroCostApproved !== true || (value.executionMode !== undefined && value.executionMode !== 'read-only')
-      || (value.transportProfile !== undefined && value.transportProfile !== 'github-repos-readonly')
-      || (value.executionMode === 'read-only') !== (value.transportProfile === 'github-repos-readonly')
+      || (value.transportProfile !== undefined && value.transportProfile !== 'github-file-readonly')
+      || (value.executionMode === 'read-only') !== (value.transportProfile === 'github-file-readonly')
       || !value.zeroCostEvidence || typeof value.zeroCostEvidence !== 'object' || Array.isArray(value.zeroCostEvidence)
       || !value.oauth || typeof value.oauth !== 'object' || Array.isArray(value.oauth)) return invalid();
     ids.add(id);
@@ -164,6 +164,23 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     const authMethod = oauth.tokenEndpointAuthMethod === undefined ? 'none' : oauth.tokenEndpointAuthMethod;
     if (!['none', 'client_secret_basic', 'client_secret_post'].includes(String(authMethod))) return invalid();
 
+    if (value.transportProfile === 'github-file-readonly') {
+      const clientId = oauth.clientId;
+      if (permissionModel !== 'github-app'
+        || (oauth.scopes as unknown[]).length !== 0
+        || untrackedScopes.length !== 0
+        || oauth.resource !== undefined
+        || oauth.refreshScope !== 'omit'
+        || oauth.responseIssuer !== false
+        || authMethod !== 'client_secret_post'
+        || oauth.revocationMethod !== 'github-delete-grant'
+        || exactHttps(oauth.issuer) !== 'https://github.com/login/oauth'
+        || exactHttps(oauth.authorizationEndpoint) !== 'https://github.com/login/oauth/authorize'
+        || exactHttps(oauth.tokenEndpoint) !== 'https://github.com/login/oauth/access_token'
+        || typeof clientId !== 'string'
+        || exactHttps(oauth.revocationEndpoint) !== `https://api.github.com/applications/${encodeURIComponent(clientId)}/grant`) return invalid();
+    }
+
     if (authMethod === 'client_secret_basic' || authMethod === 'client_secret_post') {
       if (typeof oauth.clientSecretEnv !== 'string' || !CLIENT_SECRET_ENV.test(oauth.clientSecretEnv)) return invalid();
       const secret = env[oauth.clientSecretEnv]?.trim();
@@ -172,7 +189,7 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     } else if (oauth.clientSecretEnv !== undefined) return invalid();
 
     servers.push({ id, label: label.trim(), endpoint, zeroCostApproved: true,
-      ...(value.executionMode === 'read-only' ? { executionMode: 'read-only' as const, transportProfile: 'github-repos-readonly' as const } : {}),
+      ...(value.executionMode === 'read-only' ? { executionMode: 'read-only' as const, transportProfile: 'github-file-readonly' as const } : {}),
       zeroCostEvidence: {
         evidenceId: evidence.evidenceId, verifiedAt: evidence.verifiedAt, expiresAt: evidence.expiresAt,
         termsUrl, billingPlan: 'free', paidFallback: false,
