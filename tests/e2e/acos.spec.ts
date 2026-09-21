@@ -326,7 +326,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('knowledge-map-toggle').click();
     await expect(page.getByTestId('knowledge-map-node-count')).toHaveText('1');
     await page.getByTestId('knowledge-map-session-0').click();
-    await expect(page.getByText('復元対象のローカルセッション')).toBeVisible();
+    await expect(page.getByRole('article', { name: 'あなたの依頼' }).filter({ hasText: '復元対象のローカルセッション' })).toBeVisible();
   });
 
   test('migrates legacy localStorage to IndexedDB and persists generated artifact revisions locally', async ({ page }) => {
