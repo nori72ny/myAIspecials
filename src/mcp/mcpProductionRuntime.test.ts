@@ -76,7 +76,7 @@ describe('MCP production runtime composition', () => {
   it('accepts an explicitly reviewed GitHub-style OAuth profile without resource/issuer response requirements', () => {
     const env = enabledEnv();
     const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
-    config[0].endpoint = 'https://api.githubcopilot.com/mcp';
+    config[0].endpoint = 'https://api.githubcopilot.com/mcp/x/repos/readonly';
     config[0].executionMode = 'read-only';
     config[0].transportProfile = 'github-file-readonly';
     config[0].zeroCostEvidence = {
@@ -111,6 +111,16 @@ describe('MCP production runtime composition', () => {
     expect(runtime?.agentRouter).toBeDefined();
   });
 
+  it('rejects the broader GitHub base endpoint for automatic file-read execution', () => {
+    const env = enabledEnv();
+    const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
+    config[0].endpoint = 'https://api.githubcopilot.com/mcp';
+    config[0].executionMode = 'read-only';
+    config[0].transportProfile = 'github-file-readonly';
+    env.ORIGIN_MCP_REVIEWED_SERVERS_JSON = JSON.stringify(config);
+    expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+  });
+
   it('rejects automatic read-only execution for unverified provider endpoint shapes', () => {
     const env = enabledEnv();
     const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
@@ -129,7 +139,7 @@ describe('MCP production runtime composition', () => {
   ] as const)('rejects a broadened GitHub file-read OAuth profile field %s', (name, value) => {
     const env = enabledEnv();
     const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
-    config[0].endpoint = 'https://api.githubcopilot.com/mcp';
+    config[0].endpoint = 'https://api.githubcopilot.com/mcp/x/repos/readonly';
     config[0].executionMode = 'read-only';
     config[0].transportProfile = 'github-file-readonly';
     config[0].zeroCostEvidence = {
