@@ -96,6 +96,26 @@ describe('MCP OAuth authorization transaction', () => {
     expect(exchange.form.get('client_id')).toBe(compatible.clientId);
   });
 
+  it('supports GitHub App permission tokens without requesting OAuth scopes', async () => {
+    const f = fixture();
+    const githubApp: McpOAuthProvider = {
+      ...provider,
+      resource: undefined,
+      responseIssuer: false,
+      tokenEndpointAuthMethod: 'client_secret_post',
+      permissionModel: 'github-app',
+      scopes: [],
+      refreshScope: 'omit',
+    };
+    const service = new McpOAuthAuthorization(f.store, f.key, [githubApp]);
+    const url = new URL((await service.begin(f.who, githubApp.serverId)).authorizationUrl);
+    expect(url.searchParams.has('scope')).toBe(false);
+    expect(url.searchParams.has('resource')).toBe(false);
+    const query = new URLSearchParams({ state: url.searchParams.get('state')!, code: randomBytes(32).toString('hex') });
+    const exchange = await service.consumeCallback(f.who, githubApp.serverId, query);
+    expect(exchange.form.get('client_id')).toBe(githubApp.clientId);
+  });
+
   it('sanitizes storage failures', async () => {
     const f = fixture(); f.store.put = async () => { throw new Error('secret'); };
     await expect(f.begin()).rejects.toThrow(/^MCP_OAUTH_STORE_UNAVAILABLE$/);
