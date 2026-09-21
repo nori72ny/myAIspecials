@@ -75,4 +75,34 @@ describe("AQ live quota guard readiness", () => {
     expect(result.nextAllowedAt).toBeNull();
     expect(result.remainingSeconds).toBe(0);
   });
+  it("counts a prior attempt reservation from the same workflow run when enabled", async () => {
+    const previous = "2026-09-19T05:22:46.000Z";
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) {
+        return response({ workflow_runs: [{ id: Number(currentRunId), created_at: previous }] });
+      }
+      if (url.includes("/actions/workflows/aq-live-research-shard.yml/runs")) {
+        return response({ workflow_runs: [] });
+      }
+      if (url.includes(`/actions/runs/${currentRunId}/artifacts`)) {
+        return response({ artifacts: [{ name: "aq-live-quota-reservation" }] });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+
+    const result = await checkLiveQuota({
+      repository,
+      currentRunId,
+      token,
+      includeCurrentRunReservations: true,
+      nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.previousReservedAt).toBe(previous);
+    expect(result.nextAllowedAt).toBe("2026-09-20T05:22:46.000Z");
+  });
+
 });
