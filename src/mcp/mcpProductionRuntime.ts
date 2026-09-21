@@ -185,10 +185,14 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     }
 
     if (authMethod === 'client_secret_basic' || authMethod === 'client_secret_post') {
-      if (typeof oauth.clientSecretEnv !== 'string' || !CLIENT_SECRET_ENV.test(oauth.clientSecretEnv)) return invalid();
-      const secret = env[oauth.clientSecretEnv]?.trim();
-      if (!secret || secret.length > 2048 || /[\x00-\x20\x7f]/.test(secret)) return invalid();
-      clientSecrets[id] = secret;
+      if (oauth.clientSecretEnv === undefined) {
+        if (value.transportProfile !== 'github-file-readonly' || permissionModel !== 'github-app') return invalid();
+      } else {
+        if (typeof oauth.clientSecretEnv !== 'string' || !CLIENT_SECRET_ENV.test(oauth.clientSecretEnv)) return invalid();
+        const secret = env[oauth.clientSecretEnv]?.trim();
+        if (!secret || secret.length > 2048 || /[\x00-\x20\x7f]/.test(secret)) return invalid();
+        clientSecrets[id] = secret;
+      }
     } else if (oauth.clientSecretEnv !== undefined) return invalid();
 
     servers.push({ id, label: label.trim(), endpoint, zeroCostApproved: true,
@@ -276,6 +280,25 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     connectionTimeoutMillis: 3_000,
     allowExitOnIdle: true,
   });
+
+  const dynamicGithubClientIds = new Map<string, string>();
+  for (const server of reviewed.servers) {
+    if (server.transportProfile !== 'github-file-readonly' || reviewed.clientSecrets[server.id]) continue;
+    const provider = reviewed.providers.find(candidate => candidate.serverId === server.id);
+    if (!provider || provider.permissionModel !== 'github-app' || provider.tokenEndpointAuthMethod !== 'client_secret_post') return invalid();
+    dynamicGithubClientIds.set(server.id, provider.clientId);
+  }
+
+  const githubBootstrapEnabled = env.ORIGIN_MCP_GITHUB_BOOTSTRAP_ENABLED === ENABLED;
+  let githubRegistrationStore: PostgresMcpGithubAppRegistrationStore | undefined;
+  let githubSecretCipher: ReturnType<typeof createMcpGithubAppSecretCipherFromKeyringJson> | undefined;
+  if (githubBootstrapEnabled || dynamicGithubClientIds.size > 0) {
+    const bootstrapKeyring = env.ORIGIN_MCP_GITHUB_APP_KEYRING_JSON?.trim();
+    if (!bootstrapKeyring) return invalid();
+    githubRegistrationStore = new PostgresMcpGithubAppRegistrationStore(pool);
+    githubSecretCipher = createMcpGithubAppSecretCipherFromKeyringJson(bootstrapKeyring);
+  }
+
   const broker = new McpOAuthBroker({
     providers: reviewed.providers,
     pendingStore: new PostgresMcpOAuthPendingStore(pool),
@@ -283,6 +306,15 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     pkceKey: key32(pkceRaw.trim()),
     tokenCipher: tokenCipher(keyringRaw),
     clientSecrets: reviewed.clientSecrets,
+    ...(dynamicGithubClientIds.size > 0 ? {
+      resolveClientSecret: async (ownerId: string, serverId: string) => {
+        const expectedClientId = dynamicGithubClientIds.get(serverId);
+        if (!expectedClientId || !githubRegistrationStore || !githubSecretCipher) return undefined;
+        const registration = await githubRegistrationStore.get(ownerId);
+        if (!registration || registration.status !== 'registered' || registration.clientId !== expectedClientId) return undefined;
+        return githubSecretCipher.open(registration);
+      },
+    } : {}),
     verifyProvider: async provider => {
       const server = reviewed.servers.find(candidate => candidate.id === provider.serverId);
       if (!server) throw new Error('MCP_OAUTH_DISCOVERY_FAILED');
@@ -294,17 +326,15 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
   const toolGrantStore = new PostgresMcpToolGrantStore(pool);
 
   let githubBootstrapRouter: ReturnType<typeof createMcpGithubAppRouter> | undefined;
-  if (env.ORIGIN_MCP_GITHUB_BOOTSTRAP_ENABLED === ENABLED) {
+  if (githubBootstrapEnabled) {
     const expectedOwnerLogin = env.ORIGIN_MCP_GITHUB_OWNER_LOGIN?.trim();
-    const bootstrapKeyring = env.ORIGIN_MCP_GITHUB_APP_KEYRING_JSON?.trim();
-    if (!expectedOwnerLogin || !/^[A-Za-z0-9-]{1,39}$/.test(expectedOwnerLogin) || !bootstrapKeyring) return invalid();
-    const registrationStore = new PostgresMcpGithubAppRegistrationStore(pool);
+    if (!expectedOwnerLogin || !/^[A-Za-z0-9-]{1,39}$/.test(expectedOwnerLogin) || !githubRegistrationStore || !githubSecretCipher) return invalid();
     const bootstrap = new McpGithubAppBootstrap({
       appOrigin,
       expectedOwnerLogin,
       pendingStore: new PostgresMcpGithubManifestPendingStore(pool),
-      registrationStore,
-      secretCipher: createMcpGithubAppSecretCipherFromKeyringJson(bootstrapKeyring),
+      registrationStore: githubRegistrationStore,
+      secretCipher: githubSecretCipher,
     });
     githubBootstrapRouter = createMcpGithubAppRouter({ appOrigin, bootstrap, authenticate });
   }
