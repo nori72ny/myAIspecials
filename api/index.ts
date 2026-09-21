@@ -8,7 +8,17 @@ type OriginAppLoader = () => Promise<Express>;
 let originAppPromise: Promise<Express> | undefined;
 
 async function loadOriginApp(): Promise<Express> {
-  originAppPromise ??= import("../src/server/createOriginApp.js").then(({ createOriginApp }) => createOriginApp());
+  originAppPromise ??= Promise.all([
+    import("../src/server/createOriginApp.js"),
+    import("../src/mcp/mcpProductionRuntime.js"),
+  ]).then(([{ createOriginApp }, { createMcpProductionRuntimeFromEnv, createMcpProductionSessionRouterFromEnv }]) => {
+    const mcp = createMcpProductionRuntimeFromEnv(process.env);
+    return createOriginApp(process.env, {
+      mcp,
+      mcpAgent: mcp?.agentRouter,
+      mcpSession: createMcpProductionSessionRouterFromEnv(process.env),
+    });
+  });
   return originAppPromise;
 }
 
