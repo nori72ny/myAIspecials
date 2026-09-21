@@ -6,6 +6,13 @@ import { McpManagementError } from './mcpConnections.js';
 import { createNodeMcpTransport } from './mcpNodeFetch.js';
 import type { McpAgentSession } from './mcpAgentExecution.js';
 
+function transportHeaders(server: McpServerChoice): Readonly<Record<string, string>> | undefined {
+  if (server.transportProfile === 'github-repos-readonly') {
+    return { 'X-MCP-Readonly': 'true', 'X-MCP-Toolsets': 'repos' };
+  }
+  return undefined;
+}
+
 /** Explicit Node composition. No automatic owner identity, in-memory store or credential fallback. */
 export function createNodeMcpManagement(options: {
   appOrigin: string;
@@ -31,7 +38,12 @@ export function createNodeMcpManagement(options: {
       disconnectCredential: options.disconnectCredential,
       createProbe: (ownerId, server, token) => new OriginMcpSession({
         subjectId: ownerId, serverId: server.id, grants: [], authorize: async () => false,
-        transport: () => createNodeMcpTransport({ endpoint: server.endpoint, allowedOrigins: [new URL(server.endpoint).origin], bearerToken: token }),
+        transport: () => createNodeMcpTransport({
+          endpoint: server.endpoint,
+          allowedOrigins: [new URL(server.endpoint).origin],
+          bearerToken: token,
+          fixedHeaders: transportHeaders(server),
+        }),
       }),
     }),
   };
@@ -113,6 +125,7 @@ export function createNodeMcpAgentSessionFactory(options: {
           endpoint: server.endpoint,
           allowedOrigins: [new URL(server.endpoint).origin],
           bearerToken: token,
+          fixedHeaders: transportHeaders(server),
         }),
       });
     },
