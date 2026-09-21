@@ -8,7 +8,7 @@ import OriginWorkspaceShellV31 from '../OriginWorkspaceShellV31';
 afterEach(cleanup);
 
 describe('ORIGIN accessibility foundations', () => {
-  it('keeps the mobile project selector at the minimum interactive target size', () => {
+  it('keeps the progressive Project control at the minimum interactive target size', () => {
     render(<OriginProjectWorkspaceV31
       mode="chat"
       messages={[]}
@@ -19,13 +19,14 @@ describe('ORIGIN accessibility foundations', () => {
       activeView="overview"
       onViewChange={vi.fn()}
     />);
-    const selector = screen.getByLabelText('Project view');
-    expect(selector.classList.contains('origin-interactive-target')).toBe(true);
+    const selector = screen.getByLabelText('Project context');
+    expect(selector.classList.contains('min-h-11')).toBe(true);
   });
 
-  it('keeps mobile controls keyboard-focusable and Mode semantically separate', () => {
+  it('keeps mobile Mode selection and progressive system settings keyboard-focusable', () => {
     render(<OriginWorkspaceShellV31 mode="chat" onModeChange={vi.fn()} />);
-    expect(screen.getByLabelText('ORIGIN mobile controls')).toBeTruthy();
+    expect(screen.getByLabelText('Mode')).toBeTruthy();
+    expect(screen.getByLabelText('ORIGIN Auto settings')).toBeTruthy();
     expect(screen.getByRole('navigation', { name: 'Mode' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Chat' }).getAttribute('aria-pressed')).toBe('true');
   });
