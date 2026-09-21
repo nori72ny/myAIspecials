@@ -65,13 +65,15 @@ type ReviewedOAuth = {
   tokenEndpoint: string;
   clientId: string;
   redirectUri: string;
-  resource: string;
+  resource?: string;
   scopes: string[];
+  untrackedScopes?: string[];
+  refreshScope?: 'include' | 'omit';
   revocationEndpoint?: string;
-  tokenEndpointAuthMethod?: 'none' | 'client_secret_basic';
+  tokenEndpointAuthMethod?: 'none' | 'client_secret_basic' | 'client_secret_post';
   clientSecretEnv?: string;
   pkceS256: true;
-  responseIssuer: true;
+  responseIssuer: boolean;
   zeroCostApproved: true;
 };
 
@@ -122,21 +124,25 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     const endpoint = exactHttps(value.endpoint);
     const oauth = value.oauth as Record<string, unknown>;
     if (Object.keys(oauth).some(key => ![
-      'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'redirectUri', 'resource', 'scopes', 'revocationEndpoint',
+      'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'redirectUri', 'resource', 'scopes', 'untrackedScopes', 'refreshScope', 'revocationEndpoint',
       'tokenEndpointAuthMethod', 'clientSecretEnv', 'pkceS256', 'responseIssuer', 'zeroCostApproved',
     ].includes(key))) return invalid();
 
+    const untrackedScopes = oauth.untrackedScopes === undefined ? [] : oauth.untrackedScopes;
     if (typeof oauth.clientId !== 'string' || !oauth.clientId || oauth.clientId.length > 2048 || /[\x00-\x20\x7f]/.test(oauth.clientId)
       || !Array.isArray(oauth.scopes) || oauth.scopes.some(scope => typeof scope !== 'string')
-      || oauth.pkceS256 !== true || oauth.responseIssuer !== true || oauth.zeroCostApproved !== true) return invalid();
+      || !Array.isArray(untrackedScopes) || untrackedScopes.some(scope => typeof scope !== 'string')
+      || untrackedScopes.some(scope => !(oauth.scopes as unknown[]).includes(scope))
+      || oauth.pkceS256 !== true || typeof oauth.responseIssuer !== 'boolean' || oauth.zeroCostApproved !== true
+      || !['include', 'omit'].includes(oauth.refreshScope === undefined ? 'include' : String(oauth.refreshScope))) return invalid();
 
     const expectedRedirect = new URL(`/api/mcp/oauth/${id}/callback`, appOrigin).href;
     const redirectUri = exactHttps(oauth.redirectUri);
     if (redirectUri !== expectedRedirect) return invalid();
     const authMethod = oauth.tokenEndpointAuthMethod === undefined ? 'none' : oauth.tokenEndpointAuthMethod;
-    if (authMethod !== 'none' && authMethod !== 'client_secret_basic') return invalid();
+    if (!['none', 'client_secret_basic', 'client_secret_post'].includes(String(authMethod))) return invalid();
 
-    if (authMethod === 'client_secret_basic') {
+    if (authMethod === 'client_secret_basic' || authMethod === 'client_secret_post') {
       if (typeof oauth.clientSecretEnv !== 'string' || !CLIENT_SECRET_ENV.test(oauth.clientSecretEnv)) return invalid();
       const secret = env[oauth.clientSecretEnv]?.trim();
       if (!secret || secret.length > 2048 || /[\x00-\x20\x7f]/.test(secret)) return invalid();
@@ -154,12 +160,14 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
       tokenEndpoint: exactHttps(oauth.tokenEndpoint),
       clientId: oauth.clientId,
       redirectUri,
-      resource: exactHttps(oauth.resource),
+      ...(oauth.resource === undefined ? {} : { resource: exactHttps(oauth.resource) }),
       scopes: oauth.scopes as string[],
+      ...(untrackedScopes.length === 0 ? {} : { untrackedScopes: untrackedScopes as string[] }),
+      refreshScope: (oauth.refreshScope === undefined ? 'include' : oauth.refreshScope) as 'include' | 'omit',
       ...(oauth.revocationEndpoint === undefined ? {} : { revocationEndpoint: exactHttps(oauth.revocationEndpoint) }),
-      tokenEndpointAuthMethod: authMethod,
+      tokenEndpointAuthMethod: authMethod as 'none' | 'client_secret_basic' | 'client_secret_post',
       pkceS256: true,
-      responseIssuer: true,
+      responseIssuer: oauth.responseIssuer as boolean,
       zeroCostApproved: true,
     });
   }
