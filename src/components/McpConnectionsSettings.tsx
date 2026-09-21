@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 type Connection = { id: string; serverId: string; version: number; status: 'registered' | 'verified' | 'failed'; checkedAt: string | null };
 type ServerChoice = { id: string; label: string; authMode: 'oauth' | 'broker' };
 type Overview = { configured: boolean; authenticated: boolean; servers?: ServerChoice[]; connections?: Connection[] };
+type ToolSummary = { alias: string; name: string; fingerprint: string; description: string };
+type ToolReview = { version: number; tools: ToolSummary[]; selected: string[] };
 const copy = {
   ja: {
     title: '外部サービス接続', help: '許可されたサービスを登録し、接続を確認できます。', loading: '確認しています…',
@@ -18,6 +20,9 @@ const copy = {
     saved: '接続を登録しました。', removed: '接続を解除しました。', verified: '接続を確認しました。',
     failed: '接続を確認できませんでした。認証連携やサービスの状態を確認してください。', registered: '未確認', checked: '接続確認済み',
     unavailable: '接続確認に失敗', notice: '接続確認ではサービス内のデータを変更しません。', unknown: 'サービス',
+    reviewTools: 'ツール権限', toolsHelp: '実行を許可するツールだけ選択してください。ツール定義が変わると以前の許可は無効になります。',
+    saveTools: '権限を保存', noTools: '利用可能なツールはありません。', grantsSaved: 'ツール権限を保存しました。',
+    catalogChanged: 'ツール定義が更新されました。再読み込みして確認してください。',
   },
   en: {
     title: 'External services', help: 'Register an approved service and check its connection.', loading: 'Checking…',
@@ -33,6 +38,9 @@ const copy = {
     saved: 'Connection registered.', removed: 'Connection disconnected.', verified: 'Connection verified.',
     failed: 'Could not verify the connection. Check authentication and service availability.', registered: 'Not checked', checked: 'Connection verified',
     unavailable: 'Connection check failed', notice: 'Checking a connection does not modify service data.', unknown: 'Service',
+    reviewTools: 'Tool access', toolsHelp: 'Select only the tools ORIGIN may execute. A changed tool definition invalidates the previous grant.',
+    saveTools: 'Save access', noTools: 'No tools are available.', grantsSaved: 'Tool access saved.',
+    catalogChanged: 'The tool catalog changed. Reload and review it again.',
   },
 };
 function parseOverview(value: unknown): Overview {
@@ -51,6 +59,7 @@ export default function McpConnectionsSettings({ language }: { language: 'ja' | 
   const [authorizationUrl, setAuthorizationUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [toolReviews, setToolReviews] = useState<Record<string, ToolReview>>({});
   const controller = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const emailInput = useRef<HTMLInputElement | null>(null);
@@ -101,6 +110,67 @@ export default function McpConnectionsSettings({ language }: { language: 'ja' | 
       }
     } finally { window.clearTimeout(timer); if (generation.current === sequence) setBusy(false); }
   }, [t]);
+
+  const reviewTools = useCallback(async (connection: Connection) => {
+    controller.current?.abort(); const request = new AbortController(); controller.current = request;
+    const sequence = ++generation.current; const timer = window.setTimeout(() => request.abort(), 25_000);
+    setBusy(true); setMessage('');
+    try {
+      const suffix = `?version=${encodeURIComponent(String(connection.version))}`;
+      const [catalogResponse, grantsResponse] = await Promise.all([
+        fetch(`/api/mcp/connections/${encodeURIComponent(connection.id)}/tools${suffix}`, { credentials: 'same-origin', cache: 'no-store', signal: request.signal }),
+        fetch(`/api/mcp/connections/${encodeURIComponent(connection.id)}/grants${suffix}`, { credentials: 'same-origin', cache: 'no-store', signal: request.signal }),
+      ]);
+      const [catalogResult, grantsResult] = await Promise.all([catalogResponse.json(), grantsResponse.json()]);
+      if (!catalogResponse.ok || catalogResult.ok !== true || !grantsResponse.ok || grantsResult.ok !== true
+        || !Array.isArray(catalogResult.tools) || catalogResult.tools.length > 200 || !Array.isArray(grantsResult.grants) || grantsResult.grants.length > 200) throw new Error(t.error);
+      const tools: ToolSummary[] = catalogResult.tools.map((tool: unknown) => {
+        const value = tool as ToolSummary;
+        if (!value || typeof value.alias !== 'string' || typeof value.name !== 'string' || typeof value.fingerprint !== 'string'
+          || !/^[A-Za-z0-9_]{1,64}$/.test(value.alias) || !/^[a-f0-9]{64}$/.test(value.fingerprint)
+          || typeof value.description !== 'string' || value.description.length > 1000) throw new Error(t.error);
+        return { alias: value.alias, name: value.name, fingerprint: value.fingerprint, description: value.description };
+      });
+      const approved = new Set((grantsResult.grants as unknown[]).map(grant => {
+        const value = grant as { name?: unknown; fingerprint?: unknown };
+        if (typeof value?.name !== 'string' || typeof value?.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(value.fingerprint)) throw new Error(t.error);
+        return `${value.name}\0${value.fingerprint}`;
+      }));
+      const selected = tools.filter(tool => approved.has(`${tool.name}\0${tool.fingerprint}`)).map(tool => tool.alias);
+      if (generation.current === sequence) setToolReviews(current => ({ ...current, [connection.id]: { version: connection.version, tools, selected } }));
+    } catch {
+      if (generation.current === sequence) setMessage(t.error);
+    } finally { window.clearTimeout(timer); if (generation.current === sequence) setBusy(false); }
+  }, [t]);
+
+  const saveToolGrants = useCallback(async (connection: Connection) => {
+    const review = toolReviews[connection.id];
+    if (!review || review.version !== connection.version) { setMessage(t.changed); return; }
+    controller.current?.abort(); const request = new AbortController(); controller.current = request;
+    const sequence = ++generation.current; const timer = window.setTimeout(() => request.abort(), 25_000);
+    setBusy(true); setMessage('');
+    try {
+      const selected = new Set(review.selected);
+      const grants = review.tools.filter(tool => selected.has(tool.alias)).map(tool => ({ alias: tool.alias, fingerprint: tool.fingerprint }));
+      const response = await fetch(`/api/mcp/connections/${encodeURIComponent(connection.id)}/grants`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Origin-MCP-Intent': 'manage' },
+        body: JSON.stringify({ version: connection.version, grants }), signal: request.signal,
+      });
+      const result = await response.json();
+      if (!response.ok || result.ok !== true) {
+        if (result.code === 'MCP_TOOL_CATALOG_CHANGED') throw new Error(t.catalogChanged);
+        if (result.code === 'MCP_CONNECTION_CHANGED') throw new Error(t.changed);
+        throw new Error(t.error);
+      }
+      if (generation.current === sequence) setMessage(t.grantsSaved);
+    } catch (error) {
+      if (generation.current === sequence) {
+        const allowed = [t.error, t.catalogChanged, t.changed];
+        setMessage(error instanceof Error && allowed.includes(error.message) ? error.message : t.error);
+      }
+    } finally { window.clearTimeout(timer); if (generation.current === sequence) setBusy(false); }
+  }, [t, toolReviews]);
 
   const login = useCallback(async () => {
     const email = emailInput.current?.value.trim() ?? '';
@@ -155,7 +225,21 @@ export default function McpConnectionsSettings({ language }: { language: 'ja' | 
           <p className="break-words text-sm font-semibold">{choices.find(s => s.id === connection.serverId)?.label ?? t.unknown}</p>
           <p className="origin-muted text-sm">{connection.status === 'verified' ? t.checked : connection.status === 'failed' ? t.unavailable : t.registered}</p>
           <div className="flex flex-wrap gap-2"><button type="button" className={button} disabled={busy} onClick={() => void run({ path: `/api/mcp/connections/${encodeURIComponent(connection.id)}/check`, method: 'POST', body: { version: connection.version }, success: t.verified })}>{t.check}</button>
+          {connection.status === 'verified' && <button type="button" className={button} disabled={busy} onClick={() => void reviewTools(connection)}>{t.reviewTools}</button>}
           <button type="button" className={button} disabled={busy} onClick={() => void run({ path: `/api/mcp/connections/${encodeURIComponent(connection.id)}`, method: 'DELETE', body: { version: connection.version }, success: t.removed })}>{t.remove}</button></div>
+          {toolReviews[connection.id]?.version === connection.version && <div className="space-y-2 border-t border-[var(--border-default)] pt-2">
+            <p className="origin-muted text-sm">{t.toolsHelp}</p>
+            {toolReviews[connection.id].tools.length === 0 && <p className="origin-muted text-sm">{t.noTools}</p>}
+            <div className="space-y-2">{toolReviews[connection.id].tools.map(tool => <label key={tool.alias} className="origin-surface flex items-start gap-2 rounded-lg border p-2 text-sm">
+              <input type="checkbox" className="mt-1" disabled={busy} checked={toolReviews[connection.id].selected.includes(tool.alias)} onChange={event => setToolReviews(current => {
+                const review = current[connection.id]; if (!review) return current;
+                const selected = new Set(review.selected); if (event.target.checked) selected.add(tool.alias); else selected.delete(tool.alias);
+                return { ...current, [connection.id]: { ...review, selected: [...selected] } };
+              })} />
+              <span className="min-w-0"><span className="block break-words font-semibold">{tool.name}</span>{tool.description && <span className="origin-muted block break-words">{tool.description}</span>}</span>
+            </label>)}</div>
+            <button type="button" className={button} disabled={busy} onClick={() => void saveToolGrants(connection)}>{t.saveTools}</button>
+          </div>}
         </li>)}</ul><p className="origin-muted text-sm">{t.notice}</p>
       </>}
       <p role="status" aria-live="polite" className="text-sm">{message}</p>
