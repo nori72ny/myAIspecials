@@ -20,10 +20,11 @@ export function createMcpGithubAppRouter(deps?: McpGithubAppRouterDependencies) 
   const fail = (res: Response, error: unknown) => {
     const code = error instanceof Error ? error.message : 'MCP_GITHUB_BOOTSTRAP_UNAVAILABLE';
     const status = code === 'MCP_GITHUB_AUTH_INVALID' ? 401
-      : code === 'MCP_GITHUB_APP_ALREADY_REGISTERED' ? 409
-        : code === 'MCP_GITHUB_CALLBACK_INVALID' || code === 'MCP_GITHUB_CALLBACK_REJECTED' ? 400
-          : code === 'MCP_GITHUB_PERMISSION_MISMATCH' ? 409
-            : 503;
+      : code === 'MCP_GITHUB_CROSS_ORIGIN_BLOCKED' ? 403
+        : code === 'MCP_GITHUB_JSON_REQUIRED' ? 415
+          : code === 'MCP_GITHUB_REQUEST_INVALID' || code === 'MCP_GITHUB_CALLBACK_INVALID' || code === 'MCP_GITHUB_CALLBACK_REJECTED' ? 400
+            : code === 'MCP_GITHUB_APP_ALREADY_REGISTERED' || code === 'MCP_GITHUB_PERMISSION_MISMATCH' ? 409
+              : 503;
     return res.status(status).json({ ok: false, code });
   };
 
