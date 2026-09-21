@@ -80,10 +80,19 @@ export class McpOAuthTokenClient implements McpOAuthTokenEndpoint {
     const started = Date.now();
     const value = await this.post(this.provider.tokenEndpoint, this.tokenFetch, form, true);
     const expectedScopes = previous?.scopes ?? this.trackedScopes();
-    const scopes = value.scope === undefined ? expectedScopes : typeof value.scope === 'string' ? value.scope.split(' ') : [];
+    const scopes = value.scope === undefined
+      ? expectedScopes
+      : typeof value.scope === 'string'
+        ? value.scope.trim() === '' ? [] : value.scope.trim().split(/[ ,]+/).filter(Boolean)
+        : [];
+    const githubApp = this.provider.permissionModel === 'github-app';
     if (value.error !== undefined || typeof value.token_type !== 'string' || value.token_type.toLowerCase() !== 'bearer'
       || !Number.isSafeInteger(value.expires_in) || Number(value.expires_in) < 1 || Number(value.expires_in) > 86400
-      || !sameScopes(scopes, expectedScopes)) return oauthFailure('MCP_OAUTH_TOKEN_INVALID');
+      || !sameScopes(scopes, expectedScopes)
+      || githubApp && (Number(value.expires_in) !== 28800
+        || typeof value.access_token !== 'string' || !value.access_token.startsWith('ghu_')
+        || typeof value.refresh_token !== 'string' || !value.refresh_token.startsWith('ghr_')
+        || scopes.length !== 0)) return oauthFailure('MCP_OAUTH_TOKEN_INVALID');
     const tokens = { accessToken: value.access_token, refreshToken: value.refresh_token,
       expiresAt: started + Number(value.expires_in) * 1000, scopes };
     if (!validOAuthTokens(tokens) || tokens.expiresAt <= Date.now() || previous && (!tokens.refreshToken || tokens.refreshToken === previous.refreshToken)) return oauthFailure('MCP_OAUTH_TOKEN_INVALID');
@@ -102,7 +111,7 @@ export class McpOAuthTokenClient implements McpOAuthTokenEndpoint {
     if (!validOAuthTokens(tokens) || !tokens.refreshToken || !sameScopes(tokens.scopes, this.trackedScopes())) return Promise.reject(new Error('MCP_OAUTH_REFRESH_UNAVAILABLE'));
     const form = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: tokens.refreshToken });
     if (this.provider.resource) form.set('resource', this.provider.resource);
-    if ((this.provider.refreshScope ?? 'include') === 'include') form.set('scope', tokens.scopes.join(' '));
+    if ((this.provider.refreshScope ?? (this.provider.permissionModel === 'github-app' ? 'omit' : 'include')) === 'include') form.set('scope', tokens.scopes.join(' '));
     return this.tokens(form, tokens);
   }
   async revoke(tokens: McpOAuthTokens): Promise<boolean> {
