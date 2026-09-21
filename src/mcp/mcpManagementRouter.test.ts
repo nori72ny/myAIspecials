@@ -13,6 +13,12 @@ const server = { id: 'docs', label: 'Documents', endpoint: 'https://mcp.example.
 /** Test-only store. Production must provide the durable atomic implementation. */
 function fixture(failProbe = false) {
   const records = new Map<string, McpConnectionRecord>();
+  const granted = new Map<string, Array<{ name: string; fingerprint: string }>>();
+  const toolCatalog = [{
+    alias: 'mcp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    fingerprint: 'b'.repeat(64),
+    tool: { name: 'read_repository', description: 'Read repository metadata', inputSchema: { type: 'object', properties: {} } },
+  }];
   const store: McpConnectionStore = {
     async list(owner) { return [...records.values()].filter(r => r.ownerId === owner); },
     async get(owner, id) { const r = records.get(id); return r?.ownerId === owner ? structuredClone(r) : undefined; },
@@ -22,16 +28,29 @@ function fixture(failProbe = false) {
   };
   const token = 'secret-service-token';
   const close = vi.fn(async () => {}); const connect = vi.fn(async () => { if (failProbe) throw new Error(token); });
-  const createProbe = vi.fn(() => ({ connect, close, catalog: () => [] }));
+  const createProbe = vi.fn(() => ({ connect, close, catalog: () => structuredClone(toolCatalog) }));
+  const toolGrants = {
+    async list(owner: string, connectionId: string) {
+      const record = records.get(connectionId);
+      return record?.ownerId === owner ? structuredClone(granted.get(connectionId) ?? []) : [];
+    },
+    async replace(owner: string, serverId: string, connectionId: string, expectedVersion: number, grants: Array<{ name: string; fingerprint: string }>) {
+      const record = records.get(connectionId);
+      if (!record || record.ownerId !== owner || record.serverId !== serverId || record.version !== expectedVersion || record.status !== 'verified') {
+        throw new Error('MCP_TOOL_GRANT_CONNECTION_CHANGED');
+      }
+      granted.set(connectionId, structuredClone(grants));
+    },
+  };
   const resolveCredential = vi.fn(async () => token as string | undefined);
   const disconnectCredential = vi.fn(async () => {});
-  const service = new McpConnectionService({ servers: [server], store, resolveCredential, disconnectCredential, createProbe, now: () => clock });
+  const service = new McpConnectionService({ servers: [server], store, toolGrants, resolveCredential, disconnectCredential, createProbe, now: () => clock });
   const app = express(); app.use(express.json());
   // Header identity is ONLY a test adapter; never use this in production.
   app.use(createMcpManagementRouter({ appOrigin: origin, service, authenticate: async req => req.get('test-user') ? { subjectId: req.get('test-user')! } : null }));
   const headers = { origin, 'x-origin-mcp-intent': 'manage', 'test-user': 'alice' };
   async function register() { return (await request(app).post('/api/mcp/connections').set(headers).send({ serverId: 'docs' }).expect(201)).body.connection as McpConnectionRecord; }
-  return { app, records, store, token, service, close, connect, createProbe, resolveCredential, disconnectCredential, headers, register };
+  return { app, records, granted, toolCatalog, store, toolGrants, token, service, close, connect, createProbe, resolveCredential, disconnectCredential, headers, register };
 }
 
 describe('MCP management ownership, credentials and concurrency', () => {
@@ -98,6 +117,28 @@ describe('MCP management ownership, credentials and concurrency', () => {
     await request(f.app).delete(`/api/mcp/connections/${record.id}`).set(f.headers).send({ version: 2 }).expect(200);
     expect(f.disconnectCredential).toHaveBeenCalledWith('alice', 'docs'); expect(f.records.size).toBe(0);
   });
+  it('requires a verified live catalog and exact fingerprint before persisting owner tool grants', async () => {
+    const f = fixture(); const record = await f.register();
+    await request(f.app).post(`/api/mcp/connections/${record.id}/check`).set(f.headers).send({ version: 1 }).expect(200);
+
+    const tools = await request(f.app).get(`/api/mcp/connections/${record.id}/tools?version=2`).set('test-user', 'alice').expect(200);
+    expect(tools.body.tools).toEqual([expect.objectContaining({ alias: f.toolCatalog[0].alias, name: 'read_repository', fingerprint: f.toolCatalog[0].fingerprint })]);
+    expect(tools.text).not.toContain(f.token);
+
+    await request(f.app).post(`/api/mcp/connections/${record.id}/grants`).set(f.headers)
+      .send({ version: 2, grants: [{ alias: f.toolCatalog[0].alias, fingerprint: f.toolCatalog[0].fingerprint }] }).expect(200);
+    expect(f.granted.get(record.id)).toEqual([{ name: 'read_repository', fingerprint: f.toolCatalog[0].fingerprint }]);
+
+    const approved = await request(f.app).get(`/api/mcp/connections/${record.id}/grants?version=2`).set('test-user', 'alice').expect(200);
+    expect(approved.body.grants).toEqual([{ name: 'read_repository', fingerprint: f.toolCatalog[0].fingerprint }]);
+
+    await request(f.app).post(`/api/mcp/connections/${record.id}/grants`).set(f.headers)
+      .send({ version: 2, grants: [{ alias: f.toolCatalog[0].alias, fingerprint: 'c'.repeat(64) }] }).expect(409);
+    expect(f.granted.get(record.id)).toEqual([{ name: 'read_repository', fingerprint: f.toolCatalog[0].fingerprint }]);
+
+    await request(f.app).get(`/api/mcp/connections/${record.id}/tools?version=2`).set('test-user', 'bob').expect(404);
+  });
+
   it('never falls back to a persisted token when broker resolution fails', async () => {
     const f = fixture(); const record = await f.register();
     f.resolveCredential.mockResolvedValueOnce(undefined);
