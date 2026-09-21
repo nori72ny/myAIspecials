@@ -75,7 +75,7 @@ describe('MCP production runtime composition', () => {
   it('accepts an explicitly reviewed GitHub-style OAuth profile without resource/issuer response requirements', () => {
     const env = enabledEnv();
     const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
-    config[0].endpoint = 'https://api.githubcopilot.com/mcp/';
+    config[0].endpoint = 'https://api.githubcopilot.com/mcp/x/repos/readonly';
     config[0].zeroCostEvidence = {
       evidenceId: 'github-mcp-all-users',
       verifiedAt: new Date(Date.now() - 60_000).toISOString(),
@@ -85,7 +85,7 @@ describe('MCP production runtime composition', () => {
       paidFallback: false,
     };
     config[0].oauth = {
-      issuer: 'https://github.com/',
+      issuer: 'https://github.com/login/oauth',
       authorizationEndpoint: 'https://github.com/login/oauth/authorize',
       tokenEndpoint: 'https://github.com/login/oauth/access_token',
       clientId: 'origin-github-fixture',
