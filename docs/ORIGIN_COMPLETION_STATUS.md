@@ -1,6 +1,6 @@
 # ORIGIN completion status
 
-Last updated: 2026-09-21 11:15 JST
+Last reconciled: 2026-09-21 UTC (repository/PR records and a fresh production health read)
 
 This file is the canonical progress ledger for ORIGIN. It deliberately separates **implemented**, **production-verified**, and **not yet activated** so that code presence is never mistaken for a completed capability.
 
@@ -17,26 +17,31 @@ This file is the canonical progress ledger for ORIGIN. It deliberately separates
 
 - Canonical repository: `nori72ny/myAIspecials`
 - Production branch: `main`
-- Production release SHA: `f0c1bff22d3246d3eac3903b9def5d3aa7c1e498`
+- Production release SHA: `2f1d7069006c21050611e9703fb6506697b1bac1`
 - Production URL: `https://origin-personal.vercel.app/`
 - `/api/health`: HTTP 200, `costUsd=0`, `freeOnly=true`, `paidFallbackEnabled=false`, server-only secret delivery.
+
+Main at reconciliation: `01f7db0c0d48ab3ba533148e99e1847203e13f4c`. Main is ahead of the observed production release. Health confirms release identity and advertised cost policy, not completion of every capability.
+
+Cross-chat requirement index: [Enhancement handover](ORIGIN_ENHANCEMENT_HANDOVER_2026-09-21.md). Historical V1.1–V1.4 status/smoke observations below were not rerun during this documentation reconciliation; keep their original evidence scope.
 
 ## Capability matrix
 
 | Capability | State | Current evidence | What is still missing |
 | --- | --- | --- | --- |
-| V1.1 Grounded Research | PRODUCTION VERIFIED (service ready) | Production `/api/research/v1.1/status` returned 200 on 2026-09-21; free public web retrieval, max 8 sources, USD 0, no paid fallback. | Re-run a fresh successful live research query when qualifying a future release; status readiness alone is not evidence that every public source is available. |
-| V1.2 Real File Artifacts | PRODUCTION VERIFIED (generator ready) | Production `/api/artifacts/v1.2/status` returned 200 and all self-tests were true for Markdown/CSV/PDF/DOCX/XLSX/PPTX on 2026-09-21. | Persistence remains client-save-only. Existing-file insertion/editing is a separate MCP/document-tool track and is not complete. |
-| V1.3 Web / Application Builder | PRODUCTION VERIFIED (builder ready) | Production `/api/builder/v1.3/status` returned 200; landing/dashboard/webapp self-tests all true; verified static bundle handoff; USD 0. | Automatic external publishing remains disabled by design. Future publishing must remain approval-bound. |
-| V1.4 Agentic Coding OS | PRODUCTION VERIFIED | Production `/api/coding/v1.4/status` returned `ready=true` with DB, durable stores, authorization, owner binding, crypto, dispatch, result store and worker all ready. Live DB shows repeated production smoke jobs ending `verified / CODING_CHECKS_PASSED`; latest verified job was created 2026-09-20 and changed only `src/agent/__origin_coding_smoke_v14__.ts`. | Continue regression monitoring. Provider rate-limit/unavailable cases remain expected fail-closed outcomes rather than paid fallback. |
+| V1.1 Grounded Research | HISTORICAL STATUS VERIFIED (service ready) | Production `/api/research/v1.1/status` returned 200 on 2026-09-21; free public web retrieval, max 8 sources, USD 0, no paid fallback. | Re-run a fresh successful live research query when qualifying a future release; status readiness alone is not evidence that every public source is available. |
+| V1.2 Real File Artifacts | HISTORICAL STATUS VERIFIED (generator ready) | Production `/api/artifacts/v1.2/status` returned 200 and all self-tests were true for Markdown/CSV/PDF/DOCX/XLSX/PPTX on 2026-09-21. | Persistence remains client-save-only. Existing-file insertion/editing is a separate MCP/document-tool track and is not complete. |
+| V1.3 Web / Application Builder | HISTORICAL STATUS VERIFIED (builder ready) | Production `/api/builder/v1.3/status` returned 200; landing/dashboard/webapp self-tests all true; verified static bundle handoff; USD 0. | Automatic external publishing remains disabled by design. Future publishing must remain approval-bound. |
+| V1.4 Agentic Coding OS | HISTORICAL PRODUCTION SMOKE VERIFIED | Production `/api/coding/v1.4/status` returned `ready=true` with DB, durable stores, authorization, owner binding, crypto, dispatch, result store and worker all ready. Live DB shows repeated production smoke jobs ending `verified / CODING_CHECKS_PASSED`; latest verified job was created 2026-09-20 and changed only `src/agent/__origin_coding_smoke_v14__.ts`. | Re-run release-matched evidence before certifying a new release. A synthetic smoke does not prove arbitrary task completion or Claude Code parity. Continue regression monitoring. Provider rate-limit/unavailable cases remain expected fail-closed outcomes rather than paid fallback. |
 | V1.5 Creative / Visual Generation | SPEC / PLANNED | PR #584 contains the free-only implementation specification. Production `/api/generate-image` remains explicitly disabled. | Actual $0 image generation runtime, provider qualification, generation/critic/repair flow, UI and live E2E. |
-| MCP client / connected tools | IMPLEMENTED / CI VERIFIED OFF PRODUCTION | PR #585 includes client isolation, guarded transport, management UI/API, Supabase owner auth adapter, PKCE/OAuth lifecycle, encrypted stores, durable exact-tool grants, an owner-bound session factory and a separate owner-authenticated `/api/mcp/chat` single-tool execution boundary. Automatic agent execution is limited to explicitly reviewed read-only connectors; the first reviewed profile is constrained to GitHub Remote MCP read-only `get_file_contents`. All four MCP DB migrations are live with RLS enabled and browser-role access revoked. Exact head `b8af43fdb005a265303f2805d1a293aa574b86f7` passed Production Release CI/CD, Node 22/24 build/test/E2E, local production-browser release gate, Lighthouse, CodeQL, ACOS Quality Gate, OpenSSF, Cloudflare Workers compatibility, browser isolation and V1.4 hosted coding sandbox on 2026-09-21. | Production still runs `main` without #585. Vercel Preview for the latest branch head is externally blocked by the free-tier build-rate limit; paid upgrade is forbidden. Live connector completion still requires a real owner identity/consent boundary where the provider requires it, GitHub App registration/authorization, server-only production configuration, and live login + OAuth + refresh + probe + exact grant + `/api/mcp/chat` + disconnect/replay E2E. |
+| MCP client / connected tools | FOUNDATION MERGED; LIVE ACTIVATION INCOMPLETE | PR #602 merged the guarded client, auth, OAuth, encrypted stores and exact-tool execution foundation into main. PR #603/#604 remain open bootstrap candidates. | Real owner/provider consent, connector configuration and live login/OAuth/refresh/tool-call/disconnect/replay E2E; then activation and production verification. Main merge does not enable a connector. |
 | ORIGIN MCP server (ORIGIN exposed outward) | SPEC / PLANNED | Ordering and security contract documented in #585. | Server implementation, auth/capability grants, tests and live host interoperability. |
 | Deterministic document insertion | SPEC / PARTIAL FOUNDATION | #585 defines contracts for `insert_into_docx`, `insert_into_pptx`, `insert_into_xlsx`, `insert_into_pdf`. V1.2 can create files. | Existing-file owner-scoped storage/versioning, deterministic anchors, actual mutation engines, reopen/render verification and approval-bound external delivery. |
 | Self-Evolution / autonomous update scout | IMPLEMENTED OFF MAIN | PR #580 is open Draft. | Review, exact-head release qualification, merge/production decision and bounded owner approval workflow. |
 | Owner Improvement Inbox | IMPLEMENTED OFF MAIN | PR #582 and #583 are open Drafts. | Review, integration qualification, merge/production decision. |
 | Final outbound-network hardening | OPEN RELEASE CANDIDATE | PR #579 is open. | Reconcile with current main/#585, exact-head release gate, merge decision. |
-| Answer-quality scorer provenance | OPEN RELEASE CANDIDATE | PR #578 is open. | Reconcile with current main, exact-head release gate, merge decision. |
+| Answer-quality scorer provenance | MERGED; FINAL QUALITY EVIDENCE SEPARATE | PR #578 is merged. PR #599/#600 add scheduled AQ and final held-out priority. | Check final results on the exact release SHA; scheduling/scorer code is not a passing quality score or competitor superiority. |
+| UI/UX owner-screen repair | IMPLEMENTED / CI VERIFIED; NOT IN PRODUCTION | PR #605 head `5fa3c4d4deb63c13889428b7b2dfdf1e8f10ce77` passed all five Actions workflows and Vercel preview deployment. Theme, artifact close, empty preview, initial home height and Code banner corrected. | Preview is login-protected in the available browser; direct visual review and production deployment/recheck remain. Low-height/keyboard/conversation layout and other audit items remain open. |
 | V2 Unified Production OS | PARTIAL / ROADMAP | Supervisor/approval/replay-safe foundations exist across current ORIGIN work; roadmap is documented. | Unified tool planner/executor, connected-app runtime, MCP integration, persistent task supervision, complete capability routing, and production E2E as one system. |
 
 ## MCP activation gate
@@ -53,12 +58,12 @@ The MCP database foundation is now live, but MCP is **not** a production-complet
 
 ## Next execution order
 
-1. Keep #585 as the active MCP integration track and do not merge until the activation gate above is satisfied.
-2. Treat M1 (MCP Client Foundation Candidate) as CI-complete at exact head `b8af43fdb005a265303f2805d1a293aa574b86f7`; keep public `/api/chat` unchanged and do not pay to bypass Vercel's preview build-rate limit.
-3. Move to M2 under an approval-only Owner model: ORIGIN/AI prepares identity/bootstrap configuration, GitHub App settings, callback URLs, least-privilege repository scope, server-only secrets configuration, validation and rollback. The Owner is only asked to approve non-delegable provider consent/installation or permission expansion.
-4. Run M3 live owner login + OAuth discovery + callback + refresh + probe + exact `get_file_contents` grant + `/api/mcp/chat` read + disconnect/revoke + replay rejection E2E.
-5. Only after M3 passes, present the production-impact approval gate for main merge/deployment, then perform M4 production verification.
-6. After MCP client activation, implement ORIGIN MCP server and deterministic document insertion tools, then proceed to V1.5 runtime and V2 unification.
+1. Re-read latest main, open PRs and production health. Do not restart from the historical #585 branch.
+2. Coordinate M2 GitHub bootstrap in #603/#604 without duplicating another chat's active work. Keep runtime activation disabled until its gates pass.
+3. Verify M3 live owner login, OAuth discovery/callback/refresh, exact read-only tool grant, one authorized tool call, disconnect/revoke and replay rejection.
+4. Complete the production-impact release gate and M4 deployment/verification. Foundation merge #602 is already done; live activation is separate.
+5. Finish #605 visual/release verification and preserve the remaining UI/answer/security audit.
+6. Retain MCP server, all four deterministic existing-file insertion tools, self-evolution #580, Inbox #582/#583, visual runtime #584 and V2–V4 as distinct unfinished tracks. Follow the enhancement handover for acceptance criteria.
 
 ## Evidence note
 
