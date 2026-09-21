@@ -30,6 +30,12 @@ function exactHttps(raw: unknown): string {
   } catch { return invalid(); }
 }
 
+function verifiedReadOnlyExecutionEndpoint(endpoint: string): boolean {
+  const url = new URL(endpoint);
+  if (url.hostname !== 'api.githubcopilot.com') return false;
+  return /^\/mcp\/(?:readonly|x\/[A-Za-z0-9_-]+\/readonly)$/.test(url.pathname.replace(/\/$/, ''));
+}
+
 function key32(raw: unknown): Buffer {
   if (typeof raw !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(raw) || raw.length > 64) return invalid();
   const value = Buffer.from(raw, 'base64');
@@ -127,6 +133,7 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     const termsUrl = exactHttps(evidence.termsUrl);
 
     const endpoint = exactHttps(value.endpoint);
+    if (value.executionMode === 'read-only' && !verifiedReadOnlyExecutionEndpoint(endpoint)) return invalid();
     const oauth = value.oauth as Record<string, unknown>;
     if (Object.keys(oauth).some(key => ![
       'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'redirectUri', 'resource', 'scopes', 'untrackedScopes', 'refreshScope', 'revocationEndpoint', 'revocationMethod',
