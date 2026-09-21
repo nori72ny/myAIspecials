@@ -47,7 +47,14 @@ describe("AQ live frozen-main quota workflow", () => {
     expect(value).toContain("retention-days: 2");
     expect(value).not.toContain("baselineAnswer");
     expect(value).not.toContain("candidateAnswer");
-    expect(value).not.toContain("answerText");
+    const reservationStart = value.indexOf("\n      - name: Create sanitized quota reservation");
+    const reservationEnd = value.indexOf("\n      - name: Reserve 24-hour provider quota");
+    expect(reservationStart).toBeGreaterThan(0);
+    expect(reservationEnd).toBeGreaterThan(reservationStart);
+    const reservation = value.slice(reservationStart, reservationEnd);
+    expect(reservation).not.toContain("answerText");
+    // The shard validator must still reject answer text in uploaded evidence.
+    expect(value).toContain('const forbidden=["answerText"');
   });
 
   it("serializes the final frozen-main measurement runner globally", () => {
