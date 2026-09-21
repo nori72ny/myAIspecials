@@ -28,7 +28,8 @@
     "eval:aq-local-comparison": "tsx scripts/run-aq-official-local-comparison.ts",
     "eval:aq-local-comparison-shard": "tsx scripts/run-aq-official-local-comparison.ts",
     "eval:aq-local-comparison-aggregate": "tsx scripts/aggregate-aq-official-local-shards.ts",
-    "eval:q1-quality": "tsx scripts/evaluate-q1-product-quality-gate.ts"
+    "eval:q1-quality": "tsx scripts/evaluate-q1-product-quality-gate.ts",
+    "eval:claude-code-parity": "tsx scripts/evaluate-claude-code-parity-gate.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -68,7 +69,7 @@
     "jest-html-reporter": "^4.4.0",
     "jsdom": "^29.1.1",
     "playwright": "^1.61.1",
-    "supertest": "^7.2.2",
+    "supertest": "^7.2.0",
     "tailwindcss": "^4.1.14",
     "ts-jest": "^29.4.11",
     "tsx": "^4.21.0",

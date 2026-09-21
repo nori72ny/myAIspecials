@@ -5,7 +5,9 @@ export type OriginProductQualityGateBlocker =
   | "AQ_LIVE_EVIDENCE_MISSING"
   | "AQ_NOT_PROMOTION_ELIGIBLE"
   | "CODING_HELDOUT_EVIDENCE_MISSING"
-  | "CODING_NOT_QUALIFIED"
+  | "CODING_NOT_QUALIFIED";
+
+export type OriginClaudeCodeParityBlocker =
   | "CLAUDE_CODE_COMPARISON_MISSING"
   | "CLAUDE_CODE_IDENTITY_MISMATCH"
   | "CLAUDE_CODE_PARITY_NOT_ESTABLISHED";
@@ -72,15 +74,23 @@ export interface OriginProductQualityGateInput {
   readonly claudeCode: OriginClaudeCodeComparisonEvidence | null;
 }
 
+export interface OriginClaudeCodeParityGateReport {
+  readonly schemaVersion: "origin.claude-code-parity-gate.v1";
+  readonly candidateSha: string;
+  readonly parityEstablished: boolean;
+  readonly blockers: readonly OriginClaudeCodeParityBlocker[];
+}
+
 export interface OriginProductQualityGateReport {
-  readonly schemaVersion: "origin.product-quality-gate.v1";
+  readonly schemaVersion: "origin.product-quality-gate.v2";
   readonly candidateSha: string;
   readonly uiPassed: boolean;
   readonly answerPassed: boolean;
   readonly codingPassed: boolean;
-  readonly claudeCodeParityEstablished: boolean;
   readonly passed: boolean;
   readonly blockers: readonly OriginProductQualityGateBlocker[];
+  readonly claudeCodeParityEstablished: boolean;
+  readonly claudeCodeBlockers: readonly OriginClaudeCodeParityBlocker[];
 }
 
 function hasAllViewports(items: readonly ("mobile" | "tablet" | "desktop")[]): boolean {
@@ -120,6 +130,54 @@ function validEvidenceProvenance(
   if (expiresAt <= nowMs || expiresAt < createdAt) return false;
   if (expiresAt - createdAt > MAX_EVIDENCE_LIFETIME_MS) return false;
   return true;
+}
+
+export function evaluateOriginClaudeCodeParityGate(
+  input: Pick<OriginProductQualityGateInput, "candidateSha" | "claudeCode">,
+  nowMs: number = Date.now(),
+): OriginClaudeCodeParityGateReport {
+  const blockers: OriginClaudeCodeParityBlocker[] = [];
+  let parityEstablished = false;
+
+  if (
+    !input.claudeCode
+    || input.claudeCode.candidateSha !== input.candidateSha
+    || !validEvidenceProvenance(input.claudeCode.provenance, input.candidateSha, nowMs)
+  ) {
+    blockers.push("CLAUDE_CODE_COMPARISON_MISSING");
+  } else {
+    const identityMatches = input.claudeCode.sameCorpusDigest === true
+      && input.claudeCode.sameBaseSha === true
+      && input.claudeCode.sameTimeBudget === true
+      && input.claudeCode.sameEvaluatorVersion === true
+      && input.claudeCode.originAttempted === input.claudeCode.claudeCodeAttempted
+      && validAttemptCounts(
+        input.claudeCode.originAttempted,
+        input.claudeCode.originSolved,
+        input.claudeCode.originRegressionCount,
+      )
+      && validAttemptCounts(
+        input.claudeCode.claudeCodeAttempted,
+        input.claudeCode.claudeCodeSolved,
+        input.claudeCode.claudeCodeRegressionCount,
+      );
+
+    if (!identityMatches) {
+      blockers.push("CLAUDE_CODE_IDENTITY_MISMATCH");
+    } else {
+      parityEstablished =
+        input.claudeCode.originSolved >= input.claudeCode.claudeCodeSolved
+        && input.claudeCode.originRegressionCount <= input.claudeCode.claudeCodeRegressionCount;
+      if (!parityEstablished) blockers.push("CLAUDE_CODE_PARITY_NOT_ESTABLISHED");
+    }
+  }
+
+  return Object.freeze({
+    schemaVersion: "origin.claude-code-parity-gate.v1",
+    candidateSha: input.candidateSha,
+    parityEstablished,
+    blockers: Object.freeze([...new Set(blockers)]),
+  });
 }
 
 export function evaluateOriginProductQualityGate(
@@ -183,49 +241,20 @@ export function evaluateOriginProductQualityGate(
     if (!codingPassed) blockers.push("CODING_NOT_QUALIFIED");
   }
 
-  let claudeCodeParityEstablished = false;
-  if (
-    !input.claudeCode
-    || input.claudeCode.candidateSha !== input.candidateSha
-    || !validEvidenceProvenance(input.claudeCode.provenance, input.candidateSha, nowMs)
-  ) {
-    blockers.push("CLAUDE_CODE_COMPARISON_MISSING");
-  } else {
-    const identityMatches = input.claudeCode.sameCorpusDigest === true
-      && input.claudeCode.sameBaseSha === true
-      && input.claudeCode.sameTimeBudget === true
-      && input.claudeCode.sameEvaluatorVersion === true
-      && input.claudeCode.originAttempted === input.claudeCode.claudeCodeAttempted
-      && validAttemptCounts(
-        input.claudeCode.originAttempted,
-        input.claudeCode.originSolved,
-        input.claudeCode.originRegressionCount,
-      )
-      && validAttemptCounts(
-        input.claudeCode.claudeCodeAttempted,
-        input.claudeCode.claudeCodeSolved,
-        input.claudeCode.claudeCodeRegressionCount,
-      );
+  const parity = evaluateOriginClaudeCodeParityGate(
+    { candidateSha: input.candidateSha, claudeCode: input.claudeCode },
+    nowMs,
+  );
 
-    if (!identityMatches) {
-      blockers.push("CLAUDE_CODE_IDENTITY_MISMATCH");
-    } else {
-      claudeCodeParityEstablished =
-        input.claudeCode.originSolved >= input.claudeCode.claudeCodeSolved
-        && input.claudeCode.originRegressionCount <= input.claudeCode.claudeCodeRegressionCount;
-      if (!claudeCodeParityEstablished) blockers.push("CLAUDE_CODE_PARITY_NOT_ESTABLISHED");
-    }
-  }
-
-  const uniqueBlockers = Object.freeze([...new Set(blockers)]);
   return Object.freeze({
-    schemaVersion: "origin.product-quality-gate.v1",
+    schemaVersion: "origin.product-quality-gate.v2",
     candidateSha: input.candidateSha,
     uiPassed,
     answerPassed,
     codingPassed,
-    claudeCodeParityEstablished,
-    passed: uiPassed && answerPassed && codingPassed && claudeCodeParityEstablished,
-    blockers: uniqueBlockers,
+    passed: uiPassed && answerPassed && codingPassed,
+    blockers: Object.freeze([...new Set(blockers)]),
+    claudeCodeParityEstablished: parity.parityEstablished,
+    claudeCodeBlockers: parity.blockers,
   });
 }
