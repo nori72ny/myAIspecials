@@ -89,6 +89,30 @@ describe('MCP settings', () => {
     fireEvent.click(await screen.findByRole('button', { name: '接続を確認' }));
     expect(await screen.findByText(/接続を確認できませんでした/)).toBeTruthy(); expect(screen.queryByText('接続確認済み')).toBeNull();
   });
+  it('reviews live tool fingerprints and saves only explicitly checked grants', async () => {
+    const verified = { ...connection, version: 2, status: 'verified' as const };
+    const tool = { alias: 'mcp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', name: 'read_repository', fingerprint: 'b'.repeat(64), description: 'Read repository metadata' };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(json({ ...base, connections: [verified] }))
+      .mockResolvedValueOnce(json({ ok: true, tools: [tool] }))
+      .mockResolvedValueOnce(json({ ok: true, grants: [] }))
+      .mockResolvedValueOnce(json({ ok: true, approved: 1 }));
+    vi.stubGlobal('fetch', fetch); open();
+    fireEvent.click(await screen.findByRole('button', { name: 'ツール権限' }));
+    const checkbox = await screen.findByRole('checkbox');
+    expect((checkbox as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByText('read_repository')).toBeTruthy();
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole('button', { name: '権限を保存' }));
+    expect(await screen.findByText('ツール権限を保存しました。')).toBeTruthy();
+    expect(fetch.mock.calls[3][0]).toBe(`/api/mcp/connections/${connection.id}/grants`);
+    expect(fetch.mock.calls[3][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ version: 2, grants: [{ alias: tool.alias, fingerprint: tool.fingerprint }] }),
+      headers: { 'Content-Type': 'application/json', 'X-Origin-MCP-Intent': 'manage' },
+    });
+  });
+
   it('sends the version when disconnecting and removes the entry after success', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(json({ ...base, connections: [connection] })).mockResolvedValueOnce(json({ ok: true, removed: true })).mockResolvedValueOnce(json(base)); vi.stubGlobal('fetch', fetch); open();
     fireEvent.click(await screen.findByRole('button', { name: '解除' }));
