@@ -46,7 +46,13 @@ test.describe('ORIGIN visual QA evidence', () => {
       const projectWorkspace = page.getByRole('region', { name: 'Project Workspace' });
       const projectBox = await projectWorkspace.boundingBox();
       expect(projectBox).not.toBeNull();
-      if (viewport.name === 'mobile-390') expect(projectBox!.height).toBeLessThanOrEqual(300);
+      if (viewport.name === 'mobile-390') {
+        expect(projectBox!.height).toBeLessThanOrEqual(140);
+        const workspaceShell = page.getByRole('region', { name: 'ORIGIN workspace shell' });
+        const workspaceBox = await workspaceShell.boundingBox();
+        expect(workspaceBox).not.toBeNull();
+        expect(workspaceBox!.height).toBeLessThanOrEqual(150);
+      }
       if (viewport.name === 'tablet-768') expect(projectBox!.height).toBeLessThanOrEqual(360);
       await testInfo.attach(`origin-home-${viewport.name}.png`, {
         body: await page.screenshot({ fullPage: true }),
