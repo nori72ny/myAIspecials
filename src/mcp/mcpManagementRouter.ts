@@ -51,6 +51,15 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
     if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id) || !Number.isSafeInteger(version) || Number(version) < 1) throw new McpManagementError('MCP_REQUEST_INVALID', 400);
     return { id, version: Number(version) };
   }
+  function readReference(req: Request): { id: string; version: number } {
+    const id = req.params.id;
+    const keys = Object.keys(req.query);
+    const raw = req.query.version;
+    const version = typeof raw === 'string' && /^\d{1,10}$/.test(raw) ? Number(raw) : NaN;
+    if (keys.length !== 1 || keys[0] !== 'version' || typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)
+      || !Number.isSafeInteger(version) || version < 1) throw new McpManagementError('MCP_REQUEST_INVALID', 400);
+    return { id, version };
+  }
   router.get('/api/mcp/status', async (req, res) => {
     if (!deps) return res.json({ configured: false, authenticated: false });
     try {
@@ -111,6 +120,33 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
     try {
       const owner = await principal(req); mutation(req); const { id, version } = reference(req);
       return res.json({ ok: true, ...await deps!.service.probe(owner, id, version) });
+    } catch (error) { return failure(res, error); }
+  });
+  router.get('/api/mcp/connections/:id/tools', async (req, res) => {
+    try {
+      const owner = await principal(req); const { id, version } = readReference(req);
+      return res.json({ ok: true, tools: await deps!.service.catalog(owner, id, version) });
+    } catch (error) { return failure(res, error); }
+  });
+  router.get('/api/mcp/connections/:id/grants', async (req, res) => {
+    try {
+      const owner = await principal(req); const { id, version } = readReference(req);
+      return res.json({ ok: true, grants: await deps!.service.grants(owner, id, version) });
+    } catch (error) { return failure(res, error); }
+  });
+  router.post('/api/mcp/connections/:id/grants', async (req, res) => {
+    try {
+      const owner = await principal(req); mutation(req);
+      const input = body(req, ['version', 'grants']); const id = req.params.id;
+      const version = input.version; const grants = input.grants;
+      if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id) || !Number.isSafeInteger(version) || Number(version) < 1
+        || !Array.isArray(grants) || grants.length > 200
+        || grants.some(grant => !grant || typeof grant !== 'object' || Array.isArray(grant)
+          || Object.keys(grant as Record<string, unknown>).some(key => !['alias', 'fingerprint'].includes(key)))) {
+        throw new McpManagementError('MCP_REQUEST_INVALID', 400);
+      }
+      const result = await deps!.service.approveGrants(owner, id, Number(version), grants as Array<{ alias: string; fingerprint: string }>);
+      return res.json({ ok: true, ...result });
     } catch (error) { return failure(res, error); }
   });
   router.delete('/api/mcp/connections/:id', async (req, res) => {
