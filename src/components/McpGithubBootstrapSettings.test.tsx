@@ -26,11 +26,17 @@ function renderControl(fetchImpl: ReturnType<typeof vi.fn>) {
   render(<McpGithubBootstrapSettings language="ja" buttonClass={buttonClass} />);
 }
 
+async function openSetup() {
+  fireEvent.click(screen.getByRole('button', { name: 'GitHub App 初期設定' }));
+  return screen.findByRole('button', { name: 'GitHub承認を準備' });
+}
+
 describe('GitHub App owner approval control', () => {
-  it('loads status without creating or starting an app', async () => {
+  it('does not call GitHub bootstrap endpoints until the owner opens the setup control', async () => {
     const fetch = vi.fn().mockResolvedValue(json(status));
     renderControl(fetch);
-    expect(await screen.findByRole('button', { name: 'GitHub承認を準備' })).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await openSetup()).toBeTruthy();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0][0]).toBe('/api/mcp/github/app/status');
     expect(screen.queryByRole('button', { name: 'GitHubで内容を確認して作成' })).toBeNull();
@@ -39,7 +45,7 @@ describe('GitHub App owner approval control', () => {
   it('prepares a single-use manifest and renders only a GitHub POST form for explicit owner approval', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(json(status)).mockResolvedValueOnce(json({ ok: true, actionUrl, manifest }));
     renderControl(fetch);
-    fireEvent.click(await screen.findByRole('button', { name: 'GitHub承認を準備' }));
+    fireEvent.click(await openSetup());
     const approve = await screen.findByRole('button', { name: 'GitHubで内容を確認して作成' });
     const form = approve.closest('form');
     expect(form?.getAttribute('method')).toBe('post');
@@ -63,7 +69,7 @@ describe('GitHub App owner approval control', () => {
   ])('fails closed on an unsafe approval payload %#', async (unsafeAction, unsafeManifest) => {
     const fetch = vi.fn().mockResolvedValueOnce(json(status)).mockResolvedValueOnce(json({ ok: true, actionUrl: unsafeAction, manifest: unsafeManifest }));
     renderControl(fetch);
-    fireEvent.click(await screen.findByRole('button', { name: 'GitHub承認を準備' }));
+    fireEvent.click(await openSetup());
     expect(await screen.findByText(/初期設定を準備できませんでした/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'GitHubで内容を確認して作成' })).toBeNull();
     expect(document.querySelector('form[action^="https://github.com/settings/apps/new"]')).toBeNull();
@@ -72,6 +78,7 @@ describe('GitHub App owner approval control', () => {
   it('does not offer creation again after server-side registration exists', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ configured: true, registered: true, appSlug: 'origin-personal-read-only' }));
     renderControl(fetch);
+    fireEvent.click(screen.getByRole('button', { name: 'GitHub App 初期設定' }));
     expect(await screen.findByText(/GitHub Appは登録済み/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'GitHub承認を準備' })).toBeNull();
   });
