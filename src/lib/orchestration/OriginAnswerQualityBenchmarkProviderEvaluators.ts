@@ -63,7 +63,7 @@ const SCORER_SOURCE = [
   "origin.aq-prompt-claim-support.v1-local-metadata",
   "origin.material-claim-extractor.exact-span.v5-local-metadata",
   "origin.material-claim-candidate-segmentation.jp-en-punctuation.v2",
-  "origin.material-claim-candidate-limit.64-fail-closed.v1",
+  "origin.material-claim-candidate-compaction.64-contiguous-no-truncation.v1",
   "origin.claim-assessor.v1-local-metadata",
   "origin.batch-claim-assessor.v1-local-metadata",
   ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
@@ -111,14 +111,26 @@ interface MaterialClaimCandidate {
 
 function materialClaimCandidates(answerText: string): readonly MaterialClaimCandidate[] {
   const normalized = answerText.replace(/\r\n/g, "\n").trim();
-  const segments = Array.from(
-    normalized.matchAll(/[^.!?。！？\n]+[.!?。！？]?/gu),
-    (match) => match[0].trim(),
-  ).filter((value) => value.length >= 8);
-  if (segments.length > 64) {
-    throw new Error("AQ_BENCHMARK_EVALUATOR_CANDIDATE_LIMIT");
-  }
-  return Object.freeze(segments.map((text, index) => Object.freeze({
+  const raw = Array.from(normalized.matchAll(/[^.!?。！？\n]+[.!?。！？]?/gu))
+    .map((match) => ({
+      text: match[0].trim(),
+      start: match.index ?? 0,
+      end: (match.index ?? 0) + match[0].length,
+    }))
+    .filter((item) => item.text.length >= 8);
+
+  const maxCandidates = 64;
+  const compacted = raw.length <= maxCandidates
+    ? raw.map((item) => item.text)
+    : Array.from({ length: maxCandidates }, (_, index) => {
+        const startItem = Math.floor((index * raw.length) / maxCandidates);
+        const endItemExclusive = Math.floor(((index + 1) * raw.length) / maxCandidates);
+        const first = raw[startItem];
+        const last = raw[Math.max(startItem, endItemExclusive - 1)];
+        return normalized.slice(first.start, last.end).trim();
+      });
+
+  return Object.freeze(compacted.map((text, index) => Object.freeze({
     candidateId: `candidate-${index + 1}`,
     text,
   })));
