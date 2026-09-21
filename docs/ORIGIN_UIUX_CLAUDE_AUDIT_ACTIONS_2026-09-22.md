@@ -8,9 +8,7 @@ This file is an implementation ledger, not a claim that the audit is automatical
 
 PR #608 remains Draft / DO NOT MERGE.
 
-Latest UI candidate head at this checkpoint:
-
-`37c7b1ef6cfc6206360115b05cff5ac83af07f2d`
+Latest UI candidate head advances with this ledger update; use the PR head SHA rather than a hard-coded value in this document when validating CI.
 
 Production is unchanged.
 
