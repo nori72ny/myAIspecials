@@ -76,7 +76,7 @@ function AgentDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
 export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWorkspaceShellV31Props) {
   return <section aria-label="ORIGIN workspace shell" className="origin-surface border-b px-3 py-3 sm:px-5">
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="hidden flex-wrap items-center justify-between gap-3 md:flex">
         <div className="flex min-h-11 items-center gap-3">
           <span className="text-base font-black tracking-tight">ORIGIN</span>
           <span className="origin-muted text-xs">Workspace</span>
@@ -89,7 +89,7 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
         </div>
       </div>
 
-      <details className="origin-card border px-3 py-1 md:hidden" aria-label="ORIGIN mobile controls">
+      <details className="origin-card border px-3 py-0 md:hidden" aria-label="ORIGIN mobile controls">
         <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold">
           <span>Controls</span>
           <span className="origin-muted text-xs">Model · Tools · Agent</span>
@@ -101,8 +101,8 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
         </div>
       </details>
 
-      <nav aria-label="Mode" className="flex max-w-full items-center gap-2 overflow-x-auto border-t border-origin-border pt-3">
-        <span className="origin-muted shrink-0 px-1 text-xs font-bold uppercase tracking-wide">Mode</span>
+      <nav aria-label="Mode" className="flex max-w-full items-center gap-2 overflow-x-auto border-t border-origin-border pt-2 md:pt-3">
+        <span className="origin-muted hidden shrink-0 px-1 text-xs font-bold uppercase tracking-wide sm:inline">Mode</span>
         {MODES.map(item => {
           const selected = item.id === mode;
           const enabledMode = item.id === 'chat' || item.id === 'research' || item.id === 'coding' || item.id === 'creative';
@@ -116,7 +116,7 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
             onClick={() => {
               if (item.id === 'chat' || item.id === 'research' || item.id === 'coding' || item.id === 'creative') onModeChange(item.id);
             }}
-            className={`min-h-11 shrink-0 rounded-lg border px-3 text-left text-sm font-semibold transition-colors sm:px-4 ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:opacity-60`}
+            className={`min-h-11 shrink-0 rounded-lg border px-3 text-left text-sm font-semibold transition-colors sm:px-4 ${item.id === 'work' ? 'max-md:order-last' : ''} ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:opacity-60`}
           >
             <span className="block">{item.label}</span>
             <span className={`hidden text-xs font-normal sm:block ${selected ? 'opacity-90' : 'origin-muted'}`}>{item.available ? item.description : '準備中'}</span>
