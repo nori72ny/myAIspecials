@@ -75,6 +75,7 @@ type ReviewedOAuth = {
   redirectUri: string;
   resource?: string;
   scopes: string[];
+  permissionModel?: 'oauth-scopes' | 'github-app';
   untrackedScopes?: string[];
   refreshScope?: 'include' | 'omit';
   revocationEndpoint?: string;
@@ -136,17 +137,22 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     if (value.executionMode === 'read-only' && !verifiedReadOnlyExecutionEndpoint(endpoint)) return invalid();
     const oauth = value.oauth as Record<string, unknown>;
     if (Object.keys(oauth).some(key => ![
-      'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'redirectUri', 'resource', 'scopes', 'untrackedScopes', 'refreshScope', 'revocationEndpoint', 'revocationMethod',
+      'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'redirectUri', 'resource', 'scopes', 'permissionModel', 'untrackedScopes', 'refreshScope', 'revocationEndpoint', 'revocationMethod',
       'tokenEndpointAuthMethod', 'clientSecretEnv', 'pkceS256', 'responseIssuer', 'zeroCostApproved',
     ].includes(key))) return invalid();
 
+    const permissionModel = oauth.permissionModel === undefined ? 'oauth-scopes' : oauth.permissionModel;
     const untrackedScopes = oauth.untrackedScopes === undefined ? [] : oauth.untrackedScopes;
     if (typeof oauth.clientId !== 'string' || !oauth.clientId || oauth.clientId.length > 2048 || /[\x00-\x20\x7f]/.test(oauth.clientId)
+      || !['oauth-scopes', 'github-app'].includes(String(permissionModel))
       || !Array.isArray(oauth.scopes) || oauth.scopes.some(scope => typeof scope !== 'string')
+      || (permissionModel === 'oauth-scopes' && oauth.scopes.length < 1)
+      || (permissionModel === 'github-app' && oauth.scopes.length !== 0)
       || !Array.isArray(untrackedScopes) || untrackedScopes.some(scope => typeof scope !== 'string')
       || untrackedScopes.some(scope => !(oauth.scopes as unknown[]).includes(scope))
+      || (permissionModel === 'github-app' && untrackedScopes.length !== 0)
       || oauth.pkceS256 !== true || typeof oauth.responseIssuer !== 'boolean' || oauth.zeroCostApproved !== true
-      || !['include', 'omit'].includes(oauth.refreshScope === undefined ? 'include' : String(oauth.refreshScope))) return invalid();
+      || !['include', 'omit'].includes(oauth.refreshScope === undefined ? (permissionModel === 'github-app' ? 'omit' : 'include') : String(oauth.refreshScope))) return invalid();
 
     const expectedRedirect = new URL(`/api/mcp/oauth/${id}/callback`, appOrigin).href;
     const redirectUri = exactHttps(oauth.redirectUri);
@@ -177,8 +183,9 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
       redirectUri,
       ...(oauth.resource === undefined ? {} : { resource: exactHttps(oauth.resource) }),
       scopes: oauth.scopes as string[],
+      permissionModel: permissionModel as 'oauth-scopes' | 'github-app',
       ...(untrackedScopes.length === 0 ? {} : { untrackedScopes: untrackedScopes as string[] }),
-      refreshScope: (oauth.refreshScope === undefined ? 'include' : oauth.refreshScope) as 'include' | 'omit',
+      refreshScope: (oauth.refreshScope === undefined ? (permissionModel === 'github-app' ? 'omit' : 'include') : oauth.refreshScope) as 'include' | 'omit',
       ...(oauth.revocationEndpoint === undefined ? {} : { revocationEndpoint: exactHttps(oauth.revocationEndpoint) }),
       ...(oauth.revocationMethod === undefined ? {} : { revocationMethod: oauth.revocationMethod as 'rfc7009-post' | 'github-delete-grant' }),
       tokenEndpointAuthMethod: authMethod as 'none' | 'client_secret_basic' | 'client_secret_post',
