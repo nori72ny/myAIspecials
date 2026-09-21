@@ -94,6 +94,8 @@ describe('MCP production runtime composition', () => {
       scopes: ['repo', 'offline_access'],
       untrackedScopes: ['offline_access'],
       refreshScope: 'omit',
+      revocationEndpoint: 'https://api.github.com/applications/origin-github-fixture/grant',
+      revocationMethod: 'github-delete-grant',
       tokenEndpointAuthMethod: 'client_secret_post',
       pkceS256: true,
       responseIssuer: false,
