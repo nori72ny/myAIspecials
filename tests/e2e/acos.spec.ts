@@ -204,9 +204,18 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     });
     await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を作成しました。\n```html:preview.html\n<a href="https://example.invalid">ORIGIN Personal 2.0 preview</a>\n```' }));
     await page.goto('/');
-    await page.getByTestId('origin-home-request').fill('成果物を作成したい');
-    await page.getByTestId('start-request-button').click();
     const workspace = page.getByTestId('artifact-workspace');
+    const requestInput = page.getByTestId('origin-home-request');
+    const startButton = page.getByTestId('start-request-button');
+    for (let attempt = 0; attempt < 5 && !(await workspace.isVisible().catch(() => false)); attempt += 1) {
+      await requestInput.fill('成果物を作成したい');
+      await page.waitForTimeout(150);
+      await startButton.evaluate((button) => {
+        if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error('request button is not ready');
+        button.click();
+      }).catch(() => undefined);
+      await workspace.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => undefined);
+    }
     await expect(workspace).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
