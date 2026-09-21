@@ -144,8 +144,8 @@ describe('SettingsModal release identity', () => {
 describe('SettingsModal appearance and history actions', () => {
   it('keeps the visually hidden import input out of the keyboard tab order', () => {
     mockHealth({ releaseSha: RELEASE_SHA });
-    const { container } = renderSettings();
-    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    renderSettings();
+    const input = document.querySelector<HTMLInputElement>('[data-origin-settings-portal="true"] input[type="file"]');
     expect(input).toBeTruthy();
     expect(input?.tabIndex).toBe(-1);
   });
