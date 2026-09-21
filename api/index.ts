@@ -16,6 +16,7 @@ async function loadOriginApp(): Promise<Express> {
     return createOriginApp(process.env, {
       mcp,
       mcpAgent: mcp?.agentRouter,
+      mcpGithubBootstrap: mcp?.githubBootstrapRouter,
       mcpSession: createMcpProductionSessionRouterFromEnv(process.env),
     });
   });
