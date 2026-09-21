@@ -18,16 +18,20 @@ export class McpOAuthTokenClient implements McpOAuthTokenEndpoint {
   private readonly revokeFetch?: FetchLike;
   private readonly authorization?: string;
   private readonly clientSecret?: string;
+  private readonly rawClientSecret?: string;
   constructor(provider: McpOAuthProvider, clientSecret?: string, options: {
     /** Trusted test/integration seam; production callers must leave this unset. */
     guardedFetchFactory?: (endpoint: string) => FetchLike;
   } = {}) {
     this.provider = structuredClone(provider);
-    const factory = options.guardedFetchFactory ?? (endpoint => createNodeMcpFetch({ endpoint, allowedOrigins: [new URL(endpoint).origin], maxResponseBytes: 32768 }));
+    const factory = options.guardedFetchFactory ?? ((endpoint: string, allowDeleteBody = false) => createNodeMcpFetch({
+      endpoint, allowedOrigins: [new URL(endpoint).origin], maxResponseBytes: 32768, allowDeleteBody,
+    }));
     this.tokenFetch = factory(provider.tokenEndpoint);
-    if (provider.revocationEndpoint) this.revokeFetch = factory(provider.revocationEndpoint);
+    if (provider.revocationEndpoint) this.revokeFetch = factory(provider.revocationEndpoint, provider.revocationMethod === 'github-delete-grant');
     if (provider.tokenEndpointAuthMethod === 'client_secret_basic' || provider.tokenEndpointAuthMethod === 'client_secret_post') {
       if (!clientSecret || clientSecret.length > 2048 || /[\x00-\x20\x7f]/.test(clientSecret)) oauthFailure('MCP_OAUTH_CLIENT_AUTH_INVALID');
+      this.rawClientSecret = clientSecret;
       if (provider.tokenEndpointAuthMethod === 'client_secret_basic') {
         this.authorization = `Basic ${Buffer.from(`${encodeForm(provider.clientId)}:${encodeForm(clientSecret)}`).toString('base64')}`;
       } else {
@@ -103,8 +107,28 @@ export class McpOAuthTokenClient implements McpOAuthTokenEndpoint {
   }
   async revoke(tokens: McpOAuthTokens): Promise<boolean> {
     if (!this.revokeFetch || !this.provider.revocationEndpoint || !validOAuthTokens(tokens)) return false;
+    const method = this.provider.revocationMethod ?? 'rfc7009-post';
+    if (method === 'github-delete-grant') {
+      if (!this.rawClientSecret) return false;
+      const abort = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const authorization = `Basic ${Buffer.from(`${this.provider.clientId}:${this.rawClientSecret}`).toString('base64')}`;
+        const response = await Promise.race([
+          this.revokeFetch(this.provider.revocationEndpoint, {
+            method: 'DELETE', redirect: 'error', signal: abort.signal,
+            headers: { accept: 'application/vnd.github+json', 'content-type': 'application/json', authorization },
+            body: JSON.stringify({ access_token: tokens.accessToken }),
+          }),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => { abort.abort(); reject(new Error()); }, 15_000); }),
+        ]);
+        const exact = !response.url || response.url === this.provider.revocationEndpoint;
+        void response.body?.cancel().catch(() => undefined);
+        return response.status === 204 && exact;
+      } catch { return false; }
+      finally { clearTimeout(timer); abort.abort(); }
+    }
     let confirmed = true;
-    // Revoke both explicitly: a provider need not cascade refresh-token revocation to access tokens.
+    // RFC 7009 providers are asked to revoke both explicitly; they need not cascade refresh-token revocation.
     for (const [hint, token] of [['refresh_token', tokens.refreshToken], ['access_token', tokens.accessToken]]) {
       if (!token) continue;
       try { await this.post(this.provider.revocationEndpoint, this.revokeFetch, new URLSearchParams({ token, token_type_hint: hint }), false); }
