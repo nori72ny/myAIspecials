@@ -110,6 +110,14 @@ describe('MCP production runtime composition', () => {
     expect(runtime?.agentRouter).toBeDefined();
   });
 
+  it('rejects automatic read-only execution for unverified provider endpoint shapes', () => {
+    const env = enabledEnv();
+    const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
+    config[0].executionMode = 'read-only';
+    env.ORIGIN_MCP_REVIEWED_SERVERS_JSON = JSON.stringify(config);
+    expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+  });
+
   it.each([
     ['FREE_ONLY', 'false'],
     ['SUPABASE_PUBLISHABLE_KEY', ''],
