@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from "./OriginFreeModelCatalog";
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG, ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from "./OriginFreeModelCatalog";
 import { createOriginAnswerQualityBenchmarkProviderEvaluators } from "./OriginAnswerQualityBenchmarkProviderEvaluators";
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from "../../legacy/originProviderClient";
 
-const now = Date.parse("2026-09-19T00:00:00.000Z");
+const now = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
 
 function result(
   request: OriginProviderExecutionRequest,
