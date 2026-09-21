@@ -36,7 +36,8 @@ export function createMcpGithubAppRouter(deps?: McpGithubAppRouterDependencies) 
   }
 
   function mutation(req: Request) {
-    if (!deps || req.get('origin') !== deps.appOrigin || req.get('x-origin-mcp-intent') !== 'manage') {
+    if (!deps) throw new Error('MCP_GITHUB_NOT_CONFIGURED');
+    if (req.get('origin') !== deps.appOrigin || req.get('x-origin-mcp-intent') !== 'manage') {
       throw new Error('MCP_GITHUB_CROSS_ORIGIN_BLOCKED');
     }
     if (!req.is('application/json')) throw new Error('MCP_GITHUB_JSON_REQUIRED');
