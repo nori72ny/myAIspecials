@@ -10,8 +10,18 @@ export type OriginProductQualityGateBlocker =
   | "CLAUDE_CODE_IDENTITY_MISMATCH"
   | "CLAUDE_CODE_PARITY_NOT_ESTABLISHED";
 
+export interface OriginQualityEvidenceProvenance {
+  readonly source: "github-actions" | "controlled-external";
+  readonly evidenceId: string;
+  readonly headSha: string;
+  readonly artifactDigest: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+}
+
 export interface OriginUiQualityEvidence {
   readonly candidateSha: string;
+  readonly provenance: OriginQualityEvidenceProvenance;
   readonly exactHeadValidated: boolean;
   readonly viewportScreenshots: readonly ("mobile" | "tablet" | "desktop")[];
   readonly horizontalOverflowDetected: boolean;
@@ -20,6 +30,7 @@ export interface OriginUiQualityEvidence {
 
 export interface OriginAnswerQualityEvidence {
   readonly candidateSha: string;
+  readonly provenance: OriginQualityEvidenceProvenance;
   readonly liveRunCompleted: boolean;
   readonly promotionEligible: boolean;
   readonly caseCount: number;
@@ -29,6 +40,7 @@ export interface OriginAnswerQualityEvidence {
 
 export interface OriginCodingQualityEvidence {
   readonly candidateSha: string;
+  readonly provenance: OriginQualityEvidenceProvenance;
   readonly heldOutRunCompleted: boolean;
   readonly qualificationPassed: boolean;
   readonly attempted: number;
@@ -39,6 +51,7 @@ export interface OriginCodingQualityEvidence {
 
 export interface OriginClaudeCodeComparisonEvidence {
   readonly candidateSha: string;
+  readonly provenance: OriginQualityEvidenceProvenance;
   readonly sameCorpusDigest: boolean;
   readonly sameBaseSha: boolean;
   readonly sameTimeBudget: boolean;
@@ -85,13 +98,41 @@ function validAttemptCounts(attempted: number, solved: number, regressions: numb
     && regressions >= 0;
 }
 
+const MAX_EVIDENCE_LIFETIME_MS = 31 * 24 * 60 * 60 * 1000;
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+function validEvidenceProvenance(
+  provenance: OriginQualityEvidenceProvenance,
+  candidateSha: string,
+  nowMs: number,
+): boolean {
+  if (!/^[a-f0-9]{40}$/.test(candidateSha) || provenance.headSha !== candidateSha) return false;
+  if (provenance.source !== "github-actions" && provenance.source !== "controlled-external") return false;
+  if (!/^[A-Za-z0-9._:/-]{8,180}$/.test(provenance.evidenceId)) return false;
+  if (!/^sha256:[a-f0-9]{64}$/.test(provenance.artifactDigest)) return false;
+
+  const createdAt = Date.parse(provenance.createdAt);
+  const expiresAt = Date.parse(provenance.expiresAt);
+  if (!Number.isFinite(createdAt) || !Number.isFinite(expiresAt)) return false;
+  if (createdAt > nowMs + MAX_CLOCK_SKEW_MS) return false;
+  if (expiresAt <= nowMs || expiresAt < createdAt) return false;
+  if (expiresAt - createdAt > MAX_EVIDENCE_LIFETIME_MS) return false;
+  return true;
+}
+
 export function evaluateOriginProductQualityGate(
   input: OriginProductQualityGateInput,
+  nowMs: number = Date.now(),
 ): OriginProductQualityGateReport {
   const blockers: OriginProductQualityGateBlocker[] = [];
 
   let uiPassed = false;
-  if (!input.ui || input.ui.candidateSha !== input.candidateSha || !input.ui.exactHeadValidated) {
+  if (
+    !input.ui
+    || input.ui.candidateSha !== input.candidateSha
+    || !validEvidenceProvenance(input.ui.provenance, input.candidateSha, nowMs)
+    || !input.ui.exactHeadValidated
+  ) {
     blockers.push("UI_EXACT_HEAD_EVIDENCE_MISSING");
   } else {
     if (!hasAllViewports(input.ui.viewportScreenshots)) {
@@ -109,6 +150,7 @@ export function evaluateOriginProductQualityGate(
   if (
     !input.answer
     || input.answer.candidateSha !== input.candidateSha
+    || !validEvidenceProvenance(input.answer.provenance, input.candidateSha, nowMs)
     || !input.answer.liveRunCompleted
   ) {
     blockers.push("AQ_LIVE_EVIDENCE_MISSING");
@@ -124,6 +166,7 @@ export function evaluateOriginProductQualityGate(
   if (
     !input.coding
     || input.coding.candidateSha !== input.candidateSha
+    || !validEvidenceProvenance(input.coding.provenance, input.candidateSha, nowMs)
     || !input.coding.heldOutRunCompleted
   ) {
     blockers.push("CODING_HELDOUT_EVIDENCE_MISSING");
@@ -139,7 +182,11 @@ export function evaluateOriginProductQualityGate(
   }
 
   let claudeCodeParityEstablished = false;
-  if (!input.claudeCode || input.claudeCode.candidateSha !== input.candidateSha) {
+  if (
+    !input.claudeCode
+    || input.claudeCode.candidateSha !== input.candidateSha
+    || !validEvidenceProvenance(input.claudeCode.provenance, input.candidateSha, nowMs)
+  ) {
     blockers.push("CLAUDE_CODE_COMPARISON_MISSING");
   } else {
     const identityMatches = input.claudeCode.sameCorpusDigest

@@ -74,6 +74,21 @@ A Claude Code parity claim requires controlled comparative evidence:
 
 Without that evidence the gate returns `CLAUDE_CODE_COMPARISON_MISSING` and ORIGIN must not claim Claude Code parity or superiority.
 
+## Evidence provenance
+
+Every acceptance surface must carry bounded provenance alongside its measured values:
+
+- source type (`github-actions` or `controlled-external`);
+- stable evidence ID;
+- exact candidate head SHA;
+- SHA-256 artifact digest;
+- creation timestamp;
+- explicit expiry timestamp.
+
+The gate rejects malformed digests, future-dated evidence beyond a small clock-skew allowance, expired evidence, evidence bound to another head, and evidence whose lifetime exceeds 31 days. Release evidence should be populated from retained workflow/external artifacts rather than copied from narrative status text.
+
+This provenance check prevents stale or accidentally mis-bound evidence from being accepted. It does not replace independent source authentication; the release process must still retain the referenced workflow/external artifacts.
+
 ## Executable gate
 
 Run:
