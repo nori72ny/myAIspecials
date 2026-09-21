@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { createNodeMcpManagement } from './mcpNodeIntegration.js';
+import { createNodeMcpAgentSessionFactory, createNodeMcpManagement } from './mcpNodeIntegration.js';
 import { McpOAuthBroker } from './mcpOAuthBroker.js';
 import type { McpOAuthProvider } from './mcpOAuthAuthorization.js';
 import { PostgresMcpOAuthGrantStore } from './mcpOAuthGrantStore.js';
@@ -11,6 +11,7 @@ import { createSupabaseMcpAuthenticatorFromEnv } from './mcpSupabaseAuth.js';
 import { createSupabaseMcpOwnerSessionRouterFromEnv } from './mcpOwnerSessionRouter.js';
 import type { McpManagementDependencies } from './mcpManagementRouter.js';
 import type { McpServerChoice } from './mcpConnections.js';
+import { createMcpAgentRouter } from './mcpAgentRouter.js';
 
 const ENABLED = 'true';
 const CLIENT_SECRET_ENV = /^ORIGIN_MCP_[A-Z0-9_]+_CLIENT_SECRET$/;
@@ -84,6 +85,7 @@ type ReviewedServer = {
   label: string;
   endpoint: string;
   zeroCostApproved: true;
+  executionMode?: 'read-only';
   zeroCostEvidence: {
     evidenceId: string; verifiedAt: string; expiresAt: string; termsUrl: string;
     billingPlan: 'free'; paidFallback: false;
@@ -105,11 +107,12 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
   for (const item of parsed) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return invalid();
     const value = item as Record<string, unknown>;
-    if (Object.keys(value).some(key => !['id', 'label', 'endpoint', 'zeroCostApproved', 'zeroCostEvidence', 'oauth'].includes(key))) return invalid();
+    if (Object.keys(value).some(key => !['id', 'label', 'endpoint', 'zeroCostApproved', 'executionMode', 'zeroCostEvidence', 'oauth'].includes(key))) return invalid();
     const id = value.id;
     const label = value.label;
     if (typeof id !== 'string' || !SERVER_ID.test(id) || ids.has(id) || typeof label !== 'string' || !label.trim() || label.length > 80
-      || value.zeroCostApproved !== true || !value.zeroCostEvidence || typeof value.zeroCostEvidence !== 'object' || Array.isArray(value.zeroCostEvidence)
+      || value.zeroCostApproved !== true || (value.executionMode !== undefined && value.executionMode !== 'read-only')
+      || !value.zeroCostEvidence || typeof value.zeroCostEvidence !== 'object' || Array.isArray(value.zeroCostEvidence)
       || !value.oauth || typeof value.oauth !== 'object' || Array.isArray(value.oauth)) return invalid();
     ids.add(id);
 
@@ -151,10 +154,13 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
       clientSecrets[id] = secret;
     } else if (oauth.clientSecretEnv !== undefined) return invalid();
 
-    servers.push({ id, label: label.trim(), endpoint, zeroCostApproved: true, zeroCostEvidence: {
-      evidenceId: evidence.evidenceId, verifiedAt: evidence.verifiedAt, expiresAt: evidence.expiresAt,
-      termsUrl, billingPlan: 'free', paidFallback: false,
-    } });
+    servers.push({ id, label: label.trim(), endpoint, zeroCostApproved: true,
+      ...(value.executionMode === 'read-only' ? { executionMode: 'read-only' as const } : {}),
+      zeroCostEvidence: {
+        evidenceId: evidence.evidenceId, verifiedAt: evidence.verifiedAt, expiresAt: evidence.expiresAt,
+        termsUrl, billingPlan: 'free', paidFallback: false,
+      },
+    });
     providers.push({
       serverId: id,
       issuer: exactHttps(oauth.issuer),
@@ -201,7 +207,9 @@ function tokenCipher(raw: string): McpOAuthTokenCipher {
  * throws instead of silently falling back to in-memory state, unsigned identity, or a
  * different database/connector.
  */
-export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = process.env): McpManagementDependencies | undefined {
+export type McpProductionRuntime = McpManagementDependencies & { agentRouter?: ReturnType<typeof createMcpAgentRouter> };
+
+export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = process.env): McpProductionRuntime | undefined {
   if (env.ORIGIN_MCP_ENABLED !== ENABLED) return undefined;
   if (env.FREE_ONLY !== ENABLED) return invalid();
 
@@ -236,16 +244,35 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     clientSecrets: reviewed.clientSecrets,
   });
 
-  return createNodeMcpManagement({
+  const connectionStore = new PostgresMcpConnectionStore(pool);
+  const toolGrantStore = new PostgresMcpToolGrantStore(pool);
+  const management = createNodeMcpManagement({
     appOrigin,
     authenticate,
-    store: new PostgresMcpConnectionStore(pool),
-    toolGrants: new PostgresMcpToolGrantStore(pool),
+    store: connectionStore,
+    toolGrants: toolGrantStore,
     servers: reviewed.servers,
     oauth: broker,
     resolveCredential: (ownerId, serverId) => broker.resolveCredential(ownerId, serverId),
     disconnectCredential: async (ownerId, serverId) => { await broker.disconnect(ownerId, serverId); },
   });
+
+  const readOnlyServers = reviewed.servers.filter(server => server.executionMode === 'read-only');
+  if (readOnlyServers.length === 0) return management;
+
+  const sessionFactory = createNodeMcpAgentSessionFactory({
+    store: connectionStore,
+    toolGrants: toolGrantStore,
+    servers: readOnlyServers,
+    resolveCredential: (ownerId, serverId) => broker.resolveCredential(ownerId, serverId),
+    // Exact tool grants are owner-approved and fingerprint pinned. Automatic execution
+    // is additionally limited here to connectors reviewed as strict read-only servers.
+    authorize: async ({ signal }) => !signal.aborted,
+  });
+  return {
+    ...management,
+    agentRouter: createMcpAgentRouter({ authenticate, sessionFactory, env }),
+  };
 }
 
 /**
