@@ -26,7 +26,7 @@ function isRecent(timestamp, nowMs) {
 
 function providerArtifact(name) {
   return name === 'aq-live-quota-reservation'
-    || /^origin-held-out-(?!final-evidence-)/.test(name);
+    || /^origin-held-out-/.test(name);
 }
 
 async function jsonResponse(response, codePrefix) {
