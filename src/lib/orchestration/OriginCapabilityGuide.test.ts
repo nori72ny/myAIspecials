@@ -21,26 +21,37 @@ describe("OriginCapabilityGuide", () => {
     )).toBe(false);
   });
 
-  it("describes ORIGIN's broad outcome-oriented role without overstating execution", () => {
+  it("describes the capabilities that are actually connected in the current release", () => {
     const guide = createOriginCapabilityGuide("あなたは何ができますか？");
 
     expect(guide.language).toBe("ja");
-    expect(guide.content).toContain("成果物まで作るAIエージェント");
-    expect(guide.content).toContain("資料・提案書");
-    expect(guide.content).toContain("スライド");
-    expect(guide.content).toContain("Instagram投稿");
-    expect(guide.content).toContain("画像・Web・アプリ");
-    expect(guide.content).toContain("リアルタイム検索");
-    expect(guide.content).toContain("まだ接続されていません");
+    expect(guide.content).toContain("Grounded Research");
+    expect(guide.content).toContain("PDF、DOCX、XLSX、PPTX");
+    expect(guide.content).toContain("Web / App Builder");
+    expect(guide.content).toContain("Agentic Coding");
+    expect(guide.content).toContain("検証済みSVG");
+    expect(guide.content).toContain("有料fallbackは行いません");
+    expect(guide.content).not.toContain("リアルタイム検索、画像ファイル生成、スライドファイル生成、アプリやWebサイトの公開はまだ接続されていません");
     expect(guide.nextActions[0]).toContain("一文で入力");
+  });
+
+  it("states the remaining product boundaries instead of understating connected capabilities", () => {
+    const guide = createOriginCapabilityGuide("あなたは何ができますか？");
+
+    expect(guide.content).toContain("ラスター画像生成");
+    expect(guide.content).toContain("Gitへ自動公開");
+    expect(guide.content).toContain("MCP経由");
+    expect(guide.limitations.join("\n")).toContain("自動Deploy");
   });
 
   it("provides the same truthful product boundary in English", () => {
     const guide = createOriginCapabilityGuide("What can ORIGIN do?");
 
     expect(guide.language).toBe("en");
-    expect(guide.content).toContain("AI agent");
-    expect(guide.content).toContain("Live search");
-    expect(guide.content).toContain("not connected yet");
+    expect(guide.content).toContain("Grounded Research");
+    expect(guide.content).toContain("PDF, DOCX, XLSX, and PPTX");
+    expect(guide.content).toContain("Agentic Coding");
+    expect(guide.content).toContain("MCP connections");
+    expect(guide.content).toContain("fails closed");
   });
 });

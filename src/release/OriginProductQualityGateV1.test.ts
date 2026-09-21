@@ -66,6 +66,37 @@ function passingInput() {
 }
 
 describe("OriginProductQualityGateV1", () => {
+  const booleanFields = [
+    ["ui", "exactHeadValidated"], ["ui", "horizontalOverflowDetected"],
+    ["ui", "accessibilityAutomationPassed"], ["answer", "liveRunCompleted"],
+    ["answer", "promotionEligible"], ["answer", "zeroCost"],
+    ["coding", "heldOutRunCompleted"], ["coding", "qualificationPassed"],
+    ["coding", "zeroCost"], ["claudeCode", "sameCorpusDigest"],
+    ["claudeCode", "sameBaseSha"], ["claudeCode", "sameTimeBudget"],
+    ["claudeCode", "sameEvaluatorVersion"],
+  ] as const;
+
+  it.each(booleanFields)("rejects malformed runtime boolean %s.%s", (section, field) => {
+    for (const malformed of ["false", "true", 0, 1, null, undefined, [], {}]) {
+      const input = passingInput();
+      Object.assign(input[section], { [field]: malformed });
+      const report = evaluateOriginProductQualityGate(input, nowMs);
+      expect(report.passed).toBe(false);
+      expect(report.blockers.length).toBeGreaterThan(0);
+      for (const key of ["uiPassed", "answerPassed", "codingPassed", "claudeCodeParityEstablished", "passed"] as const) {
+        expect(typeof report[key]).toBe("boolean");
+      }
+    }
+  });
+
+  it.each([null, undefined, 1, {}, "mobile,tablet,desktop"])("rejects malformed viewport coverage without throwing (%j)", value => {
+    const input = passingInput();
+    Object.assign(input.ui, { viewportScreenshots: value });
+    const report = evaluateOriginProductQualityGate(input, nowMs);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain("UI_VIEWPORT_COVERAGE_INCOMPLETE");
+  });
+
   it("passes only when UI, live AQ, held-out Coding and controlled Claude Code comparison all pass", () => {
     const report = evaluateOriginProductQualityGate(passingInput(), nowMs);
     expect(report.passed).toBe(true);
