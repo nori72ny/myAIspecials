@@ -12,7 +12,6 @@ const fixtureCa = Buffer.from([
 
 function githubDynamicSecretEnv(): NodeJS.ProcessEnv {
   const appOrigin = 'https://origin.example.com';
-  const clientId = 'origin-github-fixture';
   const verifiedAt = new Date(Date.now() - 60_000).toISOString();
   const expiresAt = new Date(Date.now() + 7 * 86400_000).toISOString();
   return {
@@ -52,12 +51,11 @@ function githubDynamicSecretEnv(): NodeJS.ProcessEnv {
         issuer: 'https://github.com/login/oauth',
         authorizationEndpoint: 'https://github.com/login/oauth/authorize',
         tokenEndpoint: 'https://github.com/login/oauth/access_token',
-        clientId,
+        clientIdSource: 'github-app-registration',
         redirectUri: `${appOrigin}/api/mcp/oauth/github-files/callback`,
         scopes: [],
         permissionModel: 'github-app',
         refreshScope: 'omit',
-        revocationEndpoint: `https://api.github.com/applications/${clientId}/grant`,
         revocationMethod: 'github-delete-grant',
         tokenEndpointAuthMethod: 'client_secret_post',
         pkceS256: true,
@@ -68,10 +66,11 @@ function githubDynamicSecretEnv(): NodeJS.ProcessEnv {
   };
 }
 
-describe('GitHub App dynamic OAuth secret runtime bridge', () => {
-  it('accepts the reviewed read-only GitHub profile without a plaintext client-secret env', () => {
+describe('GitHub App dynamic OAuth registration runtime bridge', () => {
+  it('accepts the reviewed read-only GitHub profile without plaintext client metadata', () => {
     const env = githubDynamicSecretEnv();
     expect(env.ORIGIN_MCP_GITHUB_CLIENT_SECRET).toBeUndefined();
+    expect(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON).not.toContain('clientId"');
 
     const runtime = createMcpProductionRuntimeFromEnv(env);
     expect(runtime).toBeDefined();
@@ -80,19 +79,21 @@ describe('GitHub App dynamic OAuth secret runtime bridge', () => {
     expect(runtime?.githubBootstrapRouter).toBeUndefined();
   });
 
-  it('fails closed when a dynamic GitHub secret is requested without the server-only bootstrap keyring', () => {
+  it('fails closed when dynamic GitHub registration metadata lacks the server-only keyring', () => {
     const env = githubDynamicSecretEnv();
     delete env.ORIGIN_MCP_GITHUB_APP_KEYRING_JSON;
     expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
   });
 
-  it('still requires a configured secret for non-GitHub confidential OAuth clients', () => {
+  it('still requires an explicit static secret for non-GitHub confidential OAuth clients', () => {
     const env = githubDynamicSecretEnv();
     const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
     const oauth = config[0].oauth as Record<string, unknown>;
     config[0].endpoint = 'https://mcp.example.com/mcp';
     delete config[0].executionMode;
     delete config[0].transportProfile;
+    delete oauth.clientIdSource;
+    oauth.clientId = 'origin-confidential-fixture';
     oauth.issuer = 'https://auth.example.com/';
     oauth.authorizationEndpoint = 'https://auth.example.com/authorize';
     oauth.tokenEndpoint = 'https://auth.example.com/token';
