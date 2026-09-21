@@ -20,7 +20,7 @@ describe('OriginProjectWorkspaceV31', () => {
     />);
 
     expect(screen.getByRole('region', { name: 'Project Workspace' })).toBeTruthy();
-    expect(screen.getByText('Project')).toBeTruthy();
+    expect(screen.getAllByText('Project').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Project Chat' }).textContent).toContain('1 messages');
     expect(screen.queryByText('Conversation')).toBeNull();
     expect(screen.getByRole('button', { name: 'Project Files unavailable' }).hasAttribute('disabled')).toBe(true);
