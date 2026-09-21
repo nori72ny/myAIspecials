@@ -34,6 +34,11 @@ function endpointUrl(endpoint: string, origins: readonly string[]): URL {
   return url;
 }
 
+export function mcpFixedHeadersForProfile(profile?: 'github-repos-readonly'): Readonly<Record<string, string>> | undefined {
+  if (profile === 'github-repos-readonly') return { 'X-MCP-Readonly': 'true', 'X-MCP-Toolsets': 'repos' };
+  return undefined;
+}
+
 export interface McpNodeFetchOptions {
   endpoint: string;
   allowedOrigins: readonly string[];
