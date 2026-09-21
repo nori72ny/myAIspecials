@@ -5,6 +5,7 @@ import type { McpOAuthProvider } from './mcpOAuthAuthorization.js';
 import { PostgresMcpOAuthGrantStore } from './mcpOAuthGrantStore.js';
 import { PostgresMcpOAuthPendingStore } from './mcpOAuthPendingStore.js';
 import { McpOAuthTokenCipher } from './mcpOAuthTokens.js';
+import { verifyMcpOAuthDiscovery } from './mcpOAuthDiscovery.js';
 import { PostgresMcpConnectionStore } from './mcpPostgresStore.js';
 import { PostgresMcpToolGrantStore } from './mcpToolGrantStore.js';
 import { createSupabaseMcpAuthenticatorFromEnv } from './mcpSupabaseAuth.js';
@@ -259,6 +260,11 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     pkceKey: key32(pkceRaw.trim()),
     tokenCipher: tokenCipher(keyringRaw),
     clientSecrets: reviewed.clientSecrets,
+    verifyProvider: async provider => {
+      const server = reviewed.servers.find(candidate => candidate.id === provider.serverId);
+      if (!server) throw new Error('MCP_OAUTH_DISCOVERY_FAILED');
+      await verifyMcpOAuthDiscovery({ server, provider });
+    },
   });
 
   const connectionStore = new PostgresMcpConnectionStore(pool);
