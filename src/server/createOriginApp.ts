@@ -24,7 +24,7 @@ export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): s
 
 export function createOriginApp(
   env: NodeJS.ProcessEnv = process.env,
-  integrations: { mcp?: McpManagementDependencies; mcpSession?: Router } = {},
+  integrations: { mcp?: McpManagementDependencies; mcpSession?: Router; mcpAgent?: Router } = {},
 ): Express {
   const app = express();
   app.disable("x-powered-by");
@@ -65,6 +65,7 @@ export function createOriginApp(
     secretDelivery: "server-only",
   }));
   if (integrations.mcpSession) app.use(integrations.mcpSession);
+  if (integrations.mcpAgent) app.use(integrations.mcpAgent);
   app.use(createMcpManagementRouter(integrations.mcp));
   app.use(createGroundedResearchV11Router());
   app.use(createArtifactV12Router());
