@@ -59,6 +59,7 @@ function parseApproval(value: unknown): Approval {
 
 export default function McpGithubBootstrapSettings({ language, buttonClass }: { language: 'ja' | 'en'; buttonClass: string }) {
   const t = copy[language];
+  const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [approval, setApproval] = useState<Approval | null>(null);
   const [busy, setBusy] = useState(false);
@@ -90,19 +91,21 @@ export default function McpGithubBootstrapSettings({ language, buttonClass }: { 
     finally { setBusy(false); }
   }, [t.error, t.prepared]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (expanded) void load(); }, [expanded, load]);
 
   return <section className="origin-surface-muted space-y-2 rounded-xl border p-3" aria-busy={busy}>
-    <p className="text-sm font-semibold">{t.title}</p>
-    <p className="origin-muted text-sm">{t.help}</p>
-    <p className="origin-muted text-sm">{t.security}</p>
-    {status && !status.configured && <p className="origin-muted text-sm">{t.unavailable}</p>}
-    {status?.registered && <p className="text-sm">{t.registered}{status.appSlug ? ` (${status.appSlug})` : ''}</p>}
-    {status?.configured && !status.registered && status.authenticated !== false && !approval && <button type="button" className={buttonClass} disabled={busy} onClick={() => void prepare()}>{t.prepare}</button>}
-    {approval && <form method="post" action={approval.actionUrl}>
-      <input type="hidden" name="manifest" value={approval.manifest} />
-      <button type="submit" className={buttonClass} disabled={busy}>{t.approve}</button>
-    </form>}
-    <p role="status" aria-live="polite" className="text-sm">{message}</p>
+    <button type="button" className="flex min-h-11 w-full items-center justify-between text-left text-sm font-semibold" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{t.title}<span aria-hidden="true">{expanded ? '−' : '+'}</span></button>
+    {expanded && <>
+      <p className="origin-muted text-sm">{t.help}</p>
+      <p className="origin-muted text-sm">{t.security}</p>
+      {status && !status.configured && <p className="origin-muted text-sm">{t.unavailable}</p>}
+      {status?.registered && <p className="text-sm">{t.registered}{status.appSlug ? ` (${status.appSlug})` : ''}</p>}
+      {status?.configured && !status.registered && status.authenticated !== false && !approval && <button type="button" className={buttonClass} disabled={busy} onClick={() => void prepare()}>{t.prepare}</button>}
+      {approval && <form method="post" action={approval.actionUrl}>
+        <input type="hidden" name="manifest" value={approval.manifest} />
+        <button type="submit" className={buttonClass} disabled={busy}>{t.approve}</button>
+      </form>}
+      <p role="status" aria-live="polite" className="text-sm">{message}</p>
+    </>}
   </section>;
 }
