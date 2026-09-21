@@ -17,6 +17,7 @@ export class McpOAuthTokenClient implements McpOAuthTokenEndpoint {
   private readonly tokenFetch: FetchLike;
   private readonly revokeFetch?: FetchLike;
   private readonly authorization?: string;
+  private readonly clientSecret?: string;
   constructor(provider: McpOAuthProvider, clientSecret?: string, options: {
     /** Trusted test/integration seam; production callers must leave this unset. */
     guardedFetchFactory?: (endpoint: string) => FetchLike;
@@ -25,15 +26,20 @@ export class McpOAuthTokenClient implements McpOAuthTokenEndpoint {
     const factory = options.guardedFetchFactory ?? (endpoint => createNodeMcpFetch({ endpoint, allowedOrigins: [new URL(endpoint).origin], maxResponseBytes: 32768 }));
     this.tokenFetch = factory(provider.tokenEndpoint);
     if (provider.revocationEndpoint) this.revokeFetch = factory(provider.revocationEndpoint);
-    if (provider.tokenEndpointAuthMethod === 'client_secret_basic') {
+    if (provider.tokenEndpointAuthMethod === 'client_secret_basic' || provider.tokenEndpointAuthMethod === 'client_secret_post') {
       if (!clientSecret || clientSecret.length > 2048 || /[\x00-\x20\x7f]/.test(clientSecret)) oauthFailure('MCP_OAUTH_CLIENT_AUTH_INVALID');
-      this.authorization = `Basic ${Buffer.from(`${encodeForm(provider.clientId)}:${encodeForm(clientSecret)}`).toString('base64')}`;
+      if (provider.tokenEndpointAuthMethod === 'client_secret_basic') {
+        this.authorization = `Basic ${Buffer.from(`${encodeForm(provider.clientId)}:${encodeForm(clientSecret)}`).toString('base64')}`;
+      } else {
+        this.clientSecret = clientSecret;
+      }
     } else if (clientSecret !== undefined) oauthFailure('MCP_OAUTH_CLIENT_AUTH_INVALID');
   }
   private async post(endpoint: string, fetchImpl: FetchLike, form: URLSearchParams, tokenResponse: boolean): Promise<Record<string, unknown>> {
     const abort = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
     const body = new URLSearchParams(form);
     if (this.authorization) body.delete('client_id'); else body.set('client_id', this.provider.clientId);
+    if (this.clientSecret) body.set('client_secret', this.clientSecret);
     const operation = async () => {
       const response = await fetchImpl(endpoint, { method: 'POST', redirect: 'error', signal: abort.signal,
         headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded', ...(this.authorization ? { authorization: this.authorization } : {}) },
@@ -61,11 +67,15 @@ export class McpOAuthTokenClient implements McpOAuthTokenEndpoint {
     } catch { return oauthFailure('MCP_OAUTH_TOKEN_REQUEST_FAILED'); }
     finally { clearTimeout(timer); abort.abort(); }
   }
+  private trackedScopes(): string[] {
+    const untracked = new Set(this.provider.untrackedScopes ?? []);
+    return this.provider.scopes.filter(scope => !untracked.has(scope));
+  }
   private async tokens(form: URLSearchParams, previous?: McpOAuthTokens): Promise<McpOAuthTokens> {
     // Use request start for expiry, so a slow response cannot extend token validity.
     const started = Date.now();
     const value = await this.post(this.provider.tokenEndpoint, this.tokenFetch, form, true);
-    const expectedScopes = previous?.scopes ?? [...this.provider.scopes];
+    const expectedScopes = previous?.scopes ?? this.trackedScopes();
     const scopes = value.scope === undefined ? expectedScopes : typeof value.scope === 'string' ? value.scope.split(' ') : [];
     if (value.error !== undefined || typeof value.token_type !== 'string' || value.token_type.toLowerCase() !== 'bearer'
       || !Number.isSafeInteger(value.expires_in) || Number(value.expires_in) < 1 || Number(value.expires_in) > 86400
@@ -76,17 +86,20 @@ export class McpOAuthTokenClient implements McpOAuthTokenEndpoint {
     return tokens;
   }
   exchange(form: URLSearchParams): Promise<McpOAuthTokens> {
-    const expected = ['grant_type', 'code', 'client_id', 'redirect_uri', 'resource', 'code_verifier'];
+    const expected = ['grant_type', 'code', 'client_id', 'redirect_uri', 'code_verifier', ...(this.provider.resource ? ['resource'] : [])];
     if ([...form.keys()].length !== expected.length || expected.some(key => form.getAll(key).length !== 1)
       || form.get('grant_type') !== 'authorization_code' || form.get('client_id') !== this.provider.clientId
-      || form.get('redirect_uri') !== this.provider.redirectUri || form.get('resource') !== this.provider.resource
+      || form.get('redirect_uri') !== this.provider.redirectUri
+      || (this.provider.resource ? form.get('resource') !== this.provider.resource : form.has('resource'))
       || !/^[A-Za-z0-9_-]{43}$/.test(form.get('code_verifier') ?? '') || !/^[\x21-\x7e]{1,8192}$/.test(form.get('code') ?? '')) return Promise.reject(new Error('MCP_OAUTH_EXCHANGE_INVALID'));
     return this.tokens(form);
   }
   refresh(tokens: McpOAuthTokens): Promise<McpOAuthTokens> {
-    if (!validOAuthTokens(tokens) || !tokens.refreshToken || !sameScopes(tokens.scopes, this.provider.scopes)) return Promise.reject(new Error('MCP_OAUTH_REFRESH_UNAVAILABLE'));
-    return this.tokens(new URLSearchParams({ grant_type: 'refresh_token', refresh_token: tokens.refreshToken,
-      resource: this.provider.resource, scope: tokens.scopes.join(' ') }), tokens);
+    if (!validOAuthTokens(tokens) || !tokens.refreshToken || !sameScopes(tokens.scopes, this.trackedScopes())) return Promise.reject(new Error('MCP_OAUTH_REFRESH_UNAVAILABLE'));
+    const form = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: tokens.refreshToken });
+    if (this.provider.resource) form.set('resource', this.provider.resource);
+    if ((this.provider.refreshScope ?? 'include') === 'include') form.set('scope', tokens.scopes.join(' '));
+    return this.tokens(form, tokens);
   }
   async revoke(tokens: McpOAuthTokens): Promise<boolean> {
     if (!this.revokeFetch || !this.provider.revocationEndpoint || !validOAuthTokens(tokens)) return false;
