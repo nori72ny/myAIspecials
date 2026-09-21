@@ -5,6 +5,8 @@ import { openMcpCredential, sealMcpCredential } from './mcpConnections.js';
 export interface McpOAuthProvider {
   serverId: string; issuer: string; authorizationEndpoint: string; tokenEndpoint: string;
   clientId: string; redirectUri: string; resource?: string; scopes: readonly string[];
+  /** GitHub Apps use app permissions instead of OAuth scopes; GitHub returns scope="" for user tokens. */
+  permissionModel?: 'oauth-scopes' | 'github-app';
   /** Authorization-only scopes that a provider intentionally omits from token scope responses (for example GitHub offline_access). */
   untrackedScopes?: readonly string[];
   /** Some providers forbid a scope parameter on refresh. Default is include. */
@@ -34,7 +36,7 @@ export interface McpOAuthIdentity {
 export const oauthHash = (value: string): string => createHash('sha256').update(value).digest('hex');
 export const oauthProviderHash = (provider: McpOAuthProvider): string => oauthHash(JSON.stringify([
   provider.serverId, provider.issuer, provider.authorizationEndpoint, provider.tokenEndpoint,
-  provider.clientId, provider.redirectUri, provider.resource ?? null, [...provider.scopes].sort(),
+  provider.clientId, provider.redirectUri, provider.resource ?? null, provider.permissionModel ?? 'oauth-scopes', [...provider.scopes].sort(),
   [...(provider.untrackedScopes ?? [])].sort(), provider.refreshScope ?? 'include',
   provider.revocationEndpoint ?? null, provider.revocationMethod ?? null, provider.tokenEndpointAuthMethod ?? 'none', provider.responseIssuer,
 ]));
@@ -78,13 +80,18 @@ export class McpOAuthAuthorization {
       }
       if (!['none', 'client_secret_basic', 'client_secret_post'].includes(provider.tokenEndpointAuthMethod ?? 'none')) fail('MCP_OAUTH_CONFIG_INVALID');
       const untrackedScopes = provider.untrackedScopes ?? [];
+      const permissionModel = provider.permissionModel ?? 'oauth-scopes';
       if (!/^[A-Za-z0-9-]{1,64}$/.test(provider.serverId) || !provider.clientId || provider.clientId.length > 2048 || /[\x00-\x20\x7f]/.test(provider.clientId)
         || provider.pkceS256 !== true || typeof provider.responseIssuer !== 'boolean' || provider.zeroCostApproved !== true
-        || !provider.scopes.length || provider.scopes.length > 20 || new Set(provider.scopes).size !== provider.scopes.length
+        || !['oauth-scopes', 'github-app'].includes(permissionModel)
+        || provider.scopes.length > 20 || new Set(provider.scopes).size !== provider.scopes.length
+        || (permissionModel === 'oauth-scopes' && provider.scopes.length < 1)
+        || (permissionModel === 'github-app' && provider.scopes.length !== 0)
         || provider.scopes.some(scope => !/^[\x21\x23-\x5b\x5d-\x7e]{1,128}$/.test(scope))
         || untrackedScopes.length > provider.scopes.length || new Set(untrackedScopes).size !== untrackedScopes.length
         || untrackedScopes.some(scope => !provider.scopes.includes(scope))
-        || !['include', 'omit'].includes(provider.refreshScope ?? 'include')) fail('MCP_OAUTH_CONFIG_INVALID');
+        || (permissionModel === 'github-app' && untrackedScopes.length !== 0)
+        || !['include', 'omit'].includes(provider.refreshScope ?? (permissionModel === 'github-app' ? 'omit' : 'include'))) fail('MCP_OAUTH_CONFIG_INVALID');
       const configHash = oauthProviderHash(provider);
       return [provider.serverId, { provider, configHash }];
     }));
@@ -104,8 +111,8 @@ export class McpOAuthAuthorization {
     try { await this.store.put(record); } catch { return fail('MCP_OAUTH_STORE_UNAVAILABLE'); }
     const url = new URL(provider.authorizationEndpoint);
     const params = new URLSearchParams({ response_type: 'code', client_id: provider.clientId, redirect_uri: provider.redirectUri,
-      scope: provider.scopes.join(' '), state,
-      code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
+      state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
+    if (provider.scopes.length > 0) params.set('scope', provider.scopes.join(' '));
     if (provider.resource) params.set('resource', provider.resource);
     url.search = params.toString();
     return { authorizationUrl: url.href };
