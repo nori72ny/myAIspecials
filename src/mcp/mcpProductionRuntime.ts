@@ -71,6 +71,7 @@ type ReviewedOAuth = {
   untrackedScopes?: string[];
   refreshScope?: 'include' | 'omit';
   revocationEndpoint?: string;
+  revocationMethod?: 'rfc7009-post' | 'github-delete-grant';
   tokenEndpointAuthMethod?: 'none' | 'client_secret_basic' | 'client_secret_post';
   clientSecretEnv?: string;
   pkceS256: true;
@@ -125,7 +126,7 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     const endpoint = exactHttps(value.endpoint);
     const oauth = value.oauth as Record<string, unknown>;
     if (Object.keys(oauth).some(key => ![
-      'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'redirectUri', 'resource', 'scopes', 'untrackedScopes', 'refreshScope', 'revocationEndpoint',
+      'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'redirectUri', 'resource', 'scopes', 'untrackedScopes', 'refreshScope', 'revocationEndpoint', 'revocationMethod',
       'tokenEndpointAuthMethod', 'clientSecretEnv', 'pkceS256', 'responseIssuer', 'zeroCostApproved',
     ].includes(key))) return invalid();
 
@@ -166,6 +167,7 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
       ...(untrackedScopes.length === 0 ? {} : { untrackedScopes: untrackedScopes as string[] }),
       refreshScope: (oauth.refreshScope === undefined ? 'include' : oauth.refreshScope) as 'include' | 'omit',
       ...(oauth.revocationEndpoint === undefined ? {} : { revocationEndpoint: exactHttps(oauth.revocationEndpoint) }),
+      ...(oauth.revocationMethod === undefined ? {} : { revocationMethod: oauth.revocationMethod as 'rfc7009-post' | 'github-delete-grant' }),
       tokenEndpointAuthMethod: authMethod as 'none' | 'client_secret_basic' | 'client_secret_post',
       pkceS256: true,
       responseIssuer: oauth.responseIssuer as boolean,
