@@ -23,7 +23,7 @@ export function isPublicMcpAddress(address: string): boolean {
   return family === 6 && !address.includes('%') && globalV6.check(address, 'ipv6') && !denied.check(address, 'ipv6');
 }
 
-const requestHeaders = new Set(['accept', 'content-type', 'authorization', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id']);
+const requestHeaders = new Set(['accept', 'content-type', 'authorization', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id', 'x-mcp-readonly', 'x-mcp-toolsets']);
 const responseHeaders = ['content-type', 'mcp-session-id', 'mcp-protocol-version', 'retry-after', 'www-authenticate'];
 function error(code: string): McpBoundaryError { return new McpBoundaryError(code); }
 function endpointUrl(endpoint: string, origins: readonly string[]): URL {
@@ -42,6 +42,8 @@ export interface McpNodeFetchOptions {
   maxResponseBytes?: number;
   /** OAuth-only escape hatch for a reviewed DELETE endpoint with a small JSON body. MCP transport leaves this false. */
   allowDeleteBody?: boolean;
+  /** Reviewed transport headers. Caller input can never override these values. */
+  fixedHeaders?: Readonly<Record<string, string>>;
 }
 
 /** Node-only HTTP/SSE adapter. TLS verification remains on; no environment proxy or native-fetch fallback. */
@@ -62,6 +64,12 @@ export function createNodeMcpFetch(options: McpNodeFetchOptions): FetchLike {
     try { headers = new Headers(init.headers); } catch { throw error('MCP_HEADERS_INVALID'); }
     for (const [name, value] of headers) {
       if (!requestHeaders.has(name) || Buffer.byteLength(value) > 8192) throw error('MCP_HEADERS_INVALID');
+    }
+    const fixed = new Headers(options.fixedHeaders);
+    for (const [name, value] of fixed) {
+      if (!['x-mcp-readonly', 'x-mcp-toolsets'].includes(name) || Buffer.byteLength(value) > 1024) throw error('MCP_HEADERS_INVALID');
+      if (headers.has(name) && headers.get(name) !== value) throw error('MCP_HEADERS_INVALID');
+      headers.set(name, value);
     }
     if (Buffer.byteLength(JSON.stringify([...headers])) > 16 * 1024) throw error('MCP_HEADERS_INVALID');
     headers.set('accept-encoding', 'identity');
