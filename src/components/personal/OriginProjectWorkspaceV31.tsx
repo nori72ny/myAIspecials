@@ -34,7 +34,6 @@ export default function OriginProjectWorkspaceV31({
   activeView,
   onViewChange,
 }: OriginProjectWorkspaceV31Props) {
-  const completedArtifacts = artifacts.filter((artifact) => artifact.isComplete).length;
   const views: readonly ProjectViewItem[] = [
     { id: 'overview', label: 'Overview', available: true, detail: '現在のProject状況' },
     { id: 'chat', label: 'Chat', available: true, detail: `${messages.length} messages · ${sessions.length} sessions` },
