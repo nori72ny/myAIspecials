@@ -309,8 +309,15 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       .toBe("第二の事実です。");
   });
 
-  it("fails closed instead of truncating answers with more than 64 claim candidates", async () => {
-    const execute = vi.fn();
+  it("compacts answers above 64 segments into contiguous candidates without truncating coverage", async () => {
+    let capturedCandidates: Array<{ candidateId: string; text: string }> = [];
+    const execute = vi.fn().mockImplementation(async (request: OriginProviderExecutionRequest) => {
+      const payload = JSON.parse(request.messages[0].content) as {
+        candidates: Array<{ candidateId: string; text: string }>;
+      };
+      capturedCandidates = payload.candidates;
+      return result(request, { claims: [] });
+    });
     const evaluators = createOriginAnswerQualityBenchmarkProviderEvaluators({
       env: { OPENROUTER_API_KEY: "test-only" },
       nowMs: () => now,
@@ -322,12 +329,20 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       (_, index) => `This is material sentence number ${index + 1}.`,
     ).join(" ");
 
-    await expect(evaluators.materialClaimExtractor({
+    await evaluators.materialClaimExtractor({
       answerDigest: `sha256:${"a".repeat(64)}`,
       answerText,
       executionPolicy: { maxCostUsd: 0, maxAttempts: 1, maxClaims: 64 },
-    })).rejects.toThrow("AQ_BENCHMARK_EVALUATOR_CANDIDATE_LIMIT");
-    expect(execute).not.toHaveBeenCalled();
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(capturedCandidates).toHaveLength(64);
+    expect(capturedCandidates.map((item) => item.text).join(" ")).toContain(
+      "This is material sentence number 1.",
+    );
+    expect(capturedCandidates.map((item) => item.text).join(" ")).toContain(
+      "This is material sentence number 65.",
+    );
   });
 
   it("binds prompt-claim metadata locally and rejects unsupported IDs", async () => {
