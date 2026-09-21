@@ -66,7 +66,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
   }, [workspace]);
   const artifactOpen = projectView === 'artifacts' && latestArtifact !== null;
   const conversationOpen = workspace === 'chat' && messages.length > 0 && !artifactOpen;
-  return <div className={conversationOpen ? 'origin-personal-conversation' : undefined}>
+  const shellClass = artifactOpen ? 'origin-personal-artifact-open' : conversationOpen ? 'origin-personal-conversation' : undefined;
+  return <div className={shellClass}>
     <div className="origin-personal-navigation">
     <OriginWorkspaceShellV31 mode={workspace} onModeChange={switchWorkspace} />
     <OriginProjectWorkspaceV31 mode={workspace} messages={messages} sessions={effectiveSessions} artifacts={artifacts} sources={projectSources} codingEvidence={codingEvidence} activeView={projectView} onViewChange={handleProjectViewChange} />
