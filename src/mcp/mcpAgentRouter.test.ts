@@ -3,6 +3,7 @@ import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { ORIGIN_OPENROUTER_FREE_MODEL } from "../lib/orchestration/OriginExecutionPolicy.js";
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog.js";
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from "../legacy/originProviderClient.js";
 import type { McpAgentSession } from "./mcpAgentExecution.js";
 import { createMcpAgentRouter } from "./mcpAgentRouter.js";
@@ -10,6 +11,7 @@ import { createMcpAgentRouter } from "./mcpAgentRouter.js";
 const OWNER = "11111111-1111-4111-8111-111111111111";
 const CONNECTION = "22222222-2222-4222-8222-222222222222";
 const ALIAS = "mcp_1234567890abcdef1234567890abcdef1234567890abcdef";
+const TEST_NOW = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
 
 function providerResult(text: string): OriginProviderExecutionResult {
   return {
@@ -85,7 +87,7 @@ function app(options: {
       OPENROUTER_API_KEY: "fixture",
     },
     executeProvider,
-    now: () => Date.parse("2026-09-21T01:00:00.000Z"),
+    now: () => TEST_NOW,
   }));
   return { instance, target, open, executeProvider };
 }
