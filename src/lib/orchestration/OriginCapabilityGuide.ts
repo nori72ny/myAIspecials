@@ -23,60 +23,73 @@ export function isOriginCapabilityQuestion(input: string): boolean {
 }
 
 function japaneseGuide(): OriginCapabilityGuide {
-  const content = `ORIGINは、質問に答えるだけでなく、目的を整理し、今の版で実行できる範囲の成果物まで作るAIエージェントです。
+  const content = `ORIGINは、質問に答えるだけでなく、調査・成果物生成・Web制作・Codingまでを、現在の公開版で実行できる範囲は実際に実行するAIエージェントです。
 
 現在できること
-- 資料・提案書：目的、相手、利用場面に合わせて構成から本文まで作成
-- スライド：全体構成、各ページの見出し・本文・図解案・発表原稿を作成
-- 文章・トーク：営業台本、メール、SNS・Instagram投稿、記事、説明文を用途別に作成
-- 比較・分析：貼り付けられた情報やデータを整理し、比較表、判断基準、推奨案、注意点を提示
-- 画像・Web・アプリ：画像指示、画面設計、仕様、導線、コピー、コードなど、制作に必要な内容を設計・作成
-- 思考と実行支援：曖昧な相談から本当の目的を整理し、必要な情報、優先順位、次の行動まで提案
+- 会話・分析：相談、比較、意思決定支援、文章、営業台本、メール、SNS投稿、企画を作成
+- Grounded Research：無料の公開Web情報を検索し、取得できた根拠に基づいて調査結果をまとめる
+- 実ファイル生成：Markdown、CSV、PDF、DOCX、XLSX、PPTXを生成し、検証済みダウンロードとして返す
+- Web / App Builder：Landing Page、Dashboard、Web Appの静的プロジェクトZIPを生成・検証する
+- Web公開：認証・保存基盤が利用可能な環境では、確認付きで期限付き静的サイトとして公開できる
+- Agentic Coding：ORIGIN自身の固定Coding対象に対して、認証・暗号化・永続化されたCoding jobを実行し、結果を取得できる
+- Creative：Social Card、Poster、Info Cardを検証済みSVGとして生成・保存できる
 
-ORIGINが目指す対応
-依頼文をそのまま処理するだけでなく、成果を良くするために不足している観点やデータ、リスク、より適した成果物を先回りして補います。専門AIや外部サービスが接続された仕事は、実際に利用した記録がある場合だけ「実行済み」と表示します。
+安全上の境界
+ORIGINは、実行記録がない処理を「実行済み」と表示しません。無料経路だけを利用し、有料fallbackは行いません。外部情報、外部サービス、Coding実行などが利用できない場合は、推測で成功扱いせずfail-closedします。
 
-今の版では、テキスト回答内の成果物作成と、提供された情報の整理・分析が中心です。リアルタイム検索、画像ファイル生成、スライドファイル生成、アプリやWebサイトの公開はまだ接続されていません。ただし、未接続の処理を完了したようには見せず、その時点で作れる最も実用的な下書き・仕様・コード・実行手順まで返します。
+現在まだできないこと
+- モデルによるラスター画像生成や画像編集
+- Coding結果をGitへ自動公開したり、そのまま自動Deployすること
+- MCP経由のGitHub、Google、Microsoft、Notion、Slack等の外部サービス接続
+- 未承認の外部送信や、証拠のない自動実行
 
-頼み方は決まっていません。「新商品の提案書を作りたい」「このメモからInstagram投稿を5本作って」「比較して最適案を決めて」「アプリのアイデアを形にして」のように、やりたいことをそのまま入力してください。`;
+頼み方は決まっていません。「最新情報を調べて」「PDFを作って」「LPを作ってZIPで出して」「このコードを直す方針を出して」「SNS用カードを作って」のように、そのまま依頼してください。ORIGINは実行できる経路と、まだ実行できない境界を区別して返します。`;
 
   return {
     language: "ja",
     content,
     limitations: [
-      "リアルタイム検索と、画像・文書・スライド・アプリ・Webサイトの実ファイル生成または公開は、現在の公開版では未接続です。",
+      "モデルベースのラスター画像生成・画像編集、Coding結果のGit自動公開/自動Deploy、MCP経由の外部アプリ接続は現在の公開版では未接続です。",
+      "Web調査や外部実行は無料・安全条件を満たさない場合にfail-closedし、未確認の結果を生成しません。",
     ],
     nextActions: [
-      "作りたいもの、解決したいこと、または迷っていることを一文で入力してください。不足情報はORIGINが必要な分だけ確認します。",
+      "作りたいもの、調べたいこと、直したいものをそのまま一文で入力してください。実行できる機能は実行し、未接続部分だけを明示します。",
     ],
   };
 }
 
 function englishGuide(): OriginCapabilityGuide {
-  const content = `ORIGIN is an AI agent that goes beyond answering questions: it clarifies the goal and produces the most useful result currently possible.
+  const content = `ORIGIN is an AI agent that can execute research, artifact generation, web building, and coding workflows that are connected in the current public release—not just describe them.
 
 What it can do now
-- Draft documents and proposals from structure through final copy
-- Design slide narratives, page content, visual directions, and speaker notes
-- Create sales scripts, emails, social posts, articles, and explanations
-- Organize supplied information into comparisons, decision criteria, recommendations, and risks
-- Design image briefs, websites, apps, user flows, specifications, copy, and code
-- Turn an unclear request into a goal, required information, priorities, and next actions
+- Conversation and analysis: planning, comparison, decision support, writing, sales scripts, email, social content, and product thinking
+- Grounded Research: search free public-web sources and summarize only retrieved evidence
+- Real artifact generation: create verified Markdown, CSV, PDF, DOCX, XLSX, and PPTX downloads
+- Web / App Builder: generate and verify static Landing Page, Dashboard, and Web App project ZIPs
+- Web publication: in an authenticated configured environment, publish verified static projects as expiring sites after confirmation
+- Agentic Coding: run durable authenticated coding jobs against ORIGIN's fixed server-owned coding target and retrieve persisted results
+- Creative: generate verified static SVG social cards, posters, and info cards
 
-ORIGIN is designed to add the information, data needs, risks, and output formats that materially improve the result. It only claims that a specialist AI or external service was used when an execution record proves it.
+Safety boundary
+ORIGIN does not claim an operation was executed without execution evidence. It remains free-only, has no paid fallback, and fails closed when a required external source or execution path cannot be verified.
 
-The current release focuses on text deliverables and analysis of information you provide. Live search, generated image files, presentation files, and app or website publishing are not connected yet. ORIGIN will never present those unexecuted steps as completed; it will instead provide the best usable draft, specification, code, or execution plan available.
+Not connected yet
+- Model-based raster image generation or image editing
+- Automatic Git publication or automatic deployment of coding results
+- MCP connections to external services such as GitHub, Google, Microsoft, Notion, or Slack
+- Unapproved external writes or unsupported autonomous actions
 
-There is no fixed request format. Describe what you want in your own words, such as “create a product proposal,” “turn these notes into five Instagram posts,” “compare these options and recommend one,” or “shape my app idea into a build plan.”`;
+You can ask naturally: “research the latest information,” “make a PDF,” “build a landing page and give me the ZIP,” “help fix this code,” or “make a social card.” ORIGIN will distinguish what it actually executed from what remains unavailable.`;
 
   return {
     language: "en",
     content,
     limitations: [
-      "Live search and actual image, document, slide, app, or website generation and publishing are not connected in the current public release.",
+      "Model-based raster image generation/editing, automatic Git/deployment from coding jobs, and MCP-based external app connections are not connected in the current public release.",
+      "External research or execution fails closed when the free and safety requirements cannot be verified.",
     ],
     nextActions: [
-      "Describe what you want to create, solve, or decide in one sentence. ORIGIN will ask only for information that materially affects the result.",
+      "Describe what you want to research, create, or fix in one sentence. ORIGIN will execute connected capabilities and clearly label unavailable steps.",
     ],
   };
 }
