@@ -68,11 +68,10 @@ function session(): McpAgentSession {
 
 function app(options: {
   authenticated?: boolean;
-  open?: ReturnType<typeof vi.fn>;
   executeProvider?: (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 } = {}) {
   const target = session();
-  const open = options.open ?? vi.fn(async () => target);
+  const open = vi.fn(async (_input: { ownerId: string; connectionId: string; version: number }) => target);
   const executeProvider = options.executeProvider ?? vi.fn()
     .mockResolvedValueOnce(providerResult(JSON.stringify({ alias: ALIAS, arguments: { path: "README.md" } })))
     .mockResolvedValueOnce(providerResult("README.md was read successfully."));
@@ -136,8 +135,7 @@ describe("MCP owner tool-chat router", () => {
   });
 
   it("blocks cross-origin submission before authentication or provider execution", async () => {
-    const open = vi.fn();
-    const fixture = app({ open });
+    const fixture = app();
     const response = await request(fixture.instance)
       .post("/api/mcp/chat")
       .set("Origin", "https://attacker.example")
@@ -149,7 +147,7 @@ describe("MCP owner tool-chat router", () => {
 
     expect(response.status).toBe(403);
     expect(response.body.code).toBe("CROSS_ORIGIN_REQUEST_BLOCKED");
-    expect(open).not.toHaveBeenCalled();
+    expect(fixture.open).not.toHaveBeenCalled();
     expect(fixture.executeProvider).not.toHaveBeenCalled();
   });
 
