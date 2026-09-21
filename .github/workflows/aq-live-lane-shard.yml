@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 55
     env:
       BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
-      CANDIDATE_SHA: 21c1ed6e3b1e1ae88485a7e375c41d407529cf2a
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ORIGIN_AQ_BASELINE_PORT: '4611'
       ORIGIN_AQ_CANDIDATE_PORT: '4612'
