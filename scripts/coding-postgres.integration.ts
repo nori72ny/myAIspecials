@@ -1,5 +1,11 @@
+import { PostgresMcpConnectionStore } from '../src/mcp/mcpPostgresStore.js';
+import { PostgresMcpOAuthPendingStore } from '../src/mcp/mcpOAuthPendingStore.js';
+import { PostgresMcpOAuthGrantStore } from '../src/mcp/mcpOAuthGrantStore.js';
+import { McpOAuthTokenCipher, type McpOAuthGrant } from '../src/mcp/mcpOAuthTokens.js';
+import { oauthHash, type McpOAuthPending } from '../src/mcp/mcpOAuthAuthorization.js';
+import { sealMcpCredential, type McpConnectionRecord } from '../src/mcp/mcpConnections.js';
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, describe, it } from 'node:test';
@@ -88,7 +94,7 @@ before(async () => {
   await admin.query(`create database ${databaseName}`);
   createdDatabase = true;
   for (let pass = 0; pass < 2; pass++) {
-    for (const migration of ['20260911_origin_coding_jobs_v14.sql', '20260912_origin_coding_job_results_v14.sql']) {
+    for (const migration of ['20260911_origin_coding_jobs_v14.sql', '20260912_origin_coding_job_results_v14.sql', '20260920100327_origin_mcp_connections.sql', '20260920113517_origin_mcp_oauth_pending.sql', '20260920115046_origin_mcp_oauth_grants.sql']) {
       await db.query(await readFile(new URL(`../supabase/migrations/${migration}`, import.meta.url), 'utf8'));
     }
   }
@@ -237,5 +243,162 @@ describe('Coding V1.4 real Postgres boundaries', { timeout: 20000 }, () => {
     assert.equal(await jobs.getJob(job.jobId, job.ownerHash), null);
     assert.equal(await jobs.deleteExpired(1), 1);
     assert.equal(await results.get(job.jobId), null);
+  });
+});
+
+
+describe('MCP real PostgreSQL concurrency', { timeout: 20000 }, () => {
+  it('observes a lock wait and counts the preceding committed insert', async () => {
+    const ownerId = randomUUID();
+    const makeRecord = (serverId: string): McpConnectionRecord => ({
+      id: randomUUID(), ownerId, serverId, endpoint: 'https://mcp.example.test/mcp',
+      version: 1, status: 'registered', checkedAt: null,
+    });
+    await raceClients(async (a, b) => {
+      await a.query('begin');
+      await a.query("select pg_advisory_xact_lock(hashtextextended('origin_mcp:' || $1, 0))", [ownerId]);
+      const first = makeRecord('first');
+      await a.query(`insert into public.origin_mcp_connections
+        (connection_id, owner_id, server_id, endpoint)
+        values ($1, $2, $3, $4)`, [first.id, ownerId, first.serverId, first.endpoint]);
+      const store = new PostgresMcpConnectionStore({
+        query: db.query.bind(db),
+        connect: async () => ({ query: b.query.bind(b), release: () => {} }),
+      });
+      const contenderPid = await pid(b);
+      const blockerPid = await pid(a);
+      const pending = store.insert(makeRecord('second'), 1);
+      // Attach a rejection handler while observing the actual database lock.
+      const outcome = pending.then(value => ({ value }), error => ({ error }));
+      await waitForBlock(contenderPid, blockerPid);
+      await a.query('commit');
+      assert.deepEqual(await outcome, { value: false });
+      assert.equal((await store.list(ownerId)).length, 1);
+      assert.equal(await store.get('other-owner', first.id), undefined);
+      assert.equal(await store.remove('other-owner', first.id, 1), false);
+      assert.equal(await store.remove(ownerId, first.id, 2), false);
+      assert.equal(await store.remove(ownerId, first.id, 1), true);
+    });
+  });
+});
+
+describe('MCP OAuth real PostgreSQL state', { timeout: 20000 }, () => {
+  const store = new PostgresMcpOAuthPendingStore(db);
+  const record = (ownerId: string = randomUUID(), serverId = 'reviewed'): McpOAuthPending => ({
+    ownerId, serverId, grantId: randomUUID(), stateHash: oauthHash(randomBytes(32).toString('hex')),
+    sessionHash: oauthHash(randomBytes(32).toString('hex')), configHash: oauthHash('reviewed-config'),
+    verifierCiphertext: sealMcpCredential(randomBytes(32).toString('base64url'),
+      { id: randomUUID(), ownerId, serverId, endpoint: 'https://mcp.example.test' }, randomBytes(32)),
+  });
+  it('allows exactly one consumer across concurrent callbacks; wrong bindings do not consume', async () => {
+    const value = record(); await store.put(value);
+    for (const changed of [{ ownerId: 'other' }, { sessionHash: oauthHash('other') }, { configHash: oauthHash('other') }, { serverId: 'other' }]) {
+      assert.equal(await store.consume({ ...value, ...changed }), undefined);
+    }
+    const consumed = await Promise.all(Array.from({ length: 6 }, () => store.consume(value)));
+    assert.equal(consumed.filter(Boolean).length, 1);
+    assert.deepEqual(consumed.find(Boolean), value);
+  });
+  it('replaces old attempts, rejects expiration by database time and reuses expired capacity', async () => {
+    const first = record(); await store.put(first);
+    const second = record(first.ownerId); await store.put(second);
+    assert.equal(await store.consume(first), undefined);
+    await db.query("update public.origin_mcp_oauth_pending set expires_at = clock_timestamp() - interval '1 second' where owner_id = $1", [first.ownerId]);
+    assert.equal(await store.consume(second), undefined);
+    assert.equal(await store.deleteExpired(1), 1);
+    const third = record(first.ownerId); await store.put(third);
+    assert.deepEqual(await store.consume(third), third);
+  });
+  it('observes an owner lock wait and enforces the 20-attempt cap after commit', async () => {
+    const ownerId = randomUUID();
+    for (let i = 0; i < 19; i++) await store.put(record(ownerId, `server-${i}`));
+    await raceClients(async (a, b) => {
+      await a.query('begin');
+      await a.query("select pg_advisory_xact_lock(hashtextextended('origin_mcp_oauth:' || $1, 0))", [ownerId]);
+      const last = record(ownerId, 'last');
+      await a.query(`insert into public.origin_mcp_oauth_pending
+        (owner_id, server_id, state_hash, session_hash, config_hash, verifier_ciphertext, expires_at)
+        values ($1,$2,$3,$4,$5,$6,clock_timestamp() + interval '5 minutes')`,
+      [last.ownerId, last.serverId, last.stateHash, last.sessionHash, last.configHash, last.verifierCiphertext]);
+      const contender = new PostgresMcpOAuthPendingStore({ query: db.query.bind(db), connect: async () => ({ query: b.query.bind(b), release: () => {} }) });
+      const bPid = await pid(b); const aPid = await pid(a);
+      const outcome = contender.put(record(ownerId, 'overflow')).then(() => 'unexpected-success', error => error.message);
+      await waitForBlock(bPid, aPid); await a.query('commit');
+      assert.equal(await outcome, 'MCP_OAUTH_STORE_UNAVAILABLE');
+      assert.equal((await db.query('select count(*)::int as count from public.origin_mcp_oauth_pending where owner_id = $1', [ownerId])).rows[0].count, 20);
+    });
+    // Replacement is allowed at capacity, but does not increase the row count.
+    await store.put(record(ownerId, 'last'));
+  });
+  it('denies browser roles and enables RLS without public policies', async () => {
+    for (const role of ['anon', 'authenticated']) {
+      const rights = await db.query("select has_table_privilege($1, 'public.origin_mcp_oauth_pending', 'SELECT,INSERT,UPDATE,DELETE') as allowed", [role]);
+      assert.equal(rights.rows[0].allowed, false);
+    }
+    const table = await db.query("select relrowsecurity from pg_class where oid = 'public.origin_mcp_oauth_pending'::regclass");
+    assert.equal(table.rows[0].relrowsecurity, true);
+    assert.equal((await db.query("select * from pg_policies where schemaname = 'public' and tablename = 'origin_mcp_oauth_pending'")).rowCount, 0);
+  });
+});
+
+describe('MCP OAuth real PostgreSQL grants', { timeout: 20000 }, () => {
+  const store = new PostgresMcpOAuthGrantStore(db);
+  const cipher = new McpOAuthTokenCipher('test', { test: randomBytes(32) });
+  const initial = (ownerId: string = randomUUID(), serverId = 'fixture'): McpOAuthGrant => ({ ownerId, serverId, grantId: randomUUID(),
+    configHash: oauthHash('reviewed'), version: 1, status: 'authorizing', ciphertext: null });
+  async function active() {
+    const first = initial(); await store.begin(first);
+    const claim = { ...first, status: 'exchanging' as const, version: 2 }; assert.equal(await store.replace(claim, first), true);
+    const encrypted = cipher.seal({ accessToken: randomBytes(32).toString('hex'), refreshToken: randomBytes(32).toString('hex'), expiresAt: Date.now() + 3600000, scopes: ['read'] }, first);
+    const result = { ...claim, status: 'active' as const, version: 3, ciphertext: encrypted };
+    assert.equal(await store.replace(result, claim), true); return result;
+  }
+  it('has exactly one refresh claimant across shared store instances', async () => {
+    const current = await active(); const next = { ...current, status: 'refreshing' as const, version: current.version + 1 };
+    const outcomes = await Promise.all(Array.from({ length: 6 }, () => new PostgresMcpOAuthGrantStore(db).replace(next, current)));
+    assert.equal(outcomes.filter(Boolean).length, 1);
+    assert.equal(await store.get('different-owner', current.serverId), undefined);
+    assert.equal(await store.revoke('different-owner', current.serverId), undefined);
+    assert.equal((await store.get(current.ownerId, current.serverId))?.status, 'refreshing');
+  });
+  it('observes a real revoke lock wait and rejects a late refresh write after disconnect', async () => {
+    const current = await active(); const refresh = { ...current, status: 'refreshing' as const, version: current.version + 1 };
+    assert.equal(await store.replace(refresh, current), true);
+    await raceClients(async (a, b) => {
+      await a.query('begin');
+      await a.query("update public.origin_mcp_oauth_grants set status = 'revoked', token_ciphertext = null, version = version + 1 where owner_id = $1 and server_id = $2", [current.ownerId, current.serverId]);
+      const contender = new PostgresMcpOAuthGrantStore({ query: db.query.bind(db), connect: async () => ({ query: b.query.bind(b), release: () => {} }) });
+      const aPid = await pid(a); const bPid = await pid(b);
+      const work = contender.replace({ ...refresh, status: 'active', version: refresh.version + 1 }, refresh);
+      const outcome = work.then(value => ({ value }), error => ({ error }));
+      await waitForBlock(bPid, aPid); await a.query('commit'); assert.deepEqual(await outcome, { value: false });
+    });
+    const stored = await store.get(current.ownerId, current.serverId);
+    assert.equal(stored?.status, 'revoked'); assert.equal(stored?.ciphertext, null);
+  });
+  it('does not let an older generation overwrite a new authorization even when versions match', async () => {
+    const first = initial(); await store.begin(first); await store.revoke(first.ownerId, first.serverId);
+    const second = initial(first.ownerId, first.serverId); await store.begin(second);
+    assert.equal(await store.replace({ ...first, status: 'exchanging', version: 2 }, first), false);
+    assert.equal((await store.get(second.ownerId, second.serverId))?.grantId, second.grantId);
+  });
+  it('durably retains an uncertain refresh claim and forbids resetting it via begin', async () => {
+    const current = await active(); const next = { ...current, status: 'refreshing' as const, version: current.version + 1 };
+    assert.equal(await store.replace(next, current), true);
+    const restarted = new PostgresMcpOAuthGrantStore(db);
+    assert.equal((await restarted.get(current.ownerId, current.serverId))?.status, 'refreshing');
+    await assert.rejects(restarted.begin(initial(current.ownerId, current.serverId)), /MCP_OAUTH_STORE_UNAVAILABLE/);
+    await restarted.revoke(current.ownerId, current.serverId);
+    await restarted.begin(initial(current.ownerId, current.serverId));
+  });
+  it('enforces owner capacity and browser-role denial', async () => {
+    const owner = randomUUID();
+    const outcomes = await Promise.allSettled(Array.from({ length: 21 }, (_, i) => store.begin(initial(owner, `server-${i}`))));
+    assert.equal(outcomes.filter(value => value.status === 'fulfilled').length, 20);
+    assert.equal(outcomes.filter(value => value.status === 'rejected').length, 1);
+    for (const role of ['anon', 'authenticated']) {
+      assert.equal((await db.query("select has_table_privilege($1, 'public.origin_mcp_oauth_grants', 'SELECT,INSERT,UPDATE,DELETE') as allowed", [role])).rows[0].allowed, false);
+    }
+    assert.equal((await db.query("select relrowsecurity from pg_class where oid = 'public.origin_mcp_oauth_grants'::regclass")).rows[0].relrowsecurity, true);
   });
 });
