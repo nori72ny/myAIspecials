@@ -11,12 +11,14 @@ async function loadOriginApp(): Promise<Express> {
   originAppPromise ??= Promise.all([
     import("../src/server/createOriginApp.js"),
     import("../src/mcp/mcpProductionRuntime.js"),
-  ]).then(([{ createOriginApp }, { createMcpProductionRuntimeFromEnv, createMcpProductionSessionRouterFromEnv }]) =>
-    createOriginApp(process.env, {
-      mcp: createMcpProductionRuntimeFromEnv(process.env),
+  ]).then(([{ createOriginApp }, { createMcpProductionRuntimeFromEnv, createMcpProductionSessionRouterFromEnv }]) => {
+    const mcp = createMcpProductionRuntimeFromEnv(process.env);
+    return createOriginApp(process.env, {
+      mcp,
+      mcpAgent: mcp?.agentRouter,
       mcpSession: createMcpProductionSessionRouterFromEnv(process.env),
-    }),
-  );
+    });
+  });
   return originAppPromise;
 }
 
