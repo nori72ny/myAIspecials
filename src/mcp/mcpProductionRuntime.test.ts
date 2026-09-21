@@ -76,8 +76,9 @@ describe('MCP production runtime composition', () => {
   it('accepts an explicitly reviewed GitHub-style OAuth profile without resource/issuer response requirements', () => {
     const env = enabledEnv();
     const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
-    config[0].endpoint = 'https://api.githubcopilot.com/mcp/x/repos/readonly';
+    config[0].endpoint = 'https://api.githubcopilot.com/mcp';
     config[0].executionMode = 'read-only';
+    config[0].transportProfile = 'github-repos-readonly';
     config[0].zeroCostEvidence = {
       evidenceId: 'github-mcp-all-users',
       verifiedAt: new Date(Date.now() - 60_000).toISOString(),
