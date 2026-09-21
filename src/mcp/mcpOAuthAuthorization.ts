@@ -4,11 +4,15 @@ import { openMcpCredential, sealMcpCredential } from './mcpConnections.js';
 
 export interface McpOAuthProvider {
   serverId: string; issuer: string; authorizationEndpoint: string; tokenEndpoint: string;
-  clientId: string; redirectUri: string; resource: string; scopes: readonly string[];
+  clientId: string; redirectUri: string; resource?: string; scopes: readonly string[];
+  /** Authorization-only scopes that a provider intentionally omits from token scope responses (for example GitHub offline_access). */
+  untrackedScopes?: readonly string[];
+  /** Some providers forbid a scope parameter on refresh. Default is include. */
+  refreshScope?: 'include' | 'omit';
   revocationEndpoint?: string;
-  tokenEndpointAuthMethod?: 'none' | 'client_secret_basic';
-  /** Reviewed metadata must advertise S256 and authorization_response_iss_parameter_supported. */
-  pkceS256: true; responseIssuer: true; zeroCostApproved: true;
+  tokenEndpointAuthMethod?: 'none' | 'client_secret_basic' | 'client_secret_post';
+  /** Explicitly reviewed provider capability. When true, callback issuer is mandatory; when false, state+PKCE+session binding remain mandatory. */
+  pkceS256: true; responseIssuer: boolean; zeroCostApproved: true;
 }
 export interface McpOAuthPending {
   ownerId: string; serverId: string; stateHash: string; sessionHash: string;
@@ -29,8 +33,9 @@ export interface McpOAuthIdentity {
 export const oauthHash = (value: string): string => createHash('sha256').update(value).digest('hex');
 export const oauthProviderHash = (provider: McpOAuthProvider): string => oauthHash(JSON.stringify([
   provider.serverId, provider.issuer, provider.authorizationEndpoint, provider.tokenEndpoint,
-  provider.clientId, provider.redirectUri, provider.resource, [...provider.scopes].sort(),
-  provider.revocationEndpoint ?? null, provider.tokenEndpointAuthMethod ?? 'none',
+  provider.clientId, provider.redirectUri, provider.resource ?? null, [...provider.scopes].sort(),
+  [...(provider.untrackedScopes ?? [])].sort(), provider.refreshScope ?? 'include',
+  provider.revocationEndpoint ?? null, provider.tokenEndpointAuthMethod ?? 'none', provider.responseIssuer,
 ]));
 const fail = (code: string): never => { throw new Error(code); };
 function endpoint(raw: string): void {
@@ -60,13 +65,18 @@ export class McpOAuthAuthorization {
     this.key = Buffer.from(key);
     this.providers = new Map(providers.map(value => {
       const provider = structuredClone(value);
-      for (const url of [provider.issuer, provider.authorizationEndpoint, provider.tokenEndpoint, provider.redirectUri, provider.resource]) endpoint(url);
+      for (const url of [provider.issuer, provider.authorizationEndpoint, provider.tokenEndpoint, provider.redirectUri]) endpoint(url);
+      if (provider.resource !== undefined) endpoint(provider.resource);
       if (provider.revocationEndpoint !== undefined) endpoint(provider.revocationEndpoint);
-      if (!['none', 'client_secret_basic'].includes(provider.tokenEndpointAuthMethod ?? 'none')) fail('MCP_OAUTH_CONFIG_INVALID');
+      if (!['none', 'client_secret_basic', 'client_secret_post'].includes(provider.tokenEndpointAuthMethod ?? 'none')) fail('MCP_OAUTH_CONFIG_INVALID');
+      const untrackedScopes = provider.untrackedScopes ?? [];
       if (!/^[A-Za-z0-9-]{1,64}$/.test(provider.serverId) || !provider.clientId || provider.clientId.length > 2048 || /[\x00-\x20\x7f]/.test(provider.clientId)
-        || provider.pkceS256 !== true || provider.responseIssuer !== true || provider.zeroCostApproved !== true
+        || provider.pkceS256 !== true || typeof provider.responseIssuer !== 'boolean' || provider.zeroCostApproved !== true
         || !provider.scopes.length || provider.scopes.length > 20 || new Set(provider.scopes).size !== provider.scopes.length
-        || provider.scopes.some(scope => !/^[\x21\x23-\x5b\x5d-\x7e]{1,128}$/.test(scope))) fail('MCP_OAUTH_CONFIG_INVALID');
+        || provider.scopes.some(scope => !/^[\x21\x23-\x5b\x5d-\x7e]{1,128}$/.test(scope))
+        || untrackedScopes.length > provider.scopes.length || new Set(untrackedScopes).size !== untrackedScopes.length
+        || untrackedScopes.some(scope => !provider.scopes.includes(scope))
+        || !['include', 'omit'].includes(provider.refreshScope ?? 'include')) fail('MCP_OAUTH_CONFIG_INVALID');
       const configHash = oauthProviderHash(provider);
       return [provider.serverId, { provider, configHash }];
     }));
@@ -85,9 +95,11 @@ export class McpOAuthAuthorization {
     record.verifierCiphertext = sealMcpCredential(verifier, encryptionBinding(record), this.key);
     try { await this.store.put(record); } catch { return fail('MCP_OAUTH_STORE_UNAVAILABLE'); }
     const url = new URL(provider.authorizationEndpoint);
-    url.search = new URLSearchParams({ response_type: 'code', client_id: provider.clientId, redirect_uri: provider.redirectUri,
-      scope: provider.scopes.join(' '), resource: provider.resource, state,
-      code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString();
+    const params = new URLSearchParams({ response_type: 'code', client_id: provider.clientId, redirect_uri: provider.redirectUri,
+      scope: provider.scopes.join(' '), state,
+      code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
+    if (provider.resource) params.set('resource', provider.resource);
+    url.search = params.toString();
     return { authorizationUrl: url.href };
   }
   /** INTERNAL ONLY: the result contains secrets for the broker's guarded server-side exchange.
@@ -97,8 +109,9 @@ export class McpOAuthAuthorization {
   async consumeCallback(who: McpOAuthIdentity, serverId: string, query: URLSearchParams): Promise<{ tokenEndpoint: string; form: URLSearchParams; grantId: string; configHash: string }> {
     const sessionHash = oauthIdentityHash(who);
     const { provider, configHash } = this.configured(serverId);
+    const callbackIssuer = query.get('iss');
     if (query.toString().length > 16_384 || [...new Set(query.keys())].some(key => query.getAll(key).length !== 1)
-      || query.get('iss') !== provider.issuer) return fail('MCP_OAUTH_CALLBACK_INVALID');
+      || (provider.responseIssuer ? callbackIssuer !== provider.issuer : callbackIssuer !== null && callbackIssuer !== provider.issuer)) return fail('MCP_OAUTH_CALLBACK_INVALID');
     const state = query.get('state') ?? ''; const code = query.get('code'); const error = query.get('error');
     if (!/^[A-Za-z0-9_-]{43}$/.test(state) || query.has('code') === query.has('error') || (!code && !error)
       || (code && (code.length > 8192 || /[\x00-\x20\x7f]/.test(code)))) return fail('MCP_OAUTH_CALLBACK_INVALID');
@@ -111,7 +124,9 @@ export class McpOAuthAuthorization {
     try { verifier = openMcpCredential({ ...encryptionBinding(record), credential: record.verifierCiphertext }, this.key); }
     catch { return fail('MCP_OAUTH_STATE_INVALID'); }
     if (!/^[A-Za-z0-9_-]{43}$/.test(verifier)) return fail('MCP_OAUTH_STATE_INVALID');
-    return { tokenEndpoint: provider.tokenEndpoint, grantId: record.grantId, configHash, form: new URLSearchParams({ grant_type: 'authorization_code', code: code!,
-      client_id: provider.clientId, redirect_uri: provider.redirectUri, resource: provider.resource, code_verifier: verifier }) };
+    const form = new URLSearchParams({ grant_type: 'authorization_code', code: code!,
+      client_id: provider.clientId, redirect_uri: provider.redirectUri, code_verifier: verifier });
+    if (provider.resource) form.set('resource', provider.resource);
+    return { tokenEndpoint: provider.tokenEndpoint, grantId: record.grantId, configHash, form };
   }
 }
