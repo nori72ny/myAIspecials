@@ -11,7 +11,7 @@ const server: McpServerChoice = {
   endpoint: 'https://api.githubcopilot.com/mcp',
   zeroCostApproved: true,
   executionMode: 'read-only',
-  transportProfile: 'github-repos-readonly',
+  transportProfile: 'github-file-readonly',
   zeroCostEvidence: {
     evidenceId: 'github-remote-mcp',
     verifiedAt: '2026-09-21T00:00:00.000Z',
@@ -98,7 +98,7 @@ describe('MCP OAuth discovery verification', () => {
     expect(f.calls[0].endpoint).toBe(server.endpoint);
     expect(f.calls[0].fixed).toEqual({
       'X-MCP-Readonly': 'true',
-      'X-MCP-Toolsets': 'repos',
+      'X-MCP-Tools': 'get_file_contents',
     });
     expect(f.calls.map(call => call.endpoint)).toContain(
       'https://github.com/.well-known/oauth-authorization-server/login/oauth',
