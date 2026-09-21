@@ -40,6 +40,7 @@ export async function latestReservedAt({
   workflow,
   currentRunId,
   token,
+  includeCurrentRunReservations = false,
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
@@ -49,7 +50,8 @@ export async function latestReservedAt({
   let latest = null;
 
   for (const run of runs) {
-    if (!run || String(run.id) === String(currentRunId)) continue;
+    if (!run) continue;
+    if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
     const createdAt = typeof run.created_at === "string" ? run.created_at : "";
     const createdMs = Date.parse(createdAt);
     if (!Number.isFinite(createdMs)) continue;
@@ -75,6 +77,7 @@ export async function checkLiveQuota({
   repository,
   currentRunId,
   token,
+  includeCurrentRunReservations = false,
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
@@ -84,6 +87,7 @@ export async function checkLiveQuota({
       workflow: UNIFIED_WORKFLOW,
       currentRunId,
       token,
+      includeCurrentRunReservations,
       nowMs,
       fetchImpl,
     }),
@@ -92,6 +96,7 @@ export async function checkLiveQuota({
       workflow: LEGACY_WORKFLOW,
       currentRunId,
       token,
+      includeCurrentRunReservations,
       nowMs,
       fetchImpl,
     }),
@@ -121,7 +126,14 @@ async function main() {
   const token = required("GITHUB_TOKEN");
   const output = required("GITHUB_OUTPUT");
 
-  const result = await checkLiveQuota({ repository, currentRunId, token });
+  const includeCurrentRunReservations =
+    process.env.AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS?.trim() === "true";
+  const result = await checkLiveQuota({
+    repository,
+    currentRunId,
+    token,
+    includeCurrentRunReservations,
+  });
   await appendFile(output, `allowed=${result.allowed ? "true" : "false"}\n`, "utf8");
   await appendFile(output, `next_allowed_at=${result.nextAllowedAt ?? ""}\n`, "utf8");
   await appendFile(output, `remaining_seconds=${result.remainingSeconds}\n`, "utf8");
