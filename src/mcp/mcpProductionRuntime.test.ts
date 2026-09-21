@@ -72,6 +72,39 @@ describe('MCP production runtime composition', () => {
     expect(createMcpProductionSessionRouterFromEnv(env)).toBeDefined();
   });
 
+  it('accepts an explicitly reviewed GitHub-style OAuth profile without resource/issuer response requirements', () => {
+    const env = enabledEnv();
+    const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
+    config[0].endpoint = 'https://api.githubcopilot.com/mcp/';
+    config[0].zeroCostEvidence = {
+      evidenceId: 'github-mcp-all-users',
+      verifiedAt: new Date(Date.now() - 60_000).toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      termsUrl: 'https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp-in-your-ide/use-the-github-mcp-server',
+      billingPlan: 'free',
+      paidFallback: false,
+    };
+    config[0].oauth = {
+      issuer: 'https://github.com/',
+      authorizationEndpoint: 'https://github.com/login/oauth/authorize',
+      tokenEndpoint: 'https://github.com/login/oauth/access_token',
+      clientId: 'origin-github-fixture',
+      clientSecretEnv: 'ORIGIN_MCP_GITHUB_CLIENT_SECRET',
+      redirectUri: 'https://origin.example.com/api/mcp/oauth/docs/callback',
+      scopes: ['repo', 'offline_access'],
+      untrackedScopes: ['offline_access'],
+      refreshScope: 'omit',
+      tokenEndpointAuthMethod: 'client_secret_post',
+      pkceS256: true,
+      responseIssuer: false,
+      zeroCostApproved: true,
+    };
+    env.ORIGIN_MCP_GITHUB_CLIENT_SECRET = 'fixture-secret';
+    env.ORIGIN_MCP_REVIEWED_SERVERS_JSON = JSON.stringify(config);
+    const runtime = createMcpProductionRuntimeFromEnv(env);
+    expect(runtime?.oauth?.supports('docs')).toBe(true);
+  });
+
   it.each([
     ['FREE_ONLY', 'false'],
     ['SUPABASE_PUBLISHABLE_KEY', ''],
