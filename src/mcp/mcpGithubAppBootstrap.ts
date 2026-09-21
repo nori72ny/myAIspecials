@@ -72,6 +72,29 @@ export class McpGithubAppSecretCipher {
   }
 }
 
+export function createMcpGithubAppSecretCipherFromKeyringJson(raw: string): McpGithubAppSecretCipher {
+  if (Buffer.byteLength(raw) > 16 * 1024) throw new Error('MCP_GITHUB_KEY_CONFIG_INVALID');
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { throw new Error('MCP_GITHUB_KEY_CONFIG_INVALID'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('MCP_GITHUB_KEY_CONFIG_INVALID');
+  const value = parsed as Record<string, unknown>;
+  if (Object.keys(value).some(key => !['activeKeyId', 'keys'].includes(key))
+    || typeof value.activeKeyId !== 'string'
+    || !value.keys || typeof value.keys !== 'object' || Array.isArray(value.keys)) throw new Error('MCP_GITHUB_KEY_CONFIG_INVALID');
+  const entries = Object.entries(value.keys as Record<string, unknown>);
+  if (entries.length < 1 || entries.length > 5) throw new Error('MCP_GITHUB_KEY_CONFIG_INVALID');
+  const keys: Record<string, Buffer> = {};
+  for (const [id, rawKey] of entries) {
+    if (!KEY_ID.test(id) || typeof rawKey !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(rawKey) || rawKey.length > 64) {
+      throw new Error('MCP_GITHUB_KEY_CONFIG_INVALID');
+    }
+    const key = Buffer.from(rawKey, 'base64');
+    if (key.length !== 32) throw new Error('MCP_GITHUB_KEY_CONFIG_INVALID');
+    keys[id] = key;
+  }
+  return new McpGithubAppSecretCipher(value.activeKeyId, keys);
+}
+
 export type McpGithubBootstrapIdentity = { ownerId: string; sessionBinding: string };
 
 export type McpGithubManifest = {
