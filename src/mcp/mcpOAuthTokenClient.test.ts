@@ -29,13 +29,15 @@ describe('MCP OAuth token endpoint boundary', () => {
     expect(new Headers(init.headers).get('authorization')).toBe(`Basic ${Buffer.from(`origin:${secret}`).toString('base64')}`);
     expect(String(init.body)).not.toContain(secret); expect(new URLSearchParams(String(init.body)).has('client_id')).toBe(false);
   });
-  it('supports reviewed client_secret_post providers with untracked authorization scopes and no refresh scope/resource', async () => {
+  it('supports reviewed GitHub-style exchange/refresh and confirms remote grant revocation', async () => {
     const secret = randomBytes(32).toString('base64url');
     const compatible: McpOAuthProvider = { ...provider, resource: undefined, scopes: ['repo', 'offline_access'],
-      untrackedScopes: ['offline_access'], refreshScope: 'omit', responseIssuer: false, tokenEndpointAuthMethod: 'client_secret_post' };
-    const requests: URLSearchParams[] = [];
-    const request = vi.fn(async (_url, init) => {
-      requests.push(new URLSearchParams(String(init?.body)));
+      untrackedScopes: ['offline_access'], refreshScope: 'omit', responseIssuer: false, tokenEndpointAuthMethod: 'client_secret_post',
+      revocationEndpoint: 'https://api.github.com/applications/origin/grant', revocationMethod: 'github-delete-grant' };
+    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const request = vi.fn(async (url, init) => {
+      requests.push({ url: String(url), init: init ?? {} });
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 });
       return Response.json({ ...responseBody(), scope: 'repo' });
     });
     const client = new McpOAuthTokenClient(compatible, secret, { guardedFetchFactory: () => request });
@@ -43,14 +45,21 @@ describe('MCP OAuth token endpoint boundary', () => {
       redirect_uri: compatible.redirectUri, code: randomBytes(32).toString('hex'), code_verifier: randomBytes(32).toString('base64url') });
     const first = await client.exchange(exchangeForm);
     expect(first.scopes).toEqual(['repo']);
-    expect(requests[0].get('client_id')).toBe(compatible.clientId);
-    expect(requests[0].get('client_secret')).toBe(secret);
-    expect(requests[0].has('resource')).toBe(false);
+    const firstBody = new URLSearchParams(String(requests[0].init.body));
+    expect(firstBody.get('client_id')).toBe(compatible.clientId);
+    expect(firstBody.get('client_secret')).toBe(secret);
+    expect(firstBody.has('resource')).toBe(false);
     const fresh = await client.refresh(first);
     expect(fresh.scopes).toEqual(['repo']);
-    expect(requests[1].has('scope')).toBe(false);
-    expect(requests[1].has('resource')).toBe(false);
-    expect(requests[1].get('client_secret')).toBe(secret);
+    const refreshBody = new URLSearchParams(String(requests[1].init.body));
+    expect(refreshBody.has('scope')).toBe(false);
+    expect(refreshBody.has('resource')).toBe(false);
+    expect(refreshBody.get('client_secret')).toBe(secret);
+    expect(await client.revoke(fresh)).toBe(true);
+    expect(requests[2].url).toBe(compatible.revocationEndpoint);
+    expect(requests[2].init.method).toBe('DELETE');
+    expect(JSON.parse(String(requests[2].init.body))).toEqual({ access_token: fresh.accessToken });
+    expect(new Headers(requests[2].init.headers).get('authorization')).toBe(`Basic ${Buffer.from(`origin:${secret}`).toString('base64')}`);
   });
 
   it.each([
