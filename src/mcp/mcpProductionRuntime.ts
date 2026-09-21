@@ -34,7 +34,7 @@ function exactHttps(raw: unknown): string {
 function verifiedReadOnlyExecutionEndpoint(endpoint: string, profile: unknown): boolean {
   if (profile !== 'github-file-readonly') return false;
   const url = new URL(endpoint);
-  return url.origin === 'https://api.githubcopilot.com' && url.pathname === '/mcp';
+  return url.origin === 'https://api.githubcopilot.com' && url.pathname === '/mcp/x/repos/readonly';
 }
 
 function key32(raw: unknown): Buffer {
