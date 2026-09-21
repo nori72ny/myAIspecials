@@ -62,6 +62,47 @@ describe('MCP OAuth token endpoint boundary', () => {
     expect(new Headers(requests[2].init.headers).get('authorization')).toBe(`Basic ${Buffer.from(`origin:${secret}`).toString('base64')}`);
   });
 
+  it('supports expiring GitHub App user tokens without OAuth scopes', async () => {
+    const secret = randomBytes(32).toString('base64url');
+    const githubApp: McpOAuthProvider = {
+      ...provider,
+      resource: undefined,
+      permissionModel: 'github-app',
+      scopes: [],
+      refreshScope: 'omit',
+      responseIssuer: false,
+      tokenEndpointAuthMethod: 'client_secret_post',
+      revocationEndpoint: 'https://api.github.com/applications/origin/grant',
+      revocationMethod: 'github-delete-grant',
+    };
+    const replies = [
+      { access_token: `ghu_${randomBytes(24).toString('hex')}`, refresh_token: `ghr_${randomBytes(24).toString('hex')}`, expires_in: 28800, token_type: 'bearer', scope: '' },
+      { access_token: `ghu_${randomBytes(24).toString('hex')}`, refresh_token: `ghr_${randomBytes(24).toString('hex')}`, expires_in: 28800, token_type: 'bearer', scope: '' },
+    ];
+    let reply = 0;
+    const requests: RequestInit[] = [];
+    const request = vi.fn(async (_url, init) => {
+      requests.push(init ?? {});
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+      return Response.json(replies[reply++]);
+    });
+    const client = new McpOAuthTokenClient(githubApp, secret, { guardedFetchFactory: () => request });
+    const exchangeForm = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: githubApp.clientId,
+      redirect_uri: githubApp.redirectUri,
+      code: randomBytes(32).toString('hex'),
+      code_verifier: randomBytes(32).toString('base64url'),
+    });
+    const first = await client.exchange(exchangeForm);
+    expect(first.scopes).toEqual([]);
+    expect(first.accessToken.startsWith('ghu_')).toBe(true);
+    const refreshed = await client.refresh(first);
+    expect(refreshed.scopes).toEqual([]);
+    expect(new URLSearchParams(String(requests[1].body)).has('scope')).toBe(false);
+    expect(await client.revoke(refreshed)).toBe(true);
+  });
+
   it.each([
     { token_type: 'DPoP' }, { access_token: 'bad\r\nheader' }, { expires_in: 0 }, { expires_in: '3600' },
     { expires_in: 86401 }, { scope: 'read write' }, { scope: 'read read' }, { error: 'secret-upstream-details' },
