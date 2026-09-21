@@ -184,6 +184,19 @@ export class McpGithubAppBootstrap {
     return who;
   }
 
+  async status(who: McpGithubBootstrapIdentity) {
+    this.identity(who);
+    const registration = await this.options.registrationStore.get(who.ownerId);
+    return registration?.status === 'registered'
+      ? {
+          configured: true as const,
+          registered: true as const,
+          appSlug: registration.appSlug,
+          registrationFingerprint: registration.registrationFingerprint,
+        }
+      : { configured: true as const, registered: false as const };
+  }
+
   async begin(who: McpGithubBootstrapIdentity) {
     this.identity(who);
     if (await this.options.registrationStore.get(who.ownerId)) throw new Error('MCP_GITHUB_APP_ALREADY_REGISTERED');
