@@ -35,6 +35,20 @@ jobs:
           path: runner
           persist-credentials: false
 
+      - name: Detect final held-out priority
+        id: heldout_priority
+        shell: bash
+        env:
+          FINAL_CORPUS: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "$FINAL_CORPUS" ]; then
+            echo "pause_aq=true" >> "$GITHUB_OUTPUT"
+            echo "Final held-out corpus is configured; AQ provider execution is paused to open a clean 24-hour window."
+          else
+            echo "pause_aq=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Restore and validate completed shard evidence
         id: state
         env:
@@ -42,7 +56,7 @@ jobs:
         run: node runner/scripts/prepare-aq-live-final-state.mjs
 
       - name: Enforce global 24-hour live quota guard
-        if: steps.state.outputs.complete != 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true'
         id: quota_guard
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -50,7 +64,7 @@ jobs:
         run: node runner/scripts/check-aq-live-quota-guard.mjs
 
       - name: Checkout exact candidate
-        if: steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && (steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true')
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ env.CANDIDATE_SHA }}
@@ -58,7 +72,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node 24
-        if: steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && (steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true')
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
@@ -66,12 +80,12 @@ jobs:
           cache-dependency-path: candidate/package-lock.json
 
       - name: Install exact candidate dependencies
-        if: steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && (steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true')
         working-directory: candidate
         run: npm ci --ignore-scripts
 
       - name: Resolve and verify frozen quota plan
-        if: steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && (steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true')
         id: plan
         working-directory: candidate
         shell: bash
@@ -84,7 +98,7 @@ jobs:
           test "$max" -eq 616
 
       - name: Create sanitized quota reservation
-        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
         env:
           NEXT_INDEX: ${{ steps.state.outputs.next_index }}
         run: |
@@ -93,7 +107,7 @@ jobs:
           node -e 'const fs=require("fs"); fs.writeFileSync("aq-quota/reservation.json",JSON.stringify({schemaVersion:"origin.aq-live-quota-reservation.v1",runId:process.env.GITHUB_RUN_ID,candidateSha:process.env.CANDIDATE_SHA,shardIndex:Number(process.env.NEXT_INDEX),createdAt:new Date().toISOString()})+"\n",{mode:0o600})'
 
       - name: Reserve 24-hour provider quota
-        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: aq-live-quota-reservation
@@ -102,7 +116,7 @@ jobs:
           retention-days: 2
 
       - name: Checkout frozen baseline
-        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ env.BASELINE_SHA }}
@@ -110,12 +124,12 @@ jobs:
           persist-credentials: false
 
       - name: Install exact baseline dependencies
-        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
         working-directory: baseline
         run: npm ci --ignore-scripts
 
       - name: Verify credential boundary
-        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
         run: |
           set -euo pipefail
           test -n "$OPENROUTER_API_KEY"
@@ -124,7 +138,7 @@ jobs:
           test -z "${GEMINI_API_KEY:-}"
 
       - name: Run next exact-main shard comparison
-        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
         working-directory: candidate
         env:
           ORIGIN_AQ_SHARD_INDEX: ${{ steps.state.outputs.next_index }}
@@ -136,7 +150,7 @@ jobs:
         run: npm run eval:aq-local-comparison-shard
 
       - name: Require successful sanitized shard
-        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
         env:
           NEXT_INDEX: ${{ steps.state.outputs.next_index }}
         run: |
@@ -145,7 +159,7 @@ jobs:
           node -e 'const fs=require("fs"); const raw=fs.readFileSync(process.argv[1],"utf8"); const v=JSON.parse(raw); const forbidden=["answerText","\"prompt\"","\"messages\"","chain-of-thought","OPENROUTER_API_KEY"]; if(forbidden.some(x=>raw.includes(x))||v?.ok!==true||v?.shard?.candidateGitSha!==process.env.CANDIDATE_SHA||v?.shard?.baselineGitSha!==process.env.BASELINE_SHA||v?.shard?.shardIndex!==Number(process.env.NEXT_INDEX)) process.exit(1)' "$file"
 
       - name: Upload successful shard evidence
-        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true' && success()
+        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true' && success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: aq-live-final-shard-${{ env.CANDIDATE_SHA }}-s${{ steps.state.outputs.next_index }}
