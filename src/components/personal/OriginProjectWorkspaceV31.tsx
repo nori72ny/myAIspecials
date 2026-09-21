@@ -49,7 +49,7 @@ export default function OriginProjectWorkspaceV31({
   return <section aria-label="Project Workspace" className="origin-project-context px-3 sm:px-5">
     <div className="mx-auto w-full max-w-7xl">
       <details className="group relative inline-block py-2">
-        <summary className="origin-muted flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-full px-2 text-xs font-semibold hover:bg-origin-surface-muted">
+        <summary aria-label="Project context" className="origin-muted flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-full px-3 text-xs font-semibold hover:bg-origin-surface-muted">
           <span>{projectLabel}</span>
           {activeView !== 'overview' && <span className="origin-badge inline-flex min-h-6 items-center border px-2 text-[10px] font-bold">{views.find(view => view.id === activeView)?.label}</span>}
         </summary>
