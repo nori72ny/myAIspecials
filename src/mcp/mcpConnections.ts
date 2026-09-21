@@ -9,6 +9,8 @@ export interface McpZeroCostEvidence {
 export interface McpServerChoice {
   id: string; label: string; endpoint: string; zeroCostApproved: true;
   zeroCostEvidence: McpZeroCostEvidence;
+  /** Only explicitly reviewed read-only servers are eligible for automatic agent execution. */
+  executionMode?: 'read-only';
 }
 export interface McpConnectionRecord {
   id: string; ownerId: string; serverId: string; endpoint: string;
