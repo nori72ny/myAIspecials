@@ -7,7 +7,7 @@ import OriginProjectWorkspaceV31 from '../OriginProjectWorkspaceV31';
 afterEach(cleanup);
 
 describe('OriginProjectWorkspaceV31', () => {
-  it('shows only grounded counts and keeps unavailable views disabled', () => {
+  it('shows grounded project context without reintroducing overview dashboard cards', () => {
     render(<OriginProjectWorkspaceV31
       mode="chat"
       messages={[{ id: 'm1', role: 'user', content: 'hello' }]}
@@ -19,7 +19,10 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={() => undefined}
     />);
 
-    expect(screen.getByText('1')).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Project Workspace' })).toBeTruthy();
+    expect(screen.getByText('Project')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Project Chat' }).textContent).toContain('1 messages');
+    expect(screen.queryByText('Conversation')).toBeNull();
     expect(screen.getByRole('button', { name: 'Project Files unavailable' }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByRole('button', { name: 'Project Tasks unavailable' }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByRole('button', { name: 'Project Sources unavailable' }).hasAttribute('disabled')).toBe(true);
@@ -39,11 +42,12 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={onViewChange}
     />);
 
+    expect(screen.getByText('Project · 1')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
     expect(onViewChange).toHaveBeenCalledWith('artifacts');
   });
 
-  it('does not mutate Mode when project views change', () => {
+  it('keeps project view changes isolated from workspace mode', () => {
     const onViewChange = vi.fn();
     render(<OriginProjectWorkspaceV31
       mode="research"
@@ -58,7 +62,8 @@ describe('OriginProjectWorkspaceV31', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Project Chat' }));
     expect(onViewChange).toHaveBeenCalledWith('chat');
-    expect(screen.getByText('Research')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Project Sources unavailable' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('region', { name: 'Project Workspace' })).toBeTruthy();
   });
 
   it('enables Sources only from validated research evidence', () => {
