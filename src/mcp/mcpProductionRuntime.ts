@@ -22,6 +22,7 @@ const CLIENT_SECRET_ENV = /^ORIGIN_MCP_[A-Z0-9_]+_CLIENT_SECRET$/;
 const KEY_ID = /^[A-Za-z0-9_-]{1,32}$/;
 const SERVER_ID = /^[A-Za-z0-9-]{1,64}$/;
 const CERTIFICATE_BLOCK = /-----BEGIN CERTIFICATE-----\r?\n[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----/g;
+const DYNAMIC_GITHUB_CLIENT_ID = 'origin-dynamic-github-app';
 
 const invalid = (): never => { throw new Error('MCP_RUNTIME_CONFIG_INVALID'); };
 
@@ -75,7 +76,8 @@ type ReviewedOAuth = {
   issuer: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
-  clientId: string;
+  clientId?: string;
+  clientIdSource?: 'github-app-registration';
   redirectUri: string;
   resource?: string;
   scopes: string[];
@@ -115,6 +117,7 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
   const servers: McpServerChoice[] = [];
   const providers: McpOAuthProvider[] = [];
   const clientSecrets: Record<string, string> = {};
+  const dynamicGithubServerIds: string[] = [];
 
   for (const item of parsed) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return invalid();
@@ -144,14 +147,17 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     if (value.executionMode === 'read-only' && !verifiedReadOnlyExecutionEndpoint(endpoint, value.transportProfile)) return invalid();
     const oauth = value.oauth as Record<string, unknown>;
     if (Object.keys(oauth).some(key => ![
-      'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'redirectUri', 'resource', 'scopes', 'permissionModel', 'untrackedScopes', 'refreshScope', 'revocationEndpoint', 'revocationMethod',
+      'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'clientIdSource', 'redirectUri', 'resource', 'scopes', 'permissionModel', 'untrackedScopes', 'refreshScope', 'revocationEndpoint', 'revocationMethod',
       'tokenEndpointAuthMethod', 'clientSecretEnv', 'pkceS256', 'responseIssuer', 'zeroCostApproved',
     ].includes(key))) return invalid();
 
+    const dynamicGithubClient = oauth.clientIdSource === 'github-app-registration';
+    if (oauth.clientIdSource !== undefined && !dynamicGithubClient) return invalid();
+    if (dynamicGithubClient ? oauth.clientId !== undefined : typeof oauth.clientId !== 'string' || !oauth.clientId || oauth.clientId.length > 2048 || /[\x00-\x20\x7f]/.test(oauth.clientId)) return invalid();
+
     const permissionModel = oauth.permissionModel === undefined ? 'oauth-scopes' : oauth.permissionModel;
     const untrackedScopes = oauth.untrackedScopes === undefined ? [] : oauth.untrackedScopes;
-    if (typeof oauth.clientId !== 'string' || !oauth.clientId || oauth.clientId.length > 2048 || /[\x00-\x20\x7f]/.test(oauth.clientId)
-      || !['oauth-scopes', 'github-app'].includes(String(permissionModel))
+    if (!['oauth-scopes', 'github-app'].includes(String(permissionModel))
       || !Array.isArray(oauth.scopes) || oauth.scopes.some(scope => typeof scope !== 'string')
       || (permissionModel === 'oauth-scopes' && oauth.scopes.length < 1)
       || (permissionModel === 'github-app' && oauth.scopes.length !== 0)
@@ -168,7 +174,6 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     if (!['none', 'client_secret_basic', 'client_secret_post'].includes(String(authMethod))) return invalid();
 
     if (value.transportProfile === 'github-file-readonly') {
-      const clientId = oauth.clientId;
       if (permissionModel !== 'github-app'
         || (oauth.scopes as unknown[]).length !== 0
         || untrackedScopes.length !== 0
@@ -179,15 +184,18 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
         || oauth.revocationMethod !== 'github-delete-grant'
         || exactHttps(oauth.issuer) !== 'https://github.com/login/oauth'
         || exactHttps(oauth.authorizationEndpoint) !== 'https://github.com/login/oauth/authorize'
-        || exactHttps(oauth.tokenEndpoint) !== 'https://github.com/login/oauth/access_token'
-        || typeof clientId !== 'string'
-        || exactHttps(oauth.revocationEndpoint) !== `https://api.github.com/applications/${encodeURIComponent(clientId)}/grant`) return invalid();
-    }
+        || exactHttps(oauth.tokenEndpoint) !== 'https://github.com/login/oauth/access_token') return invalid();
+      if (dynamicGithubClient) {
+        if (oauth.revocationEndpoint !== undefined || oauth.clientSecretEnv !== undefined) return invalid();
+        dynamicGithubServerIds.push(id);
+      } else {
+        const clientId = oauth.clientId as string;
+        if (exactHttps(oauth.revocationEndpoint) !== `https://api.github.com/applications/${encodeURIComponent(clientId)}/grant`) return invalid();
+      }
+    } else if (dynamicGithubClient) return invalid();
 
     if (authMethod === 'client_secret_basic' || authMethod === 'client_secret_post') {
-      if (oauth.clientSecretEnv === undefined) {
-        if (value.transportProfile !== 'github-file-readonly' || permissionModel !== 'github-app') return invalid();
-      } else {
+      if (!dynamicGithubClient) {
         if (typeof oauth.clientSecretEnv !== 'string' || !CLIENT_SECRET_ENV.test(oauth.clientSecretEnv)) return invalid();
         const secret = env[oauth.clientSecretEnv]?.trim();
         if (!secret || secret.length > 2048 || /[\x00-\x20\x7f]/.test(secret)) return invalid();
@@ -195,6 +203,10 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
       }
     } else if (oauth.clientSecretEnv !== undefined) return invalid();
 
+    const clientId = dynamicGithubClient ? DYNAMIC_GITHUB_CLIENT_ID : oauth.clientId as string;
+    const revocationEndpoint = dynamicGithubClient
+      ? `https://api.github.com/applications/${DYNAMIC_GITHUB_CLIENT_ID}/grant`
+      : oauth.revocationEndpoint === undefined ? undefined : exactHttps(oauth.revocationEndpoint);
     servers.push({ id, label: label.trim(), endpoint, zeroCostApproved: true,
       ...(value.executionMode === 'read-only' ? { executionMode: 'read-only' as const, transportProfile: 'github-file-readonly' as const } : {}),
       zeroCostEvidence: {
@@ -207,14 +219,14 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
       issuer: exactHttps(oauth.issuer),
       authorizationEndpoint: exactHttps(oauth.authorizationEndpoint),
       tokenEndpoint: exactHttps(oauth.tokenEndpoint),
-      clientId: oauth.clientId,
+      clientId,
       redirectUri,
       ...(oauth.resource === undefined ? {} : { resource: exactHttps(oauth.resource) }),
       scopes: oauth.scopes as string[],
       permissionModel: permissionModel as 'oauth-scopes' | 'github-app',
       ...(untrackedScopes.length === 0 ? {} : { untrackedScopes: untrackedScopes as string[] }),
       refreshScope: (oauth.refreshScope === undefined ? (permissionModel === 'github-app' ? 'omit' : 'include') : oauth.refreshScope) as 'include' | 'omit',
-      ...(oauth.revocationEndpoint === undefined ? {} : { revocationEndpoint: exactHttps(oauth.revocationEndpoint) }),
+      ...(revocationEndpoint === undefined ? {} : { revocationEndpoint }),
       ...(oauth.revocationMethod === undefined ? {} : { revocationMethod: oauth.revocationMethod as 'rfc7009-post' | 'github-delete-grant' }),
       tokenEndpointAuthMethod: authMethod as 'none' | 'client_secret_basic' | 'client_secret_post',
       pkceS256: true,
@@ -222,7 +234,7 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
       zeroCostApproved: true,
     });
   }
-  return { servers, providers, clientSecrets };
+  return { servers, providers, clientSecrets, dynamicGithubServerIds };
 }
 
 function tokenCipher(raw: string): McpOAuthTokenCipher {
@@ -281,18 +293,11 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     allowExitOnIdle: true,
   });
 
-  const dynamicGithubClientIds = new Map<string, string>();
-  for (const server of reviewed.servers) {
-    if (server.transportProfile !== 'github-file-readonly' || reviewed.clientSecrets[server.id]) continue;
-    const provider = reviewed.providers.find(candidate => candidate.serverId === server.id);
-    if (!provider || provider.permissionModel !== 'github-app' || provider.tokenEndpointAuthMethod !== 'client_secret_post') return invalid();
-    dynamicGithubClientIds.set(server.id, provider.clientId);
-  }
-
+  const dynamicGithubServerIds = new Set(reviewed.dynamicGithubServerIds);
   const githubBootstrapEnabled = env.ORIGIN_MCP_GITHUB_BOOTSTRAP_ENABLED === ENABLED;
   let githubRegistrationStore: PostgresMcpGithubAppRegistrationStore | undefined;
   let githubSecretCipher: ReturnType<typeof createMcpGithubAppSecretCipherFromKeyringJson> | undefined;
-  if (githubBootstrapEnabled || dynamicGithubClientIds.size > 0) {
+  if (githubBootstrapEnabled || dynamicGithubServerIds.size > 0) {
     const bootstrapKeyring = env.ORIGIN_MCP_GITHUB_APP_KEYRING_JSON?.trim();
     if (!bootstrapKeyring) return invalid();
     githubRegistrationStore = new PostgresMcpGithubAppRegistrationStore(pool);
@@ -306,12 +311,21 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     pkceKey: key32(pkceRaw.trim()),
     tokenCipher: tokenCipher(keyringRaw),
     clientSecrets: reviewed.clientSecrets,
-    ...(dynamicGithubClientIds.size > 0 ? {
-      resolveClientSecret: async (ownerId: string, serverId: string) => {
-        const expectedClientId = dynamicGithubClientIds.get(serverId);
-        if (!expectedClientId || !githubRegistrationStore || !githubSecretCipher) return undefined;
+    ...(dynamicGithubServerIds.size > 0 ? {
+      resolveProvider: async (ownerId: string, serverId: string, provider: McpOAuthProvider) => {
+        if (!dynamicGithubServerIds.has(serverId) || !githubRegistrationStore) return provider;
         const registration = await githubRegistrationStore.get(ownerId);
-        if (!registration || registration.status !== 'registered' || registration.clientId !== expectedClientId) return undefined;
+        if (!registration || registration.status !== 'registered') throw new Error('MCP_GITHUB_APP_NOT_REGISTERED');
+        return {
+          ...provider,
+          clientId: registration.clientId,
+          revocationEndpoint: `https://api.github.com/applications/${encodeURIComponent(registration.clientId)}/grant`,
+        };
+      },
+      resolveClientSecret: async (ownerId: string, serverId: string) => {
+        if (!dynamicGithubServerIds.has(serverId) || !githubRegistrationStore || !githubSecretCipher) return undefined;
+        const registration = await githubRegistrationStore.get(ownerId);
+        if (!registration || registration.status !== 'registered') return undefined;
         return githubSecretCipher.open(registration);
       },
     } : {}),
