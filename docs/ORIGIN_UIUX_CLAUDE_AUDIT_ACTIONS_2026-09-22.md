@@ -4,6 +4,16 @@ Source: Owner-provided external Claude audit of PR #607 baseline screenshots plu
 
 This file is an implementation ledger, not a claim that the audit is automatically correct. Each item is checked against repository code and classified as adopted, already resolved, in progress, pending, or evidence-required.
 
+## Current candidate
+
+PR #608 remains Draft / DO NOT MERGE.
+
+Latest UI candidate head at this checkpoint:
+
+`37c7b1ef6cfc6206360115b05cff5ac83af07f2d`
+
+Production is unchanged.
+
 ## P0
 
 ### 1. Multi-row chrome before conversation
