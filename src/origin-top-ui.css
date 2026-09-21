@@ -22,6 +22,34 @@
 .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child { max-width: 900px !important; padding-inline: clamp(18px, 4vw, 32px) !important; }
 .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child h1 { font-size: clamp(2rem, 4.2vw, 3.15rem) !important; line-height: 1.15 !important; letter-spacing: -0.045em !important; }
 .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > p { max-width: 640px !important; font-size: 16px !important; line-height: 1.75 !important; }
+
+/* PR #608 external-audit follow-up: keep artifacts from crushing the conversation. */
+.origin-personal-artifact-open .origin-project-context,
+.origin-personal-artifact-open [aria-label="Artifact layer"] { display: none !important; }
+.origin-personal-artifact-open .origin-workspace-shell > div { min-height: 48px !important; }
+
+@media (min-width: 768px) {
+  .origin-personal-artifact-open .origin-personal-chat {
+    margin-right: min(60vw, 860px);
+  }
+  .origin-personal-artifact-open > [data-testid="artifact-workspace"],
+  .origin-personal-chat [data-testid="artifact-workspace"] {
+    width: min(60vw, 860px) !important;
+  }
+  .origin-personal-chat:has([data-testid="artifact-workspace"]) .origin-app main {
+    margin-right: min(60vw, 860px);
+  }
+  .origin-personal-chat:has([data-testid="artifact-workspace"]) .origin-header {
+    min-height: 48px !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .origin-personal-artifact-open .origin-personal-chat { display: none !important; }
+  .origin-personal-artifact-open > [data-testid="artifact-workspace"],
+  .origin-personal-chat [data-testid="artifact-workspace"] { width: 100% !important; }
+}
+
 @media (max-width: 640px) {
   .origin-header { min-height: 64px !important; }
   [data-testid="origin-core-logo"] { width: 88px !important; height: 88px !important; margin-bottom: 16px !important; }
