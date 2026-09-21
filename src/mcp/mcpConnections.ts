@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
-import type { OriginMcpSession } from './mcpClient.js';
+import type { OriginMcpSession, ToolGrant } from './mcpClient.js';
+import type { McpToolGrantStore } from './mcpToolGrantStore.js';
 
 export interface McpZeroCostEvidence {
   evidenceId: string; verifiedAt: string; expiresAt: string; termsUrl: string;
@@ -63,6 +64,8 @@ export class McpConnectionService {
     disconnectCredential?: (ownerId: string, serverId: string) => Promise<void>;
     /** Must return an owner-scoped session with NO tool grants and the guarded transport. */
     createProbe: (ownerId: string, server: McpServerChoice, token: string) => Pick<OriginMcpSession, 'connect' | 'catalog' | 'close'>;
+    /** Optional only for pre-grant compatibility tests. Production wiring supplies the durable store. */
+    toolGrants?: McpToolGrantStore;
     now?: () => number;
   }) {
     if (options.servers.length > 20 || new Set(options.servers.map(s => s.id)).size !== options.servers.length) reject('MCP_MANAGEMENT_CONFIG_INVALID', 503);
@@ -131,6 +134,67 @@ export class McpConnectionService {
     if (!await this.options.store.replace(next, version)) return reject('MCP_CONNECTION_CHANGED', 409);
     return { connection: publicRecord(next), toolCount: verified ? toolCount : 0, verified };
   }
+  private async liveCatalog(ownerId: string, record: McpConnectionRecord) {
+    const server = this.server(record.serverId, record.endpoint);
+    const token = await this.credential(ownerId, record.serverId);
+    const session = this.options.createProbe(ownerId, structuredClone(server), token);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([session.connect(), new Promise<never>((_, rejectTimeout) => { timer = setTimeout(() => rejectTimeout(new Error('timeout')), 20_000); })]);
+      return session.catalog();
+    } catch {
+      return reject('MCP_TOOL_CATALOG_UNAVAILABLE', 503);
+    } finally {
+      clearTimeout(timer);
+      await session.close();
+    }
+  }
+
+  async catalog(ownerId: string, id: string, version: number) {
+    const record = await this.owned(ownerId, id, version);
+    if (record.status !== 'verified') return reject('MCP_CONNECTION_NOT_VERIFIED', 409);
+    const catalog = await this.liveCatalog(ownerId, record);
+    return catalog.map(entry => ({
+      alias: entry.alias,
+      name: entry.tool.name,
+      fingerprint: entry.fingerprint,
+      description: typeof entry.tool.description === 'string' ? entry.tool.description.slice(0, 1000) : '',
+    }));
+  }
+
+  async grants(ownerId: string, id: string, version: number): Promise<ToolGrant[]> {
+    const record = await this.owned(ownerId, id, version);
+    if (!this.options.toolGrants) return reject('MCP_TOOL_GRANTS_NOT_CONFIGURED', 503);
+    const grants = await this.options.toolGrants.list(ownerId, record.id);
+    return grants.map(grant => ({ ...grant }));
+  }
+
+  async approveGrants(ownerId: string, id: string, version: number, requested: readonly { alias: string; fingerprint: string }[]) {
+    const record = await this.owned(ownerId, id, version);
+    if (record.status !== 'verified') return reject('MCP_CONNECTION_NOT_VERIFIED', 409);
+    if (!this.options.toolGrants) return reject('MCP_TOOL_GRANTS_NOT_CONFIGURED', 503);
+    if (!Array.isArray(requested) || requested.length > 200 || new Set(requested.map(item => item.alias)).size !== requested.length) {
+      return reject('MCP_TOOL_GRANT_INVALID', 400);
+    }
+    const catalog = await this.liveCatalog(ownerId, record);
+    const byAlias = new Map(catalog.map(entry => [entry.alias, entry]));
+    const grants: ToolGrant[] = [];
+    for (const request of requested) {
+      if (!request || typeof request.alias !== 'string' || !/^[A-Za-z0-9_]{1,64}$/.test(request.alias)
+        || typeof request.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(request.fingerprint)) return reject('MCP_TOOL_GRANT_INVALID', 400);
+      const entry = byAlias.get(request.alias);
+      if (!entry || entry.fingerprint !== request.fingerprint) return reject('MCP_TOOL_CATALOG_CHANGED', 409);
+      grants.push({ name: entry.tool.name, fingerprint: entry.fingerprint });
+    }
+    try {
+      await this.options.toolGrants.replace(ownerId, record.serverId, record.id, version, grants);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'MCP_TOOL_GRANT_CONNECTION_CHANGED') return reject('MCP_CONNECTION_CHANGED', 409);
+      return reject('MCP_TOOL_GRANT_STORE_UNAVAILABLE', 503);
+    }
+    return { approved: grants.length };
+  }
+
   async remove(ownerId: string, id: string, version: number) {
     const record = await this.owned(ownerId, id, version);
     if (this.options.disconnectCredential) await this.options.disconnectCredential(ownerId, record.serverId);
