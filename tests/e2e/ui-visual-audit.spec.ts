@@ -43,6 +43,7 @@ test.describe('ORIGIN visual QA evidence', () => {
 
       await page.goto('/');
       await expect(page.getByTestId('origin-home-request')).toBeVisible();
+      await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
       const projectWorkspace = page.getByRole('region', { name: 'Project Workspace' });
       const projectBox = await projectWorkspace.boundingBox();
       expect(projectBox).not.toBeNull();
