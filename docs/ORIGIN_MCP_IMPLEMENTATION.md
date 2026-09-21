@@ -2,13 +2,14 @@
 
 Status: MCP client foundation, guarded Node HTTP/SSE transport, durable PostgreSQL stores,
 Supabase owner-session verification, server-side PKCE/OAuth token lifecycle, protected
-management routes and settings UI are implemented on PR #585. The three reviewed MCP
-schema migrations were applied to the live ORIGIN Supabase project on 2026-09-21 and
-verified with RLS enabled, no anon/authenticated SELECT privilege, service_role CRUD, and
-a rolled-back service-role write/read smoke. The default production application still
-runs main and MCP remains fail-closed/unconfigured because owner Auth, production runtime
-configuration and a live connector are not activated. No provider has been enabled, and
-main remains frozen at `f0c1bff22d3246d3eac3903b9def5d3aa7c1e498`.
+management routes, owner tool-chat boundary and settings UI are implemented on the current
+MCP port candidate. All four reviewed MCP schema migrations are present in the live ORIGIN
+Supabase project as of 2026-09-21 and were re-verified with RLS enabled, no
+anon/authenticated SELECT privilege and service_role CRUD. The four MCP tables currently
+contain zero rows. Supabase Auth currently has zero users and zero active sessions. MCP
+remains fail-closed/unconfigured in production because owner Auth, production runtime
+configuration and a live connector are not activated. No third-party MCP provider has
+been enabled or qualified in production.
 
 This document describes the current code, not a promise that a third-party service is
 available, free, authorized or production-ready.
@@ -82,7 +83,7 @@ refresh token.
   uniqueness.
 - Probe updates and deletes use compare-and-swap versions.
 - Browser roles are revoked and RLS is enabled with no browser policy.
-- The migration is unapplied to production.
+- The reviewed migration is applied to the live ORIGIN Supabase project. The table remains server-only and currently contains zero rows.
 
 `McpConnectionService` resolves a credential from the trusted broker immediately before
 registration and immediately before every probe. It never falls back to a token copied
@@ -141,10 +142,13 @@ This adapter does **not** issue the browser login session. The actual owner sign
 issuance flow remains an activation prerequisite.
 
 Live production observation on 2026-09-21: the connected ORIGIN Supabase project is
-healthy and remains on the Free plan. It has zero Auth users and zero active sessions.
-The three MCP tables are now present after the reviewed migrations were applied; RLS and
-server-only privileges were verified and a transactional service-role smoke was rolled
-back. No Auth user was created and MCP runtime activation remains disabled.
+healthy. It has zero Auth users and zero active sessions. All four MCP tables
+(`origin_mcp_connections`, `origin_mcp_oauth_pending`, `origin_mcp_oauth_grants`,
+`origin_mcp_tool_grants`) are present; RLS is enabled, anon/authenticated SELECT is
+absent, service_role CRUD is available, and all four tables currently contain zero rows.
+Supabase Security Advisor reports the expected informational "RLS enabled, no policy"
+finding for these server-only tables; no browser policy is intentionally created.
+No Auth user was created and MCP runtime activation remains disabled.
 
 ## Protected OAuth management flow
 
@@ -188,7 +192,7 @@ Still required before activation:
 - create the intended owner Auth user and implement/verify the browser session issuance
   flow that sets `__Host-origin-session`;
 - configure the server-side owner UUID allowlist without exposing it to the browser;
-- keep the three now-live MCP tables server-only; re-run security advisors and privilege
+- keep the four now-live MCP tables server-only; re-run security advisors and privilege
   checks after any schema change;
 - compose the OAuth broker and stores in the production server runtime with bounded DB
   pools and server-only encryption keys;
@@ -274,10 +278,11 @@ must be requalified.
 - Zero-cost evidence documentation head `a7680f46e6a3021605682c1555dd9db78488556f`:
   all six exact-head workflows succeeded and its Vercel Preview health reported that exact
   SHA with the USD 0 / no-paid-fallback contract intact.
-- Live database activation checkpoint, 2026-09-21: the three reviewed MCP migrations were
-  applied to the production Supabase project. RLS was enabled on all three tables;
-  anon/authenticated SELECT was absent; service_role CRUD was present; a transactional
-  write/read smoke succeeded and was rolled back. Auth users/sessions remained zero.
+- Live database activation checkpoint, 2026-09-21: all four reviewed MCP migrations are
+  present in the production Supabase project. RLS is enabled on all four tables;
+  anon/authenticated SELECT is absent; service_role CRUD is present; the MCP tables contain
+  zero rows and Auth users/sessions remain zero. Security Advisor's no-policy notices are
+  informational and consistent with the deliberate server-only/no-browser-policy design.
 
 No live third-party tool execution, customer send, main merge or production MCP deployment
 has been performed.
