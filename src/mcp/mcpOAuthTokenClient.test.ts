@@ -29,6 +29,30 @@ describe('MCP OAuth token endpoint boundary', () => {
     expect(new Headers(init.headers).get('authorization')).toBe(`Basic ${Buffer.from(`origin:${secret}`).toString('base64')}`);
     expect(String(init.body)).not.toContain(secret); expect(new URLSearchParams(String(init.body)).has('client_id')).toBe(false);
   });
+  it('supports reviewed client_secret_post providers with untracked authorization scopes and no refresh scope/resource', async () => {
+    const secret = randomBytes(32).toString('base64url');
+    const compatible: McpOAuthProvider = { ...provider, resource: undefined, scopes: ['repo', 'offline_access'],
+      untrackedScopes: ['offline_access'], refreshScope: 'omit', responseIssuer: false, tokenEndpointAuthMethod: 'client_secret_post' };
+    const requests: URLSearchParams[] = [];
+    const request = vi.fn(async (_url, init) => {
+      requests.push(new URLSearchParams(String(init?.body)));
+      return Response.json({ ...responseBody(), scope: 'repo' });
+    });
+    const client = new McpOAuthTokenClient(compatible, secret, { guardedFetchFactory: () => request });
+    const exchangeForm = new URLSearchParams({ grant_type: 'authorization_code', client_id: compatible.clientId,
+      redirect_uri: compatible.redirectUri, code: randomBytes(32).toString('hex'), code_verifier: randomBytes(32).toString('base64url') });
+    const first = await client.exchange(exchangeForm);
+    expect(first.scopes).toEqual(['repo']);
+    expect(requests[0].get('client_id')).toBe(compatible.clientId);
+    expect(requests[0].get('client_secret')).toBe(secret);
+    expect(requests[0].has('resource')).toBe(false);
+    const fresh = await client.refresh(first);
+    expect(fresh.scopes).toEqual(['repo']);
+    expect(requests[1].has('scope')).toBe(false);
+    expect(requests[1].has('resource')).toBe(false);
+    expect(requests[1].get('client_secret')).toBe(secret);
+  });
+
   it.each([
     { token_type: 'DPoP' }, { access_token: 'bad\r\nheader' }, { expires_in: 0 }, { expires_in: '3600' },
     { expires_in: 86401 }, { scope: 'read write' }, { scope: 'read read' }, { error: 'secret-upstream-details' },
