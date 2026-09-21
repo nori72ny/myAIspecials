@@ -55,6 +55,10 @@ test.describe('ORIGIN visual QA evidence', () => {
         expect(workspaceBox!.height).toBeLessThanOrEqual(150);
       }
       if (viewport.name === 'tablet-768') expect(projectBox!.height).toBeLessThanOrEqual(360);
+      const startBox = await page.getByTestId('start-request-button').boundingBox();
+      expect(startBox).not.toBeNull();
+      expect(startBox!.y).toBeGreaterThanOrEqual(0);
+      expect(startBox!.y + startBox!.height).toBeLessThanOrEqual(viewport.height);
       await testInfo.attach(`origin-home-${viewport.name}.png`, {
         body: await page.screenshot({ fullPage: true }),
         contentType: 'image/png',
