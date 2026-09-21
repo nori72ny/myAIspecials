@@ -102,10 +102,11 @@ const MAX_EVIDENCE_LIFETIME_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 function validEvidenceProvenance(
-  provenance: OriginQualityEvidenceProvenance,
+  provenance: OriginQualityEvidenceProvenance | null | undefined,
   candidateSha: string,
   nowMs: number,
 ): boolean {
+  if (!provenance) return false;
   if (!/^[a-f0-9]{40}$/.test(candidateSha) || provenance.headSha !== candidateSha) return false;
   if (provenance.source !== "github-actions" && provenance.source !== "controlled-external") return false;
   if (!/^[A-Za-z0-9._:/-]{8,180}$/.test(provenance.evidenceId)) return false;

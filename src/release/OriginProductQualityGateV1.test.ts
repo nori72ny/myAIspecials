@@ -95,7 +95,7 @@ describe("OriginProductQualityGateV1", () => {
 
   it("does not claim Claude Code parity when comparison evidence is absent", () => {
     const input = passingInput();
-    const report = evaluateOriginProductQualityGate({ ...input, claudeCode: null });
+    const report = evaluateOriginProductQualityGate({ ...input, claudeCode: null }, nowMs);
     expect(report.codingPassed).toBe(true);
     expect(report.claudeCodeParityEstablished).toBe(false);
     expect(report.blockers).toContain("CLAUDE_CODE_COMPARISON_MISSING");
@@ -110,6 +110,18 @@ describe("OriginProductQualityGateV1", () => {
     }, nowMs);
     expect(report.claudeCodeParityEstablished).toBe(false);
     expect(report.blockers).toContain("CLAUDE_CODE_IDENTITY_MISMATCH");
+  });
+
+  it("fails closed instead of throwing when runtime evidence omits provenance", () => {
+    const input = passingInput();
+    const answerWithoutProvenance = { ...input.answer } as Partial<typeof input.answer>;
+    delete answerWithoutProvenance.provenance;
+    const report = evaluateOriginProductQualityGate({
+      ...input,
+      answer: answerWithoutProvenance as typeof input.answer,
+    }, nowMs);
+    expect(report.answerPassed).toBe(false);
+    expect(report.blockers).toContain("AQ_LIVE_EVIDENCE_MISSING");
   });
 
   it("fails closed when evidence provenance is stale or bound to another head", () => {
