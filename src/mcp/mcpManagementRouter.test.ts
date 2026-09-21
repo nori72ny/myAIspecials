@@ -17,7 +17,7 @@ function fixture(failProbe = false) {
   const toolCatalog = [{
     alias: 'mcp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     fingerprint: 'b'.repeat(64),
-    tool: { name: 'read_repository', description: 'Read repository metadata', inputSchema: { type: 'object', properties: {} } },
+    tool: { name: 'read_repository', description: 'Read repository metadata', inputSchema: { type: 'object' as const, properties: {} } },
   }];
   const store: McpConnectionStore = {
     async list(owner) { return [...records.values()].filter(r => r.ownerId === owner); },
