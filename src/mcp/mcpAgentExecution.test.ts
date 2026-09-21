@@ -20,7 +20,7 @@ function request(): OriginProviderExecutionRequest {
       providerId: "openrouter-free",
       providerLabel: "ORIGIN free",
       modelId: ORIGIN_OPENROUTER_FREE_MODEL,
-      taskType: "general",
+      taskType: "research",
       freeOnly: true,
       estimatedCostUsd: 0,
       timeoutMs: 20_000,
@@ -37,7 +37,7 @@ function request(): OriginProviderExecutionRequest {
         reviewAfter: "2026-09-22T00:00:00.000Z",
         sourceUrl: "https://example.com/free",
       },
-    } as OriginExecutionPlan,
+    },
     messages: [{ role: "user", content: "Check the repository status." }],
     systemInstruction: "Answer safely.",
   };
@@ -74,7 +74,7 @@ function session(overrides: Partial<McpAgentSession> = {}): McpAgentSession {
         name: "read_repository_file",
         description: "untrusted remote description",
         inputSchema: {
-          type: "object",
+          type: "object" as const,
           additionalProperties: false,
           required: ["path"],
           properties: { path: { type: "string" } },
@@ -87,7 +87,7 @@ function session(overrides: Partial<McpAgentSession> = {}): McpAgentSession {
         name: "mcp_1234567890abcdef1234567890abcdef1234567890abcdef",
         description: "untrusted remote description",
         parameters: {
-          type: "object",
+          type: "object" as const,
           additionalProperties: false,
           required: ["path"],
           properties: { path: { type: "string" } },
