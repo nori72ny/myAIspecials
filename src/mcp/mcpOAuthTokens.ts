@@ -28,7 +28,7 @@ export function validOAuthTokens(value: unknown): value is McpOAuthTokens {
   return typeof token.accessToken === 'string' && token.accessToken.length <= 8192 && /^[A-Za-z0-9._~+/-]+=*$/.test(token.accessToken)
     && (token.refreshToken === undefined || typeof token.refreshToken === 'string' && /^[\x21-\x7e]{1,8192}$/.test(token.refreshToken))
     && Number.isSafeInteger(token.expiresAt) && token.expiresAt > 0
-    && Array.isArray(token.scopes) && token.scopes.length > 0 && token.scopes.length <= 20
+    && Array.isArray(token.scopes) && token.scopes.length <= 20
     && new Set(token.scopes).size === token.scopes.length
     && token.scopes.every(scope => typeof scope === 'string' && /^[\x21\x23-\x5b\x5d-\x7e]{1,128}$/.test(scope));
 }
