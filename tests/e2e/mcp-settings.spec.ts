@@ -44,16 +44,15 @@ test('MCP settings performs owner login and logout without retaining the passwor
   await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
   await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
   await page.getByLabel('メールアドレス').fill('owner@example.com');
-  const password = page.getByLabel('パスワード');
-  await password.fill('fixture-password');
+  await page.getByLabel('パスワード').fill('fixture-password');
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
-  await expect(password).toHaveValue('');
   await expect(page.getByText('ログインしました。', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'ログアウト', exact: true })).toBeVisible();
   await expect(page.locator('input[type="password"]')).toHaveCount(0);
   await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
   await expect(page.getByText('ログアウトしました。', { exact: true })).toBeVisible();
   await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
+  await expect(page.getByLabel('パスワード')).toHaveValue('');
   expect(writes.map(write => write.path)).toEqual(['/api/mcp/session/login', '/api/mcp/session/logout']);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
