@@ -67,6 +67,20 @@ function providerResult(text: string): OriginProviderExecutionResult {
 function session(overrides: Partial<McpAgentSession> = {}): McpAgentSession {
   return {
     connect: vi.fn(async () => undefined),
+    catalog: vi.fn(() => [{
+      alias: "mcp_1234567890abcdef1234567890abcdef1234567890abcdef",
+      fingerprint: "a".repeat(64),
+      tool: {
+        name: "read_repository_file",
+        description: "untrusted remote description",
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["path"],
+          properties: { path: { type: "string" } },
+        },
+      },
+    }]),
     functions: vi.fn(() => [{
       type: "function" as const,
       function: {
@@ -118,6 +132,7 @@ describe("ORIGIN MCP agent execution boundary", () => {
     const second = executeProvider.mock.calls[1]?.[0] as OriginProviderExecutionRequest;
     expect(first.requiredTool?.name).toBe("origin_mcp_select_tool");
     expect(JSON.stringify(first.requiredTool?.parameters)).toContain("mcp_1234567890abcdef");
+    expect(first.systemInstruction).toContain("read_repository_file");
     expect(first.systemInstruction).not.toContain("untrusted remote description");
     expect(second.requiredTool).toBeUndefined();
     expect(second.systemInstruction).toContain("untrusted external data");
@@ -165,7 +180,7 @@ describe("ORIGIN MCP agent execution boundary", () => {
   });
 
   it("fails closed when there are no owner-approved MCP tools", async () => {
-    const target = session({ functions: vi.fn(() => []) });
+    const target = session({ catalog: vi.fn(() => []), functions: vi.fn(() => []) });
     const executeProvider = vi.fn();
 
     await expect(executeOriginMcpToolRound({
