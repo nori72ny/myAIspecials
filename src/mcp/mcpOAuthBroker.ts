@@ -6,17 +6,19 @@ import { McpOAuthTokenCipher, oauthFailure, validateOAuthOwner, type McpOAuthGra
 /** Server-only broker. No global credential cache; no default environment/provider activation. */
 export class McpOAuthBroker {
   private readonly authorization: McpOAuthAuthorization;
-  private readonly providers: ReadonlyMap<string, { configHash: string; client: McpOAuthTokenEndpoint }>;
+  private readonly providers: ReadonlyMap<string, { provider: McpOAuthProvider; configHash: string; client: McpOAuthTokenEndpoint }>;
   constructor(private readonly options: {
     providers: readonly McpOAuthProvider[]; pendingStore: McpOAuthPendingStore; grantStore: McpOAuthGrantStore;
     pkceKey: Buffer; tokenCipher: McpOAuthTokenCipher; clientSecrets?: Readonly<Record<string, string>>;
     /** Trusted test seam; production defaults to guarded Node HTTPS. */
     createTokenClient?: (provider: McpOAuthProvider) => McpOAuthTokenEndpoint;
+    /** Optional pre-authorization discovery verification. Failures block OAuth before state/grant creation. */
+    verifyProvider?: (provider: McpOAuthProvider) => Promise<void>;
   }) {
     this.authorization = new McpOAuthAuthorization(options.pendingStore, options.pkceKey, options.providers);
     this.providers = new Map(options.providers.map(value => {
       const provider = structuredClone(value);
-      return [provider.serverId, { configHash: oauthProviderHash(provider),
+      return [provider.serverId, { provider, configHash: oauthProviderHash(provider),
         client: options.createTokenClient?.(provider) ?? new McpOAuthTokenClient(provider, options.clientSecrets?.[provider.serverId]) }];
     }));
   }
@@ -51,7 +53,11 @@ export class McpOAuthBroker {
   }
   async begin(who: McpOAuthIdentity, serverId: string): Promise<{ authorizationUrl: string }> {
     oauthIdentityHash(who);
-    const { configHash } = this.provider(who.ownerId, serverId);
+    const { provider, configHash } = this.provider(who.ownerId, serverId);
+    if (this.options.verifyProvider) {
+      try { await this.options.verifyProvider(structuredClone(provider)); }
+      catch { return oauthFailure('MCP_OAUTH_DISCOVERY_FAILED'); }
+    }
     const record: McpOAuthGrant = { ownerId: who.ownerId, serverId, grantId: randomUUID(), configHash, version: 1, status: 'authorizing', ciphertext: null };
     try { await this.options.grantStore.begin(record); }
     catch { return oauthFailure('MCP_OAUTH_BEGIN_UNAVAILABLE'); }
