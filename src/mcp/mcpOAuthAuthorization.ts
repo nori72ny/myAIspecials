@@ -10,6 +10,7 @@ export interface McpOAuthProvider {
   /** Some providers forbid a scope parameter on refresh. Default is include. */
   refreshScope?: 'include' | 'omit';
   revocationEndpoint?: string;
+  revocationMethod?: 'rfc7009-post' | 'github-delete-grant';
   tokenEndpointAuthMethod?: 'none' | 'client_secret_basic' | 'client_secret_post';
   /** Explicitly reviewed provider capability. When true, callback issuer is mandatory; when false, state+PKCE+session binding remain mandatory. */
   pkceS256: true; responseIssuer: boolean; zeroCostApproved: true;
@@ -35,7 +36,7 @@ export const oauthProviderHash = (provider: McpOAuthProvider): string => oauthHa
   provider.serverId, provider.issuer, provider.authorizationEndpoint, provider.tokenEndpoint,
   provider.clientId, provider.redirectUri, provider.resource ?? null, [...provider.scopes].sort(),
   [...(provider.untrackedScopes ?? [])].sort(), provider.refreshScope ?? 'include',
-  provider.revocationEndpoint ?? null, provider.tokenEndpointAuthMethod ?? 'none', provider.responseIssuer,
+  provider.revocationEndpoint ?? null, provider.revocationMethod ?? null, provider.tokenEndpointAuthMethod ?? 'none', provider.responseIssuer,
 ]));
 const fail = (code: string): never => { throw new Error(code); };
 function endpoint(raw: string): void {
@@ -68,6 +69,13 @@ export class McpOAuthAuthorization {
       for (const url of [provider.issuer, provider.authorizationEndpoint, provider.tokenEndpoint, provider.redirectUri]) endpoint(url);
       if (provider.resource !== undefined) endpoint(provider.resource);
       if (provider.revocationEndpoint !== undefined) endpoint(provider.revocationEndpoint);
+      const revocationMethod = provider.revocationMethod ?? (provider.revocationEndpoint ? 'rfc7009-post' : undefined);
+      if (revocationMethod !== undefined && !['rfc7009-post', 'github-delete-grant'].includes(revocationMethod)) fail('MCP_OAUTH_CONFIG_INVALID');
+      if (provider.revocationEndpoint === undefined && provider.revocationMethod !== undefined) fail('MCP_OAUTH_CONFIG_INVALID');
+      if (revocationMethod === 'github-delete-grant') {
+        const revocation = new URL(provider.revocationEndpoint!);
+        if (revocation.origin !== 'https://api.github.com' || revocation.pathname !== `/applications/${encodeURIComponent(provider.clientId)}/grant`) fail('MCP_OAUTH_CONFIG_INVALID');
+      }
       if (!['none', 'client_secret_basic', 'client_secret_post'].includes(provider.tokenEndpointAuthMethod ?? 'none')) fail('MCP_OAUTH_CONFIG_INVALID');
       const untrackedScopes = provider.untrackedScopes ?? [];
       if (!/^[A-Za-z0-9-]{1,64}$/.test(provider.serverId) || !provider.clientId || provider.clientId.length > 2048 || /[\x00-\x20\x7f]/.test(provider.clientId)
