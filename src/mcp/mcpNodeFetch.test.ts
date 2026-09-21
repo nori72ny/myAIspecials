@@ -64,13 +64,13 @@ describe('guarded Node MCP fetch', () => {
   });
   it('injects reviewed GitHub MCP headers and rejects caller attempts to relax them', async () => {
     const n = network();
-    const send = fetcher({ fixedHeaders: { 'X-MCP-Readonly': 'true', 'X-MCP-Toolsets': 'repos' } });
+    const send = fetcher({ fixedHeaders: { 'X-MCP-Readonly': 'true', 'X-MCP-Tools': 'get_file_contents' } });
     const response = await send(endpoint, { method: 'GET' });
     await response.text();
     expect(n.request.mock.calls[0][1]).toMatchObject({
       headers: expect.objectContaining({
         'x-mcp-readonly': 'true',
-        'x-mcp-toolsets': 'repos',
+        'x-mcp-tools': 'get_file_contents',
       }),
     });
     await expect(send(endpoint, { headers: { 'X-MCP-Readonly': 'false' } })).rejects.toThrow('MCP_HEADERS_INVALID');
