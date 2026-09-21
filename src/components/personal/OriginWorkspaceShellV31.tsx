@@ -29,80 +29,45 @@ const modeCapabilities: Record<OriginWorkspaceModeV31, readonly string[]> = {
   creative: ['Local SVG', 'PNG', 'History'],
 };
 
-function CapabilityDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
-  return <details className="origin-card min-w-40 border px-3 py-2 text-sm">
-    <summary aria-label="Tools 自動管理" className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold">
-      <span className="origin-muted text-xs">Tools</span>
-      <span>自動管理</span>
+function SystemDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
+  const agentState = mode === 'coding' ? '実行可能' : '通常応答';
+  return <details className="relative shrink-0">
+    <summary className="origin-secondary-button flex min-h-10 list-none items-center gap-2 rounded-full border px-3 text-xs font-semibold sm:min-h-11 sm:px-4">
+      <span className="origin-muted">ORIGIN</span>
+      <span>Auto</span>
     </summary>
-    <div className="border-t border-origin-border pt-3 text-xs leading-6">
-      <p className="origin-muted m-0">現在のModeで利用中</p>
-      <ul className="m-0 mt-1 list-disc pl-5">
-        {modeCapabilities[mode].map(tool => <li key={tool}>{tool}</li>)}
-      </ul>
-      <p className="origin-muted mb-0 mt-2">手動Tool切替は次の実装段階で追加します。</p>
-    </div>
-  </details>;
-}
-
-function ModelDetails() {
-  return <details className="origin-card min-w-40 border px-3 py-2 text-sm">
-    <summary aria-label="Model ORIGIN Auto" className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold">
-      <span className="origin-muted text-xs">Model</span>
-      <span>ORIGIN Auto</span>
-    </summary>
-    <div className="border-t border-origin-border pt-3 text-xs leading-6">
-      <p className="m-0 font-semibold">ORIGIN Auto</p>
-      <p className="origin-muted mb-0 mt-1">現行runtimeではprovider/model選択をサーバー側で管理しています。選べないモデルを選択肢として表示しません。</p>
-    </div>
-  </details>;
-}
-
-function AgentDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
-  const coding = mode === 'coding';
-  const stateLabel = coding ? '実行可能' : '通常応答';
-  return <details className="origin-card min-w-40 border px-3 py-2 text-sm">
-    <summary aria-label={`Agent ${stateLabel}`} className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold">
-      <span className="origin-muted text-xs">Agent</span>
-      <span>{stateLabel}</span>
-    </summary>
-    <div className="border-t border-origin-border pt-3 text-xs leading-6">
-      <p className="m-0 font-semibold">{coding ? 'Code ModeではAgentic Codingを利用できます。' : 'このModeは通常応答として動作します。'}</p>
-      <p className="origin-muted mb-0 mt-1">AgentはModeとは別概念として表示し、独立切替はruntime対応後に有効化します。</p>
+    <div className="origin-card absolute right-0 z-50 mt-2 w-[min(20rem,calc(100vw-1.5rem))] border p-4 text-sm shadow-xl">
+      <div className="grid gap-3">
+        <div aria-label="Model ORIGIN Auto" className="grid gap-1">
+          <span className="origin-muted text-[11px] font-bold uppercase tracking-wide">Model</span>
+          <strong>ORIGIN Auto</strong>
+          <span className="origin-muted text-xs">provider/model routingはサーバー側で管理</span>
+        </div>
+        <div aria-label="Tools 自動管理" className="grid gap-1 border-t border-origin-border pt-3">
+          <span className="origin-muted text-[11px] font-bold uppercase tracking-wide">Tools</span>
+          <strong>自動管理</strong>
+          <span className="origin-muted text-xs">{modeCapabilities[mode].join(' · ')}</span>
+        </div>
+        <div aria-label={`Agent ${agentState}`} className="grid gap-1 border-t border-origin-border pt-3">
+          <span className="origin-muted text-[11px] font-bold uppercase tracking-wide">Agent</span>
+          <strong>{agentState}</strong>
+          <span className="origin-muted text-xs">{mode === 'coding' ? 'Code ModeでAgentic Codingを利用可能' : '必要時のみAgent状態を表示'}</span>
+        </div>
+      </div>
     </div>
   </details>;
 }
 
 export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWorkspaceShellV31Props) {
-  return <section aria-label="ORIGIN workspace shell" className="origin-surface border-b px-3 py-3 sm:px-5">
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-3">
-      <div className="hidden flex-wrap items-center justify-between gap-3 md:flex">
-        <div className="flex min-h-11 items-center gap-3">
-          <span className="text-base font-black tracking-tight">ORIGIN</span>
-          <span className="origin-muted text-xs">Workspace</span>
-          <span className="origin-badge inline-flex min-h-8 items-center border px-3 text-xs font-bold">Personal</span>
-        </div>
-        <div aria-label="Model Tools Agent" className="hidden max-w-full gap-2 overflow-x-auto pb-1 md:flex">
-          <ModelDetails />
-          <CapabilityDetails mode={mode} />
-          <AgentDetails mode={mode} />
-        </div>
+  return <section aria-label="ORIGIN workspace shell" className="origin-workspace-shell border-b border-origin-border px-3 sm:px-5">
+    <div className="mx-auto flex min-h-14 w-full max-w-7xl items-center gap-2 sm:min-h-16 sm:gap-3">
+      <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
+        <span className="text-sm font-black tracking-tight sm:text-base">ORIGIN</span>
+        <span className="origin-badge hidden min-h-7 items-center border px-2 text-[11px] font-bold sm:inline-flex">Personal</span>
+        <span className="sr-only">Workspace</span>
       </div>
 
-      <details className="origin-card border px-3 py-0 md:hidden" aria-label="ORIGIN mobile controls">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold">
-          <span>Controls</span>
-          <span className="origin-muted text-xs">Model · Tools · Agent</span>
-        </summary>
-        <div className="grid gap-2 border-t border-origin-border pt-3 text-xs">
-          <div className="flex min-h-11 items-center justify-between gap-3"><span className="origin-muted">Model</span><strong>ORIGIN Auto</strong></div>
-          <div className="flex min-h-11 items-center justify-between gap-3"><span className="origin-muted">Tools</span><strong>自動管理</strong></div>
-          <div className="flex min-h-11 items-center justify-between gap-3"><span className="origin-muted">Agent</span><strong>{mode === 'coding' ? '実行可能' : '通常応答'}</strong></div>
-        </div>
-      </details>
-
-      <nav aria-label="Mode" className="flex max-w-full items-center gap-2 overflow-x-auto border-t border-origin-border pt-2 md:pt-3">
-        <span className="origin-muted hidden shrink-0 px-1 text-xs font-bold uppercase tracking-wide sm:inline">Mode</span>
+      <nav aria-label="Mode" className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto sm:gap-1.5">
         {MODES.map(item => {
           const selected = item.id === mode;
           const enabledMode = item.id === 'chat' || item.id === 'research' || item.id === 'coding' || item.id === 'creative';
@@ -116,13 +81,14 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
             onClick={() => {
               if (item.id === 'chat' || item.id === 'research' || item.id === 'coding' || item.id === 'creative') onModeChange(item.id);
             }}
-            className={`min-h-11 shrink-0 rounded-lg border px-3 text-left text-sm font-semibold transition-colors sm:px-4 ${item.id === 'work' ? 'max-md:order-last' : ''} ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:opacity-60`}
+            className={`min-h-10 shrink-0 rounded-full border px-3 text-xs font-bold transition-colors sm:min-h-11 sm:px-4 sm:text-sm ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:hidden`}
           >
-            <span className="block">{item.label}</span>
-            <span className={`hidden text-xs font-normal sm:block ${selected ? 'opacity-90' : 'origin-muted'}`}>{item.available ? item.description : '準備中'}</span>
+            {item.label}
           </button>;
         })}
       </nav>
+
+      <SystemDetails mode={mode} />
     </div>
   </section>;
 }
