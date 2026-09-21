@@ -7,6 +7,8 @@ on:
       - '.github/workflows/aq-live-lane-shard.yml'
       - 'scripts/prepare-aq-live-final-state.mjs'
       - 'scripts/summarize-aq-live-final.mjs'
+      - 'scripts/check-aq-live-quota-guard.mjs'
+      - 'scripts/check-aq-live-quota-guard.test.ts'
 
 permissions:
   contents: read
@@ -81,6 +83,7 @@ jobs:
         id: quota_guard
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS: 'true'
         run: node runner/scripts/check-aq-live-quota-guard.mjs
 
       - name: Create sanitized quota reservation
