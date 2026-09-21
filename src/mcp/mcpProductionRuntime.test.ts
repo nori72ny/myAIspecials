@@ -120,6 +120,50 @@ describe('MCP production runtime composition', () => {
   });
 
   it.each([
+    ['permissionModel', 'oauth-scopes'],
+    ['scopes', ['repo']],
+    ['refreshScope', 'include'],
+    ['responseIssuer', true],
+    ['tokenEndpointAuthMethod', 'client_secret_basic'],
+    ['authorizationEndpoint', 'https://github.com/login/oauth/authorize-other'],
+  ] as const)('rejects a broadened GitHub file-read OAuth profile field %s', (name, value) => {
+    const env = enabledEnv();
+    const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
+    config[0].endpoint = 'https://api.githubcopilot.com/mcp';
+    config[0].executionMode = 'read-only';
+    config[0].transportProfile = 'github-file-readonly';
+    config[0].zeroCostEvidence = {
+      evidenceId: 'github-mcp-all-users',
+      verifiedAt: new Date(Date.now() - 60_000).toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      termsUrl: 'https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp-in-your-ide/use-the-github-mcp-server',
+      billingPlan: 'free',
+      paidFallback: false,
+    };
+    config[0].oauth = {
+      issuer: 'https://github.com/login/oauth',
+      authorizationEndpoint: 'https://github.com/login/oauth/authorize',
+      tokenEndpoint: 'https://github.com/login/oauth/access_token',
+      clientId: 'origin-github-fixture',
+      clientSecretEnv: 'ORIGIN_MCP_GITHUB_CLIENT_SECRET',
+      redirectUri: 'https://origin.example.com/api/mcp/oauth/docs/callback',
+      scopes: [],
+      permissionModel: 'github-app',
+      refreshScope: 'omit',
+      revocationEndpoint: 'https://api.github.com/applications/origin-github-fixture/grant',
+      revocationMethod: 'github-delete-grant',
+      tokenEndpointAuthMethod: 'client_secret_post',
+      pkceS256: true,
+      responseIssuer: false,
+      zeroCostApproved: true,
+      [name]: value,
+    };
+    env.ORIGIN_MCP_GITHUB_CLIENT_SECRET = 'fixture-secret';
+    env.ORIGIN_MCP_REVIEWED_SERVERS_JSON = JSON.stringify(config);
+    expect(() => createMcpProductionRuntimeFromEnv(env)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+  });
+
+  it.each([
     ['FREE_ONLY', 'false'],
     ['SUPABASE_PUBLISHABLE_KEY', ''],
     ['ORIGIN_MCP_DATABASE_URL', 'https://not-postgres.example.com'],
