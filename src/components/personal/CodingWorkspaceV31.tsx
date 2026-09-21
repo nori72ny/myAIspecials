@@ -5,7 +5,7 @@ type CodingWorkspaceV31Props = { onProjectEvidenceChange?: (evidence: CodingProj
 
 export default function CodingWorkspaceV31({ onProjectEvidenceChange }: CodingWorkspaceV31Props) {
   return <section aria-label="ORIGIN Coding Workspace" className="min-h-0">
-    <div className="origin-surface-muted sticky top-0 z-30 border-b px-3 py-2 backdrop-blur md:px-5">
+    <div className="origin-surface-muted border-b px-3 py-2 backdrop-blur md:px-5">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-1">
         <span className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Code</span>
         <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Grounded execution evidence</span>
