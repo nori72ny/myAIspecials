@@ -78,7 +78,7 @@ describe('MCP production runtime composition', () => {
     const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
     config[0].endpoint = 'https://api.githubcopilot.com/mcp';
     config[0].executionMode = 'read-only';
-    config[0].transportProfile = 'github-repos-readonly';
+    config[0].transportProfile = 'github-file-readonly';
     config[0].zeroCostEvidence = {
       evidenceId: 'github-mcp-all-users',
       verifiedAt: new Date(Date.now() - 60_000).toISOString(),
