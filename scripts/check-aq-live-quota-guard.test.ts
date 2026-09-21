@@ -23,7 +23,7 @@ function fetchWithReservation(createdAt: string | null) {
       return response({ workflow_runs: [] });
     }
     if (url.includes("/actions/runs/123/artifacts")) {
-      return response({ artifacts: [{ name: "aq-live-quota-reservation" }] });
+      return response({ artifacts: [{ name: "aq-live-quota-reservation", created_at: createdAt }] });
     }
     throw new Error(`unexpected URL: ${url}`);
   };
@@ -80,13 +80,13 @@ describe("AQ live quota guard readiness", () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) {
-        return response({ workflow_runs: [{ id: Number(currentRunId), created_at: previous }] });
+        return response({ workflow_runs: [{ id: Number(currentRunId), created_at: "2026-09-17T00:00:00.000Z" }] });
       }
       if (url.includes("/actions/workflows/aq-live-research-shard.yml/runs")) {
         return response({ workflow_runs: [] });
       }
       if (url.includes(`/actions/runs/${currentRunId}/artifacts`)) {
-        return response({ artifacts: [{ name: "aq-live-quota-reservation" }] });
+        return response({ artifacts: [{ name: "aq-live-quota-reservation", created_at: previous }] });
       }
       throw new Error(`unexpected URL: ${url}`);
     };
