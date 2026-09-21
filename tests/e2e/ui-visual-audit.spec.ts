@@ -74,6 +74,12 @@ test.describe('ORIGIN visual QA evidence', () => {
       await expect(page.getByTestId('response-verification-details')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
+      const sendBox = await page.getByTestId('send-request-button').boundingBox();
+      expect(sendBox).not.toBeNull();
+      expect(sendBox!.y).toBeGreaterThanOrEqual(0);
+      expect(sendBox!.y + sendBox!.height).toBeLessThanOrEqual(viewport.height);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+
       await testInfo.attach(`origin-answer-${viewport.name}.png`, {
         body: await page.screenshot({ fullPage: true }),
         contentType: 'image/png',
@@ -111,4 +117,26 @@ test('empty creative preview has a plain background and mobile-neutral instructi
   await expect(stage.getByText('まだ生成されていません')).toBeVisible();
   expect(await stage.evaluate(element => getComputedStyle(element).backgroundImage)).toBe('none');
   await expect(stage).toContainText('内容を入力して');
+});
+
+// Simulates reduced available height; a physical mobile keyboard remains a
+// separate device check. No provider call is needed to test layout geometry.
+test('conversation keeps its composer reachable after the viewport becomes short', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/chat', route => route.fulfill({
+    status: 200, contentType: 'text/plain; charset=utf-8', body: representativeAnswer,
+  }));
+  await page.goto('/');
+  await page.getByTestId('origin-home-request').fill('表示の確認');
+  await page.getByTestId('start-request-button').click();
+  await expect(page.getByTestId('send-request-button')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 380 });
+  await page.getByTestId('origin-chat-request').focus();
+  const sendBox = await page.getByTestId('send-request-button').boundingBox();
+  expect(sendBox).not.toBeNull();
+  expect(sendBox!.y).toBeGreaterThanOrEqual(0);
+  expect(sendBox!.y + sendBox!.height).toBeLessThanOrEqual(380);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+  await page.getByRole('button', { name: '新規対話を開始', exact: true }).click();
+  await expect(page.getByTestId('origin-home-request')).toBeVisible();
 });

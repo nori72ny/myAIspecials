@@ -65,7 +65,9 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     setProjectView(workspace === 'chat' ? 'chat' : 'overview');
   }, [workspace]);
   const artifactOpen = projectView === 'artifacts' && latestArtifact !== null;
-  return <>
+  const conversationOpen = workspace === 'chat' && messages.length > 0 && !artifactOpen;
+  return <div className={conversationOpen ? 'origin-personal-conversation' : undefined}>
+    <div className="origin-personal-navigation">
     <OriginWorkspaceShellV31 mode={workspace} onModeChange={switchWorkspace} />
     <OriginProjectWorkspaceV31 mode={workspace} messages={messages} sessions={effectiveSessions} artifacts={artifacts} sources={projectSources} codingEvidence={codingEvidence} activeView={projectView} onViewChange={handleProjectViewChange} />
     {workspace === 'chat' && <OriginArtifactContextV31 artifacts={artifacts} />}
@@ -73,11 +75,12 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
       <button type="button" role="tab" aria-selected={!artifactOpen} onClick={closeArtifact} className={`min-h-11 flex-1 rounded-lg border px-4 text-sm font-semibold ${!artifactOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>会話</button>
       <button type="button" role="tab" aria-selected={artifactOpen} onClick={() => handleProjectViewChange('artifacts')} className={`min-h-11 flex-1 rounded-lg border px-4 text-sm font-semibold ${artifactOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>成果物</button>
     </div>}
-    <div hidden={workspace !== 'chat' || projectView === 'artifacts'}><App onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
+    </div>
+    <div className="origin-personal-chat" hidden={workspace !== 'chat' || projectView === 'artifacts'}><App onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
     {latestArtifact && <ArtifactWorkspace artifact={latestArtifact} artifacts={artifacts} isOpen={artifactOpen} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} isStreaming={false} onSteer={() => undefined} onOpenSettings={onOpenSettings} onClose={closeArtifact} onArtifactRevision={handleArtifactRevision} />}
     {workspace === 'research' && <Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace onSourcesChange={setProjectSources} /></Suspense>}
     {workspace === 'coding' && <Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace onProjectEvidenceChange={setCodingEvidence} /></Suspense>}
     {workspace === 'creative' && <Suspense fallback={<p role="status">Createを読み込んでいます…</p>}><CreativeWorkspace /></Suspense>}
-  </>;
+  </div>;
 });
 export default PersonalEditionApp;
