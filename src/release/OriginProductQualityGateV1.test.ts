@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { evaluateOriginProductQualityGate } from "./OriginProductQualityGateV1.js";
+import {
+  evaluateOriginClaudeCodeParityGate,
+  evaluateOriginProductQualityGate,
+} from "./OriginProductQualityGateV1.js";
 
 const sha = "38b89d0ea42eabb4526aa42bd57017593a1991e5";
 const nowMs = Date.parse("2026-09-21T00:00:00.000Z");
@@ -66,17 +69,22 @@ function passingInput() {
 }
 
 describe("OriginProductQualityGateV1", () => {
-  const booleanFields = [
+  const coreBooleanFields = [
     ["ui", "exactHeadValidated"], ["ui", "horizontalOverflowDetected"],
     ["ui", "accessibilityAutomationPassed"], ["answer", "liveRunCompleted"],
     ["answer", "promotionEligible"], ["answer", "zeroCost"],
     ["coding", "heldOutRunCompleted"], ["coding", "qualificationPassed"],
-    ["coding", "zeroCost"], ["claudeCode", "sameCorpusDigest"],
-    ["claudeCode", "sameBaseSha"], ["claudeCode", "sameTimeBudget"],
+    ["coding", "zeroCost"],
+  ] as const;
+
+  const comparisonBooleanFields = [
+    ["claudeCode", "sameCorpusDigest"],
+    ["claudeCode", "sameBaseSha"],
+    ["claudeCode", "sameTimeBudget"],
     ["claudeCode", "sameEvaluatorVersion"],
   ] as const;
 
-  it.each(booleanFields)("rejects malformed runtime boolean %s.%s", (section, field) => {
+  it.each(coreBooleanFields)("rejects malformed core runtime boolean %s.%s", (section, field) => {
     for (const malformed of ["false", "true", 0, 1, null, undefined, [], {}]) {
       const input = passingInput();
       Object.assign(input[section], { [field]: malformed });
@@ -89,6 +97,18 @@ describe("OriginProductQualityGateV1", () => {
     }
   });
 
+  it.each(comparisonBooleanFields)("rejects malformed comparison boolean %s.%s without blocking Q1 core", (section, field) => {
+    for (const malformed of ["false", "true", 0, 1, null, undefined, [], {}]) {
+      const input = passingInput();
+      Object.assign(input[section], { [field]: malformed });
+      const report = evaluateOriginProductQualityGate(input, nowMs);
+      expect(report.passed).toBe(true);
+      expect(report.blockers).toEqual([]);
+      expect(report.claudeCodeParityEstablished).toBe(false);
+      expect(report.claudeCodeBlockers.length).toBeGreaterThan(0);
+    }
+  });
+
   it.each([null, undefined, 1, {}, "mobile,tablet,desktop"])("rejects malformed viewport coverage without throwing (%j)", value => {
     const input = passingInput();
     Object.assign(input.ui, { viewportScreenshots: value });
@@ -97,11 +117,17 @@ describe("OriginProductQualityGateV1", () => {
     expect(report.blockers).toContain("UI_VIEWPORT_COVERAGE_INCOMPLETE");
   });
 
-  it("passes only when UI, live AQ, held-out Coding and controlled Claude Code comparison all pass", () => {
+  it("passes Q1 core when UI, live AQ and held-out Coding all pass", () => {
     const report = evaluateOriginProductQualityGate(passingInput(), nowMs);
+    expect(report.schemaVersion).toBe("origin.product-quality-gate.v2");
     expect(report.passed).toBe(true);
     expect(report.blockers).toEqual([]);
+  });
+
+  it("records Claude Code parity independently when controlled comparison passes", () => {
+    const report = evaluateOriginProductQualityGate(passingInput(), nowMs);
     expect(report.claudeCodeParityEstablished).toBe(true);
+    expect(report.claudeCodeBlockers).toEqual([]);
   });
 
   it("does not treat automated UI CI as rendered cross-device evidence without tablet coverage", () => {
@@ -124,26 +150,27 @@ describe("OriginProductQualityGateV1", () => {
     expect(report.blockers).toContain("AQ_LIVE_EVIDENCE_MISSING");
   });
 
-  it("does not claim Claude Code parity when comparison evidence is absent", () => {
+  it("allows Q1 core acceptance without Claude comparison evidence but forbids parity claims", () => {
     const input = passingInput();
     const report = evaluateOriginProductQualityGate({ ...input, claudeCode: null }, nowMs);
+    expect(report.passed).toBe(true);
+    expect(report.blockers).toEqual([]);
     expect(report.codingPassed).toBe(true);
     expect(report.claudeCodeParityEstablished).toBe(false);
-    expect(report.blockers).toContain("CLAUDE_CODE_COMPARISON_MISSING");
-    expect(report.passed).toBe(false);
+    expect(report.claudeCodeBlockers).toContain("CLAUDE_CODE_COMPARISON_MISSING");
   });
 
-  it("fails closed when comparison identity is not controlled", () => {
+  it("fails the parity gate closed when comparison identity is not controlled", () => {
     const input = passingInput();
-    const report = evaluateOriginProductQualityGate({
-      ...input,
+    const parity = evaluateOriginClaudeCodeParityGate({
+      candidateSha: input.candidateSha,
       claudeCode: { ...input.claudeCode, sameTimeBudget: false },
     }, nowMs);
-    expect(report.claudeCodeParityEstablished).toBe(false);
-    expect(report.blockers).toContain("CLAUDE_CODE_IDENTITY_MISMATCH");
+    expect(parity.parityEstablished).toBe(false);
+    expect(parity.blockers).toContain("CLAUDE_CODE_IDENTITY_MISMATCH");
   });
 
-  it("fails closed instead of throwing when runtime evidence omits provenance", () => {
+  it("fails core closed instead of throwing when runtime evidence omits provenance", () => {
     const input = passingInput();
     const answerWithoutProvenance = { ...input.answer } as Partial<typeof input.answer>;
     delete answerWithoutProvenance.provenance;
@@ -155,7 +182,7 @@ describe("OriginProductQualityGateV1", () => {
     expect(report.blockers).toContain("AQ_LIVE_EVIDENCE_MISSING");
   });
 
-  it("fails closed when evidence provenance is stale or bound to another head", () => {
+  it("fails core closed when evidence provenance is stale or bound to another head", () => {
     const input = passingInput();
     const report = evaluateOriginProductQualityGate({
       ...input,
@@ -182,7 +209,8 @@ describe("OriginProductQualityGateV1", () => {
         claudeCodeSolved: 6,
       },
     }, nowMs);
+    expect(report.passed).toBe(true);
     expect(report.claudeCodeParityEstablished).toBe(false);
-    expect(report.blockers).toContain("CLAUDE_CODE_PARITY_NOT_ESTABLISHED");
+    expect(report.claudeCodeBlockers).toContain("CLAUDE_CODE_PARITY_NOT_ESTABLISHED");
   });
 });
