@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import "dotenv/config";
 
+import { createMcpProductionRuntimeFromEnv, createMcpProductionSessionRouterFromEnv } from "./src/mcp/mcpProductionRuntime";
 import { createOriginApp } from "./src/server/createOriginApp";
 
 function resolvePort(): number {
@@ -17,7 +18,12 @@ function resolvePort(): number {
 }
 
 async function startServer() {
-  const app = createOriginApp();
+  const mcp = createMcpProductionRuntimeFromEnv(process.env);
+  const app = createOriginApp(process.env, {
+    mcp,
+    mcpAgent: mcp?.agentRouter,
+    mcpSession: createMcpProductionSessionRouterFromEnv(process.env),
+  });
   const PORT = resolvePort();
 
   if (process.env.NODE_ENV !== "production") {

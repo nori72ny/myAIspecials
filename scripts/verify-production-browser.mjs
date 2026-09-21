@@ -122,6 +122,10 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     await page.getByTestId("origin-home-request").waitFor({ state: "visible", timeout: 10_000 });
     await page.getByTestId("history-drawer-toggle").click();
     await page.getByTestId("knowledge-map-toggle").click();
+    await page.waitForFunction(() => {
+      const raw = document.querySelector('[data-testid="knowledge-map-node-count"]')?.textContent ?? "0";
+      return Number(raw) >= 1;
+    }, undefined, { timeout: 10_000 });
     const nodeCount = Number(await page.getByTestId("knowledge-map-node-count").textContent());
     assert.ok(nodeCount >= 1, `Production history must expose at least one saved session; observed ${nodeCount}.`);
     await page.getByTestId("knowledge-map-session-0").click();

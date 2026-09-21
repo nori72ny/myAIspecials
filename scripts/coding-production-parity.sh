@@ -13,7 +13,7 @@ node --import tsx --input-type=module -e '
   import { copyTrustedCodingCheckoutV14 } from "./src/agent/codingWorkerCheckoutV14.ts";
   await copyTrustedCodingCheckoutV14(process.cwd(), process.argv[1]);
 ' "$verify_root"
-timeout --signal=TERM --kill-after=10s 180s docker run --rm --name "$name" \
+timeout --signal=TERM --kill-after=10s 300s docker run --rm --name "$name" \
   --network none --cap-drop ALL --security-opt no-new-privileges \
   --read-only --user "$(id -u):$(id -g)" --pids-limit 128 --cpus 2 --memory 3g \
   --tmpfs /tmp:rw,nosuid,nodev,size=512m,mode=1777 \
