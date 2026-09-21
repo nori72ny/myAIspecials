@@ -43,6 +43,15 @@ jobs:
           test "$GITHUB_RUN_ATTEMPT" = '1'
           test -n "$FINAL_CORPUS"
           test -n "$OPENROUTER_API_KEY"
+      - name: Verify clean free-provider window
+        id: free_window
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/check-final-heldout-free-window.mjs
       - name: Select sealed final task identities
         id: select
         shell: bash
