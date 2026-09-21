@@ -57,9 +57,9 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
 
       const body = (req.body ?? {}) as McpChatBody;
       const connectionId = body.connectionId;
-      const version = body.version;
+      const version = typeof body.version === "number" ? body.version : Number.NaN;
       if (typeof connectionId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(connectionId)
-        || !Number.isSafeInteger(version) || Number(version) < 1) {
+        || !Number.isSafeInteger(version) || version < 1) {
         return res.status(400).json({ ok: false, code: "MCP_AGENT_REQUEST_INVALID", retryable: false, requestId });
       }
 
@@ -111,7 +111,7 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
       const session = await deps.sessionFactory.open({
         ownerId: principal.subjectId,
         connectionId,
-        version: Number(version),
+        version,
       });
 
       const providerRequest: OriginProviderExecutionRequest = {
@@ -130,7 +130,7 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
       const result = await executeOriginMcpToolRound({
         session,
         request: providerRequest,
-        executeProvider: deps.executeProvider,
+        ...(deps.executeProvider ? { executeProvider: deps.executeProvider } : {}),
       });
 
       return res.status(200).json({
@@ -138,7 +138,7 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
         content: result.text,
         mcp: {
           connectionId,
-          connectionVersion: Number(version),
+          connectionVersion: version,
           selectedAlias: result.selectedAlias,
           toolRounds: 1,
         },
