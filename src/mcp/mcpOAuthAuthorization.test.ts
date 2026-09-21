@@ -76,12 +76,26 @@ describe('MCP OAuth authorization transaction', () => {
   it('copies reviewed configuration and rejects unsafe endpoints or unsupported profiles', async () => {
     const f = fixture();
     for (const overrides of [{ authorizationEndpoint: 'http://auth.example.test' }, { redirectUri: 'https://origin.example.test/cb?next=evil' },
-      { tokenEndpoint: 'https://127.0.0.1/token' }, { pkceS256: false }, { responseIssuer: false }, { scopes: ['read write'] }]) {
+      { tokenEndpoint: 'https://127.0.0.1/token' }, { pkceS256: false }, { responseIssuer: 'invalid' }, { scopes: ['read write'] }]) {
       expect(() => new McpOAuthAuthorization(f.store, f.key, [{ ...provider, ...overrides } as McpOAuthProvider])).toThrow('MCP_OAUTH_CONFIG_INVALID');
     }
     const config = structuredClone(provider); const service = new McpOAuthAuthorization(f.store, f.key, [config]); config.scopes = ['write'];
     expect(new URL((await service.begin(f.who, provider.serverId)).authorizationUrl).searchParams.get('scope')).toBe('files:read');
   });
+  it('supports an explicitly reviewed provider without RFC 9207 issuer responses or resource indicators', async () => {
+    const f = fixture();
+    const compatible: McpOAuthProvider = { ...provider, resource: undefined, responseIssuer: false,
+      tokenEndpointAuthMethod: 'client_secret_post', scopes: ['repo', 'offline_access'], untrackedScopes: ['offline_access'], refreshScope: 'omit' };
+    const service = new McpOAuthAuthorization(f.store, f.key, [compatible]);
+    const url = new URL((await service.begin(f.who, compatible.serverId)).authorizationUrl);
+    expect(url.searchParams.has('resource')).toBe(false);
+    expect(url.searchParams.get('scope')).toBe('repo offline_access');
+    const query = new URLSearchParams({ state: url.searchParams.get('state')!, code: randomBytes(32).toString('hex') });
+    const exchange = await service.consumeCallback(f.who, compatible.serverId, query);
+    expect(exchange.form.has('resource')).toBe(false);
+    expect(exchange.form.get('client_id')).toBe(compatible.clientId);
+  });
+
   it('sanitizes storage failures', async () => {
     const f = fixture(); f.store.put = async () => { throw new Error('secret'); };
     await expect(f.begin()).rejects.toThrow(/^MCP_OAUTH_STORE_UNAVAILABLE$/);
