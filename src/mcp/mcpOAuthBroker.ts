@@ -6,20 +6,21 @@ import { McpOAuthTokenCipher, oauthFailure, validateOAuthOwner, type McpOAuthGra
 /** Server-only broker. No global credential cache; no default environment/provider activation. */
 export class McpOAuthBroker {
   private readonly authorization: McpOAuthAuthorization;
-  private readonly providers: ReadonlyMap<string, { provider: McpOAuthProvider; configHash: string; client: McpOAuthTokenEndpoint }>;
+  private readonly providers: ReadonlyMap<string, { provider: McpOAuthProvider; configHash: string }>;
   constructor(private readonly options: {
     providers: readonly McpOAuthProvider[]; pendingStore: McpOAuthPendingStore; grantStore: McpOAuthGrantStore;
     pkceKey: Buffer; tokenCipher: McpOAuthTokenCipher; clientSecrets?: Readonly<Record<string, string>>;
+    /** Optional owner-bound secret resolver for dynamically registered confidential clients. */
+    resolveClientSecret?: (ownerId: string, serverId: string) => Promise<string | undefined>;
     /** Trusted test seam; production defaults to guarded Node HTTPS. */
-    createTokenClient?: (provider: McpOAuthProvider) => McpOAuthTokenEndpoint;
+    createTokenClient?: (provider: McpOAuthProvider, clientSecret?: string) => McpOAuthTokenEndpoint;
     /** Optional pre-authorization discovery verification. Failures block OAuth before state/grant creation. */
     verifyProvider?: (provider: McpOAuthProvider) => Promise<void>;
   }) {
     this.authorization = new McpOAuthAuthorization(options.pendingStore, options.pkceKey, options.providers);
     this.providers = new Map(options.providers.map(value => {
       const provider = structuredClone(value);
-      return [provider.serverId, { provider, configHash: oauthProviderHash(provider),
-        client: options.createTokenClient?.(provider) ?? new McpOAuthTokenClient(provider, options.clientSecrets?.[provider.serverId]) }];
+      return [provider.serverId, { provider, configHash: oauthProviderHash(provider) }];
     }));
   }
   /** Public metadata only: lets management UI distinguish reviewed OAuth servers without exposing provider endpoints or credentials. */
@@ -30,13 +31,23 @@ export class McpOAuthBroker {
     validateOAuthOwner(ownerId, serverId);
     return this.providers.get(serverId) ?? oauthFailure('MCP_OAUTH_SERVER_NOT_ALLOWED');
   }
+  private async client(ownerId: string, serverId: string): Promise<McpOAuthTokenEndpoint> {
+    const { provider } = this.provider(ownerId, serverId);
+    let secret = this.options.clientSecrets?.[serverId];
+    if (!secret && this.options.resolveClientSecret) {
+      try { secret = await this.options.resolveClientSecret(ownerId, serverId); }
+      catch { return oauthFailure('MCP_OAUTH_CREDENTIAL_UNAVAILABLE'); }
+    }
+    if (provider.tokenEndpointAuthMethod !== 'none' && !secret) return oauthFailure('MCP_OAUTH_CREDENTIAL_UNAVAILABLE');
+    return this.options.createTokenClient?.(provider, secret) ?? new McpOAuthTokenClient(provider, secret);
+  }
   private async read(ownerId: string, serverId: string) {
     const provider = this.provider(ownerId, serverId);
     let record: McpOAuthGrant | undefined;
     try { record = await this.options.grantStore.get(ownerId, serverId); }
     catch { return oauthFailure('MCP_OAUTH_STORE_UNAVAILABLE'); }
     if (!record || record.ownerId !== ownerId || record.serverId !== serverId || record.configHash !== provider.configHash) return oauthFailure('MCP_OAUTH_REAUTHORIZATION_REQUIRED');
-    return { record, ...provider };
+    return { record, client: await this.client(ownerId, serverId), ...provider };
   }
   private async change(record: McpOAuthGrant, status: McpOAuthGrant['status'], ciphertext: string | null = null): Promise<McpOAuthGrant> {
     const next = { ...record, version: record.version + 1, status, ciphertext };
@@ -110,7 +121,7 @@ export class McpOAuthBroker {
     let remoteRevocationConfirmed = false;
     if (previous?.ownerId === ownerId && previous.serverId === serverId && previous.configHash === provider.configHash && previous.ciphertext) {
       try {
-        const confirmed = await provider.client.revoke(this.options.tokenCipher.open(previous));
+        const confirmed = await (await this.client(ownerId, serverId)).revoke(this.options.tokenCipher.open(previous));
         // An in-flight exchange may have issued credentials we haven't seen yet.
         remoteRevocationConfirmed = confirmed && previous.status === 'active';
       } catch { /* Locally disconnected; upstream state remains unknown. */ }
