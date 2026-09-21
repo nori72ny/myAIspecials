@@ -3,10 +3,9 @@ import React from 'react';
 export type OriginWorkspaceModeV31 = 'chat' | 'research' | 'coding' | 'creative';
 
 type ModeItem = {
-  id: 'chat' | 'research' | 'work' | 'coding' | 'creative';
+  id: OriginWorkspaceModeV31;
   label: string;
   description: string;
-  available: boolean;
 };
 
 type OriginWorkspaceShellV31Props = {
@@ -15,11 +14,10 @@ type OriginWorkspaceShellV31Props = {
 };
 
 const MODES: readonly ModeItem[] = [
-  { id: 'chat', label: 'Chat', description: '会話・相談', available: true },
-  { id: 'research', label: 'Research', description: '調査・出典', available: true },
-  { id: 'work', label: 'Work', description: '実作業', available: false },
-  { id: 'coding', label: 'Code', description: 'Agentic Coding', available: true },
-  { id: 'creative', label: 'Create', description: 'Visual生成', available: true },
+  { id: 'chat', label: 'Chat', description: '会話・相談' },
+  { id: 'research', label: 'Research', description: '調査・出典' },
+  { id: 'coding', label: 'Code', description: 'Agentic Coding' },
+  { id: 'creative', label: 'Create', description: 'Visual生成' },
 ];
 
 const modeCapabilities: Record<OriginWorkspaceModeV31, readonly string[]> = {
@@ -35,6 +33,7 @@ function SystemDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
     <summary className="origin-secondary-button flex min-h-10 list-none items-center gap-2 rounded-full border px-3 text-xs font-semibold sm:min-h-11 sm:px-4">
       <span className="origin-muted">ORIGIN</span>
       <span>Auto</span>
+      <span aria-hidden="true" className="origin-muted text-[10px]">▾</span>
     </summary>
     <div className="origin-card absolute right-0 z-50 mt-2 w-[min(20rem,calc(100vw-1.5rem))] border p-4 text-sm shadow-xl">
       <div className="grid gap-3">
@@ -67,21 +66,29 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
         <span className="sr-only">Workspace</span>
       </div>
 
-      <nav aria-label="Mode" className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto sm:gap-1.5">
-        {MODES.map(item => {
+      <label className="ml-auto min-w-0 flex-1 sm:hidden">
+        <span className="sr-only">Mode</span>
+        <select
+          aria-label="Mode"
+          value={mode}
+          onChange={(event) => onModeChange(event.target.value as OriginWorkspaceModeV31)}
+          className="origin-secondary-button min-h-10 w-full rounded-full border px-3 text-sm font-bold"
+        >
+          {MODES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+        </select>
+      </label>
+
+      <nav aria-label="Mode" className="ml-auto hidden min-w-0 flex-1 items-center justify-end gap-1.5 sm:flex">
+        {MODES.map((item) => {
           const selected = item.id === mode;
-          const enabledMode = item.id === 'chat' || item.id === 'research' || item.id === 'coding' || item.id === 'creative';
           return <button
             key={item.id}
             type="button"
-            aria-pressed={enabledMode ? selected : undefined}
-            aria-label={item.available ? item.label : `${item.label} 準備中`}
-            disabled={!item.available}
-            title={item.available ? item.description : `${item.description}は現在準備中です`}
-            onClick={() => {
-              if (item.id === 'chat' || item.id === 'research' || item.id === 'coding' || item.id === 'creative') onModeChange(item.id);
-            }}
-            className={`min-h-10 shrink-0 rounded-full border px-3 text-xs font-bold transition-colors sm:min-h-11 sm:px-4 sm:text-sm ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:hidden`}
+            aria-pressed={selected}
+            aria-label={item.label}
+            title={item.description}
+            onClick={() => onModeChange(item.id)}
+            className={`min-h-11 shrink-0 rounded-full border px-4 text-sm font-bold transition-colors ${selected ? 'origin-primary-button' : 'origin-secondary-button'}`}
           >
             {item.label}
           </button>;
