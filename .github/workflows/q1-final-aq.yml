@@ -1,0 +1,194 @@
+name: Q1 final AQ scheduled
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: origin-aq-live-unified-lane-shard
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
+      CANDIDATE_SHA: ${{ github.sha }}
+      EXPECTED_SHARD_COUNT: '16'
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ORIGIN_AQ_BASELINE_PORT: '4611'
+      ORIGIN_AQ_CANDIDATE_PORT: '4612'
+      AQ_STATE_DIR: ${{ github.workspace }}/aq-state
+
+    steps:
+      - name: Checkout exact scheduled runner
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: runner
+          persist-credentials: false
+
+      - name: Restore and validate completed shard evidence
+        id: state
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node runner/scripts/prepare-aq-live-final-state.mjs
+
+      - name: Enforce global 24-hour live quota guard
+        if: steps.state.outputs.complete != 'true'
+        id: quota_guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS: 'true'
+        run: node runner/scripts/check-aq-live-quota-guard.mjs
+
+      - name: Checkout exact candidate
+        if: steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Set up Node 24
+        if: steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+
+      - name: Install exact candidate dependencies
+        if: steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true'
+        working-directory: candidate
+        run: npm ci --ignore-scripts
+
+      - name: Resolve and verify frozen quota plan
+        if: steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true'
+        id: plan
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(npx tsx -e 'import {createOriginAnswerQualityFrozenCorpus} from "./src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.ts"; import {planOriginAnswerQualityBenchmarkQuotaShards} from "./src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.ts"; const r=planOriginAnswerQualityBenchmarkQuotaShards(createOriginAnswerQualityFrozenCorpus(),45); if(!r.ok) process.exit(2); console.log(JSON.stringify({count:r.value.shards.length,max:r.value.fullComparisonRequestsMax}));')"
+          count="$(node -e 'const v=JSON.parse(process.argv[1]); process.stdout.write(String(v.count))' "$output")"
+          max="$(node -e 'const v=JSON.parse(process.argv[1]); process.stdout.write(String(v.max))' "$output")"
+          test "$count" -eq "$EXPECTED_SHARD_COUNT"
+          test "$max" -eq 616
+
+      - name: Create sanitized quota reservation
+        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        env:
+          NEXT_INDEX: ${{ steps.state.outputs.next_index }}
+        run: |
+          set -euo pipefail
+          mkdir -p aq-quota
+          node -e 'const fs=require("fs"); fs.writeFileSync("aq-quota/reservation.json",JSON.stringify({schemaVersion:"origin.aq-live-quota-reservation.v1",runId:process.env.GITHUB_RUN_ID,candidateSha:process.env.CANDIDATE_SHA,shardIndex:Number(process.env.NEXT_INDEX),createdAt:new Date().toISOString()})+"\n",{mode:0o600})'
+
+      - name: Reserve 24-hour provider quota
+        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aq-live-quota-reservation
+          path: aq-quota/reservation.json
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Checkout frozen baseline
+        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Install exact baseline dependencies
+        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        working-directory: baseline
+        run: npm ci --ignore-scripts
+
+      - name: Verify credential boundary
+        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          test -z "${GEMINI_API_KEY:-}"
+
+      - name: Run next exact-main shard comparison
+        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        working-directory: candidate
+        env:
+          ORIGIN_AQ_SHARD_INDEX: ${{ steps.state.outputs.next_index }}
+          ORIGIN_AQ_BASELINE_ROOT: ${{ github.workspace }}/baseline
+          ORIGIN_AQ_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
+          ORIGIN_AQ_BASELINE_SHA: ${{ env.BASELINE_SHA }}
+          ORIGIN_AQ_CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+          ORIGIN_AQ_OUTPUT_PATH: ${{ env.AQ_STATE_DIR }}/aq-official-shard-${{ steps.state.outputs.next_index }}.json
+        run: npm run eval:aq-local-comparison-shard
+
+      - name: Require successful sanitized shard
+        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        env:
+          NEXT_INDEX: ${{ steps.state.outputs.next_index }}
+        run: |
+          set -euo pipefail
+          file="$AQ_STATE_DIR/aq-official-shard-$NEXT_INDEX.json"
+          node -e 'const fs=require("fs"); const raw=fs.readFileSync(process.argv[1],"utf8"); const v=JSON.parse(raw); const forbidden=["answerText","\"prompt\"","\"messages\"","chain-of-thought","OPENROUTER_API_KEY"]; if(forbidden.some(x=>raw.includes(x))||v?.ok!==true||v?.shard?.candidateGitSha!==process.env.CANDIDATE_SHA||v?.shard?.baselineGitSha!==process.env.BASELINE_SHA||v?.shard?.shardIndex!==Number(process.env.NEXT_INDEX)) process.exit(1)' "$file"
+
+      - name: Upload successful shard evidence
+        if: steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true' && success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aq-live-final-shard-${{ env.CANDIDATE_SHA }}-s${{ steps.state.outputs.next_index }}
+          path: ${{ env.AQ_STATE_DIR }}/aq-official-shard-${{ steps.state.outputs.next_index }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Determine aggregate readiness
+        id: final
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=0
+          if [ -d "$AQ_STATE_DIR" ]; then
+            files="$(find "$AQ_STATE_DIR" -maxdepth 1 -type f -name 'aq-official-shard-*.json' | wc -l | tr -d ' ')"
+          fi
+          if [ "$files" -eq "$EXPECTED_SHARD_COUNT" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Aggregate all 40 cases
+        if: steps.final.outputs.ready == 'true'
+        working-directory: candidate
+        env:
+          ORIGIN_AQ_SHARD_DIR: ${{ env.AQ_STATE_DIR }}
+          ORIGIN_AQ_AGGREGATE_OUTPUT_PATH: ${{ github.workspace }}/aq-final/aggregate.json
+        run: npm run eval:aq-local-comparison-aggregate
+
+      - name: Derive final promotion eligibility
+        if: steps.final.outputs.ready == 'true'
+        env:
+          AQ_AGGREGATE_PATH: ${{ github.workspace }}/aq-final/aggregate.json
+          AQ_PROMOTION_OUTPUT_PATH: ${{ github.workspace }}/aq-final/promotion.json
+        run: node runner/scripts/summarize-aq-live-final.mjs
+
+      - name: Upload final AQ evidence
+        if: steps.final.outputs.ready == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aq-live-final-aggregate-${{ env.CANDIDATE_SHA }}
+          path: aq-final/
+          if-no-files-found: error
+          retention-days: 30
