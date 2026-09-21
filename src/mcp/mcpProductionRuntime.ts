@@ -30,10 +30,10 @@ function exactHttps(raw: unknown): string {
   } catch { return invalid(); }
 }
 
-function verifiedReadOnlyExecutionEndpoint(endpoint: string): boolean {
+function verifiedReadOnlyExecutionEndpoint(endpoint: string, profile: unknown): boolean {
+  if (profile !== 'github-repos-readonly') return false;
   const url = new URL(endpoint);
-  if (url.hostname !== 'api.githubcopilot.com') return false;
-  return /^\/mcp\/(?:readonly|x\/[A-Za-z0-9_-]+\/readonly)$/.test(url.pathname.replace(/\/$/, ''));
+  return url.origin === 'https://api.githubcopilot.com' && url.pathname === '/mcp';
 }
 
 function key32(raw: unknown): Buffer {
@@ -93,6 +93,7 @@ type ReviewedServer = {
   endpoint: string;
   zeroCostApproved: true;
   executionMode?: 'read-only';
+  transportProfile?: 'github-repos-readonly';
   zeroCostEvidence: {
     evidenceId: string; verifiedAt: string; expiresAt: string; termsUrl: string;
     billingPlan: 'free'; paidFallback: false;
@@ -114,11 +115,13 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
   for (const item of parsed) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return invalid();
     const value = item as Record<string, unknown>;
-    if (Object.keys(value).some(key => !['id', 'label', 'endpoint', 'zeroCostApproved', 'executionMode', 'zeroCostEvidence', 'oauth'].includes(key))) return invalid();
+    if (Object.keys(value).some(key => !['id', 'label', 'endpoint', 'zeroCostApproved', 'executionMode', 'transportProfile', 'zeroCostEvidence', 'oauth'].includes(key))) return invalid();
     const id = value.id;
     const label = value.label;
     if (typeof id !== 'string' || !SERVER_ID.test(id) || ids.has(id) || typeof label !== 'string' || !label.trim() || label.length > 80
       || value.zeroCostApproved !== true || (value.executionMode !== undefined && value.executionMode !== 'read-only')
+      || (value.transportProfile !== undefined && value.transportProfile !== 'github-repos-readonly')
+      || (value.executionMode === 'read-only') !== (value.transportProfile === 'github-repos-readonly')
       || !value.zeroCostEvidence || typeof value.zeroCostEvidence !== 'object' || Array.isArray(value.zeroCostEvidence)
       || !value.oauth || typeof value.oauth !== 'object' || Array.isArray(value.oauth)) return invalid();
     ids.add(id);
@@ -134,7 +137,7 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     const termsUrl = exactHttps(evidence.termsUrl);
 
     const endpoint = exactHttps(value.endpoint);
-    if (value.executionMode === 'read-only' && !verifiedReadOnlyExecutionEndpoint(endpoint)) return invalid();
+    if (value.executionMode === 'read-only' && !verifiedReadOnlyExecutionEndpoint(endpoint, value.transportProfile)) return invalid();
     const oauth = value.oauth as Record<string, unknown>;
     if (Object.keys(oauth).some(key => ![
       'issuer', 'authorizationEndpoint', 'tokenEndpoint', 'clientId', 'redirectUri', 'resource', 'scopes', 'permissionModel', 'untrackedScopes', 'refreshScope', 'revocationEndpoint', 'revocationMethod',
@@ -168,7 +171,7 @@ function reviewedServers(raw: string, appOrigin: string, env: NodeJS.ProcessEnv)
     } else if (oauth.clientSecretEnv !== undefined) return invalid();
 
     servers.push({ id, label: label.trim(), endpoint, zeroCostApproved: true,
-      ...(value.executionMode === 'read-only' ? { executionMode: 'read-only' as const } : {}),
+      ...(value.executionMode === 'read-only' ? { executionMode: 'read-only' as const, transportProfile: 'github-repos-readonly' as const } : {}),
       zeroCostEvidence: {
         evidenceId: evidence.evidenceId, verifiedAt: evidence.verifiedAt, expiresAt: evidence.expiresAt,
         termsUrl, billingPlan: 'free', paidFallback: false,
