@@ -10,13 +10,13 @@ Do not assume that passing CI, Playwright, Lighthouse or viewport tests means th
 
 ## Current evidence baseline
 
-Current UI base for this audit is PR #607 head:
+The original visual audit baseline is PR #607 head:
 
 `bda457aa8c08fbc96f944127be5eef987f432311`
 
-Observed browser evidence came from Production Release CI/CD run `35648354416`, Playwright artifact `10660654794` (Node 24). The test screenshots cover desktop/tablet/mobile widths and chat/artifact states.
+Observed browser evidence came from Production Release CI/CD run `35648354416`, Playwright artifact `10660654794` (Node 24). Those screenshots cover desktop/tablet/mobile widths and chat/artifact states.
 
-Current production has NOT been replaced by this candidate.
+PR #608 is the active redesign candidate. Current production has NOT been replaced by this candidate.
 
 ## Owner direction
 
@@ -29,37 +29,21 @@ The UI should be at least competitive with the interaction clarity of leading AI
 ## Current problems visible in the exact browser screenshots
 
 1. Too many persistent horizontal layers above the conversation.
-   - Model / Tools / Agent controls
-   - Mode selector
-   - Project workspace heading
-   - Project view selector
-   - Conversation / Artifacts / Mode overview cards
-   - Additional context rows
-
 2. The interface reads as a dashboard/control surface before it reads as an AI conversation product.
-
 3. Desktop wastes vertical space before the first useful conversation content.
-
-4. Mobile stacks the same concepts vertically, making the control hierarchy feel heavy and forcing the useful content below multiple selectors.
-
+4. Mobile stacks the same concepts vertically and previously allowed Mode controls to overflow horizontally.
 5. Labels such as Workspace, Current workspace, Overview, Conversation, Artifacts and Mode repeat the same mental model instead of reducing it.
-
 6. Secondary system state is visually too strong relative to the composer and answer.
-
-7. Advanced concepts (Model / Tools / Agent) are surfaced even when the runtime currently manages them automatically and the user cannot meaningfully change them.
-
-8. Mode switching is treated as a large permanent strip rather than a compact product-level navigation affordance.
-
-9. Project views expose unavailable/empty concepts too early instead of appearing contextually when evidence exists.
-
-10. The visual rhythm lacks a single dominant focal plane. Header, navigation, cards, chat and project chrome compete for attention.
+7. Advanced concepts (Model / Tools / Agent) are surfaced even when the runtime manages them automatically.
+8. Project views expose unavailable/empty concepts too early instead of appearing contextually when evidence exists.
+9. The visual rhythm lacks a single dominant focal plane.
+10. The global PR #608 shell and the shared App still contain duplicate product-level header concepts; this remains unresolved.
 
 ## Required redesign direction
 
 ### A. Conversation-first shell
 
 The empty Chat screen should visually prioritize, in this order:
-
 1. ORIGIN identity / minimal global controls
 2. Main prompt/composer
 3. concise mode/capability switching
@@ -67,7 +51,6 @@ The empty Chat screen should visually prioritize, in this order:
 5. advanced controls only on demand
 
 The active conversation screen should prioritize:
-
 1. answer/history
 2. composer
 3. lightweight context/tool state
@@ -81,32 +64,22 @@ Do not permanently stack Model + Tools + Agent + Mode + Project + Project View +
 
 ### C. Progressive disclosure
 
-Model routing, connected tools, agent permissions, diagnostics, source evidence, task state and advanced project controls should move into:
-
-- compact menus
-- popovers/drawers
-- contextual side panel
-- artifact panel
-- only-when-active status chips
+Model routing, connected tools, agent permissions, diagnostics, source evidence, task state and advanced project controls should move into compact menus, popovers/drawers, contextual side panels, artifact panels, or only-when-active status chips.
 
 ### D. Mode architecture
 
 Chat / Research / Work / Code / Create remain important product modes, but switching should be concise and easy to understand.
 
-Audit whether they should be represented as:
-
-- a compact segmented control,
-- a command/menu control,
-- a left rail on desktop + compact mobile switcher,
-- or another approach.
-
-Do not preserve the current large multi-row strip merely because it already exists.
+Current PR #608 direction:
+- desktop: compact backed-mode buttons;
+- mobile: one Mode selector instead of a horizontally overflowing row;
+- unavailable Work is not exposed as first-view chrome until backed by live capability.
 
 ### E. Project workspace
 
 Project state should not dominate a new conversation.
 
-Files, Tasks, Artifacts and Sources should surface contextually when present. Empty/unavailable views should generally not consume primary navigation space.
+Files, Tasks, Artifacts and Sources surface contextually when present. Empty/unavailable views should not consume primary navigation space.
 
 ### F. Mobile
 
@@ -116,17 +89,33 @@ Required:
 - composer always reachable
 - no unnecessary duplicated labels
 - no multi-level persistent control stack
-- thumb-friendly 44px targets where controls exist
-- mode/project navigation should not consume the majority of the first viewport
-- virtual keyboard behavior must be validated separately on real mobile devices before release
+- thumb-friendly targets where controls exist
+- no undiscoverable horizontal Mode overflow
+- Conversation / Artifact tab switching when an artifact exists
+- virtual keyboard behavior validated separately on real devices before release
 
 ### G. Desktop
 
 At 1280–1440px:
 - conversation column should have deliberate readable width
-- whitespace should support the content rather than reflect unused dashboard rows
 - side/context panes should be used only where they improve actual work
-- artifacts/code/research evidence can use split-view patterns when active
+- Artifact view should preserve a real conversation pane rather than cover/crush it
+- current PR #608 reserves desktop conversation width while Artifact is open and collapses auxiliary Project/Artifact status chrome
+
+## Owner-supplied Claude audit checkpoint
+
+An external Claude audit of the PR #607 baseline screenshots and PR #608 draft excerpts was received on 2026-09-22. Its implementation status is tracked in:
+
+`docs/ORIGIN_UIUX_CLAUDE_AUDIT_ACTIONS_2026-09-22.md`
+
+Key adopted conclusions:
+- PR #608's progressive-disclosure direction is correct but incomplete;
+- the PR #607 baseline exposed roughly 22 apparent interaction targets in the first view;
+- target approximately 5–6 primary interaction targets in the empty first-view surface without deleting capability;
+- mobile Mode switching must not depend on horizontal overflow;
+- desktop Artifact use should retain an actual Chat pane;
+- duplicate global/inner product headers remain a real unresolved issue;
+- a collapsible desktop navigation/sidebar and mobile drawer are the preferred next structural direction, provided current local history/search/knowledge access remains reachable.
 
 ## External auditor questions
 
@@ -144,9 +133,23 @@ Please review the screenshots/code and answer these without assuming the current
 10. What spacing/typography/content-width changes are needed?
 11. What accessibility problems do you see beyond simple target size?
 12. What interaction states are missing (loading, streaming, tool use, agent running, approval required, failure, reconnect, artifact edit, source verification)?
-13. What would you borrow conceptually from ChatGPT, Claude, Perplexity, Manus or other current AI interfaces, and what should ORIGIN deliberately do differently?
+13. What would you borrow conceptually from current leading AI interfaces, and what should ORIGIN deliberately do differently?
 14. What would prevent you from calling this UI production-quality?
 15. Provide a proposed information architecture and wireframe-level layout for desktop and 390px mobile.
+
+## Evidence still required
+
+Do not infer missing states. Before final visual approval, evidence should include:
+- desktop and 390px empty Chat;
+- desktop and 390px active conversation;
+- desktop Artifact split view;
+- mobile Conversation tab and Artifact tab;
+- Code/Agent running;
+- Research running;
+- approval waiting;
+- error state;
+- light and dark themes;
+- real Android virtual-keyboard behavior or an explicit limitation.
 
 ## Audit constraints
 
@@ -162,7 +165,6 @@ Please review the screenshots/code and answer these without assuming the current
 UI/UX is NOT considered complete merely because responsive E2E tests pass.
 
 Before production release, the redesign must have:
-
 - explicit Owner visual approval,
 - independent audit feedback reviewed,
 - exact-head desktop/tablet/mobile screenshots,
