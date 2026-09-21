@@ -52,22 +52,23 @@ export async function latestReservedAt({
   for (const run of runs) {
     if (!run) continue;
     if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
-    const createdAt = typeof run.created_at === "string" ? run.created_at : "";
-    const createdMs = Date.parse(createdAt);
-    if (!Number.isFinite(createdMs)) continue;
-    const ageSeconds = Math.floor((nowMs - createdMs) / 1000);
-    if (ageSeconds < 0 || ageSeconds >= WINDOW_SECONDS) continue;
-
     const artifactsUrl = `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`;
     const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
     const artifacts = Array.isArray(artifactsPayload?.artifacts) ? artifactsPayload.artifacts : [];
-    if (!artifacts.some((artifact) =>
-      artifact && typeof artifact.name === "string" && reservedArtifact(artifact.name, workflow)
-    )) {
-      continue;
-    }
 
-    if (latest === null || createdMs > Date.parse(latest)) latest = createdAt;
+    for (const artifact of artifacts) {
+      if (
+        !artifact
+        || typeof artifact.name !== "string"
+        || !reservedArtifact(artifact.name, workflow)
+      ) continue;
+      const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
+      const reservedMs = Date.parse(reservedAt);
+      if (!Number.isFinite(reservedMs)) continue;
+      const ageSeconds = Math.floor((nowMs - reservedMs) / 1000);
+      if (ageSeconds < 0 || ageSeconds >= WINDOW_SECONDS) continue;
+      if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
+    }
   }
 
   return latest;
