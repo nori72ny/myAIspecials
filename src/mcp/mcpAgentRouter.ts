@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "../legacy/originChatValidation.js";
@@ -24,7 +24,7 @@ export interface McpAgentRouterDependencies {
   now?: () => number;
 }
 
-function safeFailure(res: Parameters<ReturnType<typeof Router>["post"]>[1] extends never ? never : any, error: unknown, requestId: string) {
+function safeFailure(res: Response, error: unknown, requestId: string) {
   if (error instanceof McpManagementError) {
     return res.status(error.status).json({ ok: false, code: error.code, retryable: false, requestId });
   }
