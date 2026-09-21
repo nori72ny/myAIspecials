@@ -56,7 +56,7 @@ jobs:
           echo "lane=$lane" >> "$GITHUB_OUTPUT"
 
       - name: Checkout quota guard exact PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: guard
@@ -93,7 +93,7 @@ jobs:
 
       - name: Reserve 24-hour provider quota
         if: steps.quota_guard.outputs.allowed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: aq-live-quota-reservation
           path: aq-quota/reservation.json
@@ -101,7 +101,7 @@ jobs:
           retention-days: 2
       - name: Checkout frozen baseline
         if: steps.quota_guard.outputs.allowed == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ env.BASELINE_SHA }}
           path: baseline
@@ -109,7 +109,7 @@ jobs:
 
       - name: Checkout validated candidate exact SHA
         if: steps.quota_guard.outputs.allowed == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ env.CANDIDATE_SHA }}
           path: candidate
@@ -117,7 +117,7 @@ jobs:
 
       - name: Set up Node 24
         if: steps.quota_guard.outputs.allowed == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
           cache: npm
@@ -231,7 +231,7 @@ jobs:
 
       - name: Upload sanitized lane shard evidence
         if: steps.quota_guard.outputs.allowed == 'true' && always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: aq-live-${{ steps.lane.outputs.lane }}-shard
           path: aq-results/lane-shard.json
