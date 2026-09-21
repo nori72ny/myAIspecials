@@ -1,4 +1,3 @@
-import type { QueryResult } from 'pg';
 import type { ToolGrant } from './mcpClient.js';
 import type { McpSqlExecutor } from './mcpPostgresStore.js';
 
