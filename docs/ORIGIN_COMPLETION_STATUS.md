@@ -1,6 +1,6 @@
 # ORIGIN completion status
 
-Last verified: 2026-09-21 09:08 JST
+Last updated: 2026-09-21 10:22 JST
 
 This file is the canonical progress ledger for ORIGIN. It deliberately separates **implemented**, **production-verified**, and **not yet activated** so that code presence is never mistaken for a completed capability.
 
@@ -30,7 +30,7 @@ This file is the canonical progress ledger for ORIGIN. It deliberately separates
 | V1.3 Web / Application Builder | PRODUCTION VERIFIED (builder ready) | Production `/api/builder/v1.3/status` returned 200; landing/dashboard/webapp self-tests all true; verified static bundle handoff; USD 0. | Automatic external publishing remains disabled by design. Future publishing must remain approval-bound. |
 | V1.4 Agentic Coding OS | PRODUCTION VERIFIED | Production `/api/coding/v1.4/status` returned `ready=true` with DB, durable stores, authorization, owner binding, crypto, dispatch, result store and worker all ready. Live DB shows repeated production smoke jobs ending `verified / CODING_CHECKS_PASSED`; latest verified job was created 2026-09-20 and changed only `src/agent/__origin_coding_smoke_v14__.ts`. | Continue regression monitoring. Provider rate-limit/unavailable cases remain expected fail-closed outcomes rather than paid fallback. |
 | V1.5 Creative / Visual Generation | SPEC / PLANNED | PR #584 contains the free-only implementation specification. Production `/api/generate-image` remains explicitly disabled. | Actual $0 image generation runtime, provider qualification, generation/critic/repair flow, UI and live E2E. |
-| MCP client / connected tools | IMPLEMENTED / VERIFIED OFF PRODUCTION | PR #585 head `a7680f46e6a3021605682c1555dd9db78488556f`; six exact-head workflows succeeded and Vercel Preview health matches the SHA. Client isolation, guarded transport, management UI/API, Supabase owner auth adapter, PKCE, OAuth token lifecycle and encrypted stores are implemented. The three MCP production DB migrations were applied and verified live on 2026-09-21; RLS is enabled, anon/authenticated have no SELECT privilege, service_role has CRUD. | Production still runs main without #585. Supabase Auth has 0 owner users/sessions. A real connector must be selected and live-qualified for current zero-cost terms/OAuth/MCP endpoint. Production environment must be configured, real login + OAuth + refresh + probe + disconnect/replay E2E must pass, and ORIGIN chat still needs an MCP tool-execution round. |
+| MCP client / connected tools | IMPLEMENTED OFF PRODUCTION / REQUALIFICATION IN PROGRESS | PR #585 now includes client isolation, guarded transport, management UI/API, Supabase owner auth adapter, PKCE/OAuth lifecycle, encrypted stores, durable exact-tool grants, an owner-bound session factory and a separate owner-authenticated `/api/mcp/chat` single-tool execution boundary. Automatic agent execution is limited to explicitly reviewed read-only connectors; the first implemented provider guard accepts only GitHub Remote MCP readonly URL shapes. The live MCP DB migrations remain applied with RLS/server-only privileges. Current exact-head CI requalification is running; Quality, Worker, Scorecard, Dependency Review, JavaScript/TypeScript CodeQL analysis, PostgreSQL 18 and browser isolation checks observed so far are successful. | Production still runs main without #585. Supabase Auth still requires the intended owner account/session. GitHub App/OAuth App registration and server-side production configuration are required before live OAuth. A real owner login + authorization + refresh + probe + tool discovery + approved-tool execution + disconnect/replay E2E must pass on one exact release candidate. The current exact head must finish Node 22/24 and remaining gates before this row can return to VERIFIED OFF PRODUCTION. |
 | ORIGIN MCP server (ORIGIN exposed outward) | SPEC / PLANNED | Ordering and security contract documented in #585. | Server implementation, auth/capability grants, tests and live host interoperability. |
 | Deterministic document insertion | SPEC / PARTIAL FOUNDATION | #585 defines contracts for `insert_into_docx`, `insert_into_pptx`, `insert_into_xlsx`, `insert_into_pdf`. V1.2 can create files. | Existing-file owner-scoped storage/versioning, deterministic anchors, actual mutation engines, reopen/render verification and approval-bound external delivery. |
 | Self-Evolution / autonomous update scout | IMPLEMENTED OFF MAIN | PR #580 is open Draft. | Review, exact-head release qualification, merge/production decision and bounded owner approval workflow. |
@@ -47,17 +47,17 @@ The MCP database foundation is now live, but MCP is **not** a production-complet
 2. Server-only owner UUID allowlist and MCP encryption/database settings are configured without exposing secrets.
 3. At least one real connector has current, dated zero-cost evidence and a verified MCP/OAuth profile.
 4. Live authorization, callback, token refresh, probe, tool discovery, disconnect/revocation and replay-failure E2E pass.
-5. ORIGIN's agent/provider boundary can execute bounded MCP tool rounds with server-side authorization and no destructive-call retry.
+5. ORIGIN's agent/provider boundary can execute bounded MCP tool rounds with server-side authorization and no destructive-call retry. The code path is now implemented; a live connector E2E is still required.
 6. Exact-head CI/security/E2E gates pass, then the reviewed candidate may be merged and production-deployed.
 7. Production health, release SHA, zero-cost contract and connector E2E are rechecked after deployment.
 
 ## Next execution order
 
 1. Keep #585 as the active MCP integration track and do not merge until the activation gate above is satisfied.
-2. Add the authenticated ORIGIN-to-MCP tool execution boundary without weakening the existing public chat fail-closed path.
+2. Finish exact-head CI + Preview qualification for the new authenticated single-tool execution boundary; keep public `/api/chat` unchanged.
 3. Bootstrap the intended owner Auth account through an approved user action; never invent or store a user password in repository code or chat.
-4. Qualify the first real zero-cost connector against current provider documentation and live behavior.
-5. Run exact-head CI + Preview E2E; only then decide main merge/production activation.
+4. Complete GitHub OAuth App/GitHub App registration and production server-only configuration for the reviewed GitHub Remote MCP readonly endpoint.
+5. Run live owner login + OAuth + refresh + probe + grant + `/api/mcp/chat` + disconnect/replay E2E; only then decide main merge/production activation.
 6. After MCP client activation, implement ORIGIN MCP server and document insertion tools, then proceed to V1.5 runtime and V2 unification.
 
 ## Evidence note
