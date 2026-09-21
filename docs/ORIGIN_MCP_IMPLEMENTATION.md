@@ -2,10 +2,13 @@
 
 Status: MCP client foundation, guarded Node HTTP/SSE transport, durable PostgreSQL stores,
 Supabase owner-session verification, server-side PKCE/OAuth token lifecycle, protected
-management routes and settings UI are implemented on PR #585. The default production
-application remains fail-closed and unconfigured. No MCP migration has been applied to
-the live Supabase project, no provider has been enabled, and main remains frozen at
-`f0c1bff22d3246d3eac3903b9def5d3aa7c1e498`.
+management routes and settings UI are implemented on PR #585. The three reviewed MCP
+schema migrations were applied to the live ORIGIN Supabase project on 2026-09-21 and
+verified with RLS enabled, no anon/authenticated SELECT privilege, service_role CRUD, and
+a rolled-back service-role write/read smoke. The default production application still
+runs main and MCP remains fail-closed/unconfigured because owner Auth, production runtime
+configuration and a live connector are not activated. No provider has been enabled, and
+main remains frozen at `f0c1bff22d3246d3eac3903b9def5d3aa7c1e498`.
 
 This document describes the current code, not a promise that a third-party service is
 available, free, authorized or production-ready.
@@ -137,9 +140,11 @@ PKCE pending state is server-only and five-minute bounded.
 This adapter does **not** issue the browser login session. The actual owner sign-in/session
 issuance flow remains an activation prerequisite.
 
-Live read-only observation on 2026-09-20: the connected ORIGIN Supabase project is healthy,
-but currently has zero Auth users and zero active sessions, and the three MCP tables are
-absent. No live migration or user creation was performed during this PR work.
+Live production observation on 2026-09-21: the connected ORIGIN Supabase project is
+healthy and remains on the Free plan. It has zero Auth users and zero active sessions.
+The three MCP tables are now present after the reviewed migrations were applied; RLS and
+server-only privileges were verified and a transactional service-role smoke was rolled
+back. No Auth user was created and MCP runtime activation remains disabled.
 
 ## Protected OAuth management flow
 
@@ -183,8 +188,8 @@ Still required before activation:
 - create the intended owner Auth user and implement/verify the browser session issuance
   flow that sets `__Host-origin-session`;
 - configure the server-side owner UUID allowlist without exposing it to the browser;
-- review and apply the three MCP migrations to the intended database only after exact-head
-  review and security advisor checks;
+- keep the three now-live MCP tables server-only; re-run security advisors and privilege
+  checks after any schema change;
 - compose the OAuth broker and stores in the production server runtime with bounded DB
   pools and server-only encryption keys;
 - select a first connector only after its provider metadata, scopes, client registration,
@@ -266,9 +271,13 @@ must be requalified.
   evidence became structured and expiring, with operation-time fail-closed checks before
   credential or network use. Local validation passed 1,878 tests, lint, typecheck,
   production build and the Node ESM API runtime; exact-head CI remains required.
-- Current OAuth UI/callback-registration head must pass its own six exact-head workflows
-  before it can be called release-verified. CI fixture success is still not live-vendor
-  evidence.
+- Zero-cost evidence documentation head `a7680f46e6a3021605682c1555dd9db78488556f`:
+  all six exact-head workflows succeeded and its Vercel Preview health reported that exact
+  SHA with the USD 0 / no-paid-fallback contract intact.
+- Live database activation checkpoint, 2026-09-21: the three reviewed MCP migrations were
+  applied to the production Supabase project. RLS was enabled on all three tables;
+  anon/authenticated SELECT was absent; service_role CRUD was present; a transactional
+  write/read smoke succeeded and was rolled back. Auth users/sessions remained zero.
 
 No live third-party tool execution, customer send, main merge or production MCP deployment
 has been performed.
