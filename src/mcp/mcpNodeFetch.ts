@@ -40,6 +40,8 @@ export interface McpNodeFetchOptions {
   /** May reduce, never increase the reviewed limits. */
   timeoutMs?: number;
   maxResponseBytes?: number;
+  /** OAuth-only escape hatch for a reviewed DELETE endpoint with a small JSON body. MCP transport leaves this false. */
+  allowDeleteBody?: boolean;
 }
 
 /** Node-only HTTP/SSE adapter. TLS verification remains on; no environment proxy or native-fetch fallback. */
@@ -53,7 +55,8 @@ export function createNodeMcpFetch(options: McpNodeFetchOptions): FetchLike {
     if (String(input) !== endpoint.href) throw error('MCP_ENDPOINT_INVALID');
     const method = init.method ?? 'GET';
     if (!['GET', 'POST', 'DELETE'].includes(method)) throw error('MCP_METHOD_INVALID');
-    if (init.body != null && (method !== 'POST' || typeof init.body !== 'string' || Buffer.byteLength(init.body) > 64 * 1024)) throw error('MCP_REQUEST_BODY_INVALID');
+    const bodyMethodAllowed = method === 'POST' || (method === 'DELETE' && options.allowDeleteBody === true);
+    if (init.body != null && (!bodyMethodAllowed || typeof init.body !== 'string' || Buffer.byteLength(init.body) > 64 * 1024)) throw error('MCP_REQUEST_BODY_INVALID');
     if (init.signal?.aborted) throw error('MCP_REQUEST_ABORTED');
     let headers: Headers;
     try { headers = new Headers(init.headers); } catch { throw error('MCP_HEADERS_INVALID'); }
