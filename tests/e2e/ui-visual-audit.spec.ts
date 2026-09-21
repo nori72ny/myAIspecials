@@ -77,3 +77,34 @@ test.describe('ORIGIN visual QA evidence', () => {
     });
   }
 });
+
+test('workspace colors follow the resolved app theme rather than the OS theme', async ({ page }) => {
+  await page.goto('/?workspace=research');
+  const input = page.getByRole('textbox', { name: '調べたいこと' });
+  await expect(input).toBeVisible();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(resolved => {
+      document.documentElement.dataset.theme = resolved;
+      document.documentElement.classList.toggle('dark', resolved === 'dark');
+      document.documentElement.classList.toggle('light', resolved === 'light');
+    }, theme);
+    await page.emulateMedia({ colorScheme: 'light' });
+    const colors = await input.evaluate(element => ({
+      color: getComputedStyle(element).color,
+      background: getComputedStyle(element).backgroundColor,
+    }));
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await expect.poll(() => input.evaluate(element => ({
+      color: getComputedStyle(element).color,
+      background: getComputedStyle(element).backgroundColor,
+    }))).toEqual(colors);
+  }
+});
+
+test('empty creative preview has a plain background and mobile-neutral instructions', async ({ page }) => {
+  await page.goto('/?workspace=creative');
+  const stage = page.getByTestId('creative-preview-stage');
+  await expect(stage.getByText('まだ生成されていません')).toBeVisible();
+  expect(await stage.evaluate(element => getComputedStyle(element).backgroundImage)).toBe('none');
+  await expect(stage).toContainText('内容を入力して');
+});
