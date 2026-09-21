@@ -11,6 +11,8 @@ export interface McpServerChoice {
   zeroCostEvidence: McpZeroCostEvidence;
   /** Only explicitly reviewed read-only servers are eligible for automatic agent execution. */
   executionMode?: 'read-only';
+  /** Named transport profile prevents arbitrary server-controlled headers. */
+  transportProfile?: 'github-repos-readonly';
 }
 export interface McpConnectionRecord {
   id: string; ownerId: string; serverId: string; endpoint: string;
