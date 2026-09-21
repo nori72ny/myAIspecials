@@ -65,7 +65,7 @@ export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env)
           "object-src 'none'",
           "base-uri 'self'",
           "frame-ancestors 'none'",
-          "form-action 'self'",
+          "form-action 'self' https://github.com",
         ].join("; ");
 
     res.setHeader("Content-Security-Policy", contentSecurityPolicy);
