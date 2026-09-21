@@ -107,8 +107,8 @@ M1 is complete only when:
 
 ## 7. Next boundaries after M1
 
-### M2 — Human identity + GitHub App bootstrap
-Owner performs only the actions that must be tied to a real human identity: create/choose the Supabase Auth Owner account, register the GitHub App, select the repositories it may access, and authorize it. ORIGIN must never invent the password or silently broaden installation scope.
+### M2 — Approval-only identity + GitHub bootstrap
+ORIGIN/AI prepares the identity/bootstrap configuration, least-privilege permissions, callback URLs, repository scope, validation and rollback plan. The Owner is not expected to perform setup work. The Owner only approves an identity/authorization/installation consent when a provider requires a real human approval that cannot be delegated safely. ORIGIN must never invent personal credentials or silently broaden installation scope.
 
 ### M3 — Live connector E2E
 Verify login → OAuth discovery → callback → token refresh → connector probe → exact `get_file_contents` grant → one MCP read → safe response → disconnect/revoke → replay rejection. All must pass at USD 0.
@@ -121,9 +121,11 @@ Implement ORIGIN MCP server and deterministic existing-file editing first, then 
 
 ## 8. Owner vs ORIGIN responsibilities
 
-**ORIGIN/AI should do without repeatedly asking the Owner:** architecture, coding, tests, CI investigation, security hardening, documentation, non-production branches/PR updates, evidence collection, regression repair and preparation of exact setup instructions.
+**ORIGIN/AI owns the work:** architecture, coding, tests, CI investigation, security hardening, documentation, branches/PRs, evidence collection, regression repair, account/service configuration wherever the available authorized tools permit it, connector setup preparation, deployment preparation, rollback preparation and verification.
 
-**Owner action is required for:** choosing/creating a real personal credential, approving third-party authorization/installation, accepting any permission expansion, and final production-impact approval when the established release gate requires it.
+**Owner role is approval-only:** approve third-party consent/installation when a provider requires human consent, approve any permission expansion, and approve production-impacting actions at the established release gate. The Owner should not be asked to perform routine setup, copy configuration, debug, edit files, run commands, or create credentials manually when ORIGIN can do the work through authorized tooling.
+
+If a provider requires a non-delegable human action, ORIGIN must reduce it to the smallest possible approval step and resume the rest of the workflow itself.
 
 ## 9. Status language
 
@@ -134,6 +136,6 @@ Every future report must use one of these meanings consistently:
 - **Preview verified** — exact commit was deployed to preview and checked.
 - **Production deployed** — exact commit is actually serving production.
 - **Production verified** — live production checks/E2E passed.
-- **Human setup required** — a real identity/authorization action cannot safely be fabricated by ORIGIN.
+- **Owner approval required** — a provider requires a non-delegable human consent/authorization step; all surrounding setup remains ORIGIN's responsibility.
 
 The Owner should be able to ask “今どこ？” and receive the current milestone, exact SHA, verification level, remaining blockers and next action using these definitions.
