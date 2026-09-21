@@ -2,6 +2,8 @@ name: V1.4 final held-out coding qualification
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '47 */3 * * *'
 
 permissions:
   contents: read
@@ -17,6 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
+      start_ready: ${{ steps.one_shot.outputs.can_start }}
       task_ids: ${{ steps.select.outputs.task_ids }}
       task_count: ${{ steps.select.outputs.task_count }}
       corpus_id: ${{ steps.select.outputs.corpus_id }}
@@ -32,7 +35,8 @@ jobs:
           cache: npm
       - name: Prepare trusted final selector
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Validate one-shot invocation
+      - name: Check final corpus readiness
+        id: readiness
         shell: bash
         env:
           FINAL_CORPUS: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
@@ -41,10 +45,17 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF" = 'refs/heads/main'
           test "$GITHUB_RUN_ATTEMPT" = '1'
-          test -n "$FINAL_CORPUS"
-          test -n "$OPENROUTER_API_KEY"
+          if [ -z "$FINAL_CORPUS" ] || [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Final held-out prerequisites are not configured; no provider request will run."
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
       - name: Verify clean free-provider window
+        if: steps.readiness.outputs.ready == 'true'
         id: free_window
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -52,7 +63,9 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/check-final-heldout-free-window.mjs
+
       - name: Select sealed final task identities
+        if: steps.readiness.outputs.ready == 'true' && steps.free_window.outputs.allowed == 'true'
         id: select
         shell: bash
         env:
@@ -77,7 +90,9 @@ jobs:
           console.log(`corpus_digest=${value.corpusDigest}`);
           console.log(`frozen_base_sha=${value.frozenBaseSha}`);
           NODE
-      - name: Reject a previously started final corpus
+      - name: Check one-shot start marker
+        if: steps.readiness.outputs.ready == 'true' && steps.free_window.outputs.allowed == 'true'
+        id: one_shot
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -93,10 +108,14 @@ jobs:
             -o prior-final-artifacts.json
           count="$(node -e "const v=require('./prior-final-artifacts.json'); process.stdout.write(String(v.total_count || 0))")"
           if [ "$count" != '0' ]; then
-            echo 'HELD_OUT_FINAL_ALREADY_STARTED' >&2
-            exit 2
+            echo "can_start=false" >> "$GITHUB_OUTPUT"
+            echo "Final held-out corpus has already started; scheduled duplicate is skipped."
+            exit 0
           fi
+          echo "can_start=true" >> "$GITHUB_OUTPUT"
+
       - name: Create one-shot start audit marker payload
+        if: steps.one_shot.outputs.can_start == 'true'
         shell: bash
         env:
           CORPUS_ID: ${{ steps.select.outputs.corpus_id }}
@@ -119,6 +138,7 @@ jobs:
           }, null, 2)}\n`);
           NODE
       - name: Preserve one-shot start marker
+        if: steps.one_shot.outputs.can_start == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: origin-held-out-final-started-${{ steps.select.outputs.corpus_digest }}
@@ -128,7 +148,7 @@ jobs:
 
   benchmark:
     needs: preflight
-    if: github.event.repository.private == false
+    if: github.event.repository.private == false && needs.preflight.outputs.start_ready == 'true'
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -181,7 +201,7 @@ jobs:
 
   aggregate:
     needs: [preflight, benchmark]
-    if: always() && needs.preflight.result == 'success'
+    if: always() && needs.preflight.result == 'success' && needs.preflight.outputs.start_ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
