@@ -6,9 +6,7 @@ This file is an implementation ledger, not a claim that the audit is automatical
 
 ## Current candidate
 
-PR #608 remains Draft / DO NOT MERGE.
-
-Latest UI candidate head advances with this ledger update; use the PR head SHA rather than a hard-coded value in this document when validating CI.
+PR #608 remains Draft / DO NOT MERGE. Treat the PR head SHA as authoritative for CI/Preview validation; this ledger intentionally does not freeze a stale SHA.
 
 Production is unchanged.
 
