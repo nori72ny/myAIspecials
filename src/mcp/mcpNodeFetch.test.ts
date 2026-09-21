@@ -41,7 +41,7 @@ function network(reply: MockReply | ((body: string, method: string) => MockReply
   }) as unknown as typeof https.request);
   return { lookup, request, requests, responses };
 }
-function fetcher(options: { timeoutMs?: number; maxResponseBytes?: number } = {}) {
+function fetcher(options: { timeoutMs?: number; maxResponseBytes?: number; allowDeleteBody?: boolean } = {}) {
   return createNodeMcpFetch({ endpoint, allowedOrigins: origins, ...options });
 }
 
@@ -61,6 +61,17 @@ describe('guarded Node MCP fetch', () => {
     expect(await response.json()).toEqual({ ok: true });
     expect(n.lookup).toHaveBeenCalledTimes(1);
     expect(n.request.mock.calls[0][1]).toMatchObject({ rejectUnauthorized: true, maxHeaderSize: 16384, headers: { authorization: 'Bearer test', 'accept-encoding': 'identity' } });
+  });
+  it('keeps DELETE bodies disabled by default and enables them only for an explicit reviewed endpoint client', async () => {
+    network();
+    await expect(fetcher()(endpoint, { method: 'DELETE', body: '{"access_token":"fixture"}', headers: { 'content-type': 'application/json' } }))
+      .rejects.toThrow('MCP_REQUEST_BODY_INVALID');
+    vi.restoreAllMocks();
+    const n = network();
+    const response = await fetcher({ allowDeleteBody: true })(endpoint, { method: 'DELETE', body: '{"access_token":"fixture"}', headers: { 'content-type': 'application/json' } });
+    expect(response.status).toBe(200);
+    expect(n.request.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
+    expect(n.requests[0].end).toHaveBeenCalledWith('{"access_token":"fixture"}');
   });
   it('rejects mixed public/private DNS without sending any body', async () => {
     const n = network({}, [{ address: '8.8.8.8', family: 4 }, { address: '10.0.0.1', family: 4 }]);
