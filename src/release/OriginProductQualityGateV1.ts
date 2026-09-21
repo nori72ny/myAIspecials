@@ -84,6 +84,7 @@ export interface OriginProductQualityGateReport {
 }
 
 function hasAllViewports(items: readonly ("mobile" | "tablet" | "desktop")[]): boolean {
+  if (!Array.isArray(items)) return false;
   const set = new Set(items);
   return set.has("mobile") && set.has("tablet") && set.has("desktop");
 }
@@ -132,19 +133,19 @@ export function evaluateOriginProductQualityGate(
     !input.ui
     || input.ui.candidateSha !== input.candidateSha
     || !validEvidenceProvenance(input.ui.provenance, input.candidateSha, nowMs)
-    || !input.ui.exactHeadValidated
+    || input.ui.exactHeadValidated !== true
   ) {
     blockers.push("UI_EXACT_HEAD_EVIDENCE_MISSING");
   } else {
     if (!hasAllViewports(input.ui.viewportScreenshots)) {
       blockers.push("UI_VIEWPORT_COVERAGE_INCOMPLETE");
     }
-    if (input.ui.horizontalOverflowDetected || !input.ui.accessibilityAutomationPassed) {
+    if (input.ui.horizontalOverflowDetected !== false || input.ui.accessibilityAutomationPassed !== true) {
       blockers.push("UI_RENDER_REGRESSION");
     }
     uiPassed = hasAllViewports(input.ui.viewportScreenshots)
-      && !input.ui.horizontalOverflowDetected
-      && input.ui.accessibilityAutomationPassed;
+      && input.ui.horizontalOverflowDetected === false
+      && input.ui.accessibilityAutomationPassed === true;
   }
 
   let answerPassed = false;
@@ -152,14 +153,14 @@ export function evaluateOriginProductQualityGate(
     !input.answer
     || input.answer.candidateSha !== input.candidateSha
     || !validEvidenceProvenance(input.answer.provenance, input.candidateSha, nowMs)
-    || !input.answer.liveRunCompleted
+    || input.answer.liveRunCompleted !== true
   ) {
     blockers.push("AQ_LIVE_EVIDENCE_MISSING");
   } else {
-    answerPassed = input.answer.promotionEligible
+    answerPassed = input.answer.promotionEligible === true
       && input.answer.caseCount === 40
       && input.answer.familyCount === 10
-      && input.answer.zeroCost;
+      && input.answer.zeroCost === true;
     if (!answerPassed) blockers.push("AQ_NOT_PROMOTION_ELIGIBLE");
   }
 
@@ -168,12 +169,12 @@ export function evaluateOriginProductQualityGate(
     !input.coding
     || input.coding.candidateSha !== input.candidateSha
     || !validEvidenceProvenance(input.coding.provenance, input.candidateSha, nowMs)
-    || !input.coding.heldOutRunCompleted
+    || input.coding.heldOutRunCompleted !== true
   ) {
     blockers.push("CODING_HELDOUT_EVIDENCE_MISSING");
   } else {
-    codingPassed = input.coding.qualificationPassed
-      && input.coding.zeroCost
+    codingPassed = input.coding.qualificationPassed === true
+      && input.coding.zeroCost === true
       && validAttemptCounts(
         input.coding.attempted,
         input.coding.solved,
@@ -190,10 +191,10 @@ export function evaluateOriginProductQualityGate(
   ) {
     blockers.push("CLAUDE_CODE_COMPARISON_MISSING");
   } else {
-    const identityMatches = input.claudeCode.sameCorpusDigest
-      && input.claudeCode.sameBaseSha
-      && input.claudeCode.sameTimeBudget
-      && input.claudeCode.sameEvaluatorVersion
+    const identityMatches = input.claudeCode.sameCorpusDigest === true
+      && input.claudeCode.sameBaseSha === true
+      && input.claudeCode.sameTimeBudget === true
+      && input.claudeCode.sameEvaluatorVersion === true
       && input.claudeCode.originAttempted === input.claudeCode.claudeCodeAttempted
       && validAttemptCounts(
         input.claudeCode.originAttempted,
