@@ -36,10 +36,7 @@ function fetchWithReservation(
     if (url.includes("/actions/runs/123/artifacts")) {
       return response({
         artifacts: [{
-          name:
-            workflow === "aq-live-research-shard.yml"
-              ? "aq-live-research-shard-0"
-              : "aq-live-quota-reservation",
+          name: "aq-live-quota-reservation",
           created_at: createdAt,
         }],
       });
