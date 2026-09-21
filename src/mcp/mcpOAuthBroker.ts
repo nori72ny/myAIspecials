@@ -38,7 +38,9 @@ export class McpOAuthBroker {
       try { secret = await this.options.resolveClientSecret(ownerId, serverId); }
       catch { return oauthFailure('MCP_OAUTH_CREDENTIAL_UNAVAILABLE'); }
     }
-    if (provider.tokenEndpointAuthMethod !== 'none' && !secret) return oauthFailure('MCP_OAUTH_CREDENTIAL_UNAVAILABLE');
+    if (provider.tokenEndpointAuthMethod !== 'none' && !secret && !this.options.createTokenClient) {
+      return oauthFailure('MCP_OAUTH_CREDENTIAL_UNAVAILABLE');
+    }
     return this.options.createTokenClient?.(provider, secret) ?? new McpOAuthTokenClient(provider, secret);
   }
   private async read(ownerId: string, serverId: string) {
