@@ -13,6 +13,9 @@ import { createSupabaseMcpOwnerSessionRouterFromEnv } from './mcpOwnerSessionRou
 import type { McpManagementDependencies } from './mcpManagementRouter.js';
 import type { McpServerChoice } from './mcpConnections.js';
 import { createMcpAgentRouter } from './mcpAgentRouter.js';
+import { McpGithubAppBootstrap, createMcpGithubAppSecretCipherFromKeyringJson } from './mcpGithubAppBootstrap.js';
+import { PostgresMcpGithubAppRegistrationStore, PostgresMcpGithubManifestPendingStore } from './mcpGithubAppStore.js';
+import { createMcpGithubAppRouter } from './mcpGithubAppRouter.js';
 
 const ENABLED = 'true';
 const CLIENT_SECRET_ENV = /^ORIGIN_MCP_[A-Z0-9_]+_CLIENT_SECRET$/;
@@ -242,7 +245,10 @@ function tokenCipher(raw: string): McpOAuthTokenCipher {
  * throws instead of silently falling back to in-memory state, unsigned identity, or a
  * different database/connector.
  */
-export type McpProductionRuntime = McpManagementDependencies & { agentRouter?: ReturnType<typeof createMcpAgentRouter> };
+export type McpProductionRuntime = McpManagementDependencies & {
+  agentRouter?: ReturnType<typeof createMcpAgentRouter>;
+  githubBootstrapRouter?: ReturnType<typeof createMcpGithubAppRouter>;
+};
 
 export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = process.env): McpProductionRuntime | undefined {
   if (env.ORIGIN_MCP_ENABLED !== ENABLED) return undefined;
@@ -286,6 +292,22 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
 
   const connectionStore = new PostgresMcpConnectionStore(pool);
   const toolGrantStore = new PostgresMcpToolGrantStore(pool);
+
+  let githubBootstrapRouter: ReturnType<typeof createMcpGithubAppRouter> | undefined;
+  if (env.ORIGIN_MCP_GITHUB_BOOTSTRAP_ENABLED === ENABLED) {
+    const expectedOwnerLogin = env.ORIGIN_MCP_GITHUB_OWNER_LOGIN?.trim();
+    const bootstrapKeyring = env.ORIGIN_MCP_GITHUB_APP_KEYRING_JSON?.trim();
+    if (!expectedOwnerLogin || !/^[A-Za-z0-9-]{1,39}$/.test(expectedOwnerLogin) || !bootstrapKeyring) return invalid();
+    const registrationStore = new PostgresMcpGithubAppRegistrationStore(pool);
+    const bootstrap = new McpGithubAppBootstrap({
+      appOrigin,
+      expectedOwnerLogin,
+      pendingStore: new PostgresMcpGithubManifestPendingStore(pool),
+      registrationStore,
+      secretCipher: createMcpGithubAppSecretCipherFromKeyringJson(bootstrapKeyring),
+    });
+    githubBootstrapRouter = createMcpGithubAppRouter({ appOrigin, bootstrap, authenticate });
+  }
   const management = createNodeMcpManagement({
     appOrigin,
     authenticate,
@@ -298,7 +320,7 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
   });
 
   const readOnlyServers = reviewed.servers.filter(server => server.executionMode === 'read-only');
-  if (readOnlyServers.length === 0) return management;
+  if (readOnlyServers.length === 0) return { ...management, ...(githubBootstrapRouter ? { githubBootstrapRouter } : {}) };
 
   const sessionFactory = createNodeMcpAgentSessionFactory({
     store: connectionStore,
@@ -312,6 +334,7 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
   return {
     ...management,
     agentRouter: createMcpAgentRouter({ authenticate, sessionFactory, env }),
+    ...(githubBootstrapRouter ? { githubBootstrapRouter } : {}),
   };
 }
 
