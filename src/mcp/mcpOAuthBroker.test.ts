@@ -47,6 +47,16 @@ function fixture() {
   return { broker, who, client, issued, options, key, grants, cipher, start, link, current: () => structuredClone(grant!) };
 }
 describe('MCP OAuth token broker', () => {
+  it('blocks authorization before durable grant/state creation when OAuth discovery fails', async () => {
+    const f = fixture();
+    const verifyProvider = vi.fn(async () => { throw new Error('untrusted-discovery'); });
+    const broker = new McpOAuthBroker({ ...f.options, verifyProvider });
+    await expect(broker.begin(f.who, provider.serverId)).rejects.toThrow('MCP_OAUTH_DISCOVERY_FAILED');
+    expect(await f.grants.get(f.who.ownerId, provider.serverId)).toBeUndefined();
+    expect(verifyProvider).toHaveBeenCalledTimes(1);
+    expect(f.client.exchange).not.toHaveBeenCalled();
+  });
+
   it('completes PKCE exchange once and only returns nonsecret metadata', async () => {
     const f = fixture(); const query = await f.start();
     const result = await f.broker.complete(f.who, provider.serverId, query);
