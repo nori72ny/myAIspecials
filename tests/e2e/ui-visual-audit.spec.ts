@@ -30,6 +30,7 @@ const representativeAnswer = [
 test.describe('ORIGIN visual QA evidence', () => {
   for (const viewport of [
     { name: 'mobile-390', width: 390, height: 844 },
+    { name: 'tablet-768', width: 768, height: 1024 },
     { name: 'desktop-1440', width: 1440, height: 1000 },
   ]) {
     test(`captures readable home and long-answer evidence on ${viewport.name}`, async ({ page }, testInfo) => {
@@ -46,6 +47,7 @@ test.describe('ORIGIN visual QA evidence', () => {
       const projectBox = await projectWorkspace.boundingBox();
       expect(projectBox).not.toBeNull();
       if (viewport.name === 'mobile-390') expect(projectBox!.height).toBeLessThanOrEqual(300);
+      if (viewport.name === 'tablet-768') expect(projectBox!.height).toBeLessThanOrEqual(360);
       await testInfo.attach(`origin-home-${viewport.name}.png`, {
         body: await page.screenshot({ fullPage: true }),
         contentType: 'image/png',
