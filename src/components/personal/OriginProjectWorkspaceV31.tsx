@@ -43,9 +43,9 @@ export default function OriginProjectWorkspaceV31({
     { id: 'sources', label: 'Sources', available: sources.length > 0, detail: sources.length > 0 ? `${sources.length} verified sources` : (mode === 'research' ? 'Research結果がまだありません' : 'Research結果が必要') },
   ];
 
-  return <section aria-label="Project Workspace" className="origin-surface border-b border-origin-border px-3 py-3 sm:px-5">
+  return <section aria-label="Project Workspace" className="origin-surface border-b border-origin-border px-3 py-2 sm:px-5 sm:py-3">
     <div className="mx-auto w-full max-w-7xl">
-      <div className="flex items-center justify-between gap-3">
+      <div className="hidden items-center justify-between gap-3 md:flex">
         <div>
           <p className="origin-muted m-0 text-[10px] font-bold uppercase tracking-[0.18em]">Project</p>
           <h2 className="m-0 mt-1 text-sm font-black">Current workspace</h2>
@@ -83,7 +83,7 @@ export default function OriginProjectWorkspaceV31({
         </select>
       </div>
 
-      {activeView === 'overview' && <div className="mt-3 grid grid-cols-3 gap-2">
+      {activeView === 'overview' && <div className="mt-3 hidden grid-cols-3 gap-2 md:grid">
         <article className="origin-card flex min-w-0 items-center justify-between gap-2 border p-2 sm:px-3">
           <p className="origin-muted m-0 truncate text-[11px] font-bold sm:text-xs">Conversation</p>
           <p className="m-0 text-lg font-black">{messages.length}</p>
