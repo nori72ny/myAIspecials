@@ -18,8 +18,10 @@ function resolvePort(): number {
 }
 
 async function startServer() {
+  const mcp = createMcpProductionRuntimeFromEnv(process.env);
   const app = createOriginApp(process.env, {
-    mcp: createMcpProductionRuntimeFromEnv(process.env),
+    mcp,
+    mcpAgent: mcp?.agentRouter,
     mcpSession: createMcpProductionSessionRouterFromEnv(process.env),
   });
   const PORT = resolvePort();
