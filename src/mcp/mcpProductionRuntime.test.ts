@@ -69,6 +69,7 @@ describe('MCP production runtime composition', () => {
     expect(runtime?.appOrigin).toBe('https://origin.example.com');
     expect(runtime?.oauth?.supports('docs')).toBe(true);
     expect(runtime?.oauth?.supports('unknown')).toBe(false);
+    expect(runtime?.agentRouter).toBeUndefined();
     expect(createMcpProductionSessionRouterFromEnv(env)).toBeDefined();
   });
 
@@ -76,6 +77,7 @@ describe('MCP production runtime composition', () => {
     const env = enabledEnv();
     const config = JSON.parse(env.ORIGIN_MCP_REVIEWED_SERVERS_JSON!) as Array<Record<string, unknown>>;
     config[0].endpoint = 'https://api.githubcopilot.com/mcp/x/repos/readonly';
+    config[0].executionMode = 'read-only';
     config[0].zeroCostEvidence = {
       evidenceId: 'github-mcp-all-users',
       verifiedAt: new Date(Date.now() - 60_000).toISOString(),
@@ -105,6 +107,7 @@ describe('MCP production runtime composition', () => {
     env.ORIGIN_MCP_REVIEWED_SERVERS_JSON = JSON.stringify(config);
     const runtime = createMcpProductionRuntimeFromEnv(env);
     expect(runtime?.oauth?.supports('docs')).toBe(true);
+    expect(runtime?.agentRouter).toBeDefined();
   });
 
   it.each([
