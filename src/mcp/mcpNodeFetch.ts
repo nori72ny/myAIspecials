@@ -23,7 +23,7 @@ export function isPublicMcpAddress(address: string): boolean {
   return family === 6 && !address.includes('%') && globalV6.check(address, 'ipv6') && !denied.check(address, 'ipv6');
 }
 
-const requestHeaders = new Set(['accept', 'content-type', 'authorization', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id', 'x-mcp-readonly', 'x-mcp-toolsets']);
+const requestHeaders = new Set(['accept', 'content-type', 'authorization', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id', 'x-mcp-readonly', 'x-mcp-toolsets', 'x-mcp-tools']);
 const responseHeaders = ['content-type', 'mcp-session-id', 'mcp-protocol-version', 'retry-after', 'www-authenticate'];
 function error(code: string): McpBoundaryError { return new McpBoundaryError(code); }
 function endpointUrl(endpoint: string, origins: readonly string[]): URL {
@@ -34,8 +34,8 @@ function endpointUrl(endpoint: string, origins: readonly string[]): URL {
   return url;
 }
 
-export function mcpFixedHeadersForProfile(profile?: 'github-repos-readonly'): Readonly<Record<string, string>> | undefined {
-  if (profile === 'github-repos-readonly') return { 'X-MCP-Readonly': 'true', 'X-MCP-Toolsets': 'repos' };
+export function mcpFixedHeadersForProfile(profile?: 'github-file-readonly'): Readonly<Record<string, string>> | undefined {
+  if (profile === 'github-file-readonly') return { 'X-MCP-Readonly': 'true', 'X-MCP-Tools': 'get_file_contents' };
   return undefined;
 }
 
@@ -72,7 +72,7 @@ export function createNodeMcpFetch(options: McpNodeFetchOptions): FetchLike {
     }
     const fixed = new Headers(options.fixedHeaders);
     for (const [name, value] of fixed) {
-      if (!['x-mcp-readonly', 'x-mcp-toolsets'].includes(name) || Buffer.byteLength(value) > 1024) throw error('MCP_HEADERS_INVALID');
+      if (!['x-mcp-readonly', 'x-mcp-toolsets', 'x-mcp-tools'].includes(name) || Buffer.byteLength(value) > 1024) throw error('MCP_HEADERS_INVALID');
       if (headers.has(name) && headers.get(name) !== value) throw error('MCP_HEADERS_INVALID');
       headers.set(name, value);
     }
