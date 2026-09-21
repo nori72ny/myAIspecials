@@ -46,6 +46,19 @@ export function createMcpGithubAppRouter(deps?: McpGithubAppRouterDependencies) 
     }
   }
 
+  router.get('/api/mcp/github/app/status', async (req, res) => {
+    try {
+      if (!deps) return res.json({ configured: false, registered: false });
+      const who = await identity(req);
+      return res.json(await deps.bootstrap.status(who));
+    } catch (error) {
+      if (error instanceof Error && error.message === 'MCP_GITHUB_AUTH_INVALID') {
+        return res.json({ configured: true, registered: false, authenticated: false });
+      }
+      return fail(res, error);
+    }
+  });
+
   router.post('/api/mcp/github/app/manifest/start', async (req, res) => {
     try {
       mutation(req);
