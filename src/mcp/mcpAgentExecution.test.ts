@@ -1,9 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import {
-  ORIGIN_OPENROUTER_FREE_MODEL,
-  type OriginExecutionPlan,
-} from "../lib/orchestration/OriginExecutionPolicy.js";
+import { ORIGIN_OPENROUTER_FREE_MODEL } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type {
   OriginProviderExecutionRequest,
   OriginProviderExecutionResult,
