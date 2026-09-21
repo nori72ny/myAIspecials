@@ -142,6 +142,12 @@ Deliver only:
 
 Do **not** deliver plaintext goals, hidden-test source, expected solutions, or reference patches to the ORIGIN engineering assistant before the official run.
 
+## Free-provider execution window
+
+Before the one-shot marker is written, the workflow performs a no-inference preflight. It verifies that the configured OpenRouter credential reports itself as a normal Free-tier inference key and checks repository-visible evidence for known provider-consuming CI activity during the previous 24 hours. Recent Live AQ reservations, held-out benchmark evidence, or Coding worker workflow runs block the final qualification before any final task or provider request starts.
+
+This guard is deliberately conservative. It protects the reviewed 42-request maximum from colliding with known CI usage under the free-provider request ceiling. Activity outside repository-visible workflows cannot be inferred from GitHub, so the independent evaluator must still dispatch the one-shot only during a deliberately quiet provider window.
+
 ## Execution rule
 
 The official workflow is:
