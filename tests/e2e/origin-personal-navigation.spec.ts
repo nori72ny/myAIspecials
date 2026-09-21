@@ -30,7 +30,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     });
   }
 
-  test('opens Coding by touch and direct URL on a narrow screen without losing the chat draft', async ({ page }) => {
+  test('opens Code by touch and direct URL on a narrow screen without losing the chat draft', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/coding/v1.4/status', route => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify({
@@ -40,12 +40,12 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     }));
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('保存前の相談メモ');
-    await page.getByRole('navigation', { name: 'ワークスペース' }).getByRole('button', { name: 'Coding', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Mode' }).getByRole('button', { name: 'Code', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    await page.getByRole('button', { name: 'チャット', exact: true }).click();
+    await page.getByRole('button', { name: 'Chat', exact: true }).click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
@@ -107,6 +107,28 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(answer.getByRole('img')).toHaveCount(0);
     await expect(answer.getByRole('note')).toContainText('外部画像は自動表示しません');
     await expect(page.getByTestId('response-verification-details')).toContainText('$0配信を確認');
+    const typography = await answer.evaluate((element) => {
+      const heading = element.querySelector('h2');
+      const paragraph = element.querySelector('p');
+      if (!heading || !paragraph) return null;
+      const headingStyle = getComputedStyle(heading);
+      const paragraphStyle = getComputedStyle(paragraph);
+      return {
+        headingPx: Number.parseFloat(headingStyle.fontSize),
+        paragraphPx: Number.parseFloat(paragraphStyle.fontSize),
+        paragraphLineHeightPx: Number.parseFloat(paragraphStyle.lineHeight),
+      };
+    });
+    expect(typography).not.toBeNull();
+    expect(typography!.headingPx).toBeGreaterThan(typography!.paragraphPx * 1.2);
+    expect(typography!.paragraphLineHeightPx).toBeGreaterThan(typography!.paragraphPx * 1.7);
+    const answerSurface = page.locator('.origin-chat-assistant');
+    const verification = page.getByTestId('response-verification-details');
+    const answerBox = await answerSurface.boundingBox();
+    const verificationBox = await verification.boundingBox();
+    expect(answerBox?.width).toBeLessThanOrEqual(832);
+    expect(verificationBox?.width).toBeLessThanOrEqual(832);
+    expect(Math.abs((answerBox?.width ?? 0) - (verificationBox?.width ?? 0))).toBeLessThanOrEqual(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 

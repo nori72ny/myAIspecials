@@ -48,6 +48,61 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(modelCatalog).not.toContain('"openrouter/free"');
   });
 
+  it("keeps production chat single-attempt and excludes legacy retry runtimes", () => {
+    const chat = readRepositoryFile("src/legacy/originChatRouter.ts");
+    const streaming = readRepositoryFile("src/legacy/originStreamingChatRouter.ts");
+    const server = readRepositoryFile("src/server/createOriginApp.ts");
+    const entrypoint = readRepositoryFile("src/main.tsx");
+
+    for (const source of [chat, streaming]) {
+      expect(source).not.toContain("executeWithRetry");
+      expect(source).not.toContain("MAX_RETRIES");
+    }
+    expect(chat).toContain("providerAttempts: 1");
+    expect(streaming).toContain("const result = await streamExecute(providerRequest");
+    expect(streaming).toContain("retryAttempted: false");
+    expect(server).not.toContain("OpenRouterPlugin");
+    expect(server).not.toContain("initMissionEngine");
+    expect(entrypoint).not.toContain("useAppState");
+  });
+
+  it("locks provider egress to one request and keeps upstream diagnostics metadata-only", () => {
+    const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
+    const providerSecurityRegression = readRepositoryFile("src/legacy/originProviderClient.security-regression.test.ts");
+
+    expect(providerClient).toContain("const RETRY: readonly number[] = []");
+    expect(providerClient).toContain("const MAX_SEGMENTS = 1");
+    expect(providerClient).toContain("attempt: 1");
+    expect(providerClient).toContain("fallbackUsed: false");
+    expect(providerClient).not.toContain("response.text(");
+    expect(providerClient).toContain("upstreamStatus?: number");
+    expect(providerClient).toContain("upstreamErrorType?: string");
+    expect(providerClient).toContain('transportFailure?: "timeout" | "network"');
+    expect(providerSecurityRegression).toContain("preserves Retry-After without exposing upstream content or credentials");
+    expect(providerSecurityRegression).toContain("Authorization: Bearer upstream-secret-value");
+    expect(providerSecurityRegression).toContain("expect(String(error)).not.toContain(body)");
+    expect(providerSecurityRegression).toContain('expect(String(error)).not.toContain("synthetic-key")');
+  });
+
+  it("keeps untrusted-source data away from external sinks unless an explicit approved boundary exists", () => {
+    const tools = readRepositoryFile("src/agent/toolRegistry.ts");
+    const server = readRepositoryFile("src/server/createOriginApp.ts");
+
+    expect(tools).toContain("web_search_grounding");
+    expect(tools).toContain("Network capability intentionally disabled in the zero-cost local execution kernel.");
+    expect(tools).toContain("Network capability is disabled; no request was made.");
+    expect(tools).toContain("requiresApproval: true");
+    expect(tools).toContain("if (!approval.approved) throw new Error('HUMAN_APPROVAL_REQUIRED')");
+    expect(tools).toContain("if (!securityPolicyPassed) throw new Error('SAFETY_POLICY_BLOCKED')");
+    expect(tools).toContain("if (approval.costInUSD !== undefined && approval.costInUSD !== 0) throw new Error('ZERO_COST_BOUNDARY_BLOCKED')");
+    expect(tools).toContain("containsLikelySecret(edit.previous)");
+    expect(tools).toContain("CHECKPOINT_SECRET_SNAPSHOT_BLOCKED");
+    expect(tools).not.toContain("curl ");
+    expect(tools).not.toContain("wget ");
+    expect(tools).not.toContain("fetch(");
+    expect(server).not.toContain("web_search_grounding");
+  });
+
   it("keeps AI Studio direct runtime and fallback out of the release", () => {
     const metadata = JSON.parse(readRepositoryFile("metadata.json")) as { majorCapabilities?: string[] };
     const app = readRepositoryFile("src/server/createOriginApp.ts");

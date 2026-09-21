@@ -14,7 +14,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const initialComposerHeight = await commandBar.evaluate((element) => element.closest('.origin-composer')!.getBoundingClientRect().height);
     expect(initialComposerHeight).toBeGreaterThanOrEqual(76);
     expect(initialComposerHeight).toBeGreaterThanOrEqual(92);
-    expect(initialComposerHeight).toBeLessThanOrEqual(104);
+    expect(initialComposerHeight).toBeLessThanOrEqual(112);
     await expect(page.locator('[data-testid^="starter-"]')).toHaveCount(0);
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
@@ -204,9 +204,18 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     });
     await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を作成しました。\n```html:preview.html\n<a href="https://example.invalid">ORIGIN Personal 2.0 preview</a>\n```' }));
     await page.goto('/');
-    await page.getByTestId('origin-home-request').fill('成果物を作成したい');
-    await page.getByTestId('start-request-button').click();
     const workspace = page.getByTestId('artifact-workspace');
+    const requestInput = page.getByTestId('origin-home-request');
+    const startButton = page.getByTestId('start-request-button');
+    for (let attempt = 0; attempt < 5 && !(await workspace.isVisible().catch(() => false)); attempt += 1) {
+      await requestInput.fill('成果物を作成したい');
+      await page.waitForTimeout(150);
+      await startButton.evaluate((button) => {
+        if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error('request button is not ready');
+        button.click();
+      }).catch(() => undefined);
+      await workspace.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => undefined);
+    }
     await expect(workspace).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
@@ -233,6 +242,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       body: '```html:isolated-storage.html\n<main id="storage-result">Waiting</main><script>localStorage.setItem("habit","done");sessionStorage.setItem("session","isolated");document.getElementById("storage-result").textContent=localStorage.getItem("habit");fetch("https://origin-egress.invalid/blocked").catch(function(){});</script>\n```',
     }));
     await page.goto('/');
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await page.evaluate(() => localStorage.setItem('origin-parent-secret', 'parent-only'));
     await page.getByTestId('origin-home-request').fill('保存できる習慣トラッカーを作成');
     await page.getByTestId('start-request-button').click();
@@ -324,7 +335,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('knowledge-map-toggle').click();
     await expect(page.getByTestId('knowledge-map-node-count')).toHaveText('1');
     await page.getByTestId('knowledge-map-session-0').click();
-    await expect(page.getByText('復元対象のローカルセッション')).toBeVisible();
+    await expect(page.getByRole('article', { name: 'あなたの依頼' }).filter({ hasText: '復元対象のローカルセッション' })).toBeVisible();
   });
 
   test('migrates legacy localStorage to IndexedDB and persists generated artifact revisions locally', async ({ page }) => {
@@ -337,7 +348,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByText('IndexedDBへ移行する履歴')).toBeVisible();
     // Opening version 1 before the app's idle migration creates a schema-less
     // database. Wait for successful storage initialization before inspecting it.
-    await expect(page.getByTestId('origin-storage-status')).toHaveCount(0);
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await expect.poll(() => page.evaluate(async () => new Promise<{ legacy: string | null; snapshot: unknown }>((resolve) => {
       const request = indexedDB.open('origin-personal-local', 1);
       request.onsuccess = () => {

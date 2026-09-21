@@ -454,8 +454,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { model: string; systemPrompt: string };
     expect(request.model).toBe('inclusionai/ling-3.0-flash-sante:free');
     expect(request.systemPrompt).toBe(getOriginSystemPrompt('en'));
-    for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'production-ready']) expect(request.systemPrompt).toContain(phrase);
-    expect(getOriginSystemPrompt('ja')).toContain('結論を1文で先に');
+    for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'verified facts', 'never invent sources', 'material unknowns', 'do not stop at a terse overview', 'production-ready']) expect(request.systemPrompt).toContain(phrase);
+    const japanesePrompt = getOriginSystemPrompt('ja');
+    for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず']) expect(japanesePrompt).toContain(phrase);
     vi.unstubAllGlobals();
   });
 
