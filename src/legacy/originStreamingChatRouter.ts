@@ -11,7 +11,7 @@ import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { executeOriginProviderStream, type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
-import { originChatSystemInstruction, requiresOriginCurrentInformation, requiresOriginFutureReleaseInformation } from "./originChatResponsePolicy.js";
+import { originChatSystemInstruction, requiresOriginCurrentInformation } from "./originChatResponsePolicy.js";
 import {
   detectSensitiveConversation,
   isOriginWeatherRequest,
@@ -32,7 +32,6 @@ export interface OriginStreamingChatRouterOptions {
 
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 
-function requiresFutureReleaseInformation(message: string): boolean { return requiresOriginFutureReleaseInformation(message); }
 function requiresCurrentInformation(message: string): boolean { return requiresOriginCurrentInformation(message); }
 
 function systemInstruction(
