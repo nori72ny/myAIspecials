@@ -6,6 +6,7 @@ import { PostgresMcpOAuthGrantStore } from './mcpOAuthGrantStore.js';
 import { PostgresMcpOAuthPendingStore } from './mcpOAuthPendingStore.js';
 import { McpOAuthTokenCipher } from './mcpOAuthTokens.js';
 import { PostgresMcpConnectionStore } from './mcpPostgresStore.js';
+import { PostgresMcpToolGrantStore } from './mcpToolGrantStore.js';
 import { createSupabaseMcpAuthenticatorFromEnv } from './mcpSupabaseAuth.js';
 import { createSupabaseMcpOwnerSessionRouterFromEnv } from './mcpOwnerSessionRouter.js';
 import type { McpManagementDependencies } from './mcpManagementRouter.js';
@@ -237,6 +238,7 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     appOrigin,
     authenticate,
     store: new PostgresMcpConnectionStore(pool),
+    toolGrants: new PostgresMcpToolGrantStore(pool),
     servers: reviewed.servers,
     oauth: broker,
     resolveCredential: (ownerId, serverId) => broker.resolveCredential(ownerId, serverId),
