@@ -142,6 +142,15 @@ describe('SettingsModal release identity', () => {
 
 
 describe('SettingsModal appearance and history actions', () => {
+  it('keeps the visually hidden import input out of the keyboard tab order', () => {
+    mockHealth({ releaseSha: RELEASE_SHA });
+    const { container } = renderSettings();
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).toBeTruthy();
+    expect(input?.tabIndex).toBe(-1);
+  });
+
+
   it('exposes Minimal, Luxury, and Glass while updating only the selected design theme', async () => {
     const updateSettings = vi.fn();
     mockHealth({ releaseSha: RELEASE_SHA });
