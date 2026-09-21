@@ -4,6 +4,7 @@ import type { McpManagementDependencies } from './mcpManagementRouter.js';
 import type { McpToolGrantStore } from './mcpToolGrantStore.js';
 import { McpManagementError } from './mcpConnections.js';
 import { createNodeMcpTransport } from './mcpNodeFetch.js';
+import type { McpAgentSession } from './mcpAgentExecution.js';
 
 /** Explicit Node composition. No automatic owner identity, in-memory store or credential fallback. */
 export function createNodeMcpManagement(options: {
@@ -38,7 +39,7 @@ export function createNodeMcpManagement(options: {
 
 
 export interface McpAgentSessionFactory {
-  open(input: { ownerId: string; connectionId: string; version: number }): Promise<OriginMcpSession>;
+  open(input: { ownerId: string; connectionId: string; version: number }): Promise<McpAgentSession>;
 }
 
 /**
