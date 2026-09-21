@@ -64,7 +64,7 @@ jobs:
         run: node runner/scripts/check-aq-live-quota-guard.mjs
 
       - name: Checkout exact candidate
-        if: steps.heldout_priority.outputs.pause_aq != 'true' && (steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true')
+        if: steps.state.outputs.complete == 'true' || (steps.heldout_priority.outputs.pause_aq != 'true' && steps.quota_guard.outputs.allowed == 'true')
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ env.CANDIDATE_SHA }}
@@ -72,7 +72,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node 24
-        if: steps.heldout_priority.outputs.pause_aq != 'true' && (steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true')
+        if: steps.state.outputs.complete == 'true' || (steps.heldout_priority.outputs.pause_aq != 'true' && steps.quota_guard.outputs.allowed == 'true')
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
@@ -80,12 +80,12 @@ jobs:
           cache-dependency-path: candidate/package-lock.json
 
       - name: Install exact candidate dependencies
-        if: steps.heldout_priority.outputs.pause_aq != 'true' && (steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true')
+        if: steps.state.outputs.complete == 'true' || (steps.heldout_priority.outputs.pause_aq != 'true' && steps.quota_guard.outputs.allowed == 'true')
         working-directory: candidate
         run: npm ci --ignore-scripts
 
       - name: Resolve and verify frozen quota plan
-        if: steps.heldout_priority.outputs.pause_aq != 'true' && (steps.state.outputs.complete == 'true' || steps.quota_guard.outputs.allowed == 'true')
+        if: steps.state.outputs.complete == 'true' || (steps.heldout_priority.outputs.pause_aq != 'true' && steps.quota_guard.outputs.allowed == 'true')
         id: plan
         working-directory: candidate
         shell: bash
