@@ -41,7 +41,7 @@ function network(reply: MockReply | ((body: string, method: string) => MockReply
   }) as unknown as typeof https.request);
   return { lookup, request, requests, responses };
 }
-function fetcher(options: { timeoutMs?: number; maxResponseBytes?: number; allowDeleteBody?: boolean } = {}) {
+function fetcher(options: { timeoutMs?: number; maxResponseBytes?: number; allowDeleteBody?: boolean; fixedHeaders?: Readonly<Record<string, string>> } = {}) {
   return createNodeMcpFetch({ endpoint, allowedOrigins: origins, ...options });
 }
 
@@ -62,6 +62,21 @@ describe('guarded Node MCP fetch', () => {
     expect(n.lookup).toHaveBeenCalledTimes(1);
     expect(n.request.mock.calls[0][1]).toMatchObject({ rejectUnauthorized: true, maxHeaderSize: 16384, headers: { authorization: 'Bearer test', 'accept-encoding': 'identity' } });
   });
+  it('injects reviewed GitHub MCP headers and rejects caller attempts to relax them', async () => {
+    const n = network();
+    const send = fetcher({ fixedHeaders: { 'X-MCP-Readonly': 'true', 'X-MCP-Toolsets': 'repos' } });
+    const response = await send(endpoint, { method: 'GET' });
+    await response.text();
+    expect(n.request.mock.calls[0][1]).toMatchObject({
+      headers: expect.objectContaining({
+        'x-mcp-readonly': 'true',
+        'x-mcp-toolsets': 'repos',
+      }),
+    });
+    await expect(send(endpoint, { headers: { 'X-MCP-Readonly': 'false' } })).rejects.toThrow('MCP_HEADERS_INVALID');
+    expect(n.request).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps DELETE bodies disabled by default and enables them only for an explicit reviewed endpoint client', async () => {
     network();
     await expect(fetcher()(endpoint, { method: 'DELETE', body: '{"access_token":"fixture"}', headers: { 'content-type': 'application/json' } }))
