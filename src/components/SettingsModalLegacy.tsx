@@ -87,7 +87,7 @@ export default function SettingsModalLegacy({
   }, [isOpen]);
 
   const update = (patch: Partial<Settings>) => updateSettings({ ...settings, ...patch });
-  const stopPointer = (event: React.PointerEvent<HTMLElement>) => { event.preventDefault(); event.stopPropagation(); };
+  const stopPointer = (event: React.PointerEvent<HTMLElement>) => { event.stopPropagation(); };
   const copyReleaseSha = async () => {
     if (releaseIdentity.status !== 'ready') return;
     setCopyStatus('idle');
