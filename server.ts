@@ -22,6 +22,7 @@ async function startServer() {
   const app = createOriginApp(process.env, {
     mcp,
     mcpAgent: mcp?.agentRouter,
+    mcpGithubBootstrap: mcp?.githubBootstrapRouter,
     mcpSession: createMcpProductionSessionRouterFromEnv(process.env),
   });
   const PORT = resolvePort();
