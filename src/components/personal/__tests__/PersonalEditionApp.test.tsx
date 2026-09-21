@@ -32,9 +32,8 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
 
     const research = screen.getByRole('button', { name: 'Research' }) as HTMLButtonElement;
-    const work = screen.getByRole('button', { name: 'Work 準備中' }) as HTMLButtonElement;
     expect(research.disabled).toBe(false);
-    expect(work.disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: /Work/ })).toBeNull();
   });
 
   it('opens Research from the Mode layer and preserves the chat mount', async () => {
@@ -218,22 +217,18 @@ describe('PersonalEditionApp production wrapper', () => {
     expect((screen.getByRole('button', { name: 'Project Sources unavailable' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('closes a Project artifact and keeps both navigation controls in sync', () => {
+  it('keeps desktop chat mounted when Project artifact split view opens and closes', () => {
     const artifacts = [{ id: 'a-close', type: 'markdown' as const, title: 'Close test', language: 'markdown', content: '# Test', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
     const originalChat = screen.getByTestId('mock-origin-app');
     fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
     expect(screen.getByRole('tab', { name: '成果物' }).getAttribute('aria-selected')).toBe('true');
-    expect(originalChat.closest('[hidden]')).toBeTruthy();
+    expect(originalChat.closest('[hidden]')).toBeNull();
+    expect(screen.getByRole('complementary', { name: '成果物ワークスペース' }).textContent).toContain('Close test');
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(screen.queryByRole('complementary', { name: '成果物ワークスペース' })).toBeNull();
     expect(originalChat.closest('[hidden]')).toBeNull();
     expect(screen.getByRole('tab', { name: '会話' }).getAttribute('aria-selected')).toBe('true');
-    fireEvent.click(screen.getByRole('tab', { name: '成果物' }));
-    expect(screen.getByRole('button', { name: 'Project Artifacts' }).getAttribute('aria-pressed')).toBe('true');
-    fireEvent.click(screen.getByRole('tab', { name: '会話' }));
-    expect(screen.queryByRole('complementary', { name: '成果物ワークスペース' })).toBeNull();
-    expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
   });
 
 });
