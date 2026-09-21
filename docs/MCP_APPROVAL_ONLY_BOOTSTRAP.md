@@ -2,7 +2,7 @@
 
 Status: M2 design baseline
 Updated: 2026-09-21 JST
-Depends on: PR #585 / MCP Client Foundation Candidate
+Depends on: current MCP client foundation port candidate
 
 ## Objective
 
@@ -41,7 +41,7 @@ ORIGIN must never render or return the resulting client secret, private key or w
 10. Registration persistence is versioned and owner-bound.
 11. App installation is restricted to selected repositories; the initial production target is `nori72ny/myAIspecials` only.
 12. Runtime MCP OAuth continues to require:
-    - canonical endpoint `https://api.githubcopilot.com/mcp`;
+    - canonical reviewed endpoint `https://api.githubcopilot.com/mcp/x/repos/readonly`;
     - `github-file-readonly` transport profile;
     - GitHub App permission model;
     - no OAuth scopes;
@@ -79,7 +79,7 @@ ORIGIN must never render or return the resulting client secret, private key or w
 1. ORIGIN begins its existing reviewed OAuth/PKCE flow.
 2. Owner approves GitHub user authorization.
 3. ORIGIN exchanges and encrypts the short-lived GitHub App user token.
-4. ORIGIN probes the canonical Remote MCP endpoint.
+4. ORIGIN probes the canonical repos-only read-only Remote MCP endpoint.
 5. ORIGIN discovers tools.
 6. ORIGIN persists an exact grant only for `get_file_contents`.
 
