@@ -155,6 +155,7 @@ for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.route('**/api/chat', route => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を作成しました。\n```html:gate.html\n<main><h1>監査用の成果物</h1></main>\n```' }));
     await page.goto('/');
+    await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
     await expect(page.getByRole('tab', { name: '成果物', exact: true })).toHaveCount(0);
     await page.getByTestId('origin-home-request').fill('成果物の表示を確認');
     await page.getByTestId('start-request-button').click();
