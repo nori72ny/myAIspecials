@@ -111,12 +111,13 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?workspace=creative');
     await expect(page.getByRole('main', { name: 'Creative workspace' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Create' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByLabel('Workspace mode', { exact: true })).toHaveValue('creative');
 
     await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
     await expect(page).not.toHaveURL(/workspace=creative/);
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     await page.goBack();
     await expect(page.getByRole('main', { name: 'Creative workspace' })).toBeVisible();
+    await expect(page.getByLabel('Workspace mode', { exact: true })).toHaveValue('creative');
   });
 });
