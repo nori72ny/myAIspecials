@@ -23,6 +23,11 @@
 .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child h1 { font-size: clamp(2rem, 4.2vw, 3.15rem) !important; line-height: 1.15 !important; letter-spacing: -0.045em !important; }
 .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > p { max-width: 640px !important; font-size: 16px !important; line-height: 1.75 !important; }
 
+/* PR #608: the Personal shell owns the one global product header. The shared
+   App keeps its standalone header for non-Personal surfaces, but it is not
+   rendered visually when embedded under PersonalEditionApp. */
+.origin-personal-chat .origin-header { display: none !important; }
+
 /* PR #608 external-audit follow-up: keep artifacts from crushing the conversation. */
 .origin-personal-artifact-open .origin-project-context,
 .origin-personal-artifact-open [aria-label="Artifact layer"] { display: none !important; }
@@ -38,9 +43,6 @@
   }
   .origin-personal-chat:has([data-testid="artifact-workspace"]) .origin-app main {
     margin-right: min(60vw, 860px);
-  }
-  .origin-personal-chat:has([data-testid="artifact-workspace"]) .origin-header {
-    min-height: 48px !important;
   }
 }
 
