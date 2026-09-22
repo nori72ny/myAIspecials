@@ -208,21 +208,23 @@ export default function ResearchWorkspaceV31({ composerControls, onSourcesChange
 
   return <section aria-label="Research Workspace" className="min-h-[calc(100vh-5rem)] bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5">
     <div className="mx-auto max-w-6xl space-y-4">
-      <header className="origin-workspace rounded-2xl p-4 md:p-5">
+      <header className="px-1 pt-2 md:px-2">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-500">Research · Grounded V1.1</p>
-            <h1 className="mt-1 text-xl font-black">公開情報を出典付きで調査</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">無料の公開Web情報のみを取得し、確認できた出典を分離表示します。検索結果の信頼度は「取得証拠の強さ」であり、事実の真偽や媒体の権威を保証する評価ではありません。</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-500">Research</p>
+            <h1 className="mt-1 text-lg font-black">公開情報を出典付きで調査</h1>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">複数の公開情報源を確認し、出典と不確実性を分けて表示します。</p>
           </div>
           <span title="$0 · paid fallbackなし" className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">無料範囲で安全に調査</span>
         </div>
-        {composerControls}
-        <label htmlFor="research-query" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">調べたいこと</label>
-        <textarea id="research-query" value={query} onChange={event => setQuery(event.target.value)} maxLength={1200} placeholder="例: 生成AIの店舗集客への活用について、最近の公開情報を複数ソースで比較してください。" className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        <div className="origin-composer origin-surface mt-4 flex items-end gap-2 rounded-[24px] border p-2 shadow-lg shadow-black/5">
+          {composerControls}
+          <label htmlFor="research-query" className="sr-only">調べたいこと</label>
+          <textarea id="research-query" value={query} onChange={event => setQuery(event.target.value)} maxLength={1200} rows={1} placeholder="調べたいことを入力…" className="origin-input max-h-52 min-h-[60px] flex-1 resize-none bg-transparent px-4 py-3 text-base leading-7 outline-none" />
+          <button type="button" aria-label="調査する" title={busy ? '調査中…' : '調査する'} onClick={() => void runResearch()} disabled={busy || !query.trim()} className="origin-primary-button inline-flex h-11 w-11 min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full p-0 text-xl font-bold disabled:cursor-not-allowed disabled:opacity-50"><span aria-hidden="true">{busy ? '…' : '↑'}</span></button>
+        </div>
+        <div className="mt-2 flex justify-end">
           <span className="text-[10px] text-slate-500">{query.length}/1200 · 機微情報は外部送信前にブロック</span>
-          <button type="button" onClick={() => void runResearch()} disabled={busy || !query.trim()} className="origin-primary-button min-h-11 rounded-xl px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '調査中…' : '調査する'}</button>
         </div>
         {error && <div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{error}</div>}
       </header>
