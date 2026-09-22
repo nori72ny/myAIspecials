@@ -14,6 +14,7 @@ export type OriginRuntimeActivityV31 = {
 
 type OriginRuntimeActivityTimelineV31Props = {
   activities: readonly OriginRuntimeActivityV31[];
+  compact?: boolean;
 };
 
 const KIND_LABEL: Record<OriginRuntimeActivityKindV31, string> = {
@@ -42,13 +43,14 @@ function statusClass(status: OriginRuntimeActivityStatusV31): string {
   return 'border-indigo-300 text-indigo-800 dark:border-indigo-800 dark:text-indigo-200';
 }
 
-export default function OriginRuntimeActivityTimelineV31({ activities }: OriginRuntimeActivityTimelineV31Props) {
+export default function OriginRuntimeActivityTimelineV31({ activities, compact = false }: OriginRuntimeActivityTimelineV31Props) {
   if (!activities.length) return null;
-  return <section data-testid="origin-runtime-activity-timeline" aria-label="ORIGIN runtime activity" aria-live="polite" className="grid gap-2">
-    {activities.map(activity => {
+  const visibleActivities = compact ? activities.slice(-1) : activities;
+  return <section data-testid="origin-runtime-activity-timeline" aria-label="ORIGIN runtime activity" aria-live="polite" className={compact ? 'w-full' : 'grid gap-2'}>
+    {visibleActivities.map(activity => {
       const active = activity.status === 'queued' || activity.status === 'running' || activity.status === 'awaiting_approval' || activity.status === 'verifying';
-      return <details key={activity.id} open={active} className="origin-surface-muted rounded-xl border border-origin-border px-3 py-2">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm">
+      return <details key={activity.id} open={compact ? false : active} className={compact ? 'rounded-xl px-1 py-0.5' : 'origin-surface-muted rounded-xl border border-origin-border px-3 py-2'}>
+        <summary className={`flex min-h-11 cursor-pointer list-none items-center gap-2 ${compact ? 'text-[13px]' : 'text-sm'}`}>
           <span className="origin-muted shrink-0 text-[11px] font-black uppercase tracking-wide">{KIND_LABEL[activity.kind]}</span>
           <strong className="min-w-0 flex-1 truncate">{activity.title}</strong>
           <span data-testid={`runtime-activity-status-${activity.id}`} className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-bold ${statusClass(activity.status)}`}>{STATUS_LABEL[activity.status]}</span>
