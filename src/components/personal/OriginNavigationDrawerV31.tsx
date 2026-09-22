@@ -9,6 +9,7 @@ type OriginNavigationDrawerV31Props = {
   onOpenArtifact?: (artifact: ArtifactBlock) => void;
   onNewConversation: () => void;
   onOpenSettings?: () => void;
+  projectNavigation?: React.ReactNode;
 };
 
 function persistedSession(value: unknown): ConversationSession | null {
@@ -46,6 +47,7 @@ export default function OriginNavigationDrawerV31({
   onOpenArtifact,
   onNewConversation,
   onOpenSettings,
+  projectNavigation,
 }: OriginNavigationDrawerV31Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -159,6 +161,8 @@ export default function OriginNavigationDrawerV31({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto border-t border-origin-border p-3">
+          {projectNavigation}
+
           <details className="mb-4 rounded-xl border border-origin-border p-2">
             <summary className="origin-secondary-button flex min-h-11 cursor-pointer list-none items-center justify-between rounded-lg px-3 text-sm font-semibold">
               <span>◎ Knowledge Map</span>
