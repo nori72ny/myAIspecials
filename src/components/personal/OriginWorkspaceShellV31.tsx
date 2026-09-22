@@ -5,7 +5,6 @@ export type OriginWorkspaceModeV31 = 'chat' | 'research' | 'coding' | 'creative'
 type ModeItem = {
   id: OriginWorkspaceModeV31;
   label: string;
-  description: string;
 };
 
 type OriginWorkspaceShellV31Props = {
@@ -15,10 +14,10 @@ type OriginWorkspaceShellV31Props = {
 };
 
 const MODES: readonly ModeItem[] = [
-  { id: 'chat', label: 'Chat', description: '会話・相談' },
-  { id: 'research', label: 'Research', description: '調査・出典' },
-  { id: 'coding', label: 'Code', description: 'Agentic Coding' },
-  { id: 'creative', label: 'Create', description: 'Visual生成' },
+  { id: 'chat', label: 'Chat' },
+  { id: 'research', label: 'Research' },
+  { id: 'coding', label: 'Code' },
+  { id: 'creative', label: 'Create' },
 ];
 
 const modeCapabilities: Record<OriginWorkspaceModeV31, readonly string[]> = {
@@ -67,36 +66,20 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange, navigation
         <span className="sr-only">Workspace</span>
       </div>
 
-      <label className="ml-auto min-w-0 flex-1 sm:hidden">
-        <span className="sr-only">Mode selector</span>
-        <select
-          aria-label="Mode selector"
-          value={mode}
-          onChange={(event) => onModeChange(event.target.value as OriginWorkspaceModeV31)}
-          className="origin-secondary-button min-h-11 w-full rounded-full border px-3 text-sm font-bold"
-        >
-          {MODES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-        </select>
-      </label>
-
-      <nav aria-label="Mode" className="ml-auto hidden min-w-0 flex-1 items-center justify-end gap-1.5 sm:flex">
-        {MODES.map((item) => {
-          const selected = item.id === mode;
-          return <button
-            key={item.id}
-            type="button"
-            aria-pressed={selected}
-            aria-label={item.label}
-            title={item.description}
-            onClick={() => onModeChange(item.id)}
-            className={`min-h-11 shrink-0 rounded-full border px-4 text-sm font-bold transition-colors ${selected ? 'origin-primary-button' : 'origin-secondary-button'}`}
+      <div className="ml-auto flex min-w-0 items-center gap-2">
+        {mode !== 'chat' && <label className="min-w-0">
+          <span className="sr-only">Workspace mode</span>
+          <select
+            aria-label="Workspace mode"
+            value={mode}
+            onChange={(event) => onModeChange(event.target.value as OriginWorkspaceModeV31)}
+            className="origin-secondary-button min-h-11 w-[6.7rem] rounded-full border px-3 text-xs font-bold sm:w-[7.5rem] sm:text-sm"
           >
-            {item.label}
-          </button>;
-        })}
-      </nav>
-
-      <SystemDetails mode={mode} />
+            {MODES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        </label>}
+        <SystemDetails mode={mode} />
+      </div>
     </div>
   </section>;
 }
