@@ -278,15 +278,6 @@ export default function CodingJobWorkspaceV14({ composerControls, onProjectEvide
   const startJob = useCallback(async () => {
     const trimmedGoal = goal.trim();
     if (!trimmedGoal || busy || capability?.ready !== true) return;
-    setApprovalPending(false);
-    onRuntimeActivityChange?.({
-      id: 'coding-approval',
-      kind: 'approval',
-      status: 'completed',
-      title: 'Coding実行承認',
-      detail: 'Ownerの明示承認を確認し、Coding jobの実行を開始しました。',
-      evidence: 'confirmRun=true',
-    });
     const credential = credentialInputRef.current?.value.trim() ?? '';
     if (!credential) { setError('CODING_JOB_AUTHENTICATION_REQUIRED'); credentialInputRef.current?.focus(); return; }
     const epoch = beginOperation(credential);
@@ -296,6 +287,15 @@ export default function CodingJobWorkspaceV14({ composerControls, onProjectEvide
       if (epoch !== requestEpochRef.current) return;
       if (!response.ok || !data.ok || !data.job) { credentialRef.current = ''; setError(safeCode(data.code, `CODING_UI_CREATE_${response.status}`)); return; }
       currentJobIdRef.current = data.job.jobId;
+      setApprovalPending(false);
+      onRuntimeActivityChange?.({
+        id: 'coding-approval',
+        kind: 'approval',
+        status: 'completed',
+        title: 'Coding実行承認',
+        detail: 'Ownerの明示承認を確認し、Coding jobの作成・開始要求が受理されました。',
+        evidence: `confirmRun=true · job=${data.job.jobId}`,
+      });
       if (credentialInputRef.current) credentialInputRef.current.value = '';
       applyResponse(data, epoch);
     } catch { if (epoch === requestEpochRef.current) { credentialRef.current = ''; setError('CODING_UI_CREATE_UNAVAILABLE'); } }
@@ -403,7 +403,20 @@ export default function CodingJobWorkspaceV14({ composerControls, onProjectEvide
 
         <label htmlFor="coding-goal" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">変更したいこと</label>
         {composerControls}
-        <textarea id="coding-goal" value={goal} onChange={event => setGoal(event.target.value)} maxLength={4000} placeholder="例: ログイン画面のフォーム検証を修正し、関連テストを追加してすべての検証を通してください。" className="mt-2 min-h-40 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
+        <textarea id="coding-goal" value={goal} onChange={event => {
+          setGoal(event.target.value);
+          if (approvalPending) {
+            setApprovalPending(false);
+            onRuntimeActivityChange?.({
+              id: 'coding-approval',
+              kind: 'approval',
+              status: 'cancelled',
+              title: 'Coding実行承認',
+              detail: '承認待ち中に依頼内容が変更されたため、旧承認を無効化しました。',
+              evidence: 'goal changed before confirmation',
+            });
+          }
+        }} maxLength={4000} placeholder="例: ログイン画面のフォーム検証を修正し、関連テストを追加してすべての検証を通してください。" className="mt-2 min-h-40 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
         <div className="mt-1 text-right text-[10px] text-slate-500">{goal.length}/4000</div>
         {!approvalPending && <button type="button" onClick={() => {
           if (!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))) return;
