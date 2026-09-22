@@ -342,6 +342,18 @@ export default function CodingJobWorkspaceV14({ composerControls, onProjectEvide
   }, [job?.jobId, job?.status, job?.changedPaths, result?.verificationChecks, onProjectEvidenceChange]);
 
   useEffect(() => {
+    if (!job || job.status !== 'repairing' || result?.verificationChecks.length) return;
+    onRuntimeActivityChange?.({
+      id: 'coding-verification-tools',
+      kind: 'tool',
+      status: 'running',
+      title: 'Coding verification tools',
+      detail: '検証で検出した問題をbounded repairし、再検証へ進む実行サイクルです。',
+      evidence: `job=${job.jobId} · phase=repairing · final verification pending`,
+    });
+  }, [job?.jobId, job?.status, result?.verificationChecks, onRuntimeActivityChange]);
+
+  useEffect(() => {
     if (!result?.verificationChecks.length) return;
     const failed = result.verificationChecks.filter(check => !check.ok);
     const evidence = result.verificationChecks.map(check => `${check.kind}=${check.ok ? 'PASS' : 'FAIL'}`).join(' · ');
