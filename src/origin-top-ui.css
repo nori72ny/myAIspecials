@@ -28,21 +28,68 @@
    rendered visually when embedded under PersonalEditionApp. */
 .origin-personal-chat .origin-header { display: none !important; }
 
+/* Conversation-first visual hierarchy for the Personal surface. These scoped
+   overrides intentionally do not alter standalone/enterprise App surfaces. */
+.origin-personal-chat [data-testid="origin-core-logo"] {
+  width: 64px !important;
+  height: 64px !important;
+  margin-bottom: 10px !important;
+}
+.origin-personal-chat [data-testid="origin-core-logo"] .origin-logo-core {
+  width: 48px !important;
+  height: 48px !important;
+  border-radius: 16px !important;
+  font-size: 28px !important;
+  box-shadow: 0 10px 28px color-mix(in oklch, var(--shadow-color) 58%, transparent) !important;
+}
+.origin-personal-chat [data-testid="origin-core-logo"] .origin-logo-glow {
+  inset: -3px !important;
+  filter: blur(12px) !important;
+  opacity: .55 !important;
+}
+.origin-personal-chat .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child h1 {
+  font-size: clamp(1.55rem, 3vw, 2.15rem) !important;
+  line-height: 1.22 !important;
+  letter-spacing: -0.035em !important;
+}
+.origin-personal-chat .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > p {
+  max-width: 580px !important;
+  font-size: 15px !important;
+  line-height: 1.65 !important;
+}
+.origin-personal-chat .origin-chat-assistant {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding-inline: 0 !important;
+  font-size: 16px !important;
+  line-height: 1.68 !important;
+}
+.origin-personal-chat .origin-chat-user {
+  font-size: 15px !important;
+  line-height: 1.6 !important;
+}
+.origin-personal-chat .origin-safe-note {
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  opacity: .8;
+}
+.origin-composer-mode-host { align-self: flex-end; margin-bottom: 4px; }
+
 /* PR #608 external-audit follow-up: keep artifacts from crushing the conversation. */
-.origin-personal-artifact-open .origin-project-context,
-.origin-personal-artifact-open [aria-label="Artifact layer"] { display: none !important; }
+.origin-personal-artifact-open .origin-project-context { display: none !important; }
 .origin-personal-artifact-open .origin-workspace-shell > div { min-height: 48px !important; }
 
 @media (min-width: 768px) {
   .origin-personal-artifact-open .origin-personal-chat {
-    margin-right: min(60vw, 860px);
+    margin-right: min(56vw, 820px);
   }
   .origin-personal-artifact-open > [data-testid="artifact-workspace"],
   .origin-personal-chat [data-testid="artifact-workspace"] {
-    width: min(60vw, 860px) !important;
+    width: min(56vw, 820px) !important;
   }
   .origin-personal-chat:has([data-testid="artifact-workspace"]) .origin-app main {
-    margin-right: min(60vw, 860px);
+    margin-right: min(56vw, 820px);
   }
 }
 
@@ -56,7 +103,10 @@
   .origin-header { min-height: 64px !important; }
   [data-testid="origin-core-logo"] { width: 88px !important; height: 88px !important; margin-bottom: 16px !important; }
   [data-testid="origin-core-logo"] .origin-logo-core { width: 64px !important; height: 64px !important; border-radius: 20px !important; font-size: 36px !important; }
+  .origin-personal-chat [data-testid="origin-core-logo"] { width: 54px !important; height: 54px !important; margin-bottom: 8px !important; }
+  .origin-personal-chat [data-testid="origin-core-logo"] .origin-logo-core { width: 42px !important; height: 42px !important; border-radius: 14px !important; font-size: 24px !important; }
   .origin-composer { border-radius: 24px !important; }
-  .origin-composer textarea { min-height: 72px !important; font-size: 16px !important; }
+  .origin-composer textarea { min-height: 68px !important; font-size: 16px !important; padding-inline: 10px !important; }
+  .origin-composer-mode-host select { width: 5rem !important; max-width: 5rem !important; padding-inline: 6px !important; }
 }
 @media (prefers-reduced-motion: reduce) { .origin-header .origin-secondary-button { transition: none !important; } }
