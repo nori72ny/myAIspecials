@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PERSONAL_SETTINGS } from '../../../hooks/usePersonalSettings';
 import PersonalEditionApp from '../PersonalEditionApp';
@@ -64,7 +64,12 @@ describe('PersonalEditionApp production wrapper', () => {
     fireEvent.change(screen.getByLabelText('Composer mode'), { target: { value: 'coding' } });
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     expect(screen.queryByRole('navigation', { name: 'Mode' })).toBeNull();
-    expect(screen.getByLabelText('Agent 実行可能')).toBeTruthy();
+    await waitFor(() => {
+      const latestProps = appProps.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined;
+      expect(latestProps?.runtimeActivities).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'agent', status: 'completed', title: 'Agentic Coding' }),
+      ]));
+    });
 
     fireEvent.change(screen.getByLabelText('Workspace mode'), { target: { value: 'creative' } });
     expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
