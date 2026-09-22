@@ -4,6 +4,7 @@ import { ArtifactWorkspace } from '../../App';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
 import type { Settings } from '../../types';
 import OriginArtifactContextV31 from './OriginArtifactContextV31';
+import OriginComposerModeControlV31 from './OriginComposerModeControlV31';
 import OriginNavigationDrawerV31 from './OriginNavigationDrawerV31';
 import OriginProjectWorkspaceV31, { type OriginProjectViewV31 } from './OriginProjectWorkspaceV31';
 import type { ResearchSource } from './ResearchWorkspaceV31';
@@ -107,6 +108,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     </div>}
     </div>
     <div className="origin-personal-chat" hidden={workspace !== 'chat'}><App onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal + localResetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
+    <OriginComposerModeControlV31 mode={workspace} onModeChange={switchWorkspace} />
     {activeArtifact && <ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={artifactOpen} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} isStreaming={false} onSteer={() => undefined} onOpenSettings={onOpenSettings} onClose={closeArtifact} onArtifactRevision={handleArtifactRevision} />}
     {workspace === 'research' && <Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace onSourcesChange={setProjectSources} /></Suspense>}
     {workspace === 'coding' && <Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace onProjectEvidenceChange={setCodingEvidence} /></Suspense>}
