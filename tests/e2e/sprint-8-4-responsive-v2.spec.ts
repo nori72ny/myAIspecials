@@ -22,7 +22,7 @@ for (const viewport of VIEWPORTS) {
     await page.goto('/');
 
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'ORIGIN workspace shell' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     await expect(page.getByTestId(/^starter-/)).toHaveCount(0);
@@ -63,7 +63,8 @@ test('Personal 2.0 opens a renderable artifact workspace without overflow', asyn
 test('Personal 2.0 preserves the release settings dialog and SHA control', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く' }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  await page.getByRole('button', { name: '設定', exact: true }).click();
 
   const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
   await expect(dialog).toBeVisible();

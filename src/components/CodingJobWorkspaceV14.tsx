@@ -174,9 +174,9 @@ export type CodingProjectEvidence = {
   verificationChecks: readonly { kind: 'typecheck' | 'lint' | 'test' | 'build'; ok: boolean; exitCode: number | null; timedOut: boolean; attempt: number }[];
 };
 
-type CodingJobWorkspaceV14Props = { onProjectEvidenceChange?: (evidence: CodingProjectEvidence) => void };
+type CodingJobWorkspaceV14Props = { composerControls?: React.ReactNode; onProjectEvidenceChange?: (evidence: CodingProjectEvidence) => void };
 
-export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: CodingJobWorkspaceV14Props) {
+export default function CodingJobWorkspaceV14({ composerControls, onProjectEvidenceChange }: CodingJobWorkspaceV14Props) {
   const [goal, setGoal] = useState('');
   const [existingJobId, setExistingJobId] = useState('');
   const [capability, setCapability] = useState<CapabilityResponse | null>(null);
@@ -377,6 +377,7 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
         </div>
 
         <label htmlFor="coding-goal" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">変更したいこと</label>
+        {composerControls}
         <textarea id="coding-goal" value={goal} onChange={event => setGoal(event.target.value)} maxLength={4000} placeholder="例: ログイン画面のフォーム検証を修正し、関連テストを追加してすべての検証を通してください。" className="mt-2 min-h-40 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
         <div className="mt-1 text-right text-[10px] text-slate-500">{goal.length}/4000</div>
         <button type="button" onClick={() => void startJob()} disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))} className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '処理中…' : job && ACTIVE.has(job.status) ? '実行中' : '変更を依頼する'}</button>

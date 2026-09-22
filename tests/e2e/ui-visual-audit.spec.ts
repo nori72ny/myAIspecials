@@ -44,17 +44,20 @@ test.describe('ORIGIN visual QA evidence', () => {
       await page.goto('/');
       await expect(page.getByTestId('origin-home-request')).toBeVisible();
       await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
-      const projectWorkspace = page.getByRole('region', { name: 'Project Workspace' });
-      const projectBox = await projectWorkspace.boundingBox();
-      expect(projectBox).not.toBeNull();
-      if (viewport.name === 'mobile-390') {
-        expect(projectBox!.height).toBeLessThanOrEqual(140);
-        const workspaceShell = page.getByRole('region', { name: 'ORIGIN workspace shell' });
-        const workspaceBox = await workspaceShell.boundingBox();
-        expect(workspaceBox).not.toBeNull();
-        expect(workspaceBox!.height).toBeLessThanOrEqual(150);
+      await expect(page.getByRole('region', { name: 'Project Workspace' })).toHaveCount(0);
+      await expect(page.locator('header.origin-header')).toHaveCount(0);
+      const workspaceBox = await page.getByRole('region', { name: 'ORIGIN workspace shell' }).boundingBox();
+      expect(workspaceBox!.height).toBe(viewport.width < 640 ? 48 : 56);
+      const primaryControls = page.locator('button:visible, select:visible, summary:visible');
+      expect(await primaryControls.count()).toBeLessThanOrEqual(6);
+      const composer = page.locator('.origin-composer');
+      await expect(composer.getByLabel('Composer mode', { exact: true })).toBeVisible();
+      for (const child of await composer.locator('textarea, button, select').all()) {
+        const box = (await child.boundingBox())!;
+        const parent = (await composer.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(parent.x);
+        expect(box.x + box.width).toBeLessThanOrEqual(parent.x + parent.width);
       }
-      if (viewport.name === 'tablet-768') expect(projectBox!.height).toBeLessThanOrEqual(360);
       const startBox = await page.getByTestId('start-request-button').boundingBox();
       expect(startBox).not.toBeNull();
       expect(startBox!.y).toBeGreaterThanOrEqual(0);
@@ -74,6 +77,11 @@ test.describe('ORIGIN visual QA evidence', () => {
       await expect(page.getByTestId('response-verification-details')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
+      const typography = await answer.locator('.markdown-body').evaluate(element => ({ size: parseFloat(getComputedStyle(element).fontSize), line: parseFloat(getComputedStyle(element).lineHeight) / parseFloat(getComputedStyle(element).fontSize) }));
+      expect(typography.size).toBeGreaterThanOrEqual(15);
+      expect(typography.size).toBeLessThanOrEqual(16);
+      expect(typography.line).toBeGreaterThanOrEqual(1.6);
+      expect(typography.line).toBeLessThanOrEqual(1.7);
       const sendBox = await page.getByTestId('send-request-button').boundingBox();
       expect(sendBox).not.toBeNull();
       expect(sendBox!.y).toBeGreaterThanOrEqual(0);
@@ -137,6 +145,45 @@ test('conversation keeps its composer reachable after the viewport becomes short
   expect(sendBox!.y).toBeGreaterThanOrEqual(0);
   expect(sendBox!.y + sendBox!.height).toBeLessThanOrEqual(380);
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
-  await page.getByRole('button', { name: '新規対話を開始', exact: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await page.getByRole('button', { name: '＋ 新規対話', exact: true }).click();
   await expect(page.getByTestId('origin-home-request')).toBeVisible();
 });
+
+for (const width of [390, 1440]) {
+  test(`keeps one artifact pane and reachable conversation navigation at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.route('**/api/chat', route => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を作成しました。\n```html:gate.html\n<main><h1>監査用の成果物</h1></main>\n```' }));
+    await page.goto('/');
+    await expect(page.getByRole('tab', { name: '成果物', exact: true })).toHaveCount(0);
+    await page.getByTestId('origin-home-request').fill('成果物の表示を確認');
+    await page.getByTestId('start-request-button').click();
+    const artifact = page.getByTestId('artifact-workspace');
+    await expect(artifact).toHaveCount(1);
+    await expect(artifact).toBeVisible();
+    const pane = (await artifact.boundingBox())!;
+    if (width === 390) {
+      const conversationTab = page.getByRole('tab', { name: '会話', exact: true });
+      await expect(page.getByRole('tab', { name: '成果物', exact: true })).toHaveAttribute('aria-selected', 'true');
+      const tab = (await conversationTab.boundingBox())!;
+      expect(pane.y).toBeGreaterThanOrEqual(tab.y + tab.height);
+      await testInfo.attach('artifact-mobile-390.png', { body: await page.screenshot(), contentType: 'image/png' });
+      await conversationTab.click();
+      await expect(artifact).toHaveCount(0);
+      await expect(page.getByTestId('origin-chat-request')).toBeVisible();
+      await page.getByRole('tab', { name: '成果物', exact: true }).click();
+      await expect(artifact).toHaveCount(1);
+    } else {
+      const input = (await page.getByTestId('origin-chat-request').boundingBox())!;
+      expect(input.x + input.width).toBeLessThanOrEqual(pane.x);
+      expect(input.y + input.height).toBeLessThanOrEqual(900);
+      await testInfo.attach('artifact-desktop-1440.png', { body: await page.screenshot(), contentType: 'image/png' });
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+    await page.getByRole('button', { name: '成果物ワークスペースを閉じる' }).click();
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await page.getByRole('region', { name: 'Artifact history' }).getByRole('button', { name: /gate.html/ }).click();
+    await expect(artifact).toHaveCount(1);
+    await expect(artifact).toContainText('gate.html');
+  });
+}

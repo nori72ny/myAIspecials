@@ -2,23 +2,11 @@ import React from 'react';
 
 export type OriginWorkspaceModeV31 = 'chat' | 'research' | 'coding' | 'creative';
 
-type ModeItem = {
-  id: OriginWorkspaceModeV31;
-  label: string;
-};
-
 type OriginWorkspaceShellV31Props = {
   mode: OriginWorkspaceModeV31;
   onModeChange: (mode: OriginWorkspaceModeV31) => void;
   navigation?: React.ReactNode;
 };
-
-const MODES: readonly ModeItem[] = [
-  { id: 'chat', label: 'Chat' },
-  { id: 'research', label: 'Research' },
-  { id: 'coding', label: 'Code' },
-  { id: 'creative', label: 'Create' },
-];
 
 const modeCapabilities: Record<OriginWorkspaceModeV31, readonly string[]> = {
   chat: ['Files', 'Artifacts'],
@@ -56,9 +44,9 @@ function SystemDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
   </details>;
 }
 
-export default function OriginWorkspaceShellV31({ mode, onModeChange, navigation }: OriginWorkspaceShellV31Props) {
+export default function OriginWorkspaceShellV31({ mode, navigation }: OriginWorkspaceShellV31Props) {
   return <section aria-label="ORIGIN workspace shell" className="origin-workspace-shell border-b border-origin-border px-3 sm:px-5">
-    <div className="mx-auto flex min-h-12 w-full max-w-7xl items-center gap-2 sm:min-h-14 sm:gap-3">
+    <div className="mx-auto flex h-12 w-full max-w-7xl items-center gap-2 sm:h-14 sm:gap-3">
       {navigation}
       <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
         <span className="text-sm font-black tracking-tight sm:text-base">ORIGIN</span>
@@ -67,17 +55,6 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange, navigation
       </div>
 
       <div className="ml-auto flex min-w-0 items-center gap-2">
-        {mode !== 'chat' && <label className="min-w-0">
-          <span className="sr-only">Workspace mode</span>
-          <select
-            aria-label="Workspace mode"
-            value={mode}
-            onChange={(event) => onModeChange(event.target.value as OriginWorkspaceModeV31)}
-            className="origin-secondary-button min-h-11 w-[6.7rem] rounded-full border px-3 text-xs font-bold sm:w-[7.5rem] sm:text-sm"
-          >
-            {MODES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </select>
-        </label>}
         <SystemDetails mode={mode} />
       </div>
     </div>

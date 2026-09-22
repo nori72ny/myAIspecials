@@ -133,9 +133,9 @@ function failureMessage(code?: string, message?: string) {
   return message || '調査を完了できませんでした。確認できていない内容は表示していません。';
 }
 
-type ResearchWorkspaceV31Props = { onSourcesChange?: (sources: readonly ResearchSource[]) => void };
+type ResearchWorkspaceV31Props = { composerControls?: React.ReactNode; onSourcesChange?: (sources: readonly ResearchSource[]) => void };
 
-export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorkspaceV31Props) {
+export default function ResearchWorkspaceV31({ composerControls, onSourcesChange }: ResearchWorkspaceV31Props) {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<ResearchSuccess | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +184,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
           </div>
           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">$0 · paid fallbackなし</span>
         </div>
+        {composerControls}
         <label htmlFor="research-query" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">調べたいこと</label>
         <textarea id="research-query" value={query} onChange={event => setQuery(event.target.value)} maxLength={1200} placeholder="例: 生成AIの店舗集客への活用について、最近の公開情報を複数ソースで比較してください。" className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3">

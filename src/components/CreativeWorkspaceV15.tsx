@@ -107,7 +107,7 @@ function historyStorageMessage(status: 'unavailable' | 'quota' | 'failed'): stri
   return '端末内のCreative履歴を更新できませんでした。生成済み成果物はそのまま保存できます。';
 }
 
-export default function CreativeWorkspaceV15() {
+export default function CreativeWorkspaceV15({ composerControls }: { composerControls?: React.ReactNode } = {}) {
   const [draft, setDraft] = useState<CreativeDraft>(INITIAL_DRAFT);
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [busy, setBusy] = useState(false);
@@ -352,6 +352,7 @@ export default function CreativeWorkspaceV15() {
               </label>
             </div>
 
+            {composerControls}
             <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">タイトル
               <input value={draft.title} maxLength={240} onChange={(event) => update('title', event.target.value)} className="min-h-12 rounded-xl border border-slate-300 bg-white px-3 text-base font-semibold text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
             </label>

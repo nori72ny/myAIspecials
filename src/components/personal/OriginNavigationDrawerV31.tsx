@@ -1,4 +1,5 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ArtifactBlock, ArtifactRevision, ConversationMessage, ConversationSession } from '../../App';
 import { originIndexedDbAdapter } from '../../lib/local/OriginIndexedDb';
 
@@ -50,6 +51,9 @@ export default function OriginNavigationDrawerV31({
   projectNavigation,
 }: OriginNavigationDrawerV31Props) {
   const [isOpen, setIsOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
   const [storedSessions, setStoredSessions] = useState<ConversationSession[] | null>(null);
   const [storedArtifacts, setStoredArtifacts] = useState<ArtifactBlock[] | null>(null);
@@ -102,39 +106,62 @@ export default function OriginNavigationDrawerV31({
   useEffect(() => {
     if (!isOpen) return;
     const previousOverflow = document.body.style.overflow;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsOpen(false);
+    const background = Array.from(document.body.children).filter((element): element is HTMLElement => element instanceof HTMLElement && element !== overlayRef.current);
+    const priorInert = background.map(element => element.inert);
+    background.forEach(element => { element.inert = true; });
+    const focusable = () => Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button, input, select, summary, [tabindex="0"]') ?? [])
+      .filter(element => !element.hasAttribute('disabled') && !element.closest('details:not([open]) > :not(summary)'));
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setIsOpen(false); }
+      if (event.key !== 'Tab') return;
+      const items = focusable();
+      const first = items[0];
+      const last = items.at(-1);
+      if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); last?.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); first?.focus();
+      }
     };
     document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('keydown', onKeyDown);
     return () => {
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', closeOnEscape);
+      background.forEach((element, index) => { element.inert = priorInert[index]; });
+      window.removeEventListener('keydown', onKeyDown);
+      triggerRef.current?.focus();
     };
   }, [isOpen]);
 
   return <div className="relative shrink-0">
     <button
       type="button"
-      aria-label={isOpen ? 'Close navigation' : 'Open navigation'}
+      ref={triggerRef}
+      aria-label="Open navigation"
+      aria-hidden={isOpen || undefined}
+      tabIndex={isOpen ? -1 : 0}
       aria-expanded={isOpen}
       onClick={() => setIsOpen((current) => !current)}
       className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 items-center justify-center rounded-full text-base"
     >
       <span aria-hidden="true">☰</span>
     </button>
-    {isOpen && <>
+    {isOpen && createPortal(<div ref={overlayRef}>
       <button
         type="button"
         aria-label="Close navigation backdrop"
+        aria-hidden="true"
+        tabIndex={-1}
         onClick={() => setIsOpen(false)}
         className="fixed inset-0 z-[60] cursor-default bg-black/20 backdrop-blur-[1px]"
       />
       <aside
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="ORIGIN navigation"
-        className="origin-card absolute left-0 top-12 z-[70] flex max-h-[min(82dvh,760px)] w-[min(23rem,calc(100vw-1.5rem))] flex-col overflow-hidden border shadow-2xl"
+        className="origin-card fixed left-3 top-12 z-[70] flex max-h-[min(82dvh,760px)] w-[min(23rem,calc(100vw-1.5rem))] flex-col overflow-hidden border shadow-2xl"
       >
         <div className="flex items-center justify-between gap-3 border-b border-origin-border p-3">
           <div>
@@ -146,7 +173,7 @@ export default function OriginNavigationDrawerV31({
 
         <div className="grid grid-cols-2 gap-2 p-3">
           <button type="button" onClick={() => { onNewConversation(); setIsOpen(false); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-semibold">＋ 新規対話</button>
-          <button type="button" onClick={() => { onOpenSettings?.(); setIsOpen(false); }} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">設定</button>
+          <button type="button" onClick={() => { setIsOpen(false); requestAnimationFrame(() => { triggerRef.current?.focus(); onOpenSettings?.(); }); }} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">設定</button>
         </div>
 
         <div className="px-3 pb-3">
@@ -232,6 +259,6 @@ export default function OriginNavigationDrawerV31({
           </section>}
         </div>
       </aside>
-    </>}
+    </div>, document.body)}
   </div>;
 }

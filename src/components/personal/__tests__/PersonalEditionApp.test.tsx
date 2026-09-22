@@ -6,23 +6,24 @@ import PersonalEditionApp from '../PersonalEditionApp';
 
 const appProps = vi.fn();
 vi.mock('../ResearchWorkspaceV31', () => ({
-  default: ({ onSourcesChange }: { onSourcesChange?: (sources: unknown[]) => void }) => {
+  default: ({ composerControls, onSourcesChange }: { composerControls?: React.ReactNode; onSourcesChange?: (sources: unknown[]) => void }) => {
     React.useEffect(() => { onSourcesChange?.([{ id: 'S1', title: 'Verified source', url: 'https://example.com', domain: 'example.com', evidenceLevel: 'page-verified', freshness: 'recent', score: 90, scoreScope: 'retrieval-evidence-only', citation: '[S1]' }]); }, [onSourcesChange]);
-    return <section aria-label="Research Workspace">Research test workspace</section>;
+    return <section aria-label="Research Workspace">Research test workspace{composerControls}</section>;
   },
 }));
 vi.mock('../CodingWorkspaceV31', () => ({
-  default: ({ onProjectEvidenceChange }: { onProjectEvidenceChange?: (evidence: unknown) => void }) => {
+  default: ({ composerControls, onProjectEvidenceChange }: { composerControls?: React.ReactNode; onProjectEvidenceChange?: (evidence: unknown) => void }) => {
     React.useEffect(() => { onProjectEvidenceChange?.({ jobId: 'coding-abcdefghijklmnopqrstuv', status: 'verified', changedPaths: ['src/a.ts'], verificationChecks: [{ kind: 'test', ok: true, exitCode: 0, timedOut: false, attempt: 1 }] }); }, [onProjectEvidenceChange]);
-    return <section aria-label="Coding Job Workspace">Coding test workspace</section>;
+    return <section aria-label="Coding Job Workspace">Coding test workspace{composerControls}</section>;
   },
 }));
-vi.mock('../../CreativeWorkspaceV15', () => ({ default: () => <section aria-label="Creative Workspace">Creative test workspace</section> }));
+vi.mock('../../CreativeWorkspaceV15', () => ({ default: ({ composerControls }: { composerControls?: React.ReactNode }) => <section aria-label="Creative Workspace">Creative test workspace{composerControls}</section> }));
 
 vi.mock('../../../App', () => ({
   default: (props: Record<string, unknown>) => {
     appProps(props);
-    return <div data-testid="mock-origin-app" className="origin-app"><div className="origin-composer"><textarea aria-label="Mock composer" /></div></div>;
+    const artifact = (props.artifacts as { id: string; title: string }[]).find(item => item.id === props.openArtifactId);
+    return <div data-testid="mock-origin-app" className="origin-app"><div className="origin-composer">{props.composerControls as React.ReactNode}<textarea aria-label="Mock composer" /></div>{artifact && <aside aria-label="成果物ワークスペース"><p>{artifact.title}</p><button type="button" onClick={() => (props.onArtifactOpen as (artifact: null) => void)(null)}>会話に戻る</button></aside>}</div>;
   },
   ArtifactWorkspace: ({ artifact, isOpen, onClose }: { artifact: { title: string }; isOpen: boolean; onClose: () => void }) => isOpen ? <aside aria-label="成果物ワークスペース"><p>{artifact.title}</p><button type="button" onClick={onClose}>会話に戻る</button></aside> : null,
 }));
@@ -93,6 +94,7 @@ describe('PersonalEditionApp production wrapper', () => {
 
     expect(appProps).toHaveBeenCalled();
     const props = appProps.mock.calls[0][0];
+    expect(props.embedded).toBe(true);
     expect(props.onOpenSettings).toBe(onOpenSettings);
     expect(props.language).toBe(DEFAULT_PERSONAL_SETTINGS.language);
     expect(props.designTheme).toBe(DEFAULT_PERSONAL_SETTINGS.designTheme);

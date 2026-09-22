@@ -23,11 +23,6 @@
 .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child h1 { font-size: clamp(2rem, 4.2vw, 3.15rem) !important; line-height: 1.15 !important; letter-spacing: -0.045em !important; }
 .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > p { max-width: 640px !important; font-size: 16px !important; line-height: 1.75 !important; }
 
-/* PR #608: the Personal shell owns the one global product header. The shared
-   App keeps its standalone header for non-Personal surfaces, but it is not
-   rendered visually when embedded under PersonalEditionApp. */
-.origin-personal-chat .origin-header { display: none !important; }
-
 /* Conversation-first visual hierarchy for the Personal surface. These scoped
    overrides intentionally do not alter standalone/enterprise App surfaces. */
 .origin-personal-chat [data-testid="origin-core-logo"] {
@@ -76,27 +71,41 @@
 }
 .origin-composer-mode-host { align-self: flex-end; margin-bottom: 4px; }
 
-/* PR #608 external-audit follow-up: keep artifacts from crushing the conversation. */
-.origin-personal-artifact-open .origin-project-context { display: none !important; }
-.origin-personal-artifact-open .origin-workspace-shell > div { min-height: 48px !important; }
+/* Personal owns the viewport; menus are not clipped by the navigation row. */
+.origin-personal-conversation > .origin-personal-navigation { overflow: visible; max-height: none; }
+.origin-personal-surface .origin-workspace-shell { border-bottom: 0; }
+.origin-personal-surface { --origin-header-height: 56px; }
+.origin-personal-chat .origin-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  min-width: 0;
+}
+.origin-personal-chat .origin-composer textarea {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 60px !important;
+}
+.origin-personal-chat .origin-composer-mode-host { grid-column: 1; grid-row: 2; }
+.origin-personal-chat .origin-composer > button { grid-row: 2; }
+.origin-personal-chat .origin-chat-assistant .markdown-body { font-size: 16px !important; line-height: 1.65 !important; }
+.origin-personal-artifact-open .origin-project-context { display: none; }
+.origin-personal-artifact-open [data-testid="artifact-workspace"] { top: var(--origin-header-height); }
 
 @media (min-width: 768px) {
-  .origin-personal-artifact-open .origin-personal-chat {
-    margin-right: min(56vw, 820px);
-  }
-  .origin-personal-artifact-open > [data-testid="artifact-workspace"],
-  .origin-personal-chat [data-testid="artifact-workspace"] {
-    width: min(56vw, 820px) !important;
-  }
-  .origin-personal-chat:has([data-testid="artifact-workspace"]) .origin-app main {
-    margin-right: min(56vw, 820px);
+  .origin-personal-artifact-open [data-testid="artifact-workspace"] { width: min(56vw, 820px) !important; }
+  .origin-personal-artifact-open .origin-app main { margin-right: min(56vw, 820px); }
+}
+@media (max-width: 767px) {
+  .origin-personal-artifact-open .origin-app > main { display: none; }
+  .origin-personal-artifact-open [data-testid="artifact-workspace"] {
+    top: calc(var(--origin-header-height) + 61px);
+    width: 100% !important;
   }
 }
-
-@media (max-width: 767px) {
-  .origin-personal-artifact-open .origin-personal-chat { display: none !important; }
-  .origin-personal-artifact-open > [data-testid="artifact-workspace"],
-  .origin-personal-chat [data-testid="artifact-workspace"] { width: 100% !important; }
+@media (max-width: 639px) {
+  .origin-personal-surface { --origin-header-height: 48px; }
 }
 
 @media (max-width: 640px) {

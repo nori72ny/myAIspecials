@@ -1,6 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import App from '../../App';
-import { ArtifactWorkspace } from '../../App';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
 import type { Settings } from '../../types';
 import OriginComposerModeControlV31 from './OriginComposerModeControlV31';
@@ -55,13 +54,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
   const activeArtifact = artifacts.find((artifact) => artifact.id === selectedArtifactId) ?? latestArtifact;
   const handleMessagesChange = useCallback((nextMessages: ConversationMessage[]) => { setMessages(nextMessages); parentOnMessagesChange?.(nextMessages); }, [parentOnMessagesChange]);
   const handleArtifactsChange = useCallback((nextArtifacts: ArtifactBlock[]) => { setArtifacts(nextArtifacts); parentOnArtifactsChange?.(nextArtifacts); }, [parentOnArtifactsChange]);
-  const handleArtifactRevision = useCallback((next: ArtifactBlock) => {
-    setArtifacts((current) => {
-      const updated = current.map((artifact) => artifact.id === next.id ? next : artifact);
-      parentOnArtifactsChange?.(updated);
-      return updated;
-    });
-  }, [parentOnArtifactsChange]);
   const handleArchiveSession = useCallback((nextMessages: readonly ConversationMessage[]) => { parentOnArchiveSession?.(nextMessages); }, [parentOnArchiveSession]);
   const handleRestoreSession = useCallback((session: ConversationSession) => {
     const restored = session.messages.map((message) => ({ ...message }));
@@ -78,6 +70,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
   }, [activeArtifact, latestArtifact, selectedArtifactId]);
   const handleDrawerArtifact = useCallback((artifact: ArtifactBlock) => {
     switchWorkspace('chat');
+    setArtifacts(current => current.some(item => item.id === artifact.id) ? current : [...current, artifact]);
     setSelectedArtifactId(artifact.id);
     setProjectView('artifacts');
   }, [switchWorkspace]);
@@ -91,8 +84,14 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     setProjectView(workspace === 'chat' ? 'chat' : 'overview');
   }, [workspace]);
   const artifactOpen = projectView === 'artifacts' && activeArtifact !== null;
-  const conversationOpen = workspace === 'chat' && messages.length > 0 && !artifactOpen;
-  const shellClass = artifactOpen ? 'origin-personal-artifact-open' : conversationOpen ? 'origin-personal-conversation' : undefined;
+  const conversationOpen = workspace === 'chat' && messages.length > 0;
+  const shellClass = `origin-personal-surface ${conversationOpen || artifactOpen ? 'origin-personal-conversation' : ''} ${artifactOpen ? 'origin-personal-artifact-open' : ''}`;
+  const modeControl = <OriginComposerModeControlV31 mode={workspace} onModeChange={switchWorkspace} />;
+  const onArtifactOpen = (artifact: ArtifactBlock | null) => {
+    if (!artifact) { closeArtifact(); return; }
+    setSelectedArtifactId(artifact.id);
+    setProjectView('artifacts');
+  };
   return <div className={shellClass}>
     <div className="origin-personal-navigation">
     <OriginWorkspaceShellV31
@@ -114,12 +113,11 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
       <button type="button" role="tab" aria-selected={artifactOpen} onClick={() => handleProjectViewChange('artifacts')} className={`min-h-11 flex-1 rounded-lg border px-4 text-sm font-semibold ${artifactOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>成果物</button>
     </div>}
     </div>
-    <div className="origin-personal-chat" hidden={workspace !== 'chat'}><App onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal + localResetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
-    <OriginComposerModeControlV31 mode={workspace} onModeChange={switchWorkspace} />
-    {activeArtifact && <ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={artifactOpen} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} isStreaming={false} onSteer={() => undefined} onOpenSettings={onOpenSettings} onClose={closeArtifact} onArtifactRevision={handleArtifactRevision} />}
-    {workspace === 'research' && <Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace onSourcesChange={setProjectSources} /></Suspense>}
-    {workspace === 'coding' && <Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace onProjectEvidenceChange={setCodingEvidence} /></Suspense>}
-    {workspace === 'creative' && <Suspense fallback={<p role="status">Createを読み込んでいます…</p>}><CreativeWorkspace /></Suspense>}
+    <div className="origin-personal-chat" hidden={workspace !== 'chat'}><App embedded composerControls={workspace === 'chat' ? modeControl : undefined} openArtifactId={artifactOpen ? activeArtifact.id : null} onArtifactOpen={onArtifactOpen} onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal + localResetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
+
+    {workspace === 'research' && <Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace composerControls={modeControl} onSourcesChange={setProjectSources} /></Suspense>}
+    {workspace === 'coding' && <Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace composerControls={modeControl} onProjectEvidenceChange={setCodingEvidence} /></Suspense>}
+    {workspace === 'creative' && <Suspense fallback={<p role="status">Createを読み込んでいます…</p>}><CreativeWorkspace composerControls={modeControl} /></Suspense>}
   </div>;
 });
 export default PersonalEditionApp;

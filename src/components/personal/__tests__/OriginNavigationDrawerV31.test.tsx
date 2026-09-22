@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OriginNavigationDrawerV31 from '../OriginNavigationDrawerV31';
 import type { ArtifactBlock, ConversationSession } from '../../../App';
@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe('OriginNavigationDrawerV31', () => {
-  it('opens a compact navigation surface and exposes global actions', () => {
+  it('opens a compact navigation surface and exposes global actions', async () => {
     const onNewConversation = vi.fn();
     const onOpenSettings = vi.fn();
     render(<OriginNavigationDrawerV31 sessions={sessions} artifacts={artifacts} onNewConversation={onNewConversation} onOpenSettings={onOpenSettings} />);
@@ -43,7 +43,7 @@ describe('OriginNavigationDrawerV31', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
     fireEvent.click(screen.getByRole('button', { name: '設定' }));
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onOpenSettings).toHaveBeenCalledTimes(1));
   });
 
   it('searches and restores a conversation without exposing unrelated sessions', () => {
