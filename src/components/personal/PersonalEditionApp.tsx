@@ -6,6 +6,7 @@ import type { Settings } from '../../types';
 import OriginArtifactContextV31 from './OriginArtifactContextV31';
 import OriginComposerModeControlV31 from './OriginComposerModeControlV31';
 import OriginNavigationDrawerV31 from './OriginNavigationDrawerV31';
+import OriginProjectNavigationV31 from './OriginProjectNavigationV31';
 import OriginProjectWorkspaceV31, { type OriginProjectViewV31 } from './OriginProjectWorkspaceV31';
 import type { ResearchSource } from './ResearchWorkspaceV31';
 import type { CodingProjectEvidence } from '../CodingJobWorkspaceV14';
@@ -98,7 +99,15 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     <OriginWorkspaceShellV31
       mode={workspace}
       onModeChange={switchWorkspace}
-      navigation={<OriginNavigationDrawerV31 sessions={effectiveSessions} artifacts={artifacts} onRestoreSession={handleRestoreSession} onOpenArtifact={handleDrawerArtifact} onNewConversation={handleNewConversation} onOpenSettings={onOpenSettings} />}
+      navigation={<OriginNavigationDrawerV31
+        sessions={effectiveSessions}
+        artifacts={artifacts}
+        onRestoreSession={handleRestoreSession}
+        onOpenArtifact={handleDrawerArtifact}
+        onNewConversation={handleNewConversation}
+        onOpenSettings={onOpenSettings}
+        projectNavigation={<OriginProjectNavigationV31 sources={projectSources} codingEvidence={codingEvidence} onViewChange={handleProjectViewChange} />}
+      />}
     />
     <OriginProjectWorkspaceV31 mode={workspace} messages={messages} sessions={effectiveSessions} artifacts={artifacts} sources={projectSources} codingEvidence={codingEvidence} activeView={projectView} onViewChange={handleProjectViewChange} />
     {workspace === 'chat' && <OriginArtifactContextV31 artifacts={artifacts} />}
