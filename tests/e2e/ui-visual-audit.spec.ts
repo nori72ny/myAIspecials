@@ -422,7 +422,7 @@ test('captures grounded Research running evidence in the Chat timeline', async (
   const timeline = page.getByTestId('origin-runtime-activity-timeline');
   await expect(timeline).toBeVisible();
   await expect(timeline).toContainText('Research');
-  await expect(timeline).toContainText('実行中の調査を確認');
+  await expect(timeline).toContainText('公開情報を調査');
   await expect(page.getByTestId('runtime-activity-status-research-current')).toHaveText('実行中');
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
   await testInfo.attach('runtime-research-running-chat-mobile-390.png', {
