@@ -327,17 +327,40 @@ test('renders verified Agentic Coding runtime evidence in the Chat timeline', as
   await page.getByLabel('Coding認証キー').fill('test-only-credential');
   await page.getByLabel('変更したいこと').fill('検証済みの変更を実行');
   await page.getByRole('button', { name: '変更を依頼する' }).click();
+  await expect(page.getByRole('region', { name: 'Coding approval waiting' })).toBeVisible();
+  await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
+
+  let timeline = page.getByTestId('origin-runtime-activity-timeline');
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Approval');
+  await expect(timeline).toContainText('Coding実行承認');
+  await expect(timeline).toContainText('承認待ち');
+  await expect(timeline).toContainText('no job dispatched before owner confirmation');
+  await testInfo.attach('runtime-approval-waiting-chat-desktop-1440.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+
+  await page.getByLabel('Composer mode', { exact: true }).selectOption('coding');
+  await expect(page.getByRole('region', { name: 'Coding approval waiting' })).toBeVisible();
+  await page.getByRole('button', { name: '承認して実行' }).click();
   await expect(page.getByText('検証済み', { exact: true })).toBeVisible();
   await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
 
-  const timeline = page.getByTestId('origin-runtime-activity-timeline');
+  timeline = page.getByTestId('origin-runtime-activity-timeline');
   await expect(timeline).toBeVisible();
   await expect(timeline).toContainText('Agent');
   await expect(timeline).toContainText('Agentic Coding');
+  await expect(timeline).toContainText('Approval');
+  await expect(timeline).toContainText('Coding実行承認');
+  await expect(timeline).toContainText('Tool');
+  await expect(timeline).toContainText('Coding verification tools');
   await expect(timeline).toContainText('完了');
   await expect(timeline).toContainText(jobId);
   await expect(timeline).toContainText('checks=4/4');
-  await testInfo.attach('runtime-agent-chat-desktop-1440.png', {
+  await expect(timeline).toContainText('typecheck=PASS');
+  await expect(timeline).toContainText('build=PASS');
+  await testInfo.attach('runtime-agent-tool-approval-chat-desktop-1440.png', {
     body: await page.screenshot(),
     contentType: 'image/png',
   });
