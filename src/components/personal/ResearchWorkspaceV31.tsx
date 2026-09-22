@@ -221,7 +221,7 @@ export default function ResearchWorkspaceV31({ composerControls, onSourcesChange
           {composerControls}
           <label htmlFor="research-query" className="sr-only">調べたいこと</label>
           <textarea id="research-query" value={query} onChange={event => setQuery(event.target.value)} maxLength={1200} rows={1} placeholder="調べたいことを入力…" className="origin-input max-h-52 min-h-[60px] flex-1 resize-none bg-transparent px-4 py-3 text-base leading-7 outline-none" />
-          <button type="button" aria-label="調査する" title={busy ? '調査中…' : '調査する'} onClick={() => void runResearch()} disabled={busy || !query.trim()} className="origin-primary-button inline-flex h-11 w-11 min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full p-0 text-xl font-bold disabled:cursor-not-allowed disabled:opacity-50"><span aria-hidden="true">{busy ? '…' : '↑'}</span></button>
+          <button type="button" aria-label={busy ? '調査中…' : '調査する'} title={busy ? '調査中…' : '調査する'} onClick={() => void runResearch()} disabled={busy || !query.trim()} className="origin-primary-button inline-flex h-11 w-11 min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full p-0 text-xl font-bold disabled:cursor-not-allowed disabled:opacity-50"><span aria-hidden="true">{busy ? '…' : '↑'}</span></button>
         </div>
         <div className="mt-2 flex justify-end">
           <span className="text-[10px] text-slate-500">{query.length}/1200 · 機微情報は外部送信前にブロック</span>
