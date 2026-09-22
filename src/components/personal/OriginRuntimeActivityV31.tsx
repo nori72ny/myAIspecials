@@ -45,7 +45,7 @@ function statusClass(status: OriginRuntimeActivityStatusV31): string {
 
 export default function OriginRuntimeActivityTimelineV31({ activities, compact = false }: OriginRuntimeActivityTimelineV31Props) {
   if (!activities.length) return null;
-  const visibleActivities = compact ? activities.slice(-1) : activities;
+  const visibleActivities = activities;
   return <section data-testid="origin-runtime-activity-timeline" aria-label="ORIGIN runtime activity" aria-live="polite" className={compact ? 'w-full' : 'grid gap-2'}>
     {visibleActivities.map(activity => {
       const active = activity.status === 'queued' || activity.status === 'running' || activity.status === 'awaiting_approval' || activity.status === 'verifying';
