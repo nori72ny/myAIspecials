@@ -21,7 +21,7 @@ export default function OriginComposerModeControlV31({ mode, onModeChange }: Ori
         aria-label={mode === 'chat' ? 'Composer mode' : 'Workspace mode'}
         value={mode}
         onChange={(event) => onModeChange(event.target.value as OriginWorkspaceModeV31)}
-        className="origin-secondary-button h-11 min-h-11 w-[5.8rem] max-w-[5.8rem] rounded-xl border px-2 text-xs font-bold sm:w-[6.6rem] sm:max-w-[6.6rem] sm:text-sm"
+        className="origin-secondary-button h-9 min-h-9 w-[5rem] max-w-[5rem] rounded-full border px-2 text-[11px] font-bold sm:w-[5.4rem] sm:max-w-[5.4rem] sm:text-xs"
       >
         {OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
