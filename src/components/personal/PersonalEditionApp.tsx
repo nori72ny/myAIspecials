@@ -165,7 +165,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     <div className="origin-personal-chat" hidden={workspace !== 'chat'}><App embedded composerControls={workspace === 'chat' ? modeControl : undefined} runtimeActivities={runtimeActivities} openArtifactId={artifactOpen ? activeArtifact.id : null} onArtifactOpen={onArtifactOpen} onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal + localResetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
 
     {workspace === 'research' && <Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace composerControls={modeControl} onSourcesChange={setProjectSources} onRuntimeActivityChange={recordRuntimeActivity} /></Suspense>}
-    {workspace === 'coding' && <Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace composerControls={modeControl} onProjectEvidenceChange={handleCodingEvidenceChange} /></Suspense>}
+    {workspace === 'coding' && <Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace composerControls={modeControl} onProjectEvidenceChange={handleCodingEvidenceChange} onRuntimeActivityChange={recordRuntimeActivity} /></Suspense>}
     {workspace === 'creative' && <Suspense fallback={<p role="status">Createを読み込んでいます…</p>}><CreativeWorkspace composerControls={modeControl} /></Suspense>}
   </div>;
 });
