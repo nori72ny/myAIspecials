@@ -326,7 +326,7 @@ test('renders verified Agentic Coding runtime evidence in the Chat timeline', as
   await expect(page.getByText('設定確認済み')).toBeVisible();
   await page.getByLabel('Coding認証キー').fill('test-only-credential');
   await page.getByLabel('変更したいこと').fill('検証済みの変更を実行');
-  await page.getByRole('button', { name: '変更を開始' }).click();
+  await page.getByRole('button', { name: '変更を依頼する' }).click();
   await expect(page.getByText('検証済み', { exact: true })).toBeVisible();
   await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
 
