@@ -270,7 +270,11 @@ async function main(): Promise<void> {
     }
 
     const actualPaths = await actualChangedPaths(controllerRoot, workspace);
-    const sessionPaths = [...new Set(candidateResult.session.changedPaths ?? [])].sort();
+    const reportedPaths = candidateResult.session.changedPaths;
+    if (!Array.isArray(reportedPaths) || reportedPaths.some((value: unknown) => typeof value !== 'string')) {
+      throw new Error('TRUSTED_CANDIDATE_RESULT_INVALID');
+    }
+    const sessionPaths = [...new Set(reportedPaths as string[])].sort();
     assertTrustedCandidateDiffScopeV15({
       actualPaths,
       reportedPaths: sessionPaths,
