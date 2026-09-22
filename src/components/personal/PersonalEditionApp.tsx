@@ -35,14 +35,14 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, []);
-  const switchWorkspace = (next: OriginWorkspaceModeV31) => {
+  const switchWorkspace = useCallback((next: OriginWorkspaceModeV31) => {
     const url = new URL(window.location.href);
     if (next === 'chat') url.searchParams.delete('workspace');
     else url.searchParams.set('workspace', next);
     window.history.pushState(null, '', url);
     setProjectView('overview');
     setWorkspace(next);
-  };
+  }, []);
   const [artifacts, setArtifacts] = useState<ArtifactBlock[]>(() => [...(parentArtifacts ?? [])]);
   useEffect(() => { if (parentMessages) setMessages(parentMessages); }, [parentMessages]);
   useEffect(() => { if (parentArtifacts) setArtifacts([...parentArtifacts]); }, [parentArtifacts]);
@@ -62,23 +62,30 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     });
   }, [parentOnArtifactsChange]);
   const handleArchiveSession = useCallback((nextMessages: readonly ConversationMessage[]) => { parentOnArchiveSession?.(nextMessages); }, [parentOnArchiveSession]);
-  const handleRestoreSession = useCallback((session: ConversationSession) => { const restored = session.messages.map((message) => ({ ...message })); setMessages(restored); setWorkspace('chat'); setProjectView('chat'); parentOnRestoreSession?.(session); parentOnMessagesChange?.(restored); }, [parentOnMessagesChange, parentOnRestoreSession]);
+  const handleRestoreSession = useCallback((session: ConversationSession) => {
+    const restored = session.messages.map((message) => ({ ...message }));
+    switchWorkspace('chat');
+    setMessages(restored);
+    setProjectView('chat');
+    parentOnRestoreSession?.(session);
+    parentOnMessagesChange?.(restored);
+  }, [parentOnMessagesChange, parentOnRestoreSession, switchWorkspace]);
   const handleProjectViewChange = useCallback((next: OriginProjectViewV31) => {
     if (next === 'artifacts' && !activeArtifact) return;
     if (next === 'artifacts' && !selectedArtifactId && latestArtifact) setSelectedArtifactId(latestArtifact.id);
     setProjectView(next);
   }, [activeArtifact, latestArtifact, selectedArtifactId]);
   const handleDrawerArtifact = useCallback((artifact: ArtifactBlock) => {
+    switchWorkspace('chat');
     setSelectedArtifactId(artifact.id);
-    setWorkspace('chat');
     setProjectView('artifacts');
-  }, []);
+  }, [switchWorkspace]);
   const handleNewConversation = useCallback(() => {
-    setWorkspace('chat');
+    switchWorkspace('chat');
     setProjectView('overview');
     setSelectedArtifactId(null);
     setLocalResetSignal((current) => current + 1);
-  }, []);
+  }, [switchWorkspace]);
   const closeArtifact = useCallback(() => {
     setProjectView(workspace === 'chat' ? 'chat' : 'overview');
   }, [workspace]);
