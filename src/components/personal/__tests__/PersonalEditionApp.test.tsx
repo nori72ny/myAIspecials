@@ -100,14 +100,19 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(props.sessions).toEqual([]);
   });
 
-  it('hydrates messages and shows Artifact context only after artifacts arrive', () => {
+  it('hydrates artifacts without restoring the removed top Artifact status row', () => {
     const { rerender } = render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={[]} artifacts={[]} />);
     expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.queryByRole('tablist', { name: 'モバイルChat表示' })).toBeNull();
 
     const restoredMessages = [{ id: 'u-restored', role: 'user' as const, content: '再読込後の相談' }];
     const restoredArtifacts = [{ id: 'a-restored', type: 'markdown' as const, title: '復元資料', language: 'markdown', content: '# 復元', isComplete: true }];
     rerender(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={restoredMessages} artifacts={restoredArtifacts} />);
-    expect(screen.getByRole('region', { name: 'Artifact layer' }).textContent).toContain('復元資料');
+
+    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.getByRole('tablist', { name: 'モバイルChat表示' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(screen.getByRole('region', { name: 'Artifact history' }).textContent).toContain('復元資料');
   });
 
   it('opens and closes an artifact through the mobile Conversation / Artifact tabs', () => {
