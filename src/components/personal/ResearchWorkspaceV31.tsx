@@ -215,7 +215,7 @@ export default function ResearchWorkspaceV31({ composerControls, onSourcesChange
             <h1 className="mt-1 text-xl font-black">公開情報を出典付きで調査</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">無料の公開Web情報のみを取得し、確認できた出典を分離表示します。検索結果の信頼度は「取得証拠の強さ」であり、事実の真偽や媒体の権威を保証する評価ではありません。</p>
           </div>
-          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">$0 · paid fallbackなし</span>
+          <span title="$0 · paid fallbackなし" className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">無料範囲で安全に調査</span>
         </div>
         {composerControls}
         <label htmlFor="research-query" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">調べたいこと</label>
