@@ -1,6 +1,6 @@
 # Security Policy
 
-最終確認日: 2026-08-11
+最終確認日: 2026-09-22
 
 この文書は、ORIGIN（ACOS 2.0）の現行`main`で確認できるセキュリティ境界と、未検証事項を区別して記録します。「安全性100%」「Zero Trust認証済み」「完全に防御済み」とは主張しません。
 
@@ -9,7 +9,7 @@
 基準main:
 
 ```text
-36731864fbd4cda3947fc02dbd2e2c43eb3e029b
+01f7db0c0d48ab3ba533148e99e1847203e13f4c
 ```
 
 現在の公開開発候補はORIGIN Personalです。旧Mission Engine、旧Gemini経路、未承認プロバイダー経路はPersonalランタイムの実行対象として扱いません。
@@ -36,8 +36,10 @@ inclusionai/ling-3.0-flash-sante:free
 無料根拠の再確認期限:
 
 ```text
-2026-08-19T23:59:59.999Z
+2026-10-01T04:59:37.992Z
 ```
+
+Codingではtimeout/unavailable時のみ、別途$0証拠を持つ`inclusionai/ling-3.0-flash-vl:free`へ最大1回failoverできます。同一provider/modelへのretry、429時のquota迂回、有料fallbackは行いません。Coding failoverの証拠期限は`2026-10-02T14:36:59.999Z`です。runtimeはZDR、data-collection deny、max-price zero、served-model identity、reported cost zeroを強制します。
 
 ### HTTP/API境界
 
@@ -91,6 +93,9 @@ CI成功は、本番環境、未知の攻撃、運用設定、外部プロバイ
 - 物理端末と実ネットワークでの検証
 
 ## 秘密情報
+
+現行Personal/MCPのOAuth access/refresh tokenはserver-side encrypted storeを正規経路とし、ブラウザーlocalStorageへ保存しません。旧OSのdirect PAT/OAuth画面はretiredで、browser token persistenceを無効化しています。
+
 
 次をIssue、PR、Discussion、commit、スクリーンショット、テストログへ投稿しないでください。
 

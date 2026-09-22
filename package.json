@@ -23,6 +23,7 @@
     "eval:prepare": "tsx scripts/evaluate-codebase.ts",
     "eval:heldout-coding": "tsx scripts/score-held-out-coding-v14.ts",
     "verify:free-model": "node --import tsx scripts/verify-free-model.ts",
+    "verify:coding-free-model": "node --import tsx scripts/verify-coding-free-model.ts",
     "deliver": "node scripts/auto-deliver.mjs",
     "check:worker": "npm run build && npx --yes wrangler@4.120.0 deploy --dry-run --config wrangler.jsonc --outdir dist-worker",
     "eval:aq-local-comparison": "tsx scripts/run-aq-official-local-comparison.ts",

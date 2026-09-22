@@ -9,11 +9,13 @@ import { ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY } from '../legacy/zeroCostR
 
 export const ORIGIN_CODING_FREE_FAILOVER_MODEL_V14 = 'inclusionai/ling-3.0-flash-vl:free' as const;
 export const ORIGIN_CODING_FREE_FAILOVER_SOURCE_V14 = 'https://openrouter.ai/inclusionai/ling-3.0-flash-vl:free' as const;
-// Verified against OpenRouter's authenticated zdr=true model catalog and strict
-// ZDR/tool-call probe on 2026-09-15. The probe reached the eligible route and
-// was rejected only by the account-wide free-model daily quota, not by ZDR.
-export const ORIGIN_CODING_FREE_FAILOVER_VERIFIED_AT_V14 = '2026-09-15T23:13:30.000Z' as const;
-export const ORIGIN_CODING_FREE_FAILOVER_REVIEW_AFTER_V14 = '2026-09-22T23:13:30.000Z' as const;
+// Zero-price and tool-call capability were rechecked against OpenRouter's
+// official model catalog on 2026-09-22. Runtime independently enforces ZDR,
+// data-collection deny, provider fallback disabled, max-price zero, exact
+// served-model identity and zero reported usage cost. The scheduled verifier
+// refreshes these timestamps only while the official catalog remains $0.
+export const ORIGIN_CODING_FREE_FAILOVER_VERIFIED_AT_V14 = '2026-09-22T14:37:00.000Z' as const;
+export const ORIGIN_CODING_FREE_FAILOVER_REVIEW_AFTER_V14 = '2026-10-02T14:36:59.999Z' as const;
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const TIMEOUT_MS = 6_000;

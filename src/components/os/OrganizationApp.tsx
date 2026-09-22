@@ -42,171 +42,40 @@ export default function OrganizationApp({ settings, updateSettings }: Organizati
   const [successMsg, setSuccessMsg] = useState("");
 
   // GitHub integration states
-  const [githubToken, setGithubToken] = useState<string>(() => localStorage.getItem("acos_github_token") || "");
-  const [githubUser, setGithubUser] = useState<any>(() => {
-    try {
-      const u = localStorage.getItem("acos_github_user");
-      return u ? JSON.parse(u) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [githubToken, setGithubToken] = useState<string>("");
+  const [githubUser, setGithubUser] = useState<any>(null);
   const [githubConnectMethod, setGithubConnectMethod] = useState<"pat" | "oauth">("pat");
   const [patInput, setPatInput] = useState("");
-  const [customClientId, setCustomClientId] = useState(() => localStorage.getItem("acos_github_client_id") || "");
-  const [customClientSecret, setCustomClientSecret] = useState(() => localStorage.getItem("acos_github_client_secret") || "");
+  const [customClientId, setCustomClientId] = useState("");
+  const [customClientSecret, setCustomClientSecret] = useState("");
   const [isGitHubConnecting, setIsGitHubConnecting] = useState(false);
   const [githubError, setGithubError] = useState("");
 
   const isEn = settings.language === "en";
 
-  // Handle Personal Access Token validation
+  // Direct browser PAT is retired; credentials must stay server-side.
   const handleConnectPAT = async () => {
-    if (!patInput.trim()) {
-      setGithubError(isEn ? "Please enter your GitHub Personal Access Token." : "GitHub個人アクセストークンを入力してください。");
-      return;
-    }
-    setIsGitHubConnecting(true);
-    setGithubError("");
-
-    try {
-      const response = await fetch("https://api.github.com/user", {
-        headers: {
-          "Authorization": `Bearer ${patInput.trim()}`,
-          "Accept": "application/vnd.github.v3+json"
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(isEn ? "Failed to authenticate. Please verify your token." : "認証に失敗しました。トークンを確認してください。");
-      }
-
-      const userData = await response.json();
-      localStorage.setItem("acos_github_token", patInput.trim());
-      localStorage.setItem("acos_github_user", JSON.stringify(userData));
-      setGithubToken(patInput.trim());
-      setGithubUser(userData);
-      setSuccessMsg(isEn ? "GitHub account linked successfully!" : "GitHubアカウントが正常に連携されました！");
-      setTimeout(() => setSuccessMsg(""), 3000);
-      setPatInput("");
-    } catch (err: any) {
-      setGithubError(err.message || "Authentication error.");
-    } finally {
-      setIsGitHubConnecting(false);
-    }
+    setPatInput("");
+    setGithubError(isEn
+      ? "Legacy direct-token connection is disabled. Use the server-side MCP GitHub connection."
+      : "旧ブラウザ直接トークン接続は無効です。サーバー側MCP GitHub接続を使用してください。");
   };
 
-  // Handle OAuth Popup flow
+  // Browser-side OAuth exchange is retired because client secrets/access
+  // tokens must never be persisted or exchanged by this legacy surface.
   const handleConnectOAuth = async () => {
-    setIsGitHubConnecting(true);
-    setGithubError("");
-
-    try {
-      // Get Auth URL
-      const clientIdQuery = customClientId.trim() ? `clientId=${customClientId.trim()}&` : "";
-      const redirectUri = `${window.location.origin}/auth/callback`;
-      const urlResponse = await fetch(`/api/auth/github/url?${clientIdQuery}redirectUri=${encodeURIComponent(redirectUri)}`);
-      if (!urlResponse.ok) {
-        const errObj = await urlResponse.json();
-        throw new Error(errObj.error || "Failed to generate authorization URL.");
-      }
-
-      const { url } = await urlResponse.json();
-
-      // Store custom client credentials in localStorage to survive popup redirects or reuse
-      if (customClientId.trim()) {
-        localStorage.setItem("acos_github_client_id", customClientId.trim());
-      }
-      if (customClientSecret.trim()) {
-        localStorage.setItem("acos_github_client_secret", customClientSecret.trim());
-      }
-
-      // Open Popup
-      const width = 600;
-      const height = 700;
-      const left = window.screen.width / 2 - width / 2;
-      const top = window.screen.height / 2 - height / 2;
-      
-      const authWindow = window.open(
-        url,
-        "github_oauth_popup",
-        `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes`
-      );
-
-      if (!authWindow) {
-        throw new Error(isEn ? "Popup blocked. Please allow popups for this site." : "ポップアップがブロックされました。ポップアップを許可してください。");
-      }
-
-      // Listen for postMessage from callback popup
-      const handleMessageEvent = async (event: MessageEvent) => {
-        if (event.data?.type === "GITHUB_AUTH_CODE") {
-          const code = event.data.code;
-          window.removeEventListener("message", handleMessageEvent);
-          
-          try {
-            // Exchange code
-            const exchangeResponse = await fetch("/api/auth/github/exchange", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                code,
-                clientId: customClientId.trim() || undefined,
-                clientSecret: customClientSecret.trim() || undefined,
-                redirectUri
-              })
-            });
-
-            if (!exchangeResponse.ok) {
-              const errObj = await exchangeResponse.json();
-              throw new Error(errObj.error || "Token exchange failed.");
-            }
-
-            const tokenData = await exchangeResponse.json();
-            const token = tokenData.access_token;
-
-            if (!token) {
-              throw new Error("No access token returned from exchange.");
-            }
-
-            // Fetch user profile with token
-            const profileResponse = await fetch("https://api.github.com/user", {
-              headers: {
-                "Authorization": `Bearer ${token}`,
-                "Accept": "application/vnd.github.v3+json"
-              }
-            });
-
-            if (!profileResponse.ok) {
-              throw new Error("Failed to retrieve user profile with access token.");
-            }
-
-            const userData = await profileResponse.json();
-            localStorage.setItem("acos_github_token", token);
-            localStorage.setItem("acos_github_user", JSON.stringify(userData));
-            setGithubToken(token);
-            setGithubUser(userData);
-            setSuccessMsg(isEn ? "GitHub account linked successfully via OAuth!" : "OAuth経由でGitHubアカウントが正常に連携されました！");
-            setTimeout(() => setSuccessMsg(""), 3000);
-          } catch (exchangeErr: any) {
-            setGithubError(exchangeErr.message || "Failed during token exchange.");
-          } finally {
-            setIsGitHubConnecting(false);
-          }
-        }
-      };
-
-      window.addEventListener("message", handleMessageEvent);
-
-    } catch (err: any) {
-      setGithubError(err.message || "OAuth connection failed.");
-      setIsGitHubConnecting(false);
-    }
+    setCustomClientSecret("");
+    setGithubError(isEn
+      ? "Legacy browser OAuth is disabled. Use the reviewed server-side MCP OAuth connection."
+      : "旧ブラウザOAuthは無効です。レビュー済みのサーバー側MCP OAuth接続を使用してください。");
   };
 
   // Disconnect GitHub
   const handleDisconnectGitHub = () => {
     localStorage.removeItem("acos_github_token");
     localStorage.removeItem("acos_github_user");
+    localStorage.removeItem("acos_github_client_id");
+    localStorage.removeItem("acos_github_client_secret");
     setGithubToken("");
     setGithubUser(null);
     setSuccessMsg(isEn ? "GitHub disconnected." : "GitHubの連携を解除しました。");
