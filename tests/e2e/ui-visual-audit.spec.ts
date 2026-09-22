@@ -187,3 +187,158 @@ for (const width of [390, 1440]) {
     await expect(artifact).toContainText('gate.html');
   });
 }
+
+
+test('renders grounded Research runtime evidence in the Chat timeline', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/research/v1.1/query', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      ok: true,
+      version: '1.1',
+      status: 'grounded',
+      provider: 'DuckDuckGo',
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      sourceCount: 1,
+      distinctDomainCount: 1,
+      confidence: 'strong',
+      confidenceScope: 'retrieval-evidence-only',
+      semanticConflictDetection: 'conservative-structured-only',
+      sources: [{
+        id: 'S1',
+        title: 'Verified source',
+        url: 'https://example.com/source',
+        domain: 'example.com',
+        evidenceLevel: 'page-verified',
+        freshness: 'recent',
+        score: 95,
+        scoreScope: 'retrieval-evidence-only',
+        citation: '[S1]',
+      }],
+      conflicts: [],
+      report: 'Verified grounded report [S1]',
+    }),
+  }));
+
+  await page.goto('/');
+  await page.getByLabel('Composer mode', { exact: true }).selectOption('research');
+  await expect(page.getByRole('region', { name: 'Research Workspace' })).toBeVisible();
+  await page.getByRole('textbox', { name: '調べたいこと' }).fill('公開情報を調査');
+  await page.getByRole('button', { name: '調査する' }).click();
+  await expect(page.getByRole('region', { name: 'Research summary' })).toBeVisible();
+  await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
+
+  const timeline = page.getByTestId('origin-runtime-activity-timeline');
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Research');
+  await expect(timeline).toContainText('公開情報を調査');
+  await expect(timeline).toContainText('完了');
+  await expect(timeline).toContainText('costUsd=0');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+  await testInfo.attach('runtime-research-chat-mobile-390.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+});
+
+test('renders verified Agentic Coding runtime evidence in the Chat timeline', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const jobId = 'coding-abcdefghijklmnopqrstuv';
+  const now = new Date().toISOString();
+  const capability = {
+    ok: true,
+    ready: true,
+    controlPlaneReady: true,
+    databaseReady: true,
+    storeConfigured: true,
+    resultStoreConfigured: true,
+    storeReady: true,
+    resultStoreReady: true,
+    authorizationReady: true,
+    ownerBindingReady: true,
+    dataKeyReady: true,
+    cryptoReady: true,
+    dispatchReady: true,
+    workerEnabled: true,
+    resultDetailsReady: true,
+    authorizationMode: 'coding-operator',
+    authorizationScope: 'owner',
+    freeOnly: true,
+    costUsd: 0,
+    gitPublished: false,
+    deployed: false,
+  };
+  const result = {
+    schemaVersion: 1,
+    sessionStatus: 'verified',
+    repairRounds: 0,
+    diffs: [{
+      path: 'src/example.ts',
+      kind: 'modified',
+      before: 'export const value = 1;',
+      after: 'export const value = 2;',
+      beforeTruncated: false,
+      afterTruncated: false,
+      previewAvailable: true,
+    }],
+    verificationChecks: [
+      { kind: 'typecheck', ok: true, exitCode: 0, timedOut: false, attempt: 1 },
+      { kind: 'lint', ok: true, exitCode: 0, timedOut: false, attempt: 1 },
+      { kind: 'test', ok: true, exitCode: 0, timedOut: false, attempt: 1 },
+      { kind: 'build', ok: true, exitCode: 0, timedOut: false, attempt: 1 },
+    ],
+    freeOnly: true,
+    costUsd: 0,
+    gitPublished: false,
+    deployed: false,
+  };
+  const job = {
+    jobId,
+    targetKey: 'owner/repo',
+    status: 'verified',
+    attempt: 1,
+    version: 1,
+    cancelRequested: false,
+    resultCode: null,
+    changedPaths: ['src/example.ts'],
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: now,
+  };
+
+  await page.route('**/api/coding/v1.4/status', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(capability),
+  }));
+  await page.route('**/api/coding/v1.4/jobs', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: true, job, result, resultDetailsState: 'available' }),
+  }));
+
+  await page.goto('/');
+  await page.getByLabel('Composer mode', { exact: true }).selectOption('coding');
+  await expect(page.getByRole('region', { name: 'Coding Job Workspace' })).toBeVisible();
+  await expect(page.getByText('設定確認済み')).toBeVisible();
+  await page.getByLabel('Coding認証キー').fill('test-only-credential');
+  await page.getByLabel('変更したいこと').fill('検証済みの変更を実行');
+  await page.getByRole('button', { name: '変更を開始' }).click();
+  await expect(page.getByText('検証済み', { exact: true })).toBeVisible();
+  await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
+
+  const timeline = page.getByTestId('origin-runtime-activity-timeline');
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Agent');
+  await expect(timeline).toContainText('Agentic Coding');
+  await expect(timeline).toContainText('完了');
+  await expect(timeline).toContainText(jobId);
+  await expect(timeline).toContainText('checks=4/4');
+  await testInfo.attach('runtime-agent-chat-desktop-1440.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+});
