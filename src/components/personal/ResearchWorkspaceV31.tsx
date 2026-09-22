@@ -18,6 +18,8 @@ type ResearchConflict = {
   topic: 'price' | 'version' | 'percentage';
   values: string[];
   sourceIds: string[];
+  resolution?: 'unresolved' | 'prefer-recent-page-verified';
+  preferredSourceId?: string;
   note: string;
 };
 
@@ -75,6 +77,8 @@ function isResearchConflict(value: unknown): value is ResearchConflict {
     && (value.topic === 'price' || value.topic === 'version' || value.topic === 'percentage')
     && isStringArray(value.values)
     && isStringArray(value.sourceIds)
+    && (value.resolution === undefined || value.resolution === 'unresolved' || value.resolution === 'prefer-recent-page-verified')
+    && (value.preferredSourceId === undefined || typeof value.preferredSourceId === 'string')
     && typeof value.note === 'string';
 }
 
@@ -256,7 +260,7 @@ export default function ResearchWorkspaceV31({ composerControls, onSourcesChange
 
         <section aria-labelledby="research-conflicts-title" className="origin-workspace rounded-2xl p-4">
           <h2 id="research-conflicts-title" className="font-black">Conflict review</h2>
-          {result.conflicts.length === 0 ? <p className="mt-2 text-sm text-slate-500">構造化値の不一致は検出されませんでした。これは意味的な一致を保証するものではありません。</p> : <ul className="mt-3 space-y-2 pl-5 text-sm">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{conflict.topic}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}</li>)}</ul>}
+          {result.conflicts.length === 0 ? <p className="mt-2 text-sm text-slate-500">構造化値の不一致は検出されませんでした。これは意味的な一致を保証するものではありません。</p> : <ul className="mt-3 space-y-2 pl-5 text-sm">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{conflict.topic}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}{conflict.preferredSourceId ? <span className="ml-2 rounded-full border border-amber-300 px-2 py-1 text-xs font-semibold text-amber-800 dark:border-amber-700 dark:text-amber-200">暫定優先 {conflict.preferredSourceId} · recent + page-verified（権威性未評価）</span> : <span className="ml-2 text-xs text-slate-500">未解決</span>}</li>)}</ul>}
         </section>
 
         <section aria-labelledby="research-report-title" className="origin-workspace rounded-2xl p-4">

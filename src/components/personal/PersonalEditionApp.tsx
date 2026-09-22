@@ -10,6 +10,7 @@ import type { ResearchSource } from './ResearchWorkspaceV31';
 import type { CodingProjectEvidence } from '../CodingJobWorkspaceV14';
 import type { OriginRuntimeActivityV31 } from './OriginRuntimeActivityV31';
 import OriginWorkspaceShellV31, { type OriginWorkspaceModeV31 } from './OriginWorkspaceShellV31';
+import useVisualViewportKeyboardInset from './useVisualViewportKeyboardInset';
 
 const ResearchWorkspace = lazy(() => import('./ResearchWorkspaceV31'));
 const CodingJobWorkspace = lazy(() => import('./CodingWorkspaceV31'));
@@ -61,6 +62,7 @@ function codingRuntimeActivity(evidence: CodingProjectEvidence): OriginRuntimeAc
 type PersonalEditionAppProps = { onSwitchToEnterprise?: () => void; settings?: Settings; onOpenSettings?: () => void; messages?: ConversationMessage[]; sessions?: readonly ConversationSession[]; artifacts?: readonly ArtifactBlock[]; onArchiveSession?: (messages: readonly ConversationMessage[]) => void; onRestoreSession?: (session: ConversationSession) => void; onMessagesChange?: (messages: ConversationMessage[]) => void; onArtifactsChange?: (artifacts: ArtifactBlock[]) => void; resetSignal?: number; };
 
 const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, onOpenSettings, messages: parentMessages, sessions: parentSessions, artifacts: parentArtifacts, onArchiveSession: parentOnArchiveSession, onRestoreSession: parentOnRestoreSession, onMessagesChange: parentOnMessagesChange, onArtifactsChange: parentOnArtifactsChange, resetSignal = 0 }: PersonalEditionAppProps) {
+  useVisualViewportKeyboardInset();
   const [messages, setMessages] = useState<ConversationMessage[]>(() => parentMessages ?? []);
   const [workspace, setWorkspace] = useState<OriginWorkspaceModeV31>(workspaceLocation);
   const [projectView, setProjectView] = useState<OriginProjectViewV31>('overview');
