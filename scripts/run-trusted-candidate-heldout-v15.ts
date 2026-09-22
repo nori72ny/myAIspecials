@@ -15,6 +15,11 @@ import {
   parseAndBindHeldOutFinalPrivateCorpusGzipBase64V15,
 } from '../src/release/OriginHeldOutCandidateBindingV15.js';
 import { ORIGIN_OPENROUTER_FREE_MODEL } from '../src/lib/orchestration/OriginExecutionPolicy.js';
+import {
+  assertTrustedCandidateDiffScopeV15,
+  assertTrustedCandidatePathNoSymlinksV15,
+  writeTrustedCandidateHiddenTestV15,
+} from '../src/release/OriginTrustedCandidateWorkspaceGuardV15.js';
 
 const IMAGE = 'node:22-bookworm-slim';
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
@@ -266,16 +271,21 @@ async function main(): Promise<void> {
 
     const actualPaths = await actualChangedPaths(controllerRoot, workspace);
     const sessionPaths = [...new Set(candidateResult.session.changedPaths ?? [])].sort();
-    const changedPathsVerified = JSON.stringify(actualPaths) === JSON.stringify(sessionPaths);
+    assertTrustedCandidateDiffScopeV15({
+      actualPaths,
+      reportedPaths: sessionPaths,
+      requiredPaths: packet.requiredChangedPaths,
+    });
+    for (const changedPath of actualPaths) {
+      await assertTrustedCandidatePathNoSymlinksV15(workspace, changedPath);
+    }
     candidateResult.session.changedPaths = actualPaths;
+    const changedPathsVerified = true;
 
+    // The candidate process is already gone and the provider proxy is stopped.
+    // Only now may the trusted controller materialize hidden tests.
     for (const hidden of packet.hiddenTests) {
-      if (!hidden.path.startsWith('tests/__origin_heldout__/')) throw new Error('TRUSTED_CANDIDATE_HIDDEN_PATH_INVALID');
-      const target = path.join(workspace, hidden.path);
-      const relative = path.relative(workspace, target);
-      if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('TRUSTED_CANDIDATE_HIDDEN_PATH_INVALID');
-      await fs.mkdir(path.dirname(target), { recursive: true });
-      await fs.writeFile(target, hidden.content, { flag: 'wx' });
+      await writeTrustedCandidateHiddenTestV15(workspace, hidden.path, hidden.content);
     }
 
     const hidden = await dockerCheck(workspace, dependencyRoot, HIDDEN_TEST_COMMAND, 'hidden');
@@ -296,11 +306,6 @@ async function main(): Promise<void> {
       hiddenTestsOk: trustedVerificationPassed,
     });
     const score = scoreHeldOutCodingRunV14(publicHeldOutTaskFromPrivatePacketV14(packet), run);
-    if (!changedPathsVerified) {
-      score.solved = false;
-      if (!score.regressions.includes('trusted-diff-mismatch')) score.regressions.push('trusted-diff-mismatch');
-    }
-
     const publicTask = publicHeldOutTaskFromPrivatePacketV14(packet);
     const publicEvidence = {
       schemaVersion: 'origin-trusted-candidate-task-evidence-v1',
