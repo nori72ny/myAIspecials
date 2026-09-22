@@ -66,9 +66,9 @@ export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWo
       </div>
 
       <label className="ml-auto min-w-0 flex-1 sm:hidden">
-        <span className="sr-only">Mode</span>
+        <span className="sr-only">Mode selector</span>
         <select
-          aria-label="Mode"
+          aria-label="Mode selector"
           value={mode}
           onChange={(event) => onModeChange(event.target.value as OriginWorkspaceModeV31)}
           className="origin-secondary-button min-h-11 w-full rounded-full border px-3 text-sm font-bold"
