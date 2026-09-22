@@ -99,6 +99,7 @@ test.describe('ORIGIN visual QA evidence', () => {
 test('workspace colors follow the resolved app theme rather than the OS theme', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?workspace=research');
+  await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
   const input = page.getByRole('textbox', { name: '調べたいこと' });
   await expect(input).toBeVisible();
   for (const theme of ['light', 'dark']) {
@@ -230,6 +231,7 @@ test('renders grounded Research runtime evidence in the Chat timeline', async ({
   }));
 
   await page.goto('/');
+  await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
   await page.getByLabel('Composer mode', { exact: true }).selectOption('research');
   await expect(page.getByRole('region', { name: 'Research Workspace' })).toBeVisible();
   await page.getByRole('textbox', { name: '調べたいこと' }).fill('公開情報を調査');
@@ -327,6 +329,7 @@ test('renders verified Agentic Coding runtime evidence in the Chat timeline', as
   }));
 
   await page.goto('/');
+  await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
   await page.getByLabel('Composer mode', { exact: true }).selectOption('coding');
   await expect(page.getByRole('region', { name: 'Coding Job Workspace' })).toBeVisible();
   await expect(page.getByText('設定確認済み')).toBeVisible();
@@ -413,6 +416,7 @@ test('captures grounded Research running evidence in the Chat timeline', async (
   });
 
   await page.goto('/');
+  await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
   await page.getByLabel('Composer mode', { exact: true }).selectOption('research');
   await page.getByRole('textbox', { name: '調べたいこと' }).fill('実行中の調査を確認');
   await page.getByRole('button', { name: '調査する' }).click();
@@ -491,6 +495,7 @@ test('captures grounded Agent and Tool running evidence from a repairing coding 
   }));
 
   await page.goto('/');
+  await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
   await page.getByLabel('Composer mode', { exact: true }).selectOption('coding');
   await expect(page.getByText('設定確認済み')).toBeVisible();
   await page.getByLabel('Coding認証キー').fill('test-only-credential');
@@ -521,6 +526,7 @@ test('captures fail-closed Research error evidence in the Chat timeline', async 
   }));
 
   await page.goto('/');
+  await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
   await page.getByLabel('Composer mode', { exact: true }).selectOption('research');
   await page.getByRole('textbox', { name: '調べたいこと' }).fill('取得不能時の安全停止を確認');
   await page.getByRole('button', { name: '調査する' }).click();
