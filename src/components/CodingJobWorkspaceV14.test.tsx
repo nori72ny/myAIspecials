@@ -111,10 +111,10 @@ describe('CodingJobWorkspaceV14', () => {
     fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Fix the parser and add regression coverage.' } });
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
 
-    await screen.findByText('src/existing.ts');
     expect(screen.getByRole('region', { name: 'Coding approval waiting' })).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+    await screen.findByText('src/existing.ts');
     expect(credentialInput.value).toBe('');
     expect(await screen.findByText('export const value = 1;')).toBeTruthy();
     expect(await screen.findByText('export const value = 2;')).toBeTruthy();
