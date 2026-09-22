@@ -16,7 +16,6 @@ const modeCapabilities: Record<OriginWorkspaceModeV31, readonly string[]> = {
 };
 
 function SystemDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
-  const agentState = mode === 'coding' ? '実行可能' : '通常応答';
   return <details className="relative shrink-0">
     <summary aria-label="ORIGIN Auto settings" className="origin-secondary-button flex min-h-11 list-none items-center gap-2 rounded-full border px-3 text-xs font-semibold sm:px-4">
       <span>Auto</span>
@@ -29,15 +28,15 @@ function SystemDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
           <strong>ORIGIN Auto</strong>
           <span className="origin-muted text-xs">provider/model routingはサーバー側で管理</span>
         </div>
-        <div aria-label="Tools 自動管理" className="grid gap-1 border-t border-origin-border pt-3">
+        <div aria-label="Tools capability" className="grid gap-1 border-t border-origin-border pt-3">
           <span className="origin-muted text-[11px] font-bold uppercase tracking-wide">Tools</span>
-          <strong>自動管理</strong>
+          <strong>利用可能な経路</strong>
           <span className="origin-muted text-xs">{modeCapabilities[mode].join(' · ')}</span>
         </div>
-        <div aria-label={`Agent ${agentState}`} className="grid gap-1 border-t border-origin-border pt-3">
+        <div aria-label="Agent runtime evidence policy" className="grid gap-1 border-t border-origin-border pt-3">
           <span className="origin-muted text-[11px] font-bold uppercase tracking-wide">Agent</span>
-          <strong>{agentState}</strong>
-          <span className="origin-muted text-xs">{mode === 'coding' ? 'Code ModeでAgentic Codingを利用可能' : '必要時のみAgent状態を表示'}</span>
+          <strong>実行時のみ状態表示</strong>
+          <span className="origin-muted text-xs">Agent / Tool / Approval の進行状態は、取得済みruntime evidenceがある場合だけ作業箇所のActivityへ表示</span>
         </div>
       </div>
     </div>
