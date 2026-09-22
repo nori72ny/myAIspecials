@@ -25,7 +25,7 @@ describe('ORIGIN accessibility foundations', () => {
 
   it('keeps mobile Mode selection and progressive system settings keyboard-focusable', () => {
     render(<OriginWorkspaceShellV31 mode="chat" onModeChange={vi.fn()} />);
-    expect(screen.getByLabelText('Mode')).toBeTruthy();
+    expect(screen.getByLabelText('Mode selector')).toBeTruthy();
     expect(screen.getByLabelText('ORIGIN Auto settings')).toBeTruthy();
     expect(screen.getByRole('navigation', { name: 'Mode' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Chat' }).getAttribute('aria-pressed')).toBe('true');
