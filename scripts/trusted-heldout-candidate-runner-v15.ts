@@ -1,29 +1,15 @@
 import { request as httpRequest } from 'node:http';
 import { promises as fs } from 'node:fs';
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const RESULT_PREFIX = 'ORIGIN_TRUSTED_CANDIDATE_RESULT ';
 const MAX_OUTPUT_BYTES = 32 * 1024;
-const CHECK_TIMEOUT_MS = 180_000;
-const CHECKS = ['typecheck', 'lint', 'test', 'build'] as const;
-type CheckKind = (typeof CHECKS)[number];
-
-const CHECK_COMMANDS: Record<CheckKind, string> = {
-  typecheck: 'tsc --noEmit',
-  lint: 'mkdir -p test-results && (tsc --noEmit > test-results/lint.log 2>&1 || (cat test-results/lint.log && exit 1)) && node scripts/design-token-lock.js',
-  test: "FREE_ONLY=false vitest run --configLoader runner --maxWorkers=2 --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default",
-  build: 'vite build --configLoader runner && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs',
-};
 
 type VisiblePacket = {
   id: string;
   baseSha: string;
-  timeBudgetMs: number;
   requiredChangedPaths: string[];
-  protectedPaths: string[];
-  recoveryRequired: boolean;
   goal: string;
 };
 
@@ -56,11 +42,7 @@ function parseVisiblePacket(): VisiblePacket {
   const packet = value as VisiblePacket;
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(packet.id)) throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
   if (!/^[a-f0-9]{40}$/.test(packet.baseSha)) throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
-  if (!Number.isInteger(packet.timeBudgetMs) || packet.timeBudgetMs < 1000 || packet.timeBudgetMs > 3_600_000) throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
   if (!Array.isArray(packet.requiredChangedPaths) || packet.requiredChangedPaths.length < 2 || packet.requiredChangedPaths.length > 12 || !packet.requiredChangedPaths.every(safePath)) throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
-  if (!Array.isArray(packet.protectedPaths) || !packet.protectedPaths.every(safePath)) throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
-  if (packet.requiredChangedPaths.some(item => packet.protectedPaths.includes(item))) throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
-  if (typeof packet.recoveryRequired !== 'boolean') throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
   if (typeof packet.goal !== 'string' || !packet.goal.trim() || packet.goal.length > 4000) throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
   return packet;
 }
@@ -106,34 +88,38 @@ async function proxyExecute(rawRequest: unknown): Promise<any> {
   return parsed.result;
 }
 
-async function runCheck(root: string, kind: CheckKind) {
-  return new Promise<{ kind: CheckKind; ok: boolean; exitCode: number | null; timedOut: boolean; diagnostic: string }>((resolve, reject) => {
-    const child = spawn('/bin/sh', ['-eu', '-c', CHECK_COMMANDS[kind]], {
-      cwd: root,
-      env: {
-        HOME: '/tmp',
-        PATH: '/work/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-        CI: 'true',
-        NODE_ENV: 'test',
-        FREE_ONLY: 'false',
-        ORIGIN_ISOLATED_VERIFY: 'true',
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
+async function proxyVerify(): Promise<Array<{ kind: 'typecheck' | 'lint' | 'test' | 'build'; ok: boolean; exitCode: number | null; timedOut: boolean; diagnostic?: string }>> {
+  const socketPath = process.env.ORIGIN_VERIFIER_PROXY_SOCKET ?? '';
+  const token = process.env.ORIGIN_VERIFIER_PROXY_TOKEN ?? '';
+  if (!socketPath.startsWith('/') || !/^[a-f0-9]{64}$/.test(token)) throw new Error('TRUSTED_VERIFIER_PROXY_UNAVAILABLE');
+
+  const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const req = httpRequest({
+      socketPath,
+      path: '/verify',
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Length': '0' },
+      timeout: 720_000,
+    }, res => {
+      let output = '';
+      res.on('data', chunk => { output = appendBounded(output, chunk); });
+      res.on('end', () => resolve({ status: res.statusCode ?? 500, body: output }));
     });
-    let output = '';
-    let timedOut = false;
-    child.stdout.on('data', chunk => { output = appendBounded(output, chunk); });
-    child.stderr.on('data', chunk => { output = appendBounded(output, chunk); });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-    }, CHECK_TIMEOUT_MS);
-    child.once('error', reject);
-    child.once('close', code => {
-      clearTimeout(timer);
-      resolve({ kind, ok: !timedOut && code === 0, exitCode: code, timedOut, diagnostic: output });
-    });
+    req.once('timeout', () => req.destroy(new Error('TRUSTED_VERIFIER_PROXY_TIMEOUT')));
+    req.once('error', reject);
+    req.end();
   });
+
+  let value: any;
+  try { value = JSON.parse(response.body); }
+  catch { throw new Error('TRUSTED_VERIFIER_PROXY_RESPONSE_INVALID'); }
+  if (response.status !== 200 || value?.ok !== true || !Array.isArray(value.checks) || value.checks.length !== 4) {
+    const code = typeof value?.code === 'string' && /^TRUSTED_VERIFIER_[A-Z0-9_:-]+$/.test(value.code)
+      ? value.code
+      : 'TRUSTED_VERIFIER_PROXY_EXECUTION_FAILED';
+    throw new Error(code);
+  }
+  return value.checks;
 }
 
 async function main(): Promise<void> {
@@ -166,11 +152,7 @@ async function main(): Promise<void> {
     trustedWorkspaceApproved: true,
     maxRepairs: 3,
   }, {
-    verify: async () => {
-      const rows = [];
-      for (const kind of CHECKS) rows.push(await runCheck(root, kind));
-      return rows;
-    },
+    verify: async () => proxyVerify(),
     plannerOptions: {
       env: { OPENROUTER_API_KEY: 'trusted-proxy-only', FREE_ONLY: 'true' },
       execute: proxyExecute,

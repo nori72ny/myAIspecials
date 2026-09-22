@@ -137,11 +137,66 @@ function visiblePacket(packet: HeldOutPrivateTaskPacketV14) {
   return {
     id: packet.id,
     baseSha: packet.baseSha,
-    timeBudgetMs: packet.timeBudgetMs,
     requiredChangedPaths: packet.requiredChangedPaths,
-    protectedPaths: packet.protectedPaths,
-    recoveryRequired: packet.recoveryRequired,
     goal: packet.goal,
+  };
+}
+
+type TrustedVerificationJournalRow = {
+  attempt: number;
+  checks: Array<{ kind: 'typecheck' | 'lint' | 'test' | 'build'; ok: boolean; exitCode: number | null; timedOut: boolean }>;
+};
+
+async function readTrustedVerificationJournal(file: string): Promise<TrustedVerificationJournalRow[]> {
+  let raw: string;
+  try { raw = await fs.readFile(file, 'utf8'); }
+  catch { throw new Error('TRUSTED_VERIFIER_JOURNAL_MISSING'); }
+  const lines = raw.split('\n').filter(Boolean);
+  if (lines.length < 1 || lines.length > 4) throw new Error('TRUSTED_VERIFIER_JOURNAL_INVALID');
+  const rows: TrustedVerificationJournalRow[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    let value: any;
+    try { value = JSON.parse(lines[index]); }
+    catch { throw new Error('TRUSTED_VERIFIER_JOURNAL_INVALID'); }
+    if (value?.attempt !== index || !Array.isArray(value.checks) || value.checks.length !== 4) throw new Error('TRUSTED_VERIFIER_JOURNAL_INVALID');
+    const expected = ['typecheck', 'lint', 'test', 'build'];
+    for (let checkIndex = 0; checkIndex < expected.length; checkIndex += 1) {
+      const check = value.checks[checkIndex];
+      if (
+        check?.kind !== expected[checkIndex]
+        || typeof check.ok !== 'boolean'
+        || !(check.exitCode === null || Number.isInteger(check.exitCode))
+        || typeof check.timedOut !== 'boolean'
+      ) throw new Error('TRUSTED_VERIFIER_JOURNAL_INVALID');
+    }
+    rows.push(value as TrustedVerificationJournalRow);
+  }
+  return rows;
+}
+
+function trustedSessionForScoring(candidateSession: any, actualPaths: string[], journal: TrustedVerificationJournalRow[]) {
+  if (!candidateSession || !['verified', 'blocked', 'repair_limit'].includes(candidateSession.status)) {
+    throw new Error('TRUSTED_CANDIDATE_RESULT_INVALID');
+  }
+  const finalChecks = journal.at(-1)?.checks ?? [];
+  const finalPassing = finalChecks.length === 4 && finalChecks.every(check => check.ok && check.exitCode === 0 && check.timedOut === false);
+  const status = candidateSession.status === 'verified' && finalPassing ? 'verified' : candidateSession.status;
+  return {
+    runId: typeof candidateSession.runId === 'string' ? candidateSession.runId : 'trusted-candidate-run',
+    status,
+    code: typeof candidateSession.code === 'string' && /^CODING_[A-Z0-9_]{1,96}$/.test(candidateSession.code)
+      ? candidateSession.code
+      : (status === 'verified' ? 'CODING_CHECKS_PASSED' : 'CODING_NOT_VERIFIED'),
+    repairRounds: Math.max(0, journal.length - 1),
+    changedPaths: actualPaths,
+    audit: journal.map(row => ({
+      sequence: row.attempt + 1,
+      action: 'verified' as const,
+      attempt: row.attempt,
+      checks: row.checks,
+    })),
+    gitPublished: false as const,
+    deployed: false as const,
   };
 }
 
@@ -169,12 +224,17 @@ async function main(): Promise<void> {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-candidate-worktree-'));
   const dependencyRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-candidate-deps-'));
   const socketDir = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-provider-socket-'));
+  const verifierSocketDir = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-verifier-socket-'));
   const envDir = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-candidate-env-'));
   const socketPath = path.join(socketDir, 'provider.sock');
+  const verifierSocketPath = path.join(verifierSocketDir, 'verifier.sock');
+  const verifierJournalPath = path.join(envDir, 'verifier-journal.jsonl');
   const token = randomBytes(32).toString('hex');
+  const verifierToken = randomBytes(32).toString('hex');
   const containerName = `origin-trusted-candidate-${randomUUID().slice(0, 12)}`;
   let worktreeAdded = false;
   let proxy: ReturnType<typeof spawn> | null = null;
+  let verifierProxy: ReturnType<typeof spawn> | null = null;
 
   try {
     const repoUrl = `https://github.com/${process.env.GITHUB_REPOSITORY ?? ''}.git`;
@@ -208,12 +268,30 @@ async function main(): Promise<void> {
     await waitForSocket(socketPath, proxy);
     await fs.chmod(socketDir, 0o555);
 
+    verifierProxy = spawn(process.execPath, ['--import', 'tsx', 'scripts/trusted-heldout-verifier-proxy-v15.ts'], {
+      cwd: controllerRoot,
+      env: {
+        PATH: process.env.PATH ?? '/usr/bin:/bin',
+        HOME: '/tmp',
+        ORIGIN_TRUSTED_VERIFIER_SOCKET: verifierSocketPath,
+        ORIGIN_TRUSTED_VERIFIER_TOKEN: verifierToken,
+        ORIGIN_TRUSTED_VERIFIER_WORKSPACE: workspace,
+        ORIGIN_TRUSTED_VERIFIER_DEPENDENCY_ROOT: dependencyRoot,
+        ORIGIN_TRUSTED_VERIFIER_JOURNAL: verifierJournalPath,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    await waitForSocket(verifierSocketPath, verifierProxy);
+    await fs.chmod(verifierSocketDir, 0o555);
+
     const envFile = path.join(envDir, 'candidate.env');
     const encodedVisible = Buffer.from(JSON.stringify(visiblePacket(packet)), 'utf8').toString('base64');
     await fs.writeFile(envFile, [
       `ORIGIN_VISIBLE_PACKET_B64=${encodedVisible}`,
       'ORIGIN_PROVIDER_PROXY_SOCKET=/proxy/provider.sock',
       `ORIGIN_PROVIDER_PROXY_TOKEN=${token}`,
+      'ORIGIN_VERIFIER_PROXY_SOCKET=/verifier/verifier.sock',
+      `ORIGIN_VERIFIER_PROXY_TOKEN=${verifierToken}`,
       '',
     ].join('\n'), { mode: 0o600 });
 
@@ -234,6 +312,7 @@ async function main(): Promise<void> {
       '--mount', `type=bind,src=${workspace},dst=/work`,
       '--mount', `type=bind,src=${path.join(dependencyRoot, 'node_modules')},dst=/work/node_modules,readonly`,
       '--mount', `type=bind,src=${socketDir},dst=/proxy,readonly`,
+      '--mount', `type=bind,src=${verifierSocketDir},dst=/verifier,readonly`,
       '--env-file', envFile,
       '--workdir', '/controller',
       IMAGE,
@@ -268,7 +347,12 @@ async function main(): Promise<void> {
       proxy.kill('SIGTERM');
       proxy = null;
     }
+    if (verifierProxy) {
+      verifierProxy.kill('SIGTERM');
+      verifierProxy = null;
+    }
 
+    const trustedJournal = await readTrustedVerificationJournal(verifierJournalPath);
     const actualPaths = await actualChangedPaths(controllerRoot, workspace);
     const reportedPaths = candidateResult.session.changedPaths;
     if (!Array.isArray(reportedPaths) || reportedPaths.some((value: unknown) => typeof value !== 'string')) {
@@ -283,10 +367,10 @@ async function main(): Promise<void> {
     for (const changedPath of actualPaths) {
       await assertTrustedCandidatePathNoSymlinksV15(workspace, changedPath);
     }
-    candidateResult.session.changedPaths = actualPaths;
+    const trustedSession = trustedSessionForScoring(candidateResult.session, actualPaths, trustedJournal);
     const changedPathsVerified = true;
 
-    // The candidate process is already gone and the provider proxy is stopped.
+    // The candidate process is already gone and both trusted proxies are stopped.
     // Only now may the trusted controller materialize hidden tests.
     for (const hidden of packet.hiddenTests) {
       await writeTrustedCandidateHiddenTestV15(workspace, hidden.path, hidden.content);
@@ -301,7 +385,7 @@ async function main(): Promise<void> {
       packet,
       participant: 'ORIGIN',
       outcome: {
-        session: candidateResult.session,
+        session: trustedSession,
         provider: 'OpenRouter',
         model: ORIGIN_OPENROUTER_FREE_MODEL,
         costUsd: 0,
@@ -326,7 +410,9 @@ async function main(): Promise<void> {
         timedOut: check.timedOut,
       })),
       zeroCost: true,
-      networkMode: 'candidate:none; verification:none; provider:unix-socket-trusted-host',
+      networkMode: 'candidate:none; verification:none; provider:unix-socket-trusted-host; verifier:unix-socket-trusted-host',
+      trustedVerificationAttempts: trustedJournal.length,
+      trustedRecoveryObserved: trustedJournal.slice(0, -1).some(row => row.checks.some(check => !check.ok || check.exitCode !== 0 || check.timedOut)),
     };
 
     await fs.mkdir(path.join(controllerRoot, 'test-results'), { recursive: true });
@@ -344,11 +430,14 @@ async function main(): Promise<void> {
     }) + '\n');
   } finally {
     if (proxy) proxy.kill('SIGTERM');
+    if (verifierProxy) verifierProxy.kill('SIGTERM');
     await fs.chmod(socketDir, 0o700).catch(() => undefined);
+    await fs.chmod(verifierSocketDir, 0o700).catch(() => undefined);
     if (worktreeAdded) await execFixed('git', ['worktree', 'remove', '--force', workspace], controllerRoot, cleanHostEnv('/tmp'), 60_000).catch(() => undefined);
     await fs.rm(workspace, { recursive: true, force: true }).catch(() => undefined);
     await fs.rm(dependencyRoot, { recursive: true, force: true }).catch(() => undefined);
     await fs.rm(socketDir, { recursive: true, force: true }).catch(() => undefined);
+    await fs.rm(verifierSocketDir, { recursive: true, force: true }).catch(() => undefined);
     await fs.rm(envDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
