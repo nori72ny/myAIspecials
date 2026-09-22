@@ -146,7 +146,7 @@ function PersonalReleaseRoot() {
     <SettingsErrorBoundary>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} messageCount={messages.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} />
     </SettingsErrorBoundary>
-    {updateReady && <p role="status" aria-live="polite" className="origin-pwa-update-notice">{t.pwaUpdateNotice}</p>}
+    {updateReady && <p role="status" aria-live="polite" className="sr-only">{t.pwaUpdateNotice}</p>}
     {(!isHydrated || storageHealth !== 'ready') && <p data-testid="origin-storage-status" role="status" className="sr-only">{!isHydrated ? '端末内ストレージを準備しています。' : '端末内ストレージへ保存できないため、このセッションはメモリ上で継続しています。'}</p>}
   </>;
 }
