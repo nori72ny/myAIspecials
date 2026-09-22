@@ -11,6 +11,7 @@ type ModeItem = {
 type OriginWorkspaceShellV31Props = {
   mode: OriginWorkspaceModeV31;
   onModeChange: (mode: OriginWorkspaceModeV31) => void;
+  navigation?: React.ReactNode;
 };
 
 const MODES: readonly ModeItem[] = [
@@ -56,9 +57,10 @@ function SystemDetails({ mode }: { mode: OriginWorkspaceModeV31 }) {
   </details>;
 }
 
-export default function OriginWorkspaceShellV31({ mode, onModeChange }: OriginWorkspaceShellV31Props) {
+export default function OriginWorkspaceShellV31({ mode, onModeChange, navigation }: OriginWorkspaceShellV31Props) {
   return <section aria-label="ORIGIN workspace shell" className="origin-workspace-shell border-b border-origin-border px-3 sm:px-5">
     <div className="mx-auto flex min-h-12 w-full max-w-7xl items-center gap-2 sm:min-h-14 sm:gap-3">
+      {navigation}
       <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
         <span className="text-sm font-black tracking-tight sm:text-base">ORIGIN</span>
         <span className="origin-badge hidden min-h-7 items-center border px-2 text-[11px] font-bold sm:inline-flex">Personal</span>
