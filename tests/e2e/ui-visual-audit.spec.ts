@@ -435,7 +435,7 @@ test('captures grounded Research running evidence in the Chat timeline', async (
 
 test('captures grounded Agent and Tool running evidence from a repairing coding job', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  const jobId = 'coding-runningabcdefghijkl';
+  const jobId = 'coding-runningabcdefghijklxyz';
   const now = new Date().toISOString();
   const capability = {
     ok: true,
