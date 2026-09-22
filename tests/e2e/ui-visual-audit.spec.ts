@@ -157,6 +157,21 @@ test('conversation keeps its composer reachable after the viewport becomes short
 });
 
 for (const width of [390, 1440]) {
+  test(`captures expanded navigation evidence at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'ORIGIN navigation' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '履歴' })).toBeVisible();
+    await testInfo.attach(`navigation-expanded-${width}.png`, {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+  });
+}
+
+for (const width of [390, 1440]) {
   test(`keeps one artifact pane and reachable conversation navigation at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.route('**/api/chat', route => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を作成しました。\n```html:gate.html\n<main><h1>監査用の成果物</h1></main>\n```' }));
