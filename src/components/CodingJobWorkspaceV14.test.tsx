@@ -112,6 +112,9 @@ describe('CodingJobWorkspaceV14', () => {
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
 
     await screen.findByText('src/existing.ts');
+    expect(screen.getByRole('region', { name: 'Coding approval waiting' })).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
     expect(credentialInput.value).toBe('');
     expect(await screen.findByText('export const value = 1;')).toBeTruthy();
     expect(await screen.findByText('export const value = 2;')).toBeTruthy();
@@ -249,6 +252,7 @@ describe('CodingJobWorkspaceV14', () => {
     fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Attempt a bounded change.' } });
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
     await screen.findByText('CODING_SCOPE_BLOCKED');
     expect(screen.getAllByText('NOT RUN')).toHaveLength(4);
@@ -288,6 +292,7 @@ describe('CodingJobWorkspaceV14', () => {
     fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Fix the parser.' } });
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('GitHubがワーカーの起動を拒否しました');
     expect(alert.textContent).toContain('CODING_JOB_DISPATCH_PERMISSION_DENIED');
@@ -314,6 +319,27 @@ describe('CodingJobWorkspaceV14', () => {
     expect(screen.getAllByText(/この状態だけでは分かりません/).length).toBeGreaterThan(0);
   });
 
+  it('does not create a job before explicit approval and invalidates approval when the goal changes', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(capability));
+    const activity = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CodingJobWorkspaceV14 onRuntimeActivityChange={activity} />);
+    await screen.findByText('configured');
+    fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
+    fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Original request.' } });
+    fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
+
+    expect(screen.getByRole('region', { name: 'Coding approval waiting' })).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(activity).toHaveBeenCalledWith(expect.objectContaining({ kind: 'approval', status: 'awaiting_approval' }));
+
+    fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Changed request.' } });
+    expect(screen.queryByRole('region', { name: 'Coding approval waiting' })).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(activity).toHaveBeenCalledWith(expect.objectContaining({ kind: 'approval', status: 'cancelled' }));
+  });
+
   it('requests cancellation through the owner-authenticated DELETE route', async () => {
     const cancelled = { ...job('cancelled'), cancelRequested: true, version: 3 };
     const fetchMock = vi.fn()
@@ -327,6 +353,7 @@ describe('CodingJobWorkspaceV14', () => {
     fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Fix the parser.' } });
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
     await screen.findAllByText('コードを変更中');
 
     fireEvent.click(screen.getByRole('button', { name: '依頼を取り消す' }));
