@@ -61,11 +61,15 @@ export function registerOriginServiceWorker(): void {
         });
       };
 
+      let hasSeenController = Boolean(navigator.serviceWorker.controller);
       navigator.serviceWorker.addEventListener('controllerchange', () => {
+        const isInitialController = !hasSeenController;
+        hasSeenController = true;
+        if (isInitialController) return;
         if (sessionStorage.getItem(UPDATE_RELOAD_GUARD_KEY) === '1') return;
         sessionStorage.setItem(UPDATE_RELOAD_GUARD_KEY, '1');
         window.location.reload();
-      }, { once: true });
+      });
 
       const waitingAtLaunch = Boolean(registration.waiting);
       if (waitingAtLaunch && canAutoApplyUpdate()) {
