@@ -3,7 +3,6 @@ import App from '../../App';
 import { ArtifactWorkspace } from '../../App';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
 import type { Settings } from '../../types';
-import OriginArtifactContextV31 from './OriginArtifactContextV31';
 import OriginComposerModeControlV31 from './OriginComposerModeControlV31';
 import OriginNavigationDrawerV31 from './OriginNavigationDrawerV31';
 import OriginProjectNavigationV31 from './OriginProjectNavigationV31';
@@ -110,7 +109,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
       />}
     />
     <OriginProjectWorkspaceV31 mode={workspace} messages={messages} sessions={effectiveSessions} artifacts={artifacts} sources={projectSources} codingEvidence={codingEvidence} activeView={projectView} onViewChange={handleProjectViewChange} />
-    {workspace === 'chat' && <OriginArtifactContextV31 artifacts={artifacts} />}
     {workspace === 'chat' && activeArtifact && <div role="tablist" aria-label="モバイルChat表示" className="origin-surface-muted flex gap-2 border-b px-3 py-2 md:hidden">
       <button type="button" role="tab" aria-selected={!artifactOpen} onClick={closeArtifact} className={`min-h-11 flex-1 rounded-lg border px-4 text-sm font-semibold ${!artifactOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>会話</button>
       <button type="button" role="tab" aria-selected={artifactOpen} onClick={() => handleProjectViewChange('artifacts')} className={`min-h-11 flex-1 rounded-lg border px-4 text-sm font-semibold ${artifactOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>成果物</button>
