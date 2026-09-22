@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { OriginRuntimeActivityV31 } from './OriginRuntimeActivityV31';
 
 export type ResearchSource = {
   id: string;
@@ -133,9 +134,13 @@ function failureMessage(code?: string, message?: string) {
   return message || '調査を完了できませんでした。確認できていない内容は表示していません。';
 }
 
-type ResearchWorkspaceV31Props = { composerControls?: React.ReactNode; onSourcesChange?: (sources: readonly ResearchSource[]) => void };
+type ResearchWorkspaceV31Props = {
+  composerControls?: React.ReactNode;
+  onSourcesChange?: (sources: readonly ResearchSource[]) => void;
+  onRuntimeActivityChange?: (activity: OriginRuntimeActivityV31) => void;
+};
 
-export default function ResearchWorkspaceV31({ composerControls, onSourcesChange }: ResearchWorkspaceV31Props) {
+export default function ResearchWorkspaceV31({ composerControls, onSourcesChange, onRuntimeActivityChange }: ResearchWorkspaceV31Props) {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<ResearchSuccess | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +153,13 @@ export default function ResearchWorkspaceV31({ composerControls, onSourcesChange
     setError(null);
     setResult(null);
     onSourcesChange?.([]);
+    onRuntimeActivityChange?.({
+      id: 'research-current',
+      kind: 'research',
+      status: 'running',
+      title: '公開情報を調査',
+      detail: '無料の公開Web情報源から取得し、応答契約と出典を検証しています。',
+    });
     try {
       const response = await fetch('/api/research/v1.1/query', {
         method: 'POST',
@@ -157,17 +169,38 @@ export default function ResearchWorkspaceV31({ composerControls, onSourcesChange
       const data = await response.json() as unknown;
       if (!response.ok) {
         const failure = researchFailure(data);
-        setError(failureMessage(failure.code, failure.message));
+        const message = failureMessage(failure.code, failure.message);
+        setError(message);
+        onRuntimeActivityChange?.({
+          id: 'research-current',
+          kind: 'research',
+          status: failure.code === 'SENSITIVE_INPUT_BLOCKED' ? 'blocked' : 'failed',
+          title: '公開情報を調査',
+          detail: message,
+          evidence: failure.code ? `code: ${failure.code}` : undefined,
+        });
         return;
       }
       if (!isResearchSuccess(data)) {
-        setError('調査APIの応答を検証できなかったため、安全に停止しました。未確認内容は表示していません。');
+        const message = '調査APIの応答を検証できなかったため、安全に停止しました。未確認内容は表示していません。';
+        setError(message);
+        onRuntimeActivityChange?.({ id: 'research-current', kind: 'research', status: 'failed', title: '公開情報を調査', detail: message, evidence: 'response contract validation failed' });
         return;
       }
       setResult(data);
       onSourcesChange?.(data.sources);
+      onRuntimeActivityChange?.({
+        id: 'research-current',
+        kind: 'research',
+        status: 'completed',
+        title: '公開情報を調査',
+        detail: `${data.sourceCount}件の出典・${data.distinctDomainCount}ドメインを検証済みです。`,
+        evidence: `status=grounded · confidence=${data.confidence}${data.provider ? ` · provider=${data.provider}` : ''} · costUsd=0`,
+      });
     } catch {
-      setError('調査APIへ接続できませんでした。未確認内容で補完していません。');
+      const message = '調査APIへ接続できませんでした。未確認内容で補完していません。';
+      setError(message);
+      onRuntimeActivityChange?.({ id: 'research-current', kind: 'research', status: 'failed', title: '公開情報を調査', detail: message, evidence: 'network/request failure' });
     } finally {
       setBusy(false);
     }
