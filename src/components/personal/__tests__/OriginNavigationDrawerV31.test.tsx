@@ -24,7 +24,10 @@ const artifacts: ArtifactBlock[] = [
   { id: 'a1', type: 'markdown', title: 'Audit report', language: 'markdown', content: '# Audit', isComplete: true },
 ];
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.body.style.overflow = '';
+});
 
 describe('OriginNavigationDrawerV31', () => {
   it('opens a compact navigation surface and exposes global actions', () => {
@@ -63,5 +66,17 @@ describe('OriginNavigationDrawerV31', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
     fireEvent.click(screen.getByRole('button', { name: /Audit report/ }));
     expect(onOpenArtifact).toHaveBeenCalledWith(artifacts[0]);
+  });
+
+  it('locks page scrolling while open and closes on Escape', () => {
+    render(<OriginNavigationDrawerV31 sessions={sessions} artifacts={artifacts} onNewConversation={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(document.body.style.overflow).toBe('hidden');
+    expect(screen.getByRole('dialog', { name: 'ORIGIN navigation' }).getAttribute('aria-modal')).toBe('true');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'ORIGIN navigation' })).toBeNull();
+    expect(document.body.style.overflow).toBe('');
   });
 });
