@@ -23,8 +23,10 @@ The solution must **not** solve this by giving a mutable candidate workflow acce
 
 ## Current phase
 
-`trusted-candidate-heldout-preflight-v15.yml` implements the trusted binding and one-shot readiness check only. It deliberately does **not** run the candidate agent yet.
+`trusted-candidate-heldout-preflight-v15.yml` performs a no-provider readiness check. `trusted-candidate-heldout-v15.yml` is the execution workflow that becomes usable only after this evaluator code is trusted on `main`.
 
-The next phase adds a main-controlled provider proxy and a network-isolated candidate container. That execution phase must pass security tests before this preflight PR is eligible for merge.
+Execution uses a trusted host Unix-socket provider proxy. The candidate runs inside a Docker container with `--network none`, no provider secret, a read-only evaluator mount and a bounded proxy capability. After the candidate container exits, the trusted controller independently reads the real diff, injects hidden tests for the first time, and re-runs typecheck/lint/test/build in separate network-none verification containers. The Q1 Coding qualification is fixed in advance at 100% solved, all axes passing, zero regressions and USD 0.
+
+The workflow reserves the stable sealed **source corpus digest** before the first provider request and also checks the legacy V14 start-marker name, so the same unseen corpus cannot be retested on a later candidate SHA after engineering sees the result.
 
 No merge, Production deployment or paid provider route is authorized by this document.
