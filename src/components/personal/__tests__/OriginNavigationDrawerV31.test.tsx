@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OriginNavigationDrawerV31 from '../OriginNavigationDrawerV31';
 import type { ArtifactBlock, ConversationSession } from '../../../App';
@@ -52,10 +52,22 @@ describe('OriginNavigationDrawerV31', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
     fireEvent.change(screen.getByLabelText('履歴を検索'), { target: { value: 'Market' } });
-    expect(screen.getByRole('button', { name: /Market research/ })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Code review/ })).toBeNull();
+    const history = screen.getByRole('region', { name: 'Conversation history' });
+    expect(within(history).getByRole('button', { name: /Market research/ })).toBeTruthy();
+    expect(within(history).queryByRole('button', { name: /Code review/ })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /Market research/ }));
+    fireEvent.click(within(history).getByRole('button', { name: /Market research/ }));
+    expect(onRestoreSession).toHaveBeenCalledWith(sessions[0]);
+  });
+
+  it('preserves the local Knowledge Map as a progressive navigation surface', () => {
+    const onRestoreSession = vi.fn();
+    render(<OriginNavigationDrawerV31 sessions={sessions} artifacts={[]} onRestoreSession={onRestoreSession} onNewConversation={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    fireEvent.click(screen.getByText('◎ Knowledge Map'));
+    expect(screen.getByRole('img', { name: 'セッション関連ノード' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Market researchを復元' }));
     expect(onRestoreSession).toHaveBeenCalledWith(sessions[0]);
   });
 
@@ -64,7 +76,8 @@ describe('OriginNavigationDrawerV31', () => {
     render(<OriginNavigationDrawerV31 sessions={[]} artifacts={artifacts} onOpenArtifact={onOpenArtifact} onNewConversation={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
-    fireEvent.click(screen.getByRole('button', { name: /Audit report/ }));
+    const artifactHistory = screen.getByRole('region', { name: 'Artifact history' });
+    fireEvent.click(within(artifactHistory).getByRole('button', { name: /Audit report/ }));
     expect(onOpenArtifact).toHaveBeenCalledWith(artifacts[0]);
   });
 
