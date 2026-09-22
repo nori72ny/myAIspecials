@@ -96,7 +96,8 @@ test.describe('ORIGIN visual QA evidence', () => {
   }
 });
 
-test('workspace colors follow the resolved app theme rather than the OS theme', async ({ page }) => {
+test('workspace colors follow the resolved app theme rather than the OS theme', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?workspace=research');
   const input = page.getByRole('textbox', { name: '調べたいこと' });
   await expect(input).toBeVisible();
@@ -116,6 +117,10 @@ test('workspace colors follow the resolved app theme rather than the OS theme', 
       color: getComputedStyle(element).color,
       background: getComputedStyle(element).backgroundColor,
     }))).toEqual(colors);
+    await testInfo.attach(`theme-${theme}-research-desktop-1440.png`, {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
   }
 });
 
@@ -362,6 +367,172 @@ test('renders verified Agentic Coding runtime evidence in the Chat timeline', as
   await expect(timeline).toContainText('typecheck=PASS');
   await expect(timeline).toContainText('build=PASS');
   await testInfo.attach('runtime-agent-tool-approval-chat-desktop-1440.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+});
+
+
+test('captures grounded Research running evidence in the Chat timeline', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let releaseResearch!: () => void;
+  const researchGate = new Promise<void>(resolve => { releaseResearch = resolve; });
+  await page.route('**/api/research/v1.1/query', async route => {
+    await researchGate;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        version: '1.1',
+        status: 'grounded',
+        provider: 'DuckDuckGo',
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+        sourceCount: 1,
+        distinctDomainCount: 1,
+        confidence: 'strong',
+        confidenceScope: 'retrieval-evidence-only',
+        semanticConflictDetection: 'conservative-structured-only',
+        sources: [{
+          id: 'S1',
+          title: 'Verified source',
+          url: 'https://example.com/source',
+          domain: 'example.com',
+          evidenceLevel: 'page-verified',
+          freshness: 'recent',
+          score: 95,
+          scoreScope: 'retrieval-evidence-only',
+          citation: '[S1]',
+        }],
+        conflicts: [],
+        report: 'Verified grounded report [S1]',
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Composer mode', { exact: true }).selectOption('research');
+  await page.getByRole('textbox', { name: '調べたいこと' }).fill('実行中の調査を確認');
+  await page.getByRole('button', { name: '調査する' }).click();
+  await expect(page.getByRole('button', { name: '調査中…' })).toBeVisible();
+  await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
+
+  const timeline = page.getByTestId('origin-runtime-activity-timeline');
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Research');
+  await expect(timeline).toContainText('実行中の調査を確認');
+  await expect(page.getByTestId('runtime-activity-status-research-current')).toHaveText('実行中');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+  await testInfo.attach('runtime-research-running-chat-mobile-390.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+
+  releaseResearch();
+});
+
+test('captures grounded Agent and Tool running evidence from a repairing coding job', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const jobId = 'coding-runningabcdefghijkl';
+  const now = new Date().toISOString();
+  const capability = {
+    ok: true,
+    ready: true,
+    controlPlaneReady: true,
+    databaseReady: true,
+    storeConfigured: true,
+    resultStoreConfigured: true,
+    storeReady: true,
+    resultStoreReady: true,
+    authorizationReady: true,
+    ownerBindingReady: true,
+    dataKeyReady: true,
+    cryptoReady: true,
+    dispatchReady: true,
+    workerEnabled: true,
+    resultDetailsReady: true,
+    authorizationMode: 'coding-operator',
+    authorizationScope: 'owner',
+    freeOnly: true,
+    costUsd: 0,
+    gitPublished: false,
+    deployed: false,
+  };
+  const job = {
+    jobId,
+    targetKey: 'owner/repo',
+    status: 'repairing',
+    attempt: 1,
+    version: 1,
+    cancelRequested: false,
+    resultCode: null,
+    changedPaths: ['src/example.ts'],
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: now,
+  };
+
+  await page.route('**/api/coding/v1.4/status', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(capability),
+  }));
+  await page.route('**/api/coding/v1.4/jobs', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: true, job, result: null, resultDetailsState: 'pending' }),
+  }));
+  await page.route('**/api/coding/v1.4/jobs/*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: true, job, result: null, resultDetailsState: 'pending' }),
+  }));
+
+  await page.goto('/');
+  await page.getByLabel('Composer mode', { exact: true }).selectOption('coding');
+  await expect(page.getByText('設定確認済み')).toBeVisible();
+  await page.getByLabel('Coding認証キー').fill('test-only-credential');
+  await page.getByLabel('変更したいこと').fill('repairing中の実行状態を確認');
+  await page.getByRole('button', { name: '変更を依頼する' }).click();
+  await page.getByRole('button', { name: '承認して実行' }).click();
+  await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
+
+  const timeline = page.getByTestId('origin-runtime-activity-timeline');
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Agentic Coding');
+  await expect(timeline).toContainText('Coding verification tools');
+  await expect(timeline).toContainText('phase=repairing');
+  await expect(page.getByTestId('runtime-activity-status-coding-verification-tools')).toHaveText('実行中');
+  await expect(timeline.getByText('実行中', { exact: true })).toHaveCount(2);
+  await testInfo.attach('runtime-agent-tool-running-chat-desktop-1440.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+});
+
+test('captures fail-closed Research error evidence in the Chat timeline', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/research/v1.1/query', route => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: false, code: 'RESEARCH_SOURCE_UNAVAILABLE' }),
+  }));
+
+  await page.goto('/');
+  await page.getByLabel('Composer mode', { exact: true }).selectOption('research');
+  await page.getByRole('textbox', { name: '調べたいこと' }).fill('取得不能時の安全停止を確認');
+  await page.getByRole('button', { name: '調査する' }).click();
+  await expect(page.getByRole('alert')).toContainText('取得できませんでした');
+  await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
+
+  const timeline = page.getByTestId('origin-runtime-activity-timeline');
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Research');
+  await expect(page.getByTestId('runtime-activity-status-research-current')).toHaveText('失敗');
+  await expect(timeline).toContainText('RESEARCH_SOURCE_UNAVAILABLE');
+  await testInfo.attach('runtime-research-error-chat-mobile-390.png', {
     body: await page.screenshot(),
     contentType: 'image/png',
   });
