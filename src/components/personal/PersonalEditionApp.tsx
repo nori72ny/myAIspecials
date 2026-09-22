@@ -67,6 +67,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
   const [projectSources, setProjectSources] = useState<readonly ResearchSource[]>([]);
   const [codingEvidence, setCodingEvidence] = useState<CodingProjectEvidence>({ jobId: null, status: null, changedPaths: [], verificationChecks: [] });
   const [runtimeActivities, setRuntimeActivities] = useState<OriginRuntimeActivityV31[]>([]);
+  const [codingMounted, setCodingMounted] = useState(() => workspaceLocation() === 'coding');
   const [localResetSignal, setLocalResetSignal] = useState(0);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   useEffect(() => {
@@ -74,6 +75,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, []);
+  useEffect(() => { if (workspace === 'coding') setCodingMounted(true); }, [workspace]);
   const switchWorkspace = useCallback((next: OriginWorkspaceModeV31) => {
     const url = new URL(window.location.href);
     if (next === 'chat') url.searchParams.delete('workspace');
@@ -165,7 +167,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({ settings, on
     <div className="origin-personal-chat" hidden={workspace !== 'chat'}><App embedded composerControls={workspace === 'chat' ? modeControl : undefined} runtimeActivities={runtimeActivities} openArtifactId={artifactOpen ? activeArtifact.id : null} onArtifactOpen={onArtifactOpen} onOpenSettings={onOpenSettings} messages={messages} sessions={effectiveSessions} artifacts={artifacts} onArchiveSession={handleArchiveSession} onRestoreSession={handleRestoreSession} onMessagesChange={handleMessagesChange} onArtifactsChange={handleArtifactsChange} resetSignal={resetSignal + localResetSignal} language={settings?.language ?? 'ja'} designTheme={settings?.designTheme ?? 'minimal'} /></div>
 
     {workspace === 'research' && <Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace composerControls={modeControl} onSourcesChange={setProjectSources} onRuntimeActivityChange={recordRuntimeActivity} /></Suspense>}
-    {workspace === 'coding' && <Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace composerControls={modeControl} onProjectEvidenceChange={handleCodingEvidenceChange} onRuntimeActivityChange={recordRuntimeActivity} /></Suspense>}
+    {codingMounted && <div hidden={workspace !== 'coding'}><Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace composerControls={modeControl} onProjectEvidenceChange={handleCodingEvidenceChange} onRuntimeActivityChange={recordRuntimeActivity} /></Suspense></div>}
     {workspace === 'creative' && <Suspense fallback={<p role="status">Createを読み込んでいます…</p>}><CreativeWorkspace composerControls={modeControl} /></Suspense>}
   </div>;
 });
