@@ -7,6 +7,7 @@ it("accepts only a protected main branch", async () => {
   const fetchMock = vi.fn(async () => Response.json({
     name: "main",
     protected: true,
+    protection: { required_status_checks: { enforcement_level: "non_admins", contexts: ["build-and-test (22.x)"], checks: [] } },
     commit: { sha: "a".repeat(40) },
   }));
   await expect(verifyReleaseGovernance({
@@ -16,6 +17,7 @@ it("accepts only a protected main branch", async () => {
     status: "passed",
     branch: "main",
     protected: true,
+    requiredStatusChecks: true,
     sha: "a".repeat(40),
   });
 });
@@ -31,10 +33,23 @@ it("fails closed when main is not protected", async () => {
   }, fetchMock as typeof fetch)).rejects.toThrow("RELEASE_GOVERNANCE_MAIN_UNPROTECTED");
 });
 
+it("fails closed when protection does not enforce required status checks", async () => {
+  const fetchMock = vi.fn(async () => Response.json({
+    name: "main",
+    protected: true,
+    protection: { required_status_checks: { enforcement_level: "off", contexts: [], checks: [] } },
+    commit: { sha: "d".repeat(40) },
+  }));
+  await expect(verifyReleaseGovernance({
+    GITHUB_REPOSITORY: "nori72ny/myAIspecials",
+  }, fetchMock as typeof fetch)).rejects.toThrow("RELEASE_GOVERNANCE_REQUIRED_CHECKS_MISSING");
+});
+
 it("uses a fixed GitHub API path without credentials in the URL", async () => {
   const fetchMock = vi.fn(async (url: string | URL | Request) => Response.json({
     name: "main",
     protected: true,
+    protection: { required_status_checks: { enforcement_level: "non_admins", contexts: ["Verify Quality & Code Guidelines"], checks: [] } },
     commit: { sha: "c".repeat(40) },
   }));
   await verifyReleaseGovernance({
