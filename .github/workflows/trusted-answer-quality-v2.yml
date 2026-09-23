@@ -41,7 +41,6 @@ jobs:
     timeout-minutes: 20
     outputs:
       corpus_digest: ${{ steps.corpus.outputs.corpus_digest }}
-      status_context: ${{ steps.reserve.outputs.status_context }}
     steps:
       - name: Checkout trusted evaluator from main
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -118,68 +117,6 @@ jobs:
           console.log(`corpus_digest=${value.corpusDigest}`);
           NODE
           rm -f "${RUNNER_TEMP}/aq-v2-preflight-corpus.b64" /tmp/aq-v2-private-corpus-fetch.log
-
-      - name: Reserve exact candidate and sealed corpus before provider execution
-        id: reserve
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
-          CORPUS_DIGEST: ${{ steps.corpus.outputs.corpus_digest }}
-          ROUND_ID: ${{ inputs.round_id || env.AQ_V2_DEFAULT_ROUND_ID }}
-          LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
-        run: |
-          set -euo pipefail
-          context="origin/aq-v2-corpus/${CORPUS_DIGEST}"
-          echo "status_context=$context" >> "$GITHUB_OUTPUT"
-          page=1
-          while :; do
-            curl --fail --silent --show-error \
-              -H 'Accept: application/vnd.github+json' \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H 'X-GitHub-Api-Version: 2026-03-10' \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${LEDGER_ANCHOR_SHA}/statuses?per_page=100&page=${page}" \
-              -o statuses.json
-            count="$(node -e "const v=require('./statuses.json');process.stdout.write(String(v.length))")"
-            found="$(CONTEXT="$context" node - <<'NODE'
-          const fs=require('node:fs');
-          const rows=JSON.parse(fs.readFileSync('statuses.json','utf8'));
-          process.stdout.write(rows.some(row=>row?.context===process.env.CONTEXT)?'1':'0');
-          NODE
-          )"
-            rm -f statuses.json
-            if [ "$found" = '1' ]; then
-              echo 'AQ_V2_TRUSTED_ROUND_ALREADY_RESERVED' >&2
-              exit 2
-            fi
-            [ "$count" = '100' ] || break
-            page=$((page + 1))
-            [ "$page" -le 20 ] || { echo 'AQ_V2_STATUS_LEDGER_PAGINATION_LIMIT' >&2; exit 2; }
-          done
-          CONTEXT="$context" node <<'NODE' > status-payload.json
-          const payload={
-            state:'pending',
-            context:process.env.CONTEXT,
-            description:'AQ V2 sealed run reserved',
-            target_url:`https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-          };
-          process.stdout.write(JSON.stringify(payload));
-          NODE
-          curl --fail --silent --show-error \
-            -X POST \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H 'Content-Type: application/json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${LEDGER_ANCHOR_SHA}" \
-            --data-binary @status-payload.json \
-            -o status-response.json
-          CONTEXT="$context" node <<'NODE'
-          const fs=require('node:fs');
-          const row=JSON.parse(fs.readFileSync('status-response.json','utf8'));
-          if(row?.context!==process.env.CONTEXT || row?.state!=='pending') process.exit(2);
-          NODE
-          rm -f status-payload.json status-response.json
 
       - name: Preserve sanitized corpus identity
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -269,6 +206,69 @@ jobs:
           test -z "${ANTHROPIC_API_KEY:-}"
           test -z "${GEMINI_API_KEY:-}"
 
+      - name: Reserve exact candidate and sealed corpus before provider execution
+        id: reserve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
+          CORPUS_DIGEST: ${{ steps.corpus.outputs.corpus_digest }}
+          ROUND_ID: ${{ inputs.round_id || env.AQ_V2_DEFAULT_ROUND_ID }}
+          LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
+        run: |
+          set -euo pipefail
+          context="origin/aq-v2-corpus/${CORPUS_DIGEST}"
+          echo "status_context=$context" >> "$GITHUB_OUTPUT"
+          page=1
+          while :; do
+            curl --fail --silent --show-error \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${LEDGER_ANCHOR_SHA}/statuses?per_page=100&page=${page}" \
+              -o statuses.json
+            count="$(node -e "const v=require('./statuses.json');process.stdout.write(String(v.length))")"
+            found="$(CONTEXT="$context" node - <<'NODE'
+          const fs=require('node:fs');
+          const rows=JSON.parse(fs.readFileSync('statuses.json','utf8'));
+          process.stdout.write(rows.some(row=>row?.context===process.env.CONTEXT)?'1':'0');
+          NODE
+          )"
+            rm -f statuses.json
+            if [ "$found" = '1' ]; then
+              echo 'AQ_V2_TRUSTED_ROUND_ALREADY_RESERVED' >&2
+              exit 2
+            fi
+            [ "$count" = '100' ] || break
+            page=$((page + 1))
+            [ "$page" -le 20 ] || { echo 'AQ_V2_STATUS_LEDGER_PAGINATION_LIMIT' >&2; exit 2; }
+          done
+          CONTEXT="$context" node <<'NODE' > status-payload.json
+          const payload={
+            state:'pending',
+            context:process.env.CONTEXT,
+            description:'AQ V2 sealed run reserved',
+            target_url:`https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          curl --fail --silent --show-error \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${LEDGER_ANCHOR_SHA}" \
+            --data-binary @status-payload.json \
+            -o status-response.json
+          CONTEXT="$context" node <<'NODE'
+          const fs=require('node:fs');
+          const row=JSON.parse(fs.readFileSync('status-response.json','utf8'));
+          if(row?.context!==process.env.CONTEXT || row?.state!=='pending') process.exit(2);
+          NODE
+          rm -f status-payload.json status-response.json
+          echo "reserved=true" >> "$GITHUB_OUTPUT"
+
       - name: Run 48 leased cases through the trusted boundary
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -312,12 +312,12 @@ jobs:
           if-no-files-found: warn
 
       - name: Finalize append-only AQ V2 status
-        if: always()
+        if: ${{ always() && steps.reserve.outputs.reserved == 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
-          STATUS_CONTEXT: ${{ needs.preflight.outputs.status_context }}
+          STATUS_CONTEXT: ${{ steps.reserve.outputs.status_context }}
           LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
           JOB_STATUS: ${{ job.status }}
         run: |
