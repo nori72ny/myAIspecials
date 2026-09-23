@@ -1,3 +1,4 @@
+import type { OriginAnswerVisualQualificationV2 } from "./OriginAnswerVisualEvidenceV2.js";
 import type { OriginAnswerExperienceQualificationV2 } from "./OriginAnswerExperienceV2.js";
 import type { OriginBlindPreferenceReportV2 } from "./OriginAnswerBlindPreferenceV2.js";
 
@@ -5,6 +6,7 @@ export interface OriginAnswerWorldClassGateInputV2 {
   readonly candidateSha: string;
   readonly answerExperience: OriginAnswerExperienceQualificationV2 | null;
   readonly blindPreference: OriginBlindPreferenceReportV2 | null;
+  readonly visual: OriginAnswerVisualQualificationV2 | null;
   readonly liveProviderRunCompleted: boolean;
   readonly zeroCost: boolean;
 }
@@ -14,6 +16,7 @@ export interface OriginAnswerWorldClassGateReportV2 {
   readonly candidateSha: string;
   readonly answerExperiencePassed: boolean;
   readonly competitiveEvidencePassed: boolean;
+  readonly visualEvidencePassed: boolean;
   readonly liveEvidencePassed: boolean;
   readonly worldClassCandidate: boolean;
   readonly blockers: readonly string[];
@@ -31,6 +34,9 @@ export function evaluateOriginAnswerWorldClassGateV2(
   const competitiveEvidencePassed = input.blindPreference?.competitiveEvidencePassed === true;
   if (!competitiveEvidencePassed) blockers.push("AQ_V2_COMPETITIVE_EVIDENCE_NOT_PROVEN");
 
+  const visualEvidencePassed = input.visual?.passed === true;
+  if (!visualEvidencePassed) blockers.push("AQ_V2_VISUAL_EVIDENCE_NOT_PROVEN");
+
   const liveEvidencePassed = input.liveProviderRunCompleted === true && input.zeroCost === true;
   if (!input.liveProviderRunCompleted) blockers.push("AQ_V2_LIVE_PROVIDER_RUN_MISSING");
   if (!input.zeroCost) blockers.push("AQ_V2_ZERO_COST_NOT_PROVEN");
@@ -40,8 +46,9 @@ export function evaluateOriginAnswerWorldClassGateV2(
     candidateSha: input.candidateSha,
     answerExperiencePassed,
     competitiveEvidencePassed,
+    visualEvidencePassed,
     liveEvidencePassed,
-    worldClassCandidate: answerExperiencePassed && competitiveEvidencePassed && liveEvidencePassed,
+    worldClassCandidate: answerExperiencePassed && competitiveEvidencePassed && visualEvidencePassed && liveEvidencePassed,
     blockers: Object.freeze(blockers),
   });
 }

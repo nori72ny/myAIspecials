@@ -138,6 +138,7 @@ describe("AQ V2 world-class candidate gate", () => {
       candidateSha,
       answerExperience: null,
       blindPreference: null,
+      visual: null,
       liveProviderRunCompleted: false,
       zeroCost: true,
     })).toMatchObject({
@@ -145,6 +146,7 @@ describe("AQ V2 world-class candidate gate", () => {
       blockers: [
         "AQ_V2_ABSOLUTE_QUALITY_NOT_PROVEN",
         "AQ_V2_COMPETITIVE_EVIDENCE_NOT_PROVEN",
+        "AQ_V2_VISUAL_EVIDENCE_NOT_PROVEN",
         "AQ_V2_LIVE_PROVIDER_RUN_MISSING",
       ],
     });

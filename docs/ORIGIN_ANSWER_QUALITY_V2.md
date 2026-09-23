@@ -115,3 +115,22 @@ Recommended roles when needed:
 - Astra, if available: additional high-difficulty blind reference/judge.
 
 Do not ask external reviewers until the frozen corpus, scoring rubric and anonymization procedure are fixed; otherwise the benchmark can drift toward the reviewers' preferences.
+
+
+## Exact-SHA visual evidence gate
+
+AQ V2 treats answer rendering as product quality, not decoration.
+
+For the same candidate SHA, the evidence package must include:
+- 390px mobile screenshot evidence;
+- 1440px desktop screenshot evidence;
+- no horizontal overflow;
+- no critical clipping;
+- responsive table behavior;
+- readable code blocks;
+- logical heading hierarchy;
+- accessibility automation pass;
+- long-answer navigation pass;
+- trust/verification metadata that does not visually dominate the answer.
+
+A visually weak answer cannot qualify as a world-class candidate even if its factual score is high.
