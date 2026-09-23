@@ -16,6 +16,8 @@ describe("OpenRouter free-only retry boundary", () => {
   it("keeps upstream failure diagnostics metadata-only", () => {
     expect(source).not.toContain("response.text()");
     expect(source).not.toContain("requestId, errorBody");
+    expect(source).not.toContain("public readonly rawError");
+    expect(source).not.toContain("requestId, data");
     expect(source).not.toContain("undefined, undefined, error");
     expect(source).toContain('Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}`, { name: error?.name || "Error" })');
   });
