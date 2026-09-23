@@ -82,11 +82,13 @@ const server = createServer((req, res) => {
 
     try {
       const result = await boundary.execute(presented, payload);
+      const requestCount = boundary.used();
+      process.stdout.write(JSON.stringify({ event: "trusted-answer-provider-request", requestCount }) + "\n");
       res.writeHead(200);
       res.end(JSON.stringify({
         ok: true,
         result,
-        requestCount: boundary.used(),
+        requestCount,
       }));
     } catch (error) {
       const safe = publicTrustedAnswerProviderErrorV2(error);
