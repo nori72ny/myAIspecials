@@ -20,6 +20,14 @@ describe("legacy delivery evidence integrity", () => {
     expect(script).toContain("Production release readiness");
   });
 
+  it("never embeds GitHub credentials in remote URLs or git metadata", () => {
+    expect(script).not.toContain("x-access-token:${githubToken}@");
+    expect(script).not.toContain("authed_origin");
+    expect(script).toContain("GIT_ASKPASS");
+    expect(script).toContain("GIT_TERMINAL_PROMPT");
+    expect(script).toContain("os.tmpdir()");
+  });
+
   it("does not instruct users to create broad PAT credentials", () => {
     expect(script).not.toContain("Full control of private repositories");
     expect(script).not.toContain("Personal Access Token (PAT)");
