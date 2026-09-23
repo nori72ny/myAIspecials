@@ -220,6 +220,26 @@ function parseTrustedRunnerEnvelope(output: string, leaseId: string) {
   return value;
 }
 
+function sanitizedCandidateFailure(output: string): string {
+  const index = output.lastIndexOf(RESULT_PREFIX);
+  if (index < 0) return "TRUSTED_ANSWER_CANDIDATE_FAILED";
+  const line = output.slice(index + RESULT_PREFIX.length).split("\n", 1)[0];
+  try {
+    const value = JSON.parse(line) as Record<string, unknown>;
+    const error = value?.error;
+    if (typeof error === "string" && /^(?:TRUSTED_ANSWER|PROVIDER|FREE_MODEL|FREE_PROVIDER|INVALID_EXECUTION)_[A-Z0-9_:-]+$/.test(error)) {
+      return error;
+    }
+    const status = value?.httpStatus;
+    if (Number.isInteger(status) && Number(status) >= 400 && Number(status) <= 599) {
+      return `TRUSTED_ANSWER_CANDIDATE_HTTP_${status}`;
+    }
+  } catch {
+    return "TRUSTED_ANSWER_CANDIDATE_RESULT_INVALID";
+  }
+  return "TRUSTED_ANSWER_CANDIDATE_FAILED";
+}
+
 function providerRequestCount(proxyOutput: string): number {
   let max = 0;
   for (const line of proxyOutput.split("\n")) {
@@ -380,7 +400,16 @@ async function main(): Promise<void> {
       allNotes: prepared.privateCorpus.cases.map(row => row.evaluatorNotes),
     });
 
-    if (candidate.code !== 0) throw new Error("TRUSTED_ANSWER_CANDIDATE_FAILED");
+    if (candidate.code !== 0) {
+      const diagnostic = sanitizedCandidateFailure(candidate.output);
+      process.stderr.write(JSON.stringify({
+        event: "trusted-answer-candidate-failed",
+        ordinal,
+        diagnostic,
+        providerRequests: providerRequestCount(proxyOutput),
+      }) + "\n");
+      throw new Error(diagnostic);
+    }
     const envelope = parseTrustedRunnerEnvelope(candidate.output, leased.candidateLease.leaseId);
     const count = providerRequestCount(proxyOutput);
     const result = buildOriginAnswerCaseResultTrustedV2({
