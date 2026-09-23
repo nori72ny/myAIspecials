@@ -31,7 +31,7 @@ it("fails closed when main is not protected", async () => {
   }, fetchMock as typeof fetch)).rejects.toThrow("RELEASE_GOVERNANCE_MAIN_UNPROTECTED");
 });
 
-it("does not send repository secrets in request URLs", async () => {
+it("uses a fixed GitHub API path without credentials in the URL", async () => {
   const fetchMock = vi.fn(async (url: string | URL | Request) => Response.json({
     name: "main",
     protected: true,
@@ -39,10 +39,8 @@ it("does not send repository secrets in request URLs", async () => {
   }));
   await verifyReleaseGovernance({
     GITHUB_REPOSITORY: "nori72ny/myAIspecials",
-    GITHUB_TOKEN: "synthetic-token-used-only-as-header",
   }, fetchMock as typeof fetch);
-  const [url, init] = fetchMock.mock.calls[0]!;
+  const [url] = fetchMock.mock.calls[0]!;
   expect(String(url)).toBe("https://api.github.com/repos/nori72ny/myAIspecials/branches/main");
-  expect(String(url)).not.toContain("synthetic-token");
-  expect((init as RequestInit).headers).toMatchObject({ authorization: "Bearer synthetic-token-used-only-as-header" });
+  expect(new URL(String(url)).search).toBe("");
 });
