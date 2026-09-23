@@ -4,6 +4,7 @@ import { ORIGIN_AQ_V2_AXES } from "./OriginAnswerExperienceV2.js";
 import {
   ORIGIN_AQ_V2_RUBRIC,
   assertOriginAnswerExperienceRubricV2,
+  digestOriginAnswerExperienceRubricV2,
 } from "./OriginAnswerExperienceRubricV2.js";
 
 describe("AQ V2 scoring rubric", () => {
@@ -14,6 +15,11 @@ describe("AQ V2 scoring rubric", () => {
       expect(ORIGIN_AQ_V2_RUBRIC[axis].bands.map(item => item.score)).toEqual([0, 1, 2, 3, 4]);
       expect(ORIGIN_AQ_V2_RUBRIC[axis].question.length).toBeGreaterThan(20);
     }
+  });
+
+  it("produces a stable SHA-256 rubric identity", () => {
+    expect(digestOriginAnswerExperienceRubricV2()).toMatch(/^[a-f0-9]{64}$/);
+    expect(digestOriginAnswerExperienceRubricV2()).toBe(digestOriginAnswerExperienceRubricV2());
   });
 
   it("makes top scores demanding rather than simple absence-of-failure", () => {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   OriginAnswerExperienceAxisV2,
   OriginAnswerExperienceScoreV2,
@@ -163,4 +164,14 @@ export function assertOriginAnswerExperienceRubricV2(): void {
     const scores = item.bands.map(band => band.score);
     if (JSON.stringify(scores) !== JSON.stringify([0, 1, 2, 3, 4])) throw new Error("AQ_V2_RUBRIC_INVALID");
   }
+}
+
+
+export function digestOriginAnswerExperienceRubricV2(): string {
+  const canonical = JSON.stringify(
+    Object.fromEntries(
+      Object.entries(ORIGIN_AQ_V2_RUBRIC).sort(([a], [b]) => a.localeCompare(b)),
+    ),
+  );
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
 }

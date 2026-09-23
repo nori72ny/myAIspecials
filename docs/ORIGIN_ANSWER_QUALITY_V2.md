@@ -153,3 +153,17 @@ Before AQ V2 live evidence counts, the run must prove:
 - bounded provider requests.
 
 This deliberately reuses the trust-boundary pattern from the trusted exact-candidate evaluator rather than creating a second weaker benchmark path.
+
+
+## Evidence binding
+
+A world-class candidate decision must not mix evidence from different runs.
+
+Every evidence family is bound to the same:
+- exact candidate SHA;
+- sealed corpus digest;
+- evaluator SHA;
+- rubric digest;
+- benchmark round id.
+
+The world-class gate fails closed if answer scoring, blind comparison, visual evidence, trusted execution or live-provider evidence comes from a different binding.
