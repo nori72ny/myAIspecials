@@ -22,6 +22,12 @@ describe("OpenRouter free-only retry boundary", () => {
     expect(source).toContain('Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}`, { name: error?.name || "Error" })');
   });
 
+  it("never turns a missing provider credential into a fake successful answer", () => {
+    expect(source).toContain('throw new OpenRouterError("PROVIDER_NOT_CONFIGURED", 503)');
+    expect(source).not.toContain("!this._apiKey || this._apiKey.startsWith");
+    expect(source).toContain('process.env.NODE_ENV === "test" || this._apiKey.startsWith("mock-")');
+  });
+
   it("does not retry 429 or 5xx when free-only forces maxRetries to zero", () => {
     expect(source).toContain("if (status === 429)");
     expect(source).toContain("if (status >= 500)");
