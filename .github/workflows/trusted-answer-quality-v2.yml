@@ -15,6 +15,8 @@ on:
         description: Frozen AQ V2 evaluation round id
         required: true
         type: string
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -25,14 +27,20 @@ concurrency:
   group: origin-aq-v2-trusted-one-shot
   cancel-in-progress: false
 
+env:
+  AQ_V2_DEFAULT_CANDIDATE_SHA: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb
+  AQ_V2_DEFAULT_PR_NUMBER: '608'
+  AQ_V2_DEFAULT_ROUND_ID: round-2026-09-23-independent-claude-1
+  AQ_V2_CORPUS_ID: origin-aq-v2-independent-2026-09
+  AQ_V2_EXPECTED_CORPUS_DIGEST: 7b81ab3d76b3ede127378d2a21d6b7844664046b683f9eff7248ca9b87ff9517
+
 jobs:
   preflight:
-    if: github.ref == 'refs/heads/main'
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[aq-v2-run]')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
       corpus_digest: ${{ steps.corpus.outputs.corpus_digest }}
-      status_context: ${{ steps.reserve.outputs.status_context }}
     steps:
       - name: Checkout trusted evaluator from main
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -53,9 +61,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          ROUND_ID: ${{ inputs.round_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
+          PR_NUMBER: ${{ inputs.pr_number || env.AQ_V2_DEFAULT_PR_NUMBER }}
+          ROUND_ID: ${{ inputs.round_id || env.AQ_V2_DEFAULT_ROUND_ID }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -85,36 +93,127 @@ jobs:
 
       - name: Verify required trusted-run secrets before reserving the one-shot corpus
         env:
-          ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
-          test -n "$ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64"
+          test -n "$POSTGRES_URL"
           test -n "$OPENROUTER_API_KEY"
 
-      - name: Inspect sealed AQ V2 corpus without exposing prompts
+      - name: Fetch sealed AQ V2 corpus from private trusted store
         id: corpus
         env:
-          ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          ORIGIN_AQ_V2_CORPUS_ID: ${{ env.AQ_V2_CORPUS_ID }}
+          ORIGIN_AQ_V2_EXPECTED_CORPUS_DIGEST: ${{ env.AQ_V2_EXPECTED_CORPUS_DIGEST }}
+          ORIGIN_AQ_V2_SEALED_CORPUS_PATH: ${{ runner.temp }}/aq-v2-preflight-corpus.b64
         run: |
           set -euo pipefail
-          node --import tsx scripts/inspect-trusted-answer-corpus-v2.ts > /tmp/aq-v2-corpus-check.log
+          node --import tsx scripts/fetch-trusted-answer-corpus-v2.ts > /tmp/aq-v2-private-corpus-fetch.log
           node <<'NODE' >> "$GITHUB_OUTPUT"
           const fs=require('node:fs');
           const value=JSON.parse(fs.readFileSync('test-results/aq-v2-corpus-public-check.json','utf8'));
           if(value?.caseCount!==48 || !/^[a-f0-9]{64}$/.test(value?.corpusDigest||'')) process.exit(2);
           console.log(`corpus_digest=${value.corpusDigest}`);
           NODE
-          rm -f /tmp/aq-v2-corpus-check.log
+          rm -f "${RUNNER_TEMP}/aq-v2-preflight-corpus.b64" /tmp/aq-v2-private-corpus-fetch.log
+
+      - name: Preserve sanitized corpus identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aq-v2-corpus-identity-${{ github.run_id }}
+          path: test-results/aq-v2-corpus-public-check.json
+          retention-days: 90
+          if-no-files-found: error
+
+  evaluate:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout trusted evaluator from main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Checkout exact candidate separately
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install only trusted evaluator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Fetch sealed corpus into trusted runner temp
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          ORIGIN_AQ_V2_CORPUS_ID: ${{ env.AQ_V2_CORPUS_ID }}
+          ORIGIN_AQ_V2_EXPECTED_CORPUS_DIGEST: ${{ env.AQ_V2_EXPECTED_CORPUS_DIGEST }}
+          ORIGIN_AQ_V2_SEALED_CORPUS_PATH: ${{ runner.temp }}/aq-v2-sealed-corpus.b64
+          ORIGIN_AQ_V2_CORPUS_CHECK_PATH: ${{ runner.temp }}/aq-v2-evaluate-corpus-check.json
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/fetch-trusted-answer-corpus-v2.ts > /tmp/aq-v2-private-corpus-fetch.log
+          rm -f /tmp/aq-v2-private-corpus-fetch.log
+
+      - name: Prepare isolated runtime image
+        run: docker pull node:22-bookworm-slim
+
+      - name: Revalidate exact candidate PR binding immediately before execution
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
+          PR_NUMBER: ${{ inputs.pr_number || env.AQ_V2_DEFAULT_PR_NUMBER }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            -o pr.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const pr=JSON.parse(fs.readFileSync('pr.json','utf8'));
+          const fail=code=>{console.error(code);process.exit(2);};
+          if(pr?.state!=='open') fail('AQ_V2_CANDIDATE_PR_NOT_OPEN_AT_EXECUTION');
+          if(pr?.base?.ref!=='main') fail('AQ_V2_CANDIDATE_BASE_INVALID_AT_EXECUTION');
+          if(pr?.head?.repo?.full_name!==process.env.GITHUB_REPOSITORY) fail('AQ_V2_CANDIDATE_FORK_BLOCKED_AT_EXECUTION');
+          if(pr?.head?.sha!==process.env.CANDIDATE_SHA) fail('AQ_V2_CANDIDATE_SHA_CHANGED_BEFORE_EXECUTION');
+          NODE
+          rm -f pr.json
+
+      - name: Verify secret boundary before execution
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$POSTGRES_URL"
+          test -n "$OPENROUTER_API_KEY"
+          test -f "${RUNNER_TEMP}/aq-v2-sealed-corpus.b64"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          test -z "${GEMINI_API_KEY:-}"
 
       - name: Reserve exact candidate and sealed corpus before provider execution
         id: reserve
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          CORPUS_DIGEST: ${{ steps.corpus.outputs.corpus_digest }}
-          ROUND_ID: ${{ inputs.round_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
+          CORPUS_DIGEST: ${{ needs.preflight.outputs.corpus_digest }}
+          ROUND_ID: ${{ inputs.round_id || env.AQ_V2_DEFAULT_ROUND_ID }}
           LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
         run: |
           set -euo pipefail
@@ -168,93 +267,22 @@ jobs:
           if(row?.context!==process.env.CONTEXT || row?.state!=='pending') process.exit(2);
           NODE
           rm -f status-payload.json status-response.json
-
-      - name: Preserve sanitized corpus identity
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: aq-v2-corpus-identity-${{ github.run_id }}
-          path: test-results/aq-v2-corpus-public-check.json
-          retention-days: 90
-          if-no-files-found: error
-
-  evaluate:
-    needs: preflight
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    steps:
-      - name: Checkout trusted evaluator from main
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-
-      - name: Checkout exact candidate separately
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ inputs.candidate_sha }}
-          path: candidate
-          persist-credentials: false
-
-      - name: Set up Node 22
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22.x'
-          cache: npm
-
-      - name: Install only trusted evaluator dependencies
-        run: npm ci --ignore-scripts --no-audit --no-fund
-
-      - name: Prepare isolated runtime image
-        run: docker pull node:22-bookworm-slim
-
-      - name: Revalidate exact candidate PR binding immediately before execution
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
-            -o pr.json
-          node <<'NODE'
-          const fs=require('node:fs');
-          const pr=JSON.parse(fs.readFileSync('pr.json','utf8'));
-          const fail=code=>{console.error(code);process.exit(2);};
-          if(pr?.state!=='open') fail('AQ_V2_CANDIDATE_PR_NOT_OPEN_AT_EXECUTION');
-          if(pr?.base?.ref!=='main') fail('AQ_V2_CANDIDATE_BASE_INVALID_AT_EXECUTION');
-          if(pr?.head?.repo?.full_name!==process.env.GITHUB_REPOSITORY) fail('AQ_V2_CANDIDATE_FORK_BLOCKED_AT_EXECUTION');
-          if(pr?.head?.sha!==process.env.CANDIDATE_SHA) fail('AQ_V2_CANDIDATE_SHA_CHANGED_BEFORE_EXECUTION');
-          NODE
-          rm -f pr.json
-
-      - name: Verify secret boundary before execution
-        env:
-          SEALED_CORPUS: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          set -euo pipefail
-          test -n "$SEALED_CORPUS"
-          test -n "$OPENROUTER_API_KEY"
-          test -z "${OPENAI_API_KEY:-}"
-          test -z "${ANTHROPIC_API_KEY:-}"
-          test -z "${GEMINI_API_KEY:-}"
+          echo "reserved=true" >> "$GITHUB_OUTPUT"
 
       - name: Run 48 leased cases through the trusted boundary
         env:
-          ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          ORIGIN_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          ORIGIN_AQ_V2_ROUND_ID: ${{ inputs.round_id }}
+          ORIGIN_CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
+          ORIGIN_AQ_V2_ROUND_ID: ${{ inputs.round_id || env.AQ_V2_DEFAULT_ROUND_ID }}
           ORIGIN_AQ_V2_CANDIDATE_CHECKOUT: ${{ github.workspace }}/candidate
+          ORIGIN_AQ_V2_SEALED_CORPUS_PATH: ${{ runner.temp }}/aq-v2-sealed-corpus.b64
         run: |
           set -euo pipefail
+          trap 'rm -f "$ORIGIN_AQ_V2_SEALED_CORPUS_PATH"' EXIT
+          test -f "$ORIGIN_AQ_V2_SEALED_CORPUS_PATH"
           mkdir -p test-results/aq-v2-cases
           for ordinal in $(seq 0 47); do
+            ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64="$(cat "$ORIGIN_AQ_V2_SEALED_CORPUS_PATH")" \
             ORIGIN_AQ_V2_CASE_ORDINAL="$ordinal" \
             ORIGIN_AQ_V2_CASE_RESULT_PATH="$GITHUB_WORKSPACE/test-results/aq-v2-cases/trusted-answer-case-${ordinal}.json" \
               node --import tsx scripts/run-trusted-answer-case-v2.ts
@@ -263,9 +291,9 @@ jobs:
       - name: Produce strict trusted execution qualification
         env:
           ORIGIN_AQ_V2_CASE_RESULT_ROOT: ${{ github.workspace }}/test-results/aq-v2-cases
-          ORIGIN_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ORIGIN_CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
           ORIGIN_AQ_V2_CORPUS_DIGEST: ${{ needs.preflight.outputs.corpus_digest }}
-          ORIGIN_AQ_V2_ROUND_ID: ${{ inputs.round_id }}
+          ORIGIN_AQ_V2_ROUND_ID: ${{ inputs.round_id || env.AQ_V2_DEFAULT_ROUND_ID }}
           ORIGIN_AQ_V2_EXECUTION_ID: gh-run:${{ github.run_id }}:aq-v2
           ORIGIN_AQ_V2_EVALUATOR_SHA: ${{ github.sha }}
           ORIGIN_AQ_V2_PR_BINDING_VERIFIED: 'true'
@@ -276,7 +304,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: trusted-answer-quality-v2-${{ inputs.candidate_sha }}-${{ github.run_id }}
+          name: trusted-answer-quality-v2-${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}-${{ github.run_id }}
           path: |
             test-results/aq-v2-cases/
             test-results/trusted-answer-execution-v2.json
@@ -284,12 +312,12 @@ jobs:
           if-no-files-found: warn
 
       - name: Finalize append-only AQ V2 status
-        if: always()
+        if: ${{ always() && steps.reserve.outputs.reserved == 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          STATUS_CONTEXT: ${{ needs.preflight.outputs.status_context }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
+          STATUS_CONTEXT: ${{ steps.reserve.outputs.status_context }}
           LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
           JOB_STATUS: ${{ job.status }}
         run: |
