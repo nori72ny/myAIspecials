@@ -1,6 +1,7 @@
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -133,13 +134,14 @@ function runCommand(binary, args, options = {}) {
     CI: process.env.CI,
     NODE_ENV: process.env.NODE_ENV
   };
+  const { extraEnv = {}, ...spawnOverrides } = options;
 
   const spawnOptions = {
     cwd: ROOT_DIR,
     shell: false, // EXPLICITLY shell: false
-    env: safeEnv,
+    env: { ...safeEnv, ...extraEnv },
     encoding: 'utf8',
-    ...options
+    ...spawnOverrides
   };
 
   const result = spawnSync(binary, args, spawnOptions);
@@ -520,23 +522,29 @@ async function main() {
     logWarning('Please define GITHUB_TOKEN in AI Studio -> Settings -> Environment Variables.');
   } else {
     try {
-      logInfo(`Pushing branch '${currentBranch}' to origin...`);
-      // Inject token into URL for authenticated HTTPS push
-      const authedUrl = repoUrl.replace('https://', `https://x-access-token:${githubToken}@`);
-      
-      // Temporary add authenticated remote to avoid leaks in standard logs
-      runCommand('git', ['remote', 'add', 'authed_origin', authedUrl]);
-      
+      logInfo(`Pushing branch '${currentBranch}' through the approved HTTPS credential boundary...`);
+      const askpassDir = fs.mkdtempSync(path.join(os.tmpdir(), 'origin-git-askpass-'));
+      const askpassPath = path.join(askpassDir, 'askpass.sh');
+      fs.writeFileSync(
+        askpassPath,
+        '#!/bin/sh\ncase "$1" in\n  *Username*) printf "%s\\n" "x-access-token" ;;\n  *) printf "%s\\n" "$GITHUB_TOKEN" ;;\nesac\n',
+        { encoding: 'utf8', mode: 0o700 }
+      );
       try {
-        runCommand('git', ['push', '-u', 'authed_origin', currentBranch], { stdio: 'inherit' });
+        runCommand('git', ['push', '-u', repoUrl, currentBranch], {
+          stdio: 'inherit',
+          extraEnv: {
+            GIT_ASKPASS: askpassPath,
+            GIT_TERMINAL_PROMPT: '0'
+          }
+        });
         pushSuccess = true;
-        logSuccess(`Successfully pushed ${currentBranch} to origin!`);
+        logSuccess(`Successfully pushed ${currentBranch} to the canonical repository.`);
       } finally {
-        // Always clean up authenticated remote to prevent leaking credentials
         try {
-          runCommand('git', ['remote', 'remove', 'authed_origin']);
-        } catch (removeErr) {
-          // Ignore
+          fs.rmSync(askpassDir, { recursive: true, force: true });
+        } catch {
+          // Credential helper contains no secret value, but cleanup remains best-effort.
         }
       }
     } catch (err) {
