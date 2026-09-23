@@ -40,6 +40,18 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(gate).toContain("未保護のmainではReady変更・merge・Production smokeを進めない");
   });
 
+  it("requires independently scored AQ V2 quality and fresh held-out Coding before release", () => {
+    const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
+    const scorer = readRepositoryFile("src/release/OriginTrustedAnswerQualityV2.ts");
+    const scoringCli = readRepositoryFile("scripts/qualify-trusted-answer-quality-v2.ts");
+    expect(gate).toContain("trusted execution完走だけを回答品質PASSとして扱わない");
+    expect(gate).toContain("fresh sealed held-out Coding final qualification");
+    expect(gate).toContain("scoringIdentityBound=true");
+    expect(scorer).toContain("AQ_V2_EXTERNAL_SCORE_BUNDLE_MISSING");
+    expect(scorer).toContain("AQ_V2_EXTERNAL_SCORE_ANSWER_BINDING_MISMATCH");
+    expect(scoringCli).toContain("qualifyOriginTrustedAnswerQualityV2");
+  });
+
   it("keeps the Cloudflare Worker provider route ineligible for release 1", () => {
     const worker = readRepositoryFile("worker/index.mjs");
     expect(worker).toContain("providerExecutionEnabled: false");
