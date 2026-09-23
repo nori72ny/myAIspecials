@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Match the resolved application theme, including when it differs from the OS. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
+
 @theme {
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -304,23 +307,26 @@
 .origin-pwa-update-notice {
   position: fixed;
   pointer-events: none;
+  top: calc(var(--origin-header-height, 3.5rem) + 0.75rem);
   right: 1rem;
-  bottom: max(1rem, env(safe-area-inset-bottom));
   z-index: 60;
-  max-width: min(30rem, calc(100vw - 2rem));
+  max-width: min(24rem, calc(100vw - 2rem));
   margin: 0;
   border: 1px solid var(--accent-border);
-  border-radius: var(--radius-card);
-  background: var(--accent-soft);
-  color: var(--text-primary);
-  box-shadow: 0 12px 28px var(--shadow-color);
-  padding: 0.75rem 1rem;
-  font-size: 0.8125rem;
-  line-height: 1.45;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--bg-elevated) 94%, transparent);
+  color: var(--text-secondary);
+  box-shadow: 0 10px 24px var(--shadow-color);
+  padding: 0.55rem 0.85rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  animation: origin-update-toast 3s ease both;
 }
 
-body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
-  bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 7.5rem);
+@keyframes origin-update-toast {
+  0% { opacity: 0; transform: translateY(-0.35rem); }
+  12%, 78% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-0.2rem); }
 }
 
 @media (max-width: 379px) {
@@ -380,4 +386,51 @@ a[href]:focus-visible {
     min-height: 44px;
     min-width: 44px;
   }
+}
+
+/* Share one viewport between navigation and the active conversation. The
+   navigation scrolls independently when expanded or when the viewport is short. */
+.origin-personal-conversation { display: flex; flex-direction: column; height: 100dvh; min-height: 0; }
+.origin-personal-conversation > .origin-personal-navigation { flex: 0 0 auto; max-height: 45%; overflow-y: auto; }
+.origin-personal-conversation > .origin-personal-chat { flex: 1 1 0; min-height: 0; }
+.origin-personal-conversation > .origin-personal-chat > .origin-app { height: 100%; }
+.origin-personal-conversation .origin-header,
+.origin-personal-conversation .safe-area-bottom { flex-shrink: 0; }
+
+
+/* Mobile Artifact chrome: retain 44px touch targets while reducing text-heavy toolbar density. */
+@media (max-width: 639px) {
+  [data-testid="artifact-workspace"] [data-testid="artifact-action-bar"] {
+    gap: 0.125rem;
+    padding: 0.125rem;
+  }
+  [data-testid="artifact-workspace"] [data-testid="artifact-action-edit"],
+  [data-testid="artifact-workspace"] [data-testid="artifact-action-share"],
+  [data-testid="artifact-workspace"] [data-testid="artifact-action-save"],
+  [data-testid="artifact-workspace"] [data-testid="artifact-action-details"] {
+    width: 44px;
+    padding-inline: 0;
+    overflow: hidden;
+    font-size: 0;
+  }
+  [data-testid="artifact-workspace"] [data-testid="artifact-action-edit"]::before { content: "✎"; font-size: 1rem; }
+  [data-testid="artifact-workspace"] [data-testid="artifact-action-share"]::before { content: "↗"; font-size: 1rem; }
+  [data-testid="artifact-workspace"] [data-testid="artifact-action-save"]::before { content: "↓"; font-size: 1.1rem; }
+  [data-testid="artifact-workspace"] [data-testid="artifact-action-details"]::before { content: "•••"; font-size: 0.9rem; letter-spacing: 0.08em; }
+
+  [data-testid="artifact-workspace"] [data-testid="responsive-viewport-bar"] {
+    gap: 0.125rem;
+    padding: 0.125rem;
+  }
+  [data-testid="artifact-workspace"] [data-testid="preview-viewport-375"],
+  [data-testid="artifact-workspace"] [data-testid="preview-viewport-768"],
+  [data-testid="artifact-workspace"] [data-testid="preview-viewport-fluid"] {
+    width: 44px;
+    padding-inline: 0;
+    overflow: hidden;
+    font-size: 0;
+  }
+  [data-testid="artifact-workspace"] [data-testid="preview-viewport-375"]::before { content: "S"; font-size: 0.75rem; font-weight: 800; }
+  [data-testid="artifact-workspace"] [data-testid="preview-viewport-768"]::before { content: "M"; font-size: 0.75rem; font-weight: 800; }
+  [data-testid="artifact-workspace"] [data-testid="preview-viewport-fluid"]::before { content: "Fit"; font-size: 0.7rem; font-weight: 800; }
 }

@@ -5,8 +5,7 @@ export class OpenRouterError extends Error {
   constructor(
     message: string,
     public readonly statusCode?: number,
-    public readonly requestId?: string,
-    public readonly rawError?: any
+    public readonly requestId?: string
   ) {
     super(message);
     this.name = 'OpenRouterError';
@@ -43,7 +42,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
   public async initialize(): Promise<void> {
     if (!this._apiKey) {
-      Logger.warn("[OpenRouterPlugin] No API Key provided. OpenRouter will run in fallback mock mode.");
+      Logger.warn("[OpenRouterPlugin] No API Key provided. Provider execution remains disabled.");
     } else {
       Logger.info("[OpenRouterPlugin] Initialized successfully with API Key.");
     }
@@ -82,18 +81,27 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
       return "FREE_MODEL_UNAVAILABLE";
     }
 
-    // Fallback Mock Mode (e.g., in deterministic tests or when no key is specified)
-    if (!this._apiKey || this._apiKey.startsWith("mock-") || process.env.NODE_ENV === "test") {
-      Logger.info(`[OpenRouterPlugin] Running generateText in fallback mock mode for model: ${modelId}`);
+    // Mock output is test-only or explicitly requested by a mock-* credential.
+    // Missing real credentials must fail closed rather than returning a fake successful answer.
+    if (process.env.NODE_ENV === "test" || this._apiKey.startsWith("mock-")) {
+      Logger.info(`[OpenRouterPlugin] Running generateText in explicit test/mock mode for model: ${modelId}`);
       return this.getFallbackMockResponse(prompt, modelId);
     }
+    if (!this._apiKey) {
+      throw new OpenRouterError("PROVIDER_NOT_CONFIGURED", 503);
+    }
 
-    const maxRetries = options?.maxRetries ?? 3;
+    const requestedRetries = Number.isInteger(options?.maxRetries) && options.maxRetries > 0
+      ? options.maxRetries
+      : 0;
+    // Free-only execution is single-attempt by policy. No automatic retry on 429/5xx/timeout.
+    const maxRetries = isFreeOnly ? 0 : requestedRetries;
+    const maxAttempts = 1 + maxRetries;
     const initialDelayMs = options?.initialDelayMs ?? 1000;
     const timeoutMs = options?.timeout ?? 30000;
 
     let attempt = 0;
-    while (attempt < maxRetries) {
+    while (attempt < maxAttempts) {
       attempt++;
 
       const controller = new AbortController();
@@ -110,7 +118,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
       }
 
       try {
-        Logger.info(`[OpenRouterPlugin] Executing generation request. Model: ${modelId}, Attempt: ${attempt}/${maxRetries}`);
+        Logger.info(`[OpenRouterPlugin] Executing generation request. Model: ${modelId}, Attempt: ${attempt}/${maxAttempts}`);
 
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
@@ -131,32 +139,29 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
         if (!response.ok) {
           const status = response.status;
-          let errorBody = "";
-          try {
-            errorBody = await response.text();
-          } catch (_) {}
-
+          // Never read or retain upstream response bodies on failure. Provider bodies may
+          // contain echoed prompts, credentials, or other sensitive diagnostics.
           const requestId = response.headers.get("x-request-id") || undefined;
 
           if (status === 429) {
             Logger.warn(`[OpenRouterPlugin] Rate-limited (429) on attempt ${attempt}. Request ID: ${requestId}`);
-            if (attempt < maxRetries) {
+            if (attempt < maxAttempts) {
               await this.delay(initialDelayMs * Math.pow(2, attempt));
               continue;
             }
-            throw new OpenRouterError("Rate limit exceeded on OpenRouter. Please try again later.", 429, requestId, errorBody);
+            throw new OpenRouterError("Rate limit exceeded on OpenRouter. Please try again later.", 429, requestId);
           }
 
           if (status >= 500) {
             Logger.warn(`[OpenRouterPlugin] Server Error (${status}) on attempt ${attempt}. Request ID: ${requestId}`);
-            if (attempt < maxRetries) {
+            if (attempt < maxAttempts) {
               await this.delay(initialDelayMs * Math.pow(2, attempt));
               continue;
             }
-            throw new OpenRouterError(`OpenRouter server returned an error: ${status}`, status, requestId, errorBody);
+            throw new OpenRouterError(`OpenRouter server returned an error: ${status}`, status, requestId);
           }
 
-          throw new OpenRouterError(`OpenRouter request failed with status: ${status}`, status, requestId, errorBody);
+          throw new OpenRouterError(`OpenRouter request failed with status: ${status}`, status, requestId);
         }
 
         const data = await response.json() as any;
@@ -167,12 +172,12 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
         const requestId = response.headers.get("x-request-id") || data.id || "unknown-id";
 
         if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-          throw new OpenRouterError("OpenRouter API returned an empty choices array.", response.status, requestId, data);
+          throw new OpenRouterError("OpenRouter API returned an empty choices array.", response.status, requestId);
         }
 
         const content = data.choices[0]?.message?.content ?? data.choices[0]?.text;
         if (content === undefined || content === null) {
-          throw new OpenRouterError("OpenRouter API choices did not contain expected content text.", response.status, requestId, data);
+          throw new OpenRouterError("OpenRouter API choices did not contain expected content text.", response.status, requestId);
         }
 
         const usage = data.usage || {};
@@ -204,13 +209,13 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
           throw error;
         }
 
-        Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}: ${error.message}`, error);
+        Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}`, { name: error?.name || "Error" });
 
-        if (attempt < maxRetries) {
+        if (attempt < maxAttempts) {
           await this.delay(initialDelayMs * Math.pow(2, attempt));
           continue;
         }
-        throw new OpenRouterError(error.message || "An unexpected error occurred during OpenRouter generation.", undefined, undefined, error);
+        throw new OpenRouterError("An unexpected OpenRouter transport error occurred.");
       } finally {
         clearTimeout(timeoutId);
         if (options?.signal && onAbort) {

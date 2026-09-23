@@ -1,6 +1,7 @@
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -133,13 +134,14 @@ function runCommand(binary, args, options = {}) {
     CI: process.env.CI,
     NODE_ENV: process.env.NODE_ENV
   };
+  const { extraEnv = {}, ...spawnOverrides } = options;
 
   const spawnOptions = {
     cwd: ROOT_DIR,
     shell: false, // EXPLICITLY shell: false
-    env: safeEnv,
+    env: { ...safeEnv, ...extraEnv },
     encoding: 'utf8',
-    ...options
+    ...spawnOverrides
   };
 
   const result = spawnSync(binary, args, spawnOptions);
@@ -396,23 +398,25 @@ async function main() {
     // Save lint.log
     safeWriteRepoFileAtomically(path.join(evidenceDirRelative, 'lint.log'), 'Lint & Typecheck passed successfully.');
     
-    // Read and save results from actual test runs
-    let passCount = 342;
-    let failCount = 0;
-    let skipCount = 0;
-    
-    // Copy result XMLs if they exist
-    const jestXmlRelative = path.join('results', 'jest-results.xml');
-    const apiResultsRelative = path.join(evidenceDirRelative, 'api-results.xml');
-    try {
-      const xmlContent = safeReadRepoFile(jestXmlRelative);
-      safeWriteRepoFileAtomically(apiResultsRelative, xmlContent);
-    } catch (e) {
-      safeWriteRepoFileAtomically(apiResultsRelative, '<results><status>PASSED</status></results>');
-    }
+    // Preserve only evidence that actually exists. Never synthesize PASS counts or
+    // placeholder result files: exit-code summaries are not substitutes for primary logs.
+    const gateEvidence = Object.freeze({
+      lintAndTypecheck: 'passed-by-exit-code',
+      unitTests: 'passed-by-exit-code',
+      apiTests: 'passed-by-exit-code',
+      productionBuild: 'passed-by-exit-code',
+    });
 
-    const unitResultsRelative = path.join(evidenceDirRelative, 'unit-results.xml');
-    safeWriteRepoFileAtomically(unitResultsRelative, '<results><status>PASSED</status></results>');
+    let vitestJunitCaptured = false;
+    const vitestJunitRelative = path.join('test-results', 'vitest-junit.xml');
+    const unitResultsRelative = path.join(evidenceDirRelative, 'vitest-junit.xml');
+    try {
+      const xmlContent = safeReadRepoFile(vitestJunitRelative);
+      safeWriteRepoFileAtomically(unitResultsRelative, xmlContent);
+      vitestJunitCaptured = true;
+    } catch (e) {
+      logWarning('Vitest JUnit output was not captured; no substitute PASS artifact will be created.');
+    }
 
     // Write manifest
     const npmVersion = runCommand('npm', ['--version']);
@@ -429,17 +433,18 @@ async function main() {
       completedAt: new Date().toISOString(),
       nodeVersion: process.version,
       npmVersion,
-      passCount,
-      failCount,
-      skipCount
+      gateEvidence,
+      artifacts: {
+        vitestJunitCaptured
+      }
     };
     
     safeWriteRepoFileAtomically(path.join(evidenceDirRelative, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
     // Write release verdict
     const verdict = {
-      status: 'PASSED',
-      reason: 'Automated ACOS 2.0 delivery verification completed. All TypeScript compilation, design tokens, unit tests, API tests, and server bundler metrics passed without warnings.'
+      status: 'LOCAL_GATES_PASSED',
+      reason: 'Local lint/typecheck, unit, API and build commands exited successfully. This summary does not prove GitHub CI, browser E2E, independent AQ/Coding qualification, or Production release readiness.'
     };
     safeWriteRepoFileAtomically(path.join(evidenceDirRelative, 'release-verdict.json'), JSON.stringify(verdict, null, 2));
     
@@ -517,23 +522,29 @@ async function main() {
     logWarning('Please define GITHUB_TOKEN in AI Studio -> Settings -> Environment Variables.');
   } else {
     try {
-      logInfo(`Pushing branch '${currentBranch}' to origin...`);
-      // Inject token into URL for authenticated HTTPS push
-      const authedUrl = repoUrl.replace('https://', `https://x-access-token:${githubToken}@`);
-      
-      // Temporary add authenticated remote to avoid leaks in standard logs
-      runCommand('git', ['remote', 'add', 'authed_origin', authedUrl]);
-      
+      logInfo(`Pushing branch '${currentBranch}' through the approved HTTPS credential boundary...`);
+      const askpassDir = fs.mkdtempSync(path.join(os.tmpdir(), 'origin-git-askpass-'));
+      const askpassPath = path.join(askpassDir, 'askpass.sh');
+      fs.writeFileSync(
+        askpassPath,
+        '#!/bin/sh\ncase "$1" in\n  *Username*) printf "%s\\n" "x-access-token" ;;\n  *) printf "%s\\n" "$GITHUB_TOKEN" ;;\nesac\n',
+        { encoding: 'utf8', mode: 0o700 }
+      );
       try {
-        runCommand('git', ['push', '-u', 'authed_origin', currentBranch], { stdio: 'inherit' });
+        runCommand('git', ['push', '-u', repoUrl, currentBranch], {
+          stdio: 'inherit',
+          extraEnv: {
+            GIT_ASKPASS: askpassPath,
+            GIT_TERMINAL_PROMPT: '0'
+          }
+        });
         pushSuccess = true;
-        logSuccess(`Successfully pushed ${currentBranch} to origin!`);
+        logSuccess(`Successfully pushed ${currentBranch} to the canonical repository.`);
       } finally {
-        // Always clean up authenticated remote to prevent leaking credentials
         try {
-          runCommand('git', ['remote', 'remove', 'authed_origin']);
-        } catch (removeErr) {
-          // Ignore
+          fs.rmSync(askpassDir, { recursive: true, force: true });
+        } catch {
+          // Credential helper contains no secret value, but cleanup remains best-effort.
         }
       }
     } catch (err) {
@@ -648,14 +659,11 @@ This pull request delivers Sprint 7.3.1 daily-use guards and the weather gate st
   }
 
   if (!pushSuccess) {
-    console.log(`\n${COLORS.yellow}=== USER ACTION REQUIRED (再認証・設定手順) ===${COLORS.reset}`);
-    console.log('GitHubへの直接認証が行えないため、以下の手順で一度だけ環境変数を設定してください:');
-    console.log('1. GitHubにログインし、Personal Access Token (PAT) を作成します。');
-    console.log('   - 権限: repo (Full control of private repositories)');
-    console.log('2. AI Studio 画面 of Settings -> Environment Variables.');
-    console.log('3. 新規環境変数を作成してください:');
-    console.log(`   - ${COLORS.bold}GITHUB_TOKEN${COLORS.reset} = (作成したPATのトークン値)`);
-    console.log('4. 保存後、再度自動デリバリーをお試しください。');
+    console.log(`\n${COLORS.yellow}=== AUTHORIZATION REQUIRED ===${COLORS.reset}`);
+    console.log('This legacy delivery helper will not instruct users to create broad repository credentials.');
+    console.log('Use an already-approved, least-privilege GitHub credential supplied by the trusted execution environment.');
+    console.log('Never paste tokens into chat, browser storage, artifacts, source files, or command-line URLs.');
+    console.log('Without an approved credential, stop after local verification and create/push the branch through the authorized GitHub boundary.');
   }
 }
 

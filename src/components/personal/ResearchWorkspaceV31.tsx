@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { OriginRuntimeActivityV31 } from './OriginRuntimeActivityV31';
 
 export type ResearchSource = {
   id: string;
@@ -17,6 +18,8 @@ type ResearchConflict = {
   topic: 'price' | 'version' | 'percentage';
   values: string[];
   sourceIds: string[];
+  resolution?: 'unresolved' | 'prefer-recent-page-verified';
+  preferredSourceId?: string;
   note: string;
 };
 
@@ -74,6 +77,8 @@ function isResearchConflict(value: unknown): value is ResearchConflict {
     && (value.topic === 'price' || value.topic === 'version' || value.topic === 'percentage')
     && isStringArray(value.values)
     && isStringArray(value.sourceIds)
+    && (value.resolution === undefined || value.resolution === 'unresolved' || value.resolution === 'prefer-recent-page-verified')
+    && (value.preferredSourceId === undefined || typeof value.preferredSourceId === 'string')
     && typeof value.note === 'string';
 }
 
@@ -133,9 +138,13 @@ function failureMessage(code?: string, message?: string) {
   return message || '調査を完了できませんでした。確認できていない内容は表示していません。';
 }
 
-type ResearchWorkspaceV31Props = { onSourcesChange?: (sources: readonly ResearchSource[]) => void };
+type ResearchWorkspaceV31Props = {
+  composerControls?: React.ReactNode;
+  onSourcesChange?: (sources: readonly ResearchSource[]) => void;
+  onRuntimeActivityChange?: (activity: OriginRuntimeActivityV31) => void;
+};
 
-export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorkspaceV31Props) {
+export default function ResearchWorkspaceV31({ composerControls, onSourcesChange, onRuntimeActivityChange }: ResearchWorkspaceV31Props) {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<ResearchSuccess | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +157,13 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
     setError(null);
     setResult(null);
     onSourcesChange?.([]);
+    onRuntimeActivityChange?.({
+      id: 'research-current',
+      kind: 'research',
+      status: 'running',
+      title: '公開情報を調査',
+      detail: '無料の公開Web情報源から取得し、応答契約と出典を検証しています。',
+    });
     try {
       const response = await fetch('/api/research/v1.1/query', {
         method: 'POST',
@@ -157,17 +173,38 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
       const data = await response.json() as unknown;
       if (!response.ok) {
         const failure = researchFailure(data);
-        setError(failureMessage(failure.code, failure.message));
+        const message = failureMessage(failure.code, failure.message);
+        setError(message);
+        onRuntimeActivityChange?.({
+          id: 'research-current',
+          kind: 'research',
+          status: failure.code === 'SENSITIVE_INPUT_BLOCKED' ? 'blocked' : 'failed',
+          title: '公開情報を調査',
+          detail: message,
+          evidence: failure.code ? `code: ${failure.code}` : undefined,
+        });
         return;
       }
       if (!isResearchSuccess(data)) {
-        setError('調査APIの応答を検証できなかったため、安全に停止しました。未確認内容は表示していません。');
+        const message = '調査APIの応答を検証できなかったため、安全に停止しました。未確認内容は表示していません。';
+        setError(message);
+        onRuntimeActivityChange?.({ id: 'research-current', kind: 'research', status: 'failed', title: '公開情報を調査', detail: message, evidence: 'response contract validation failed' });
         return;
       }
       setResult(data);
       onSourcesChange?.(data.sources);
+      onRuntimeActivityChange?.({
+        id: 'research-current',
+        kind: 'research',
+        status: 'completed',
+        title: '公開情報を調査',
+        detail: `${data.sourceCount}件の出典・${data.distinctDomainCount}ドメインを検証済みです。`,
+        evidence: `status=grounded · confidence=${data.confidence}${data.provider ? ` · provider=${data.provider}` : ''} · costUsd=0`,
+      });
     } catch {
-      setError('調査APIへ接続できませんでした。未確認内容で補完していません。');
+      const message = '調査APIへ接続できませんでした。未確認内容で補完していません。';
+      setError(message);
+      onRuntimeActivityChange?.({ id: 'research-current', kind: 'research', status: 'failed', title: '公開情報を調査', detail: message, evidence: 'network/request failure' });
     } finally {
       setBusy(false);
     }
@@ -175,20 +212,23 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
 
   return <section aria-label="Research Workspace" className="min-h-[calc(100vh-5rem)] bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5">
     <div className="mx-auto max-w-6xl space-y-4">
-      <header className="origin-workspace rounded-2xl p-4 md:p-5">
+      <header className="px-1 pt-2 md:px-2">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-500">Research · Grounded V1.1</p>
-            <h1 className="mt-1 text-xl font-black">公開情報を出典付きで調査</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">無料の公開Web情報のみを取得し、確認できた出典を分離表示します。検索結果の信頼度は「取得証拠の強さ」であり、事実の真偽や媒体の権威を保証する評価ではありません。</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-500">Research</p>
+            <h1 className="mt-1 text-lg font-black">公開情報を出典付きで調査</h1>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">複数の公開情報源を確認し、出典と不確実性を分けて表示します。</p>
           </div>
-          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">$0 · paid fallbackなし</span>
+          <span title="$0 · paid fallbackなし" className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">無料範囲で安全に調査</span>
         </div>
-        <label htmlFor="research-query" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">調べたいこと</label>
-        <textarea id="research-query" value={query} onChange={event => setQuery(event.target.value)} maxLength={1200} placeholder="例: 生成AIの店舗集客への活用について、最近の公開情報を複数ソースで比較してください。" className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        <div className="origin-composer origin-surface mt-4 flex items-end gap-2 rounded-[24px] border p-2 shadow-lg shadow-black/5">
+          {composerControls}
+          <label htmlFor="research-query" className="sr-only">調べたいこと</label>
+          <textarea id="research-query" value={query} onChange={event => setQuery(event.target.value)} maxLength={1200} rows={1} placeholder="調べたいことを入力…" className="origin-input max-h-52 min-h-[60px] flex-1 resize-none bg-transparent px-4 py-3 text-base leading-7 outline-none" />
+          <button type="button" aria-label={busy ? '調査中…' : '調査する'} title={busy ? '調査中…' : '調査する'} onClick={() => void runResearch()} disabled={busy || !query.trim()} className="origin-primary-button inline-flex h-11 w-11 min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full p-0 text-xl font-bold disabled:cursor-not-allowed disabled:opacity-50"><span aria-hidden="true">{busy ? '…' : '↑'}</span></button>
+        </div>
+        <div className="mt-2 flex justify-end">
           <span className="text-[10px] text-slate-500">{query.length}/1200 · 機微情報は外部送信前にブロック</span>
-          <button type="button" onClick={() => void runResearch()} disabled={busy || !query.trim()} className="origin-primary-button min-h-11 rounded-xl px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '調査中…' : '調査する'}</button>
         </div>
         {error && <div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{error}</div>}
       </header>
@@ -220,7 +260,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
 
         <section aria-labelledby="research-conflicts-title" className="origin-workspace rounded-2xl p-4">
           <h2 id="research-conflicts-title" className="font-black">Conflict review</h2>
-          {result.conflicts.length === 0 ? <p className="mt-2 text-sm text-slate-500">構造化値の不一致は検出されませんでした。これは意味的な一致を保証するものではありません。</p> : <ul className="mt-3 space-y-2 pl-5 text-sm">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{conflict.topic}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}</li>)}</ul>}
+          {result.conflicts.length === 0 ? <p className="mt-2 text-sm text-slate-500">構造化値の不一致は検出されませんでした。これは意味的な一致を保証するものではありません。</p> : <ul className="mt-3 space-y-2 pl-5 text-sm">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{conflict.topic}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}{conflict.preferredSourceId ? <span className="ml-2 rounded-full border border-amber-300 px-2 py-1 text-xs font-semibold text-amber-800 dark:border-amber-700 dark:text-amber-200">暫定優先 {conflict.preferredSourceId} · recent + page-verified（権威性未評価）</span> : <span className="ml-2 text-xs text-slate-500">未解決</span>}</li>)}</ul>}
         </section>
 
         <section aria-labelledby="research-report-title" className="origin-workspace rounded-2xl p-4">

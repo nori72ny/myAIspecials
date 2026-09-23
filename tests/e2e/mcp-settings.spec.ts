@@ -5,7 +5,8 @@ test.use({ viewport: { width: 390, height: 844 } });
 test('MCP settings reports its actual disabled backend without breaking the mobile dialog', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  await page.getByRole('button', { name: '設定', exact: true }).click();
   await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
   await expect(page.getByText('外部サービス接続は準備中です。認証と保存先の設定が完了すると利用できます。')).toBeVisible();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -40,7 +41,8 @@ test('MCP settings performs owner login and logout without retaining the passwor
     return route.abort();
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  await page.getByRole('button', { name: '設定', exact: true }).click();
   await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
   await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
   await page.getByLabel('メールアドレス').fill('owner@example.com');
@@ -79,7 +81,8 @@ test('MCP settings handles register, check and disconnect with a simulated authe
     return route.fulfill({ status: 201, json: { ok: true, connection: connections[0] } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  await page.getByRole('button', { name: '設定', exact: true }).click();
   await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
   await page.getByLabel('接続するサービス').selectOption('docs');
   await page.getByRole('button', { name: '登録', exact: true }).click();
@@ -101,7 +104,8 @@ test('MCP settings starts reviewed OAuth without rendering service credentials',
     return route.fulfill({ json: { ok: true, authorizationUrl } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  await page.getByRole('button', { name: '設定', exact: true }).click();
   await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
   await page.getByLabel('接続するサービス').selectOption('docs');
   await page.getByRole('button', { name: '認証を開始', exact: true }).click();

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       force_refresh:
-        description: Refresh the verified evidence window immediately
+        description: Refresh the verified evidence windows immediately
         type: boolean
         default: false
   push:
@@ -15,7 +15,14 @@ on:
       - '.github/workflows/verify-free-model.yml'
       - 'scripts/verify-free-model.ts'
       - 'scripts/verify-free-model.test.ts'
+      - 'scripts/verify-coding-free-model.ts'
+      - 'scripts/verify-coding-free-model.test.ts'
       - 'src/lib/orchestration/OriginFreeModelCatalog.ts'
+      - 'src/agent/codingFreeModelFailoverV14.ts'
+      - 'src/agent/codingFreeModelFailoverV14.test.ts'
+      - 'src/agent/codingProviderRetryV14.ts'
+      - 'src/agent/codingProviderRetryV14.test.ts'
+      - 'src/release/OriginLegacyCredentialIsolation.test.ts'
 
 concurrency:
   group: verify-free-model-evidence
@@ -41,8 +48,7 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Verify official OpenRouter zero pricing and evidence expiry
-        id: verify
+      - name: Verify fixed chat free-model evidence
         env:
           ORIGIN_FREE_MODEL_EVIDENCE_PATH: ${{ runner.temp }}/origin-free-model-evidence.json
           ORIGIN_FORCE_FREE_MODEL_REFRESH: ${{ github.event_name == 'workflow_dispatch' && inputs.force_refresh && 'true' || 'false' }}
@@ -52,43 +58,64 @@ jobs:
           else
             npm run verify:free-model
           fi
-
+      - name: Verify fixed Coding free-model evidence
+        env:
+          ORIGIN_CODING_FREE_MODEL_EVIDENCE_PATH: ${{ runner.temp }}/origin-coding-free-model-evidence.json
+          ORIGIN_FORCE_FREE_MODEL_REFRESH: ${{ github.event_name == 'workflow_dispatch' && inputs.force_refresh && 'true' || 'false' }}
+        run: |
+          if [ "$ORIGIN_FORCE_FREE_MODEL_REFRESH" = 'true' ]; then
+            npm run verify:coding-free-model -- --force
+          else
+            npm run verify:coding-free-model
+          fi
+      - name: Validate machine-readable zero-cost evidence
+        env:
+          CHAT_EVIDENCE: ${{ runner.temp }}/origin-free-model-evidence.json
+          CODING_EVIDENCE: ${{ runner.temp }}/origin-coding-free-model-evidence.json
+        run: |
           node <<'NODE'
           const fs = require('node:fs');
-          const evidence = JSON.parse(fs.readFileSync(process.env.ORIGIN_FREE_MODEL_EVIDENCE_PATH, 'utf8'));
-          if (evidence.modelId !== 'inclusionai/ling-3.0-flash-sante:free'
-            || evidence.pricing.prompt !== '0'
-            || evidence.pricing.completion !== '0'
-            || Date.parse(evidence.reviewAfter) <= Date.now()) {
-            throw new Error('Free-model evidence is invalid, paid, or already expired.');
+          const chat = JSON.parse(fs.readFileSync(process.env.CHAT_EVIDENCE, 'utf8'));
+          const coding = JSON.parse(fs.readFileSync(process.env.CODING_EVIDENCE, 'utf8'));
+          const invalid = evidence => evidence.pricing?.prompt !== '0'
+            || evidence.pricing?.completion !== '0'
+            || Date.parse(evidence.reviewAfter) <= Date.now();
+          if (chat.modelId !== 'inclusionai/ling-3.0-flash-sante:free' || invalid(chat)) {
+            throw new Error('Chat free-model evidence is invalid, paid, or expired.');
           }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `review_after=${evidence.reviewAfter}\n`);
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
-            '## Fixed free-model verification',
-            `- Model: ${evidence.modelId}`,
-            `- Prompt price: $${evidence.pricing.prompt}.00`,
-            `- Completion price: $${evidence.pricing.completion}.00`,
-            `- Verified at: ${evidence.verifiedAt}`,
-            `- Evidence valid through: ${evidence.reviewAfter}`,
-            `- Official source: ${evidence.sourceUrl}`,
-            `- Catalog refreshed: ${evidence.updated}`,
-            '',
-          ].join('\n'));
+          if (coding.modelId !== 'inclusionai/ling-3.0-flash-vl:free' || coding.toolCalling !== true || invalid(coding)) {
+            throw new Error('Coding free-model evidence is invalid, paid, lacks tool calling, or expired.');
+          }
+          for (const [label, evidence] of [['Chat', chat], ['Coding', coding]]) {
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+              `## ${label} fixed free-model verification`,
+              `- Model: ${evidence.modelId}`,
+              `- Prompt price: $${evidence.pricing.prompt}.00`,
+              `- Completion price: $${evidence.pricing.completion}.00`,
+              `- Verified at: ${evidence.verifiedAt}`,
+              `- Evidence valid through: ${evidence.reviewAfter}`,
+              `- Official source: ${evidence.sourceUrl}`,
+              `- Catalog refreshed: ${evidence.updated}`,
+              '',
+            ].join('\n'));
+          }
           NODE
       - name: Preserve machine-readable zero-cost evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: origin-free-model-evidence-${{ github.run_id }}
-          path: ${{ runner.temp }}/origin-free-model-evidence.json
+          path: |
+            ${{ runner.temp }}/origin-free-model-evidence.json
+            ${{ runner.temp }}/origin-coding-free-model-evidence.json
           retention-days: 30
           if-no-files-found: error
-      - name: Test fail-closed verifier and catalog policy
-        run: npx vitest run scripts/verify-free-model.test.ts src/lib/orchestration/OriginFreeModelCatalog.test.ts
+      - name: Test fail-closed verifier and runtime policies
+        run: npx vitest run scripts/verify-free-model.test.ts scripts/verify-coding-free-model.test.ts src/lib/orchestration/OriginFreeModelCatalog.test.ts src/agent/codingFreeModelFailoverV14.test.ts src/agent/codingProviderRetryV14.test.ts src/release/OriginLegacyCredentialIsolation.test.ts
       - name: Open an evidence refresh pull request only when timestamps changed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- src/lib/orchestration/OriginFreeModelCatalog.ts; then
+          if git diff --quiet -- src/lib/orchestration/OriginFreeModelCatalog.ts src/agent/codingFreeModelFailoverV14.ts; then
             echo 'Evidence remains current; no pull request required.'
             exit 0
           fi
@@ -96,10 +123,10 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "$branch"
-          git add src/lib/orchestration/OriginFreeModelCatalog.ts
+          git add src/lib/orchestration/OriginFreeModelCatalog.ts src/agent/codingFreeModelFailoverV14.ts
           git commit -m 'chore: refresh verified free-model evidence'
           git push origin "$branch"
-          gh pr create --base main --head "$branch" --title 'chore: refresh verified free-model evidence' --body 'Automated fail-closed verification confirmed the fixed OpenRouter model still reports zero prompt and completion pricing. Full CI must pass before merge.'
+          gh pr create --base main --head "$branch" --title 'chore: refresh verified free-model evidence' --body 'Automated fail-closed verification confirmed the fixed Chat and Coding models still report zero prompt/completion pricing; Coding also still advertises tool calling. Runtime continues to enforce ZDR/data-collection deny/max-price zero and exact served-model/cost checks. Full CI must pass before merge.'
       - name: Mark paid, unavailable, or expired evidence as unsafe
         if: failure()
         run: |

@@ -107,7 +107,7 @@ function historyStorageMessage(status: 'unavailable' | 'quota' | 'failed'): stri
   return '端末内のCreative履歴を更新できませんでした。生成済み成果物はそのまま保存できます。';
 }
 
-export default function CreativeWorkspaceV15() {
+export default function CreativeWorkspaceV15({ composerControls }: { composerControls?: React.ReactNode } = {}) {
   const [draft, setDraft] = useState<CreativeDraft>(INITIAL_DRAFT);
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [busy, setBusy] = useState(false);
@@ -352,6 +352,7 @@ export default function CreativeWorkspaceV15() {
               </label>
             </div>
 
+            {composerControls}
             <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">タイトル
               <input value={draft.title} maxLength={240} onChange={(event) => update('title', event.target.value)} className="min-h-12 rounded-xl border border-slate-300 bg-white px-3 text-base font-semibold text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
             </label>
@@ -402,14 +403,14 @@ export default function CreativeWorkspaceV15() {
               </div>
             )}
           </div>
-          <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-[linear-gradient(45deg,#eef2f7_25%,transparent_25%),linear-gradient(-45deg,#eef2f7_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#eef2f7_75%),linear-gradient(-45deg,transparent_75%,#eef2f7_75%)] bg-[length:20px_20px] bg-[position:0_0,0_10px,10px_-10px,-10px_0px] p-4 dark:border-slate-800 dark:bg-slate-950">
+          <div data-testid="creative-preview-stage" className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
             {previewUrl && artifact ? (
               <img src={previewUrl} alt={`生成済みVisual: ${artifact.title}`} className="max-h-[72vh] max-w-full rounded-lg bg-white object-contain shadow-xl" style={{ aspectRatio: PRESET_ASPECT[artifact.preset] }} />
             ) : (
               <div className="max-w-sm text-center text-slate-500 dark:text-slate-400">
                 <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-300 bg-white text-2xl shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-hidden="true">✦</div>
                 <p className="text-sm font-bold text-slate-700 dark:text-slate-200">まだ生成されていません</p>
-                <p className="mt-1 text-xs leading-5">左の内容を整えて「Visualを生成」を押すと、検証済み成果物だけをここに表示します。</p>
+                <p className="mt-1 text-xs leading-5">内容を入力して「Visualを生成」を押すと、検証済み成果物だけをここに表示します。</p>
               </div>
             )}
           </div>

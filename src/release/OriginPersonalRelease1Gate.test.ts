@@ -16,6 +16,42 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(vercelConfig.rewrites).toContainEqual({ source: "/api/(.*)", destination: "/api/index.ts" });
   });
 
+  it("keeps main merges separate from Production deployment approval", () => {
+    const vercelConfig = JSON.parse(readRepositoryFile("vercel.json")) as {
+      git?: { deploymentEnabled?: Record<string, boolean> };
+    };
+    const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
+    expect(vercelConfig.git?.deploymentEnabled?.main).toBe(false);
+    expect(gate).toContain("mainのGit pushによる自動Production deploymentを無効化");
+    expect(gate).toContain("PR branchのPreview deploymentは維持");
+  });
+
+  it("fails closed at the Production smoke boundary unless main is protected", () => {
+    const workflow = readRepositoryFile(".github/workflows/publication-smoke.yml");
+    const verifier = readRepositoryFile("scripts/verify-release-governance.mjs");
+    const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
+    expect(workflow).toContain("Verify release governance before Production smoke");
+    expect(workflow).toContain("node scripts/verify-release-governance.mjs");
+    expect(verifier).toContain("RELEASE_GOVERNANCE_MAIN_UNPROTECTED");
+    expect(verifier).toContain("branch?.protected");
+    expect(verifier).toContain("RELEASE_GOVERNANCE_REQUIRED_CHECKS_MISSING");
+    expect(verifier).toContain("required_status_checks");
+    expect(gate).toContain("protected: true");
+    expect(gate).toContain("未保護のmainではReady変更・merge・Production smokeを進めない");
+  });
+
+  it("requires independently scored AQ V2 quality and fresh held-out Coding before release", () => {
+    const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
+    const scorer = readRepositoryFile("src/release/OriginTrustedAnswerQualityV2.ts");
+    const scoringCli = readRepositoryFile("scripts/qualify-trusted-answer-quality-v2.ts");
+    expect(gate).toContain("trusted execution完走だけを回答品質PASSとして扱わない");
+    expect(gate).toContain("fresh sealed held-out Coding final qualification");
+    expect(gate).toContain("scoringIdentityBound=true");
+    expect(scorer).toContain("AQ_V2_EXTERNAL_SCORE_BUNDLE_MISSING");
+    expect(scorer).toContain("AQ_V2_EXTERNAL_SCORE_ANSWER_BINDING_MISMATCH");
+    expect(scoringCli).toContain("qualifyOriginTrustedAnswerQualityV2");
+  });
+
   it("keeps the Cloudflare Worker provider route ineligible for release 1", () => {
     const worker = readRepositoryFile("worker/index.mjs");
     expect(worker).toContain("providerExecutionEnabled: false");

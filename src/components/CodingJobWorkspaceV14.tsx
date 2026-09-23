@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import OriginAgentActionProgressV31 from './personal/OriginAgentActionProgressV31';
 import OriginCodingWorkspaceV31 from './personal/OriginCodingWorkspaceV31';
+import type { OriginRuntimeActivityV31 } from './personal/OriginRuntimeActivityV31';
 
 export type CodingJobStatus = 'queued' | 'leased' | 'running' | 'repairing' | 'verified' | 'blocked' | 'failed' | 'cancelled';
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
@@ -174,9 +175,9 @@ export type CodingProjectEvidence = {
   verificationChecks: readonly { kind: 'typecheck' | 'lint' | 'test' | 'build'; ok: boolean; exitCode: number | null; timedOut: boolean; attempt: number }[];
 };
 
-type CodingJobWorkspaceV14Props = { onProjectEvidenceChange?: (evidence: CodingProjectEvidence) => void };
+type CodingJobWorkspaceV14Props = { composerControls?: React.ReactNode; onProjectEvidenceChange?: (evidence: CodingProjectEvidence) => void; onRuntimeActivityChange?: (activity: OriginRuntimeActivityV31) => void };
 
-export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: CodingJobWorkspaceV14Props) {
+export default function CodingJobWorkspaceV14({ composerControls, onProjectEvidenceChange, onRuntimeActivityChange }: CodingJobWorkspaceV14Props) {
   const [goal, setGoal] = useState('');
   const [existingJobId, setExistingJobId] = useState('');
   const [capability, setCapability] = useState<CapabilityResponse | null>(null);
@@ -186,6 +187,7 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkingCapability, setCheckingCapability] = useState(true);
+  const [approvalPending, setApprovalPending] = useState(false);
   const credentialInputRef = useRef<HTMLInputElement | null>(null);
   const credentialRef = useRef('');
   const mountedRef = useRef(true);
@@ -285,11 +287,20 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
       if (epoch !== requestEpochRef.current) return;
       if (!response.ok || !data.ok || !data.job) { credentialRef.current = ''; setError(safeCode(data.code, `CODING_UI_CREATE_${response.status}`)); return; }
       currentJobIdRef.current = data.job.jobId;
+      setApprovalPending(false);
+      onRuntimeActivityChange?.({
+        id: 'coding-approval',
+        kind: 'approval',
+        status: 'completed',
+        title: 'Coding実行承認',
+        detail: 'Ownerの明示承認を確認し、Coding jobの作成・開始要求が受理されました。',
+        evidence: `confirmRun=true · job=${data.job.jobId}`,
+      });
       if (credentialInputRef.current) credentialInputRef.current.value = '';
       applyResponse(data, epoch);
     } catch { if (epoch === requestEpochRef.current) { credentialRef.current = ''; setError('CODING_UI_CREATE_UNAVAILABLE'); } }
     finally { if (epoch === requestEpochRef.current) setBusy(false); }
-  }, [applyResponse, beginOperation, busy, capability?.ready, goal]);
+  }, [applyResponse, beginOperation, busy, capability?.ready, goal, onRuntimeActivityChange]);
 
   const openExistingJob = useCallback(async () => {
     const jobId = existingJobId.trim();
@@ -329,6 +340,32 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
       verificationChecks: result?.verificationChecks ?? [],
     });
   }, [job?.jobId, job?.status, job?.changedPaths, result?.verificationChecks, onProjectEvidenceChange]);
+
+  useEffect(() => {
+    if (!job || job.status !== 'repairing' || result?.verificationChecks.length) return;
+    onRuntimeActivityChange?.({
+      id: 'coding-verification-tools',
+      kind: 'tool',
+      status: 'running',
+      title: 'Coding verification tools',
+      detail: '検証で検出した問題をbounded repairし、再検証へ進む実行サイクルです。',
+      evidence: `job=${job.jobId} · phase=repairing · final verification pending`,
+    });
+  }, [job?.jobId, job?.status, result?.verificationChecks, onRuntimeActivityChange]);
+
+  useEffect(() => {
+    if (!result?.verificationChecks.length) return;
+    const failed = result.verificationChecks.filter(check => !check.ok);
+    const evidence = result.verificationChecks.map(check => `${check.kind}=${check.ok ? 'PASS' : 'FAIL'}`).join(' · ');
+    onRuntimeActivityChange?.({
+      id: 'coding-verification-tools',
+      kind: 'tool',
+      status: failed.length ? 'failed' : 'completed',
+      title: 'Coding verification tools',
+      detail: failed.length ? '検証ツールで失敗を確認しました。未完了工程を成功扱いしません。' : 'typecheck / lint / test / build の実行結果を確認しました。',
+      evidence,
+    });
+  }, [result?.verificationChecks, onRuntimeActivityChange]);
 
   const ready = capability?.ready === true;
   const dedicatedAuthorizationReady = capability?.authorizationReady === true && capability.authorizationMode === 'coding-operator';
@@ -377,9 +414,52 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
         </div>
 
         <label htmlFor="coding-goal" className="mt-4 block text-xs font-bold text-slate-600 dark:text-slate-300">変更したいこと</label>
-        <textarea id="coding-goal" value={goal} onChange={event => setGoal(event.target.value)} maxLength={4000} placeholder="例: ログイン画面のフォーム検証を修正し、関連テストを追加してすべての検証を通してください。" className="mt-2 min-h-40 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
+        {composerControls}
+        <textarea id="coding-goal" value={goal} onChange={event => {
+          setGoal(event.target.value);
+          if (approvalPending) {
+            setApprovalPending(false);
+            onRuntimeActivityChange?.({
+              id: 'coding-approval',
+              kind: 'approval',
+              status: 'cancelled',
+              title: 'Coding実行承認',
+              detail: '承認待ち中に依頼内容が変更されたため、旧承認を無効化しました。',
+              evidence: 'goal changed before confirmation',
+            });
+          }
+        }} maxLength={4000} placeholder="例: ログイン画面のフォーム検証を修正し、関連テストを追加してすべての検証を通してください。" className="mt-2 min-h-40 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
         <div className="mt-1 text-right text-[10px] text-slate-500">{goal.length}/4000</div>
-        <button type="button" onClick={() => void startJob()} disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))} className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '処理中…' : job && ACTIVE.has(job.status) ? '実行中' : '変更を依頼する'}</button>
+        {!approvalPending && <button type="button" onClick={() => {
+          if (!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))) return;
+          setApprovalPending(true);
+          onRuntimeActivityChange?.({
+            id: 'coding-approval',
+            kind: 'approval',
+            status: 'awaiting_approval',
+            title: 'Coding実行承認',
+            detail: '変更内容を確認し、実行を承認するまでCoding jobは開始しません。',
+            evidence: 'no job dispatched before owner confirmation',
+          });
+        }} disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))} className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '処理中…' : job && ACTIVE.has(job.status) ? '実行中' : '変更を依頼する'}</button>}
+        {approvalPending && <section aria-label="Coding approval waiting" className="mt-3 rounded-xl border border-violet-300 bg-violet-50 p-3 text-sm text-violet-950 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+          <p className="m-0 font-bold">実行前の承認が必要です</p>
+          <p className="mt-2 text-xs leading-5">この承認を行うまでCoding jobは作成・dispatchされません。対象はserver-ownedのORIGIN self repositoryで、Git公開・デプロイは含みません。</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <button type="button" onClick={() => void startJob()} className="origin-primary-button min-h-11 rounded-xl px-4 font-bold text-white">承認して実行</button>
+            <button type="button" onClick={() => {
+              setApprovalPending(false);
+              onRuntimeActivityChange?.({
+                id: 'coding-approval',
+                kind: 'approval',
+                status: 'cancelled',
+                title: 'Coding実行承認',
+                detail: 'Ownerが実行前承認を取り消したため、Coding jobは開始していません。',
+                evidence: 'job dispatch skipped',
+              });
+            }} className="origin-secondary-button min-h-11 rounded-xl border px-4 font-bold">キャンセル</button>
+          </div>
+        </section>}
 
         {job && <div className="mt-4 space-y-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-live="polite">
           <div className="flex flex-wrap items-center justify-between gap-2"><StatusBadge status={job.status} cancelRequested={job.cancelRequested} /><span className="text-[10px] text-slate-500">attempt {job.attempt}</span></div>

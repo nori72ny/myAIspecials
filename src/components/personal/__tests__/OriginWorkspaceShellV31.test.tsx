@@ -6,27 +6,22 @@ import OriginWorkspaceShellV31 from '../OriginWorkspaceShellV31';
 
 afterEach(cleanup);
 
-describe('OriginWorkspaceShellV31 mobile UX', () => {
-  it('provides one compact mobile controls disclosure while preserving Mode separation', () => {
+describe('OriginWorkspaceShellV31 conversation-first UX', () => {
+  it('keeps Chat free of a persistent top Mode row', () => {
     render(<OriginWorkspaceShellV31 mode="chat" onModeChange={vi.fn()} />);
 
-    const mobileControls = screen.getByLabelText('ORIGIN mobile controls');
-    expect(mobileControls).toBeTruthy();
-    expect(mobileControls.textContent).toContain('Model');
-    expect(mobileControls.textContent).toContain('ORIGIN Auto');
-    expect(mobileControls.textContent).toContain('Tools');
-    expect(mobileControls.textContent).toContain('自動管理');
-    expect(mobileControls.textContent).toContain('Agent');
-    expect(mobileControls.textContent).toContain('通常応答');
-    expect(screen.getByRole('navigation', { name: 'Mode' })).toBeTruthy();
+    expect(screen.queryByLabelText('Workspace mode')).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Mode' })).toBeNull();
+    expect(screen.getByLabelText('ORIGIN Auto settings')).toBeTruthy();
+    expect(screen.getByLabelText('Model ORIGIN Auto').textContent).toContain('ORIGIN Auto');
+    expect(screen.getByLabelText('Tools capability').textContent).toContain('Files');
+    expect(screen.getByLabelText('Agent runtime evidence policy').textContent).toContain('実行時のみ状態表示');
   });
 
-  it('reflects Code agent capability without changing Model or Tools semantics', () => {
+  it('keeps non-Chat mode controls out of the product header', () => {
     render(<OriginWorkspaceShellV31 mode="coding" onModeChange={vi.fn()} />);
-
-    const mobileControls = screen.getByLabelText('ORIGIN mobile controls');
-    expect(mobileControls.textContent).toContain('ORIGIN Auto');
-    expect(mobileControls.textContent).toContain('自動管理');
-    expect(mobileControls.textContent).toContain('実行可能');
+    expect(screen.queryByLabelText('Workspace mode')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.getByLabelText('ORIGIN Auto settings')).toBeTruthy();
   });
 });

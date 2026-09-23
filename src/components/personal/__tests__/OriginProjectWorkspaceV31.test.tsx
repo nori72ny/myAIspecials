@@ -1,72 +1,48 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
 import OriginProjectWorkspaceV31 from '../OriginProjectWorkspaceV31';
+
+const emptyEvidence = { jobId: null, status: null, changedPaths: [], verificationChecks: [] };
+const baseProps = {
+  mode: 'chat' as const,
+  messages: [],
+  sessions: [],
+  artifacts: [],
+  sources: [],
+  codingEvidence: emptyEvidence,
+  onViewChange: () => undefined,
+};
 
 afterEach(cleanup);
 
 describe('OriginProjectWorkspaceV31', () => {
-  it('shows only grounded counts and keeps unavailable views disabled', () => {
-    render(<OriginProjectWorkspaceV31
-      mode="chat"
-      messages={[{ id: 'm1', role: 'user', content: 'hello' }]}
-      sessions={[]}
-      artifacts={[]}
-      sources={[]}
-      codingEvidence={{ jobId: null, status: null, changedPaths: [], verificationChecks: [] }}
-      activeView="overview"
-      onViewChange={() => undefined}
-    />);
+  it('renders no permanent Project chrome for an empty or normal Chat view', () => {
+    const { rerender } = render(<OriginProjectWorkspaceV31 {...baseProps} activeView="overview" />);
+    expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
+    expect(screen.queryByText('Current workspace')).toBeNull();
+    expect(screen.queryByText('Grounded state only')).toBeNull();
 
-    expect(screen.getByText('1')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Project Files unavailable' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Project Tasks unavailable' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Project Sources unavailable' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Project Artifacts unavailable' }).hasAttribute('disabled')).toBe(true);
+    rerender(<OriginProjectWorkspaceV31 {...baseProps} activeView="chat" />);
+    expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
   });
 
-  it('allows artifact navigation only when a real artifact exists', () => {
-    const onViewChange = vi.fn();
-    render(<OriginProjectWorkspaceV31
-      mode="chat"
-      messages={[]}
-      sessions={[]}
-      artifacts={[{ id: 'a1', type: 'markdown', title: 'Report', language: 'markdown', content: '# Report', isComplete: true }]}
-      sources={[]}
-      codingEvidence={{ jobId: null, status: null, changedPaths: [], verificationChecks: [] }}
-      activeView="overview"
-      onViewChange={onViewChange}
-    />);
+  it('does not render an empty Files, Tasks, or Sources surface without evidence', () => {
+    const { rerender } = render(<OriginProjectWorkspaceV31 {...baseProps} activeView="files" />);
+    expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
-    expect(onViewChange).toHaveBeenCalledWith('artifacts');
+    rerender(<OriginProjectWorkspaceV31 {...baseProps} activeView="tasks" />);
+    expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
+
+    rerender(<OriginProjectWorkspaceV31 {...baseProps} activeView="sources" />);
+    expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
   });
 
-  it('does not mutate Mode when project views change', () => {
-    const onViewChange = vi.fn();
+  it('renders Sources only when validated research evidence exists and is selected', () => {
     render(<OriginProjectWorkspaceV31
+      {...baseProps}
       mode="research"
-      messages={[]}
-      sessions={[]}
-      artifacts={[]}
-      sources={[]}
-      codingEvidence={{ jobId: null, status: null, changedPaths: [], verificationChecks: [] }}
-      activeView="overview"
-      onViewChange={onViewChange}
-    />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Project Chat' }));
-    expect(onViewChange).toHaveBeenCalledWith('chat');
-    expect(screen.getByText('Research')).toBeTruthy();
-  });
-
-  it('enables Sources only from validated research evidence', () => {
-    render(<OriginProjectWorkspaceV31
-      mode="research"
-      messages={[]}
-      sessions={[]}
-      artifacts={[]}
       sources={[{
         id: 'S1',
         title: 'Verified source',
@@ -78,17 +54,15 @@ describe('OriginProjectWorkspaceV31', () => {
         scoreScope: 'retrieval-evidence-only',
         citation: '[S1]',
       }]}
-      codingEvidence={{ jobId: null, status: null, changedPaths: [], verificationChecks: [] }}
       activeView="sources"
-      onViewChange={() => undefined}
     />);
 
-    expect(screen.getByRole('button', { name: 'Project Sources' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('region', { name: 'Project Workspace' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Project Sources' }).textContent).toContain('Verified source');
     expect(screen.getByRole('region', { name: 'Project Sources' }).textContent).toContain('example.com');
   });
 
-  it('enables Files and Tasks only from real coding evidence', () => {
+  it('renders Files and Tasks only from real coding evidence and only when selected', () => {
     const evidence = {
       jobId: 'coding-abcdefghijklmnopqrstuv',
       status: 'verified' as const,
@@ -97,31 +71,21 @@ describe('OriginProjectWorkspaceV31', () => {
     };
 
     const { rerender } = render(<OriginProjectWorkspaceV31
+      {...baseProps}
       mode="coding"
-      messages={[]}
-      sessions={[]}
-      artifacts={[]}
-      sources={[]}
       codingEvidence={evidence}
       activeView="files"
-      onViewChange={() => undefined}
     />);
 
-    expect(screen.getByRole('button', { name: 'Project Files' }).hasAttribute('disabled')).toBe(false);
     expect(screen.getByRole('region', { name: 'Project Files' }).textContent).toContain('src/a.ts');
 
     rerender(<OriginProjectWorkspaceV31
+      {...baseProps}
       mode="coding"
-      messages={[]}
-      sessions={[]}
-      artifacts={[]}
-      sources={[]}
       codingEvidence={evidence}
       activeView="tasks"
-      onViewChange={() => undefined}
     />);
 
-    expect(screen.getByRole('button', { name: 'Project Tasks' }).hasAttribute('disabled')).toBe(false);
     expect(screen.getByRole('region', { name: 'Project Tasks' }).textContent).toContain('verified');
     expect(screen.getByRole('region', { name: 'Project Tasks' }).textContent).toContain('test');
   });

@@ -152,6 +152,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ source: 'ORIGIN_ARTIFACT_THEME', designTheme: 'minimal', tokens: expect.objectContaining({ '--accent-primary': 'oklch(0.62 0.15 235)' }) }), '*');
     expect(frame.getAttribute('data-origin-srcdoc')).toContain('data-origin-theme-bridge="true"');
     expect(frame.getAttribute('data-origin-srcdoc')).toContain('event.source!==parent');
+    expect(frame.getAttribute('data-origin-srcdoc')).toContain("event.source!==parent)return;var data=event.data;if(!data||data.source!=='ORIGIN_PRESENTATION'");
     rerender(<ArtifactWorkspace artifact={artifact} isOpen language="ja" designTheme="luxury" onClose={() => undefined} />);
     expect(screen.getByTitle('プレビュー')).toBe(frame);
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ source: 'ORIGIN_ARTIFACT_THEME', designTheme: 'luxury' }), '*'));
@@ -421,12 +422,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
   });
 
-  it('uses an initial 76px composition surface and reduces it after a response', () => {
+  it('keeps one consistent composer surface before and after a response', () => {
     const { rerender } = render(<App language="ja" />);
     expect(screen.getByTestId('origin-home-request').getAttribute('rows')).toBe('1');
     expect(document.querySelector('.origin-composer')?.className).not.toContain('origin-composer--compact');
     rerender(<App language="ja" messages={[{ id: 'a-1', role: 'assistant', content: '返信' }]} />);
-    expect(document.querySelector('.origin-composer')?.className).toContain('origin-composer--compact');
+    expect(document.querySelector('.origin-composer')?.className).not.toContain('origin-composer--compact');
     expect(document.querySelector('.safe-area-bottom .origin-composer')).not.toBeNull();
   });
 

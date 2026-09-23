@@ -59,9 +59,9 @@ test('preserves durable sessions across two reloads without legacy storage or em
     const writes = await page.evaluate(() => (window as any).__storageWrites);
     for (const write of writes) expect(write).toMatchObject({ messages: saved.messages, sessions: saved.sessions });
     await expect.poll(() => readSnapshot(page)).toMatchObject({ messages: saved.messages, sessions: saved.sessions });
-    await page.getByTestId('history-drawer-toggle').click();
-    await page.getByTestId('history-search-input').fill('保持対象');
-    await expect(page.getByTestId('history-search-results')).toContainText('保持対象セッション');
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await page.getByLabel('履歴を検索', { exact: true }).fill('保持対象');
+    await expect(page.getByRole('dialog', { name: 'ORIGIN navigation' })).toContainText('保持対象セッション');
   }
 });
 

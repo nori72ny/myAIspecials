@@ -21,6 +21,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
+      - name: Verify release governance before Production smoke
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/verify-release-governance.mjs
       - name: Verify temporary publication lifecycle
         env:
           ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app

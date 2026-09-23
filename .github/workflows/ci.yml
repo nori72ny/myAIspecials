@@ -34,9 +34,12 @@ jobs:
       with:
         fetch-depth: 0
     - name: Run Secret Scanning (Gitleaks)
-      uses: gitleaks/gitleaks-action@v2
+      uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0 / Node 24
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ github.token }}
+        GITLEAKS_ENABLE_COMMENTS: "false"
+    - name: Run Full Git History Secret Scan
+      run: gitleaks detect --redact -v --exit-code=2 --log-opts="--all"
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
@@ -180,6 +183,29 @@ jobs:
         uses: actions/dependency-review-action@v5
         with:
           comment-summary-in-pr: on-failure
+
+  candidate-release-gate:
+    name: Release Gate (CI core)
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs:
+      - build-and-test
+      - artifact-preview-isolation
+      - dependency-review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all candidate CI gates to succeed
+        env:
+          BUILD_RESULT: ${{ needs.build-and-test.result }}
+          ARTIFACT_RESULT: ${{ needs.artifact-preview-isolation.result }}
+          DEPENDENCY_RESULT: ${{ needs.dependency-review.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'build-and-test=%s\nartifact-preview-isolation=%s\ndependency-review=%s\n' \
+            "$BUILD_RESULT" "$ARTIFACT_RESULT" "$DEPENDENCY_RESULT"
+          [ "$BUILD_RESULT" = "success" ]
+          [ "$ARTIFACT_RESULT" = "success" ]
+          [ "$DEPENDENCY_RESULT" = "success" ]
 
   production-smoke:
     name: Verify main SHA in Vercel production

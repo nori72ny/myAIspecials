@@ -9,6 +9,7 @@
   --origin-ultra-muted: #475569;
   --origin-ultra-champagne: #64748B;
   --origin-ultra-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --origin-keyboard-inset: 0px;
 }
 
 @layer base {
@@ -434,6 +435,7 @@ body {
   .origin-chat [role="log"] {
     width: 100%;
     padding-inline: 12px;
+    scroll-padding-bottom: calc(96px + var(--origin-keyboard-inset, 0px));
   }
 
   .origin-header {
@@ -458,7 +460,7 @@ body {
    ================================================================ */
 .origin-composer {
   position: sticky;
-  bottom: 16px;
+  bottom: max(16px, var(--origin-keyboard-inset, 0px));
   z-index: 20;
   display: flex;
   align-items: flex-end;
@@ -610,7 +612,7 @@ body {
 }
 
 @media (max-width: 640px) {
-  .origin-composer { bottom: max(10px, env(safe-area-inset-bottom)); width: calc(100% - 16px); }
+  .origin-composer { bottom: max(10px, env(safe-area-inset-bottom), var(--origin-keyboard-inset, 0px)); width: calc(100% - 16px); }
   .origin-composer__input { font-size: 16px; }
   .origin-chat > div:last-child > div { width: calc(100% - 16px) !important; margin-bottom: max(4px, env(safe-area-inset-bottom)); }
   .origin-dag__node { grid-template-columns: 36px minmax(0,1fr); }

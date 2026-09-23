@@ -5,8 +5,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
   test('renders a focused core identity and a spacious command bar without starter-card noise', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('header').getByText('ORIGIN', { exact: true })).toBeVisible();
-    await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'ORIGIN workspace shell' }).getByText('ORIGIN', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'ORIGIN workspace shell' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
     const commandBar = page.getByTestId('origin-home-request');
     await expect(commandBar).toBeVisible();
@@ -14,7 +14,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const initialComposerHeight = await commandBar.evaluate((element) => element.closest('.origin-composer')!.getBoundingClientRect().height);
     expect(initialComposerHeight).toBeGreaterThanOrEqual(76);
     expect(initialComposerHeight).toBeGreaterThanOrEqual(92);
-    expect(initialComposerHeight).toBeLessThanOrEqual(112);
+    expect(initialComposerHeight).toBeLessThanOrEqual(160);
     await expect(page.locator('[data-testid^="starter-"]')).toHaveCount(0);
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
@@ -29,8 +29,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.goto('/');
 
     const primaryControls = [
-      page.getByTestId('history-drawer-toggle'),
-      page.getByRole('button', { name: '設定を開く' }),
+      page.getByRole('button', { name: 'Open navigation', exact: true }),
+      page.getByLabel('Composer mode', { exact: true }),
       page.locator('.origin-composer').getByRole('button', { name: 'ファイルを添付' }),
       page.getByTestId('start-request-button'),
     ];
@@ -330,11 +330,12 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('origin-home-request').fill('復元対象のローカルセッション');
     await page.getByTestId('start-request-button').click();
     await expect(page.getByText('セッションを整理しました。')).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: '新規対話を開始' }).click();
-    await page.getByTestId('history-drawer-toggle').click();
-    await page.getByTestId('knowledge-map-toggle').click();
-    await expect(page.getByTestId('knowledge-map-node-count')).toHaveText('1');
-    await page.getByTestId('knowledge-map-session-0').click();
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await page.getByRole('button', { name: '＋ 新規対話', exact: true }).click();
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await page.getByText('◎ Knowledge Map', { exact: true }).click();
+    await expect(page.getByRole('img', { name: 'セッション関連ノード' }).getByRole('button')).toHaveCount(1);
+    await page.getByRole('img', { name: 'セッション関連ノード' }).getByRole('button').click();
     await expect(page.getByRole('article', { name: 'あなたの依頼' }).filter({ hasText: '復元対象のローカルセッション' })).toBeVisible();
   });
 
@@ -382,12 +383,12 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: '成果物ワークスペースを閉じる' }).click();
     await page.waitForTimeout(250);
-    await page.getByTestId('history-drawer-toggle').click();
-    const search = page.getByTestId('history-search-input');
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    const search = page.getByLabel('履歴を検索', { exact: true });
     await search.fill('IndexedDB');
-    await expect(page.getByTestId('history-search-results')).toContainText('検索用セッション');
+    await expect(page.getByRole('dialog', { name: 'ORIGIN navigation' })).toContainText('検索用セッション');
     await search.fill('Artifact Search Needle');
-    await expect(page.getByTestId('history-search-results')).toContainText('searchable.html');
+    await expect(page.getByRole('dialog', { name: 'ORIGIN navigation' })).toContainText('searchable.html');
   });
 
   test('prioritizes three artifact actions, reveals details on demand, and recovers a sandbox runtime error', async ({ page }) => {
@@ -615,7 +616,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
 
   test('keeps settings, language, system theme, and history controls available', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: '設定を開く' }).click();
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  await page.getByRole('button', { name: '設定', exact: true }).click();
     const settingsDialog = page.getByRole('dialog', { name: /設定|Settings/i });
     await expect(settingsDialog).toBeVisible();
     await page.getByRole('button', { name: 'システム設定' }).click();

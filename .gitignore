@@ -11,3 +11,11 @@ coverage/
 results/
 playwright-report/
 evidence/routing_log.json
+
+# Local one-off migration/debug artifacts
+server.pid
+tmp.txt
+test-resolve.ts
+split-server.cjs
+
+# Local scratch/runtime artifacts (never commit)
