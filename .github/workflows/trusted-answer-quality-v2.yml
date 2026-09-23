@@ -212,7 +212,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
-          CORPUS_DIGEST: ${{ steps.corpus.outputs.corpus_digest }}
+          CORPUS_DIGEST: ${{ needs.preflight.outputs.corpus_digest }}
           ROUND_ID: ${{ inputs.round_id || env.AQ_V2_DEFAULT_ROUND_ID }}
           LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
         run: |
