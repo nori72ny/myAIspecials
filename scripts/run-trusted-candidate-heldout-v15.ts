@@ -24,15 +24,19 @@ import {
 const IMAGE = 'node:22-bookworm-slim';
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const CHECK_TIMEOUT_MS = 180_000;
+const PROXY_STOP_TIMEOUT_MS = 15_000;
 const CHECKS = ['typecheck', 'lint', 'test', 'build'] as const;
 type CheckKind = (typeof CHECKS)[number];
 const CHECK_COMMANDS: Record<CheckKind, string> = {
   typecheck: 'tsc --noEmit',
-  lint: 'mkdir -p test-results && (tsc --noEmit > test-results/lint.log 2>&1 || (cat test-results/lint.log && exit 1)) && node scripts/design-token-lock.js',
+  lint: 'tsc --noEmit && node scripts/design-token-lock.js',
   test: "FREE_ONLY=false vitest run --configLoader runner --maxWorkers=2 --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default",
-  build: 'vite build --configLoader runner && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs',
+  build: 'rm -rf /tmp/origin-dist && vite build --configLoader runner --outDir /tmp/origin-dist && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=/tmp/origin-dist/server.cjs',
 };
 const HIDDEN_TEST_COMMAND = "vitest run --configLoader runner --maxWorkers=2 tests/__origin_heldout__ --reporter=default";
+
+type Child = ReturnType<typeof spawn>;
+type GitFileSnapshot = { content: string; mode: number; size: number };
 
 function appendBounded(current: string, chunk: Buffer | string): string {
   if (Buffer.byteLength(current, 'utf8') >= MAX_OUTPUT_BYTES) return current;
@@ -51,16 +55,22 @@ async function execFixed(
   const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   let timedOut = false;
+  let killTimer: NodeJS.Timeout | undefined;
   child.stdout.on('data', chunk => { output = appendBounded(output, chunk); });
   child.stderr.on('data', chunk => { output = appendBounded(output, chunk); });
   const timer = setTimeout(() => {
     timedOut = true;
     child.kill('SIGTERM');
+    killTimer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+    killTimer.unref();
   }, timeoutMs);
   const code = await new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);
     child.once('close', resolve);
-  }).finally(() => clearTimeout(timer));
+  }).finally(() => {
+    clearTimeout(timer);
+    if (killTimer) clearTimeout(killTimer);
+  });
   return { code, output, timedOut };
 }
 
@@ -75,16 +85,59 @@ function cleanHostEnv(home: string): NodeJS.ProcessEnv {
   };
 }
 
-async function waitForSocket(socketPath: string, child: ReturnType<typeof spawn>): Promise<void> {
+async function waitForSocket(socketPath: string, child: Child, code: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (child.exitCode !== null) throw new Error('TRUSTED_PROVIDER_PROXY_START_FAILED');
+    if (child.exitCode !== null) throw new Error(`${code}_START_FAILED`);
     try {
       const stat = await fs.stat(socketPath);
       if (stat.isSocket()) return;
     } catch { /* keep waiting */ }
     await new Promise(resolve => setTimeout(resolve, 50));
   }
-  throw new Error('TRUSTED_PROVIDER_PROXY_START_TIMEOUT');
+  throw new Error(`${code}_START_TIMEOUT`);
+}
+
+async function stopChild(child: Child, code: string): Promise<void> {
+  if (child.exitCode !== null) return;
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off('close', onClose);
+      child.off('error', onError);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onClose = () => finish();
+    const onError = () => finish(new Error(`${code}_STOP_FAILED`));
+    const timer = setTimeout(() => finish(new Error(`${code}_STOP_TIMEOUT`)), PROXY_STOP_TIMEOUT_MS);
+    child.once('close', onClose);
+    child.once('error', onError);
+    if (!child.kill('SIGTERM') && child.exitCode === null) finish(new Error(`${code}_STOP_FAILED`));
+  });
+}
+
+async function snapshotGitFile(workspace: string): Promise<GitFileSnapshot> {
+  const gitFile = path.join(workspace, '.git');
+  const stat = await fs.lstat(gitFile);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('TRUSTED_CANDIDATE_GIT_METADATA_INVALID');
+  const content = await fs.readFile(gitFile, 'utf8');
+  if (!/^gitdir: .+\n?$/.test(content)) throw new Error('TRUSTED_CANDIDATE_GIT_METADATA_INVALID');
+  return { content, mode: stat.mode & 0o777, size: stat.size };
+}
+
+async function assertGitFileUnchanged(workspace: string, expected: GitFileSnapshot): Promise<void> {
+  const gitFile = path.join(workspace, '.git');
+  let stat;
+  try { stat = await fs.lstat(gitFile); }
+  catch { throw new Error('TRUSTED_CANDIDATE_GIT_METADATA_TAMPERED'); }
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('TRUSTED_CANDIDATE_GIT_METADATA_TAMPERED');
+  const content = await fs.readFile(gitFile, 'utf8');
+  if (content !== expected.content || stat.size !== expected.size || (stat.mode & 0o777) !== expected.mode) {
+    throw new Error('TRUSTED_CANDIDATE_GIT_METADATA_TAMPERED');
+  }
 }
 
 async function dockerCheck(
@@ -107,7 +160,7 @@ async function dockerCheck(
     '--cpus', '2',
     '--memory', '3g',
     '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
-    '--mount', `type=bind,src=${workspace},dst=/work`,
+    '--mount', `type=bind,src=${workspace},dst=/work,readonly`,
     '--mount', `type=bind,src=${path.join(dependencyRoot, 'node_modules')},dst=/work/node_modules,readonly`,
     '--workdir', '/work',
     '--env', 'HOME=/tmp',
@@ -122,14 +175,13 @@ async function dockerCheck(
   return { ok: !row.timedOut && row.code === 0, exitCode: row.code, timedOut: row.timedOut };
 }
 
-async function actualChangedPaths(controllerRoot: string, workspace: string): Promise<string[]> {
+async function actualChangedPaths(workspace: string): Promise<string[]> {
   const diff = await execFixed('git', ['diff', '--name-only', '-z', 'HEAD', '--'], workspace, cleanHostEnv('/tmp'));
   if (diff.code !== 0) throw new Error('TRUSTED_CANDIDATE_DIFF_FAILED');
-  const untracked = await execFixed('git', ['ls-files', '--others', '--exclude-standard', '-z'], workspace, cleanHostEnv('/tmp'));
+  const untracked = await execFixed('git', ['ls-files', '--others', '-z'], workspace, cleanHostEnv('/tmp'));
   if (untracked.code !== 0) throw new Error('TRUSTED_CANDIDATE_DIFF_FAILED');
   const values = [...diff.output.split('\0'), ...untracked.output.split('\0')]
-    .map(value => value.trim())
-    .filter(Boolean);
+    .filter(value => value.length > 0);
   return [...new Set(values)].sort();
 }
 
@@ -215,9 +267,6 @@ async function main(): Promise<void> {
   if (!row) throw new Error('TRUSTED_CANDIDATE_TASK_NOT_FOUND');
   const packet = row.packet;
 
-  // Remove both secrets from the controller environment before any candidate
-  // dependency install or candidate container is started. The provider key is
-  // copied only into the separate trusted proxy process below.
   delete process.env.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64;
   delete process.env.OPENROUTER_API_KEY;
 
@@ -233,8 +282,9 @@ async function main(): Promise<void> {
   const verifierToken = randomBytes(32).toString('hex');
   const containerName = `origin-trusted-candidate-${randomUUID().slice(0, 12)}`;
   let worktreeAdded = false;
-  let proxy: ReturnType<typeof spawn> | null = null;
-  let verifierProxy: ReturnType<typeof spawn> | null = null;
+  let proxy: Child | null = null;
+  let verifierProxy: Child | null = null;
+  let gitFileSnapshot: GitFileSnapshot | null = null;
 
   try {
     const repoUrl = `https://github.com/${process.env.GITHUB_REPOSITORY ?? ''}.git`;
@@ -249,6 +299,7 @@ async function main(): Promise<void> {
 
     const resolved = await execFixed('git', ['rev-parse', 'HEAD'], workspace, cleanHostEnv('/tmp'));
     if (resolved.code !== 0 || resolved.output.trim() !== candidateSha) throw new Error('TRUSTED_CANDIDATE_SHA_MISMATCH');
+    gitFileSnapshot = await snapshotGitFile(workspace);
 
     const installed = await execFixed('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], workspace, cleanHostEnv('/tmp'), 600_000);
     if (installed.code !== 0 || installed.timedOut) throw new Error('TRUSTED_CANDIDATE_DEPENDENCY_INSTALL_FAILED');
@@ -265,7 +316,7 @@ async function main(): Promise<void> {
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    await waitForSocket(socketPath, proxy);
+    await waitForSocket(socketPath, proxy, 'TRUSTED_PROVIDER_PROXY');
     await fs.chmod(socketDir, 0o555);
 
     verifierProxy = spawn(process.execPath, ['--import', 'tsx', 'scripts/trusted-heldout-verifier-proxy-v15.ts'], {
@@ -281,7 +332,7 @@ async function main(): Promise<void> {
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    await waitForSocket(verifierSocketPath, verifierProxy);
+    await waitForSocket(verifierSocketPath, verifierProxy, 'TRUSTED_VERIFIER_PROXY');
     await fs.chmod(verifierSocketDir, 0o555);
 
     const envFile = path.join(envDir, 'candidate.env');
@@ -310,6 +361,7 @@ async function main(): Promise<void> {
       '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
       '--mount', `type=bind,src=${controllerRoot},dst=/controller,readonly`,
       '--mount', `type=bind,src=${workspace},dst=/work`,
+      '--mount', `type=bind,src=${path.join(workspace, '.git')},dst=/work/.git,readonly`,
       '--mount', `type=bind,src=${path.join(dependencyRoot, 'node_modules')},dst=/work/node_modules,readonly`,
       '--mount', `type=bind,src=${socketDir},dst=/proxy,readonly`,
       '--mount', `type=bind,src=${verifierSocketDir},dst=/verifier,readonly`,
@@ -344,16 +396,19 @@ async function main(): Promise<void> {
     }
 
     if (proxy) {
-      proxy.kill('SIGTERM');
+      await stopChild(proxy, 'TRUSTED_PROVIDER_PROXY');
       proxy = null;
     }
     if (verifierProxy) {
-      verifierProxy.kill('SIGTERM');
+      await stopChild(verifierProxy, 'TRUSTED_VERIFIER_PROXY');
       verifierProxy = null;
     }
 
+    if (!gitFileSnapshot) throw new Error('TRUSTED_CANDIDATE_GIT_METADATA_INVALID');
+    await assertGitFileUnchanged(workspace, gitFileSnapshot);
+
     const trustedJournal = await readTrustedVerificationJournal(verifierJournalPath);
-    const actualPaths = await actualChangedPaths(controllerRoot, workspace);
+    const actualPaths = await actualChangedPaths(workspace);
     const reportedPaths = candidateResult.session.changedPaths;
     if (!Array.isArray(reportedPaths) || reportedPaths.some((value: unknown) => typeof value !== 'string')) {
       throw new Error('TRUSTED_CANDIDATE_RESULT_INVALID');
@@ -370,8 +425,6 @@ async function main(): Promise<void> {
     const trustedSession = trustedSessionForScoring(candidateResult.session, actualPaths, trustedJournal);
     const changedPathsVerified = true;
 
-    // The candidate process is already gone and both trusted proxies are stopped.
-    // Only now may the trusted controller materialize hidden tests.
     for (const hidden of packet.hiddenTests) {
       await writeTrustedCandidateHiddenTestV15(workspace, hidden.path, hidden.content);
     }
@@ -379,6 +432,7 @@ async function main(): Promise<void> {
     const hidden = await dockerCheck(workspace, dependencyRoot, HIDDEN_TEST_COMMAND, 'hidden');
     const trustedChecks = [];
     for (const kind of CHECKS) trustedChecks.push({ kind, ...(await dockerCheck(workspace, dependencyRoot, CHECK_COMMANDS[kind], kind)) });
+    await assertGitFileUnchanged(workspace, gitFileSnapshot);
     const trustedVerificationPassed = hidden.ok && trustedChecks.every(check => check.ok) && changedPathsVerified;
 
     const run = buildHeldOutCodingRunFromSessionV14({
@@ -429,8 +483,14 @@ async function main(): Promise<void> {
       costUsd: score.costUsd,
     }) + '\n');
   } finally {
-    if (proxy) proxy.kill('SIGTERM');
-    if (verifierProxy) verifierProxy.kill('SIGTERM');
+    if (proxy) {
+      proxy.kill('SIGKILL');
+      proxy = null;
+    }
+    if (verifierProxy) {
+      verifierProxy.kill('SIGKILL');
+      verifierProxy = null;
+    }
     await fs.chmod(socketDir, 0o700).catch(() => undefined);
     await fs.chmod(verifierSocketDir, 0o700).catch(() => undefined);
     if (worktreeAdded) await execFixed('git', ['worktree', 'remove', '--force', workspace], controllerRoot, cleanHostEnv('/tmp'), 60_000).catch(() => undefined);
