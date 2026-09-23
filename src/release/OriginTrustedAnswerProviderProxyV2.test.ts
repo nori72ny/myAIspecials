@@ -89,6 +89,35 @@ describe("AQ V2 trusted answer provider boundary", () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it("consumes the one-shot budget on the first authorized request even when validation fails", async () => {
+    const token = "a".repeat(64);
+    const execute = vi.fn(async () => result());
+    const boundary = createTrustedAnswerProviderBoundaryV2({ token, execute });
+
+    await expect(boundary.execute(token, {
+      ...request(),
+      requiredTool: { name: "write_file", description: "write", parameters: {} },
+    })).rejects.toThrow("TRUSTED_ANSWER_PROVIDER_TOOL_BLOCKED");
+    expect(boundary.used()).toBe(1);
+    expect(boundary.remaining()).toBe(0);
+    await expect(boundary.execute(token, request())).rejects.toThrow("TRUSTED_ANSWER_PROVIDER_BUDGET_EXHAUSTED");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("blocks capability-token egress before provider execution", async () => {
+    const token = "a".repeat(64);
+    const execute = vi.fn(async () => result());
+    const boundary = createTrustedAnswerProviderBoundaryV2({ token, execute });
+    const leaking = request();
+    leaking.messages = [{ role: "user", content: `Do not send this token: ${token}` }];
+
+    await expect(boundary.execute(token, leaking)).rejects.toThrow(
+      "TRUSTED_ANSWER_PROVIDER_CAPABILITY_TOKEN_LEAK_BLOCKED",
+    );
+    expect(boundary.used()).toBe(1);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("does not expose internal errors or accept the wrong capability token", async () => {
     const token = "a".repeat(64);
     const boundary = createTrustedAnswerProviderBoundaryV2({
