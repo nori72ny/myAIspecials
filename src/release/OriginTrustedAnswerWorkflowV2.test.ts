@@ -13,12 +13,15 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
   });
 
-  it("binds execution to an exact open same-repository PR head", () => {
+  it("binds execution to an exact open same-repository PR head and rechecks immediately before provider use", () => {
     expect(workflow).toContain("AQ_V2_CANDIDATE_PR_NOT_OPEN");
     expect(workflow).toContain("AQ_V2_CANDIDATE_BASE_INVALID");
     expect(workflow).toContain("AQ_V2_CANDIDATE_FORK_BLOCKED");
     expect(workflow).toContain("AQ_V2_CANDIDATE_SHA_MISMATCH");
-    expect(workflow).toContain("pr?.head?.sha!==process.env.CANDIDATE_SHA");
+    expect(workflow).toContain("Revalidate exact candidate PR binding immediately before execution");
+    expect(workflow).toContain("AQ_V2_CANDIDATE_PR_NOT_OPEN_AT_EXECUTION");
+    expect(workflow).toContain("AQ_V2_CANDIDATE_SHA_CHANGED_BEFORE_EXECUTION");
+    expect(workflow.match(/pr\?\.head\?\.sha!==process\.env\.CANDIDATE_SHA/g)?.length).toBe(2);
   });
 
   it("installs dependencies only in the trusted evaluator checkout", () => {
@@ -45,11 +48,13 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(candidateEnv).not.toContain("ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64");
   });
 
-  it("reserves the sealed round before provider execution and finalizes its status", () => {
+  it("reserves the candidate/corpus pair before provider execution without a round-id reset bypass", () => {
     const reserve = workflow.indexOf("Reserve exact candidate and sealed corpus before provider execution");
     const evaluate = workflow.indexOf("Run 48 leased cases through the trusted boundary");
     expect(reserve).toBeGreaterThan(0);
     expect(evaluate).toBeGreaterThan(reserve);
+    expect(workflow).toContain('context="origin/aq-v2/${CORPUS_DIGEST:0:16}"');
+    expect(workflow).not.toContain("round_hash=");
     expect(workflow).toContain("AQ_V2_TRUSTED_ROUND_ALREADY_RESERVED");
     expect(workflow).toContain("Finalize append-only AQ V2 status");
   });
