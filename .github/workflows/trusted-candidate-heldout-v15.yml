@@ -16,14 +16,19 @@ permissions:
   contents: read
   pull-requests: read
   actions: read
-  statuses: write
+  statuses: read
 
 concurrency:
-  group: origin-trusted-candidate-heldout-one-shot
+  group: origin-held-out-final-one-shot
   cancel-in-progress: false
 
 jobs:
   preflight:
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      statuses: write
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15

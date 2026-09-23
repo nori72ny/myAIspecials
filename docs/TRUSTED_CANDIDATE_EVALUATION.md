@@ -41,3 +41,8 @@ The Claude independent review of PR #609 found no P0 escape or credential leak. 
 - make the one-shot reservation resilient to Actions artifact deletion by recording the source corpus digest in GitHub Commit Status history on the fixed anchor commit before any provider execution.
 
 The remaining limitation is explicit: the real secret-bearing one-shot qualification workflow cannot be executed until this evaluator infrastructure itself is trusted on `main`. Pre-merge CI proves its components and ordering, not a completed sealed-corpus qualification run.
+
+
+### Cross-version one-shot compatibility
+
+V14 final-held-out and V15 exact-candidate qualification use the same repository-wide concurrency group and the same fixed commit-status ledger context `origin/heldout-source/<sourceDigest>`. A corpus reserved by either evaluator is rejected by the other evaluator before any provider request. This closes the cross-version reuse path as well as the artifact-deletion-only path.

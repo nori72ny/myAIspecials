@@ -31,11 +31,23 @@ describe('trusted exact-candidate evaluator contract', () => {
   it('requires an append-only commit-status reservation before benchmark execution', () => {
     const workflow = read('.github/workflows/trusted-candidate-heldout-v15.yml');
     expect(workflow).toContain('statuses: write');
+    expect(workflow).toContain('group: origin-held-out-final-one-shot');
     expect(workflow).toContain('Reserve append-only one-shot status ledger before provider execution');
     expect(workflow).toContain('/statuses/${ANCHOR_SHA}');
     expect(workflow).toContain('benchmark:\n    needs: preflight');
     expect(workflow.indexOf('Reserve append-only one-shot status ledger before provider execution'))
       .toBeLessThan(workflow.indexOf('Reserve the sealed source corpus before provider execution'));
+  });
+
+  it('keeps V14 and V15 on the same append-only one-shot ledger', () => {
+    const v14 = read('.github/workflows/held-out-coding-final-v14.yml');
+    const v15 = read('.github/workflows/trusted-candidate-heldout-v15.yml');
+    expect(v14).toContain('group: origin-held-out-final-one-shot');
+    expect(v15).toContain('group: origin-held-out-final-one-shot');
+    expect(v14).toContain('origin/heldout-source/');
+    expect(v15).toContain('origin/heldout-source/');
+    expect(v14).toContain('/statuses/01f7db0c0d48ab3ba533148e99e1847203e13f4c');
+    expect(v15).toContain('/statuses/${ANCHOR_SHA}');
   });
 
   it('keeps verifier commands fixed and bounds socket concurrency', () => {

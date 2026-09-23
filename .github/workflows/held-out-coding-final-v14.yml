@@ -8,13 +8,18 @@ on:
 permissions:
   contents: read
   actions: read
+  statuses: read
 
 concurrency:
-  group: origin-v14-final-heldout-one-shot
+  group: origin-held-out-final-one-shot
   cancel-in-progress: false
 
 jobs:
   preflight:
+    permissions:
+      contents: read
+      actions: read
+      statuses: write
     if: github.event.repository.private == false
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -107,11 +112,39 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${marker}&per_page=100" \
             -o prior-final-artifacts.json
           count="$(node -e "const v=require('./prior-final-artifacts.json'); process.stdout.write(String(v.total_count || 0))")"
+          rm -f prior-final-artifacts.json
           if [ "$count" != '0' ]; then
             echo "can_start=false" >> "$GITHUB_OUTPUT"
             echo "Final held-out corpus has already started; scheduled duplicate is skipped."
             exit 0
           fi
+
+          context="origin/heldout-source/${CORPUS_DIGEST}"
+          page=1
+          while :; do
+            curl --fail --silent --show-error \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/01f7db0c0d48ab3ba533148e99e1847203e13f4c/statuses?per_page=100&page=${page}" \
+              -o statuses.json
+            status_count="$(node -e "const v=require('./statuses.json'); process.stdout.write(String(v.length))")"
+            found="$(CONTEXT="$context" node - <<'NODE'
+          const fs=require('node:fs');
+          const rows=JSON.parse(fs.readFileSync('statuses.json','utf8'));
+          process.stdout.write(rows.some(row => row?.context === process.env.CONTEXT) ? '1' : '0');
+          NODE
+          )"
+            rm -f statuses.json
+            if [ "$found" = '1' ]; then
+              echo "can_start=false" >> "$GITHUB_OUTPUT"
+              echo "Final held-out corpus is already reserved in the append-only status ledger."
+              exit 0
+            fi
+            [ "$status_count" = '100' ] || break
+            page=$((page + 1))
+            [ "$page" -le 20 ] || { echo "::error::One-shot status ledger pagination limit exceeded."; exit 2; }
+          done
           echo "can_start=true" >> "$GITHUB_OUTPUT"
 
       - name: Create one-shot start audit marker payload
@@ -137,6 +170,41 @@ jobs:
             started: true,
           }, null, 2)}\n`);
           NODE
+      - name: Reserve append-only one-shot status ledger
+        if: steps.one_shot.outputs.can_start == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORPUS_DIGEST: ${{ steps.select.outputs.corpus_digest }}
+          FROZEN_BASE_SHA: ${{ steps.select.outputs.frozen_base_sha }}
+        run: |
+          set -euo pipefail
+          context="origin/heldout-source/${CORPUS_DIGEST}"
+          CONTEXT="$context" CANDIDATE_SHA="$FROZEN_BASE_SHA" node <<'NODE' > status-payload.json
+          const payload={
+            state:'pending',
+            context:process.env.CONTEXT,
+            description:`sealed corpus reserved for ${process.env.CANDIDATE_SHA.slice(0,12)}`,
+            target_url:`https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          curl --fail --silent --show-error \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/01f7db0c0d48ab3ba533148e99e1847203e13f4c" \
+            --data-binary @status-payload.json \
+            -o status-response.json
+          CONTEXT="$context" node <<'NODE'
+          const fs=require('node:fs');
+          const row=JSON.parse(fs.readFileSync('status-response.json','utf8'));
+          if(row?.context !== process.env.CONTEXT || row?.state !== 'pending') process.exit(2);
+          NODE
+          rm -f status-payload.json status-response.json
+
       - name: Preserve one-shot start marker
         if: steps.one_shot.outputs.can_start == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
