@@ -26,6 +26,18 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(gate).toContain("PR branchのPreview deploymentは維持");
   });
 
+  it("fails closed at the Production smoke boundary unless main is protected", () => {
+    const workflow = readRepositoryFile(".github/workflows/publication-smoke.yml");
+    const verifier = readRepositoryFile("scripts/verify-release-governance.mjs");
+    const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
+    expect(workflow).toContain("Verify release governance before Production smoke");
+    expect(workflow).toContain("node scripts/verify-release-governance.mjs");
+    expect(verifier).toContain("RELEASE_GOVERNANCE_MAIN_UNPROTECTED");
+    expect(verifier).toContain("branch?.protected");
+    expect(gate).toContain("protected: true");
+    expect(gate).toContain("未保護のmainではReady変更・merge・Production smokeを進めない");
+  });
+
   it("keeps the Cloudflare Worker provider route ineligible for release 1", () => {
     const worker = readRepositoryFile("worker/index.mjs");
     expect(worker).toContain("providerExecutionEnabled: false");
