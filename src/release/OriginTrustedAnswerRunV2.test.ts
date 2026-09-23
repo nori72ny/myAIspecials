@@ -62,6 +62,7 @@ describe("AQ V2 trusted run aggregation", () => {
       corpusDigest,
       roundId,
       executionId: "gh-run:12345678:aq-v2",
+      evaluatorSha: "c".repeat(40),
       sameRepoOpenPrHead: true,
       trustedHostControlled: true,
     });
@@ -70,6 +71,11 @@ describe("AQ V2 trusted run aggregation", () => {
     expect(report.evidence.providerRequestCount).toBe(24);
     expect(report.evidence.maxProviderRequests).toBe(48);
     expect(report.evidence.resultDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(report.binding.candidateSha).toBe(candidateSha);
+    expect(report.binding.corpusDigest).toBe(corpusDigest);
+    expect(report.binding.evaluatorSha).toBe("c".repeat(40));
+    expect(report.binding.rubricDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(report.binding.roundId).toBe(roundId);
     expect(Object.values(report.familyCounts).every(count => count === 3)).toBe(true);
   });
 
@@ -79,6 +85,7 @@ describe("AQ V2 trusted run aggregation", () => {
       corpusDigest,
       roundId,
       executionId: "gh-run:12345678:aq-v2",
+      evaluatorSha: "c".repeat(40),
       sameRepoOpenPrHead: true,
       trustedHostControlled: true,
     })).toThrow("AQ_V2_TRUSTED_RUN_CASE_COUNT_INVALID");
@@ -90,6 +97,7 @@ describe("AQ V2 trusted run aggregation", () => {
       corpusDigest,
       roundId,
       executionId: "gh-run:12345678:aq-v2",
+      evaluatorSha: "c".repeat(40),
       sameRepoOpenPrHead: true,
       trustedHostControlled: true,
     })).toThrow("AQ_V2_TRUSTED_RUN_CASE_INVALID");
@@ -101,6 +109,7 @@ describe("AQ V2 trusted run aggregation", () => {
       corpusDigest,
       roundId,
       executionId: "gh-run:12345678:aq-v2",
+      evaluatorSha: "c".repeat(40),
       sameRepoOpenPrHead: true,
       trustedHostControlled: true,
     })).toThrow("AQ_V2_TRUSTED_RUN_CASE_INVALID");
@@ -112,6 +121,7 @@ describe("AQ V2 trusted run aggregation", () => {
       corpusDigest,
       roundId,
       executionId: "gh-run:12345678:aq-v2",
+      evaluatorSha: "c".repeat(40),
       sameRepoOpenPrHead: false,
       trustedHostControlled: false,
     });
