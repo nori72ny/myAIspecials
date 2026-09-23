@@ -134,3 +134,22 @@ For the same candidate SHA, the evidence package must include:
 - trust/verification metadata that does not visually dominate the answer.
 
 A visually weak answer cannot qualify as a world-class candidate even if its factual score is high.
+
+
+## Trusted live-execution requirement
+
+The sealed benchmark is not allowed to run merely because a candidate server can answer `/api/chat`.
+
+Before AQ V2 live evidence counts, the run must prove:
+- exact candidate SHA / same-repository open PR-head binding;
+- trusted-host control;
+- no full-corpus exposure to candidate;
+- no provider credential exposure to candidate;
+- trusted provider proxy;
+- free-only and USD 0 enforcement;
+- blocked candidate external network;
+- sanitized artifacts and logs;
+- zero prompt/secret leak detection;
+- bounded provider requests.
+
+This deliberately reuses the trust-boundary pattern from the trusted exact-candidate evaluator rather than creating a second weaker benchmark path.

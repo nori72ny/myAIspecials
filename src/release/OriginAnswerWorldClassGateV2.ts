@@ -1,3 +1,4 @@
+import type { OriginAnswerTrustedExecutionQualificationV2 } from "./OriginAnswerTrustedExecutionV2.js";
 import type { OriginAnswerVisualQualificationV2 } from "./OriginAnswerVisualEvidenceV2.js";
 import type { OriginAnswerExperienceQualificationV2 } from "./OriginAnswerExperienceV2.js";
 import type { OriginBlindPreferenceReportV2 } from "./OriginAnswerBlindPreferenceV2.js";
@@ -7,6 +8,7 @@ export interface OriginAnswerWorldClassGateInputV2 {
   readonly answerExperience: OriginAnswerExperienceQualificationV2 | null;
   readonly blindPreference: OriginBlindPreferenceReportV2 | null;
   readonly visual: OriginAnswerVisualQualificationV2 | null;
+  readonly trustedExecution: OriginAnswerTrustedExecutionQualificationV2 | null;
   readonly liveProviderRunCompleted: boolean;
   readonly zeroCost: boolean;
 }
@@ -17,6 +19,7 @@ export interface OriginAnswerWorldClassGateReportV2 {
   readonly answerExperiencePassed: boolean;
   readonly competitiveEvidencePassed: boolean;
   readonly visualEvidencePassed: boolean;
+  readonly trustedExecutionPassed: boolean;
   readonly liveEvidencePassed: boolean;
   readonly worldClassCandidate: boolean;
   readonly blockers: readonly string[];
@@ -37,6 +40,9 @@ export function evaluateOriginAnswerWorldClassGateV2(
   const visualEvidencePassed = input.visual?.passed === true;
   if (!visualEvidencePassed) blockers.push("AQ_V2_VISUAL_EVIDENCE_NOT_PROVEN");
 
+  const trustedExecutionPassed = input.trustedExecution?.passed === true;
+  if (!trustedExecutionPassed) blockers.push("AQ_V2_TRUSTED_EXECUTION_NOT_PROVEN");
+
   const liveEvidencePassed = input.liveProviderRunCompleted === true && input.zeroCost === true;
   if (!input.liveProviderRunCompleted) blockers.push("AQ_V2_LIVE_PROVIDER_RUN_MISSING");
   if (!input.zeroCost) blockers.push("AQ_V2_ZERO_COST_NOT_PROVEN");
@@ -47,8 +53,9 @@ export function evaluateOriginAnswerWorldClassGateV2(
     answerExperiencePassed,
     competitiveEvidencePassed,
     visualEvidencePassed,
+    trustedExecutionPassed,
     liveEvidencePassed,
-    worldClassCandidate: answerExperiencePassed && competitiveEvidencePassed && visualEvidencePassed && liveEvidencePassed,
+    worldClassCandidate: answerExperiencePassed && competitiveEvidencePassed && visualEvidencePassed && trustedExecutionPassed && liveEvidencePassed,
     blockers: Object.freeze(blockers),
   });
 }
