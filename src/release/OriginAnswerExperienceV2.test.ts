@@ -127,7 +127,72 @@ describe("AQ V2 blind competitive gate", () => {
     expect(report.caseCount).toBe(48);
     expect(report.opponentCount).toBe(3);
     expect(report.judgeCount).toBe(2);
+    expect(report.completeMatrixCoverage).toBe(true);
     expect(report.competitiveEvidencePassed).toBe(true);
+  });
+
+  it("fails closed when the global counts exist but per-case judge/opponent coverage is incomplete", () => {
+    const m = manifest();
+    const votes: OriginBlindPreferenceVoteV2[] = [];
+    for (const [index, item] of m.cases.entries()) {
+      const opponents = index === 0 ? ["reference-a", "reference-b", "reference-c"] : ["reference-a"];
+      for (const opponentId of opponents) {
+        votes.push({
+          caseId: item.caseId,
+          family: item.family,
+          opponentId,
+          judgeId: "judge-1",
+          overall: 1,
+          criteria: {
+            correctness: 1,
+            clarity: 1,
+            structure: 1,
+            conciseness: 1,
+            usefulness: 1,
+            evidenceUse: 1,
+          },
+        });
+      }
+    }
+    votes.push({
+      caseId: m.cases[0].caseId,
+      family: m.cases[0].family,
+      opponentId: "reference-a",
+      judgeId: "judge-2",
+      overall: 1,
+      criteria: {
+        correctness: 1,
+        clarity: 1,
+        structure: 1,
+        conciseness: 1,
+        usefulness: 1,
+        evidenceUse: 1,
+      },
+    });
+    const report = evaluateOriginBlindPreferenceV2(votes);
+    expect(report.completeMatrixCoverage).toBe(false);
+    expect(report.blockers).toContain("AQ_V2_BLIND_MATRIX_COVERAGE_INCOMPLETE");
+    expect(report.competitiveEvidencePassed).toBe(false);
+  });
+
+  it("rejects duplicate votes for the same case/opponent/judge", () => {
+    const item = manifest().cases[0];
+    const vote: OriginBlindPreferenceVoteV2 = {
+      caseId: item.caseId,
+      family: item.family,
+      opponentId: "reference-a",
+      judgeId: "judge-1",
+      overall: 1,
+      criteria: {
+        correctness: 1,
+        clarity: 1,
+        structure: 1,
+        conciseness: 1,
+        usefulness: 1,
+        evidenceUse: 1,
+      },
+    };
+    expect(() => evaluateOriginBlindPreferenceV2([vote, vote])).toThrow("AQ_V2_BLIND_DUPLICATE_VOTE");
   });
 });
 

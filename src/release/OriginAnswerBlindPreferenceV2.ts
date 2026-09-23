@@ -33,6 +33,7 @@ export interface OriginBlindPreferenceReportV2 {
   readonly lossRate: number;
   readonly meanCriterionPreference: Readonly<Record<OriginBlindPreferenceCriterionV2, number>>;
   readonly minimumFamilyNonLossRate: number;
+  readonly completeMatrixCoverage: boolean;
   readonly competitiveEvidencePassed: boolean;
   readonly blockers: readonly string[];
 }
@@ -53,6 +54,9 @@ export function evaluateOriginBlindPreferenceV2(
   votes: readonly OriginBlindPreferenceVoteV2[],
 ): OriginBlindPreferenceReportV2 {
   if (votes.length === 0) throw new Error("AQ_V2_BLIND_EMPTY");
+
+  const seenVotes = new Set<string>();
+  const caseFamily = new Map<string, OriginAnswerExperienceFamilyV2>();
   for (const vote of votes) {
     if (!validId(vote.caseId) || !validId(vote.opponentId) || !validId(vote.judgeId)) {
       throw new Error("AQ_V2_BLIND_ID_INVALID");
@@ -60,11 +64,42 @@ export function evaluateOriginBlindPreferenceV2(
     if (!validPreference(vote.overall) || !ORIGIN_AQ_V2_BLIND_CRITERIA.every(key => validPreference(vote.criteria[key]))) {
       throw new Error("AQ_V2_BLIND_SCORE_INVALID");
     }
+
+    const voteKey = `${vote.caseId}\t${vote.opponentId}\t${vote.judgeId}`;
+    if (seenVotes.has(voteKey)) throw new Error("AQ_V2_BLIND_DUPLICATE_VOTE");
+    seenVotes.add(voteKey);
+
+    const observedFamily = caseFamily.get(vote.caseId);
+    if (observedFamily && observedFamily !== vote.family) {
+      throw new Error("AQ_V2_BLIND_CASE_FAMILY_MISMATCH");
+    }
+    caseFamily.set(vote.caseId, vote.family);
   }
 
   const cases = new Set(votes.map(vote => vote.caseId));
   const opponents = new Set(votes.map(vote => vote.opponentId));
   const judges = new Set(votes.map(vote => vote.judgeId));
+
+  const blockers: string[] = [];
+  if (cases.size !== 48) blockers.push("AQ_V2_BLIND_CASE_COVERAGE_INCOMPLETE");
+  if (opponents.size < 3) blockers.push("AQ_V2_BLIND_OPPONENT_COVERAGE_INCOMPLETE");
+  if (judges.size < 2) blockers.push("AQ_V2_BLIND_JUDGE_COVERAGE_INCOMPLETE");
+
+  let completeMatrixCoverage = cases.size === 48 && opponents.size >= 3 && judges.size >= 2;
+  if (completeMatrixCoverage) {
+    for (const caseId of cases) {
+      for (const opponentId of opponents) {
+        const pairVotes = votes.filter(vote => vote.caseId === caseId && vote.opponentId === opponentId);
+        const pairJudges = new Set(pairVotes.map(vote => vote.judgeId));
+        if (pairJudges.size !== judges.size || pairVotes.length !== judges.size) {
+          completeMatrixCoverage = false;
+          break;
+        }
+      }
+      if (!completeMatrixCoverage) break;
+    }
+  }
+  if (!completeMatrixCoverage) blockers.push("AQ_V2_BLIND_MATRIX_COVERAGE_INCOMPLETE");
 
   const wins = votes.filter(vote => vote.overall === 1).length;
   const ties = votes.filter(vote => vote.overall === 0).length;
@@ -80,10 +115,6 @@ export function evaluateOriginBlindPreferenceV2(
     ORIGIN_AQ_V2_BLIND_CRITERIA.map(key => [key, mean(votes.map(vote => vote.criteria[key]))]),
   ) as Record<OriginBlindPreferenceCriterionV2, number>;
 
-  const blockers: string[] = [];
-  if (cases.size < 48) blockers.push("AQ_V2_BLIND_CASE_COVERAGE_INCOMPLETE");
-  if (opponents.size < 3) blockers.push("AQ_V2_BLIND_OPPONENT_COVERAGE_INCOMPLETE");
-  if (judges.size < 2) blockers.push("AQ_V2_BLIND_JUDGE_COVERAGE_INCOMPLETE");
   const winRate = wins / votes.length;
   const tieRate = ties / votes.length;
   const lossRate = losses / votes.length;
@@ -106,6 +137,7 @@ export function evaluateOriginBlindPreferenceV2(
     lossRate,
     meanCriterionPreference: Object.freeze(meanCriterionPreference),
     minimumFamilyNonLossRate,
+    completeMatrixCoverage,
     competitiveEvidencePassed: blockers.length === 0,
     blockers: Object.freeze(blockers),
   });
