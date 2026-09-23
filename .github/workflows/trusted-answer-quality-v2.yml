@@ -258,6 +258,7 @@ jobs:
           ORIGIN_AQ_V2_CORPUS_DIGEST: ${{ needs.preflight.outputs.corpus_digest }}
           ORIGIN_AQ_V2_ROUND_ID: ${{ inputs.round_id }}
           ORIGIN_AQ_V2_EXECUTION_ID: gh-run:${{ github.run_id }}:aq-v2
+          ORIGIN_AQ_V2_EVALUATOR_SHA: ${{ github.sha }}
           ORIGIN_AQ_V2_PR_BINDING_VERIFIED: 'true'
           ORIGIN_AQ_V2_TRUSTED_HOST_CONTROLLED: 'true'
         run: node --import tsx scripts/summarize-trusted-answer-run-v2.ts
