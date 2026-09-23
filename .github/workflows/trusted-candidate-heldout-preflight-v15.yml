@@ -30,12 +30,15 @@ jobs:
     steps:
       - name: Require trusted default-branch workflow context
         shell: bash
+        env:
+          CANDIDATE_SHA_INPUT: ${{ inputs.candidate_sha }}
+          PR_NUMBER_INPUT: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = 'refs/heads/main'
           test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
-          [[ "${{ inputs.candidate_sha }}" =~ ^[a-f0-9]{40}$ ]]
-          [[ "${{ inputs.pr_number }}" =~ ^[0-9]+$ ]]
+          [[ "$CANDIDATE_SHA_INPUT" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$PR_NUMBER_INPUT" =~ ^[0-9]+$ ]]
 
       - name: Validate exact candidate belongs to one open same-repository PR
         shell: bash
