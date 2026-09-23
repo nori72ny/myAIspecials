@@ -4,25 +4,24 @@ import type {
   OriginAnswerExperiencePreparedCorpusV2,
 } from "./OriginAnswerExperienceSealedCorpusV2.js";
 
-export interface OriginAnswerCaseLeasePublicV2 {
-  readonly schemaVersion: "origin.answer-case-lease-public.v2";
+export interface OriginAnswerCaseLeaseCandidateV2 {
+  readonly schemaVersion: "origin.answer-case-lease-candidate.v2";
   readonly leaseId: string;
-  readonly candidateSha: string;
-  readonly roundId: string;
-  readonly caseId: string;
-  readonly family: string;
   readonly prompt: string;
-  readonly promptDigest: string;
-  readonly ordinal: number;
-  readonly totalCases: number;
 }
 
 export interface OriginAnswerCaseLeaseTrustedV2 {
   readonly schemaVersion: "origin.answer-case-lease-trusted.v2";
   readonly leaseId: string;
+  readonly candidateSha: string;
+  readonly roundId: string;
   readonly corpusDigest: string;
-  readonly evaluatorNotes: string;
+  readonly caseId: string;
+  readonly family: string;
   readonly promptDigest: string;
+  readonly ordinal: number;
+  readonly totalCases: number;
+  readonly evaluatorNotes: string;
 }
 
 function sha256(value: string): string {
@@ -45,7 +44,7 @@ export function leaseOriginAnswerExperienceCaseV2(
     readonly ordinal: number;
   },
 ): {
-  readonly publicLease: OriginAnswerCaseLeasePublicV2;
+  readonly candidateLease: OriginAnswerCaseLeaseCandidateV2;
   readonly trustedLease: OriginAnswerCaseLeaseTrustedV2;
 } {
   if (!validSha(input.candidateSha) || !validRoundId(input.roundId)) {
@@ -67,42 +66,53 @@ export function leaseOriginAnswerExperienceCaseV2(
   ].join("\n")).slice(0, 32);
 
   return Object.freeze({
-    publicLease: Object.freeze({
-      schemaVersion: "origin.answer-case-lease-public.v2",
+    candidateLease: Object.freeze({
+      schemaVersion: "origin.answer-case-lease-candidate.v2",
       leaseId,
-      candidateSha: input.candidateSha,
-      roundId: input.roundId,
-      caseId: item.caseId,
-      family: item.family,
       prompt: item.prompt,
-      promptDigest,
-      ordinal: input.ordinal,
-      totalCases: prepared.privateCorpus.cases.length,
     }),
     trustedLease: Object.freeze({
       schemaVersion: "origin.answer-case-lease-trusted.v2",
       leaseId,
+      candidateSha: input.candidateSha,
+      roundId: input.roundId,
       corpusDigest: prepared.corpusDigest,
-      evaluatorNotes: item.evaluatorNotes,
+      caseId: item.caseId,
+      family: item.family,
       promptDigest,
+      ordinal: input.ordinal,
+      totalCases: prepared.privateCorpus.cases.length,
+      evaluatorNotes: item.evaluatorNotes,
     }),
   });
 }
 
 export function assertOriginAnswerCaseLeaseIsolationV2(input: {
-  readonly publicLease: OriginAnswerCaseLeasePublicV2;
+  readonly candidateLease: OriginAnswerCaseLeaseCandidateV2;
   readonly trustedLease: OriginAnswerCaseLeaseTrustedV2;
   readonly fullCorpusSerialized: string;
 }): void {
-  const publicSerialized = JSON.stringify(input.publicLease);
-  if (publicSerialized.includes(input.trustedLease.evaluatorNotes)) {
-    throw new Error("AQ_V2_CASE_LEASE_EVALUATOR_NOTES_LEAK");
-  }
-  if (publicSerialized.includes(input.trustedLease.corpusDigest)) {
-    throw new Error("AQ_V2_CASE_LEASE_CORPUS_DIGEST_LEAK");
+  const publicSerialized = JSON.stringify(input.candidateLease);
+  const forbidden = [
+    input.trustedLease.evaluatorNotes,
+    input.trustedLease.corpusDigest,
+    input.trustedLease.candidateSha,
+    input.trustedLease.roundId,
+    input.trustedLease.caseId,
+    input.trustedLease.family,
+    input.trustedLease.promptDigest,
+    String(input.trustedLease.ordinal),
+    String(input.trustedLease.totalCases),
+  ].filter(value => value.length > 0);
+
+  if (forbidden.some(value => publicSerialized.includes(value))) {
+    throw new Error("AQ_V2_CASE_LEASE_TRUSTED_METADATA_LEAK");
   }
   if (input.fullCorpusSerialized === publicSerialized) {
     throw new Error("AQ_V2_CASE_LEASE_FULL_CORPUS_EXPOSED");
+  }
+  if (Object.keys(input.candidateLease).sort().join(",") !== "leaseId,prompt,schemaVersion") {
+    throw new Error("AQ_V2_CASE_LEASE_SURFACE_INVALID");
   }
 }
 
@@ -110,7 +120,9 @@ export interface OriginAnswerCaseResultTrustedV2 {
   readonly schemaVersion: "origin.answer-case-result-trusted.v2";
   readonly leaseId: string;
   readonly candidateSha: string;
+  readonly roundId: string;
   readonly caseId: string;
+  readonly family: string;
   readonly promptDigest: string;
   readonly answer: string;
   readonly answerDigest: string;
@@ -120,13 +132,15 @@ export interface OriginAnswerCaseResultTrustedV2 {
 }
 
 export function buildOriginAnswerCaseResultTrustedV2(input: {
-  readonly publicLease: OriginAnswerCaseLeasePublicV2;
+  readonly candidateLease: OriginAnswerCaseLeaseCandidateV2;
+  readonly trustedLease: OriginAnswerCaseLeaseTrustedV2;
   readonly answer: string;
   readonly providerRequests: number;
   readonly costUsd: number;
 }): OriginAnswerCaseResultTrustedV2 {
   if (
-    typeof input.answer !== "string"
+    input.candidateLease.leaseId !== input.trustedLease.leaseId
+    || typeof input.answer !== "string"
     || input.answer.trim().length === 0
     || input.answer.length > 200_000
     || !Number.isInteger(input.providerRequests)
@@ -139,10 +153,12 @@ export function buildOriginAnswerCaseResultTrustedV2(input: {
 
   return Object.freeze({
     schemaVersion: "origin.answer-case-result-trusted.v2",
-    leaseId: input.publicLease.leaseId,
-    candidateSha: input.publicLease.candidateSha,
-    caseId: input.publicLease.caseId,
-    promptDigest: input.publicLease.promptDigest,
+    leaseId: input.trustedLease.leaseId,
+    candidateSha: input.trustedLease.candidateSha,
+    roundId: input.trustedLease.roundId,
+    caseId: input.trustedLease.caseId,
+    family: input.trustedLease.family,
+    promptDigest: input.trustedLease.promptDigest,
     answer: input.answer,
     answerDigest: sha256(input.answer),
     answerLength: input.answer.length,

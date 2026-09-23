@@ -27,7 +27,7 @@ function prepared() {
 }
 
 describe("AQ V2 trusted one-case leasing", () => {
-  it("exposes only one prompt and keeps evaluator notes/full corpus trusted", () => {
+  it("exposes only opaque lease id + one prompt to candidate", () => {
     const corpus = prepared();
     const leased = leaseOriginAnswerExperienceCaseV2(corpus, {
       candidateSha: "a".repeat(40),
@@ -35,9 +35,14 @@ describe("AQ V2 trusted one-case leasing", () => {
       ordinal: 7,
     });
 
-    expect(leased.publicLease.prompt).toBe("PRIVATE PROMPT 3-2");
-    expect(JSON.stringify(leased.publicLease)).not.toContain("PRIVATE NOTES");
-    expect(JSON.stringify(leased.publicLease)).not.toContain(corpus.corpusDigest);
+    expect(leased.candidateLease.prompt).toBe("PRIVATE PROMPT 3-2");
+    expect(Object.keys(leased.candidateLease).sort()).toEqual(["leaseId", "prompt", "schemaVersion"]);
+    const candidateJson = JSON.stringify(leased.candidateLease);
+    expect(candidateJson).not.toContain("PRIVATE NOTES");
+    expect(candidateJson).not.toContain(corpus.corpusDigest);
+    expect(candidateJson).not.toContain(leased.trustedLease.caseId);
+    expect(candidateJson).not.toContain(leased.trustedLease.family);
+    expect(candidateJson).not.toContain(leased.trustedLease.candidateSha);
     expect(leased.trustedLease.evaluatorNotes).toBe("PRIVATE NOTES 3-2");
     expect(() => assertOriginAnswerCaseLeaseIsolationV2({
       ...leased,
@@ -45,37 +50,46 @@ describe("AQ V2 trusted one-case leasing", () => {
     })).not.toThrow();
   });
 
-  it("binds a result to the exact lease and enforces zero cost", () => {
+  it("binds a result to the exact trusted lease and enforces zero cost", () => {
     const leased = leaseOriginAnswerExperienceCaseV2(prepared(), {
       candidateSha: "a".repeat(40),
       roundId: "round-1",
       ordinal: 0,
     });
     const result = buildOriginAnswerCaseResultTrustedV2({
-      publicLease: leased.publicLease,
+      ...leased,
       answer: "A grounded answer.",
       providerRequests: 1,
       costUsd: 0,
     });
-    expect(result.caseId).toBe(leased.publicLease.caseId);
+    expect(result.caseId).toBe(leased.trustedLease.caseId);
+    expect(result.family).toBe(leased.trustedLease.family);
+    expect(result.candidateSha).toBe("a".repeat(40));
     expect(result.answerDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(result.costUsd).toBe(0);
   });
 
-  it("rejects paid or excessive provider use", () => {
+  it("rejects mismatched lease ids, paid use or excessive provider use", () => {
     const leased = leaseOriginAnswerExperienceCaseV2(prepared(), {
       candidateSha: "a".repeat(40),
       roundId: "round-1",
       ordinal: 0,
     });
     expect(() => buildOriginAnswerCaseResultTrustedV2({
-      publicLease: leased.publicLease,
+      candidateLease: leased.candidateLease,
+      trustedLease: { ...leased.trustedLease, leaseId: "f".repeat(32) },
+      answer: "Answer",
+      providerRequests: 1,
+      costUsd: 0,
+    })).toThrow("AQ_V2_CASE_RESULT_INVALID");
+    expect(() => buildOriginAnswerCaseResultTrustedV2({
+      ...leased,
       answer: "Answer",
       providerRequests: 5,
       costUsd: 0,
     })).toThrow("AQ_V2_CASE_RESULT_INVALID");
     expect(() => buildOriginAnswerCaseResultTrustedV2({
-      publicLease: leased.publicLease,
+      ...leased,
       answer: "Answer",
       providerRequests: 1,
       costUsd: 0.01,
