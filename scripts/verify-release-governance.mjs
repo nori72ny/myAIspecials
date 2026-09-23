@@ -37,10 +37,24 @@ export async function verifyReleaseGovernance(env = process.env, fetchImpl = fet
     true,
     "RELEASE_GOVERNANCE_MAIN_UNPROTECTED: main must be protected before Production release approval or publication smoke.",
   );
+  const required = branch?.protection?.required_status_checks;
+  const enforcement = String(required?.enforcement_level ?? "off");
+  const contexts = Array.isArray(required?.contexts) ? required.contexts : [];
+  const checks = Array.isArray(required?.checks) ? required.checks : [];
+  assert.notEqual(
+    enforcement,
+    "off",
+    "RELEASE_GOVERNANCE_REQUIRED_CHECKS_MISSING: main protection must enforce required status checks.",
+  );
+  assert.ok(
+    contexts.length + checks.length > 0,
+    "RELEASE_GOVERNANCE_REQUIRED_CHECKS_MISSING: at least one required status check must protect main.",
+  );
   return {
     status: "passed",
     branch: "main",
     protected: true,
+    requiredStatusChecks: true,
     sha: String(branch?.commit?.sha ?? ""),
   };
 }
