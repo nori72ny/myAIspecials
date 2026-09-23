@@ -152,6 +152,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ source: 'ORIGIN_ARTIFACT_THEME', designTheme: 'minimal', tokens: expect.objectContaining({ '--accent-primary': 'oklch(0.62 0.15 235)' }) }), '*');
     expect(frame.getAttribute('data-origin-srcdoc')).toContain('data-origin-theme-bridge="true"');
     expect(frame.getAttribute('data-origin-srcdoc')).toContain('event.source!==parent');
+    expect(frame.getAttribute('data-origin-srcdoc')).toContain("event.source!==parent)return;var data=event.data;if(!data||data.source!=='ORIGIN_PRESENTATION'");
     rerender(<ArtifactWorkspace artifact={artifact} isOpen language="ja" designTheme="luxury" onClose={() => undefined} />);
     expect(screen.getByTitle('プレビュー')).toBe(frame);
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ source: 'ORIGIN_ARTIFACT_THEME', designTheme: 'luxury' }), '*'));
