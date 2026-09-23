@@ -109,8 +109,7 @@ jobs:
           ROUND_ID: ${{ inputs.round_id }}
         run: |
           set -euo pipefail
-          round_hash="$(printf '%s' "$ROUND_ID" | sha256sum | cut -c1-16)"
-          context="origin/aq-v2/${CORPUS_DIGEST:0:16}/${round_hash}"
+          context="origin/aq-v2/${CORPUS_DIGEST:0:16}"
           echo "status_context=$context" >> "$GITHUB_OUTPUT"
           page=1
           while :; do
@@ -198,6 +197,31 @@ jobs:
 
       - name: Prepare isolated runtime image
         run: docker pull node:22-bookworm-slim
+
+      - name: Revalidate exact candidate PR binding immediately before execution
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            -o pr.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const pr=JSON.parse(fs.readFileSync('pr.json','utf8'));
+          const fail=code=>{console.error(code);process.exit(2);};
+          if(pr?.state!=='open') fail('AQ_V2_CANDIDATE_PR_NOT_OPEN_AT_EXECUTION');
+          if(pr?.base?.ref!=='main') fail('AQ_V2_CANDIDATE_BASE_INVALID_AT_EXECUTION');
+          if(pr?.head?.repo?.full_name!==process.env.GITHUB_REPOSITORY) fail('AQ_V2_CANDIDATE_FORK_BLOCKED_AT_EXECUTION');
+          if(pr?.head?.sha!==process.env.CANDIDATE_SHA) fail('AQ_V2_CANDIDATE_SHA_CHANGED_BEFORE_EXECUTION');
+          NODE
+          rm -f pr.json
 
       - name: Verify secret boundary before execution
         env:
