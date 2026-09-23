@@ -165,7 +165,7 @@ describe("AQ V2 independently scored quality binding", () => {
     expect(report.passed).toBe(false);
     expect(report.absoluteQualityPassed).toBe(false);
     expect(report.blockers).toContain("AQ_V2_UNSUPPORTED_MATERIAL_CLAIM");
-    expect(report.blockers.some(blocker => blocker.startsWith("AQ_V2_AXIS_BELOW_MINIMUM:"))).toBe(true);
+    expect(report.blockers).toContain("AQ_V2_FAMILY_BELOW_MINIMUM");
   });
 
   it("fails when trusted execution itself did not qualify", () => {
