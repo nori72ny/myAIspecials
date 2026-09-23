@@ -136,11 +136,8 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
         if (!response.ok) {
           const status = response.status;
-          let errorBody = "";
-          try {
-            errorBody = await response.text();
-          } catch (_) {}
-
+          // Never read or retain upstream response bodies on failure. Provider bodies may
+          // contain echoed prompts, credentials, or other sensitive diagnostics.
           const requestId = response.headers.get("x-request-id") || undefined;
 
           if (status === 429) {
@@ -149,7 +146,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
               await this.delay(initialDelayMs * Math.pow(2, attempt));
               continue;
             }
-            throw new OpenRouterError("Rate limit exceeded on OpenRouter. Please try again later.", 429, requestId, errorBody);
+            throw new OpenRouterError("Rate limit exceeded on OpenRouter. Please try again later.", 429, requestId);
           }
 
           if (status >= 500) {
@@ -158,7 +155,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
               await this.delay(initialDelayMs * Math.pow(2, attempt));
               continue;
             }
-            throw new OpenRouterError(`OpenRouter server returned an error: ${status}`, status, requestId, errorBody);
+            throw new OpenRouterError(`OpenRouter server returned an error: ${status}`, status, requestId);
           }
 
           throw new OpenRouterError(`OpenRouter request failed with status: ${status}`, status, requestId, errorBody);
@@ -209,13 +206,13 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
           throw error;
         }
 
-        Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}: ${error.message}`, error);
+        Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}`, { name: error?.name || "Error" });
 
         if (attempt < maxAttempts) {
           await this.delay(initialDelayMs * Math.pow(2, attempt));
           continue;
         }
-        throw new OpenRouterError(error.message || "An unexpected error occurred during OpenRouter generation.", undefined, undefined, error);
+        throw new OpenRouterError("An unexpected OpenRouter transport error occurred.");
       } finally {
         clearTimeout(timeoutId);
         if (options?.signal && onAbort) {
