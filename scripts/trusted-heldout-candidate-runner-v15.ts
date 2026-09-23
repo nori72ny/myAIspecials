@@ -90,18 +90,18 @@ function projectCandidateSession(value: unknown): CandidateSessionProjection {
   return projected;
 }
 
-function emitTrustedEnvelope(envelope: Record<string, unknown>, exitCode: number): never {
+function emitTrustedEnvelope(envelope: Record<string, unknown>, exitCode: number): void {
   // Candidate code may mutate globals or register late hooks. Strip hooks after all
   // candidate-derived property reads, serialize only null-prototype trusted projections,
   // write directly to fd 1, and synchronously terminate before later timers can run.
   trustedRemoveAllListeners('beforeExit');
   trustedRemoveAllListeners('exit');
   const serialized = RESULT_PREFIX + trustedStringify(envelope) + '\n';
-  trustedWriteSync(1, serialized, undefined, 'utf8');
+  trustedWriteSync(1, serialized);
   trustedExit(exitCode);
 }
 
-function emitTrustedSuccess(packet: VisiblePacket, durationMs: number, session: unknown): never {
+function emitTrustedSuccess(packet: VisiblePacket, durationMs: number, session: unknown): void {
   const projectedSession = projectCandidateSession(session);
   const envelope = trustedObjectCreate(null) as Record<string, unknown>;
   envelope.schemaVersion = 'origin-trusted-candidate-agent-result-v1';
@@ -112,7 +112,7 @@ function emitTrustedSuccess(packet: VisiblePacket, durationMs: number, session: 
   emitTrustedEnvelope(envelope, 0);
 }
 
-function emitTrustedFailure(code: string): never {
+function emitTrustedFailure(code: string): void {
   const envelope = trustedObjectCreate(null) as Record<string, unknown>;
   envelope.schemaVersion = 'origin-trusted-candidate-agent-result-v1';
   envelope.error = code;
