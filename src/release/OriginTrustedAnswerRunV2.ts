@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { ORIGIN_AQ_V2_FAMILIES } from "./OriginAnswerExperienceV2.js";
+import { digestOriginAnswerExperienceRubricV2 } from "./OriginAnswerExperienceRubricV2.js";
 import type { OriginAnswerCaseResultTrustedV2 } from "./OriginAnswerTrustedCaseLeaseV2.js";
+import type { OriginAnswerEvaluationBindingV2 } from "./OriginAnswerEvaluationBindingV2.js";
 import {
   qualifyOriginAnswerTrustedExecutionV2,
   type OriginAnswerTrustedExecutionEvidenceV2,
@@ -33,6 +35,7 @@ export interface OriginTrustedAnswerRunAggregateV2 {
   readonly schemaVersion: "origin.trusted-answer-run-aggregate.v2";
   readonly evidence: OriginAnswerTrustedExecutionEvidenceV2;
   readonly qualification: OriginAnswerTrustedExecutionQualificationV2;
+  readonly binding: OriginAnswerEvaluationBindingV2;
   readonly completedCases: number;
   readonly familyCounts: Readonly<Record<string, number>>;
 }
@@ -64,6 +67,7 @@ export function aggregateOriginTrustedAnswerRunV2(
     readonly corpusDigest: string;
     readonly roundId: string;
     readonly executionId: string;
+    readonly evaluatorSha: string;
     readonly sameRepoOpenPrHead: boolean;
     readonly trustedHostControlled: boolean;
   },
@@ -73,6 +77,7 @@ export function aggregateOriginTrustedAnswerRunV2(
     || !validDigest(expected.corpusDigest)
     || !validRoundId(expected.roundId)
     || !validExecutionId(expected.executionId)
+    || !validSha(expected.evaluatorSha)
   ) {
     throw new Error("AQ_V2_TRUSTED_RUN_EXPECTATION_INVALID");
   }
@@ -189,10 +194,20 @@ export function aggregateOriginTrustedAnswerRunV2(
     expected.corpusDigest,
   );
 
+  const binding: OriginAnswerEvaluationBindingV2 = Object.freeze({
+    schemaVersion: "origin.answer-evaluation-binding.v2",
+    candidateSha: expected.candidateSha,
+    corpusDigest: expected.corpusDigest,
+    evaluatorSha: expected.evaluatorSha,
+    rubricDigest: digestOriginAnswerExperienceRubricV2(),
+    roundId: expected.roundId,
+  });
+
   return Object.freeze({
     schemaVersion: "origin.trusted-answer-run-aggregate.v2",
     evidence,
     qualification,
+    binding,
     completedCases: cases.length,
     familyCounts: Object.freeze({ ...familyCounts }),
   });
