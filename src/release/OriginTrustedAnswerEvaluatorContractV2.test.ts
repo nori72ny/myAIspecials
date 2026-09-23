@@ -51,6 +51,16 @@ describe("AQ V2 trusted exact-candidate execution contract", () => {
     expect(codingBoundary).toContain("plan.taskType !== 'implementation'");
   });
 
+  it("counts provider attempts even when the trusted provider call fails", () => {
+    const proxy = read("scripts/trusted-answer-provider-proxy-v2.ts");
+    const catchStart = proxy.indexOf("} catch (error) {");
+    const catchEnd = proxy.indexOf("\n    }", catchStart);
+    const catchBlock = proxy.slice(catchStart, catchEnd);
+    expect(catchBlock).toContain("const requestCount = boundary.used()");
+    expect(catchBlock).toContain('event: "trusted-answer-provider-request"');
+    expect(catchBlock).toContain("requestCount");
+  });
+
   it("fails closed if candidate output contains hidden corpus metadata or credentials", () => {
     const controller = read("scripts/run-trusted-answer-case-v2.ts");
     expect(controller).toContain("TRUSTED_ANSWER_CANDIDATE_LEAK_DETECTED");
