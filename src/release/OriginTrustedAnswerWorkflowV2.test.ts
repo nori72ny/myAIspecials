@@ -91,6 +91,8 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(reserve).toBeGreaterThan(0);
     expect(evaluate).toBeGreaterThan(reserve);
     expect(workflow).toContain('context="origin/aq-v2-corpus/${CORPUS_DIGEST}"');
+    expect(workflow).toContain("CORPUS_DIGEST: ${{ needs.preflight.outputs.corpus_digest }}");
+    expect(workflow).not.toContain("CORPUS_DIGEST: ${{ steps.corpus.outputs.corpus_digest }}");
     expect(workflow).toContain("LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c");
     expect(workflow).toContain('/commits/${LEDGER_ANCHOR_SHA}/statuses?per_page=100&page=${page}');
     expect(workflow).toContain('/statuses/${LEDGER_ANCHOR_SHA}');
