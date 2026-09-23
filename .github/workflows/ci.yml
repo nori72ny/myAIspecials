@@ -35,10 +35,11 @@ jobs:
         fetch-depth: 0
     - name: Run Secret Scanning (Gitleaks)
       uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0 / Node 24
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        GITLEAKS_ENABLE_COMMENTS: "false"
     - name: Run Full Git History Secret Scan
       run: gitleaks detect --redact -v --exit-code=2 --log-opts="--all"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
