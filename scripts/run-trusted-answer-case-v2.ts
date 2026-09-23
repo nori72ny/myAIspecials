@@ -15,6 +15,9 @@ import {
 import {
   assertTrustedCandidateVerificationBaselineV15,
 } from "../src/release/OriginTrustedCandidateWorkspaceGuardV15.js";
+import type {
+  OriginTrustedAnswerCaseEvidenceV2,
+} from "../src/release/OriginTrustedAnswerRunV2.js";
 
 const IMAGE = "node:22-bookworm-slim";
 const RESULT_PREFIX = "ORIGIN_TRUSTED_ANSWER_RESULT ";
@@ -388,7 +391,7 @@ async function main(): Promise<void> {
       costUsd: 0,
     });
 
-    const evidence = {
+    const evidence: OriginTrustedAnswerCaseEvidenceV2 = {
       schemaVersion: "origin.trusted-answer-case-evidence.v2",
       candidateSha,
       corpusDigest: prepared.corpusDigest,
