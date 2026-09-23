@@ -1,0 +1,157 @@
+name: Trusted exact-candidate held-out preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact 40-character candidate commit SHA
+        required: true
+        type: string
+      pr_number:
+        description: Open same-repository PR whose head must equal candidate_sha
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+  statuses: read
+
+concurrency:
+  group: origin-trusted-candidate-heldout-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Require trusted default-branch workflow context
+        shell: bash
+        env:
+          CANDIDATE_SHA_INPUT: ${{ inputs.candidate_sha }}
+          PR_NUMBER_INPUT: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          [[ "$CANDIDATE_SHA_INPUT" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$PR_NUMBER_INPUT" =~ ^[0-9]+$ ]]
+
+      - name: Validate exact candidate belongs to one open same-repository PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error             -H 'Accept: application/vnd.github+json'             -H "Authorization: Bearer ${GH_TOKEN}"             -H 'X-GitHub-Api-Version: 2026-03-10'             "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}"             -o pr.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const pr = JSON.parse(fs.readFileSync('pr.json', 'utf8'));
+          const fail = code => { console.error(code); process.exit(2); };
+          if (pr?.state !== 'open') fail('TRUSTED_CANDIDATE_PR_NOT_OPEN');
+          if (pr?.base?.ref !== 'main') fail('TRUSTED_CANDIDATE_BASE_INVALID');
+          if (pr?.head?.repo?.full_name !== process.env.GITHUB_REPOSITORY) fail('TRUSTED_CANDIDATE_FORK_BLOCKED');
+          if (pr?.head?.sha !== process.env.CANDIDATE_SHA) fail('TRUSTED_CANDIDATE_SHA_MISMATCH');
+          NODE
+          rm -f pr.json
+
+      - name: Checkout trusted evaluator from main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install trusted evaluator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Bind sealed corpus to exact candidate without executing candidate code
+        shell: bash
+        env:
+          ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
+          ORIGIN_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          test -n "$ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64"
+          mkdir -p test-results
+          node --import tsx scripts/select-held-out-final-candidate-v15.ts > test-results/trusted-candidate-binding.json
+          chmod 600 test-results/trusted-candidate-binding.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const raw = fs.readFileSync('test-results/trusted-candidate-binding.json', 'utf8');
+          const value = JSON.parse(raw);
+          const forbidden = ['goal','hiddenTests','content','prompt','messages','OPENROUTER_API_KEY'];
+          if (forbidden.some(x => raw.includes(x))) process.exit(2);
+          if (value?.schemaVersion !== 'origin-held-out-candidate-binding-v1') process.exit(2);
+          if (value?.candidateSha !== process.env.ORIGIN_CANDIDATE_SHA) process.exit(2);
+          if (!/^[a-f0-9]{64}$/.test(value?.sourceCorpusDigest ?? '')) process.exit(2);
+          if (!/^[a-f0-9]{64}$/.test(value?.candidateCorpusDigest ?? '')) process.exit(2);
+          if (!Array.isArray(value?.taskIds) || value.taskIds.length < 6) process.exit(2);
+          NODE
+
+      - name: Enforce source-corpus one-shot identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          marker="$(node -e "const v=require('./test-results/trusted-candidate-binding.json'); process.stdout.write(v.oneShotMarkerName)")"
+          curl --fail --silent --show-error             -H 'Accept: application/vnd.github+json'             -H "Authorization: Bearer ${GH_TOKEN}"             -H 'X-GitHub-Api-Version: 2026-03-10'             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${marker}&per_page=100"             -o marker.json
+          count="$(node -e "const v=require('./marker.json'); process.stdout.write(String(v.total_count || 0))")"
+          rm -f marker.json
+          if [ "$count" != '0' ]; then
+            echo "::error::This sealed source corpus has already been started and cannot be rebound to another candidate."
+            exit 2
+          fi
+
+      - name: Enforce append-only one-shot status ledger
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
+        run: |
+          set -euo pipefail
+          source_digest="$(node -e "const v=require('./test-results/trusted-candidate-binding.json'); process.stdout.write(v.sourceCorpusDigest)")"
+          context="origin/heldout-source/${source_digest}"
+          page=1
+          while :; do
+            curl --fail --silent --show-error \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${ANCHOR_SHA}/statuses?per_page=100&page=${page}" \
+              -o statuses.json
+            count="$(node -e "const v=require('./statuses.json'); process.stdout.write(String(v.length))")"
+            found="$(CONTEXT="$context" node - <<'NODE'
+          const fs=require('node:fs');
+          const rows=JSON.parse(fs.readFileSync('statuses.json','utf8'));
+          process.stdout.write(rows.some(row => row?.context === process.env.CONTEXT) ? '1' : '0');
+          NODE
+          )"
+            rm -f statuses.json
+            if [ "$found" = '1' ]; then
+              echo "::error::The sealed source corpus is already present in the append-only status ledger."
+              exit 2
+            fi
+            [ "$count" = '100' ] || break
+            page=$((page + 1))
+            [ "$page" -le 20 ] || { echo "::error::One-shot status ledger pagination limit exceeded."; exit 2; }
+          done
+
+      - name: Preserve sanitized candidate-binding evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: trusted-candidate-heldout-preflight-${{ inputs.candidate_sha }}
+          path: test-results/trusted-candidate-binding.json
+          retention-days: 30
+          if-no-files-found: error

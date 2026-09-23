@@ -20,6 +20,12 @@ on:
       - 'scripts/coding-*'
       - 'scripts/run-coding-job-worker-v14.ts'
       - 'scripts/select-held-out-final-*.ts'
+      - 'scripts/trusted-*.ts'
+      - 'scripts/run-trusted-*.ts'
+      - 'scripts/summarize-trusted-*.ts'
+      - 'src/release/OriginHeldOutCandidate*.ts'
+      - 'src/release/OriginTrustedCandidate*.ts'
+      - '.github/workflows/trusted-candidate-heldout*.yml'
       - 'scripts/summarize-held-out-final-run-v14.ts'
       - '.github/workflows/held-out-coding-final-v14.yml'
       - '.github/workflows/coding-session-sandbox.yml'
@@ -47,6 +53,8 @@ jobs:
             --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
             --env HOME=/tmp node:22-bookworm-slim \
             npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify trusted Unix-socket provider isolation
+        run: node --import tsx scripts/trusted-provider-socket-isolation.integration.ts
       - name: Run bounded offline coding session
         run: bash scripts/coding-session-sandbox.sh
       - name: Verify full test suite with Production worker isolation
