@@ -44,7 +44,7 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 | legacy provider endpoint | NOT ELIGIBLE | ORIGINの安全・無料実行境界を迂回できないよう無効 |
 | AI Studio direct runtime | NOT ELIGIBLE | fail-closed境界のみで、正式routeへ未接続 |
 
-第2公開の公開先はVercelだけとする。ただし、実際のデプロイはオーナーが別途明示承認した後に限る。この文書はホスティングサービス、アカウント、認証情報、課金設定の変更を承認しない。
+第2公開の公開先はVercelだけとする。ただし、実際のデプロイはオーナーが別途明示承認した後に限る。mainのGit pushによる自動Production deploymentを無効化し、PR branchのPreview deploymentは維持する。Production deploymentは、リリースゲートを満たしたExact SHAに対してオーナー承認後に明示実行する。この文書はホスティングサービス、アカウント、認証情報、課金設定の変更を承認しない。
 
 ## 公開前の必須条件
 
