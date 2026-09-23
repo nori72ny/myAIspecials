@@ -19,9 +19,9 @@ type CheckKind = (typeof checks)[number];
 
 const commands: Record<CheckKind, string> = {
   typecheck: 'tsc --noEmit',
-  lint: 'mkdir -p test-results && (tsc --noEmit > test-results/lint.log 2>&1 || (cat test-results/lint.log && exit 1)) && node scripts/design-token-lock.js',
+  lint: 'tsc --noEmit && node scripts/design-token-lock.js',
   test: "FREE_ONLY=false vitest run --configLoader runner --maxWorkers=2 --exclude 'tests/e2e/**' --exclude 'tests/api/**' --reporter=default",
-  build: 'vite build --configLoader runner && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs',
+  build: 'rm -rf /tmp/origin-dist && vite build --configLoader runner --outDir /tmp/origin-dist && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=/tmp/origin-dist/server.cjs',
 };
 
 if (
@@ -64,7 +64,7 @@ async function runCheck(kind: CheckKind) {
     '--cpus', '2',
     '--memory', '3g',
     '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
-    '--mount', `type=bind,src=${workspace},dst=/work`,
+    '--mount', `type=bind,src=${workspace},dst=/work,readonly`,
     '--mount', `type=bind,src=${path.join(dependencyRoot, 'node_modules')},dst=/work/node_modules,readonly`,
     '--workdir', '/work',
     '--env', 'HOME=/tmp',
@@ -100,6 +100,8 @@ async function runCheck(kind: CheckKind) {
 }
 
 let used = 0;
+let active = false;
+let stopping = false;
 const server = createServer((req, res) => {
   void (async () => {
     if (req.method !== 'POST' || req.url !== '/verify') {
@@ -114,27 +116,42 @@ const server = createServer((req, res) => {
       res.end(JSON.stringify({ ok: false, code: 'TRUSTED_VERIFIER_UNAUTHORIZED' }));
       return;
     }
+    if (stopping) {
+      res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: false, code: 'TRUSTED_VERIFIER_STOPPING' }));
+      return;
+    }
+    if (active) {
+      res.writeHead(409, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: false, code: 'TRUSTED_VERIFIER_BUSY' }));
+      return;
+    }
     if (used >= maxCalls) {
       res.writeHead(429, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify({ ok: false, code: 'TRUSTED_VERIFIER_BUDGET_EXHAUSTED' }));
       return;
     }
 
+    active = true;
     const attempt = used++;
-    const rows = [];
-    for (const kind of checks) rows.push(await runCheck(kind));
-    const publicRows = rows.map(({ kind, ok, exitCode, timedOut }) => ({ kind, ok, exitCode, timedOut }));
-    await appendFile(journalPath, JSON.stringify({ attempt, checks: publicRows }) + '\n', { encoding: 'utf8', mode: 0o600 });
+    try {
+      const rows = [];
+      for (const kind of checks) rows.push(await runCheck(kind));
+      const publicRows = rows.map(({ kind, ok, exitCode, timedOut }) => ({ kind, ok, exitCode, timedOut }));
+      await appendFile(journalPath, JSON.stringify({ attempt, checks: publicRows }) + '\n', { encoding: 'utf8', mode: 0o600 });
 
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ ok: true, attempt, checks: rows }));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: true, attempt, checks: rows }));
+    } finally {
+      active = false;
+    }
   })().catch(() => {
     if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ ok: false, code: 'TRUSTED_VERIFIER_FATAL' }));
   });
 });
 
-server.maxConnections = 8;
+server.maxConnections = 4;
 server.keepAliveTimeout = 1_000;
 server.headersTimeout = 5_000;
 server.requestTimeout = 10_000;
@@ -146,6 +163,8 @@ server.listen(socketPath, async () => {
 });
 
 const stop = () => {
+  if (stopping) return;
+  stopping = true;
   server.close(() => {
     void unlink(socketPath).catch(() => undefined).finally(() => process.exit(0));
   });
