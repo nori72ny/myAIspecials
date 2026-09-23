@@ -39,6 +39,7 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(workflow).toContain("ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}");
     expect(workflow).toContain("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
     expect(workflow).toContain("ORIGIN_AQ_V2_CANDIDATE_CHECKOUT: ${{ github.workspace }}/candidate");
+    expect(workflow).toContain("ORIGIN_AQ_V2_EVALUATOR_SHA: ${{ github.sha }}");
 
     const controller = readFileSync(resolve(process.cwd(), "scripts/run-trusted-answer-case-v2.ts"), "utf8");
     const dockerStart = controller.indexOf("const args = [");
