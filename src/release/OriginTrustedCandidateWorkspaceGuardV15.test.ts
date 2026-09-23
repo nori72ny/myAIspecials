@@ -1,13 +1,26 @@
 // @vitest-environment node
-import { link, mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { copyFile, link, mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   assertTrustedCandidateDiffScopeV15,
   assertTrustedCandidatePathNoSymlinksV15,
+  assertTrustedCandidateVerificationBaselineV15,
   writeTrustedCandidateHiddenTestV15,
 } from './OriginTrustedCandidateWorkspaceGuardV15.js';
+
+async function seedTrustedVerificationBaseline(root: string): Promise<void> {
+  await mkdir(path.join(root, 'scripts'), { recursive: true });
+  for (const relative of [
+    'package-lock.json',
+    'vite.config.ts',
+    'tsconfig.json',
+    'scripts/design-token-lock.js',
+  ]) {
+    await copyFile(path.resolve(process.cwd(), relative), path.join(root, relative));
+  }
+}
 
 describe('trusted candidate workspace guard', () => {
   it('requires actual diff to equal the candidate report and remain inside required paths', () => {
@@ -57,9 +70,27 @@ describe('trusted candidate workspace guard', () => {
       .rejects.toThrow('TRUSTED_CANDIDATE_SPECIAL_FILE_BLOCKED');
   });
 
+  it('accepts only the trusted verification baseline and rejects alternate Vitest config', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-baseline-'));
+    await seedTrustedVerificationBaseline(root);
+    await expect(assertTrustedCandidateVerificationBaselineV15(root)).resolves.toBeUndefined();
+    await writeFile(path.join(root, 'vitest.config.ts'), 'export default {};\n');
+    await expect(assertTrustedCandidateVerificationBaselineV15(root))
+      .rejects.toThrow('TRUSTED_CANDIDATE_VERIFICATION_CONFIG_SET_MISMATCH');
+  });
+
+  it('rejects a modified trusted verification config', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-baseline-tamper-'));
+    await seedTrustedVerificationBaseline(root);
+    await writeFile(path.join(root, 'vite.config.ts'), 'export default {};\n');
+    await expect(assertTrustedCandidateVerificationBaselineV15(root))
+      .rejects.toThrow('TRUSTED_CANDIDATE_VERIFICATION_BASELINE_MISMATCH');
+  });
+
   it('blocks symlinked hidden-test parents before any trusted write', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-guard-'));
     const outside = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-outside-'));
+    await seedTrustedVerificationBaseline(root);
     await mkdir(path.join(root, 'tests'), { recursive: true });
     await symlink(outside, path.join(root, 'tests', '__origin_heldout__'));
 
@@ -72,7 +103,7 @@ describe('trusted candidate workspace guard', () => {
 
   it('writes hidden tests only under a symlink-free held-out directory', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-guard-ok-'));
-    await writeFile(path.join(root, 'package.json'), '{}');
+    await seedTrustedVerificationBaseline(root);
 
     await expect(writeTrustedCandidateHiddenTestV15(
       root,
