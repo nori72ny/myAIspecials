@@ -46,3 +46,15 @@ The remaining limitation is explicit: the real secret-bearing one-shot qualifica
 ### Cross-version one-shot compatibility
 
 V14 final-held-out and V15 exact-candidate qualification use the same repository-wide concurrency group and the same fixed commit-status ledger context `origin/heldout-source/<sourceDigest>`. A corpus reserved by either evaluator is rejected by the other evaluator before any provider request. This closes the cross-version reuse path as well as the artifact-deletion-only path.
+
+
+### Independent audit hardening: trusted dependency install boundary
+
+A later independent audit identified that an earlier controller revision ran `npm ci --ignore-scripts` inside the candidate worktree before the candidate verification baseline was checked. Although final qualification still failed closed on baseline mismatch, that allowed candidate-controlled package metadata to influence trusted-host dependency fetching.
+
+The evaluator no longer performs any `npm ci` from the candidate worktree. The GitHub Actions job installs dependencies from trusted `main` before the controller starts; the controller verifies the candidate baseline before starting either proxy, then mounts trusted-main `node_modules` read-only into candidate and verification containers. Candidate-controlled manifests therefore do not drive trusted-host package downloads.
+
+Additional defense in depth:
+- candidate and verifier tmpfs mounts include `noexec`;
+- provider/verifier Unix sockets are owner-only mode `0600`;
+- the real Docker socket-isolation integration test uses the same owner-only/noexec contract.

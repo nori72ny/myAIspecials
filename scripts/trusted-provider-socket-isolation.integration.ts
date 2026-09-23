@@ -41,7 +41,7 @@ try {
     server.once('error', reject);
     server.listen(socketPath, resolve);
   });
-  await chmod(socketPath, 0o660);
+  await chmod(socketPath, 0o600);
   await chmod(directory, 0o555);
 
   const uid = typeof process.getuid === 'function' ? process.getuid() : 1000;
@@ -88,7 +88,7 @@ try {
     '--user', `${uid}:${gid}`,
     '--pids-limit', '64',
     '--memory', '256m',
-    '--tmpfs', '/tmp:rw,nosuid,nodev,size=32m,mode=1777',
+    '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=32m,mode=1777',
     '--mount', `type=bind,src=${directory},dst=/proxy,readonly`,
     IMAGE,
     'node', '-e', probe,

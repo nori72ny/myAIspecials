@@ -91,6 +91,30 @@ describe('trusted exact-candidate evaluator contract', () => {
     expect(v15).toContain('/statuses/${ANCHOR_SHA}');
   });
 
+  it('never installs dependencies from candidate-controlled manifests on the trusted host', () => {
+    const controller = read('scripts/run-trusted-candidate-heldout-v15.ts');
+    expect(controller).not.toContain("execFixed('npm', ['ci'");
+    expect(controller).toContain('const dependencyRoot = controllerRoot;');
+    expect(controller).toContain('await assertTrustedCandidateVerificationBaselineV15(workspace);');
+    const baseline = controller.indexOf('await assertTrustedCandidateVerificationBaselineV15(workspace);');
+    const providerStart = controller.indexOf("proxy = spawn(process.execPath");
+    expect(baseline).toBeGreaterThan(0);
+    expect(providerStart).toBeGreaterThan(baseline);
+  });
+
+  it('uses owner-only Unix sockets and noexec tmpfs for candidate and verifier isolation', () => {
+    const controller = read('scripts/run-trusted-candidate-heldout-v15.ts');
+    const provider = read('scripts/trusted-heldout-provider-proxy-v15.ts');
+    const verifier = read('scripts/trusted-heldout-verifier-proxy-v15.ts');
+    const integration = read('scripts/trusted-provider-socket-isolation.integration.ts');
+    expect(controller).toContain('/tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777');
+    expect(verifier).toContain('/tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777');
+    expect(integration).toContain('/tmp:rw,nosuid,nodev,noexec,size=32m,mode=1777');
+    expect(provider).toContain('chmod(socketPath, 0o600)');
+    expect(verifier).toContain('chmod(socketPath, 0o600)');
+    expect(integration).toContain('chmod(socketPath, 0o600)');
+  });
+
   it('keeps verifier commands fixed, serializes verification and bounds socket timing', () => {
     const verifier = read('scripts/trusted-heldout-verifier-proxy-v15.ts');
     expect(verifier).toContain("const commands: Record<CheckKind, string>");

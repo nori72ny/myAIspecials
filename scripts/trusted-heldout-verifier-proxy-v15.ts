@@ -71,7 +71,7 @@ async function runCheck(kind: CheckKind) {
     '--pids-limit', '128',
     '--cpus', '2',
     '--memory', '3g',
-    '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
+    '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777',
     '--mount', `type=bind,src=${workspace},dst=/work,readonly`,
     '--mount', `type=bind,src=${path.join(dependencyRoot, 'node_modules')},dst=/work/node_modules,readonly`,
     '--workdir', '/work',
@@ -174,7 +174,7 @@ server.requestTimeout = 10_000;
 
 await unlink(socketPath).catch(() => undefined);
 server.listen(socketPath, async () => {
-  await chmod(socketPath, 0o660).catch(() => undefined);
+  await chmod(socketPath, 0o600).catch(() => undefined);
   process.stdout.write(JSON.stringify({ event: 'trusted-verifier-ready' }) + '\n');
 });
 

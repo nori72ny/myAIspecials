@@ -97,7 +97,7 @@ server.requestTimeout = 10_000;
 
 await unlink(socketPath).catch(() => undefined);
 server.listen(socketPath, async () => {
-  await chmod(socketPath, 0o660).catch(() => undefined);
+  await chmod(socketPath, 0o600).catch(() => undefined);
   process.stdout.write(JSON.stringify({ event: 'trusted-provider-ready' }) + '\n');
 });
 

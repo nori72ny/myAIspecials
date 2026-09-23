@@ -18,6 +18,7 @@ import { ORIGIN_OPENROUTER_FREE_MODEL } from '../src/lib/orchestration/OriginExe
 import {
   assertTrustedCandidateDiffScopeV15,
   assertTrustedCandidatePathNoSymlinksV15,
+  assertTrustedCandidateVerificationBaselineV15,
   writeTrustedCandidateHiddenTestV15,
 } from '../src/release/OriginTrustedCandidateWorkspaceGuardV15.js';
 
@@ -159,7 +160,7 @@ async function dockerCheck(
     '--pids-limit', '128',
     '--cpus', '2',
     '--memory', '3g',
-    '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
+    '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777',
     '--mount', `type=bind,src=${workspace},dst=/work,readonly`,
     '--mount', `type=bind,src=${path.join(dependencyRoot, 'node_modules')},dst=/work/node_modules,readonly`,
     '--workdir', '/work',
@@ -271,7 +272,7 @@ async function main(): Promise<void> {
   delete process.env.OPENROUTER_API_KEY;
 
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-candidate-worktree-'));
-  const dependencyRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-candidate-deps-'));
+  const dependencyRoot = controllerRoot;
   const socketDir = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-provider-socket-'));
   const verifierSocketDir = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-verifier-socket-'));
   const envDir = await fs.mkdtemp(path.join(os.tmpdir(), 'origin-candidate-env-'));
@@ -301,9 +302,15 @@ async function main(): Promise<void> {
     if (resolved.code !== 0 || resolved.output.trim() !== candidateSha) throw new Error('TRUSTED_CANDIDATE_SHA_MISMATCH');
     gitFileSnapshot = await snapshotGitFile(workspace);
 
-    const installed = await execFixed('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], workspace, cleanHostEnv('/tmp'), 600_000);
-    if (installed.code !== 0 || installed.timedOut) throw new Error('TRUSTED_CANDIDATE_DEPENDENCY_INSTALL_FAILED');
-    await fs.rename(path.join(workspace, 'node_modules'), path.join(dependencyRoot, 'node_modules'));
+    // Fail closed before any candidate code or candidate-derived package metadata
+    // can influence trusted-host execution. Dependencies were installed from
+    // trusted main by the workflow before this controller starts.
+    await assertTrustedCandidateVerificationBaselineV15(workspace);
+    const trustedNodeModules = path.join(dependencyRoot, 'node_modules');
+    const trustedNodeModulesStat = await fs.lstat(trustedNodeModules).catch(() => null);
+    if (!trustedNodeModulesStat?.isDirectory() || trustedNodeModulesStat.isSymbolicLink()) {
+      throw new Error('TRUSTED_CANDIDATE_TRUSTED_DEPENDENCIES_MISSING');
+    }
 
     proxy = spawn(process.execPath, ['--import', 'tsx', 'scripts/trusted-heldout-provider-proxy-v15.ts'], {
       cwd: controllerRoot,
@@ -358,7 +365,7 @@ async function main(): Promise<void> {
       '--pids-limit', '128',
       '--cpus', '2',
       '--memory', '3g',
-      '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
+      '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777',
       '--mount', `type=bind,src=${controllerRoot},dst=/controller,readonly`,
       '--mount', `type=bind,src=${workspace},dst=/work`,
       '--mount', `type=bind,src=${path.join(workspace, '.git')},dst=/work/.git,readonly`,
@@ -495,7 +502,6 @@ async function main(): Promise<void> {
     await fs.chmod(verifierSocketDir, 0o700).catch(() => undefined);
     if (worktreeAdded) await execFixed('git', ['worktree', 'remove', '--force', workspace], controllerRoot, cleanHostEnv('/tmp'), 60_000).catch(() => undefined);
     await fs.rm(workspace, { recursive: true, force: true }).catch(() => undefined);
-    await fs.rm(dependencyRoot, { recursive: true, force: true }).catch(() => undefined);
     await fs.rm(socketDir, { recursive: true, force: true }).catch(() => undefined);
     await fs.rm(verifierSocketDir, { recursive: true, force: true }).catch(() => undefined);
     await fs.rm(envDir, { recursive: true, force: true }).catch(() => undefined);
