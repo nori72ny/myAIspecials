@@ -70,6 +70,14 @@ describe("AQ V2 trusted one-case leasing", () => {
     expect(result.candidateSha).toBe("a".repeat(40));
     expect(result.answerDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(result.costUsd).toBe(0);
+
+    const local = buildOriginAnswerCaseResultTrustedV2({
+      ...leased,
+      answer: "A local fail-closed answer.",
+      providerRequests: 0,
+      costUsd: 0,
+    });
+    expect(local.providerRequests).toBe(0);
   });
 
   it("rejects mismatched lease ids, paid use or excessive provider use", () => {
@@ -88,7 +96,7 @@ describe("AQ V2 trusted one-case leasing", () => {
     expect(() => buildOriginAnswerCaseResultTrustedV2({
       ...leased,
       answer: "Answer",
-      providerRequests: 5,
+      providerRequests: 2,
       costUsd: 0,
     })).toThrow("AQ_V2_CASE_RESULT_INVALID");
     expect(() => buildOriginAnswerCaseResultTrustedV2({
