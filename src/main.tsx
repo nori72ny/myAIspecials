@@ -10,12 +10,14 @@ import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
 import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
+import { purgeOriginLegacyBrowserCredentials } from './security/legacyBrowserCredentialCleanup';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import './index.css';
 import './ultra-optics.css';
 import './audit-2026-priority.css';
 import './origin-top-ui.css';
 
+purgeOriginLegacyBrowserCredentials();
 registerOriginServiceWorker();
 installActiveContextChatBridge();
 
