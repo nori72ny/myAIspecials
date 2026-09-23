@@ -75,11 +75,21 @@ jobs:
       - name: Verify required trusted-run secrets before reserving the one-shot corpus
         env:
           ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
+          LEGACY_FINAL_CORPUS: ${{ secrets.ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64 }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
-          test -n "$ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64"
           test -n "$OPENROUTER_API_KEY"
+          if [ -n "$ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64" ]; then
+            echo 'AQ_V2_SECRET_PRESENT'
+            exit 0
+          fi
+          if [ -n "$LEGACY_FINAL_CORPUS" ]; then
+            echo 'LEGACY_FINAL_SECRET_PRESENT_AQ_SECRET_MISSING'
+            exit 3
+          fi
+          echo 'NO_HELDOUT_CORPUS_SECRET_AVAILABLE' >&2
+          exit 4
 
       - name: Inspect sealed AQ V2 corpus without exposing prompts
         id: corpus
