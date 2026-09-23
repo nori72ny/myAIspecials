@@ -101,8 +101,6 @@ export function assertOriginAnswerCaseLeaseIsolationV2(input: {
     input.trustedLease.caseId,
     input.trustedLease.family,
     input.trustedLease.promptDigest,
-    String(input.trustedLease.ordinal),
-    String(input.trustedLease.totalCases),
   ].filter(value => value.length > 0);
 
   if (forbidden.some(value => publicSerialized.includes(value))) {
@@ -113,6 +111,23 @@ export function assertOriginAnswerCaseLeaseIsolationV2(input: {
   }
   if (Object.keys(input.candidateLease).sort().join(",") !== "leaseId,prompt,schemaVersion") {
     throw new Error("AQ_V2_CASE_LEASE_SURFACE_INVALID");
+  }
+
+  const candidateRecord = input.candidateLease as unknown as Record<string, unknown>;
+  for (const forbiddenKey of [
+    "candidateSha",
+    "roundId",
+    "corpusDigest",
+    "caseId",
+    "family",
+    "promptDigest",
+    "ordinal",
+    "totalCases",
+    "evaluatorNotes",
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(candidateRecord, forbiddenKey)) {
+      throw new Error("AQ_V2_CASE_LEASE_TRUSTED_METADATA_LEAK");
+    }
   }
 }
 

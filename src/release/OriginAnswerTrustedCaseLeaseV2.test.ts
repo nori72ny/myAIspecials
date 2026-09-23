@@ -43,6 +43,9 @@ describe("AQ V2 trusted one-case leasing", () => {
     expect(candidateJson).not.toContain(leased.trustedLease.caseId);
     expect(candidateJson).not.toContain(leased.trustedLease.family);
     expect(candidateJson).not.toContain(leased.trustedLease.candidateSha);
+    expect(candidateJson).not.toContain('"ordinal"');
+    expect(candidateJson).not.toContain('"totalCases"');
+    expect(candidateJson).not.toContain('"evaluatorNotes"');
     expect(leased.trustedLease.evaluatorNotes).toBe("PRIVATE NOTES 3-2");
     expect(() => assertOriginAnswerCaseLeaseIsolationV2({
       ...leased,
