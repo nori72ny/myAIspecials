@@ -107,9 +107,10 @@ jobs:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           CORPUS_DIGEST: ${{ steps.corpus.outputs.corpus_digest }}
           ROUND_ID: ${{ inputs.round_id }}
+          LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
         run: |
           set -euo pipefail
-          context="origin/aq-v2/${CORPUS_DIGEST:0:16}"
+          context="origin/aq-v2-corpus/${CORPUS_DIGEST}"
           echo "status_context=$context" >> "$GITHUB_OUTPUT"
           page=1
           while :; do
@@ -117,7 +118,7 @@ jobs:
               -H 'Accept: application/vnd.github+json' \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H 'X-GitHub-Api-Version: 2026-03-10' \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${CANDIDATE_SHA}/statuses?per_page=100&page=${page}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${LEDGER_ANCHOR_SHA}/statuses?per_page=100&page=${page}" \
               -o statuses.json
             count="$(node -e "const v=require('./statuses.json');process.stdout.write(String(v.length))")"
             found="$(CONTEXT="$context" node - <<'NODE'
@@ -150,7 +151,7 @@ jobs:
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H 'Content-Type: application/json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${CANDIDATE_SHA}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${LEDGER_ANCHOR_SHA}" \
             --data-binary @status-payload.json \
             -o status-response.json
           CONTEXT="$context" node <<'NODE'
@@ -281,6 +282,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           STATUS_CONTEXT: ${{ needs.preflight.outputs.status_context }}
+          LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
           JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
@@ -305,7 +307,7 @@ jobs:
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H 'Content-Type: application/json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${CANDIDATE_SHA}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${LEDGER_ANCHOR_SHA}" \
             --data-binary @status-payload.json \
             -o /dev/null
           rm -f status-payload.json
