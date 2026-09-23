@@ -48,7 +48,7 @@ export async function assertTrustedCandidateVerificationBaselineV15(root: string
 
   const rootEntries = await fs.readdir(resolvedRoot, { withFileTypes: true });
   const autoConfigs = rootEntries
-    .filter(entry => /^(?:(?:vite|vitest)\.config\.[A-Za-z0-9]+|vitest\.workspace\.[A-Za-z0-9]+|\.env(?:\..+)?)$/.test(entry.name))
+    .filter(entry => /^(?:(?:vite|vitest)\.config\.[A-Za-z0-9]+|vitest\.workspace\.[A-Za-z0-9]+|\.env(?:\.local|\.test(?:\.local)?|\.production(?:\.local)?)?)$/.test(entry.name))
     .map(entry => entry.name)
     .sort();
   if (JSON.stringify(autoConfigs) !== JSON.stringify([...TRUSTED_ROOT_AUTO_CONFIGS_V15].sort())) {
