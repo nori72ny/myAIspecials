@@ -1,0 +1,310 @@
+name: AQ V2 trusted exact-candidate one-shot trigger
+
+on:
+  push:
+    branches:
+      - 'run/aq-v2-608-once-20260923'
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: origin-aq-v2-trusted-one-shot
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/run/aq-v2-608-once-20260923'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      corpus_digest: ${{ steps.corpus.outputs.corpus_digest }}
+      status_context: ${{ steps.reserve.outputs.status_context }}
+    steps:
+      - name: Checkout trusted evaluator from main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 8a599868fa4dbd9f7e3e7430f987eb1493cbfb89
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install trusted evaluator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Validate fixed one-shot inputs and exact candidate PR binding
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb
+          PR_NUMBER: 608
+          ROUND_ID: aq-v2-608-final-20260923
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const sha=process.env.CANDIDATE_SHA||'';
+          const pr=process.env.PR_NUMBER||'';
+          const round=process.env.ROUND_ID||'';
+          if(!/^[a-f0-9]{40}$/.test(sha)) process.exit(2);
+          if(!/^[1-9][0-9]*$/.test(pr)) process.exit(2);
+          if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,119}$/.test(round)) process.exit(2);
+          NODE
+          curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            -o pr.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const pr=JSON.parse(fs.readFileSync('pr.json','utf8'));
+          const fail=code=>{console.error(code);process.exit(2);};
+          if(pr?.state!=='open') fail('AQ_V2_CANDIDATE_PR_NOT_OPEN');
+          if(pr?.base?.ref!=='main') fail('AQ_V2_CANDIDATE_BASE_INVALID');
+          if(pr?.head?.repo?.full_name!==process.env.GITHUB_REPOSITORY) fail('AQ_V2_CANDIDATE_FORK_BLOCKED');
+          if(pr?.head?.sha!==process.env.CANDIDATE_SHA) fail('AQ_V2_CANDIDATE_SHA_MISMATCH');
+          NODE
+          rm -f pr.json
+
+      - name: Verify required trusted-run secrets before reserving the one-shot corpus
+        env:
+          ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64"
+          test -n "$OPENROUTER_API_KEY"
+
+      - name: Inspect sealed AQ V2 corpus without exposing prompts
+        id: corpus
+        env:
+          ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/inspect-trusted-answer-corpus-v2.ts > /tmp/aq-v2-corpus-check.log
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const fs=require('node:fs');
+          const value=JSON.parse(fs.readFileSync('test-results/aq-v2-corpus-public-check.json','utf8'));
+          if(value?.caseCount!==48 || !/^[a-f0-9]{64}$/.test(value?.corpusDigest||'')) process.exit(2);
+          console.log(`corpus_digest=${value.corpusDigest}`);
+          NODE
+          rm -f /tmp/aq-v2-corpus-check.log
+
+      - name: Reserve exact candidate and sealed corpus before provider execution
+        id: reserve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb
+          CORPUS_DIGEST: ${{ steps.corpus.outputs.corpus_digest }}
+          ROUND_ID: aq-v2-608-final-20260923
+          LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
+        run: |
+          set -euo pipefail
+          context="origin/aq-v2-corpus/${CORPUS_DIGEST}"
+          echo "status_context=$context" >> "$GITHUB_OUTPUT"
+          page=1
+          while :; do
+            curl --fail --silent --show-error \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${LEDGER_ANCHOR_SHA}/statuses?per_page=100&page=${page}" \
+              -o statuses.json
+            count="$(node -e "const v=require('./statuses.json');process.stdout.write(String(v.length))")"
+            found="$(CONTEXT="$context" node - <<'NODE'
+          const fs=require('node:fs');
+          const rows=JSON.parse(fs.readFileSync('statuses.json','utf8'));
+          process.stdout.write(rows.some(row=>row?.context===process.env.CONTEXT)?'1':'0');
+          NODE
+          )"
+            rm -f statuses.json
+            if [ "$found" = '1' ]; then
+              echo 'AQ_V2_TRUSTED_ROUND_ALREADY_RESERVED' >&2
+              exit 2
+            fi
+            [ "$count" = '100' ] || break
+            page=$((page + 1))
+            [ "$page" -le 20 ] || { echo 'AQ_V2_STATUS_LEDGER_PAGINATION_LIMIT' >&2; exit 2; }
+          done
+          CONTEXT="$context" node <<'NODE' > status-payload.json
+          const payload={
+            state:'pending',
+            context:process.env.CONTEXT,
+            description:'AQ V2 sealed run reserved for PR 608',
+            target_url:`https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          curl --fail --silent --show-error \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${LEDGER_ANCHOR_SHA}" \
+            --data-binary @status-payload.json \
+            -o status-response.json
+          CONTEXT="$context" node <<'NODE'
+          const fs=require('node:fs');
+          const row=JSON.parse(fs.readFileSync('status-response.json','utf8'));
+          if(row?.context!==process.env.CONTEXT || row?.state!=='pending') process.exit(2);
+          NODE
+          rm -f status-payload.json status-response.json
+
+      - name: Preserve sanitized corpus identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aq-v2-corpus-identity-${{ github.run_id }}
+          path: test-results/aq-v2-corpus-public-check.json
+          retention-days: 90
+          if-no-files-found: error
+
+  evaluate:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout trusted evaluator from main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 8a599868fa4dbd9f7e3e7430f987eb1493cbfb89
+          persist-credentials: false
+
+      - name: Checkout exact candidate separately
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb
+          path: candidate
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install only trusted evaluator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Prepare isolated runtime image
+        run: docker pull node:22-bookworm-slim
+
+      - name: Revalidate exact candidate PR binding immediately before execution
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb
+          PR_NUMBER: 608
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            -o pr.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const pr=JSON.parse(fs.readFileSync('pr.json','utf8'));
+          const fail=code=>{console.error(code);process.exit(2);};
+          if(pr?.state!=='open') fail('AQ_V2_CANDIDATE_PR_NOT_OPEN_AT_EXECUTION');
+          if(pr?.base?.ref!=='main') fail('AQ_V2_CANDIDATE_BASE_INVALID_AT_EXECUTION');
+          if(pr?.head?.repo?.full_name!==process.env.GITHUB_REPOSITORY) fail('AQ_V2_CANDIDATE_FORK_BLOCKED_AT_EXECUTION');
+          if(pr?.head?.sha!==process.env.CANDIDATE_SHA) fail('AQ_V2_CANDIDATE_SHA_CHANGED_BEFORE_EXECUTION');
+          NODE
+          rm -f pr.json
+
+      - name: Verify secret boundary before execution
+        env:
+          SEALED_CORPUS: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SEALED_CORPUS"
+          test -n "$OPENROUTER_API_KEY"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          test -z "${GEMINI_API_KEY:-}"
+
+      - name: Run 48 leased cases through the trusted boundary
+        env:
+          ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ORIGIN_CANDIDATE_SHA: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb
+          ORIGIN_AQ_V2_ROUND_ID: aq-v2-608-final-20260923
+          ORIGIN_AQ_V2_CANDIDATE_CHECKOUT: ${{ github.workspace }}/candidate
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/aq-v2-cases
+          for ordinal in $(seq 0 47); do
+            ORIGIN_AQ_V2_CASE_ORDINAL="$ordinal" \
+            ORIGIN_AQ_V2_CASE_RESULT_PATH="$GITHUB_WORKSPACE/test-results/aq-v2-cases/trusted-answer-case-${ordinal}.json" \
+              node --import tsx scripts/run-trusted-answer-case-v2.ts
+          done
+
+      - name: Produce strict trusted execution qualification
+        env:
+          ORIGIN_AQ_V2_CASE_RESULT_ROOT: ${{ github.workspace }}/test-results/aq-v2-cases
+          ORIGIN_CANDIDATE_SHA: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb
+          ORIGIN_AQ_V2_CORPUS_DIGEST: ${{ needs.preflight.outputs.corpus_digest }}
+          ORIGIN_AQ_V2_ROUND_ID: aq-v2-608-final-20260923
+          ORIGIN_AQ_V2_EXECUTION_ID: gh-run:${{ github.run_id }}:aq-v2
+          ORIGIN_AQ_V2_EVALUATOR_SHA: 8a599868fa4dbd9f7e3e7430f987eb1493cbfb89
+          ORIGIN_AQ_V2_PR_BINDING_VERIFIED: 'true'
+          ORIGIN_AQ_V2_TRUSTED_HOST_CONTROLLED: 'true'
+        run: node --import tsx scripts/summarize-trusted-answer-run-v2.ts
+
+      - name: Preserve trusted AQ V2 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: trusted-answer-quality-v2-ef8825f1b8f9580c37c6a7e286072f3e7caa0abb-${{ github.run_id }}
+          path: |
+            test-results/aq-v2-cases/
+            test-results/trusted-answer-execution-v2.json
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Finalize append-only AQ V2 status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb
+          STATUS_CONTEXT: ${{ needs.preflight.outputs.status_context }}
+          LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          STATE='failure'
+          DESCRIPTION='AQ V2 trusted execution failed or incomplete'
+          if [ "$JOB_STATUS" = 'success' ]; then
+            STATE='success'
+            DESCRIPTION='AQ V2 trusted execution completed'
+          fi
+          STATE="$STATE" DESCRIPTION="$DESCRIPTION" node <<'NODE' > status-payload.json
+          const payload={
+            state:process.env.STATE,
+            context:process.env.STATUS_CONTEXT,
+            description:process.env.DESCRIPTION,
+            target_url:`https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          curl --fail --silent --show-error \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${LEDGER_ANCHOR_SHA}" \
+            --data-binary @status-payload.json \
+            -o /dev/null
+          rm -f status-payload.json
