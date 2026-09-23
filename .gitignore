@@ -11,3 +11,9 @@ coverage/
 results/
 playwright-report/
 evidence/routing_log.json
+
+# Local scratch/runtime artifacts (never commit)
+server.pid
+split-server.cjs
+test-resolve.ts
+tmp.txt
