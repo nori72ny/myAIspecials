@@ -4,6 +4,7 @@ import { appendFile, chmod, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { sanitizePreEgress } from '../src/services/securitySanitizer.js';
+import { assertTrustedCandidateVerificationBaselineV15 } from '../src/release/OriginTrustedCandidateWorkspaceGuardV15.js';
 
 const socketPath = process.env.ORIGIN_TRUSTED_VERIFIER_SOCKET ?? '';
 const token = process.env.ORIGIN_TRUSTED_VERIFIER_TOKEN ?? '';
@@ -49,7 +50,14 @@ function appendBounded(current: string, chunk: Buffer | string): string {
   return Buffer.from(next, 'utf8').subarray(0, maxOutputBytes).toString('utf8') + '\n[OUTPUT_TRUNCATED]';
 }
 
+let used = 0;
+let active = false;
+let stopping = false;
+let activeDockerName: string | null = null;
+let activeDockerChild: ReturnType<typeof spawn> | null = null;
+
 async function runCheck(kind: CheckKind) {
+  if (stopping) throw new Error('TRUSTED_VERIFIER_STOPPING');
   const name = `origin-trusted-attempt-${kind}-${process.pid}-${Date.now()}`;
   const uid = typeof process.getuid === 'function' ? process.getuid() : 1000;
   const gid = typeof process.getgid === 'function' ? process.getgid() : 1000;
@@ -79,6 +87,8 @@ async function runCheck(kind: CheckKind) {
     env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: '/tmp' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  activeDockerName = name;
+  activeDockerChild = child;
   let output = '';
   let timedOut = false;
   child.stdout.on('data', chunk => { output = appendBounded(output, chunk); });
@@ -91,17 +101,19 @@ async function runCheck(kind: CheckKind) {
       stdio: 'ignore',
     }).unref();
   }, timeoutMs);
-  const exitCode = await new Promise<number | null>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', resolve);
-  }).finally(() => clearTimeout(timer));
-  const sanitized = sanitizePreEgress(output).replaceAll(workspace, '[workspace]').slice(0, 4096);
-  return { kind, ok: !timedOut && exitCode === 0, exitCode, timedOut, diagnostic: sanitized };
+  try {
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', resolve);
+    }).finally(() => clearTimeout(timer));
+    const sanitized = sanitizePreEgress(output).replaceAll(workspace, '[workspace]').slice(0, 4096);
+    return { kind, ok: !timedOut && exitCode === 0, exitCode, timedOut, diagnostic: sanitized };
+  } finally {
+    if (activeDockerChild === child) activeDockerChild = null;
+    if (activeDockerName === name) activeDockerName = null;
+  }
 }
 
-let used = 0;
-let active = false;
-let stopping = false;
 const server = createServer((req, res) => {
   void (async () => {
     if (req.method !== 'POST' || req.url !== '/verify') {
@@ -135,8 +147,12 @@ const server = createServer((req, res) => {
     active = true;
     const attempt = used++;
     try {
+      await assertTrustedCandidateVerificationBaselineV15(workspace);
       const rows = [];
-      for (const kind of checks) rows.push(await runCheck(kind));
+      for (const kind of checks) {
+        if (stopping) throw new Error('TRUSTED_VERIFIER_STOPPING');
+        rows.push(await runCheck(kind));
+      }
       const publicRows = rows.map(({ kind, ok, exitCode, timedOut }) => ({ kind, ok, exitCode, timedOut }));
       await appendFile(journalPath, JSON.stringify({ attempt, checks: publicRows }) + '\n', { encoding: 'utf8', mode: 0o600 });
 
@@ -165,6 +181,13 @@ server.listen(socketPath, async () => {
 const stop = () => {
   if (stopping) return;
   stopping = true;
+  if (activeDockerChild) activeDockerChild.kill('SIGTERM');
+  if (activeDockerName) {
+    spawn('docker', ['rm', '-f', activeDockerName], {
+      env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: '/tmp' },
+      stdio: 'ignore',
+    }).unref();
+  }
   server.close(() => {
     void unlink(socketPath).catch(() => undefined).finally(() => process.exit(0));
   });
