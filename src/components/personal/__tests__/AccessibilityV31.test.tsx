@@ -2,31 +2,32 @@
 import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import OriginProjectWorkspaceV31 from '../OriginProjectWorkspaceV31';
+import OriginProjectNavigationV31 from '../OriginProjectNavigationV31';
+import OriginComposerModeControlV31 from '../OriginComposerModeControlV31';
 import OriginWorkspaceShellV31 from '../OriginWorkspaceShellV31';
 
 afterEach(cleanup);
 
 describe('ORIGIN accessibility foundations', () => {
-  it('keeps the mobile project selector at the minimum interactive target size', () => {
-    render(<OriginProjectWorkspaceV31
-      mode="chat"
-      messages={[]}
-      sessions={[]}
-      artifacts={[]}
+  it('keeps contextual Project actions at the minimum interactive target size without permanent top chrome', () => {
+    render(<OriginProjectNavigationV31
       sources={[]}
-      codingEvidence={{ jobId: null, status: null, changedPaths: [], verificationChecks: [] }}
-      activeView="overview"
+      codingEvidence={{ jobId: 'coding-abcdefghijklmnopqrstuv', status: 'verified', changedPaths: ['src/a.ts'], verificationChecks: [] }}
       onViewChange={vi.fn()}
     />);
-    const selector = screen.getByLabelText('Project view');
-    expect(selector.classList.contains('origin-interactive-target')).toBe(true);
+    const files = screen.getByRole('button', { name: /Files/ });
+    const tasks = screen.getByRole('button', { name: /Tasks/ });
+    expect(files.classList.contains('min-h-11')).toBe(true);
+    expect(tasks.classList.contains('min-h-11')).toBe(true);
   });
 
-  it('keeps mobile controls keyboard-focusable and Mode semantically separate', () => {
-    render(<OriginWorkspaceShellV31 mode="chat" onModeChange={vi.fn()} />);
-    expect(screen.getByLabelText('ORIGIN mobile controls')).toBeTruthy();
-    expect(screen.getByRole('navigation', { name: 'Mode' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Chat' }).getAttribute('aria-pressed')).toBe('true');
+  it('keeps progressive system settings keyboard-focusable without restoring the Chat top Mode row', () => {
+    const { rerender } = render(<OriginWorkspaceShellV31 mode="chat" onModeChange={vi.fn()} />);
+    expect(screen.queryByLabelText('Workspace mode')).toBeNull();
+    expect(screen.getByLabelText('ORIGIN Auto settings')).toBeTruthy();
+
+    rerender(<><OriginWorkspaceShellV31 mode="research" onModeChange={vi.fn()} /><OriginComposerModeControlV31 mode="research" onModeChange={vi.fn()} /></>);
+    const selector = screen.getByLabelText('Workspace mode');
+    expect(selector.classList.contains('min-h-11')).toBe(true);
   });
 });

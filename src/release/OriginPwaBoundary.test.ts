@@ -55,6 +55,9 @@ describe('ORIGIN PWA boundary', () => {
     expect(registration).toContain('hasUnsavedUserWork');
     expect(registration).toContain("[data-testid=\"origin-thinking\"], [aria-busy=\"true\"]");
     expect(registration).toContain("navigator.serviceWorker.addEventListener('controllerchange'");
+    expect(registration).toContain('let hasSeenController = Boolean(navigator.serviceWorker.controller)');
+    expect(registration).toContain('const isInitialController = !hasSeenController');
+    expect(registration).toContain('if (isInitialController) return');
     expect(registration).toContain('window.location.reload()');
     expect(registration).toContain('UPDATE_RELOAD_GUARD_KEY');
     expect(registration).toContain("window.addEventListener('origin:pwa-safe-apply'");

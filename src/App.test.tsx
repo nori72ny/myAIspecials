@@ -421,12 +421,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
   });
 
-  it('uses an initial 76px composition surface and reduces it after a response', () => {
+  it('keeps one consistent composer surface before and after a response', () => {
     const { rerender } = render(<App language="ja" />);
     expect(screen.getByTestId('origin-home-request').getAttribute('rows')).toBe('1');
     expect(document.querySelector('.origin-composer')?.className).not.toContain('origin-composer--compact');
     rerender(<App language="ja" messages={[{ id: 'a-1', role: 'assistant', content: '返信' }]} />);
-    expect(document.querySelector('.origin-composer')?.className).toContain('origin-composer--compact');
+    expect(document.querySelector('.origin-composer')?.className).not.toContain('origin-composer--compact');
     expect(document.querySelector('.safe-area-bottom .origin-composer')).not.toBeNull();
   });
 

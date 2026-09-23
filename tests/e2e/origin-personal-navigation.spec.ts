@@ -40,12 +40,12 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     }));
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('保存前の相談メモ');
-    await page.getByRole('navigation', { name: 'Mode' }).getByRole('button', { name: 'Code', exact: true }).click();
+    await page.getByLabel('Composer mode', { exact: true }).selectOption('coding');
     await expect(page).toHaveURL(/workspace=coding/);
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    await page.getByRole('button', { name: 'Chat', exact: true }).click();
+    await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
@@ -60,7 +60,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page).toHaveTitle('ORIGIN Personal');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'ORIGIN workspace shell' })).toBeVisible();
     await expect(page.getByTestId('origin-home-request')).toBeEditable();
     await expect(page.getByTestId(/^starter-/)).toHaveCount(0);
     await expect(page.getByText(/最近のプロジェクト|Recent projects|ACOS Development|Sales Deck|Marketing|Memory Fragments/)).toHaveCount(0);
@@ -192,39 +192,30 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(attempts).toBe(1);
   });
 
-  test('keeps the mobile header on one line with three 44px action targets', async ({ page }) => {
-    await page.setViewportSize({ width: 320, height: 568 });
+  test('keeps a single 48px mobile header and moves secondary actions into the drawer', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
-
-    const header = page.locator('header.origin-header');
-    const history = page.getByTestId('history-drawer-toggle');
-    const settings = page.getByRole('button', { name: '設定を開く' });
-    const newConversation = page.getByRole('button', { name: '新規対話を開始' });
-
+    const header = page.getByRole('region', { name: 'ORIGIN workspace shell' });
     await expect(header).toContainText('ORIGIN');
-    await expect(header).toContainText('Personal 2.0');
-    await expect(header.getByRole('button')).toHaveCount(3);
-    await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
-    for (const button of [history, settings, newConversation]) {
-      const box = await button.boundingBox();
-      expect(box?.height).toBeGreaterThanOrEqual(44);
-      expect(box?.width).toBeGreaterThanOrEqual(44);
-      expect(await button.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
-      expect(await button.evaluate((element) => getComputedStyle(element).flexShrink)).toBe('0');
+    await expect(page.locator('header.origin-header')).toHaveCount(0);
+    expect((await header.boundingBox())!.height).toBeLessThanOrEqual(48);
+    for (const control of [header.getByRole('button', { name: 'Open navigation' }), header.getByLabel('ORIGIN Auto settings')]) {
+      const box = (await control.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeGreaterThanOrEqual(44);
     }
-    await expect(history).toContainText('☰');
-    await expect(settings).toContainText('⚙️');
-    await expect(newConversation).toContainText('＋');
-    for (const brand of await header.locator(':scope > div:first-child > span').all()) {
-      expect(await brand.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
-      expect(await brand.evaluate((element) => getComputedStyle(element).flexShrink)).toBe('0');
-    }
-    const headerWidth = await header.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
-    expect(headerWidth.scroll).toBeLessThanOrEqual(headerWidth.client);
-
-    await history.click();
-    await expect(page.getByTestId('knowledge-map-toggle')).toBeVisible();
+    await header.getByRole('button', { name: 'Open navigation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'ORIGIN navigation' });
+    await expect(drawer.getByRole('button', { name: '＋ 新規対話' })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: '設定', exact: true })).toBeVisible();
+    await expect(drawer.getByText('◎ Knowledge Map')).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Close navigation', exact: true })).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    expect(await drawer.evaluate(element => element.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(header.getByRole('button', { name: 'Open navigation' })).toBeFocused();
   });
+
 });
 
 for (const width of [390, 834, 1440]) {

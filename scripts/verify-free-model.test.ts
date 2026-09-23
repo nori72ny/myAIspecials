@@ -111,8 +111,11 @@ describe('verify-free-model', () => {
     expect(workflow).toContain("cron: '17 0,6,12,18 * * *'");
     expect(workflow).toContain('branches: [main]');
     expect(workflow).toContain('ORIGIN_FREE_MODEL_EVIDENCE_PATH:');
-    expect(workflow).toContain("evidence.pricing.prompt !== '0'");
-    expect(workflow).toContain("evidence.pricing.completion !== '0'");
+    expect(workflow).toContain("evidence.pricing?.prompt !== '0'");
+    expect(workflow).toContain("evidence.pricing?.completion !== '0'");
+    expect(workflow).toContain("chat.modelId !== 'inclusionai/ling-3.0-flash-sante:free'");
+    expect(workflow).toContain("coding.modelId !== 'inclusionai/ling-3.0-flash-vl:free'");
+    expect(workflow).toContain('coding.toolCalling !== true');
     expect(workflow).toContain('retention-days: 30');
     expect(workflow).toContain('if-no-files-found: error');
   });

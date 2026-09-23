@@ -2,9 +2,10 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 async function openSettings(page: import('@playwright/test').Page) {
-  const opener = page.getByRole('main').getByRole('button', { name: /設定を開く|Open settings/i });
+  const opener = page.getByRole('button', { name: 'Open navigation', exact: true });
   await opener.focus();
   await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: '設定', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByTestId('settings-modal')).toHaveCSS('opacity', '1');

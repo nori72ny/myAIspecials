@@ -45,10 +45,9 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
-    const modeNavigation = page.getByRole('navigation', { name: 'Mode' });
-    await expect(modeNavigation.getByRole('button', { name: 'Research', exact: true })).toBeEnabled();
-    await expect(modeNavigation.getByRole('button', { name: 'Work 準備中' })).toBeDisabled();
-    await modeNavigation.getByRole('button', { name: 'Create' }).click();
+    const mode = page.getByLabel('Composer mode', { exact: true });
+    await expect(mode.locator('option')).toHaveText(['Chat', 'Research', 'Code', 'Create']);
+    await mode.selectOption('creative');
     await expect(page).toHaveURL(/workspace=creative/);
     await expect(page.getByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0')).toBeVisible();
 
@@ -112,12 +111,13 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?workspace=creative');
     await expect(page.getByRole('main', { name: 'Creative workspace' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Create' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByLabel('Workspace mode', { exact: true })).toHaveValue('creative');
 
-    await page.getByRole('button', { name: 'Chat', exact: true }).click();
+    await page.getByLabel('Workspace mode', { exact: true }).selectOption('chat');
     await expect(page).not.toHaveURL(/workspace=creative/);
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     await page.goBack();
     await expect(page.getByRole('main', { name: 'Creative workspace' })).toBeVisible();
+    await expect(page.getByLabel('Workspace mode', { exact: true })).toHaveValue('creative');
   });
 });

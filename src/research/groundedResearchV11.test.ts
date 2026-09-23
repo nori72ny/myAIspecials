@@ -34,16 +34,31 @@ describe("Grounded Research V1.1 evidence engine", () => {
     expect(result.sources.every((item) => item.score <= 95)).toBe(true);
   });
 
-  it("flags only conservative structured value mismatches", () => {
+  it("flags structured mismatches and prefers one uniquely recent page-verified source without claiming truth", () => {
     const result = buildGroundedResearchReport([
-      source({ title: "Price A", url: "https://a.example/price", domain: "a.example", excerpt: "価格 1,000円" }),
-      source({ title: "Price B", url: "https://b.example/price", domain: "b.example", excerpt: "価格 1,200円" }),
+      source({ title: "Price A", url: "https://a.example/price", domain: "a.example", excerpt: "価格 1,000円", evidenceLevel: "snippet", freshness: "older" }),
+      source({ title: "Price B", url: "https://b.example/price", domain: "b.example", excerpt: "価格 1,200円", evidenceLevel: "page-verified", freshness: "recent" }),
     ]);
 
     expect(result.semanticConflictDetection).toBe("conservative-structured-only");
     expect(result.conflicts).toHaveLength(1);
-    expect(result.conflicts[0]).toMatchObject({ kind: "structured-value-mismatch", topic: "price" });
-    expect(result.conflicts[0].note).toContain("not proof");
+    expect(result.conflicts[0]).toMatchObject({
+      kind: "structured-value-mismatch",
+      topic: "price",
+      resolution: "prefer-recent-page-verified",
+      preferredSourceId: "S2",
+    });
+    expect(result.conflicts[0].note).toContain("does not establish publisher authority or factual truth");
+    expect(result.report).toContain("retrieval preference: S2");
+  });
+
+  it("leaves a mismatch unresolved when multiple conflicting sources are equally recent and page-verified", () => {
+    const result = buildGroundedResearchReport([
+      source({ title: "Version A", url: "https://a.example/version", domain: "a.example", excerpt: "version 1.0", evidenceLevel: "page-verified", freshness: "recent" }),
+      source({ title: "Version B", url: "https://b.example/version", domain: "b.example", excerpt: "version 2.0", evidenceLevel: "page-verified", freshness: "recent" }),
+    ]);
+    expect(result.conflicts[0]).toMatchObject({ topic: "version", resolution: "unresolved" });
+    expect(result.conflicts[0].preferredSourceId).toBeUndefined();
   });
 
   it("does not invent semantic conflict when no structured mismatch exists", () => {

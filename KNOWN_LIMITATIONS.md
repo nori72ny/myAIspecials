@@ -1,166 +1,124 @@
 # Known Limitations
 
-最終確認日: 2026-09-08
+最終確認日: 2026-09-22
 
-この文書は、ORIGIN Personalの現行範囲と未検証事項を記録します。旧RC番号、未実装のエージェント規模、WebSocket、分散メモリ、enterprise keyを現在の仕様として扱いません。
+この文書はORIGIN Personalの現行コード境界と未検証事項を記録します。旧RC、Vision文書、未実装のエージェント規模、WebSocket、分散メモリ、Enterprise構想を現在のProduction仕様として扱いません。
 
 基準main:
 
 ```text
-08aab7e3bb7c738c70bb69a511e0337d35ad27c7
+01f7db0c0d48ab3ba533148e99e1847203e13f4c
 ```
+
+現在の公開候補はPR #608であり、main/Productionとは別です。Candidate SHAは必ずPRとCIのlive evidenceを優先してください。
 
 ## 公開・運用
 
-- 本番URLは確認済みだが、このモデル移行の公開判定はmainへのmerge後に再確認する
-- deployment ID、配信SHAとGitHub mainの一致はmerge後に再確認する
-- 本番での実AI成功応答はmerge後に再確認する
-- 実行時の実費`$0.00`はrouting evidenceと本番応答で再確認する
-- 日常利用可能性、SLA、可用性、復旧時間はprovider側の無料枠に依存し保証しない
+- Productionは稼働していても、配信SHAが最新mainやPR候補と一致するとは限らない
+- CI/Preview成功はProduction反映の証明ではない
+- Production完了には配信SHA、health、実Chat/Streaming、PWA、failure/recovery、artifact isolationを再確認する
+- 日常利用可能性、SLA、可用性、復旧時間はprovider無料枠やVercel無料枠に依存し保証しない
 
-CI成功やPreview成功は、本番デプロイの証明ではありません。
+## AIモデル・費用・retry
 
-## AIモデルと費用
-
-現在の固定無料モデル:
+Chat固定無料モデル:
 
 ```text
 inclusionai/ling-3.0-flash-sante:free
+reviewAfter: 2026-10-01T04:59:37.992Z
 ```
 
-無料根拠の再確認期限:
+Codingでtimeout/unavailable時だけ利用可能な別証拠付き無料モデル:
 
 ```text
-2026-09-17T00:00:00.000Z
+inclusionai/ling-3.0-flash-vl:free
+reviewAfter: 2026-10-02T14:36:59.999Z
 ```
 
 制約:
 
-- 固定モデル以外へ自動切替しない
 - 有料fallbackを行わない
-- 価格根拠が失効した場合は外部AI実行を停止
-- providerが別モデルを提供した場合は停止
-- provider availability、rate limit、利用条件の変更により利用できなくなる可能性がある
-- 無料であることと、入力が保存・学習されないことは同義ではないため、`data_collection: deny` と `zdr: true` を別途必須とする
-- 推論失敗時はクライアント・providerとも自動retryを行わず、1ユーザー操作につき最大1回の推論要求でfail closedする
-- HTTP 429/500/502/503/504等の一時的transport障害は、未検証応答を表示せず再試行なしの混雑案内として扱う
+- 価格根拠が失効したモデルは実行しない
+- served model、reported cost、data policyを検証できなければ停止する
+- OpenRouter任せのprovider/model fallbackを許可しない
+- 同一provider/modelへの自動retryは行わない
+- HTTP 429は即Fail-Closedし、別モデルでquotaを迂回しない
+- Codingのtimeout/unavailableのみ、別途証拠が有効な$0/ZDRモデルへ最大1回だけfailoverできる
+- malformed response、required-tool truncation/ambiguityは同一要求を自動再送しない
+- CodingのSelf Repairはprovider retryとは別であり、実コード変更後のtypecheck/lint/test/build失敗を根拠にbounded repairする
+- runtimeで`data_collection: deny`、`zdr: true`、`max_price=0`、served-model identity、reported cost zeroを強制する
 
-## 製品範囲
+無料モデルの価格証拠はscheduled workflowで定期再確認し、期限接近時は更新PRを作成します。証拠更新PRも通常CI/Owner承認境界を越えて自動mergeしません。
 
-現行Personalランタイムの中心は、単一のチャット実行境界です。
+## 現行コード範囲
 
-現在の実行機能として保証しないもの:
+現行コードベースには少なくとも次の境界があります。
 
-- 複数AIの自動合議
-- 自動Reviewer実行
-- live searchと出典検証
-- Project
-- 長期Memory
-- 端末間同期
-- 永続Knowledge DNA
-- 自己進化する組織
-- Byzantine / Raft合意
+- Personal Chat / Streaming / History / PWA
+- V1.1 Grounded Research service
+- V1.2 Markdown/CSV/PDF/DOCX/XLSX/PPTX real-file generator
+- V1.3 Web/Application Builder
+- V1.4 Agentic Coding job/worker/verification/result flow
+- Artifact preview isolation
+- MCP client/OAuth/grant foundation（Production有効化とは別）
+
+ただし「コードに存在する」「CIで通る」「Productionで有効」の3つは別判定です。最新状態は`docs/ORIGIN_COMPLETION_STATUS.md`を確認してください。
+
+現在も保証しないもの:
+
+- 複数AIの自動合議が常時Productionで動作すること
+- 長期Memory/端末間同期/永続Knowledge DNA
+- 自己進化する組織や無承認の自己更新
 - 1,000以上の自律エージェント同時実行
-- WebSocket backplane
-- 仮想ファイルシステムによる実ディスク操作
-- desktop / IDE自動操作
+- desktop / IDE / computer-useの完全自律操作
+- Claude Code / ChatGPT Agent /その他競合より優れていること
 
-リポジトリに将来構想や旧コードが存在しても、Personalランタイムから利用可能とは限りません。
+## Agent / Coding品質
 
-## ローカルデータ
+Completion gate、self-repair、held-out harness、checkpoint/resume等のコードとテストが存在しても、世界最高水準の比較主張には同一課題・同一成功条件・Exact SHA・ログ・diff・test結果が必要です。
 
-PWA、ブラウザーstorage、オフライン境界が存在しますが、次は未確認です。
+未検証または再検証が必要:
 
-- 物理Android / iPhone / iPad
-- private browsing
-- storage eviction
-- OSによるPWA停止・削除
-- 実ネットワーク切断と復旧
-- 複数端末同期
-- backup / restore
-- 長期保持
+- Task 1–12の同一条件benchmark
+- long-task / interruption / resumeの実タスク
+- first-pass success rate / repair rounds / unnecessary diff
+- Claude Code等との同条件比較
+- 最新release candidateでのProduction Coding E2E
 
-ローカル保存を、クラウド同期、永続backup、組織Memoryとして表示しません。
+## Research / Artifact品質
 
-## 回答品質
+Research serviceとreal-file generatorの存在だけでは、あらゆる研究回答・成果物品質を保証しません。
 
-自動テストは、API境界・UI状態・固定fixtureの回帰を検査します。次を保証しません。
+再検証が必要:
 
-- すべての質問への正確性
-- 最新情報
-- 出典の完全性
-- 法律・医療・金融等の高リスク判断
-- 日本語表現の完全性
-- hallucinationの完全排除
-- 他AIサービスより優れていること
+- 一次情報比率
+- citation correctness / freshness
+- contradiction handling
+- unsupported claim抑制
+- PDF/DOCX/XLSX/PPTXを実際に開き直した品質
+- Web artifactの視覚品質と操作性
 
-回答品質を主張するには、versioned fixture、採点基準、失敗例、比較条件、Exact SHAが必要です。
+## UI / モバイル
 
-## 性能
-
-CIではLighthouseを実行していますが、本番Real User Monitoringではありません。
-
-未確認:
-
-- 本番FCP / LCP / CLS / INP / TTFB
-- 低速端末・低速回線
-- 長時間CPU / memory
-- memory leak
-- 同時利用者数
-- provider latency
-- regional latency
-- long-session degradation
-
-過去のhash付きbundle名、LCP 1.2秒、peak memory、sub-millisecond routing等を現在の保証値として使用しません。
-
-## アクセシビリティ
-
-自動Axe検査とPlaywrightの操作確認は、補助技術による手動適合確認を置き換えません。
-
-未確認:
-
-- VoiceOver
-- NVDA
-- TalkBack
-- 200% / 400% zoomの全画面
-- physical keyboard on mobile/tablet
-- high-contrast mode
-- speech input
-- switch control
-- 認知アクセシビリティのユーザーテスト
-
-WCAG 2.2 AA準拠またはAAA準拠を認証済みとは表現しません。
+PR #608はconversation-firstへの再設計候補です。Exact-head Preview、390px実画面、物理Androidキーボード、TalkBack/VoiceOver等の手動検証が完了するまで最終UX PASSとはしません。
 
 ## セキュリティ
 
-確認済みのコード境界があっても、次は未検証です。
+現行MCP OAuth/token経路はserver-side encrypted storeを使用します。旧OS画面に存在したbrowser direct-tokenフローはretired扱いで、Personal正規経路として使用しません。
+
+未検証:
 
 - production penetration test
-- 本番Secret・log・TLS・WAF・CORS設定
+- 本番Secret/log/TLS/WAF/CORSの独立監査
+- prompt injection網羅耐性
+- provider側運用の長期変化
 - 未知の脆弱性
-- 外部providerの運用
-- prompt injectionの網羅的耐性
-- 長期的なdependency risk
 
 「SECURED」「100%安全」「Zero Trust認証済み」とは主張しません。
 
-## 配布
+## 完了主張
 
-次は実施・証明されていません。
-
-- App Store提出
-- Google Play提出
-- Chrome Web Store提出
-- store review
-- store policy適合
-- signed native package
-- software notarization
-
-PWA manifestの存在は、store readyの証明ではありません。
-
-## 制約の変更
-
-この文書の制約を解消した場合は、次を同時に記録します。
+制約を解消した場合は最低限次を同時に記録します。
 
 ```text
 exact Git SHA

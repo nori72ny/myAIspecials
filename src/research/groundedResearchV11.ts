@@ -19,6 +19,8 @@ export type GroundedResearchConflict = {
   topic: "price" | "version" | "percentage";
   values: string[];
   sourceIds: string[];
+  resolution: "unresolved" | "prefer-recent-page-verified";
+  preferredSourceId?: string;
   note: string;
 };
 
@@ -92,12 +94,30 @@ function detectConflicts(sources: OriginResearchSource[]): GroundedResearchConfl
     const sourceIds = new Set<string>();
     for (const ids of values.values()) for (const id of ids) sourceIds.add(id);
     if (sourceIds.size < 2) continue;
+
+    const strongCandidates = [...sourceIds].filter((sourceId) => {
+      const index = Number(sourceId.slice(1)) - 1;
+      const source = sources[index];
+      return source?.evidenceLevel === "page-verified" && source.freshness === "recent";
+    });
+    const uniqueStrongCandidate = strongCandidates.length === 1 ? strongCandidates[0] : undefined;
+    const candidateValueCount = uniqueStrongCandidate
+      ? [...values.values()].filter((ids) => ids.has(uniqueStrongCandidate)).length
+      : 0;
+    const preferredSourceId = uniqueStrongCandidate && candidateValueCount === 1
+      ? uniqueStrongCandidate
+      : undefined;
+
     conflicts.push({
       kind: "structured-value-mismatch",
       topic,
       values: [...values.keys()].slice(0, 8),
       sourceIds: [...sourceIds].slice(0, 8),
-      note: "Different structured values were retrieved. This is a review signal, not proof of factual contradiction.",
+      resolution: preferredSourceId ? "prefer-recent-page-verified" : "unresolved",
+      ...(preferredSourceId ? { preferredSourceId } : {}),
+      note: preferredSourceId
+        ? `${preferredSourceId} is the retrieval-evidence preference because it is the only recent, page-verified source for this mismatch. This does not establish publisher authority or factual truth.`
+        : "Different structured values were retrieved. No unique recent page-verified source resolves the mismatch; publisher authority and semantic context remain unassessed.",
     });
   }
   return conflicts;
@@ -134,7 +154,12 @@ export function buildGroundedResearchReport(sources: OriginResearchSource[]): Gr
   });
   const conflictLines = conflicts.length === 0
     ? "No conservative structured-value mismatch was detected. Semantic agreement/conflict remains unassessed."
-    : conflicts.map((conflict) => `- ${conflict.topic}: ${conflict.values.join(" vs ")} (${conflict.sourceIds.join(", ")})`).join("\n");
+    : conflicts.map((conflict) => {
+        const preference = conflict.preferredSourceId
+          ? ` · retrieval preference: ${conflict.preferredSourceId} (recent + page-verified; publisher authority unassessed)`
+          : " · unresolved";
+        return `- ${conflict.topic}: ${conflict.values.join(" vs ")} (${conflict.sourceIds.join(", ")})${preference}`;
+      }).join("\n");
 
   return {
     version: "1.1",

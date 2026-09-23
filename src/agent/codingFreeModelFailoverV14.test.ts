@@ -109,13 +109,13 @@ describe('V1.4 explicit free coding model failover', () => {
       .rejects.toMatchObject({ code: 'PROVIDER_ROUTING_UNVERIFIED' });
   });
 
-  it('uses the alternate ZDR free model once after bounded primary availability retries are exhausted', async () => {
+  it('uses the alternate ZDR free model once after the primary availability request fails without retry', async () => {
     const primary = vi.fn().mockRejectedValue(failure('PROVIDER_UNAVAILABLE'));
     const alternate = vi.fn().mockResolvedValue(fallbackResult);
     const wrapped = createBoundedCodingProviderExecuteV14(primary, undefined, alternate);
 
     await expect(wrapped(request, {})).resolves.toBe(fallbackResult);
-    expect(primary).toHaveBeenCalledTimes(2);
+    expect(primary).toHaveBeenCalledTimes(1);
     expect(alternate).toHaveBeenCalledTimes(1);
     expect(alternate.mock.calls[0][0]).toBe(request);
   });
@@ -126,7 +126,7 @@ describe('V1.4 explicit free coding model failover', () => {
     const wrapped = createBoundedCodingProviderExecuteV14(primary, undefined, alternate);
 
     await expect(wrapped(request, {})).rejects.toMatchObject({ code: 'PROVIDER_RATE_LIMITED' });
-    expect(primary).toHaveBeenCalledTimes(2);
+    expect(primary).toHaveBeenCalledTimes(1);
     expect(alternate).not.toHaveBeenCalled();
   });
 
