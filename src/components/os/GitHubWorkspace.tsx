@@ -33,16 +33,9 @@ interface GitHubWorkspaceProps {
 export default function GitHubWorkspace({ onAddWorkspaceFile, language = "ja" }: GitHubWorkspaceProps) {
   const isEn = language === "en";
 
-  // Connection states
-  const [token, setToken] = useState<string>(() => localStorage.getItem("acos_github_token") || "");
-  const [user, setUser] = useState<any>(() => {
-    try {
-      const u = localStorage.getItem("acos_github_user");
-      return u ? JSON.parse(u) : null;
-    } catch {
-      return null;
-    }
-  });
+  // Legacy browser-held GitHub credentials are disabled. Use the reviewed server-side integration.
+  const [token, setToken] = useState<string>("");
+  const [user, setUser] = useState<any>(null);
 
   const [patInput, setPatInput] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
@@ -73,28 +66,7 @@ export default function GitHubWorkspace({ onAddWorkspaceFile, language = "ja" }:
   // Search inside details
   const [detailSearchQuery, setDetailSearchQuery] = useState("");
 
-  // Poll for connection status from localStorage in case the user connected from the other tab
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const t = localStorage.getItem("acos_github_token") || "";
-      const u = localStorage.getItem("acos_github_user");
-      setToken(t);
-      try {
-        setUser(u ? JSON.parse(u) : null);
-      } catch {
-        setUser(null);
-      }
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    // Also run a short polling interval because React state inside iframe might not capture storage event from same tab
-    const interval = setInterval(handleStorageChange, 1500);
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      clearInterval(interval);
-    };
-  }, []);
+  // Cross-tab browser credential rehydration is intentionally disabled.
 
   // Fetch repositories when token is available
   const fetchRepos = async () => {
@@ -181,44 +153,16 @@ export default function GitHubWorkspace({ onAddWorkspaceFile, language = "ja" }:
     fetchRepoDetails();
   }, [selectedRepo, token]);
 
-  // Handle Quick PAT connect
+  // Browser PAT entry is fail-closed. GitHub credentials must remain server-side.
   const handleConnectPAT = async () => {
-    if (!patInput.trim()) {
-      setConnectError(isEn ? "Please enter a token." : "トークンを入力してください。");
-      return;
-    }
-    setIsConnecting(true);
-    setConnectError("");
-    try {
-      const response = await fetch("https://api.github.com/user", {
-        headers: {
-          "Authorization": `Bearer ${patInput.trim()}`,
-          "Accept": "application/vnd.github.v3+json"
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(isEn ? "Authentication failed. Verify token scopes." : "認証に失敗しました。スコープとトークンを確認してください。");
-      }
-
-      const userData = await response.json();
-      localStorage.setItem("acos_github_token", patInput.trim());
-      localStorage.setItem("acos_github_user", JSON.stringify(userData));
-      setToken(patInput.trim());
-      setUser(userData);
-      setPatInput("");
-      setSuccessMsg(isEn ? "Connected successfully!" : "正常に接続されました！");
-      setTimeout(() => setSuccessMsg(""), 3000);
-    } catch (err: any) {
-      setConnectError(err.message || "Connection failed.");
-    } finally {
-      setIsConnecting(false);
-    }
+    setPatInput("");
+    setIsConnecting(false);
+    setConnectError(isEn
+      ? "Browser-held GitHub credentials are disabled. Use the approved server-side GitHub integration."
+      : "ブラウザへGitHub資格情報を保存する旧接続は無効です。承認済みのサーバー側GitHub連携を使用してください。");
   };
 
   const handleDisconnect = () => {
-    localStorage.removeItem("acos_github_token");
-    localStorage.removeItem("acos_github_user");
     setToken("");
     setUser(null);
     setSelectedRepo(null);
