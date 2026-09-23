@@ -8,7 +8,7 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, string>([
   ['tsconfig.json', '166577ad1b6c79a81519689f71b0769e7f465ff3'],
   ['scripts/design-token-lock.js', 'a47fc4b878f84bf3b0bf303e6bf7ea5093e27803'],
 ]);
-const TRUSTED_ROOT_TEST_CONFIGS_V15 = ['vite.config.ts'] as const;
+const TRUSTED_ROOT_AUTO_CONFIGS_V15 = ['vite.config.ts'] as const;
 
 function safeRelativePath(value: unknown): value is string {
   if (typeof value !== 'string' || value.length < 1 || value.length > 240) return false;
@@ -47,11 +47,11 @@ export async function assertTrustedCandidateVerificationBaselineV15(root: string
   }
 
   const rootEntries = await fs.readdir(resolvedRoot, { withFileTypes: true });
-  const testConfigs = rootEntries
-    .filter(entry => entry.isFile() && /^(?:vite|vitest)(?:\.workspace)?\.config\.[A-Za-z0-9]+$/.test(entry.name))
+  const autoConfigs = rootEntries
+    .filter(entry => /^(?:(?:vite|vitest)\.config\.[A-Za-z0-9]+|vitest\.workspace\.[A-Za-z0-9]+|\.env(?:\..+)?)$/.test(entry.name))
     .map(entry => entry.name)
     .sort();
-  if (JSON.stringify(testConfigs) !== JSON.stringify([...TRUSTED_ROOT_TEST_CONFIGS_V15].sort())) {
+  if (JSON.stringify(autoConfigs) !== JSON.stringify([...TRUSTED_ROOT_AUTO_CONFIGS_V15].sort())) {
     throw new Error('TRUSTED_CANDIDATE_VERIFICATION_CONFIG_SET_MISMATCH');
   }
 }
