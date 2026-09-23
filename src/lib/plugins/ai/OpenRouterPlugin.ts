@@ -5,8 +5,7 @@ export class OpenRouterError extends Error {
   constructor(
     message: string,
     public readonly statusCode?: number,
-    public readonly requestId?: string,
-    public readonly rawError?: any
+    public readonly requestId?: string
   ) {
     super(message);
     this.name = 'OpenRouterError';
@@ -169,12 +168,12 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
         const requestId = response.headers.get("x-request-id") || data.id || "unknown-id";
 
         if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-          throw new OpenRouterError("OpenRouter API returned an empty choices array.", response.status, requestId, data);
+          throw new OpenRouterError("OpenRouter API returned an empty choices array.", response.status, requestId);
         }
 
         const content = data.choices[0]?.message?.content ?? data.choices[0]?.text;
         if (content === undefined || content === null) {
-          throw new OpenRouterError("OpenRouter API choices did not contain expected content text.", response.status, requestId, data);
+          throw new OpenRouterError("OpenRouter API choices did not contain expected content text.", response.status, requestId);
         }
 
         const usage = data.usage || {};
