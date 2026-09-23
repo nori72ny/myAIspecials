@@ -6,6 +6,11 @@ import { pathToFileURL } from 'node:url';
 const RESULT_PREFIX = 'ORIGIN_TRUSTED_CANDIDATE_RESULT ';
 const MAX_OUTPUT_BYTES = 32 * 1024;
 const monotonicNow = process.hrtime.bigint;
+const trustedStringify = JSON.stringify.bind(JSON);
+const trustedObjectCreate = Object.create;
+const trustedWrite = process.stdout.write.bind(process.stdout);
+const trustedExit = process.exit.bind(process);
+const trustedRemoveAllListeners = process.removeAllListeners.bind(process);
 
 type VisiblePacket = {
   id: string;
@@ -46,6 +51,24 @@ function parseVisiblePacket(): VisiblePacket {
   if (!Array.isArray(packet.requiredChangedPaths) || packet.requiredChangedPaths.length < 2 || packet.requiredChangedPaths.length > 12 || !packet.requiredChangedPaths.every(safePath)) throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
   if (typeof packet.goal !== 'string' || !packet.goal.trim() || packet.goal.length > 4000) throw new Error('TRUSTED_CANDIDATE_VISIBLE_PACKET_INVALID');
   return packet;
+}
+
+function trustedResultEnvelope(fields: Record<string, unknown>): string {
+  const envelope = trustedObjectCreate(null) as Record<string, unknown>;
+  envelope.schemaVersion = 'origin-trusted-candidate-agent-result-v1';
+  for (const [key, value] of Object.entries(fields)) envelope[key] = value;
+  return RESULT_PREFIX + trustedStringify(envelope) + '\n';
+}
+
+function terminateWithTrustedResult(fields: Record<string, unknown>, exitCode: number): never {
+  // Candidate code runs in this process and may mutate globals or schedule later output.
+  // Use references captured before candidate import, remove exit hooks, emit exactly one
+  // terminal trusted envelope, then exit synchronously so no later candidate timer can
+  // append a forged result line.
+  trustedRemoveAllListeners('beforeExit');
+  trustedRemoveAllListeners('exit');
+  trustedWrite(trustedResultEnvelope(fields));
+  trustedExit(exitCode);
 }
 
 async function proxyExecute(rawRequest: unknown): Promise<any> {
@@ -161,13 +184,12 @@ async function main(): Promise<void> {
   });
   const durationMs = Number(monotonicNow() - startedAt) / 1_000_000;
 
-  process.stdout.write(RESULT_PREFIX + JSON.stringify({
-    schemaVersion: 'origin-trusted-candidate-agent-result-v1',
+  terminateWithTrustedResult({
     taskId: packet.id,
     candidateSha: packet.baseSha,
     durationMs,
     session,
-  }) + '\n');
+  }, 0);
 }
 
 main().catch((error: unknown) => {
@@ -175,9 +197,5 @@ main().catch((error: unknown) => {
   const code = /^(?:CODING|PROVIDER|TRUSTED)_[A-Z0-9_:-]+$/.test(message)
     ? message
     : 'TRUSTED_CANDIDATE_AGENT_FATAL';
-  process.stdout.write(RESULT_PREFIX + JSON.stringify({
-    schemaVersion: 'origin-trusted-candidate-agent-result-v1',
-    error: code,
-  }) + '\n');
-  process.exitCode = 1;
+  terminateWithTrustedResult({ error: code }, 1);
 });
