@@ -18,6 +18,7 @@ async function main(): Promise<void> {
   const corpusDigest = requiredEnv("ORIGIN_AQ_V2_CORPUS_DIGEST");
   const roundId = requiredEnv("ORIGIN_AQ_V2_ROUND_ID");
   const executionId = requiredEnv("ORIGIN_AQ_V2_EXECUTION_ID");
+  const evaluatorSha = requiredEnv("ORIGIN_AQ_V2_EVALUATOR_SHA").toLowerCase();
   const outputPath = process.env.ORIGIN_AQ_V2_TRUSTED_EXECUTION_PATH
     ?? path.resolve("test-results", "trusted-answer-execution-v2.json");
 
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
     corpusDigest,
     roundId,
     executionId,
+    evaluatorSha,
     sameRepoOpenPrHead: process.env.ORIGIN_AQ_V2_PR_BINDING_VERIFIED === "true",
     trustedHostControlled: process.env.ORIGIN_AQ_V2_TRUSTED_HOST_CONTROLLED === "true",
   });
@@ -54,6 +56,8 @@ async function main(): Promise<void> {
     candidateSha,
     completedCases: aggregate.completedCases,
     providerRequestCount: aggregate.evidence.providerRequestCount,
+    evaluatorSha: aggregate.binding.evaluatorSha,
+    rubricDigest: aggregate.binding.rubricDigest,
     zeroCostVerified: aggregate.evidence.zeroCostVerified,
     qualificationPassed: aggregate.qualification.passed,
     resultDigest: aggregate.evidence.resultDigest,
