@@ -16,6 +16,7 @@ permissions:
   contents: read
   pull-requests: read
   actions: read
+  statuses: read
 
 concurrency:
   group: origin-trusted-candidate-heldout-preflight
@@ -109,6 +110,40 @@ jobs:
             echo "::error::This sealed source corpus has already been started and cannot be rebound to another candidate."
             exit 2
           fi
+
+      - name: Enforce append-only one-shot status ledger
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_DIGEST: ${{ steps.binding.outputs.source_digest }}
+          ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
+        run: |
+          set -euo pipefail
+          context="origin/heldout-source/${SOURCE_DIGEST}"
+          page=1
+          while :; do
+            curl --fail --silent --show-error \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${ANCHOR_SHA}/statuses?per_page=100&page=${page}" \
+              -o statuses.json
+            count="$(node -e "const v=require('./statuses.json'); process.stdout.write(String(v.length))")"
+            found="$(CONTEXT="$context" node - <<'NODE'
+          const fs=require('node:fs');
+          const rows=JSON.parse(fs.readFileSync('statuses.json','utf8'));
+          process.stdout.write(rows.some(row => row?.context === process.env.CONTEXT) ? '1' : '0');
+          NODE
+          )"
+            rm -f statuses.json
+            if [ "$found" = '1' ]; then
+              echo "::error::The sealed source corpus is already present in the append-only status ledger."
+              exit 2
+            fi
+            [ "$count" = '100' ] || break
+            page=$((page + 1))
+            [ "$page" -le 20 ] || { echo "::error::One-shot status ledger pagination limit exceeded."; exit 2; }
+          done
 
       - name: Preserve sanitized candidate-binding evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

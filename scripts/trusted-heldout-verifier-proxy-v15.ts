@@ -134,6 +134,11 @@ const server = createServer((req, res) => {
   });
 });
 
+server.maxConnections = 8;
+server.keepAliveTimeout = 1_000;
+server.headersTimeout = 5_000;
+server.requestTimeout = 10_000;
+
 await unlink(socketPath).catch(() => undefined);
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660).catch(() => undefined);

@@ -6,6 +6,7 @@ function safeRelativePath(value: unknown): value is string {
     && value.length > 0
     && value.length <= 240
     && !value.startsWith('/')
+    && !value.endsWith('/')
     && !value.includes('\\')
     && !value.split('/').includes('..')
     && !value.includes('\0');
@@ -49,6 +50,9 @@ export async function assertTrustedCandidatePathNoSymlinksV15(
     try {
       const stat = await fs.lstat(current);
       if (stat.isSymbolicLink()) throw new Error('TRUSTED_CANDIDATE_SYMLINK_BLOCKED');
+      if (index === segments.length - 1 && stat.isFile() && stat.nlink !== 1) {
+        throw new Error('TRUSTED_CANDIDATE_HARDLINK_BLOCKED');
+      }
       if (index < segments.length - 1 && !stat.isDirectory()) {
         throw new Error('TRUSTED_CANDIDATE_PATH_INVALID');
       }

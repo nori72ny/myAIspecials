@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -28,6 +28,24 @@ describe('trusted candidate workspace guard', () => {
       reportedPaths: ['src/b.ts'],
       requiredPaths: ['src/a.ts', 'src/b.ts'],
     })).toThrow('TRUSTED_CANDIDATE_DIFF_REPORT_MISMATCH');
+  });
+
+  it('rejects directory-shaped and traversal-like diff paths', () => {
+    expect(() => assertTrustedCandidateDiffScopeV15({
+      actualPaths: ['src/'],
+      reportedPaths: ['src/'],
+      requiredPaths: ['src/'],
+    })).toThrow('TRUSTED_CANDIDATE_DIFF_SCOPE_INVALID');
+  });
+
+  it('blocks hard-linked changed files explicitly', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-hardlink-'));
+    await mkdir(path.join(root, 'src'), { recursive: true });
+    await writeFile(path.join(root, 'src', 'a.ts'), 'export const a = 1;\n');
+    await link(path.join(root, 'src', 'a.ts'), path.join(root, 'src', 'alias.ts'));
+
+    await expect(assertTrustedCandidatePathNoSymlinksV15(root, 'src/a.ts'))
+      .rejects.toThrow('TRUSTED_CANDIDATE_HARDLINK_BLOCKED');
   });
 
   it('blocks symlinked hidden-test parents before any trusted write', async () => {
