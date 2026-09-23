@@ -158,7 +158,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
             throw new OpenRouterError(`OpenRouter server returned an error: ${status}`, status, requestId);
           }
 
-          throw new OpenRouterError(`OpenRouter request failed with status: ${status}`, status, requestId, errorBody);
+          throw new OpenRouterError(`OpenRouter request failed with status: ${status}`, status, requestId);
         }
 
         const data = await response.json() as any;
