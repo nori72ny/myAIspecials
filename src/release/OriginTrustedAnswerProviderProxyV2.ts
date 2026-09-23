@@ -135,8 +135,19 @@ export function createTrustedAnswerProviderBoundaryV2(options: {
       if (used >= TRUSTED_ANSWER_PROVIDER_REQUEST_LIMIT_V2) {
         fail("TRUSTED_ANSWER_PROVIDER_BUDGET_EXHAUSTED", 429);
       }
-      const request = validateTrustedAnswerProviderRequestV2(rawRequest);
       used += 1;
+
+      let serialized: string;
+      try {
+        serialized = JSON.stringify(rawRequest);
+      } catch {
+        fail("TRUSTED_ANSWER_PROVIDER_REQUEST_INVALID");
+      }
+      if (serialized.includes(options.token)) {
+        fail("TRUSTED_ANSWER_PROVIDER_CAPABILITY_TOKEN_LEAK_BLOCKED");
+      }
+
+      const request = validateTrustedAnswerProviderRequestV2(rawRequest);
       return options.execute(request);
     },
   });
