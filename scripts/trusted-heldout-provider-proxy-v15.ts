@@ -31,6 +31,7 @@ const boundary = createTrustedCandidateProviderBoundaryV15({
   },
 });
 
+let stopping = false;
 const server = createServer((req, res) => {
   void (async () => {
     if (req.method !== 'POST' || req.url !== '/execute') {
@@ -38,9 +39,20 @@ const server = createServer((req, res) => {
       res.end(JSON.stringify({ ok: false, code: 'TRUSTED_PROVIDER_ROUTE_NOT_FOUND' }));
       return;
     }
+    if (stopping) {
+      res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: false, code: 'TRUSTED_PROVIDER_STOPPING' }));
+      return;
+    }
 
     const authorization = req.headers.authorization ?? '';
     const presented = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!/^[a-f0-9]{64}$/.test(presented)) {
+      res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: false, code: 'TRUSTED_PROVIDER_UNAUTHORIZED' }));
+      return;
+    }
+
     const chunks: Buffer[] = [];
     let bytes = 0;
     for await (const chunk of req) {
@@ -78,6 +90,11 @@ const server = createServer((req, res) => {
   });
 });
 
+server.maxConnections = 8;
+server.keepAliveTimeout = 1_000;
+server.headersTimeout = 5_000;
+server.requestTimeout = 10_000;
+
 await unlink(socketPath).catch(() => undefined);
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660).catch(() => undefined);
@@ -85,6 +102,8 @@ server.listen(socketPath, async () => {
 });
 
 const stop = () => {
+  if (stopping) return;
+  stopping = true;
   server.close(() => {
     void unlink(socketPath).catch(() => undefined).finally(() => process.exit(0));
   });
