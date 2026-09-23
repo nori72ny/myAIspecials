@@ -34,6 +34,8 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(workflow).toContain("node scripts/verify-release-governance.mjs");
     expect(verifier).toContain("RELEASE_GOVERNANCE_MAIN_UNPROTECTED");
     expect(verifier).toContain("branch?.protected");
+    expect(verifier).toContain("RELEASE_GOVERNANCE_REQUIRED_CHECKS_MISSING");
+    expect(verifier).toContain("required_status_checks");
     expect(gate).toContain("protected: true");
     expect(gate).toContain("未保護のmainではReady変更・merge・Production smokeを進めない");
   });
