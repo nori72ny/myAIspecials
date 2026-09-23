@@ -93,6 +93,20 @@ describe("OriginAnswerExperienceGateV2", () => {
     expect(report.blockers).toContain("SEMANTIC_CASE_HAS_MATERIAL_WEAKNESS");
   });
 
+  it("rejects duplicated render and blind evidence instead of counting it twice", () => {
+    const renderRows = renders();
+    renderRows.push({ ...renderRows[0] });
+    const blindRows = blind();
+    blindRows.push({ ...blindRows[0] });
+    const report = evaluateOriginAnswerExperienceGateV2({
+      semantics: semantics(),
+      renders: renderRows,
+      blind: blindRows,
+    });
+    expect(report.blockers).toContain("RENDER_EVIDENCE_INVALID");
+    expect(report.blockers).toContain("BLIND_EVIDENCE_INVALID");
+  });
+
   it("blocks mobile readability regressions", () => {
     const rows = renders();
     rows[0] = { ...rows[0], noHorizontalOverflow: false };

@@ -81,8 +81,10 @@ export type OriginAnswerExperienceGateBlockerV2 =
   | "SEMANTIC_ABSOLUTE_QUALITY_LOW"
   | "SEMANTIC_CASE_HAS_MATERIAL_WEAKNESS"
   | "RENDER_COVERAGE_INCOMPLETE"
+  | "RENDER_EVIDENCE_INVALID"
   | "RENDER_REGRESSION"
   | "BLIND_EVIDENCE_INSUFFICIENT"
+  | "BLIND_EVIDENCE_INVALID"
   | "BLIND_ORDER_IMBALANCED"
   | "BLIND_WIN_RATE_LOW"
   | "BLIND_SURFACE_REGRESSION";
@@ -138,6 +140,10 @@ function semanticCoverageComplete(
   if (!REQUIRED_SURFACES.every((surface) =>
     observations.filter((item) => item.surface === surface).length >= 4
   )) return false;
+  const families = [...new Set(observations.map((item) => item.family))];
+  if (families.length < 8 || families.some((family) =>
+    observations.filter((item) => item.family === family).length < 2
+  )) return false;
   if (!["ja", "en"].every((locale) =>
     observations.filter((item) => item.locale === locale).length >= 4
   )) return false;
@@ -148,6 +154,8 @@ function rendersComplete(
   renders: readonly OriginAnswerExperienceRenderObservationV2[],
 ): boolean {
   if (renders.length < 12) return false;
+  const unique = new Set(renders.map((item) => `${item.caseId}\t${item.viewport}`));
+  if (unique.size !== renders.length) return false;
   return REQUIRED_VIEWPORTS.every((viewport) =>
     renders.filter((item) => item.viewport === viewport).length >= 4
   );
@@ -210,12 +218,22 @@ export function evaluateOriginAnswerExperienceGateV2(
   if (!rendersComplete(renders)) {
     blockers.push("RENDER_COVERAGE_INCOMPLETE");
   }
+  const renderUnique = new Set(renders.map((item) => `${item.caseId}\t${item.viewport}`));
+  if (renderUnique.size !== renders.length) {
+    blockers.push("RENDER_EVIDENCE_INVALID");
+  }
   if (renders.some((item) => !renderPassed(item))) {
     blockers.push("RENDER_REGRESSION");
   }
 
   const judgeCount = new Set(blind.map((item) => item.judgeId)).size;
   const competitors = new Set(blind.map((item) => item.competitorId)).size;
+  const blindUnique = new Set(blind.map((item) =>
+    `${item.caseId}\t${item.judgeId}\t${item.competitorId}`
+  ));
+  if (input.blind.length !== blind.length || blindUnique.size !== blind.length) {
+    blockers.push("BLIND_EVIDENCE_INVALID");
+  }
   if (blind.length < 24 || judgeCount < 2 || competitors < 2) {
     blockers.push("BLIND_EVIDENCE_INSUFFICIENT");
   }
@@ -223,7 +241,19 @@ export function evaluateOriginAnswerExperienceGateV2(
   const presentedAsARate = blind.length === 0
     ? 0
     : blind.filter((item) => item.presentedCandidateAs === "A").length / blind.length;
-  if (blind.length > 0 && (presentedAsARate < 0.4 || presentedAsARate > 0.6)) {
+  const judgeOrderImbalanced = [...new Set(blind.map((item) => item.judgeId))].some((judgeId) => {
+    const rows = blind.filter((item) => item.judgeId === judgeId);
+    const asA = rows.filter((item) => item.presentedCandidateAs === "A").length / rows.length;
+    return asA < 0.4 || asA > 0.6;
+  });
+  if (
+    blind.length > 0
+    && (
+      presentedAsARate < 0.4
+      || presentedAsARate > 0.6
+      || judgeOrderImbalanced
+    )
+  ) {
     blockers.push("BLIND_ORDER_IMBALANCED");
   }
 

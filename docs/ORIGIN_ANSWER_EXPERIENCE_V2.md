@@ -115,3 +115,15 @@ No merge or Production deployment is authorized by this evaluator.
 For an even number of comparisons, candidate presentation is exactly 50/50 A/B after a deterministic seeded ordering. This avoids letting the evaluator choose a favorable answer order after seeing results.
 
 The public promotion evidence should contain only unblinded result rows and answer digests, not raw answer bodies.
+
+
+## Evidence-integrity rules
+
+The V2 gate does not allow repeated evidence rows to satisfy coverage:
+- semantic case IDs must be unique;
+- render evidence is unique per case + viewport;
+- blind judgments are unique per case + judge + competitor;
+- each judge must independently keep candidate A/B presentation within 40–60%;
+- at least eight task families must be represented, with at least two semantic cases per family.
+
+Malformed blind rows are blockers rather than silently useful evidence.
