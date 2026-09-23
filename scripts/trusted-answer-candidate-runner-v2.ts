@@ -153,6 +153,21 @@ async function main(): Promise<void> {
 
   const body = response.body && typeof response.body === "object" ? response.body as Record<string, unknown> : null;
   if (!body) throw new Error("TRUSTED_ANSWER_CANDIDATE_RESPONSE_INVALID");
+
+  if (response.status < 200 || response.status >= 300) {
+    const rawCode = body.code;
+    const safeCode = typeof rawCode === "string"
+      && /^(?:PROVIDER|FREE_MODEL|FREE_PROVIDER|INVALID_EXECUTION)_[A-Z0-9_:-]+$/.test(rawCode)
+      ? rawCode
+      : undefined;
+    const envelope = trustedObjectCreate(null) as Record<string, unknown>;
+    envelope.schemaVersion = "origin.trusted-answer-candidate-result.v2";
+    envelope.leaseId = lease.leaseId;
+    envelope.httpStatus = response.status;
+    if (safeCode) envelope.error = safeCode;
+    emit(envelope, 1);
+  }
+
   const content = safeContent(body.content);
 
   const routing = body.routing && typeof body.routing === "object"
