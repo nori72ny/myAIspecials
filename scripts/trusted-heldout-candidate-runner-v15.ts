@@ -1,5 +1,5 @@
 import { request as httpRequest } from 'node:http';
-import { promises as fs } from 'node:fs';
+import { promises as fs, writeSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -8,15 +8,24 @@ const MAX_OUTPUT_BYTES = 32 * 1024;
 const monotonicNow = process.hrtime.bigint;
 const trustedStringify = JSON.stringify.bind(JSON);
 const trustedObjectCreate = Object.create;
-const trustedWrite = process.stdout.write.bind(process.stdout);
+const trustedSetPrototypeOf = Object.setPrototypeOf;
+const trustedArrayIsArray = Array.isArray;
 const trustedExit = process.exit.bind(process);
 const trustedRemoveAllListeners = process.removeAllListeners.bind(process);
+const trustedWriteSync = writeSync;
 
 type VisiblePacket = {
   id: string;
   baseSha: string;
   requiredChangedPaths: string[];
   goal: string;
+};
+
+type CandidateSessionProjection = {
+  runId: string;
+  status: string;
+  code: string;
+  changedPaths: string[];
 };
 
 function appendBounded(current: string, chunk: Buffer | string): string {
@@ -53,22 +62,61 @@ function parseVisiblePacket(): VisiblePacket {
   return packet;
 }
 
-function trustedResultEnvelope(fields: Record<string, unknown>): string {
-  const envelope = trustedObjectCreate(null) as Record<string, unknown>;
-  envelope.schemaVersion = 'origin-trusted-candidate-agent-result-v1';
-  for (const [key, value] of Object.entries(fields)) envelope[key] = value;
-  return RESULT_PREFIX + trustedStringify(envelope) + '\n';
+function projectCandidateSession(value: unknown): CandidateSessionProjection {
+  if (!value || typeof value !== 'object') throw new Error('TRUSTED_CANDIDATE_RESULT_INVALID');
+  const session = value as Record<string, unknown>;
+  const runId = session.runId;
+  const status = session.status;
+  const code = session.code;
+  const rawPaths = session.changedPaths;
+  if (typeof runId !== 'string' || runId.length > 200) throw new Error('TRUSTED_CANDIDATE_RESULT_INVALID');
+  if (typeof status !== 'string' || status.length > 64) throw new Error('TRUSTED_CANDIDATE_RESULT_INVALID');
+  if (typeof code !== 'string' || code.length > 128) throw new Error('TRUSTED_CANDIDATE_RESULT_INVALID');
+  if (!trustedArrayIsArray(rawPaths) || rawPaths.length > 64) throw new Error('TRUSTED_CANDIDATE_RESULT_INVALID');
+
+  const changedPaths: string[] = [];
+  trustedSetPrototypeOf(changedPaths, null);
+  for (let index = 0; index < rawPaths.length; index += 1) {
+    const entry = rawPaths[index];
+    if (typeof entry !== 'string' || entry.length > 240) throw new Error('TRUSTED_CANDIDATE_RESULT_INVALID');
+    changedPaths[index] = entry;
+  }
+
+  const projected = trustedObjectCreate(null) as CandidateSessionProjection;
+  projected.runId = runId;
+  projected.status = status;
+  projected.code = code;
+  projected.changedPaths = changedPaths;
+  return projected;
 }
 
-function terminateWithTrustedResult(fields: Record<string, unknown>, exitCode: number): never {
-  // Candidate code runs in this process and may mutate globals or schedule later output.
-  // Use references captured before candidate import, remove exit hooks, emit exactly one
-  // terminal trusted envelope, then exit synchronously so no later candidate timer can
-  // append a forged result line.
+function emitTrustedEnvelope(envelope: Record<string, unknown>, exitCode: number): never {
+  // Candidate code may mutate globals or register late hooks. Strip hooks after all
+  // candidate-derived property reads, serialize only null-prototype trusted projections,
+  // write directly to fd 1, and synchronously terminate before later timers can run.
   trustedRemoveAllListeners('beforeExit');
   trustedRemoveAllListeners('exit');
-  trustedWrite(trustedResultEnvelope(fields));
+  const serialized = RESULT_PREFIX + trustedStringify(envelope) + '\n';
+  trustedWriteSync(1, serialized, undefined, 'utf8');
   trustedExit(exitCode);
+}
+
+function emitTrustedSuccess(packet: VisiblePacket, durationMs: number, session: unknown): never {
+  const projectedSession = projectCandidateSession(session);
+  const envelope = trustedObjectCreate(null) as Record<string, unknown>;
+  envelope.schemaVersion = 'origin-trusted-candidate-agent-result-v1';
+  envelope.taskId = packet.id;
+  envelope.candidateSha = packet.baseSha;
+  envelope.durationMs = durationMs;
+  envelope.session = projectedSession;
+  emitTrustedEnvelope(envelope, 0);
+}
+
+function emitTrustedFailure(code: string): never {
+  const envelope = trustedObjectCreate(null) as Record<string, unknown>;
+  envelope.schemaVersion = 'origin-trusted-candidate-agent-result-v1';
+  envelope.error = code;
+  emitTrustedEnvelope(envelope, 1);
 }
 
 async function proxyExecute(rawRequest: unknown): Promise<any> {
@@ -183,13 +231,7 @@ async function main(): Promise<void> {
     },
   });
   const durationMs = Number(monotonicNow() - startedAt) / 1_000_000;
-
-  terminateWithTrustedResult({
-    taskId: packet.id,
-    candidateSha: packet.baseSha,
-    durationMs,
-    session,
-  }, 0);
+  emitTrustedSuccess(packet, durationMs, session);
 }
 
 main().catch((error: unknown) => {
@@ -197,5 +239,5 @@ main().catch((error: unknown) => {
   const code = /^(?:CODING|PROVIDER|TRUSTED)_[A-Z0-9_:-]+$/.test(message)
     ? message
     : 'TRUSTED_CANDIDATE_AGENT_FATAL';
-  terminateWithTrustedResult({ error: code }, 1);
+  emitTrustedFailure(code);
 });
