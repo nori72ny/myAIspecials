@@ -30,12 +30,14 @@ describe('trusted candidate workspace guard', () => {
     })).toThrow('TRUSTED_CANDIDATE_DIFF_REPORT_MISMATCH');
   });
 
-  it('rejects directory-shaped and traversal-like diff paths', () => {
-    expect(() => assertTrustedCandidateDiffScopeV15({
-      actualPaths: ['src/'],
-      reportedPaths: ['src/'],
-      requiredPaths: ['src/'],
-    })).toThrow('TRUSTED_CANDIDATE_DIFF_SCOPE_INVALID');
+  it('rejects ambiguous, control-character and traversal-like diff paths', () => {
+    for (const invalid of ['src/', 'src//a.ts', 'src/./a.ts', 'src/../a.ts', 'src/a.ts\n']) {
+      expect(() => assertTrustedCandidateDiffScopeV15({
+        actualPaths: [invalid],
+        reportedPaths: [invalid],
+        requiredPaths: [invalid],
+      })).toThrow('TRUSTED_CANDIDATE_DIFF_SCOPE_INVALID');
+    }
   });
 
   it('blocks hard-linked changed files explicitly', async () => {
@@ -46,6 +48,13 @@ describe('trusted candidate workspace guard', () => {
 
     await expect(assertTrustedCandidatePathNoSymlinksV15(root, 'src/a.ts'))
       .rejects.toThrow('TRUSTED_CANDIDATE_HARDLINK_BLOCKED');
+  });
+
+  it('blocks non-regular changed leaves', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-special-'));
+    await mkdir(path.join(root, 'src', 'directory.ts'), { recursive: true });
+    await expect(assertTrustedCandidatePathNoSymlinksV15(root, 'src/directory.ts'))
+      .rejects.toThrow('TRUSTED_CANDIDATE_SPECIAL_FILE_BLOCKED');
   });
 
   it('blocks symlinked hidden-test parents before any trusted write', async () => {
