@@ -159,8 +159,8 @@ export function buildOriginAnswerCaseResultTrustedV2(input: {
     || input.answer.trim().length === 0
     || input.answer.length > 200_000
     || !Number.isInteger(input.providerRequests)
-    || input.providerRequests < 1
-    || input.providerRequests > 4
+    || input.providerRequests < 0
+    || input.providerRequests > 1
     || input.costUsd !== 0
   ) {
     throw new Error("AQ_V2_CASE_RESULT_INVALID");
