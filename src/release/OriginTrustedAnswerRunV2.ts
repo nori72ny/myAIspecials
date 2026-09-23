@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { ORIGIN_AQ_V2_FAMILIES } from "./OriginAnswerExperienceV2.js";
+import {
+  ORIGIN_AQ_V2_FAMILIES,
+  type OriginAnswerExperienceFamilyV2,
+} from "./OriginAnswerExperienceV2.js";
 import { digestOriginAnswerExperienceRubricV2 } from "./OriginAnswerExperienceRubricV2.js";
 import type { OriginAnswerCaseResultTrustedV2 } from "./OriginAnswerTrustedCaseLeaseV2.js";
 import type { OriginAnswerEvaluationBindingV2 } from "./OriginAnswerEvaluationBindingV2.js";
@@ -31,6 +34,12 @@ export interface OriginTrustedAnswerCaseEvidenceV2 {
   readonly result: OriginAnswerCaseResultTrustedV2;
 }
 
+export interface OriginTrustedAnswerScoringBindingV2 {
+  readonly caseId: string;
+  readonly family: OriginAnswerExperienceFamilyV2;
+  readonly answerDigest: string;
+}
+
 export interface OriginTrustedAnswerRunAggregateV2 {
   readonly schemaVersion: "origin.trusted-answer-run-aggregate.v2";
   readonly evidence: OriginAnswerTrustedExecutionEvidenceV2;
@@ -38,6 +47,7 @@ export interface OriginTrustedAnswerRunAggregateV2 {
   readonly binding: OriginAnswerEvaluationBindingV2;
   readonly completedCases: number;
   readonly familyCounts: Readonly<Record<string, number>>;
+  readonly scoringBindings: readonly OriginTrustedAnswerScoringBindingV2[];
 }
 
 function validSha(value: string): boolean {
@@ -203,6 +213,14 @@ export function aggregateOriginTrustedAnswerRunV2(
     roundId: expected.roundId,
   });
 
+  const scoringBindings = [...cases]
+    .sort((left, right) => left.ordinal - right.ordinal)
+    .map(row => Object.freeze({
+      caseId: row.caseId,
+      family: row.family as OriginAnswerExperienceFamilyV2,
+      answerDigest: row.result.answerDigest,
+    }));
+
   return Object.freeze({
     schemaVersion: "origin.trusted-answer-run-aggregate.v2",
     evidence,
@@ -210,5 +228,6 @@ export function aggregateOriginTrustedAnswerRunV2(
     binding,
     completedCases: cases.length,
     familyCounts: Object.freeze({ ...familyCounts }),
+    scoringBindings: Object.freeze(scoringBindings),
   });
 }
