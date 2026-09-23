@@ -42,6 +42,22 @@ describe("AQ V2 trusted exact-candidate execution contract", () => {
     expect(runner).toContain('.post("/api/chat")');
   });
 
+  it("preserves only allowlisted non-2xx candidate diagnostics before validating answer content", () => {
+    const runner = read("scripts/trusted-answer-candidate-runner-v2.ts");
+    const non2xx = runner.indexOf("if (response.status < 200 || response.status >= 300)");
+    const contentValidation = runner.indexOf("const content = safeContent(body.content)");
+    expect(non2xx).toBeGreaterThan(0);
+    expect(contentValidation).toBeGreaterThan(non2xx);
+    expect(runner).toContain("PROVIDER|FREE_MODEL|FREE_PROVIDER|INVALID_EXECUTION");
+    expect(runner).toContain("envelope.httpStatus = response.status");
+    expect(runner).toContain("if (safeCode) envelope.error = safeCode");
+
+    const controller = read("scripts/run-trusted-answer-case-v2.ts");
+    expect(controller).toContain("sanitizedCandidateFailure(candidate.output)");
+    expect(controller).toContain('event: "trusted-answer-candidate-failed"');
+    expect(controller).toContain("providerRequests: providerRequestCount(proxyOutput)");
+  });
+
   it("uses a separate one-request answer proxy rather than weakening the coding proxy", () => {
     const answerBoundary = read("src/release/OriginTrustedAnswerProviderProxyV2.ts");
     const codingBoundary = read("src/release/OriginTrustedCandidateProviderProxyV15.ts");
