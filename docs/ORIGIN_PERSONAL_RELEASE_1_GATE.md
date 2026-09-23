@@ -49,14 +49,15 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 ## 公開前の必須条件
 
 1. exact candidate SHAのlint、unit test、build、既存E2E、CodeQL、OpenSSF、release workflowが成功している。
-2. PRをReadyへ変更する承認と、mainへマージする承認がある。
-3. デプロイについて、マージとは別の明示承認がある。
-4. 公開環境のサーバー側に既存の`OPENROUTER_API_KEY`が安全に設定されている。値をチャット、ログ、コード、PRへ入力・表示しない。
-5. 実行モデルIDが`:free`で終わり、ORIGINのmodel fallbackが無効、provider層は同一固定model内の候補だけに限定され、最大価格がすべて`0`である。
-6. 公開環境のsmoke testで、秘密情報を含まない入力に対する成功、実費`$0.00`、要求モデルと提供モデルの一致、model fallback未使用、provider routing policyの適合を確認する。
-7. APIキー未設定、無料証拠欠落、routing証拠不一致、provider不通の場合に回答を表示せず停止することを確認する。
-8. ノリさんがモバイルまたは日常利用端末で、入力、回答の読みやすさ、エラー表示を最終確認する。
-9. Vercel公開直後の`/api/health`が40桁の16進数SHAを返し、デプロイ対象のExact SHAと完全一致する。不一致または`unknown`の場合は公開成功と扱わない。
+2. GitHubの`main`がbranch protectionで`protected: true`になっており、公開前に`scripts/verify-release-governance.mjs`がPASSする。未保護のmainではReady変更・merge・Production smokeを進めない。
+3. PRをReadyへ変更する承認と、mainへマージする承認がある。
+4. デプロイについて、マージとは別の明示承認がある。
+5. 公開環境のサーバー側に既存の`OPENROUTER_API_KEY`が安全に設定されている。値をチャット、ログ、コード、PRへ入力・表示しない。
+6. 実行モデルIDが`:free`で終わり、ORIGINのmodel fallbackが無効、provider層は同一固定model内の候補だけに限定され、最大価格がすべて`0`である。
+7. 公開環境のsmoke testで、秘密情報を含まない入力に対する成功、実費`$0.00`、要求モデルと提供モデルの一致、model fallback未使用、provider routing policyの適合を確認する。
+8. APIキー未設定、無料証拠欠落、routing証拠不一致、provider不通の場合に回答を表示せず停止することを確認する。
+9. ノリさんがモバイルまたは日常利用端末で、入力、回答の読みやすさ、エラー表示を最終確認する。
+10. Vercel公開直後の`/api/health`が40桁の16進数SHAを返し、デプロイ対象のExact SHAと完全一致する。不一致または`unknown`の場合は公開成功と扱わない。
 
 ## 停止条件
 
@@ -68,6 +69,7 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 - OpenRouterが固定model外へfallbackした、またはprovider routing policyへの適合を証明できない
 - 認証情報が未設定、無効、または露出した疑いがある
 - 本番環境だけで発生するP0/P1、秘密情報漏えい、誤表示が見つかった
+- GitHubの`main`が未保護、またはrelease governance verifierがPASSしていない
 - デプロイ承認の範囲を超える設定変更が必要になった
 
 ## 公開時期の判断
