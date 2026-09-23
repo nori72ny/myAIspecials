@@ -6,9 +6,11 @@ import { describe, expect, it } from 'vitest';
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 describe('trusted exact-candidate evaluator contract', () => {
-  it('keeps the candidate networkless and provider credentials out of its env-file', () => {
+  it('keeps the candidate networkless, hides real secrets and seals git metadata', () => {
     const controller = read('scripts/run-trusted-candidate-heldout-v15.ts');
     expect(controller).toContain("'--network', 'none'");
+    expect(controller).toContain("dst=/work/.git,readonly");
+    expect(controller).toContain('assertGitFileUnchanged(workspace, gitFileSnapshot)');
     const envStart = controller.indexOf("await fs.writeFile(envFile");
     const envEnd = controller.indexOf("const uid =", envStart);
     const envBlock = controller.slice(envStart, envEnd);
@@ -18,14 +20,35 @@ describe('trusted exact-candidate evaluator contract', () => {
     expect(envBlock).not.toContain('ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64');
   });
 
-  it('stops both trusted proxies before hidden tests are materialized', () => {
+  it('waits for both trusted proxies to exit before diff and hidden-test materialization', () => {
     const controller = read('scripts/run-trusted-candidate-heldout-v15.ts');
-    const providerStop = controller.indexOf("proxy.kill('SIGTERM')");
-    const verifierStop = controller.indexOf("verifierProxy.kill('SIGTERM')");
+    const providerStop = controller.indexOf("await stopChild(proxy, 'TRUSTED_PROVIDER_PROXY')");
+    const verifierStop = controller.indexOf("await stopChild(verifierProxy, 'TRUSTED_VERIFIER_PROXY')");
+    const diff = controller.indexOf('const actualPaths = await actualChangedPaths(workspace)');
     const hiddenWrite = controller.indexOf('writeTrustedCandidateHiddenTestV15(workspace');
     expect(providerStop).toBeGreaterThan(0);
     expect(verifierStop).toBeGreaterThan(providerStop);
-    expect(hiddenWrite).toBeGreaterThan(verifierStop);
+    expect(diff).toBeGreaterThan(verifierStop);
+    expect(hiddenWrite).toBeGreaterThan(diff);
+  });
+
+  it('does not let gitignore or whitespace normalization hide candidate filesystem changes', () => {
+    const controller = read('scripts/run-trusted-candidate-heldout-v15.ts');
+    const changedPathsStart = controller.indexOf('async function actualChangedPaths');
+    const changedPathsEnd = controller.indexOf('function visiblePacket', changedPathsStart);
+    const changedPaths = controller.slice(changedPathsStart, changedPathsEnd);
+    expect(changedPaths).toContain("['ls-files', '--others', '-z']");
+    expect(changedPaths).not.toContain('--exclude-standard');
+    expect(changedPaths).not.toContain('.trim()');
+  });
+
+  it('makes intermediate and final verification mounts read-only', () => {
+    const controller = read('scripts/run-trusted-candidate-heldout-v15.ts');
+    const verifier = read('scripts/trusted-heldout-verifier-proxy-v15.ts');
+    expect(controller).toContain('dst=/work,readonly`');
+    expect(verifier).toContain('dst=/work,readonly`');
+    expect(controller).toContain('--outfile=/tmp/origin-dist/server.cjs');
+    expect(verifier).toContain('--outfile=/tmp/origin-dist/server.cjs');
   });
 
   it('requires an append-only commit-status reservation before benchmark execution', () => {
@@ -50,10 +73,21 @@ describe('trusted exact-candidate evaluator contract', () => {
     expect(v15).toContain('/statuses/${ANCHOR_SHA}');
   });
 
-  it('keeps verifier commands fixed and bounds socket concurrency', () => {
+  it('keeps verifier commands fixed, serializes verification and bounds socket timing', () => {
     const verifier = read('scripts/trusted-heldout-verifier-proxy-v15.ts');
     expect(verifier).toContain("const commands: Record<CheckKind, string>");
-    expect(verifier).toContain('server.maxConnections = 8');
+    expect(verifier).toContain('if (active)');
+    expect(verifier).toContain("code: 'TRUSTED_VERIFIER_BUSY'");
+    expect(verifier).toContain('server.maxConnections = 4');
+    expect(verifier).toContain('server.headersTimeout = 5_000');
+    expect(verifier).toContain('server.requestTimeout = 10_000');
     expect(verifier).not.toMatch(/req\.(?:body|query)|URLSearchParams/);
+  });
+
+  it('bounds provider Unix-socket connections and request timing', () => {
+    const provider = read('scripts/trusted-heldout-provider-proxy-v15.ts');
+    expect(provider).toContain('server.maxConnections = 8');
+    expect(provider).toContain('server.headersTimeout = 5_000');
+    expect(provider).toContain('server.requestTimeout = 10_000');
   });
 });
