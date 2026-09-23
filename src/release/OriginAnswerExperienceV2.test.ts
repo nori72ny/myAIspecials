@@ -9,6 +9,7 @@ import {
   validateOriginAnswerExperienceManifestV2,
   type OriginAnswerExperienceManifestV2,
   type OriginAnswerExperienceObservationV2,
+  type OriginAnswerExperienceScoreV2,
 } from "./OriginAnswerExperienceV2.js";
 import {
   evaluateOriginBlindPreferenceV2,
@@ -31,7 +32,7 @@ function manifest(): OriginAnswerExperienceManifestV2 {
 function observation(
   caseId: string,
   family: OriginAnswerExperienceObservationV2["family"],
-  score: 4 = 4,
+  score: OriginAnswerExperienceScoreV2 = 4,
 ): OriginAnswerExperienceObservationV2 {
   return {
     caseId,
