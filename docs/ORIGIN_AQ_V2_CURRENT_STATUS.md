@@ -31,4 +31,15 @@ AQ V2 execution should reuse the trusted-evaluator architecture established in P
 - exact request budget;
 - fail closed on leakage or unverifiable cost.
 
-Until that boundary is trusted on `main`, AQ V2 live execution remains intentionally blocked.
+## 2026-09-23 trusted evaluator release status
+
+- PR #612 merged to `main`; trusted AQ V2 execution boundary is now on the canonical branch.
+- PR #613 merged to `main`; required corpus/provider secrets are checked before the globally one-shot corpus reservation is consumed.
+- The one-shot runner was exercised against PR #608 using exact candidate SHA `ef8825f1b8f9580c37c6a7e286072f3e7caa0abb`.
+- `OPENROUTER_API_KEY` is configured.
+- `ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64` is **not configured**.
+- The runner therefore stopped before corpus inspection/reservation/provider execution. The hidden corpus has not been consumed.
+- No alternative/generated corpus is substituted, because doing so after seeing the candidate would weaken the held-out claim.
+- Trusted live execution remains blocked only on registration of the independently prepared sealed AQ V2 corpus secret.
+
+Production runtime remains free-only and fail-closed. A docs-only canonical commit is used to retrigger Vercel after the prior workflow-only main commit hit the Hobby deployment-rate limit; application runtime code is unchanged by this status update.
