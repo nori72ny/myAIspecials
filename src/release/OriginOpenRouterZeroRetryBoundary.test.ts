@@ -13,6 +13,13 @@ describe("OpenRouter free-only retry boundary", () => {
     expect(source).not.toContain("options?.maxRetries ?? 3");
   });
 
+  it("keeps upstream failure diagnostics metadata-only", () => {
+    expect(source).not.toContain("response.text()");
+    expect(source).not.toContain("requestId, errorBody");
+    expect(source).not.toContain("undefined, undefined, error");
+    expect(source).toContain('Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}`, { name: error?.name || "Error" })');
+  });
+
   it("does not retry 429 or 5xx when free-only forces maxRetries to zero", () => {
     expect(source).toContain("if (status === 429)");
     expect(source).toContain("if (status >= 500)");
