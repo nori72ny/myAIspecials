@@ -42,7 +42,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
   public async initialize(): Promise<void> {
     if (!this._apiKey) {
-      Logger.warn("[OpenRouterPlugin] No API Key provided. OpenRouter will run in fallback mock mode.");
+      Logger.warn("[OpenRouterPlugin] No API Key provided. Provider execution remains disabled.");
     } else {
       Logger.info("[OpenRouterPlugin] Initialized successfully with API Key.");
     }
@@ -81,10 +81,14 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
       return "FREE_MODEL_UNAVAILABLE";
     }
 
-    // Fallback Mock Mode (e.g., in deterministic tests or when no key is specified)
-    if (!this._apiKey || this._apiKey.startsWith("mock-") || process.env.NODE_ENV === "test") {
-      Logger.info(`[OpenRouterPlugin] Running generateText in fallback mock mode for model: ${modelId}`);
+    // Mock output is test-only or explicitly requested by a mock-* credential.
+    // Missing real credentials must fail closed rather than returning a fake successful answer.
+    if (process.env.NODE_ENV === "test" || this._apiKey.startsWith("mock-")) {
+      Logger.info(`[OpenRouterPlugin] Running generateText in explicit test/mock mode for model: ${modelId}`);
       return this.getFallbackMockResponse(prompt, modelId);
+    }
+    if (!this._apiKey) {
+      throw new OpenRouterError("PROVIDER_NOT_CONFIGURED", 503);
     }
 
     const requestedRetries = Number.isInteger(options?.maxRetries) && options.maxRetries > 0
