@@ -49,7 +49,7 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 ## 公開前の必須条件
 
 1. exact candidate SHAのlint、unit test、build、既存E2E、CodeQL、OpenSSF、release workflowが成功している。
-2. GitHubの`main`がbranch protectionで`protected: true`になっており、公開前に`scripts/verify-release-governance.mjs`がPASSする。未保護のmainではReady変更・merge・Production smokeを進めない。
+2. GitHubの`main`がbranch protectionで`protected: true`になり、required status checksが有効かつ1件以上必須化されており、公開前に`scripts/verify-release-governance.mjs`がPASSする。未保護のmainではReady変更・merge・Production smokeを進めない。
 3. PRをReadyへ変更する承認と、mainへマージする承認がある。
 4. デプロイについて、マージとは別の明示承認がある。
 5. 公開環境のサーバー側に既存の`OPENROUTER_API_KEY`が安全に設定されている。値をチャット、ログ、コード、PRへ入力・表示しない。
