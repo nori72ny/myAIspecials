@@ -115,11 +115,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_DIGEST: ${{ steps.binding.outputs.source_digest }}
           ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
         run: |
           set -euo pipefail
-          context="origin/heldout-source/${SOURCE_DIGEST}"
+          source_digest="$(node -e "const v=require('./test-results/trusted-candidate-binding.json'); process.stdout.write(v.sourceCorpusDigest)")"
+          context="origin/heldout-source/${source_digest}"
           page=1
           while :; do
             curl --fail --silent --show-error \
