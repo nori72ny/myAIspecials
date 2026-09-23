@@ -20,6 +20,14 @@ describe('trusted exact-candidate evaluator contract', () => {
     expect(envBlock).not.toContain('ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64');
   });
 
+  it('uses a captured monotonic native clock instead of mutable Date.now for task budget evidence', () => {
+    const runner = read('scripts/trusted-heldout-candidate-runner-v15.ts');
+    expect(runner).toContain('const monotonicNow = process.hrtime.bigint');
+    expect(runner).toContain('const startedAt = monotonicNow()');
+    expect(runner).toContain('Number(monotonicNow() - startedAt) / 1_000_000');
+    expect(runner).not.toContain('Date.now() - startedAt');
+  });
+
   it('waits for both trusted proxies to exit before diff and hidden-test materialization', () => {
     const controller = read('scripts/run-trusted-candidate-heldout-v15.ts');
     const providerStop = controller.indexOf("await stopChild(proxy, 'TRUSTED_PROVIDER_PROXY')");
@@ -51,6 +59,16 @@ describe('trusted exact-candidate evaluator contract', () => {
     expect(verifier).toContain('--outfile=/tmp/origin-dist/server.cjs');
   });
 
+  it('seals verification configuration before every intermediate verifier attempt', () => {
+    const verifier = read('scripts/trusted-heldout-verifier-proxy-v15.ts');
+    const guard = read('src/release/OriginTrustedCandidateWorkspaceGuardV15.ts');
+    expect(verifier).toContain('assertTrustedCandidateVerificationBaselineV15(workspace)');
+    expect(guard).toContain("['package-lock.json', '6ffbdaf5d08d45f3632432fec27324d840c6dce5']");
+    expect(guard).toContain("['vite.config.ts', 'fa396109dd321106533a27070567fb77f30b6e90']");
+    expect(guard).toContain("['tsconfig.json', '166577ad1b6c79a81519689f71b0769e7f465ff3']");
+    expect(guard).toContain('assertTrustedCandidateVerificationBaselineV15(root)');
+  });
+
   it('requires an append-only commit-status reservation before benchmark execution', () => {
     const workflow = read('.github/workflows/trusted-candidate-heldout-v15.yml');
     expect(workflow).toContain('statuses: write');
@@ -78,6 +96,7 @@ describe('trusted exact-candidate evaluator contract', () => {
     expect(verifier).toContain("const commands: Record<CheckKind, string>");
     expect(verifier).toContain('if (active)');
     expect(verifier).toContain("code: 'TRUSTED_VERIFIER_BUSY'");
+    expect(verifier).toContain("spawn('docker', ['rm', '-f', activeDockerName]");
     expect(verifier).toContain('server.maxConnections = 4');
     expect(verifier).toContain('server.headersTimeout = 5_000');
     expect(verifier).toContain('server.requestTimeout = 10_000');
