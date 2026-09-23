@@ -103,3 +103,15 @@ AQ V1 factual/verification gate
 → rerun both gates.
 
 No merge or Production deployment is authorized by this evaluator.
+
+
+## Blind-pack implementation
+
+`OriginAnswerExperienceBlindPackV2` produces two deliberately separated outputs:
+
+- `reviewItems`: prompt + Answer A + Answer B only. No model/provider identity, candidate position, competitor ID or answer digest is exposed to the judge.
+- `answerKey`: retained by the controller only and used after judging to convert A/B/tie into candidate/competitor/tie evidence.
+
+For an even number of comparisons, candidate presentation is exactly 50/50 A/B after a deterministic seeded ordering. This avoids letting the evaluator choose a favorable answer order after seeing results.
+
+The public promotion evidence should contain only unblinded result rows and answer digests, not raw answer bodies.
