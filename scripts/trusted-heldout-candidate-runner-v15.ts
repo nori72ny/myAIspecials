@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 const RESULT_PREFIX = 'ORIGIN_TRUSTED_CANDIDATE_RESULT ';
 const MAX_OUTPUT_BYTES = 32 * 1024;
+const monotonicNow = process.hrtime.bigint;
 
 type VisiblePacket = {
   id: string;
@@ -140,10 +141,10 @@ async function main(): Promise<void> {
     }
   }
 
+  const startedAt = monotonicNow();
   const candidateModule = await import(pathToFileURL(path.join(root, 'src/agent/codingAgentV14.ts')).href);
   if (typeof candidateModule.runCodingAgentV14 !== 'function') throw new Error('TRUSTED_CANDIDATE_AGENT_ENTRYPOINT_MISSING');
 
-  const startedAt = Date.now();
   const session = await candidateModule.runCodingAgentV14({
     goal: packet.goal,
     root,
@@ -158,12 +159,13 @@ async function main(): Promise<void> {
       execute: proxyExecute,
     },
   });
+  const durationMs = Number(monotonicNow() - startedAt) / 1_000_000;
 
   process.stdout.write(RESULT_PREFIX + JSON.stringify({
     schemaVersion: 'origin-trusted-candidate-agent-result-v1',
     taskId: packet.id,
     candidateSha: packet.baseSha,
-    durationMs: Date.now() - startedAt,
+    durationMs,
     session,
   }) + '\n');
 }
