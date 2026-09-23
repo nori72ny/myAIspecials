@@ -45,14 +45,24 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(workflow).not.toMatch(/candidate[^\n]*npm ci/);
   });
 
-  it("checks trusted database and provider credentials before consuming the global one-shot reservation", () => {
-    const secretCheck = workflow.indexOf("Verify required trusted-run secrets before reserving the one-shot corpus");
-    const fetch = workflow.indexOf("Fetch sealed AQ V2 corpus from private trusted store");
+  it("checks trusted database, provider and runtime prerequisites before consuming the global one-shot reservation", () => {
+    const preflightSecretCheck = workflow.indexOf("Verify required trusted-run secrets before reserving the one-shot corpus");
+    const preflightFetch = workflow.indexOf("Fetch sealed AQ V2 corpus from private trusted store");
+    const runtimeFetch = workflow.indexOf("Fetch sealed corpus into trusted runner temp");
+    const dockerPull = workflow.indexOf("Prepare isolated runtime image");
+    const rebind = workflow.indexOf("Revalidate exact candidate PR binding immediately before execution");
+    const boundaryCheck = workflow.indexOf("Verify secret boundary before execution");
     const reserve = workflow.indexOf("Reserve exact candidate and sealed corpus before provider execution");
-    expect(secretCheck).toBeGreaterThan(0);
-    expect(fetch).toBeGreaterThan(secretCheck);
-    expect(reserve).toBeGreaterThan(fetch);
-    const preReserve = workflow.slice(secretCheck, reserve);
+    const evaluate = workflow.indexOf("Run 48 leased cases through the trusted boundary");
+    expect(preflightSecretCheck).toBeGreaterThan(0);
+    expect(preflightFetch).toBeGreaterThan(preflightSecretCheck);
+    expect(runtimeFetch).toBeGreaterThan(preflightFetch);
+    expect(dockerPull).toBeGreaterThan(runtimeFetch);
+    expect(rebind).toBeGreaterThan(dockerPull);
+    expect(boundaryCheck).toBeGreaterThan(rebind);
+    expect(reserve).toBeGreaterThan(boundaryCheck);
+    expect(evaluate).toBeGreaterThan(reserve);
+    const preReserve = workflow.slice(preflightSecretCheck, reserve);
     expect(preReserve).toContain("POSTGRES_URL: ${{ secrets.POSTGRES_URL }}");
     expect(preReserve).toContain("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
     expect(preReserve).toContain('test -n "$POSTGRES_URL"');
@@ -86,6 +96,10 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(workflow).toContain('/statuses/${LEDGER_ANCHOR_SHA}');
     expect(workflow).not.toContain("round_hash=");
     expect(workflow).toContain("AQ_V2_TRUSTED_ROUND_ALREADY_RESERVED");
+    expect(workflow).toContain('echo "reserved=true" >> "$GITHUB_OUTPUT"');
     expect(workflow).toContain("Finalize append-only AQ V2 status");
+    expect(workflow).toContain("always() && steps.reserve.outputs.reserved == 'true'");
+    expect(workflow).toContain("STATUS_CONTEXT: ${{ steps.reserve.outputs.status_context }}");
+    expect(workflow).not.toContain("needs.preflight.outputs.status_context");
   });
 });
