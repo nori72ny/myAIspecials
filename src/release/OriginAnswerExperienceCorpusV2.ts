@@ -78,7 +78,7 @@ export const ORIGIN_ANSWER_EXPERIENCE_CASES_V2 = Object.freeze([
   c("ae-data-ja-1", "data-analysis", "artifact", "ja", "decision", "4人の営業担当のKPIを見るとき、結論、異常値、原因仮説、次アクションをどの順に示すと最も分かりやすいか、簡潔な例を作ってください。", "medium"),
   c("ae-data-en-2", "data-analysis", "artifact", "en", "decision", "A dashboard shows conversion down 12% while traffic is flat. Explain how to present the finding, uncertainty, diagnostic cuts, and next action without overstating causality.", "medium"),
   c("ae-data-ja-3", "data-analysis", "artifact", "ja", "decision", "Actual 120、Budget 100のとき、VarianceとVariance%を示し、数字だけでなく意思決定に必要な一言も付けてください。", "short"),
-] as const satisfies readonly OriginAnswerExperienceCaseV2[];
+] as const satisfies readonly OriginAnswerExperienceCaseV2[]);
 
 export function validateOriginAnswerExperienceCorpusV2(): boolean {
   const cases = ORIGIN_ANSWER_EXPERIENCE_CASES_V2;
