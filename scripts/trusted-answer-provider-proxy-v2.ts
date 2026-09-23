@@ -91,9 +91,11 @@ const server = createServer((req, res) => {
         requestCount,
       }));
     } catch (error) {
+      const requestCount = boundary.used();
+      process.stdout.write(JSON.stringify({ event: "trusted-answer-provider-request", requestCount }) + "\n");
       const safe = publicTrustedAnswerProviderErrorV2(error);
       res.writeHead(safe.status);
-      res.end(JSON.stringify({ ok: false, ...safe, requestCount: boundary.used() }));
+      res.end(JSON.stringify({ ok: false, ...safe, requestCount }));
     }
   })().catch(() => {
     if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json", "Cache-Control": "no-store" });
