@@ -83,13 +83,21 @@ jobs:
           NODE
           rm -f pr.json
 
+      - name: Verify required trusted-run secrets before reserving the one-shot corpus
+        env:
+          ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64"
+          test -n "$OPENROUTER_API_KEY"
+
       - name: Inspect sealed AQ V2 corpus without exposing prompts
         id: corpus
         env:
           ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}
         run: |
           set -euo pipefail
-          test -n "$ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64"
           node --import tsx scripts/inspect-trusted-answer-corpus-v2.ts > /tmp/aq-v2-corpus-check.log
           node <<'NODE' >> "$GITHUB_OUTPUT"
           const fs=require('node:fs');

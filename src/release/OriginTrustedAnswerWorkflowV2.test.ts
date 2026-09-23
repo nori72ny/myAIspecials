@@ -35,6 +35,18 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(workflow).not.toMatch(/candidate[^\n]*npm ci/);
   });
 
+  it("checks both sealed corpus and provider credentials before consuming the global one-shot reservation", () => {
+    const secretCheck = workflow.indexOf("Verify required trusted-run secrets before reserving the one-shot corpus");
+    const reserve = workflow.indexOf("Reserve exact candidate and sealed corpus before provider execution");
+    expect(secretCheck).toBeGreaterThan(0);
+    expect(reserve).toBeGreaterThan(secretCheck);
+    const preReserve = workflow.slice(secretCheck, reserve);
+    expect(preReserve).toContain("ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64");
+    expect(preReserve).toContain("OPENROUTER_API_KEY");
+    expect(preReserve).toContain('test -n "$ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64"');
+    expect(preReserve).toContain('test -n "$OPENROUTER_API_KEY"');
+  });
+
   it("passes the real provider key and sealed corpus only to the trusted controller step", () => {
     expect(workflow).toContain("ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64 }}");
     expect(workflow).toContain("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
