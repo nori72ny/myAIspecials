@@ -184,6 +184,29 @@ jobs:
         with:
           comment-summary-in-pr: on-failure
 
+  candidate-release-gate:
+    name: Release Gate (CI core)
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs:
+      - build-and-test
+      - artifact-preview-isolation
+      - dependency-review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all candidate CI gates to succeed
+        env:
+          BUILD_RESULT: ${{ needs.build-and-test.result }}
+          ARTIFACT_RESULT: ${{ needs.artifact-preview-isolation.result }}
+          DEPENDENCY_RESULT: ${{ needs.dependency-review.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'build-and-test=%s\nartifact-preview-isolation=%s\ndependency-review=%s\n' \
+            "$BUILD_RESULT" "$ARTIFACT_RESULT" "$DEPENDENCY_RESULT"
+          [ "$BUILD_RESULT" = "success" ]
+          [ "$ARTIFACT_RESULT" = "success" ]
+          [ "$DEPENDENCY_RESULT" = "success" ]
+
   production-smoke:
     name: Verify main SHA in Vercel production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
