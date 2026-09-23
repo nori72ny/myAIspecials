@@ -16,6 +16,16 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(vercelConfig.rewrites).toContainEqual({ source: "/api/(.*)", destination: "/api/index.ts" });
   });
 
+  it("keeps main merges separate from Production deployment approval", () => {
+    const vercelConfig = JSON.parse(readRepositoryFile("vercel.json")) as {
+      git?: { deploymentEnabled?: Record<string, boolean> };
+    };
+    const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
+    expect(vercelConfig.git?.deploymentEnabled?.main).toBe(false);
+    expect(gate).toContain("mainのGit pushによる自動Production deploymentを無効化");
+    expect(gate).toContain("PR branchのPreview deploymentは維持");
+  });
+
   it("keeps the Cloudflare Worker provider route ineligible for release 1", () => {
     const worker = readRepositoryFile("worker/index.mjs");
     expect(worker).toContain("providerExecutionEnabled: false");
