@@ -54,7 +54,10 @@ describe("AQ V2 trusted workflow contract", () => {
     const evaluate = workflow.indexOf("Run 48 leased cases through the trusted boundary");
     expect(reserve).toBeGreaterThan(0);
     expect(evaluate).toBeGreaterThan(reserve);
-    expect(workflow).toContain('context="origin/aq-v2/${CORPUS_DIGEST:0:16}"');
+    expect(workflow).toContain('context="origin/aq-v2-corpus/${CORPUS_DIGEST}"');
+    expect(workflow).toContain("LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c");
+    expect(workflow).toContain('/commits/${LEDGER_ANCHOR_SHA}/statuses?per_page=100&page=${page}');
+    expect(workflow).toContain('/statuses/${LEDGER_ANCHOR_SHA}');
     expect(workflow).not.toContain("round_hash=");
     expect(workflow).toContain("AQ_V2_TRUSTED_ROUND_ALREADY_RESERVED");
     expect(workflow).toContain("Finalize append-only AQ V2 status");
