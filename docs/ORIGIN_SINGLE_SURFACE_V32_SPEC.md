@@ -41,9 +41,9 @@ When opened, it may show:
 - 調べる
 - コード
 - 作る
-- 詳細
+- 詳細 — only after real conversation, artifact, research-source, or coding evidence exists
 
-The menu is closed by default on PC and mobile.
+The menu is closed by default on PC and mobile. A pristine home does not expose Details.
 
 No additional permanent toolbar is added to the chat surface.
 
