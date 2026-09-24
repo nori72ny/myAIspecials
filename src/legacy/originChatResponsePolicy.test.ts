@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   originChatSystemInstruction,
+  requiresOriginGroundedResearch,
   requiresOriginCurrentInformation,
   requiresOriginFutureReleaseInformation,
 } from "./originChatResponsePolicy";
@@ -24,6 +25,19 @@ describe("originChatResponsePolicy", () => {
     ["今日の予定を整理してください", false],
   ])("classifies freshness need for %s", (message, expected) => {
     expect(requiresOriginCurrentInformation(message)).toBe(expected);
+  });
+
+  it.each([
+    ["競合サービスを調査してください", true],
+    ["一次情報を検索して比較してください", true],
+    ["Please research the competing services", true],
+    ["Find sources for this claim", true],
+    ["この調査結果を200字に要約してください", false],
+    ["以下のリサーチ文章を読みやすく書き換えてください", false],
+    ["Summarize this research report in 200 words", false],
+    ["価格戦略の基本を教えて", false],
+  ])("classifies automatic grounded research need for %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
   });
 
   it.each([
