@@ -294,7 +294,9 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toContain('button-audit');
 
-    await page.getByRole('button', { name: /成果物を閉じる|Close artifact workspace/i }).click();
+    const closeWorkspace = page.getByTestId('artifact-close-workspace');
+    await expect(closeWorkspace).toBeVisible();
+    await closeWorkspace.click();
     await expect(page.getByTestId('artifact-workspace')).toBeHidden();
   });
 
