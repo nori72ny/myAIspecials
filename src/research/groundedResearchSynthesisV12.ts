@@ -140,7 +140,7 @@ function factualUnits(text: string): string[] {
     .filter((line) => !HEADING_PATTERN.test(line))
     .filter((line) => !SHORT_NONFACTUAL_PATTERN.test(line))
     .map((line) => line.replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "").trim())
-    .filter((line) => line.length >= 24);
+    .filter(Boolean);
 }
 
 export function validateGroundedResearchSynthesis(
