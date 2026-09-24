@@ -4,7 +4,6 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runCodingAgentV14 } from '../src/agent/codingAgentV14.js';
-import { executeOriginCodingFreeFailoverV14 } from '../src/agent/codingFreeModelFailoverV14.js';
 import { createBoundedCodingProviderExecuteV14 } from '../src/agent/codingProviderRetryV14.js';
 import { createHeldOutCodingProviderRequestBudgetV14 } from '../src/agent/heldOutCodingProviderRequestBudgetV14.js';
 import { CODING_CHECK_TIMEOUT_MS } from '../src/agent/codingWorkerTimingV14.js';
@@ -162,7 +161,6 @@ async function main(): Promise<void> {
       ? createBoundedCodingProviderExecuteV14(
           finalProviderBudget.wrap(executeOriginProvider),
           () => {},
-          finalProviderBudget.wrap(executeOriginCodingFreeFailoverV14),
         )
       : createBoundedCodingProviderExecuteV14(executeOriginProvider, () => {});
 
