@@ -1,6 +1,7 @@
 name: V1.4 production coding smoke
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
