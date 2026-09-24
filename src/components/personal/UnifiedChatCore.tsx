@@ -4,7 +4,6 @@ import {
   Activity,
   AlertTriangle,
   Check,
-  CheckCircle2,
   ChevronDown,
   Copy,
   History,
@@ -1331,21 +1330,13 @@ export default function UnifiedChat({
                 {message.routing && (
                   <details
                     data-testid="execution-details"
-                    className="group rounded-xl border border-origin-border bg-white/60 text-[13px] text-origin-muted dark:border-origin-border dark:bg-origin-surface/60 dark:text-origin-muted"
+                    className="group text-[12px] text-origin-muted"
                   >
-                    <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 font-medium outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-400 dark:hover:bg-white/5">
-                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
-                      <span className="text-slate-800 dark:text-neutral-200">
-                        {message.routing.freeOnly && executionCostLabel(message.routing, isEn) === (isEn ? 'Free' : '無料')
-                          ? (isEn ? 'Answered for free' : '無料で回答しました')
-                          : (isEn ? 'Answer completed' : '回答しました')}
-                      </span>
-                      <span className="ml-auto text-slate-500 dark:text-neutral-500">
-                        {isEn ? 'Details' : '詳細'}
-                      </span>
-                      <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+                    <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-lg px-1 py-2 font-medium outline-none transition hover:text-origin-ink focus-visible:ring-2 focus-visible:ring-origin-brand">
+                      <span>{isEn ? 'Answer details' : '回答の詳細'}</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 border-t border-slate-200 px-3 py-3 dark:border-white/10">
+                    <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-xl border border-origin-border bg-white/60 px-3 py-3 dark:border-origin-border dark:bg-origin-surface/60">
                       <dt className="text-slate-500 dark:text-neutral-500">{isEn ? 'AI used' : '使用したAI'}</dt>
                       <dd className="min-w-0 break-words text-slate-800 dark:text-neutral-200">{message.routing.model}</dd>
 
