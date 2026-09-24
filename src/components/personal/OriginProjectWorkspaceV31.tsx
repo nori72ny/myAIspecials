@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
-import type { OriginWorkspaceModeV31 } from './OriginWorkspaceShellV31';
+import type { OriginWorkspaceModeV31 } from './OriginWorkspaceModeV31';
 import type { ResearchSource } from './ResearchWorkspaceV31';
 import type { CodingProjectEvidence } from '../CodingJobWorkspaceV14';
 
