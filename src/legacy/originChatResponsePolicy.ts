@@ -18,8 +18,8 @@ export function requiresOriginFutureReleaseInformation(message: string): boolean
 }
 
 function isTransformOnlyRequest(message: string): boolean {
-  return /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
-    || /\b(?:summari[sz]e|shorten|rewrite|translate|proofread|reformat)\b.{0,40}\b(?:this|following|provided|text|passage|document)\b/is.test(message);
+  return /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録|調査結果|リサーチ結果).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
+    || /\b(?:summari[sz]e|shorten|rewrite|translate|proofread|reformat)\b.{0,48}\b(?:this|following|provided|text|passage|document|research\s+(?:result|report|brief))\b/is.test(message);
 }
 
 function isHypotheticalFreshnessFailureRequest(message: string): boolean {
@@ -41,6 +41,15 @@ function isHypotheticalFreshnessFailureRequest(message: string): boolean {
 function isStablePricingConceptRequest(message: string): boolean {
   return /(?:価格|料金).{0,16}(?:戦略|設計|モデル|理論|弾力性|心理|概念|定義|意味)|(?:戦略|設計|モデル|理論|弾力性|心理|概念|定義|意味).{0,16}(?:価格|料金)/s.test(message)
     || /\b(?:price|pricing).{0,20}(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning)|(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning).{0,20}(?:price|pricing)\b/is.test(message);
+}
+
+export function requiresOriginGroundedResearch(message: string): boolean {
+  if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
+
+  if (requiresOriginCurrentInformation(message)) return true;
+
+  return /(?:検索|調査|リサーチ)(?:を)?(?:して|してください|して下さい|する|してほしい)|(?:一次情報|出典|公開情報).{0,12}(?:を)?(?:調べ|確認|探|集め)|(?:調べ|確認|探).{0,24}(?:出典|一次情報|公開情報)/s.test(message)
+    || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?)\b/i.test(message);
 }
 
 export function requiresOriginCurrentInformation(message: string): boolean {
