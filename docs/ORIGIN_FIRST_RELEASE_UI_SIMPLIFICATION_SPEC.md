@@ -12,6 +12,16 @@ The first screen must answer one question within one second:
 
 The answer should be obvious without understanding Workspace, Model, Tools, Agent, Project, job state, terminal, checkpoint, or internal orchestration concepts.
 
+## 1.1 Single-input principle
+
+The normal path is one request field. Mode selection is optional, not required knowledge.
+
+- the user describes the outcome in ordinary language
+- ORIGIN detects whether the work needs direct reasoning, decision support, research, or a deliverable
+- safe read-only capabilities may be invoked internally without adding dashboard UI
+- state-changing actions, code execution, publication, deployment, permission changes, and other approval-boundary actions remain explicit and fail closed
+- the UI reports real results and evidence; it does not simulate progress or expose internal orchestration as decoration
+
 ## 2. Primary hierarchy
 
 ### Always visible
