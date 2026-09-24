@@ -142,12 +142,16 @@ describe("createOriginStreamingChatRouter", () => {
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 
-  it("delegates non-provider local/capability requests to the legacy fail-closed path", async () => {
+  it.each([
+    ["capability question", "あなたは何ができるのですか？"],
+    ["current information", "今日のAIニュースを教えてください"],
+    ["explicit research", "候補サービスを調査して、公開情報の出典を探してください"],
+  ])("delegates %s to the legacy grounded/local fail-closed path", async (_label, prompt) => {
     const streamExecute = vi.fn() as unknown as OriginProviderStreamExecutor;
     const response = await request(appWith(streamExecute))
       .post("/api/chat")
       .set("Accept", "text/event-stream")
-      .send({ messages: [{ role: "user", content: "あなたは何ができるのですか？" }] });
+      .send({ messages: [{ role: "user", content: prompt }] });
     expect(response.status).toBe(418);
     expect(response.body).toEqual({ delegated: true });
     expect(streamExecute).not.toHaveBeenCalled();
