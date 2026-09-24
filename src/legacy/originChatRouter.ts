@@ -14,7 +14,7 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import { executeOriginProvider, assertOriginZeroCostExecutionResult, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
 import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
-import { originChatSystemInstruction, requiresOriginCurrentInformation } from "./originChatResponsePolicy.js";
+import { originChatSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
@@ -25,7 +25,7 @@ function systemInstruction(intent?: OriginRequestIntent, workPlan?: OriginAgentW
   return originChatSystemInstruction(intent, workPlan, resolvedPlan, answerQualityInstruction);
 }
 function applicationRouting(requestId: string, reason: string, verificationStatus: OriginAnswerVerificationStatus = "not-required") { return { model: "ORIGIN アプリ内処理", reason, score: null, timeMs: 0, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, freeOnly: true, traceId: requestId, verificationStatus }; }
-function requiresCurrentInformation(message: string): boolean { return requiresOriginCurrentInformation(message); }
+function requiresGroundedResearch(message: string): boolean { return requiresOriginGroundedResearch(message); }
 
 function groundedResearchAnswer(query: string, result: OriginResearchResult) {
   const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(query);
@@ -142,11 +142,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const requestId = createRequestId(); const body = (req.body ?? {}) as OriginChatBody; const messages = validateOriginChatMessages(body.messages);
     if (!messages) return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "チャットメッセージの形式が正しくありません。", retryable: false, requestId });
     if (messages[messages.length - 1].role !== "user") return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "最後のメッセージはユーザーからのものである必要があります。", retryable: false, requestId });
-    const lastUserMessage = messages[messages.length - 1].content; const currentInformationRequired = requiresCurrentInformation(lastUserMessage);
+    const lastUserMessage = messages[messages.length - 1].content; const groundedResearchRequired = requiresGroundedResearch(lastUserMessage);
     if (isOriginWeatherRequest(lastUserMessage)) { const isEnglish = /[a-zA-Z]/.test(lastUserMessage); if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) { const content = isEnglish ? "Which location would you like to know the weather for?" : "どの地域の天気をお調べしますか？"; const reason = "地域確認のため外部AIを呼びませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason), routing: applicationRouting(requestId, reason) }); } const content = isEnglish ? "Currently, no service is connected to retrieve the latest weather information." : "現在、最新の天気情報を取得するサービスが接続されていません。"; const reason = "最新データ取得サービスが未接続のため推測を実行しませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: applicationRouting(requestId, reason, "not-run") }); }
     const sensitiveKinds = detectSensitiveConversation(messages); if (sensitiveKinds.length > 0) return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", messageKey: "errors.sensitiveInputBlocked", message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。", retryable: false, requestId, sensitiveKinds });
     const contextResult = minimizeOriginContext(messages, contextPolicy); if (contextResult.ok === false) return res.status(contextResult.code === "LATEST_MESSAGE_TOO_LARGE" ? 413 : 500).json({ code: contextResult.code, message: contextResult.message, retryable: false, requestId });
-    if (currentInformationRequired) {
+    if (groundedResearchRequired) {
       let researchResult: OriginResearchResult;
       try {
         researchResult = await research(lastUserMessage.trim());
