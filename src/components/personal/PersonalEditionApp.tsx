@@ -7,7 +7,7 @@ import OriginArtifactContextV31 from './OriginArtifactContextV31';
 import OriginProjectWorkspaceV31, { type OriginProjectViewV31 } from './OriginProjectWorkspaceV31';
 import type { ResearchSource } from './ResearchWorkspaceV31';
 import type { CodingProjectEvidence } from '../CodingJobWorkspaceV14';
-import OriginWorkspaceShellV31, { type OriginWorkspaceModeV31 } from './OriginWorkspaceShellV31';
+import type { OriginWorkspaceModeV31 } from './OriginWorkspaceShellV31';
 
 const ResearchWorkspace = lazy(() => import('./ResearchWorkspaceV31'));
 const CodingJobWorkspace = lazy(() => import('./CodingWorkspaceV31'));
@@ -117,12 +117,13 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   };
 
   return <div className="flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden">
-    <OriginWorkspaceShellV31
-      mode={workspace}
-      onModeChange={switchWorkspace}
-      projectOpen={projectOpen}
-      onProjectToggle={toggleProject}
-    />
+    {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 py-2 sm:px-4">
+      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
+        <button type="button" aria-label="会話に戻る" onClick={() => switchWorkspace('chat')} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">← 会話</button>
+        <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'research' ? '調べる' : workspace === 'coding' ? 'コード' : '作る'}</span>
+        <button type="button" aria-label={projectOpen ? '詳細を閉じる' : '詳細を開く'} aria-pressed={projectOpen} onClick={toggleProject} className={`min-h-11 rounded-xl border px-3 text-sm font-semibold ${projectOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>詳細</button>
+      </div>
+    </section>}
 
     {projectOpen && <div className="max-h-[42dvh] shrink-0 overflow-y-auto border-b border-origin-border">
       <OriginProjectWorkspaceV31
@@ -149,6 +150,10 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
         <App
           embedded
           onOpenSettings={onOpenSettings}
+          onOpenResearch={() => switchWorkspace('research')}
+          onOpenCoding={() => switchWorkspace('coding')}
+          onOpenCreative={() => switchWorkspace('creative')}
+          onOpenDetails={toggleProject}
           messages={messages}
           sessions={effectiveSessions}
           artifacts={artifacts}
