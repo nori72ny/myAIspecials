@@ -200,7 +200,9 @@ describe('PersonalEditionApp production wrapper', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Research' }));
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
 
+    fireEvent.click(screen.getByRole('button', { name: '詳細を開く' }));
     fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
     expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
     expect(window.location.search).toBe('?workspace=research');
