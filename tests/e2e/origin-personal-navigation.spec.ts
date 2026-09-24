@@ -63,7 +63,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page).toHaveTitle('ORIGIN Personal');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
+    await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('origin-home-request')).toBeEditable();
     const mode = page.getByRole('navigation', { name: 'Mode' });
     await expect(mode.getByRole('button')).toHaveCount(4);
@@ -214,7 +214,6 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     const newConversation = page.getByRole('button', { name: '新規対話を開始' });
 
     await expect(header).toContainText('ORIGIN');
-    await expect(header).toContainText('Personal 2.0');
     await expect(header.getByRole('button')).toHaveCount(3);
     await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
     for (const button of [history, settings, newConversation]) {
