@@ -19,7 +19,6 @@ export type CodingProviderExecuteV14 = (
 export function createBoundedCodingProviderExecuteV14(
   execute: CodingProviderExecuteV14,
   onRetryableFailure?: (request: OriginProviderExecutionRequest, code: string) => void,
-  _freeModelFailoverExecute?: CodingProviderExecuteV14,
 ): CodingProviderExecuteV14 {
   return async (request, env) => {
     try {
