@@ -84,6 +84,12 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
 
   const effectiveSessions = parentSessions ?? [];
   const latestArtifact = artifacts.at(-1) ?? null;
+  const hasProjectEvidence = messages.length > 0
+    || artifacts.length > 0
+    || projectSources.length > 0
+    || Boolean(codingEvidence.jobId)
+    || codingEvidence.changedPaths.length > 0
+    || codingEvidence.verificationChecks.length > 0;
   const handleMessagesChange = useCallback((nextMessages: ConversationMessage[]) => { setMessages(nextMessages); parentOnMessagesChange?.(nextMessages); }, [parentOnMessagesChange]);
   const handleArtifactsChange = useCallback((nextArtifacts: ArtifactBlock[]) => { setArtifacts(nextArtifacts); parentOnArtifactsChange?.(nextArtifacts); }, [parentOnArtifactsChange]);
   const handleArtifactRevision = useCallback((next: ArtifactBlock) => {
@@ -122,7 +128,9 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
         <button type="button" aria-label={isEn ? 'Back to chat' : '会話に戻る'} onClick={() => switchWorkspace('chat')} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">← {isEn ? 'Chat' : '会話'}</button>
         <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'research' ? (isEn ? 'Research' : '調べる') : workspace === 'coding' ? (isEn ? 'Code' : 'コード') : (isEn ? 'Create' : '作る')}</span>
-        <button type="button" aria-label={projectOpen ? (isEn ? 'Close details' : '詳細を閉じる') : (isEn ? 'Open details' : '詳細を開く')} aria-pressed={projectOpen} onClick={toggleProject} className={`min-h-11 rounded-xl border px-3 text-sm font-semibold ${projectOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>{isEn ? 'Details' : '詳細'}</button>
+        {hasProjectEvidence
+          ? <button type="button" aria-label={projectOpen ? (isEn ? 'Close details' : '詳細を閉じる') : (isEn ? 'Open details' : '詳細を開く')} aria-pressed={projectOpen} onClick={toggleProject} className={`min-h-11 rounded-xl border px-3 text-sm font-semibold ${projectOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>{isEn ? 'Details' : '詳細'}</button>
+          : <span aria-hidden="true" className="min-w-11 sm:min-w-[72px]" />}
       </div>
     </section>}
 
@@ -154,7 +162,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
           onOpenResearch={() => switchWorkspace('research')}
           onOpenCoding={() => switchWorkspace('coding')}
           onOpenCreative={() => switchWorkspace('creative')}
-          onOpenDetails={toggleProject}
+          onOpenDetails={hasProjectEvidence ? toggleProject : undefined}
           messages={messages}
           sessions={effectiveSessions}
           artifacts={artifacts}
