@@ -212,7 +212,7 @@ describe('UnifiedChat', () => {
     const details = screen.getByTestId('execution-details') as HTMLDetailsElement;
     expect(details.open).toBe(false);
 
-    fireEvent.click(screen.getByText('詳細'));
+    fireEvent.click(screen.getByText('回答の詳細'));
     expect(details.open).toBe(true);
     expect(screen.getByText('使用したAI')).toBeTruthy();
     expect(screen.getByText('ORIGIN 無料AI')).toBeTruthy();
@@ -960,7 +960,7 @@ describe('UnifiedChat', () => {
     sendJapaneseMessage('候補を比較してください');
     await waitFor(() => expect(screen.getByText('比較結果です。')).toBeTruthy());
 
-    fireEvent.click(screen.getByText('詳細'));
+    fireEvent.click(screen.getByText('回答の詳細'));
     expect(screen.getByText('回答形式')).toBeTruthy();
     expect(screen.getByText('判断支援')).toBeTruthy();
     expect(screen.getByText('確認方針')).toBeTruthy();
