@@ -257,7 +257,12 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     const edit = page.getByTestId('artifact-action-edit');
     await edit.click();
     await expect(edit).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByTestId('artifact-code-editor')).toBeVisible();
+    const preview = page.getByTitle('プレビュー');
+    await expect(preview).toBeVisible();
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /data-origin-direct-touch-root/);
+    await expect(preview).toHaveAttribute('data-origin-srcdoc', /ORIGIN_DIRECT_TOUCH/);
+    const directTouchFrame = preview.contentFrame();
+    await expect(directTouchFrame.locator('[contenteditable]').first()).toBeVisible();
 
     await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('artifact-details-menu')).toBeVisible();
