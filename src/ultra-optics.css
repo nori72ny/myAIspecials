@@ -463,7 +463,8 @@ body {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  width: min(100%, 768px);
+  width: 100%;
+  max-width: none;
   margin: 0 auto;
   padding: 8px;
   background: rgba(24, 24, 27, 0.85);
@@ -610,7 +611,7 @@ body {
 }
 
 @media (max-width: 640px) {
-  .origin-composer { bottom: max(10px, env(safe-area-inset-bottom)); width: calc(100% - 16px); }
+  .origin-composer { bottom: max(10px, env(safe-area-inset-bottom)); width: 100%; max-width: none; }
   .origin-composer__input { font-size: 16px; }
   .origin-chat > div:last-child > div { width: calc(100% - 16px) !important; margin-bottom: max(4px, env(safe-area-inset-bottom)); }
   .origin-dag__node { grid-template-columns: 36px minmax(0,1fr); }
