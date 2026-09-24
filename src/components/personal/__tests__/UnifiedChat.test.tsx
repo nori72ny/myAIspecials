@@ -168,7 +168,8 @@ describe('UnifiedChat', () => {
     expect(screen.getByRole('article', { name: 'あなたの依頼' })).toBeTruthy();
     const processingStatus = screen.getByTestId('processing-status-card');
     expect(processingStatus.textContent).toContain('依頼を確認中');
-    expect(processingStatus.textContent).toContain('0秒');
+    expect(processingStatus.textContent).not.toContain('0秒');
+    expect(processingStatus.querySelector('[role="progressbar"]')).toBeNull();
 
     resolveFetch({
       ok: true,
