@@ -109,6 +109,8 @@ function validAttemptCounts(attempted: number, solved: number, regressions: numb
     && regressions >= 0;
 }
 
+const MIN_ANSWER_QUALITY_CASES = 40;
+const MIN_ANSWER_QUALITY_FAMILIES = 10;
 const MAX_EVIDENCE_LIFETIME_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
@@ -216,8 +218,10 @@ export function evaluateOriginProductQualityGate(
     blockers.push("AQ_LIVE_EVIDENCE_MISSING");
   } else {
     answerPassed = input.answer.promotionEligible === true
-      && input.answer.caseCount === 40
-      && input.answer.familyCount === 10
+      && Number.isInteger(input.answer.caseCount)
+      && input.answer.caseCount >= MIN_ANSWER_QUALITY_CASES
+      && Number.isInteger(input.answer.familyCount)
+      && input.answer.familyCount >= MIN_ANSWER_QUALITY_FAMILIES
       && input.answer.zeroCost === true;
     if (!answerPassed) blockers.push("AQ_NOT_PROMOTION_ELIGIBLE");
   }
