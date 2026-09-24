@@ -438,7 +438,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const verification = screen.getByTestId('response-verification-details');
     expect(verification.textContent).toContain('✓');
     expect(verification.hasAttribute('open')).toBe(false);
-    fireEvent.click(screen.getByText('$0配信を確認'));
+    fireEvent.click(screen.getByText('回答の詳細'));
     expect(verification.hasAttribute('open')).toBe(true);
     const verificationLog = screen.getByTestId('response-verification-log');
     for (const label of ['応答完了', '費用経路', '内容の限界']) expect(verificationLog.textContent).toContain(label);
