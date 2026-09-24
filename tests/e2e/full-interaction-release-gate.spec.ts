@@ -314,9 +314,6 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible();
     for (const testId of [
-      'preview-viewport-375',
-      'preview-viewport-768',
-      'preview-viewport-fluid',
       'artifact-action-edit',
       'artifact-action-share',
       'artifact-action-save',
@@ -331,9 +328,20 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       expect(box!.height).toBeGreaterThanOrEqual(44);
     }
 
-    await page.getByTestId('preview-viewport-375').click();
-    await page.getByTestId('preview-viewport-768').click();
-    await page.getByTestId('preview-viewport-fluid').click();
+    await page.getByTestId('artifact-action-details').click();
+    await expect(page.getByTestId('artifact-details-menu')).toBeVisible();
+    for (const testId of ['preview-viewport-375', 'preview-viewport-768', 'preview-viewport-fluid']) {
+      const control = page.getByTestId(testId);
+      await expect(control).toBeVisible();
+      const box = await control.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(-1);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(391);
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      await control.click();
+    }
+    await page.getByTestId('artifact-action-details').click();
+    await expect(page.getByTestId('artifact-details-menu')).toBeHidden();
     await page.getByRole('button', { name: 'コードを表示' }).click();
     await page.getByRole('button', { name: 'プレビューを表示' }).click();
     await page.getByTestId('artifact-action-details').click();
