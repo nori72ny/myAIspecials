@@ -6,7 +6,8 @@ export type GroundedResearchSynthesisValidationCode =
   | "UNKNOWN_CITATION"
   | "MISMATCHED_CITATION_URL"
   | "INSUFFICIENT_SOURCE_COVERAGE"
-  | "UNCITED_FACTUAL_UNIT";
+  | "UNCITED_FACTUAL_UNIT"
+  | "UNSUPPORTED_NUMERIC_TOKEN";
 
 export type GroundedResearchSynthesisValidation =
   | { ok: true; usedSourceIds: string[] }
@@ -138,6 +139,28 @@ export function buildGroundedResearchSynthesisPrompt(
   ].join("\n");
 }
 
+function normalizedEvidenceText(value: string): string {
+  return value.normalize("NFKC").toLowerCase().replace(/[\s,，]/g, "");
+}
+
+function numericTokens(value: string): string[] {
+  const withoutCitations = value.replace(CITATION_PATTERN, " ");
+  const matches = withoutCitations.normalize("NFKC").match(/(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
+  return [...new Set(matches.map((token) => token.replace(/[\s,，]/g, "").toLowerCase()).filter((token) => {
+    const digits = token.match(/\d/g)?.length ?? 0;
+    const hasSemanticSuffix = /[%円ドル]|usd|jpy|eur|gbp|年|月|日|万|億|兆/i.test(token);
+    return digits >= 2 || hasSemanticSuffix;
+  }))];
+}
+
+function citedSourceIds(value: string): string[] {
+  const ids = new Set<string>();
+  CITATION_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = CITATION_PATTERN.exec(value))) ids.add(`S${match[1]}`);
+  return [...ids];
+}
+
 function factualUnits(text: string): string[] {
   const normalized = text.replace(/\r\n/g, "\n").trim();
   if (!normalized) return [];
@@ -159,9 +182,14 @@ export function validateGroundedResearchSynthesis(
 
   const bounded = sources.slice(0, 8);
   const sourceMap = new Map<string, string>();
+  const sourceEvidence = new Map<string, string>();
   bounded.forEach((source, index) => {
+    const id = sourceId(index);
     const normalized = safeHttpsUrl(source.url);
-    if (normalized) sourceMap.set(sourceId(index), normalized);
+    if (normalized) {
+      sourceMap.set(id, normalized);
+      sourceEvidence.set(id, normalizedEvidenceText(`${source.title}\n${source.excerpt}`));
+    }
   });
 
   const used = new Set<string>();
@@ -203,6 +231,18 @@ export function validateGroundedResearchSynthesis(
         code: "UNCITED_FACTUAL_UNIT",
         detail: `Factual unit did not include an inline citation: ${unit.slice(0, 120)}`,
       };
+    }
+
+    const ids = citedSourceIds(unit);
+    const evidenceText = ids.map((id) => sourceEvidence.get(id) ?? "").join("\n");
+    for (const token of numericTokens(unit)) {
+      if (!normalizedEvidenceText(evidenceText).includes(normalizedEvidenceText(token))) {
+        return {
+          ok: false,
+          code: "UNSUPPORTED_NUMERIC_TOKEN",
+          detail: `Numeric/date token was not present in the cited evidence: ${token}`,
+        };
+      }
     }
   }
 
