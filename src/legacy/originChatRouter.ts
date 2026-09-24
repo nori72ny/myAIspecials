@@ -12,24 +12,87 @@ import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { executeOriginProvider, assertOriginZeroCostExecutionResult, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
-import { originChatSystemInstruction, requiresOriginCurrentInformation, requiresOriginFutureReleaseInformation } from "./originChatResponsePolicy.js";
+import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
+import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
+import { originChatSystemInstruction, requiresOriginCurrentInformation } from "./originChatResponsePolicy.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
-export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; }
+export type OriginResearchExecutor = (query: string) => Promise<OriginResearchResult>;
+export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; }
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 function systemInstruction(intent?: OriginRequestIntent, workPlan?: OriginAgentWorkPlan, resolvedPlan?: OriginResolvedWorkPlan, answerQualityInstruction?: string): string {
   return originChatSystemInstruction(intent, workPlan, resolvedPlan, answerQualityInstruction);
 }
 function applicationRouting(requestId: string, reason: string, verificationStatus: OriginAnswerVerificationStatus = "not-required") { return { model: "ORIGIN アプリ内処理", reason, score: null, timeMs: 0, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, freeOnly: true, traceId: requestId, verificationStatus }; }
-function requiresFutureReleaseInformation(message: string): boolean { return requiresOriginFutureReleaseInformation(message); }
-function futureAiDirectionGuidance(isEnglish: boolean): string { return isEnglish ? `Bottom line: specific upcoming product names and release dates cannot be confirmed without current official-source search. However, five broad directions are worth watching. These are technology trends, not a confirmed release schedule.\n\n## Five important directions\n\n1. **Autonomous AI agents:** systems that plan multi-step work, use tools, and complete tasks with human approval.\n2. **Real-time multimodal AI:** unified understanding and generation across text, voice, images, video, and screen context.\n3. **Smaller on-device models:** faster and more private AI that runs on phones, PCs, vehicles, and business devices.\n4. **Physical AI:** models that connect perception and reasoning to robots, vehicles, and industrial equipment.\n5. **Verification and governance:** source checking, permission controls, audit trails, and human approval becoming part of the product itself.\n\n## What matters most for ORIGIN\n\n- **Official-source search:** verify current announcements before naming products or dates.\n- **Capability-based routing:** select models by search, reasoning, coding, media, cost, and privacy rather than by brand name.\n- **Cross-checking:** separate answer generation, criticism, source validation, and final editing.\n- **Replaceable integrations:** add or remove future models without redesigning ORIGIN.\n\n## Confidence\n\n- **Confirmed product releases:** none were checked in this answer.\n- **Trend analysis:** the five directions above are general technical expectations.\n- **Rumors:** intentionally excluded.\n\nOnce live search is connected, ORIGIN should add a dated, primary-source-verified release list above this trend analysis.` : `結論：今後登場する具体的な製品名や公開時期は、最新の公式情報を検索しなければ確定できません。一方、今後のAIで特に重要になる方向性は5つあります。以下は「発売予定一覧」ではなく、一般的な技術動向です。\n\n## 注目すべき5つの方向性\n\n1. **自律型AIエージェント**：複数工程を計画し、ツールを使い、人の承認を受けながら仕事を完了するAI\n2. **リアルタイム・マルチモーダルAI**：文章・音声・画像・動画・画面情報を一体で理解、生成するAI\n3. **小型・オンデバイスAI**：スマホ、PC、車、業務端末の中で高速かつプライバシーを保って動くAI\n4. **フィジカルAI**：認識と推論をロボット、自動車、製造設備などの物理動作へつなぐAI\n5. **検証・統制AI**：出典確認、権限管理、監査記録、人間の承認を製品機能として組み込むAI\n\n## ORIGINで最優先にすべきこと\n\n- **公式情報を検索する機能**：製品名や公開日を回答する前に、開発元の最新発表を確認する\n- **能力ベースのAI選択**：ブランド名ではなく、検索・推論・コード・画像・費用・プライバシーで選ぶ\n- **役割を分けた検証**：回答生成、批判、出典確認、最終編集を分離する\n- **交換可能な接続方式**：新しいAIが登場してもORIGIN全体を作り直さず追加・削除できるようにする\n\n## 情報の確度\n\n- **確認済みの個別製品**：この回答では確認していません\n- **技術動向**：上記5項目は一般的な将来予測です\n- **噂・未確認モデル名**：誤認防止のため掲載していません\n\nライブ検索を接続した後は、この技術動向の前に「確認日付き・一次情報確認済みの公開予定一覧」を追加するのが適切です。`; }
 function requiresCurrentInformation(message: string): boolean { return requiresOriginCurrentInformation(message); }
+
+function groundedResearchAnswer(query: string, result: OriginResearchResult) {
+  const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(query);
+  if (!result.ok || result.sources.length === 0) {
+    const content = isEnglish
+      ? "ORIGIN could not retrieve usable public sources, so it will not guess current information."
+      : "確認できる公開情報を取得できなかったため、現在の情報を推測して回答しません。";
+    const reason = isEnglish
+      ? "Grounded Research could not retrieve usable public evidence."
+      : "Grounded Researchで確認可能な公開情報を取得できませんでした。";
+    return {
+      content,
+      language: isEnglish ? "en" as const : "ja" as const,
+      reason,
+      evidence: [],
+      limitations: [isEnglish ? "No current public source was verified for this request." : "この依頼について、現在の公開情報源を確認できていません。"],
+      nextActions: [isEnglish ? "Try again later or provide a public source to analyze." : "時間をおいて再実行するか、確認したい公開情報源を提示してください。"],
+      sourceCount: 0,
+      provider: result.searchProvider,
+      conflicts: 0,
+    };
+  }
+
+  const grounded = buildGroundedResearchReport(result.sources);
+  const sources = result.sources.slice(0, 8);
+  const evidenceBlocks = sources.map((source, index) => {
+    const id = `S${index + 1}`;
+    return `### ${id}: ${source.title}\n${source.excerpt}\n\n〔出典: [${id}](${source.url})〕`;
+  });
+  const conflictText = grounded.conflicts.length === 0
+    ? (isEnglish ? "No structured-value mismatch was detected in the retrieved evidence." : "取得した証拠では、構造化値の不一致は検出されませんでした。")
+    : grounded.conflicts.map((conflict) => `- ${conflict.topic}: ${conflict.values.join(" / ")} (${conflict.sourceIds.join(", ")})`).join("\n");
+
+  const content = isEnglish
+    ? `## Current public information\n\n${evidenceBlocks.join("\n\n")}\n\n## Cross-check notes\n${conflictText}`
+    : `## 確認できた公開情報\n\n${evidenceBlocks.join("\n\n")}\n\n## 照合メモ\n${conflictText}`;
+  const reason = isEnglish
+    ? `Grounded Research retrieved ${grounded.sourceCount} public sources without a paid fallback.`
+    : `Grounded Researchで公開情報を${grounded.sourceCount}件取得し、有料fallbackを使わず整理しました。`;
+
+  return {
+    content,
+    language: isEnglish ? "en" as const : "ja" as const,
+    reason,
+    evidence: grounded.sources.map((source) => ({
+      label: `${source.id}: ${source.title}`,
+      sourceUrl: source.url,
+      evidenceLevel: "provided" as const,
+    })),
+    limitations: [
+      isEnglish
+        ? "This is a bounded digest of retrieved public evidence, not an independent determination of factual truth or publisher authority."
+        : "取得できた公開情報を範囲限定で整理したもので、事実の最終確定や媒体の権威性を独立判定したものではありません。",
+    ],
+    nextActions: grounded.conflicts.length > 0
+      ? [isEnglish ? "Review the conflicting values against primary sources before making an important decision." : "重要な判断前に、不一致がある値を一次情報で再確認してください。"]
+      : [],
+    sourceCount: grounded.sourceCount,
+    provider: result.searchProvider,
+    conflicts: grounded.conflicts.length,
+  };
+}
 function firstAnswerBlock(content: string): string { const firstBlock = content.split(/\n\s*\n|\n/).map((part) => part.trim()).find(Boolean) ?? content.trim(); const withoutHeading = firstBlock.replace(/^#{1,6}\s+/, "").trim(); if (withoutHeading.length <= 500) return withoutHeading; const candidate = withoutHeading.slice(0, 500); const sentenceEnd = Math.max(candidate.lastIndexOf("。") + 1, candidate.lastIndexOf("！") + 1, candidate.lastIndexOf("？") + 1, candidate.lastIndexOf(". ") + 1); return sentenceEnd >= 40 ? candidate.slice(0, sentenceEnd).trim() : `${candidate.slice(0, 499).trimEnd()}…`; }
 function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions }); if (result.ok === false) throw new Error(result.code); return result.value; }
 
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
-  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env));
+  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env)); const research = options.research ?? ((query: string) => researchCurrentInformation(query));
   router.post("/api/chat", async (req, res) => {
     const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");
     if (wantsStreaming) {
@@ -65,11 +128,31 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const requestId = createRequestId(); const body = (req.body ?? {}) as OriginChatBody; const messages = validateOriginChatMessages(body.messages);
     if (!messages) return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "チャットメッセージの形式が正しくありません。", retryable: false, requestId });
     if (messages[messages.length - 1].role !== "user") return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "最後のメッセージはユーザーからのものである必要があります。", retryable: false, requestId });
-    const lastUserMessage = messages[messages.length - 1].content; const futureReleaseInformationRequired = requiresFutureReleaseInformation(lastUserMessage); const currentInformationRequired = requiresCurrentInformation(lastUserMessage);
+    const lastUserMessage = messages[messages.length - 1].content; const currentInformationRequired = requiresCurrentInformation(lastUserMessage);
     if (isOriginWeatherRequest(lastUserMessage)) { const isEnglish = /[a-zA-Z]/.test(lastUserMessage); if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) { const content = isEnglish ? "Which location would you like to know the weather for?" : "どの地域の天気をお調べしますか？"; const reason = "地域確認のため外部AIを呼びませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason), routing: applicationRouting(requestId, reason) }); } const content = isEnglish ? "Currently, no service is connected to retrieve the latest weather information." : "現在、最新の天気情報を取得するサービスが接続されていません。"; const reason = "最新データ取得サービスが未接続のため推測を実行しませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: applicationRouting(requestId, reason, "not-run") }); }
     const sensitiveKinds = detectSensitiveConversation(messages); if (sensitiveKinds.length > 0) return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", messageKey: "errors.sensitiveInputBlocked", message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。", retryable: false, requestId, sensitiveKinds });
     const contextResult = minimizeOriginContext(messages, contextPolicy); if (contextResult.ok === false) return res.status(contextResult.code === "LATEST_MESSAGE_TOO_LARGE" ? 413 : 500).json({ code: contextResult.code, message: contextResult.message, retryable: false, requestId });
-    if (currentInformationRequired) { const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage); const content = futureReleaseInformationRequired ? futureAiDirectionGuidance(isEnglish) : (isEnglish ? "ORIGIN cannot verify current information in this release because live search is not connected. It will not answer from potentially outdated knowledge." : "この版では最新情報を確認する検索機能が接続されていないため、古い可能性がある知識だけでは回答しません。"); const reason = futureReleaseInformationRequired ? (isEnglish ? "Live search is not connected. No specific future product was verified; only clearly labeled general trends were provided." : "最新情報の検索機能が未接続のため、個別製品は確認せず、一般的な技術動向だけを明示して回答しました。") : (isEnglish ? "Live search is not connected, so current facts were not verified." : "最新情報の検索機能が未接続のため、現在の事実確認を実施しませんでした。"); const limitations = [futureReleaseInformationRequired ? (isEnglish ? "No specific upcoming product name or release date was retrieved or checked." : "今後登場する個別製品名や公開時期は取得・確認していません。") : (isEnglish ? "Current facts, prices, news, and other time-sensitive information were not retrieved or checked." : "現在の事実、料金、ニュースなど、時点に依存する情報は取得・確認していません。")] ; const nextActions = [futureReleaseInformationRequired ? (isEnglish ? "After live search is connected, add a dated release list verified against primary sources." : "ライブ検索接続後、確認日付きで一次情報を照合した公開予定一覧を追加します。") : (isEnglish ? "Paste the relevant text from an official source and ORIGIN can organize or compare that supplied content." : "公式情報の本文または必要部分を貼り付けると、その内容を整理・比較できます。")]; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason, [], limitations, nextActions), routing: applicationRouting(requestId, reason, "not-run") }); }
+    if (currentInformationRequired) {
+      let researchResult: OriginResearchResult;
+      try {
+        researchResult = await research(lastUserMessage.trim());
+      } catch {
+        researchResult = { ok: false, sources: [], failure: { stage: "web-search", code: "NETWORK_FAILURE" } };
+      }
+      const grounded = groundedResearchAnswer(lastUserMessage, researchResult);
+      return res.json({
+        content: grounded.content,
+        answer: answerEnvelope(grounded.content, grounded.language, "not-run", grounded.reason, grounded.evidence, grounded.limitations, grounded.nextActions),
+        routing: {
+          ...applicationRouting(requestId, grounded.reason, "not-run"),
+          answerMode: "research",
+          verificationLevel: "evidence-required",
+          sourceCount: grounded.sourceCount,
+          researchProvider: grounded.provider,
+          conflictCount: grounded.conflicts,
+        },
+      });
+    }
     if (isOriginCapabilityQuestion(lastUserMessage)) { const guide = createOriginCapabilityGuide(lastUserMessage); const reason = guide.language === "ja" ? "現在の公開版で利用できる機能と未接続機能を、ORIGINの製品仕様に基づいて案内しました。" : "Explained the current and unconnected capabilities from ORIGIN's product specification."; return res.json({ content: guide.content, answer: answerEnvelope(guide.content, guide.language, "not-required", reason, [], guide.limitations, guide.nextActions), routing: applicationRouting(requestId, reason) }); }
     const planningResult = buildOriginExecutionPlan({ goal: lastUserMessage.trim(), requiresCodeChanges: /実装|修正|コード|implement|fix/i.test(lastUserMessage), requiresFreshResearch: false, containsSecrets: false }, { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) }, originClientPolicy(body), { freeModelCatalog: options.freeModelCatalog, nowMs: catalogNow() });
     if (planningResult.ok === false) return res.status(planningResult.code === "INVALID_EXECUTION_POLICY" ? 400 : 503).json({ code: planningResult.code, message: planningResult.message, retryable: false, requestId });
