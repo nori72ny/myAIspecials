@@ -34,6 +34,7 @@ describe("originChatResponsePolicy", () => {
     ["Find sources for this claim", true],
     ["この調査結果を200字に要約してください", false],
     ["以下のリサーチ文章を読みやすく書き換えてください", false],
+    ["Summarize this research report in 200 words", false],
     ["価格戦略の基本を教えて", false],
   ])("classifies automatic grounded research need for %s", (message, expected) => {
     expect(requiresOriginGroundedResearch(message)).toBe(expected);
