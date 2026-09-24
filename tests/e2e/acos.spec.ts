@@ -6,7 +6,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.goto('/');
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('header').getByText('ORIGIN', { exact: true })).toBeVisible();
-    await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
+    await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
     const commandBar = page.getByTestId('origin-home-request');
     await expect(commandBar).toBeVisible();

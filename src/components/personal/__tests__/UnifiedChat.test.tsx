@@ -168,7 +168,8 @@ describe('UnifiedChat', () => {
     expect(screen.getByRole('article', { name: 'あなたの依頼' })).toBeTruthy();
     const processingStatus = screen.getByTestId('processing-status-card');
     expect(processingStatus.textContent).toContain('依頼を確認中');
-    expect(processingStatus.textContent).toContain('0秒');
+    expect(processingStatus.textContent).not.toContain('0秒');
+    expect(processingStatus.querySelector('[role="progressbar"]')).toBeNull();
 
     resolveFetch({
       ok: true,
@@ -204,14 +205,14 @@ describe('UnifiedChat', () => {
 
     await waitFor(() => {
       expect(screen.getByText('確認結果です。')).toBeTruthy();
-      expect(screen.getByText('無料で回答しました')).toBeTruthy();
-      expect(screen.getByText('詳細')).toBeTruthy();
+      expect(screen.getByText('回答の詳細')).toBeTruthy();
+      expect(screen.queryByText('無料で回答しました')).toBeNull();
     });
 
     const details = screen.getByTestId('execution-details') as HTMLDetailsElement;
     expect(details.open).toBe(false);
 
-    fireEvent.click(screen.getByText('詳細'));
+    fireEvent.click(screen.getByText('回答の詳細'));
     expect(details.open).toBe(true);
     expect(screen.getByText('使用したAI')).toBeTruthy();
     expect(screen.getByText('ORIGIN 無料AI')).toBeTruthy();
@@ -959,7 +960,7 @@ describe('UnifiedChat', () => {
     sendJapaneseMessage('候補を比較してください');
     await waitFor(() => expect(screen.getByText('比較結果です。')).toBeTruthy());
 
-    fireEvent.click(screen.getByText('詳細'));
+    fireEvent.click(screen.getByText('回答の詳細'));
     expect(screen.getByText('回答形式')).toBeTruthy();
     expect(screen.getByText('判断支援')).toBeTruthy();
     expect(screen.getByText('確認方針')).toBeTruthy();

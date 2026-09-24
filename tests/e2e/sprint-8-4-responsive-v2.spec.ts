@@ -22,7 +22,7 @@ for (const viewport of VIEWPORTS) {
     await page.goto('/');
 
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
+    await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     await expect(page.getByTestId(/^starter-/)).toHaveCount(0);
