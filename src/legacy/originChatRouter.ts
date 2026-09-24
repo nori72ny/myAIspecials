@@ -169,7 +169,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           originClientPolicy(body),
           { freeModelCatalog: options.freeModelCatalog, nowMs: catalogNow() },
         );
-        if (synthesisPlan.ok) {
+        if (synthesisPlan.ok === true) {
           const synthesisStartedAt = now();
           try {
             const synthesisResult = await researchSynthesis({
@@ -187,7 +187,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             });
             assertOriginZeroCostExecutionResult(synthesisResult, synthesisPlan.plan.modelId);
             const citationValidation = validateGroundedResearchSynthesis(synthesisResult.text, grounded.sources);
-            if (citationValidation.ok) {
+            if (citationValidation.ok === true) {
               const verificationReason = grounded.language === "en"
                 ? "Citation structure was checked against the retrieved HTTPS evidence packet; factual truth and publisher authority were not independently verified."
                 : "取得済みHTTPS証拠パケットとの引用構造一致を確認しました。主張の真偽や媒体の権威性を独立検証したものではありません。";
