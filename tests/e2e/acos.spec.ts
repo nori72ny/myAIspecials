@@ -7,7 +7,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('header').getByText('ORIGIN', { exact: true })).toBeVisible();
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '何をしたいですか？' })).toBeVisible();
     const commandBar = page.getByTestId('origin-home-request');
     await expect(commandBar).toBeVisible();
     expect(Number.parseFloat(await commandBar.evaluate((element) => getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(60);
@@ -621,7 +621,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByRole('button', { name: 'システム設定' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', /light|dark/);
     await page.getByRole('button', { name: 'English' }).click();
-    await expect(page.getByRole('heading', { name: 'What would you like to accomplish?' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'What do you want to do?' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Export' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Import' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Clear' })).toBeVisible();
