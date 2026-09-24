@@ -40,7 +40,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     }));
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('保存前の相談メモ');
-    await page.getByRole('navigation', { name: 'Mode' }).getByRole('button', { name: 'Code', exact: true }).click();
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
@@ -48,7 +49,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByRole('tablist', { name: 'Coding workspace views' })).toHaveCount(0);
     await expect(page.getByText('Plan', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    await page.getByRole('button', { name: 'Chat', exact: true }).click();
+    await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
@@ -65,12 +66,15 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('origin-home-request')).toBeEditable();
-    const mode = page.getByRole('navigation', { name: 'Mode' });
-    await expect(mode.getByRole('button')).toHaveCount(4);
-    await expect(mode.getByRole('button', { name: 'Chat', exact: true })).toContainText('会話');
-    await expect(mode.getByRole('button', { name: 'Research', exact: true })).toContainText('調べる');
-    await expect(mode.getByRole('button', { name: 'Code', exact: true })).toContainText('コード');
-    await expect(mode.getByRole('button', { name: 'Create', exact: true })).toContainText('作る');
+    await expect(page.getByRole('navigation', { name: 'Mode' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'ORIGIN workspace shell' })).toHaveCount(0);
+    await expect(page.getByTestId('origin-add-menu-toggle')).toBeVisible();
+    await expect(page.getByRole('menu', { name: '追加機能' })).toBeHidden();
+    await page.getByTestId('origin-add-menu-toggle').click();
+    for (const label of ['ファイルを添付', '調べる', 'コード', '作る', '詳細']) {
+      await expect(page.getByRole('menuitem', { name: label, exact: true })).toBeVisible();
+    }
+    await page.getByTestId('origin-add-menu-toggle').click();
     await expect(page.getByRole('region', { name: 'Project Workspace' })).toHaveCount(0);
     await expect(page.getByLabel('Model ORIGIN Auto')).toHaveCount(0);
     await expect(page.getByLabel('Tools 自動管理')).toHaveCount(0);
