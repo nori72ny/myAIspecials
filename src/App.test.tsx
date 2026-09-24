@@ -115,6 +115,67 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(knowledgeMap.className).toContain('min-w-11');
   });
 
+  it('keeps the composer wide, icon-only, and minimally self-explanatory while preserving 44px targets', () => {
+    render(<App language="ja" onOpenResearch={() => undefined} />);
+
+    const composer = document.querySelector('.origin-composer') as HTMLElement;
+    const input = screen.getByTestId('origin-home-request') as HTMLTextAreaElement;
+    const add = screen.getByTestId('origin-add-menu-toggle');
+    const send = screen.getByTestId('start-request-button');
+
+    expect(input.getAttribute('placeholder')).toBe('ORIGINに依頼する');
+    expect(input.className).toContain('min-w-0');
+    expect(input.className).toContain('px-2');
+    expect(composer.className).toContain('gap-1');
+    expect(add.textContent).toBe('＋');
+    expect(send.textContent).toBe('↑');
+    expect(add.className).toContain('h-11');
+    expect(add.className).toContain('w-11');
+    expect(send.className).toContain('h-11');
+    expect(send.className).toContain('w-11');
+    expect(send.textContent).not.toContain('開始');
+    expect(send.textContent).not.toContain('送信');
+  });
+
+  it('opens renderable artifacts in preview first and exposes source only on demand', () => {
+    render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
+
+    const preview = screen.getByTitle('プレビュー');
+    const previewButton = screen.getByRole('button', { name: 'プレビューを表示' });
+    const codeButton = screen.getByRole('button', { name: 'コードを表示' });
+    expect(preview).toBeTruthy();
+    expect(previewButton.getAttribute('aria-pressed')).toBe('true');
+    expect(codeButton.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(codeButton);
+    expect(codeButton.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByTitle('プレビュー')).toBeNull();
+    expect(screen.getByText('<main><button>Ready</button></main>')).toBeTruthy();
+  });
+
+  it('renders Markdown artifacts as finished content before source text', () => {
+    const markdownArtifact: ArtifactBlock = {
+      id: 'artifact-md',
+      type: 'markdown',
+      language: 'markdown',
+      title: 'Markdown preview',
+      content: '# レポート\n\n- 結論A\n- 結論B',
+      isComplete: true,
+    };
+
+    render(<ArtifactWorkspace artifact={markdownArtifact} isOpen language="ja" onClose={() => undefined} />);
+
+    expect(screen.getByTestId('artifact-markdown-preview')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'レポート', level: 1 })).toBeTruthy();
+    expect(screen.getByRole('list').textContent).toContain('結論A');
+    expect(screen.getByRole('button', { name: 'プレビューを表示' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByTestId('responsive-viewport-bar')).toBeNull();
+    expect(screen.queryByText('# レポート')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'コードを表示' }));
+    expect(screen.getByText(/# レポート/)).toBeTruthy();
+  });
+
   it('keeps advanced capabilities behind the existing composer plus button', () => {
     const onOpenResearch = vi.fn();
     const onOpenCoding = vi.fn();
