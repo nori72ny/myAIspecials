@@ -31,7 +31,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const primaryControls = [
       page.getByTestId('history-drawer-toggle'),
       page.getByRole('button', { name: '設定を開く' }),
-      page.locator('.origin-composer').getByRole('button', { name: 'ファイルを添付' }),
+      page.getByTestId('origin-add-menu-toggle'),
       page.getByTestId('start-request-button'),
     ];
 
