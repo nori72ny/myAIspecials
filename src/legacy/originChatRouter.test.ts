@@ -133,6 +133,217 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
+  it("adopts one zero-cost synthesis only when citations match the retrieved evidence packet", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [
+        {
+          title: "Price source one",
+          url: "https://example.com/one",
+          excerpt: "料金は100円と記載されています。",
+          sourceType: "web-search",
+          domain: "example.com",
+          rank: 1,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+        {
+          title: "Price source two",
+          url: "https://example.org/two",
+          excerpt: "料金は120円と記載されています。",
+          sourceType: "web-search",
+          domain: "example.org",
+          rank: 2,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+      ],
+    }) as unknown as OriginResearchExecutor;
+    const synthesisText = [
+      "## 結論",
+      "",
+      "取得できた資料では料金表記が一致していません。[S1](https://example.com/one) [S2](https://example.org/two)",
+      "",
+      "- 1つ目の資料は100円としています。[S1](https://example.com/one)",
+      "- 2つ目の資料は120円としています。[S2](https://example.org/two)",
+    ].join("\n");
+    const synthesisMock = vi.fn().mockResolvedValue({ ...defaultExecutionResult, text: synthesisText }) as unknown as OriginChatExecutor;
+
+    const response = await request(createApp(
+      execute,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      undefined,
+      undefined,
+      researchMock,
+      synthesisMock,
+    )).post("/api/chat").send({ messages: [{ role: "user", content: "現在の料金を比較調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe(synthesisText);
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      model: "ORIGIN 無料AI",
+      answerMode: "research",
+      verificationLevel: "evidence-required",
+      synthesisStatus: "citation-validated",
+      synthesisSourceCount: 2,
+      providerAttempts: 1,
+      cost: 0,
+      actualCostUsd: 0,
+      freeOnly: true,
+    }));
+    expect(response.body.answer.verification.status).toBe("not-run");
+    expect(response.body.answer.limitations.join(" ")).toContain("引用先が取得済みソースと一致");
+    expect(synthesisMock).toHaveBeenCalledTimes(1);
+    const synthesisRequest = (synthesisMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(synthesisRequest.messages).toHaveLength(1);
+    expect(synthesisRequest.messages[0].content).toContain("[S1](https://example.com/one)");
+    expect(synthesisRequest.messages[0].content).toContain("[S2](https://example.org/two)");
+    expect(synthesisRequest.systemInstruction).toContain("記憶由来の事実を追加しない");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("discards synthesized text when citation validation fails and returns the deterministic digest", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [
+        {
+          title: "Source one",
+          url: "https://example.com/one",
+          excerpt: "公開情報その1です。",
+          sourceType: "web-search",
+          domain: "example.com",
+          rank: 1,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+        {
+          title: "Source two",
+          url: "https://example.org/two",
+          excerpt: "公開情報その2です。",
+          sourceType: "web-search",
+          domain: "example.org",
+          rank: 2,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+      ],
+    }) as unknown as OriginResearchExecutor;
+    const synthesisMock = vi.fn().mockResolvedValue({
+      ...defaultExecutionResult,
+      text: "捏造された統合結果です。[S9](https://outside.invalid/fake)",
+    }) as unknown as OriginChatExecutor;
+
+    const response = await request(createApp(
+      execute,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      undefined,
+      undefined,
+      researchMock,
+      synthesisMock,
+    )).post("/api/chat").send({ messages: [{ role: "user", content: "最新情報を調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("確認できた公開情報");
+    expect(response.body.content).not.toContain("捏造された統合結果");
+    expect(response.body.content).not.toContain("outside.invalid");
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      model: "ORIGIN アプリ内処理",
+      synthesisStatus: "citation-validation-failed",
+      synthesisFailureCode: "UNKNOWN_CITATION",
+      freeOnly: true,
+      cost: 0,
+    }));
+    expect(synthesisMock).toHaveBeenCalledTimes(1);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("fails the synthesis stage closed after one provider failure and keeps only retrieved evidence", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [{
+        title: "Current source",
+        url: "https://example.com/current",
+        excerpt: "現在確認できた公開情報です。",
+        sourceType: "web-search",
+        domain: "example.com",
+        rank: 1,
+        evidenceLevel: "page-verified",
+        retrievedAt: "2026-09-24T06:00:00.000Z",
+        freshness: "recent",
+      }],
+    }) as unknown as OriginResearchExecutor;
+    const synthesisMock = vi.fn().mockRejectedValue(
+      new OriginProviderError("PROVIDER_RATE_LIMITED", "internal", 429, true),
+    ) as unknown as OriginChatExecutor;
+
+    const response = await request(createApp(
+      execute,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      undefined,
+      undefined,
+      researchMock,
+      synthesisMock,
+    )).post("/api/chat").send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("確認できた公開情報");
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      synthesisStatus: "provider-failed",
+      synthesisFailureCode: "PROVIDER_RATE_LIMITED",
+      providerAttempts: undefined,
+      freeOnly: true,
+      cost: 0,
+    }));
+    expect(synthesisMock).toHaveBeenCalledTimes(1);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not call synthesis when the verified free provider plan is unavailable", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [{
+        title: "Current source",
+        url: "https://example.com/current",
+        excerpt: "現在確認できた公開情報です。",
+        sourceType: "web-search",
+        domain: "example.com",
+        rank: 1,
+        evidenceLevel: "page-verified",
+        retrievedAt: "2026-09-24T06:00:00.000Z",
+        freshness: "recent",
+      }],
+    }) as unknown as OriginResearchExecutor;
+    const synthesisMock = vi.fn() as unknown as OriginChatExecutor;
+
+    const response = await request(createApp(
+      execute,
+      {},
+      undefined,
+      undefined,
+      researchMock,
+      synthesisMock,
+    )).post("/api/chat").send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("確認できた公開情報");
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      synthesisStatus: "plan-unavailable",
+      synthesisFailureCode: "FREE_PROVIDER_NOT_CONFIGURED",
+      freeOnly: true,
+      cost: 0,
+    }));
+    expect(synthesisMock).not.toHaveBeenCalled();
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
   it("automatically uses Grounded Research for an explicit research request", async () => {
     const researchMock = vi.fn().mockResolvedValue({
       ok: true,
