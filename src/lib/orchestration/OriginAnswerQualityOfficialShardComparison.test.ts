@@ -6,6 +6,7 @@ import { bindOriginAnswerQualityBenchmarkRun } from "./OriginAnswerQualityBenchm
 import { createOriginAnswerQualityBenchmarkRunProvenance } from "./OriginAnswerQualityBenchmarkRunProvenance";
 import { runOriginAnswerQualityBenchmark } from "./OriginAnswerQualityBenchmarkRunner";
 import { createOriginAnswerQualityBenchmarkShardCorpus } from "./OriginAnswerQualityBenchmarkShardCorpus";
+import type { OriginAnswerQualityBenchmarkScopedProbeOptions } from "./OriginAnswerQualityBenchmarkEnvironmentProof";
 import {
   runOriginAnswerQualityOfficialShardComparison,
 } from "./OriginAnswerQualityOfficialShardComparison";
@@ -341,8 +342,14 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
     const codingCase = full.cases.find((item) => item.category === "coding-generation");
     if (!codingCase) throw new Error("coding fixture missing");
     const probeCodingCheckout = vi.fn(async () => true);
-    const probeEnvironment = vi.fn(async (...args: Parameters<typeof import("./OriginAnswerQualityBenchmarkEnvironmentProof").probeOriginAnswerQualityBenchmarkEnvironmentForLanes>) => {
-      expect(args[4]).toEqual({
+    const probeEnvironment = vi.fn(async (
+      _baseUrl: string,
+      _gitSha: string,
+      _requiredLanes: readonly ("research" | "chat" | "coding" | "artifact")[],
+      _fetchImpl?: typeof fetch,
+      options?: OriginAnswerQualityBenchmarkScopedProbeOptions,
+    ) => {
+      expect(options).toEqual({
         codingReadiness: "checkout",
         codingCheckoutReady: true,
       });
