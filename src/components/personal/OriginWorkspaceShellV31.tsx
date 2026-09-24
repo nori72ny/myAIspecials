@@ -29,7 +29,7 @@ export default function OriginWorkspaceShellV31({
   projectOpen = false,
   onProjectToggle,
 }: OriginWorkspaceShellV31Props) {
-  return <section aria-label="ORIGIN workspace shell" className="origin-surface shrink-0 border-b border-origin-border px-2 py-2 sm:px-4">
+  return <section aria-label="ORIGIN workspace shell" className="origin-surface shrink-0 border-b border-origin-border px-2 py-1.5 sm:px-4">
     <div className="mx-auto flex w-full max-w-7xl items-center gap-2">
       <nav aria-label="Mode" className="grid min-w-0 flex-1 grid-cols-4 gap-1.5 md:flex md:max-w-[560px] md:gap-2">
         {MODES.map((item) => {
