@@ -173,7 +173,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
     }
   }
 
-  return <section aria-label="Research Workspace" className="min-h-[calc(100vh-5rem)] bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5">
+  return <section aria-label="Research Workspace" className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5">
     <div className="mx-auto max-w-6xl space-y-4">
       <header className="origin-workspace rounded-2xl p-4 md:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
