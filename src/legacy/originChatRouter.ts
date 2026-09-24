@@ -14,12 +14,13 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import { executeOriginProvider, assertOriginZeroCostExecutionResult, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
 import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
+import { buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, validateGroundedResearchSynthesis } from "../research/groundedResearchSynthesisV12.js";
 import { originChatSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 export type OriginResearchExecutor = (query: string) => Promise<OriginResearchResult>;
-export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; }
+export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; researchSynthesis?: OriginChatExecutor | null; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; }
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 function systemInstruction(intent?: OriginRequestIntent, workPlan?: OriginAgentWorkPlan, resolvedPlan?: OriginResolvedWorkPlan, answerQualityInstruction?: string): string {
   return originChatSystemInstruction(intent, workPlan, resolvedPlan, answerQualityInstruction);
@@ -54,6 +55,8 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
       sourceCount: 0,
       provider: result.searchProvider,
       conflicts: 0,
+      sources: safeSources,
+      conflictDetails: [],
     };
   }
 
@@ -100,13 +103,15 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
     sourceCount: grounded.sourceCount,
     provider: result.searchProvider,
     conflicts: grounded.conflicts.length,
+    sources,
+    conflictDetails: grounded.conflicts,
   };
 }
 function firstAnswerBlock(content: string): string { const firstBlock = content.split(/\n\s*\n|\n/).map((part) => part.trim()).find(Boolean) ?? content.trim(); const withoutHeading = firstBlock.replace(/^#{1,6}\s+/, "").trim(); if (withoutHeading.length <= 500) return withoutHeading; const candidate = withoutHeading.slice(0, 500); const sentenceEnd = Math.max(candidate.lastIndexOf("。") + 1, candidate.lastIndexOf("！") + 1, candidate.lastIndexOf("？") + 1, candidate.lastIndexOf(". ") + 1); return sentenceEnd >= 40 ? candidate.slice(0, sentenceEnd).trim() : `${candidate.slice(0, 499).trimEnd()}…`; }
 function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions }); if (result.ok === false) throw new Error(result.code); return result.value; }
 
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
-  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env)); const research = options.research ?? ((query: string) => researchCurrentInformation(query));
+  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env)); const research = options.research ?? ((query: string) => researchCurrentInformation(query)); const researchSynthesis = options.researchSynthesis === null ? null : options.researchSynthesis ?? execute;
   router.post("/api/chat", async (req, res) => {
     const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");
     if (wantsStreaming) {
@@ -154,16 +159,114 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         researchResult = { ok: false, sources: [], failure: { stage: "web-search", code: "NETWORK_FAILURE" } };
       }
       const grounded = groundedResearchAnswer(lastUserMessage, researchResult);
+      let synthesisStatus = "not-run";
+      let synthesisFailureCode: string | undefined;
+
+      if (researchSynthesis && grounded.sources.length > 0) {
+        const synthesisPlan = buildOriginExecutionPlan(
+          { goal: lastUserMessage.trim(), requiresCodeChanges: false, requiresFreshResearch: true, containsSecrets: false },
+          { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) },
+          originClientPolicy(body),
+          { freeModelCatalog: options.freeModelCatalog, nowMs: catalogNow() },
+        );
+        if (synthesisPlan.ok) {
+          const synthesisStartedAt = now();
+          try {
+            const synthesisResult = await researchSynthesis({
+              plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
+              messages: [{
+                role: "user",
+                content: buildGroundedResearchSynthesisPrompt(
+                  lastUserMessage,
+                  grounded.sources,
+                  grounded.conflictDetails,
+                  grounded.language,
+                ),
+              }],
+              systemInstruction: buildGroundedResearchSynthesisInstruction(grounded.language),
+            });
+            assertOriginZeroCostExecutionResult(synthesisResult, synthesisPlan.plan.modelId);
+            const citationValidation = validateGroundedResearchSynthesis(synthesisResult.text, grounded.sources);
+            if (citationValidation.ok) {
+              const verificationReason = grounded.language === "en"
+                ? "Citation structure was checked against the retrieved HTTPS evidence packet; factual truth and publisher authority were not independently verified."
+                : "取得済みHTTPS証拠パケットとの引用構造一致を確認しました。主張の真偽や媒体の権威性を独立検証したものではありません。";
+              const limitations = [
+                grounded.language === "en"
+                  ? "Citations were structurally validated against retrieved sources, but claim truth, completeness, and publisher authority were not independently verified."
+                  : "引用先が取得済みソースと一致することは機械検証しましたが、主張の真偽・網羅性・媒体の権威性は独立検証していません。",
+              ];
+              if (grounded.conflicts > 0) {
+                limitations.push(grounded.language === "en"
+                  ? "Retrieved sources contain structured-value differences that require human review."
+                  : "取得ソース間に構造化値の差異があり、人による確認が必要です。");
+              }
+              return res.json({
+                content: synthesisResult.text,
+                answer: answerEnvelope(synthesisResult.text, grounded.language, "not-run", verificationReason, grounded.evidence, limitations, grounded.nextActions),
+                routing: {
+                  model: synthesisPlan.plan.providerLabel,
+                  reason: grounded.language === "en"
+                    ? "Synthesized retrieved public evidence with one verified zero-cost model execution."
+                    : "取得済み公開証拠を、検証済み$0モデル1回だけで統合しました。",
+                  score: null,
+                  timeMs: Math.max(0, now() - synthesisStartedAt),
+                  cost: synthesisResult.actualCostUsd,
+                  providerId: synthesisPlan.plan.providerId,
+                  modelId: synthesisPlan.plan.modelId,
+                  taskType: synthesisPlan.plan.taskType,
+                  actualCostUsd: synthesisResult.actualCostUsd,
+                  estimatedCostUsd: synthesisPlan.plan.estimatedCostUsd,
+                  freeOnly: true,
+                  traceId: requestId,
+                  verificationStatus: "not-run",
+                  answerMode: "research",
+                  verificationLevel: "evidence-required",
+                  sourceCount: grounded.sourceCount,
+                  researchProvider: grounded.provider,
+                  conflictCount: grounded.conflicts,
+                  synthesisStatus: "citation-validated",
+                  synthesisSourceCount: citationValidation.usedSourceIds.length,
+                  providerDataPolicy: synthesisResult.providerDataPolicy,
+                  providerRouting: synthesisResult.routingEvidence,
+                  usage: synthesisResult.usage,
+                  providerAttempts: 1,
+                },
+              });
+            }
+            synthesisStatus = "citation-validation-failed";
+            synthesisFailureCode = citationValidation.code;
+            console.warn("[origin-chat] research synthesis discarded", { requestId, code: citationValidation.code });
+          } catch (error) {
+            synthesisStatus = "provider-failed";
+            synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
+            console.warn("[origin-chat] research synthesis unavailable; deterministic digest retained", { requestId, code: synthesisFailureCode });
+          }
+        } else {
+          synthesisStatus = "plan-unavailable";
+          synthesisFailureCode = synthesisPlan.code;
+        }
+      } else if (!researchSynthesis) {
+        synthesisStatus = "disabled";
+      }
+
+      const digestReason = synthesisStatus === "not-run"
+        ? grounded.reason
+        : grounded.language === "en"
+          ? `${grounded.reason} AI synthesis was not adopted; the deterministic evidence digest is shown instead.`
+          : `${grounded.reason} AI統合は採用せず、安全な証拠ダイジェストを表示しています。`;
       return res.json({
         content: grounded.content,
-        answer: answerEnvelope(grounded.content, grounded.language, "not-run", grounded.reason, grounded.evidence, grounded.limitations, grounded.nextActions),
+        answer: answerEnvelope(grounded.content, grounded.language, "not-run", digestReason, grounded.evidence, grounded.limitations, grounded.nextActions),
         routing: {
-          ...applicationRouting(requestId, grounded.reason, "not-run"),
+          ...applicationRouting(requestId, digestReason, "not-run"),
           answerMode: "research",
           verificationLevel: "evidence-required",
           sourceCount: grounded.sourceCount,
           researchProvider: grounded.provider,
           conflictCount: grounded.conflicts,
+          synthesisStatus,
+          ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
         },
       });
     }
