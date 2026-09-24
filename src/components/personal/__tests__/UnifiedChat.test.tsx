@@ -205,8 +205,8 @@ describe('UnifiedChat', () => {
 
     await waitFor(() => {
       expect(screen.getByText('確認結果です。')).toBeTruthy();
-      expect(screen.getByText('無料で回答しました')).toBeTruthy();
-      expect(screen.getByText('詳細')).toBeTruthy();
+      expect(screen.getByText('回答の詳細')).toBeTruthy();
+      expect(screen.queryByText('無料で回答しました')).toBeNull();
     });
 
     const details = screen.getByTestId('execution-details') as HTMLDetailsElement;
