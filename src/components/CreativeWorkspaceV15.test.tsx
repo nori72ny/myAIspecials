@@ -128,6 +128,18 @@ describe('CreativeWorkspaceV15', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: originalRevokeObjectURL });
   });
 
+  it('starts prompt-first without an empty history dashboard', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(statusBody)));
+
+    render(<CreativeWorkspaceV15 />);
+    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+
+    expect(screen.getByLabelText('タイトル')).toBeTruthy();
+    expect(screen.getByLabelText('内容')).toBeTruthy();
+    expect(screen.getByText('詳細設定')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Creative local history' })).toBeNull();
+  });
+
   it('checks the zero-cost capability, verifies actual bytes, previews SVG, and persists local history', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(statusBody))
