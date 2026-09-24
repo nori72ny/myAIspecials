@@ -23,10 +23,10 @@ describe('ORIGIN accessibility foundations', () => {
     expect(selector.classList.contains('origin-interactive-target')).toBe(true);
   });
 
-  it('keeps mobile controls keyboard-focusable and Mode semantically separate', () => {
-    render(<OriginWorkspaceShellV31 mode="chat" onModeChange={vi.fn()} />);
-    expect(screen.getByLabelText('ORIGIN mobile controls')).toBeTruthy();
+  it('keeps the focused mode controls keyboard-focusable and semantic', () => {
+    render(<OriginWorkspaceShellV31 mode="chat" onModeChange={vi.fn()} onProjectToggle={vi.fn()} />);
     expect(screen.getByRole('navigation', { name: 'Mode' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Chat' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: '詳細を開く' })).toBeTruthy();
   });
 });
