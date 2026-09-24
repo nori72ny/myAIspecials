@@ -138,10 +138,10 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(latestProps.messages).toEqual(restoredMessages);
     expect(latestProps.artifacts).toEqual(restoredArtifacts);
     const artifactLayer = screen.getByRole('region', { name: 'Artifact layer' });
-    expect(artifactLayer.textContent).toContain('Artifact');
-    expect(artifactLayer.textContent).toContain('1件');
+    expect(artifactLayer.textContent).toContain('成果物');
     expect(artifactLayer.textContent).toContain('復元資料');
-    expect(artifactLayer.textContent).toContain('Ready');
+    expect(artifactLayer.textContent).toContain('完成');
+    expect(artifactLayer.textContent).not.toContain('会話とは独立した成果物レイヤー');
   });
 
   it('reopens the latest artifact through the mobile Conversation / Artifact tabs', () => {
