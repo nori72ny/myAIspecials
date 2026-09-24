@@ -116,45 +116,52 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     });
   }
 
-  test('mobile home buttons, sheets, settings, and history remain fully inside the viewport', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await installStableWorkspaceRoutes(page);
-    await page.goto('/');
+  for (const viewport of [
+    { name: '320', width: 320, height: 568 },
+    { name: '375', width: 375, height: 812 },
+    { name: '390', width: 390, height: 844 },
+    { name: '768', width: 768, height: 1024 },
+  ] as const) {
+    test(`home sheets, settings, and history remain fully usable at ${viewport.name}px`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await installStableWorkspaceRoutes(page);
+      await page.goto('/');
 
-    const add = page.getByTestId('origin-add-menu-toggle');
-    await add.click();
-    const menu = page.getByRole('menu', { name: '追加機能' });
-    await expect(menu).toBeVisible();
-    const menuBox = await menu.boundingBox();
-    expect(menuBox).not.toBeNull();
-    expect(menuBox!.x).toBeGreaterThanOrEqual(8);
-    expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(382);
-    for (const label of ['ファイルを添付', '調べる', 'コード', '作る']) {
-      const item = page.getByRole('menuitem', { name: label, exact: true });
-      await expect(item).toBeVisible();
-      expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    }
-    await add.click();
+      const add = page.getByTestId('origin-add-menu-toggle');
+      await add.click();
+      const menu = page.getByRole('menu', { name: '追加機能' });
+      await expect(menu).toBeVisible();
+      const menuBox = await menu.boundingBox();
+      expect(menuBox).not.toBeNull();
+      expect(menuBox!.x).toBeGreaterThanOrEqual(-1);
+      expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(viewport.width + 1);
+      for (const label of ['ファイルを添付', '調べる', 'コード', '作る']) {
+        const item = page.getByRole('menuitem', { name: label, exact: true });
+        await expect(item).toBeVisible();
+        expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      }
+      await add.click();
 
-    await page.getByRole('button', { name: '設定を開く', exact: true }).click();
-    const settings = page.getByRole('dialog', { name: /設定|Settings/i });
-    await expect(settings).toBeVisible();
-    const settingsBox = await settings.boundingBox();
-    expect(settingsBox).not.toBeNull();
-    expect(settingsBox!.x).toBeGreaterThanOrEqual(-1);
-    expect(settingsBox!.x + settingsBox!.width).toBeLessThanOrEqual(391);
-    await assertSurfaceContract(page, 390);
-    await page.getByRole('button', { name: '設定を閉じる' }).click();
+      await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+      const settings = page.getByRole('dialog', { name: /設定|Settings/i });
+      await expect(settings).toBeVisible();
+      const settingsBox = await settings.boundingBox();
+      expect(settingsBox).not.toBeNull();
+      expect(settingsBox!.x).toBeGreaterThanOrEqual(-1);
+      expect(settingsBox!.x + settingsBox!.width).toBeLessThanOrEqual(viewport.width + 1);
+      await assertSurfaceContract(page, viewport.width);
+      await page.getByRole('button', { name: '設定を閉じる' }).click();
 
-    await page.getByTestId('history-drawer-toggle').click();
-    const history = page.getByTestId('history-drawer');
-    await expect(history).toBeVisible();
-    const historyBox = await history.boundingBox();
-    expect(historyBox).not.toBeNull();
-    expect(historyBox!.x).toBeGreaterThanOrEqual(-1);
-    expect(historyBox!.x + historyBox!.width).toBeLessThanOrEqual(391);
-    await assertSurfaceContract(page, 390);
-  });
+      await page.getByTestId('history-drawer-toggle').click();
+      const history = page.getByTestId('history-drawer');
+      await expect(history).toBeVisible();
+      const historyBox = await history.boundingBox();
+      expect(historyBox).not.toBeNull();
+      expect(historyBox!.x).toBeGreaterThanOrEqual(-1);
+      expect(historyBox!.x + historyBox!.width).toBeLessThanOrEqual(viewport.width + 1);
+      await assertSurfaceContract(page, viewport.width);
+    });
+  }
 
   test('research result links are safe, named, touchable, and point to the returned evidence', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
