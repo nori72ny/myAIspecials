@@ -26,16 +26,16 @@ function exactCreateProposal(context: CodingContext): CodingProposalBatch | null
   const editablePaths = [...new Set(context.editablePaths ?? context.files.map(file => file.path))];
   const creatablePaths = [...new Set(context.creatablePaths ?? [])];
   if (context.attempt !== 0 || editablePaths.length !== 0 || creatablePaths.length !== 1) return null;
-  if (!/\\bcreate exactly one new file\\b/i.test(context.goal)
-    || !/\\bwith exact content\\s*:/i.test(context.goal)
-    || !/\\bdo not modify any other file\\b/i.test(context.goal)) return null;
+  if (!/\bcreate exactly one new file\b/i.test(context.goal)
+    || !/\bwith exact content\s*:/i.test(context.goal)
+    || !/\bdo not modify any other file\b/i.test(context.goal)) return null;
   const filePath = creatablePaths[0];
   const prefix = `Create exactly one new file at ${filePath} with exact content:`;
   const start = context.goal.toLowerCase().indexOf(prefix.toLowerCase());
   const suffix = 'Do not modify any other file.';
   const end = context.goal.indexOf(suffix, start + prefix.length);
   if (start < 0 || end < 0) return null;
-  const content = context.goal.slice(start + prefix.length, end).replace(/^\\r?\\n/, '');
+  const content = context.goal.slice(start + prefix.length, end).replace(/^\r?\n/, '');
   if (!content.length || containsLikelySecret(content)) return null;
   return { edits: [], creates: [{ path: filePath, content }] };
 }
