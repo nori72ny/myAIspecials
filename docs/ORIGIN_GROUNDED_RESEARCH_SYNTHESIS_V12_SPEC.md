@@ -2,7 +2,7 @@
 
 Status: Draft post-first-release candidate
 Issue: #648
-PR: #654
+PR: #667
 
 ## Objective
 
@@ -95,7 +95,7 @@ ORIGIN must not label the synthesis as independently verified unless a separate 
 
 This work is post-first-release only.
 
-Do not merge while P0 Issue #650 remains open or canonical Production releaseSha differs from main.
+Do not merge while P0 Issue #650 remains open or canonical Production releaseSha differs from main. This current-main rebuild supersedes Draft PR #662.
 
 ## Acceptance evidence
 
