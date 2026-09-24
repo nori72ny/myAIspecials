@@ -133,6 +133,31 @@ describe("groundedResearchSynthesisV12", () => {
     );
   });
 
+  it("rejects a fabricated numeric claim even when the citation URL is valid", () => {
+    const answer = [
+      "## 結論",
+      "",
+      "取得できた資料では料金は999円です。[S1](https://example.com/one) [S2](https://example.org/two)",
+    ].join("\n");
+
+    expect(validateGroundedResearchSynthesis(answer, sources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+  });
+
+  it("accepts numeric claims when each value exists in the cited evidence", () => {
+    const answer = [
+      "## 結論",
+      "",
+      "資料間では100円と120円の記載があります。[S1](https://example.com/one) [S2](https://example.org/two)",
+    ].join("\n");
+
+    expect(validateGroundedResearchSynthesis(answer, sources)).toEqual({
+      ok: true,
+      usedSourceIds: ["S1", "S2"],
+    });
+  });
+
   it("allows one-source coverage only when retrieval produced one source", () => {
     const answer = "取得できた資料では100円と記載されています。[S1](https://example.com/one)";
     expect(validateGroundedResearchSynthesis(answer, sources.slice(0, 1))).toEqual({
