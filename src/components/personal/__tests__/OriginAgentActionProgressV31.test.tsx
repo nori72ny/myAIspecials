@@ -7,7 +7,7 @@ import OriginAgentActionProgressV31, { projectAgentActionStateV31 } from '../Ori
 afterEach(() => cleanup());
 
 describe('OriginAgentActionProgressV31', () => {
-  it('keeps every action pending before a real job exists', () => {
+  it('keeps every action pending before a real job exists without rendering empty workflow UI', () => {
     expect(projectAgentActionStateV31(null)).toEqual([
       { id: 'plan', state: 'pending' },
       { id: 'execute', state: 'pending' },
@@ -15,20 +15,26 @@ describe('OriginAgentActionProgressV31', () => {
       { id: 'verify', state: 'pending' },
       { id: 'deliver', state: 'pending' },
     ]);
+
+    render(<OriginAgentActionProgressV31 status={null} />);
+    expect(screen.queryByText('実行状況')).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Agent action steps' })).toBeNull();
   });
 
-  it('projects running status without inventing percentage or ETA', () => {
+  it('shows a compact running state and keeps step internals under details', () => {
     render(<OriginAgentActionProgressV31 status="running" onStop={() => undefined} />);
+
+    expect(screen.getByText('実行中')).toBeTruthy();
+    expect(screen.getByText('コードを確認・変更しています。')).toBeTruthy();
+    expect(screen.getByText('実行詳細')).toBeTruthy();
 
     const steps = screen.getByRole('list', { name: 'Agent action steps' });
     const plan = within(steps).getByText('Plan').closest('li');
     const execute = within(steps).getByText('Execute').closest('li');
-    const test = within(steps).getByText('Test').closest('li');
     expect(plan?.textContent).toContain('完了');
     expect(execute?.getAttribute('aria-current')).toBe('step');
     expect(execute?.textContent).toContain('進行中');
-    expect(test?.textContent).toContain('待機');
-    expect(screen.queryByText(/進捗率・残り時間・内部思考は推測しません/)).not.toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
   });
 
   it('does not claim completed actions after an ambiguous terminal failure', () => {
@@ -43,23 +49,19 @@ describe('OriginAgentActionProgressV31', () => {
     const onStop = vi.fn();
     render(<OriginAgentActionProgressV31 status="repairing" onStop={onStop} />);
 
-    const stopButtons = screen.getAllByRole('button', { name: 'Stop' });
-    expect(stopButtons.length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(stopButtons[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
   it('disables repeated stop while cancellation confirmation is pending', () => {
     render(<OriginAgentActionProgressV31 status="running" cancelRequested onStop={() => undefined} />);
 
-    expect(screen.getAllByRole('button').every(button => button.hasAttribute('disabled'))).toBe(true);
-    expect(screen.queryByText(/server側の停止確認を待っています/)).not.toBeNull();
+    expect((screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/停止要求を送信しました/)).not.toBeNull();
   });
 
-  it('respects the mobile safe area for fixed Agent controls', () => {
+  it('does not pin a permanent mobile status bar over the workspace', () => {
     render(<OriginAgentActionProgressV31 status="running" onStop={() => undefined} />);
-
-    const controls = screen.getByLabelText('Agent mobile controls');
-    expect(controls.classList.contains('origin-mobile-agent-controls')).toBe(true);
+    expect(screen.queryByLabelText('Agent mobile controls')).toBeNull();
   });
 });
