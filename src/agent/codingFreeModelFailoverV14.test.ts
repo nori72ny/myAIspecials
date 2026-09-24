@@ -6,11 +6,8 @@ import {
   ORIGIN_CODING_FREE_FAILOVER_VERIFIED_AT_V14,
 } from './codingFreeModelFailoverV14.js';
 import { createBoundedCodingProviderExecuteV14 } from './codingProviderRetryV14.js';
-import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
-import {
-  buildOriginExecutionPlan,
-  DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
-} from '../lib/orchestration/OriginExecutionPolicy.js';
+import type { OriginProviderExecutionRequest } from '../legacy/originProviderClient.js';
+import { buildOriginExecutionPlan } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 const selected = buildOriginExecutionPlan(
   { goal: 'Implement a bounded coding change', taskType: 'implementation', requiresCodeChanges: true },
@@ -42,26 +39,11 @@ function response(args = '{"edits":[],"creates":[]}') {
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
-const fallbackResult: OriginProviderExecutionResult = {
-  text: '{"edits":[],"creates":[]}',
-  actualCostUsd: 0,
-  usage: { costUsd: 0 },
-  providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
-  routingEvidence: {
-    requestedModel: ORIGIN_CODING_FREE_FAILOVER_MODEL_V14,
-    servedModel: ORIGIN_CODING_FREE_FAILOVER_MODEL_V14,
-    provider: 'OpenRouter',
-    strategy: 'coding-free-failover',
-    attempt: 1,
-    fallbackUsed: true,
-  },
-};
-
 function failure(code: string) {
   return Object.assign(new Error('safe provider failure'), { code });
 }
 
-describe('V1.4 explicit free coding model failover', () => {
+describe('V1.4 isolated explicit free coding executor', () => {
   it('keeps the failover request zero-cost, ZDR-only and required-tool constrained', async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -109,34 +91,20 @@ describe('V1.4 explicit free coding model failover', () => {
       .rejects.toMatchObject({ code: 'PROVIDER_ROUTING_UNVERIFIED' });
   });
 
-  it('uses the alternate ZDR free model once after bounded primary availability retries are exhausted', async () => {
-    const primary = vi.fn().mockRejectedValue(failure('PROVIDER_UNAVAILABLE'));
-    const alternate = vi.fn().mockResolvedValue(fallbackResult);
-    const wrapped = createBoundedCodingProviderExecuteV14(primary, undefined, alternate);
+  it.each([
+    'PROVIDER_UNAVAILABLE',
+    'PROVIDER_TIMEOUT',
+    'PROVIDER_RATE_LIMITED',
+    'PROVIDER_INVALID_RESPONSE',
+    'PROVIDER_REQUIRED_TOOL_TRUNCATED',
+    'PROVIDER_REQUIRED_TOOL_AMBIGUOUS',
+    'PROVIDER_POLICY_VIOLATION',
+  ])('never performs automatic model failover after %s', async code => {
+    const primary = vi.fn().mockRejectedValue(failure(code));
+    const wrapped = createBoundedCodingProviderExecuteV14(primary);
 
-    await expect(wrapped(request, {})).resolves.toBe(fallbackResult);
-    expect(primary).toHaveBeenCalledTimes(2);
-    expect(alternate).toHaveBeenCalledTimes(1);
-    expect(alternate.mock.calls[0][0]).toBe(request);
+    await expect(wrapped(request, {})).rejects.toMatchObject({ code });
+    expect(primary).toHaveBeenCalledTimes(1);
   });
 
-  it('does not switch models after an account-wide free-model rate limit', async () => {
-    const primary = vi.fn().mockRejectedValue(failure('PROVIDER_RATE_LIMITED'));
-    const alternate = vi.fn().mockResolvedValue(fallbackResult);
-    const wrapped = createBoundedCodingProviderExecuteV14(primary, undefined, alternate);
-
-    await expect(wrapped(request, {})).rejects.toMatchObject({ code: 'PROVIDER_RATE_LIMITED' });
-    expect(primary).toHaveBeenCalledTimes(2);
-    expect(alternate).not.toHaveBeenCalled();
-  });
-
-  it('never switches model for policy failures or required-tool contract failures', async () => {
-    for (const code of ['PROVIDER_POLICY_VIOLATION', 'PROVIDER_REQUIRED_TOOL_TRUNCATED']) {
-      const primary = vi.fn().mockRejectedValue(failure(code));
-      const alternate = vi.fn().mockResolvedValue(fallbackResult);
-      const wrapped = createBoundedCodingProviderExecuteV14(primary, undefined, alternate);
-      await expect(wrapped(request, {})).rejects.toMatchObject({ code });
-      expect(alternate).not.toHaveBeenCalled();
-    }
-  });
 });
