@@ -46,7 +46,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(typeof props.onOpenResearch).toBe('function');
     expect(typeof props.onOpenCoding).toBe('function');
     expect(typeof props.onOpenCreative).toBe('function');
-    expect(typeof props.onOpenDetails).toBe('function');
+    expect(props.onOpenDetails).toBeUndefined();
   });
 
   it('opens Research from the chat action and preserves the chat mount', async () => {
@@ -218,8 +218,12 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.getByRole('complementary', { name: '成果物ワークスペース' }).textContent).toContain('Project artifact');
   });
 
-  it('does not show empty Project Files, Tasks, or Sources until evidence exists', () => {
-    render(<PersonalEditionApp />);
+  it('does not expose Details on a pristine home and still hides empty project views after conversation evidence exists', () => {
+    const { rerender } = render(<PersonalEditionApp />);
+    expect(latestAppProps().onOpenDetails).toBeUndefined();
+
+    rerender(<PersonalEditionApp messages={[{ id: 'u-1', role: 'user', content: '確認済みの会話' }]} />);
+    expect(typeof latestAppProps().onOpenDetails).toBe('function');
     runAppAction('onOpenDetails');
 
     expect(screen.queryByRole('button', { name: 'Project Files' })).toBeNull();
