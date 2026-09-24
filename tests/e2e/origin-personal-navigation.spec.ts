@@ -87,6 +87,109 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByText(/無料AIのみ・有料AIへの自動切替なし|Free AI only · no automatic paid fallback/i)).toBeVisible();
   });
 
+  for (const width of [320, 390, 1440]) {
+    test(`audits every progressive workspace link and maximizes composer space at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width <= 390 ? (width === 320 ? 568 : 844) : 900 });
+      await page.route('**/api/coding/v1.4/status', route => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          ready: false,
+          controlPlaneReady: false,
+          authorizationMode: 'unconfigured',
+          freeOnly: true,
+          paidFallbackEnabled: false,
+        }),
+      }));
+      await page.route('**/api/creative/v1.5/status', route => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ready: true,
+          releaseStage: 'verified-vector-foundation',
+          externalNetworkRequests: 0,
+          providerExecutions: 0,
+          costUsd: 0,
+          freeOnly: true,
+        }),
+      }));
+
+      await page.goto('/');
+      const composer = page.locator('.origin-composer');
+      const input = page.getByTestId('origin-home-request');
+      const add = page.getByTestId('origin-add-menu-toggle');
+      const send = page.getByTestId('start-request-button');
+
+      await expect(input).toHaveAttribute('placeholder', 'ORIGINに依頼する');
+      await expect(add).toHaveText('＋');
+      await expect(send).toHaveText('↑');
+      const composerBox = await composer.boundingBox();
+      const addBox = await add.boundingBox();
+      const sendBox = await send.boundingBox();
+      expect(addBox?.width).toBeGreaterThanOrEqual(44);
+      expect(sendBox?.width).toBeGreaterThanOrEqual(44);
+      if (width === 320) expect(composerBox?.width).toBeGreaterThanOrEqual(290);
+      if (width === 390) expect(composerBox?.width).toBeGreaterThanOrEqual(360);
+      if (width === 1440) expect(composerBox?.width).toBeGreaterThanOrEqual(850);
+
+      const noOverflow = async () => expect(await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      )).toBe(true);
+
+      await add.click();
+      await page.getByRole('menuitem', { name: '調べる', exact: true }).click();
+      await expect(page).toHaveURL(/workspace=research/);
+      await expect(page.getByRole('heading', { name: '調べたいことを入力' })).toBeVisible();
+      await expect(page.getByLabel('調べたいこと', { exact: true })).toBeEditable();
+      await noOverflow();
+      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+
+      await page.getByTestId('origin-add-menu-toggle').click();
+      await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
+      await expect(page).toHaveURL(/workspace=coding/);
+      await expect(page.getByRole('heading', { name: 'コードの変更を依頼' })).toBeVisible();
+      await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
+      await noOverflow();
+      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+
+      await page.getByTestId('origin-add-menu-toggle').click();
+      await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+      await expect(page).toHaveURL(/workspace=creative/);
+      await expect(page.getByRole('heading', { name: '作りたいものを入力' })).toBeVisible();
+      await expect(page.getByLabel('タイトル', { exact: true })).toBeEditable();
+      await noOverflow();
+      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+
+      await expect(page).toHaveURL(/\/$/);
+      await expect(page.getByTestId('origin-home-request')).toBeVisible();
+      await noOverflow();
+    });
+  }
+
+  test('opens HTML artifacts as finished previews instead of source code', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/chat', route => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '完成しました。\n\n```html:完成プレビュー\n<main><h1>完成画面</h1><button>実行</button></main>\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('HTML成果物を作成');
+    await page.getByTestId('start-request-button').click();
+
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible();
+    await expect(workspace.getByTitle('プレビュー')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'プレビューを表示' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'コードを表示' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(workspace.getByText('<main><h1>完成画面</h1><button>実行</button></main>', { exact: true })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'コードを表示' }).click();
+    await expect(workspace.getByText('<main><h1>完成画面</h1><button>実行</button></main>', { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
   test('submits a command-bar request within a compact viewport', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/chat', async (route) => {
