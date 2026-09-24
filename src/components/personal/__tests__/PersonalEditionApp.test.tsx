@@ -1,7 +1,14 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PERSONAL_SETTINGS } from '../../../hooks/usePersonalSettings';
 import PersonalEditionApp from '../PersonalEditionApp';
+
+type MockAppProps = Record<string, unknown> & {
+  onOpenResearch?: () => void;
+  onOpenCoding?: () => void;
+  onOpenCreative?: () => void;
+  onOpenDetails?: () => void;
+};
 
 const appProps = vi.fn();
 vi.mock('../ResearchWorkspaceV31', () => ({ default: () => <section aria-label="Research Workspace">Research test workspace</section> }));
@@ -9,97 +16,112 @@ vi.mock('../CodingWorkspaceV31', () => ({ default: () => <section aria-label="Co
 vi.mock('../../CreativeWorkspaceV15', () => ({ default: () => <section aria-label="Creative Workspace">Creative test workspace</section> }));
 
 vi.mock('../../../App', () => ({
-  default: (props: Record<string, unknown>) => {
+  default: (props: MockAppProps) => {
     appProps(props);
     return <div data-testid="mock-origin-app">ORIGIN</div>;
   },
   ArtifactWorkspace: ({ artifact, isOpen, onClose }: { artifact: { title: string }; isOpen: boolean; onClose: () => void }) => isOpen ? <aside aria-label="成果物ワークスペース"><p>{artifact.title}</p><button type="button" onClick={onClose}>会話に戻る</button></aside> : null,
 }));
 
+function latestAppProps(): MockAppProps {
+  return appProps.mock.calls.at(-1)?.[0] as MockAppProps;
+}
+
+function runAppAction(name: 'onOpenResearch' | 'onOpenCoding' | 'onOpenCreative' | 'onOpenDetails') {
+  act(() => latestAppProps()[name]?.());
+}
+
 afterEach(() => { cleanup(); vi.clearAllMocks(); window.history.replaceState(null, '', '/'); });
 
-describe('PersonalEditionApp production wrapper', () => {
-  it('starts with one focused mode bar and keeps project details closed', () => {
+describe('PersonalEditionApp single-surface wrapper', () => {
+  it('starts as one chat surface without a permanent mode dashboard', () => {
     render(<PersonalEditionApp />);
 
-    expect(screen.getByRole('region', { name: 'ORIGIN workspace shell' })).toBeTruthy();
-    expect(screen.getByRole('navigation', { name: 'Mode' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Chat' }).textContent).toContain('会話');
-    expect(screen.getByRole('button', { name: 'Research' }).textContent).toContain('調べる');
-    expect(screen.getByRole('button', { name: 'Code' }).textContent).toContain('コード');
-    expect(screen.getByRole('button', { name: 'Create' }).textContent).toContain('作る');
+    expect(screen.queryByRole('region', { name: 'ORIGIN workspace shell' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Mode' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
-    expect(screen.getByRole('button', { name: '詳細を開く' })).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
+    expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
+    const props = latestAppProps();
+    expect(typeof props.onOpenResearch).toBe('function');
+    expect(typeof props.onOpenCoding).toBe('function');
+    expect(typeof props.onOpenCreative).toBe('function');
+    expect(props.onOpenDetails).toBeUndefined();
   });
 
-  it('opens Research from the Mode layer and preserves the chat mount', async () => {
+  it('opens Research from the chat action and preserves the chat mount', async () => {
     render(<PersonalEditionApp />);
     const originalChat = screen.getByTestId('mock-origin-app');
-    fireEvent.click(screen.getByRole('button', { name: 'Research' }));
+
+    runAppAction('onOpenResearch');
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
     expect(window.location.search).toBe('?workspace=research');
     expect(originalChat.closest('[hidden]')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('調べる');
+
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
     expect(originalChat.closest('[hidden]')).toBeNull();
     expect(screen.queryByRole('region', { name: 'Research Workspace' })).toBeNull();
   });
 
-  it('opens Code from the Mode layer and preserves the chat mount', async () => {
+  it('opens Code from the chat action and preserves the chat mount', async () => {
     render(<PersonalEditionApp />);
     const originalChat = screen.getByTestId('mock-origin-app');
-    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
+
+    runAppAction('onOpenCoding');
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     expect(window.location.search).toBe('?workspace=coding');
     expect(originalChat.closest('[hidden]')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
-    expect(originalChat.closest('[hidden]')).toBeNull();
     expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
   });
 
-  it('opens Create from the Mode layer and preserves the chat mount', async () => {
+  it('opens Create from the chat action and preserves the chat mount', async () => {
     render(<PersonalEditionApp />);
     const originalChat = screen.getByTestId('mock-origin-app');
-    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    runAppAction('onOpenCreative');
     expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
     expect(window.location.search).toBe('?workspace=creative');
     expect(originalChat.closest('[hidden]')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
-    expect(originalChat.closest('[hidden]')).toBeNull();
     expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
   });
 
-  it('supports direct workspace links and browser history navigation including Research', async () => {
+  it('supports direct workspace links and browser history without restoring a permanent mode bar', async () => {
     window.history.replaceState(null, '', '/?workspace=research');
     render(<PersonalEditionApp />);
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('調べる');
 
     window.history.replaceState(null, '', '/?workspace=coding');
     fireEvent(window, new PopStateEvent('popstate'));
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Code' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('コード');
 
     window.history.replaceState(null, '', '/?workspace=creative');
     fireEvent(window, new PopStateEvent('popstate'));
     expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Create' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('作る');
 
     window.history.replaceState(null, '', '/');
     fireEvent(window, new PopStateEvent('popstate'));
-    expect(screen.getByRole('button', { name: 'Chat' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Mode' })).toBeNull();
   });
 
-  it('mounts the shared App with the Personal settings boundary', () => {
+  it('mounts the shared App with settings and progressive capability callbacks', () => {
     const onOpenSettings = vi.fn();
     render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} onOpenSettings={onOpenSettings} />);
 
     expect(appProps).toHaveBeenCalledOnce();
-    const props = appProps.mock.calls[0][0];
+    const props = latestAppProps();
     expect(props.onOpenSettings).toBe(onOpenSettings);
     expect(props.language).toBe(DEFAULT_PERSONAL_SETTINGS.language);
     expect(props.designTheme).toBe(DEFAULT_PERSONAL_SETTINGS.designTheme);
@@ -107,20 +129,18 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(props.sessions).toEqual([]);
     expect(props.resetSignal).toBe(0);
     expect(props.embedded).toBe(true);
+    expect(typeof props.onOpenResearch).toBe('function');
+    expect(typeof props.onOpenCoding).toBe('function');
+    expect(typeof props.onOpenCreative).toBe('function');
+    expect(props.onOpenDetails).toBeUndefined();
   });
 
   it('restores parent-controlled messages and sessions into the shared production shell', () => {
     const messages = [{ id: 'u-1', role: 'user' as const, content: '既存の相談' }];
     const sessions = [{ id: 's-1', title: '既存', createdAt: 1, messages: [] }];
-    render(
-      <PersonalEditionApp
-        settings={DEFAULT_PERSONAL_SETTINGS}
-        messages={messages}
-        sessions={sessions}
-      />,
-    );
+    render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={messages} sessions={sessions} />);
 
-    const props = appProps.mock.calls[0][0];
+    const props = latestAppProps();
     expect(props.messages).toEqual(messages);
     expect(props.sessions).toEqual(sessions);
   });
@@ -131,17 +151,15 @@ describe('PersonalEditionApp production wrapper', () => {
 
     const restoredMessages = [{ id: 'u-restored', role: 'user' as const, content: '再読込後の相談' }];
     const restoredArtifacts = [{ id: 'a-restored', type: 'markdown' as const, title: '復元資料', language: 'markdown', content: '# 復元', isComplete: true }];
-
     rerender(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={restoredMessages} artifacts={restoredArtifacts} />);
 
-    const latestProps = appProps.mock.calls.at(-1)?.[0];
-    expect(latestProps.messages).toEqual(restoredMessages);
-    expect(latestProps.artifacts).toEqual(restoredArtifacts);
+    const props = latestAppProps();
+    expect(props.messages).toEqual(restoredMessages);
+    expect(props.artifacts).toEqual(restoredArtifacts);
     const artifactLayer = screen.getByRole('region', { name: 'Artifact layer' });
     expect(artifactLayer.textContent).toContain('成果物');
     expect(artifactLayer.textContent).toContain('復元資料');
     expect(artifactLayer.textContent).toContain('完成');
-    expect(artifactLayer.textContent).not.toContain('会話とは独立した成果物レイヤー');
   });
 
   it('reopens the latest artifact through the mobile Conversation / Artifact tabs', () => {
@@ -153,7 +171,6 @@ describe('PersonalEditionApp production wrapper', () => {
     const artifact = screen.getByRole('tab', { name: '成果物' });
     expect(tabs).toBeTruthy();
     expect(conversation.getAttribute('aria-selected')).toBe('true');
-    expect(screen.queryByRole('complementary', { name: '成果物ワークスペース' })).toBeNull();
 
     fireEvent.click(artifact);
     expect(artifact.getAttribute('aria-selected')).toBe('true');
@@ -161,62 +178,57 @@ describe('PersonalEditionApp production wrapper', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(conversation.getAttribute('aria-selected')).toBe('true');
-    expect(screen.queryByRole('complementary', { name: '成果物ワークスペース' })).toBeNull();
   });
 
-  it('keeps the Chat Artifact layer out of Research, Code, and Create modes', async () => {
+  it('keeps the Chat Artifact layer out of Research, Code, and Create workspaces', async () => {
     const artifacts = [{ id: 'a-1', type: 'markdown' as const, title: '成果物', language: 'markdown', content: '# A', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
     expect(screen.getByRole('region', { name: 'Artifact layer' })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Research' }));
+    runAppAction('onOpenResearch');
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
-    expect(screen.queryByRole('tablist', { name: 'モバイルChat表示' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
+    runAppAction('onOpenCoding');
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
-    expect(screen.queryByRole('tablist', { name: 'モバイルChat表示' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    runAppAction('onOpenCreative');
     expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
-    expect(screen.queryByRole('tablist', { name: 'モバイルChat表示' })).toBeNull();
   });
 
-  it('renders the shared ORIGIN application surface', () => {
-    render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} />);
-    expect(document.querySelector('[data-testid="mock-origin-app"]')?.textContent).toBe('ORIGIN');
-  });
-
-  it('keeps Project navigation independent from Mode and opens only grounded artifacts', async () => {
+  it('keeps Project details hidden until explicitly requested and shows only grounded views', async () => {
     const artifacts = [{ id: 'a-project', type: 'markdown' as const, title: 'Project artifact', language: 'markdown', content: '# Project', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
 
     expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '詳細を開く' }));
+    runAppAction('onOpenDetails');
     expect(screen.getByRole('region', { name: 'Project Workspace' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Research' }));
+
+    runAppAction('onOpenResearch');
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '詳細を開く' }));
     fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
-    expect(screen.getByRole('button', { name: 'Research' }).getAttribute('aria-pressed')).toBe('true');
     expect(window.location.search).toBe('?workspace=research');
     expect(screen.getByRole('complementary', { name: '成果物ワークスペース' }).textContent).toContain('Project artifact');
   });
 
-  it('does not show empty Project Files, Tasks, or Sources until real backing evidence exists', () => {
-    render(<PersonalEditionApp />);
-    fireEvent.click(screen.getByRole('button', { name: '詳細を開く' }));
+  it('does not expose Details on a pristine home and still hides empty project views after conversation evidence exists', () => {
+    const { rerender } = render(<PersonalEditionApp />);
+    expect(latestAppProps().onOpenDetails).toBeUndefined();
+
+    rerender(<PersonalEditionApp messages={[{ id: 'u-1', role: 'user', content: '確認済みの会話' }]} />);
+    expect(typeof latestAppProps().onOpenDetails).toBe('function');
+    runAppAction('onOpenDetails');
 
     expect(screen.queryByRole('button', { name: 'Project Files' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Tasks' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Sources' })).toBeNull();
     expect(screen.getByText(/必要な証拠や成果物ができた時だけ/)).toBeTruthy();
   });
-
 });

@@ -7,7 +7,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('header').getByText('ORIGIN', { exact: true })).toBeVisible();
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: '何を実現したいですか？' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '何をしたいですか？' })).toBeVisible();
     const commandBar = page.getByTestId('origin-home-request');
     await expect(commandBar).toBeVisible();
     expect(Number.parseFloat(await commandBar.evaluate((element) => getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(60);
@@ -31,7 +31,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const primaryControls = [
       page.getByTestId('history-drawer-toggle'),
       page.getByRole('button', { name: '設定を開く' }),
-      page.locator('.origin-composer').getByRole('button', { name: 'ファイルを添付' }),
+      page.getByTestId('origin-add-menu-toggle'),
       page.getByTestId('start-request-button'),
     ];
 
@@ -98,7 +98,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(requests).toBe(1);
     const verification = page.getByTestId('response-verification-details');
     await expect(verification).not.toHaveAttribute('open');
-    await verification.getByText('$0配信を確認').click();
+    await verification.getByText('回答の詳細').click();
     for (const label of ['応答完了', '費用経路', '内容の限界']) await expect(page.getByTestId('response-verification-log')).toContainText(label);
     await expect(page.getByTestId('response-verification-log')).toContainText('出典確認や別AIによる内容検証を示すものではありません');
     await expect(page.locator('.safe-area-bottom .origin-composer')).toBeVisible();
@@ -621,7 +621,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByRole('button', { name: 'システム設定' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', /light|dark/);
     await page.getByRole('button', { name: 'English' }).click();
-    await expect(page.getByRole('heading', { name: 'What would you like to accomplish?' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'What do you want to do?' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Export' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Import' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Clear' })).toBeVisible();

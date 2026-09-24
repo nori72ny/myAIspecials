@@ -40,7 +40,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     }));
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('保存前の相談メモ');
-    await page.getByRole('navigation', { name: 'Mode' }).getByRole('button', { name: 'Code', exact: true }).click();
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
@@ -48,7 +49,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByRole('tablist', { name: 'Coding workspace views' })).toHaveCount(0);
     await expect(page.getByText('Plan', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    await page.getByRole('button', { name: 'Chat', exact: true }).click();
+    await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
@@ -65,12 +66,16 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('origin-home-request')).toBeEditable();
-    const mode = page.getByRole('navigation', { name: 'Mode' });
-    await expect(mode.getByRole('button')).toHaveCount(4);
-    await expect(mode.getByRole('button', { name: 'Chat', exact: true })).toContainText('会話');
-    await expect(mode.getByRole('button', { name: 'Research', exact: true })).toContainText('調べる');
-    await expect(mode.getByRole('button', { name: 'Code', exact: true })).toContainText('コード');
-    await expect(mode.getByRole('button', { name: 'Create', exact: true })).toContainText('作る');
+    await expect(page.getByRole('navigation', { name: 'Mode' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'ORIGIN workspace shell' })).toHaveCount(0);
+    await expect(page.getByTestId('origin-add-menu-toggle')).toBeVisible();
+    await expect(page.getByRole('menu', { name: '追加機能' })).toBeHidden();
+    await page.getByTestId('origin-add-menu-toggle').click();
+    for (const label of ['ファイルを添付', '調べる', 'コード', '作る']) {
+      await expect(page.getByRole('menuitem', { name: label, exact: true })).toBeVisible();
+    }
+    await expect(page.getByRole('menuitem', { name: '詳細', exact: true })).toHaveCount(0);
+    await page.getByTestId('origin-add-menu-toggle').click();
     await expect(page.getByRole('region', { name: 'Project Workspace' })).toHaveCount(0);
     await expect(page.getByLabel('Model ORIGIN Auto')).toHaveCount(0);
     await expect(page.getByLabel('Tools 自動管理')).toHaveCount(0);
@@ -79,7 +84,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('nav-dashboard')).toHaveCount(0);
     await expect(page.getByTestId('nav-chat')).toHaveCount(0);
     await expect(page.getByTestId('nav-workspace')).toHaveCount(0);
-    await expect(page.getByText(/無料AIのみを使用|uses free AI only/i)).toBeVisible();
+    await expect(page.getByText(/無料AIのみ・有料AIへの自動切替なし|Free AI only · no automatic paid fallback/i)).toBeVisible();
   });
 
   test('submits a command-bar request within a compact viewport', async ({ page }) => {
@@ -118,7 +123,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(answer.getByRole('table')).toBeVisible();
     await expect(answer.getByRole('img')).toHaveCount(0);
     await expect(answer.getByRole('note')).toContainText('外部画像は自動表示しません');
-    await expect(page.getByTestId('response-verification-details')).toContainText('$0配信を確認');
+    await expect(page.getByTestId('response-verification-details')).toContainText('回答の詳細');
     const typography = await answer.evaluate((element) => {
       const heading = element.querySelector('h2');
       const paragraph = element.querySelector('p');
@@ -204,32 +209,37 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(attempts).toBe(1);
   });
 
-  test('keeps the mobile header on one line with three 44px action targets', async ({ page }) => {
+  test('keeps the pristine mobile header minimal and reveals New conversation only after use', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
+    await page.route('**/api/chat', route => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '確認しました。' }));
     await page.goto('/');
 
     const header = page.locator('header.origin-header');
     const history = page.getByTestId('history-drawer-toggle');
     const settings = page.getByRole('button', { name: '設定を開く' });
-    const newConversation = page.getByRole('button', { name: '新規対話を開始' });
 
     await expect(header).toContainText('ORIGIN');
-    await expect(header.getByRole('button')).toHaveCount(3);
+    await expect(header.getByRole('button')).toHaveCount(2);
+    await expect(page.getByRole('button', { name: '新規対話を開始' })).toHaveCount(0);
     await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
-    for (const button of [history, settings, newConversation]) {
+    for (const button of [history, settings]) {
       const box = await button.boundingBox();
       expect(box?.height).toBeGreaterThanOrEqual(44);
       expect(box?.width).toBeGreaterThanOrEqual(44);
       expect(await button.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
       expect(await button.evaluate((element) => getComputedStyle(element).flexShrink)).toBe('0');
     }
-    await expect(history).toContainText('☰');
-    await expect(settings).toContainText('⚙️');
-    await expect(newConversation).toContainText('＋');
-    for (const brand of await header.locator(':scope > div:first-child > span').all()) {
-      expect(await brand.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
-      expect(await brand.evaluate((element) => getComputedStyle(element).flexShrink)).toBe('0');
-    }
+
+    await page.getByTestId('origin-home-request').fill('会話を開始');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByRole('article', { name: 'ORIGINの回答' }).getByText('確認しました。', { exact: true })).toBeVisible();
+    const newConversation = page.getByRole('button', { name: '新規対話を開始' });
+    await expect(newConversation).toBeVisible();
+    await expect(header.getByRole('button')).toHaveCount(3);
+    const newBox = await newConversation.boundingBox();
+    expect(newBox?.height).toBeGreaterThanOrEqual(44);
+    expect(newBox?.width).toBeGreaterThanOrEqual(44);
+
     const headerWidth = await header.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
     expect(headerWidth.scroll).toBeLessThanOrEqual(headerWidth.client);
 

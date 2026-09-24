@@ -92,7 +92,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const controls = [
       screen.getByTestId('history-drawer-toggle'),
       screen.getByRole('button', { name: '設定を開く' }),
-      screen.getByRole('button', { name: '新規対話を開始' }),
       within(document.querySelector('.origin-composer') as HTMLElement).getByRole('button', { name: 'ファイルを添付' }),
       screen.getByTestId('start-request-button'),
     ];
@@ -103,7 +102,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     }
 
     const header = document.querySelector('.origin-header') as HTMLElement;
-    expect(within(header).getAllByRole('button')).toHaveLength(3);
+    expect(within(header).getAllByRole('button')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: '新規対話を開始' })).toBeNull();
     for (const control of within(header).getAllByRole('button')) {
       expect(control.className).toContain('whitespace-nowrap');
       expect(control.className).toContain('shrink-0');
@@ -113,6 +113,43 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const knowledgeMap = screen.getByTestId('knowledge-map-toggle');
     expect(knowledgeMap.className).toContain('min-h-11');
     expect(knowledgeMap.className).toContain('min-w-11');
+  });
+
+  it('keeps advanced capabilities behind the existing composer plus button', () => {
+    const onOpenResearch = vi.fn();
+    const onOpenCoding = vi.fn();
+    const onOpenCreative = vi.fn();
+    const onOpenDetails = vi.fn();
+
+    render(<App
+      language="ja"
+      onOpenResearch={onOpenResearch}
+      onOpenCoding={onOpenCoding}
+      onOpenCreative={onOpenCreative}
+      onOpenDetails={onOpenDetails}
+    />);
+
+    const menu = screen.getByTestId('origin-add-menu');
+    expect(menu.hasAttribute('open')).toBe(false);
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    expect(menu.hasAttribute('open')).toBe(true);
+    expect(screen.getByRole('menu', { name: '追加機能' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '調べる' }));
+    expect(onOpenResearch).toHaveBeenCalledOnce();
+    expect(menu.hasAttribute('open')).toBe(false);
+
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'コード' }));
+    expect(onOpenCoding).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '作る' }));
+    expect(onOpenCreative).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '詳細' }));
+    expect(onOpenDetails).toHaveBeenCalledOnce();
   });
 
   it('grants normal previews only script execution and never modal or same-origin privileges', () => {
@@ -401,7 +438,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const verification = screen.getByTestId('response-verification-details');
     expect(verification.textContent).toContain('✓');
     expect(verification.hasAttribute('open')).toBe(false);
-    fireEvent.click(screen.getByText('$0配信を確認'));
+    fireEvent.click(screen.getByText('回答の詳細'));
     expect(verification.hasAttribute('open')).toBe(true);
     const verificationLog = screen.getByTestId('response-verification-log');
     for (const label of ['応答完了', '費用経路', '内容の限界']) expect(verificationLog.textContent).toContain(label);
