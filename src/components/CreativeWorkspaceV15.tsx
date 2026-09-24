@@ -316,68 +316,69 @@ export default function CreativeWorkspaceV15() {
 
   return (
     <main className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-5 lg:px-8" aria-label="Creative workspace">
-      <section className="mb-4 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-        <div className="grid gap-4 p-5 sm:p-6 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200">
-              <span aria-hidden="true">✦</span> V1.5 Creative / Visual Generation
-            </div>
-            <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl dark:text-white">作る・確認する・保存するを、1画面で。</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base dark:text-slate-300">検証済みSVGを生成し、PNGも端末内だけで書き出せます。成果物履歴もこの端末内だけに保存します。</p>
-          </div>
-          <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${status === 'ready' ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200' : status === 'loading' ? 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300' : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'}`} role="status">
-            {verificationText}
-          </div>
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3 px-1">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Create</p>
+          <h1 className="mt-1 text-xl font-black text-slate-950 dark:text-white">作りたいものを入力</h1>
+          <p className="mt-1 text-sm leading-6 text-slate-500">ORIGINが生成・検証し、保存できる成果物として仕上げます。</p>
         </div>
-      </section>
+        <span className={`shrink-0 text-xs font-semibold ${status === 'ready' ? 'text-emerald-700 dark:text-emerald-300' : status === 'loading' ? 'text-slate-500' : 'text-amber-700 dark:text-amber-300'}`} role="status">{verificationText}</span>
+      </header>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative controls">
           <div className="grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">用途
-                <select value={draft.kind} onChange={(event) => update('kind', event.target.value as VisualKind)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
-                  <option value="social-card">SNSカード</option><option value="poster">ポスター</option><option value="info-card">情報カード</option>
-                </select>
-              </label>
-              <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">サイズ
-                <select value={draft.preset} onChange={(event) => update('preset', event.target.value as VisualPreset)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
-                  {(Object.keys(PRESET_LABELS) as VisualPreset[]).map((preset) => <option key={preset} value={preset}>{PRESET_LABELS[preset]}</option>)}
-                </select>
-              </label>
-              <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">レイアウト
-                <select value={draft.layout} onChange={(event) => update('layout', event.target.value as VisualLayout)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
-                  <option value="editorial">Editorial</option><option value="minimal">Minimal</option><option value="split">Split</option>
-                </select>
-              </label>
-            </div>
-
-            <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">タイトル
+            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">タイトル
               <input value={draft.title} maxLength={240} onChange={(event) => update('title', event.target.value)} className="min-h-12 rounded-xl border border-slate-300 bg-white px-3 text-base font-semibold text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
             </label>
-            <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">サブタイトル
-              <input value={draft.subtitle} maxLength={320} onChange={(event) => update('subtitle', event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
-            </label>
-            <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">本文
-              <textarea value={draft.body} maxLength={2200} rows={5} onChange={(event) => update('body', event.target.value)} className="rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
-            </label>
-            <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">フッター
-              <input value={draft.footer} maxLength={240} onChange={(event) => update('footer', event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+
+            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">内容
+              <textarea value={draft.body} maxLength={2200} rows={6} onChange={(event) => update('body', event.target.value)} className="rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
             </label>
 
-            <fieldset className="rounded-2xl border border-slate-200 p-3 dark:border-slate-800">
-              <legend className="px-1 text-xs font-bold text-slate-600 dark:text-slate-300">カラー</legend>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {([
-                  ['background', '背景'], ['foreground', '文字'], ['accent', 'アクセント'], ['muted', '補助'],
-                ] as const).map(([key, label]) => (
-                  <label key={key} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-2 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200">
-                    <input type="color" value={draft[key]} onChange={(event) => update(key, event.target.value.toUpperCase())} className="h-8 w-8 cursor-pointer rounded border-0 bg-transparent p-0" aria-label={`${label}色`} />
-                    {label}
+            <details className="rounded-2xl border border-slate-200 px-3 dark:border-slate-800">
+              <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">詳細設定</summary>
+              <div className="grid gap-4 pb-4">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">用途
+                    <select value={draft.kind} onChange={(event) => update('kind', event.target.value as VisualKind)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                      <option value="social-card">SNSカード</option><option value="poster">ポスター</option><option value="info-card">情報カード</option>
+                    </select>
                   </label>
-                ))}
+                  <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">サイズ
+                    <select value={draft.preset} onChange={(event) => update('preset', event.target.value as VisualPreset)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                      {(Object.keys(PRESET_LABELS) as VisualPreset[]).map((preset) => <option key={preset} value={preset}>{PRESET_LABELS[preset]}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">レイアウト
+                    <select value={draft.layout} onChange={(event) => update('layout', event.target.value as VisualLayout)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                      <option value="editorial">Editorial</option><option value="minimal">Minimal</option><option value="split">Split</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">サブタイトル
+                  <input value={draft.subtitle} maxLength={320} onChange={(event) => update('subtitle', event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+                </label>
+                <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">フッター
+                  <input value={draft.footer} maxLength={240} onChange={(event) => update('footer', event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+                </label>
+
+                <fieldset className="rounded-2xl border border-slate-200 p-3 dark:border-slate-800">
+                  <legend className="px-1 text-xs font-bold text-slate-600 dark:text-slate-300">カラー</legend>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {([
+                      ['background', '背景'], ['foreground', '文字'], ['accent', 'アクセント'], ['muted', '補助'],
+                    ] as const).map(([key, label]) => (
+                      <label key={key} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-2 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200">
+                        <input type="color" value={draft[key]} onChange={(event) => update(key, event.target.value.toUpperCase())} className="h-8 w-8 cursor-pointer rounded border-0 bg-transparent p-0" aria-label={`${label}色`} />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
-            </fieldset>
+            </details>
 
             {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200">{error}</div>}
             <button type="button" disabled={!canGenerate} onClick={() => void generate()} className="min-h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
@@ -385,8 +386,7 @@ export default function CreativeWorkspaceV15() {
             </button>
           </div>
         </section>
-
-        <section className="flex min-h-[520px] flex-col rounded-3xl border border-slate-200 bg-slate-100 p-3 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-900" aria-label="Creative preview">
+        <section className="flex min-h-[320px] flex-col rounded-3xl sm:min-h-[420px] lg:min-h-[520px] border border-slate-200 bg-slate-100 p-3 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-900" aria-label="Creative preview">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-sm font-black text-slate-950 dark:text-white">Preview</h2>
@@ -419,22 +419,13 @@ export default function CreativeWorkspaceV15() {
         </section>
       </div>
 
-      <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative local history">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-black text-slate-950 dark:text-white">端末内履歴</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">最大12件の検証済みSVGだけをこの端末に保存します。PNGは保存容量を抑えるため、必要時に端末内で再生成します。</p>
-          </div>
-          <span className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-600 dark:border-slate-800 dark:text-slate-300">
-            {historyStatus === 'loading' ? '読込中' : historyStatus === 'unavailable' ? '保存不可' : `${history.length}/12`}
-          </span>
+      {(history.length > 0 || historyNotice) && <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative local history">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-black text-slate-950 dark:text-white">履歴</h2>
+          <span className="text-xs text-slate-500">{historyStatus === 'unavailable' ? '保存不可' : `${history.length}/12`}</span>
         </div>
 
         {historyNotice && <div role="status" className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">{historyNotice}</div>}
-
-        {historyStatus === 'ready' && history.length === 0 && (
-          <p className="mt-4 rounded-2xl border border-dashed border-slate-300 px-4 py-5 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">まだ履歴はありません。次に生成した検証済みSVGから端末内へ保存します。</p>
-        )}
 
         {history.length > 0 && (
           <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -446,7 +437,6 @@ export default function CreativeWorkspaceV15() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-bold text-slate-950 dark:text-white" title={entry.title}>{entry.title}</p>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{PRESET_LABELS[entry.preset]} · {HISTORY_DATE.format(new Date(entry.createdAt))}</p>
-                    <p className="mt-1 font-mono text-[11px] text-slate-400">SHA {entry.sha256.slice(0, 12)}…</p>
                   </div>
                   <div className="mt-3 flex gap-2">
                     <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void openHistoryEntry(entry)} aria-label={`履歴を開く: ${entry.title}`} className="min-h-11 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-900 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
@@ -459,7 +449,7 @@ export default function CreativeWorkspaceV15() {
             })}
           </div>
         )}
-      </section>
+      </section>}>
     </main>
   );
 }
