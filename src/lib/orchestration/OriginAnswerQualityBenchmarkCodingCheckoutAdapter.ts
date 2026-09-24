@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { executeOriginCodingFreeFailoverV14 } from "../../agent/codingFreeModelFailoverV14.js";
 import { createCodingNavigatorV14 } from "../../agent/codingNavigatorV14.js";
 import { createCodingPlannerV14 } from "../../agent/codingPlannerV14.js";
 import { createBoundedCodingProviderExecuteV14 } from "../../agent/codingProviderRetryV14.js";
@@ -140,27 +139,7 @@ export async function createOriginAnswerQualityBenchmarkCodingCheckoutAdapter(
       }
     };
 
-    const countedFailover = async (
-      request: OriginProviderExecutionRequest,
-      requestEnv: NodeJS.ProcessEnv,
-    ): Promise<OriginProviderExecutionResult> => {
-      providerRequests += 1;
-      try {
-        return await executeOriginCodingFreeFailoverV14(request, requestEnv);
-      } catch (error) {
-        const code = providerErrorCode(error);
-        if (code === "PROVIDER_COST_UNVERIFIED" || code === "PROVIDER_POLICY_VIOLATION") {
-          costPolicyViolation = true;
-        }
-        throw error;
-      }
-    };
-
-    const boundedExecute = createBoundedCodingProviderExecuteV14(
-      countedPrimary,
-      undefined,
-      countedFailover,
-    );
+    const boundedExecute = createBoundedCodingProviderExecuteV14(countedPrimary);
 
     const startedAt = nowMs();
     try {
