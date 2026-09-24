@@ -22,10 +22,11 @@ function createApp(
   catalogNow: () => number = () => verifiedCatalogTime,
   contextPolicy?: OriginContextPolicy,
   research: OriginResearchExecutor = async () => ({ ok: false, sources: [], failure: { stage: "web-search", code: "NO_RESULTS" } }),
+  researchSynthesis: OriginChatExecutor | null = null,
 ) {
   const app = express();
   app.use(express.json());
-  app.use(createOriginChatRouter({ env, execute, research, now: (() => { let current = 1_000; return () => { current += 25; return current; }; })(), catalogNow, contextPolicy, createRequestId: () => "origin-test-trace" }));
+  app.use(createOriginChatRouter({ env, execute, research, researchSynthesis, now: (() => { let current = 1_000; return () => { current += 25; return current; }; })(), catalogNow, contextPolicy, createRequestId: () => "origin-test-trace" }));
   return app;
 }
 
