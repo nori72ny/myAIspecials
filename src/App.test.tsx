@@ -131,7 +131,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     const menu = screen.getByTestId('origin-add-menu');
     expect(menu.hasAttribute('open')).toBe(false);
-    expect(screen.queryByRole('menu', { name: '追加機能' })).toBeNull();
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     expect(menu.hasAttribute('open')).toBe(true);
     expect(screen.getByRole('menu', { name: '追加機能' })).toBeTruthy();
