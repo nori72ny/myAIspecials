@@ -27,17 +27,19 @@ const result = {
 afterEach(() => cleanup());
 
 describe('OriginCodingWorkspaceV31', () => {
-  it('separates Files, Diff, Tests, Terminal, and Checkpoint as explicit workspace views', async () => {
+  it('does not render an empty coding dashboard before real evidence exists', () => {
+    render(<OriginCodingWorkspaceV31 result={null} state="pending" changedPaths={[]} />);
+    expect(screen.queryByRole('tablist', { name: 'Coding workspace views' })).toBeNull();
+    expect(screen.queryByText('変更と検証')).toBeNull();
+  });
+
+  it('shows only evidence-backed Files, Diff, and Tests views', async () => {
     render(<OriginCodingWorkspaceV31 result={result} state="available" changedPaths={['src/example.ts']} />);
 
     const tabs = screen.getByRole('tablist', { name: 'Coding workspace views' });
-    expect(within(tabs).getAllByRole('tab').map(tab => tab.textContent)).toEqual([
-      'Files',
-      'Diff',
-      'Tests',
-      'TerminalUnavailable',
-      'CheckpointUnavailable',
-    ]);
+    expect(within(tabs).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Files', 'Diff', 'Tests']);
+    expect(screen.queryByText(/Terminal/i)).toBeNull();
+    expect(screen.queryByText(/Checkpoint/i)).toBeNull();
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Diff' }).getAttribute('aria-selected')).toBe('true');
     });
@@ -60,25 +62,8 @@ describe('OriginCodingWorkspaceV31', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Tests' }));
     panel = screen.getByRole('tabpanel');
     expect(within(panel).getAllByText('PASS')).toHaveLength(4);
-    expect(panel.textContent).not.toContain('export const value = 1;');
     expect(screen.queryByText('100%')).toBeNull();
     expect(screen.queryByRole('progressbar')).toBeNull();
-  });
-
-  it('states that Terminal is unavailable instead of inventing worker logs', () => {
-    render(<OriginCodingWorkspaceV31 result={result} state="available" changedPaths={['src/example.ts']} />);
-
-    fireEvent.click(screen.getByRole('tab', { name: /Terminal/ }));
-    expect(screen.queryByText('TerminalはV1.4 runtimeから提供されていません。')).not.toBeNull();
-    expect(screen.queryByText(/workerの生ログや擬似コマンド出力は生成しません/)).not.toBeNull();
-  });
-
-  it('states that Checkpoint is unavailable instead of implying reversible state', () => {
-    render(<OriginCodingWorkspaceV31 result={result} state="available" changedPaths={['src/example.ts']} />);
-
-    fireEvent.click(screen.getByRole('tab', { name: /Checkpoint/ }));
-    expect(screen.queryByText('CheckpointはV1.4 runtimeから提供されていません。')).not.toBeNull();
-    expect(screen.queryByText(/Undoできるようには見せません/)).not.toBeNull();
   });
 
   it('falls back to server-observed changed paths when encrypted result details are unavailable', () => {
