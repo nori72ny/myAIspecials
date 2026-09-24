@@ -132,7 +132,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(typeof props.onOpenResearch).toBe('function');
     expect(typeof props.onOpenCoding).toBe('function');
     expect(typeof props.onOpenCreative).toBe('function');
-    expect(typeof props.onOpenDetails).toBe('function');
+    expect(props.onOpenDetails).toBeUndefined();
   });
 
   it('restores parent-controlled messages and sessions into the shared production shell', () => {
