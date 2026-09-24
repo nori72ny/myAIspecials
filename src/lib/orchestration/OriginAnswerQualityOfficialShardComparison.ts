@@ -4,6 +4,9 @@ import {
   probeOriginAnswerQualityBenchmarkEnvironmentForLanes,
 } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
+  createOriginAnswerQualityBenchmarkCodingCheckoutAdapter,
+} from "./OriginAnswerQualityBenchmarkCodingCheckoutAdapter.js";
+import {
   createOriginAnswerQualityBenchmarkShardCorpus,
 } from "./OriginAnswerQualityBenchmarkShardCorpus.js";
 import type {
@@ -96,6 +99,11 @@ export type OriginAnswerQualityOfficialShardComparisonResult =
 
 export interface OriginAnswerQualityOfficialShardComparisonDependencies {
   readonly probeEnvironment?: typeof probeOriginAnswerQualityBenchmarkEnvironmentForLanes;
+  readonly probeCodingCheckout?: (
+    target: OriginAnswerQualityOfficialShardTarget,
+    env?: NodeJS.ProcessEnv,
+    nowMs?: () => number,
+  ) => Promise<boolean>;
   readonly runSession?: (
     input: OriginAnswerQualityOfficialProviderScoredSessionInput,
   ) => Promise<OriginAnswerQualityOfficialBenchmarkSessionResult>;
@@ -113,6 +121,24 @@ function validTarget(target: OriginAnswerQualityOfficialShardTarget): boolean {
     && SAFE_ID.test(target.runId)
     && target.baseUrl.trim().length > 0
     && target.sourceRoot.trim().length > 0;
+}
+
+async function probeCodingCheckout(
+  target: OriginAnswerQualityOfficialShardTarget,
+  env?: NodeJS.ProcessEnv,
+  nowMs?: () => number,
+): Promise<boolean> {
+  try {
+    await createOriginAnswerQualityBenchmarkCodingCheckoutAdapter({
+      sourceRoot: target.sourceRoot,
+      expectedGitSha: target.gitSha,
+      env,
+      nowMs,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sessionDetail(
@@ -526,11 +552,45 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     shardCorpus.value.cases,
   );
 
+  const requiresCoding = requiredLanes.includes("coding");
+  const checkCodingCheckout = dependencies.probeCodingCheckout ?? probeCodingCheckout;
+  let baselineCodingCheckoutReady: boolean | undefined;
+  let candidateCodingCheckoutReady: boolean | undefined;
+  if (requiresCoding) {
+    baselineCodingCheckoutReady = await checkCodingCheckout(
+      input.baseline,
+      input.env,
+      input.nowMs,
+    );
+    if (!baselineCodingCheckoutReady) {
+      return {
+        ok: false,
+        code: "AQ_BENCHMARK_SHARD_BASELINE_ENVIRONMENT_INVALID",
+        detail: "AQ_BENCHMARK_ENV_CODING_NOT_READY",
+      };
+    }
+    candidateCodingCheckoutReady = await checkCodingCheckout(
+      input.candidate,
+      input.env,
+      input.nowMs,
+    );
+    if (!candidateCodingCheckoutReady) {
+      return {
+        ok: false,
+        code: "AQ_BENCHMARK_SHARD_CANDIDATE_ENVIRONMENT_INVALID",
+        detail: "AQ_BENCHMARK_ENV_CODING_NOT_READY",
+      };
+    }
+  }
+
   const baselineEnvironment = await probe(
     input.baseline.baseUrl,
     input.baseline.gitSha,
     requiredLanes,
     input.fetchImpl,
+    requiresCoding
+      ? { codingReadiness: "checkout", codingCheckoutReady: baselineCodingCheckoutReady }
+      : undefined,
   );
   if (baselineEnvironment.ok === false) {
     return {
@@ -545,6 +605,9 @@ export async function runOriginAnswerQualityOfficialShardComparison(
     input.candidate.gitSha,
     requiredLanes,
     input.fetchImpl,
+    requiresCoding
+      ? { codingReadiness: "checkout", codingCheckoutReady: candidateCodingCheckoutReady }
+      : undefined,
   );
   if (candidateEnvironment.ok === false) {
     return {
