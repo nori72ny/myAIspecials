@@ -123,7 +123,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(answer.getByRole('table')).toBeVisible();
     await expect(answer.getByRole('img')).toHaveCount(0);
     await expect(answer.getByRole('note')).toContainText('外部画像は自動表示しません');
-    await expect(page.getByTestId('response-verification-details')).toContainText('$0配信を確認');
+    await expect(page.getByTestId('response-verification-details')).toContainText('回答の詳細');
     const typography = await answer.evaluate((element) => {
       const heading = element.querySelector('h2');
       const paragraph = element.querySelector('p');
