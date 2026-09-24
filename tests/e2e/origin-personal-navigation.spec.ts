@@ -44,6 +44,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page).toHaveURL(/workspace=coding/);
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
+    await expect(page.getByText('Grounded execution evidence', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('tablist', { name: 'Coding workspace views' })).toHaveCount(0);
+    await expect(page.getByText('Plan', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await page.getByRole('button', { name: 'Chat', exact: true }).click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
@@ -62,6 +65,15 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Personal 2.0', { exact: true })).toBeVisible();
     await expect(page.getByTestId('origin-home-request')).toBeEditable();
+    const mode = page.getByRole('navigation', { name: 'Mode' });
+    await expect(mode.getByRole('button')).toHaveCount(4);
+    await expect(mode.getByRole('button', { name: 'Chat', exact: true })).toContainText('会話');
+    await expect(mode.getByRole('button', { name: 'Research', exact: true })).toContainText('調べる');
+    await expect(mode.getByRole('button', { name: 'Code', exact: true })).toContainText('コード');
+    await expect(mode.getByRole('button', { name: 'Create', exact: true })).toContainText('作る');
+    await expect(page.getByRole('region', { name: 'Project Workspace' })).toHaveCount(0);
+    await expect(page.getByLabel('Model ORIGIN Auto')).toHaveCount(0);
+    await expect(page.getByLabel('Tools 自動管理')).toHaveCount(0);
     await expect(page.getByTestId(/^starter-/)).toHaveCount(0);
     await expect(page.getByText(/最近のプロジェクト|Recent projects|ACOS Development|Sales Deck|Marketing|Memory Fragments/)).toHaveCount(0);
     await expect(page.getByTestId('nav-dashboard')).toHaveCount(0);
