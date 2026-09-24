@@ -370,6 +370,7 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
         <input
           ref={credentialInputRef}
           id="coding-operator-key"
+          aria-label="Coding認証キー"
           type="password"
           autoComplete="off"
           spellCheck={false}
