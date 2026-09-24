@@ -54,6 +54,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   const [projectSources, setProjectSources] = useState<readonly ResearchSource[]>([]);
   const [codingEvidence, setCodingEvidence] = useState<CodingProjectEvidence>({ jobId: null, status: null, changedPaths: [], verificationChecks: [] });
   const [mobileSurface, setMobileSurface] = useState<MobileChatSurface>('conversation');
+  const isEn = settings?.language === 'en';
 
   useEffect(() => {
     const sync = () => {
@@ -119,9 +120,9 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   return <div className="flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden">
     {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 py-2 sm:px-4">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
-        <button type="button" aria-label="会話に戻る" onClick={() => switchWorkspace('chat')} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">← 会話</button>
-        <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'research' ? '調べる' : workspace === 'coding' ? 'コード' : '作る'}</span>
-        <button type="button" aria-label={projectOpen ? '詳細を閉じる' : '詳細を開く'} aria-pressed={projectOpen} onClick={toggleProject} className={`min-h-11 rounded-xl border px-3 text-sm font-semibold ${projectOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>詳細</button>
+        <button type="button" aria-label={isEn ? 'Back to chat' : '会話に戻る'} onClick={() => switchWorkspace('chat')} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">← {isEn ? 'Chat' : '会話'}</button>
+        <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'research' ? (isEn ? 'Research' : '調べる') : workspace === 'coding' ? (isEn ? 'Code' : 'コード') : (isEn ? 'Create' : '作る')}</span>
+        <button type="button" aria-label={projectOpen ? (isEn ? 'Close details' : '詳細を閉じる') : (isEn ? 'Open details' : '詳細を開く')} aria-pressed={projectOpen} onClick={toggleProject} className={`min-h-11 rounded-xl border px-3 text-sm font-semibold ${projectOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>{isEn ? 'Details' : '詳細'}</button>
       </div>
     </section>}
 
