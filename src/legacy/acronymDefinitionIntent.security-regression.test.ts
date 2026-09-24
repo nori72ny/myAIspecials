@@ -37,6 +37,7 @@ function createApp(
     env: { OPENROUTER_API_KEY: "synthetic-test-key" },
     execute,
     research,
+    researchSynthesis: null,
     catalogNow,
     createRequestId: () => "origin-acronym-test",
   }));
