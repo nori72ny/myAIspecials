@@ -121,7 +121,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       const add = page.getByTestId('origin-add-menu-toggle');
       const send = page.getByTestId('start-request-button');
 
-      await expect(input).toHaveAttribute('placeholder', '');
+      await expect(input).toHaveAttribute('placeholder', 'ORIGINに依頼する');
       await expect(add).toHaveText('＋');
       await expect(send).toHaveText('↑');
       const composerBox = await composer.boundingBox();
