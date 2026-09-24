@@ -32,12 +32,10 @@ describe('fail-closed Coding provider execution', () => {
     const failure = providerFailure(code);
     const execute = vi.fn().mockRejectedValue(failure);
     const observed = vi.fn();
-    const alternate = vi.fn();
-    const wrapped = createBoundedCodingProviderExecuteV14(execute, observed, alternate);
+    const wrapped = createBoundedCodingProviderExecuteV14(execute, observed);
 
     await expect(wrapped(request, {})).rejects.toBe(failure);
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(alternate).not.toHaveBeenCalled();
     expect(observed).toHaveBeenCalledWith(request, code);
   });
 
