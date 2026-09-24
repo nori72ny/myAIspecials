@@ -199,6 +199,83 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await assertSurfaceContract(page, true);
   });
 
+  test('primary buttons produce observable effects instead of silent no-ops', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await installStableWorkspaceRoutes(page);
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'share', {
+        configurable: true,
+        value: async () => {
+          (window as unknown as { __originShareInvoked?: boolean }).__originShareInvoked = true;
+        },
+      });
+    });
+    await page.goto('/');
+
+    // Attachment action must actually invoke the native file chooser.
+    await page.getByTestId('origin-add-menu-toggle').click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: 'ファイルを添付', exact: true }).click();
+    await chooser;
+
+    // Each workspace action must result in navigation, not a silent click.
+    for (const [label, workspace] of [['調べる', 'research'], ['コード', 'coding'], ['作る', 'creative']] as const) {
+      await page.getByTestId('origin-add-menu-toggle').click();
+      await page.getByRole('menuitem', { name: label, exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`workspace=${workspace}`));
+      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+      await expect(page).not.toHaveURL(/workspace=/);
+    }
+
+    // Settings controls must change state and close visibly.
+    await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+    const luxury = page.getByTestId('design-theme-luxury');
+    await luxury.click();
+    await expect(luxury).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('close-settings-button').click();
+    await expect(page.getByRole('dialog', { name: /設定|Settings/i })).toBeHidden();
+
+    // History control must open and close, with aria state matching the UI.
+    const historyToggle = page.getByTestId('history-drawer-toggle');
+    await historyToggle.click();
+    await expect(historyToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('history-drawer')).toBeVisible();
+    await historyToggle.click();
+    await expect(historyToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('history-drawer')).toBeHidden();
+
+    // Create a deterministic artifact and exercise actions that must have an observable result.
+    await page.route('**/api/chat', route => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '完成しました。\n\n\`\`\`html:button-audit\n<main><h1>Button audit</h1><input aria-label="監査入力"><button type="button">追加</button></main>\n\`\`\`',
+    }));
+    await page.getByTestId('origin-home-request').fill('成果物ボタン監査');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('artifact-workspace')).toBeVisible();
+
+    const edit = page.getByTestId('artifact-action-edit');
+    await edit.click();
+    await expect(edit).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('artifact-code-editor')).toBeVisible();
+
+    await page.getByTestId('artifact-action-details').click();
+    await expect(page.getByTestId('artifact-details-menu')).toBeVisible();
+    await page.getByTestId('artifact-action-details').click();
+    await expect(page.getByTestId('artifact-details-menu')).toBeHidden();
+
+    await page.getByTestId('artifact-action-share').click();
+    await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { __originShareInvoked?: boolean }).__originShareInvoked))).toBe(true);
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByTestId('artifact-action-save').click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toContain('button-audit');
+
+    await page.getByRole('button', { name: /成果物を閉じる|Close artifact workspace/i }).click();
+    await expect(page.getByTestId('artifact-workspace')).toBeHidden();
+  });
+
   test('artifact workspace exposes every primary action without clipping and keeps generated form controls touch-sized', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/chat', route => route.fulfill({
