@@ -29,7 +29,15 @@ function requiresCurrentInformation(message: string): boolean { return requiresO
 
 function groundedResearchAnswer(query: string, result: OriginResearchResult) {
   const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(query);
-  if (!result.ok || result.sources.length === 0) {
+  const safeSources = result.sources.filter((source) => {
+    try {
+      const url = new URL(source.url);
+      return url.protocol === "https:" && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  }).slice(0, 8);
+  if (!result.ok || safeSources.length === 0) {
     const content = isEnglish
       ? "ORIGIN could not retrieve usable public sources, so it will not guess current information."
       : "確認できる公開情報を取得できなかったため、現在の情報を推測して回答しません。";
@@ -49,8 +57,8 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
     };
   }
 
-  const grounded = buildGroundedResearchReport(result.sources);
-  const sources = result.sources.slice(0, 8);
+  const grounded = buildGroundedResearchReport(safeSources);
+  const sources = safeSources;
   const evidenceBlocks = sources.map((source, index) => {
     const id = `S${index + 1}`;
     return `### ${id}: ${source.title}\n${source.excerpt}\n\n〔出典: [${id}](${source.url})〕`;
@@ -74,6 +82,12 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
       label: `${source.id}: ${source.title}`,
       sourceUrl: source.url,
       evidenceLevel: "provided" as const,
+      checks: {
+        safeUrl: "passed" as const,
+        content: "not-run" as const,
+        freshness: "not-run" as const,
+        claimSupport: "not-run" as const,
+      },
     })),
     limitations: [
       isEnglish
