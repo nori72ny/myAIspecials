@@ -43,6 +43,15 @@ function isStablePricingConceptRequest(message: string): boolean {
     || /\b(?:price|pricing).{0,20}(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning)|(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning).{0,20}(?:price|pricing)\b/is.test(message);
 }
 
+export function requiresOriginGroundedResearch(message: string): boolean {
+  if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
+
+  if (requiresOriginCurrentInformation(message)) return true;
+
+  return /(?:検索|調査|リサーチ|一次情報|出典).{0,32}(?:して|してください|調べ|確認|探|比較|集め)|(?:調べ|確認|探).{0,24}(?:出典|一次情報|公開情報)/s.test(message)
+    || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?)\b/i.test(message);
+}
+
 export function requiresOriginCurrentInformation(message: string): boolean {
   if (
     isTransformOnlyRequest(message)
