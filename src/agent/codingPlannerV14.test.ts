@@ -69,6 +69,25 @@ describe('coding model protocol', () => {
     expect(properties.creates.items.properties.path.enum).toEqual(['helper.js']);
   });
 
+  it('uses no provider call when an exact create-only goal already supplies path and content', async () => {
+    const exact: CodingContext = {
+      goal: 'Create exactly one new file at src/agent/__origin_coding_smoke_v14__.ts with exact content:\nexport const ORIGIN_CODING_SMOKE_V14 = true;\nDo not modify any other file. Run all required verification checks.',
+      files: [],
+      editablePaths: [],
+      creatablePaths: ['src/agent/__origin_coding_smoke_v14__.ts'],
+      attempt: 0,
+      failedChecks: [],
+      diagnostics: [],
+    };
+    const execute = vi.fn();
+    const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
+
+    await expect(planner(exact)).resolves.toEqual({
+      edits: [],
+      creates: [{ path: 'src/agent/__origin_coding_smoke_v14__.ts', content: 'export const ORIGIN_CODING_SMOKE_V14 = true;\n' }],
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('makes a create-only scope unambiguous and nonempty in the required tool schema', async () => {
     const createOnly: CodingContext = {
       goal: 'Create src/agent/probe.ts',
