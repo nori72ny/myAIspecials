@@ -1426,25 +1426,6 @@ export default function UnifiedChat({
                   >
                     {processingStatus(processingSeconds, isEn)}
                   </span>
-                  <span aria-hidden="true" className="shrink-0 tabular-nums text-[13px] text-origin-muted dark:text-origin-muted">
-                    {processingSeconds}{isEn ? 's' : '秒'}
-                  </span>
-                </div>
-                <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-origin-border dark:bg-origin-border" aria-hidden="true">
-                  <motion.div
-                    className="h-full rounded-full bg-origin-brand dark:bg-origin-brand"
-                    initial={{ width: '12%' }}
-                    animate={{
-                      width: processingSeconds < 5
-                        ? '24%'
-                        : processingSeconds < 15
-                          ? '48%'
-                          : processingSeconds < 30
-                            ? '72%'
-                            : '88%',
-                    }}
-                    transition={{ duration: 0.35 }}
-                  />
                 </div>
               </div>
             </motion.div>
