@@ -115,6 +115,43 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(knowledgeMap.className).toContain('min-w-11');
   });
 
+  it('keeps advanced capabilities behind the existing composer plus button', () => {
+    const onOpenResearch = vi.fn();
+    const onOpenCoding = vi.fn();
+    const onOpenCreative = vi.fn();
+    const onOpenDetails = vi.fn();
+
+    render(<App
+      language="ja"
+      onOpenResearch={onOpenResearch}
+      onOpenCoding={onOpenCoding}
+      onOpenCreative={onOpenCreative}
+      onOpenDetails={onOpenDetails}
+    />);
+
+    const menu = screen.getByTestId('origin-add-menu');
+    expect(menu.hasAttribute('open')).toBe(false);
+    expect(screen.queryByRole('menu', { name: '追加機能' })).not.toBeNull();
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    expect(menu.hasAttribute('open')).toBe(true);
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '調べる' }));
+    expect(onOpenResearch).toHaveBeenCalledOnce();
+    expect(menu.hasAttribute('open')).toBe(false);
+
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'コード' }));
+    expect(onOpenCoding).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '作る' }));
+    expect(onOpenCreative).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '詳細' }));
+    expect(onOpenDetails).toHaveBeenCalledOnce();
+  });
+
   it('grants normal previews only script execution and never modal or same-origin privileges', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
