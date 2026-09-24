@@ -47,23 +47,22 @@ export default function OriginProjectWorkspaceV31({
     <div className="mx-auto w-full max-w-7xl">
       <div className="hidden items-center justify-between gap-3 md:flex">
         <div>
-          <p className="origin-muted m-0 text-[10px] font-bold uppercase tracking-[0.18em]">Project</p>
-          <h2 className="m-0 mt-1 text-sm font-black">Current workspace</h2>
+          <p className="origin-muted m-0 text-[10px] font-bold uppercase tracking-[0.18em]">Details</p>
+          <h2 className="m-0 mt-1 text-sm font-black">現在の情報</h2>
         </div>
-        <span className="origin-badge hidden min-h-8 items-center border px-3 text-xs font-bold sm:inline-flex">Grounded state only</span>
+        <span className="origin-muted text-xs">{messages.length} messages · {artifacts.length} artifacts</span>
       </div>
 
       <nav aria-label="Project views" className="mt-3 hidden gap-2 overflow-x-auto md:flex">
-        {views.map((view) => {
+        {views.filter((view) => view.available).map((view) => {
           const selected = activeView === view.id;
           return <button
             key={view.id}
             type="button"
-            aria-pressed={view.available ? selected : undefined}
-            aria-label={view.available ? `Project ${view.label}` : `Project ${view.label} unavailable`}
-            disabled={!view.available}
-            onClick={() => view.available && onViewChange(view.id)}
-            className={`min-h-11 shrink-0 rounded-lg border px-3 text-left text-xs font-semibold ${selected ? 'origin-primary-button' : 'origin-secondary-button'} disabled:cursor-not-allowed disabled:opacity-55`}
+            aria-pressed={selected}
+            aria-label={`Project ${view.label}`}
+            onClick={() => onViewChange(view.id)}
+            className={`min-h-11 shrink-0 rounded-lg border px-3 text-left text-xs font-semibold ${selected ? 'origin-primary-button' : 'origin-secondary-button'}`}
           >
             <span className="block text-sm font-bold">{view.label}</span>
             <span className="origin-muted block max-w-44 truncate font-normal">{view.detail}</span>
@@ -83,20 +82,7 @@ export default function OriginProjectWorkspaceV31({
         </select>
       </div>
 
-      {activeView === 'overview' && <div className="mt-3 hidden grid-cols-3 gap-2 md:grid">
-        <article className="origin-card flex min-w-0 items-center justify-between gap-2 border p-2 sm:px-3">
-          <p className="origin-muted m-0 truncate text-[11px] font-bold sm:text-xs">Conversation</p>
-          <p className="m-0 text-lg font-black">{messages.length}</p>
-        </article>
-        <article className="origin-card flex min-w-0 items-center justify-between gap-2 border p-2 sm:px-3">
-          <p className="origin-muted m-0 truncate text-[11px] font-bold sm:text-xs">Artifacts</p>
-          <p className="m-0 text-lg font-black">{artifacts.length}</p>
-        </article>
-        <article className="origin-card flex min-w-0 items-center justify-between gap-2 border p-2 sm:px-3">
-          <p className="origin-muted m-0 truncate text-[11px] font-bold sm:text-xs">Mode</p>
-          <p className="m-0 truncate text-base font-black sm:text-lg">{mode === 'coding' ? 'Code' : mode === 'research' ? 'Research' : mode === 'creative' ? 'Create' : 'Chat'}</p>
-        </article>
-      </div>}
+      {activeView === 'overview' && <p className="origin-muted m-0 mt-3 hidden text-sm md:block">必要な証拠や成果物ができた時だけ、ここに追加の詳細が表示されます。</p>}
       {activeView === 'files' && codingEvidence.changedPaths.length > 0 && <section aria-label="Project Files" className="mt-3 origin-card border p-3">
         <div className="flex items-center justify-between gap-3">
           <h3 className="m-0 text-sm font-black">Changed files</h3>
