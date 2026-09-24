@@ -449,7 +449,7 @@ export default function CreativeWorkspaceV15() {
             })}
           </div>
         )}
-      </section>}>
+      </section>}
     </main>
   );
 }
