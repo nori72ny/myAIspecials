@@ -313,4 +313,58 @@ describe("OriginAnswerQualityOfficialShardComparison", () => {
     expect(result.candidateEvaluatorRequests).toBe(0);
     expect(result.evaluatorRequestsTotal).toBe(8);
   });
+  it("fails closed before environment probing when the exact coding checkout is not ready", async () => {
+    const codingCase = full.cases.find((item) => item.category === "coding-generation");
+    if (!codingCase) throw new Error("coding fixture missing");
+    const probeEnvironment = vi.fn();
+    const probeCodingCheckout = vi.fn(async () => false);
+
+    const result = await runOriginAnswerQualityOfficialShardComparison({
+      ...input(),
+      shard: {
+        shardIndex: 0,
+        caseIds: [codingCase.caseId],
+        pairedRequestsMax: 16,
+      },
+    }, { probeEnvironment, probeCodingCheckout });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_SHARD_BASELINE_ENVIRONMENT_INVALID",
+      detail: "AQ_BENCHMARK_ENV_CODING_NOT_READY",
+    });
+    expect(probeCodingCheckout).toHaveBeenCalledTimes(1);
+    expect(probeEnvironment).not.toHaveBeenCalled();
+  });
+
+  it("uses checkout-proven coding readiness for local coding shards", async () => {
+    const codingCase = full.cases.find((item) => item.category === "coding-generation");
+    if (!codingCase) throw new Error("coding fixture missing");
+    const probeCodingCheckout = vi.fn(async () => true);
+    const probeEnvironment = vi.fn(async (...args: Parameters<typeof import("./OriginAnswerQualityBenchmarkEnvironmentProof").probeOriginAnswerQualityBenchmarkEnvironmentForLanes>) => {
+      expect(args[4]).toEqual({
+        codingReadiness: "checkout",
+        codingCheckoutReady: true,
+      });
+      return { ok: false as const, code: "AQ_BENCHMARK_ENV_HEALTH_INVALID" as const };
+    });
+
+    const result = await runOriginAnswerQualityOfficialShardComparison({
+      ...input(),
+      shard: {
+        shardIndex: 0,
+        caseIds: [codingCase.caseId],
+        pairedRequestsMax: 16,
+      },
+    }, { probeEnvironment, probeCodingCheckout });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_SHARD_BASELINE_ENVIRONMENT_INVALID",
+      detail: "AQ_BENCHMARK_ENV_HEALTH_INVALID",
+    });
+    expect(probeCodingCheckout).toHaveBeenCalledTimes(2);
+    expect(probeEnvironment).toHaveBeenCalledTimes(1);
+  });
+
 });
