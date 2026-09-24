@@ -209,13 +209,14 @@ describe('PersonalEditionApp production wrapper', () => {
     expect(screen.getByRole('complementary', { name: '成果物ワークスペース' }).textContent).toContain('Project artifact');
   });
 
-  it('keeps Project Files, Tasks, and Sources unavailable until real backing evidence is connected', () => {
+  it('does not show empty Project Files, Tasks, or Sources until real backing evidence exists', () => {
     render(<PersonalEditionApp />);
     fireEvent.click(screen.getByRole('button', { name: '詳細を開く' }));
 
-    expect((screen.getByRole('button', { name: 'Project Files unavailable' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Project Tasks unavailable' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Project Sources unavailable' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Project Files' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Project Tasks' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Project Sources' })).toBeNull();
+    expect(screen.getByText(/必要な証拠や成果物ができた時だけ/)).toBeTruthy();
   });
 
 });
