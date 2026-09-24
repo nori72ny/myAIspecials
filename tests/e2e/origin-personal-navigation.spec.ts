@@ -87,9 +87,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByText(/無料AIのみ・有料AIへの自動切替なし|Free AI only · no automatic paid fallback/i)).toBeVisible();
   });
 
-  for (const width of [390, 1440]) {
+  for (const width of [320, 390, 1440]) {
     test(`audits every progressive workspace link and maximizes composer space at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await page.setViewportSize({ width, height: width <= 390 ? (width === 320 ? 568 : 844) : 900 });
       await page.route('**/api/coding/v1.4/status', route => route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -129,6 +129,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       const sendBox = await send.boundingBox();
       expect(addBox?.width).toBeGreaterThanOrEqual(44);
       expect(sendBox?.width).toBeGreaterThanOrEqual(44);
+      if (width === 320) expect(composerBox?.width).toBeGreaterThanOrEqual(290);
       if (width === 390) expect(composerBox?.width).toBeGreaterThanOrEqual(360);
       if (width === 1440) expect(composerBox?.width).toBeGreaterThanOrEqual(850);
 
