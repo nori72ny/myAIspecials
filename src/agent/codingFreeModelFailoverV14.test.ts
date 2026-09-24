@@ -6,11 +6,8 @@ import {
   ORIGIN_CODING_FREE_FAILOVER_VERIFIED_AT_V14,
 } from './codingFreeModelFailoverV14.js';
 import { createBoundedCodingProviderExecuteV14 } from './codingProviderRetryV14.js';
-import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
-import {
-  buildOriginExecutionPlan,
-  DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
-} from '../lib/orchestration/OriginExecutionPolicy.js';
+import type { OriginProviderExecutionRequest } from '../legacy/originProviderClient.js';
+import { buildOriginExecutionPlan } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 const selected = buildOriginExecutionPlan(
   { goal: 'Implement a bounded coding change', taskType: 'implementation', requiresCodeChanges: true },
@@ -46,7 +43,7 @@ function failure(code: string) {
   return Object.assign(new Error('safe provider failure'), { code });
 }
 
-describe('V1.4 explicit free coding model failover', () => {
+describe('V1.4 isolated explicit free coding executor', () => {
   it('keeps the failover request zero-cost, ZDR-only and required-tool constrained', async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
