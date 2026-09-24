@@ -1,8 +1,11 @@
 import { expect, test } from '@playwright/test';
 
 const widths = [
-  { name: 'mobile', width: 390, height: 844 },
-  { name: 'desktop', width: 1440, height: 900 },
+  { name: 'mobile-320', width: 320, height: 568 },
+  { name: 'mobile-375', width: 375, height: 812 },
+  { name: 'mobile-390', width: 390, height: 844 },
+  { name: 'tablet-768', width: 768, height: 1024 },
+  { name: 'desktop-1440', width: 1440, height: 900 },
 ] as const;
 
 async function installStableWorkspaceRoutes(page: import('@playwright/test').Page) {
@@ -32,7 +35,7 @@ async function installStableWorkspaceRoutes(page: import('@playwright/test').Pag
   }));
 }
 
-async function assertSurfaceContract(page: import('@playwright/test').Page, mobile: boolean) {
+async function assertSurfaceContract(page: import('@playwright/test').Page, viewportWidth: number) {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
   const audit = await page.locator('button, a[href]').evaluateAll((elements) => elements
@@ -65,8 +68,8 @@ async function assertSurfaceContract(page: import('@playwright/test').Page, mobi
   for (const item of audit) {
     expect(item.name, `interactive control must have an accessible name: ${JSON.stringify(item)}`).not.toBe('');
     expect(item.left, `${item.name} left edge`).toBeGreaterThanOrEqual(-1);
-    expect(item.right, `${item.name} right edge`).toBeLessThanOrEqual((mobile ? 390 : 1440) + 1);
-    if (mobile && item.tag === 'BUTTON') {
+    expect(item.right, `${item.name} right edge`).toBeLessThanOrEqual(viewportWidth + 1);
+    if (viewportWidth <= 768 && item.tag === 'BUTTON') {
       expect(item.height, `${item.name} mobile tap height`).toBeGreaterThanOrEqual(44);
     }
     if (item.tag === 'A') {
@@ -92,7 +95,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       for (const surface of surfaces) {
         await page.goto(surface.url);
         await expect(page.getByRole('heading', { name: surface.heading })).toBeVisible({ timeout: 15_000 });
-        await assertSurfaceContract(page, viewport.width <= 390);
+        await assertSurfaceContract(page, viewport.width);
 
         const main = page.locator('main').first();
         if (await main.count()) {
@@ -140,7 +143,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     expect(settingsBox).not.toBeNull();
     expect(settingsBox!.x).toBeGreaterThanOrEqual(-1);
     expect(settingsBox!.x + settingsBox!.width).toBeLessThanOrEqual(391);
-    await assertSurfaceContract(page, true);
+    await assertSurfaceContract(page, 390);
     await page.getByRole('button', { name: '設定を閉じる' }).click();
 
     await page.getByTestId('history-drawer-toggle').click();
@@ -150,7 +153,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     expect(historyBox).not.toBeNull();
     expect(historyBox!.x).toBeGreaterThanOrEqual(-1);
     expect(historyBox!.x + historyBox!.width).toBeLessThanOrEqual(391);
-    await assertSurfaceContract(page, true);
+    await assertSurfaceContract(page, 390);
   });
 
   test('research result links are safe, named, touchable, and point to the returned evidence', async ({ page }) => {
@@ -196,7 +199,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await expect(link).toHaveAttribute('href', 'https://example.com/evidence');
     await expect(link).toHaveAttribute('target', '_blank');
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await assertSurfaceContract(page, true);
+    await assertSurfaceContract(page, 390);
   });
 
   test('primary buttons produce observable effects instead of silent no-ops', async ({ page }) => {
@@ -333,6 +336,6 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     expect(inputMetrics.width).toBeGreaterThan(180);
     expect((await frame.getByRole('button', { name: '追加' }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
 
-    await assertSurfaceContract(page, true);
+    await assertSurfaceContract(page, 390);
   });
 });
