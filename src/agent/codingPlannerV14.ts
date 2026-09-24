@@ -22,6 +22,23 @@ function authorizedPathSchema(paths: readonly string[]): Record<string, unknown>
   return paths.length ? { type: 'string', enum: [...paths] } : { type: 'string' };
 }
 
+function exactCreateProposal(context: CodingContext): CodingProposalBatch | null {
+  const editablePaths = [...new Set(context.editablePaths ?? context.files.map(file => file.path))];
+  const creatablePaths = [...new Set(context.creatablePaths ?? [])];
+  if (context.attempt !== 0 || editablePaths.length !== 0 || creatablePaths.length !== 1) return null;
+  if (!/\\bcreate exactly one new file\\b/i.test(context.goal)
+    || !/\\bwith exact content\\s*:/i.test(context.goal)
+    || !/\\bdo not modify any other file\\b/i.test(context.goal)) return null;
+  const filePath = creatablePaths[0];
+  const prefix = `Create exactly one new file at ${filePath} with exact content:`;
+  const start = context.goal.toLowerCase().indexOf(prefix.toLowerCase());
+  const suffix = 'Do not modify any other file.';
+  const end = context.goal.indexOf(suffix, start + prefix.length);
+  if (start < 0 || end < 0) return null;
+  const content = context.goal.slice(start + prefix.length, end).replace(/^\\r?\\n/, '');
+  if (!content.length || containsLikelySecret(content)) return null;
+  return { edits: [], creates: [{ path: filePath, content }] };
+}
 function proposalTool(context: CodingContext): OriginProviderRequiredTool {
   const editablePaths = [...new Set(context.editablePaths ?? context.files.map(file => file.path))];
   const creatablePaths = [...new Set(context.creatablePaths ?? [])];
@@ -230,6 +247,8 @@ export function createCodingPlannerV14(options: {
   const env = options.env ?? process.env;
   const execute = options.execute ?? executeOriginProvider;
   return async context => {
+    const deterministic = exactCreateProposal(context);
+    if (deterministic) return deterministic;
     const selected = buildOriginExecutionPlan({ goal: context.goal, taskType: 'implementation', requiresCodeChanges: true }, { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) });
     if (selected.ok === false) throw new Error(selected.code);
     const payload = JSON.stringify({
