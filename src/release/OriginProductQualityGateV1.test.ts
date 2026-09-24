@@ -124,6 +124,23 @@ describe("OriginProductQualityGateV1", () => {
     expect(report.blockers).toEqual([]);
   });
 
+  it("accepts a larger independently qualified AQ suite without weakening the minimum gate", () => {
+    const input = passingInput();
+    const expanded = evaluateOriginProductQualityGate({
+      ...input,
+      answer: { ...input.answer, caseCount: 48, familyCount: 12 },
+    }, nowMs);
+    expect(expanded.answerPassed).toBe(true);
+    expect(expanded.blockers).not.toContain("AQ_NOT_PROMOTION_ELIGIBLE");
+
+    const undersized = evaluateOriginProductQualityGate({
+      ...input,
+      answer: { ...input.answer, caseCount: 39, familyCount: 10 },
+    }, nowMs);
+    expect(undersized.answerPassed).toBe(false);
+    expect(undersized.blockers).toContain("AQ_NOT_PROMOTION_ELIGIBLE");
+  });
+
   it("records Claude Code parity independently when controlled comparison passes", () => {
     const report = evaluateOriginProductQualityGate(passingInput(), nowMs);
     expect(report.claudeCodeParityEstablished).toBe(true);
