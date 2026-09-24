@@ -153,6 +153,29 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByText('<main><button>Ready</button></main>')).toBeTruthy();
   });
 
+  it('renders Markdown artifacts as finished content before source text', () => {
+    const markdownArtifact: ArtifactBlock = {
+      id: 'artifact-md',
+      type: 'markdown',
+      language: 'markdown',
+      title: 'Markdown preview',
+      content: '# レポート\n\n- 結論A\n- 結論B',
+      isComplete: true,
+    };
+
+    render(<ArtifactWorkspace artifact={markdownArtifact} isOpen language="ja" onClose={() => undefined} />);
+
+    expect(screen.getByTestId('artifact-markdown-preview')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'レポート', level: 1 })).toBeTruthy();
+    expect(screen.getByRole('list').textContent).toContain('結論A');
+    expect(screen.getByRole('button', { name: 'プレビューを表示' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByTestId('responsive-viewport-bar')).toBeNull();
+    expect(screen.queryByText('# レポート')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'コードを表示' }));
+    expect(screen.getByText(/# レポート/)).toBeTruthy();
+  });
+
   it('keeps advanced capabilities behind the existing composer plus button', () => {
     const onOpenResearch = vi.fn();
     const onOpenCoding = vi.fn();
