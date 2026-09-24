@@ -3,7 +3,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
-import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
+import { createOriginChatRouter, type OriginChatExecutor, type OriginResearchExecutor } from "./originChatRouter";
 import { OriginProviderError } from "./originProviderClient";
 
 const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
@@ -16,10 +16,16 @@ const defaultExecutionResult = {
   usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 as const },
 };
 
-function createApp(execute: OriginChatExecutor, env: NodeJS.ProcessEnv = { OPENROUTER_API_KEY: "synthetic-test-key" }, catalogNow: () => number = () => verifiedCatalogTime, contextPolicy?: OriginContextPolicy) {
+function createApp(
+  execute: OriginChatExecutor,
+  env: NodeJS.ProcessEnv = { OPENROUTER_API_KEY: "synthetic-test-key" },
+  catalogNow: () => number = () => verifiedCatalogTime,
+  contextPolicy?: OriginContextPolicy,
+  research: OriginResearchExecutor = async () => ({ ok: false, sources: [], failure: { stage: "web-search", code: "NO_RESULTS" } }),
+) {
   const app = express();
   app.use(express.json());
-  app.use(createOriginChatRouter({ env, execute, now: (() => { let current = 1_000; return () => { current += 25; return current; }; })(), catalogNow, contextPolicy, createRequestId: () => "origin-test-trace" }));
+  app.use(createOriginChatRouter({ env, execute, research, now: (() => { let current = 1_000; return () => { current += 25; return current; }; })(), catalogNow, contextPolicy, createRequestId: () => "origin-test-trace" }));
   return app;
 }
 
@@ -32,8 +38,27 @@ describe("createOriginChatRouter", () => {
   it("blocks synthetic secrets before provider execution", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "Authorization: Bearer synthetic_token_value_123456" }] }); expect(response.status).toBe(422); expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED"); expect(JSON.stringify(response.body)).not.toContain("synthetic_token_value_123456"); expect(executeMock).not.toHaveBeenCalled(); });
   it("returns a validated zero-cost routing envelope", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "認証処理をレビューしてください" }] }); expect(response.status).toBe(200); expect(response.body.content).toBe("安全な確認結果です。"); expect(response.body.routing).toEqual(expect.objectContaining({ model: "ORIGIN 無料AI", providerId: "openrouter-free", modelId: "inclusionai/ling-3.0-flash-sante:free", cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, freeOnly: true, traceId: "origin-test-trace", verificationStatus: "not-run", reviewRequired: true, providerAttempts: 1, providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true }, providerRouting: { requestedModel: "inclusionai/ling-3.0-flash-sante:free", servedModel: "inclusionai/ling-3.0-flash-sante:free", strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1, fallbackUsed: false }, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 } })); expect(executeMock).toHaveBeenCalledTimes(1); const call = executeMock.mock.calls[0]?.[0]; expect(call?.systemInstruction).toContain("For routine explanatory or comparison answers"); expect(call?.systemInstruction).toContain("For complex multi-part requests, use as many distinct points as needed"); });
   it("marks low-risk writing as not requiring independent review", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "短い案内文を読みやすく整えてください" }] }); expect(response.status).toBe(200); expect(response.body.answer.verification).toEqual({ status: "not-required", independentReviewPerformed: false, summary: "この依頼では、追加の独立確認を必須と判定していません。" }); expect(response.body.answer.limitations).toEqual([]); expect(response.body.answer.nextActions).toEqual([]); });
-  it("preserves provided HTTPS evidence without claiming verification", async () => { executeMock.mockResolvedValueOnce({ ...defaultExecutionResult, text: "詳細は[公式資料](https://example.com/current)を参照してください。" }); const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "候補の資料を調査してください" }] }); expect(response.status).toBe(200); expect(response.body.answer.evidence).toEqual([expect.objectContaining({ label: "公式資料", sourceUrl: "https://example.com/current", evidenceLevel: "provided", checks: { safeUrl: "passed", content: "not-run", freshness: "not-run", claimSupport: "not-run" } })]); });
-  it("warns when a research answer has no usable HTTPS source", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "候補を比較調査してください" }] }); expect(response.status).toBe(200); expect(response.body.answer.evidence).toEqual([]); expect(response.body.answer.limitations).toContain("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。"); expect(response.body.answer.nextActions).toContain("一次情報の出典を確認してから判断してください。"); });
+  it("preserves model-provided HTTPS evidence without claiming verification", async () => {
+    executeMock.mockResolvedValueOnce({ ...defaultExecutionResult, text: "詳細は[公式資料](https://example.com/current)を参照してください。" });
+    const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "この候補について説明してください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.answer.evidence).toEqual([expect.objectContaining({
+      label: "公式資料",
+      sourceUrl: "https://example.com/current",
+      evidenceLevel: "provided",
+      checks: { safeUrl: "passed", content: "not-run", freshness: "not-run", claimSupport: "not-run" },
+    })]);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps grounded-research failure evidence empty instead of falling through to the model", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "候補を比較調査してください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.answer.evidence).toEqual([]);
+    expect(response.body.answer.limitations).toContain("この依頼について、現在の公開情報源を確認できていません。");
+    expect(response.body.routing.answerMode).toBe("research");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
   it("sends only the latest coherent context window", async () => { const response = await request(createApp(execute, undefined, undefined, { version: 1, maxMessages: 3, maxCharacters: 12_000 })).post("/api/chat").send({ messages: [{ role: "ai", content: "初期案内" }, { role: "user", content: "古い依頼" }, { role: "ai", content: "古い回答" }, { role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }] }); expect(response.status).toBe(200); const call = executeMock.mock.calls[0]?.[0]; expect(call?.messages).toEqual([{ role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }]); });
   it("sanitizes non-retryable authentication failures", async () => { executeMock.mockRejectedValueOnce(new OriginProviderError("PROVIDER_NOT_CONFIGURED", "内部詳細", 401, false, undefined, { upstreamStatus: 401 })); const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "文章を作ってください" }] }); expect(response.status).toBe(401); expect(JSON.stringify(response.body)).not.toContain("内部詳細"); expect(executeMock).toHaveBeenCalledTimes(1); });
   it.each([
@@ -63,7 +88,130 @@ describe("createOriginChatRouter", () => {
   it("fails closed after free-model evidence expires", async () => { const response = await request(createApp(execute, { OPENROUTER_API_KEY: "synthetic-test-key" }, () => Date.parse(verifiedEvidence.reviewAfter) + 1)).post("/api/chat").send({ messages: [{ role: "user", content: "文章を確認してください" }] }); expect(response.status).toBe(503); expect(response.body.code).toBe("FREE_MODEL_EVIDENCE_STALE"); expect(executeMock).not.toHaveBeenCalled(); });
   it("handles weather clarification locally", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "今日の天気は？" }] }); expect(response.status).toBe(200); expect(response.body.content).toBe("どの地域の天気をお調べしますか？"); expect(executeMock).not.toHaveBeenCalled(); });
   it("answers capability questions truthfully without provider execution", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "あなたは何ができるのですか？具体例を5つ教えてください" }] }); expect(response.status).toBe(200); expect(response.body.content).toContain("Grounded Research"); expect(response.body.content).toContain("PDF、DOCX、XLSX、PPTX"); expect(response.body.content).toContain("MCP経由"); expect(executeMock).not.toHaveBeenCalled(); });
-  it("does not answer time-sensitive requests without live search", async () => { const response = await request(createApp(execute, {})).post("/api/chat").send({ messages: [{ role: "user", content: "今日のニュースを教えてください" }] }); expect(response.status).toBe(200); expect(response.body.content).toContain("最新情報を確認する検索機能が接続されていない"); expect(executeMock).not.toHaveBeenCalled(); });
+  it("automatically uses Grounded Research for time-sensitive requests without provider execution", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [
+        {
+          title: "Current public source",
+          url: "https://example.com/current",
+          excerpt: "現在確認できた公開情報の要点です。",
+          sourceType: "web-search",
+          domain: "example.com",
+          rank: 1,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+      ],
+    }) as unknown as OriginResearchExecutor;
+    const response = await request(createApp(execute, {}, undefined, undefined, researchMock))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日のニュースを教えてください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("確認できた公開情報");
+    expect(response.body.content).toContain("https://example.com/current");
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      model: "ORIGIN アプリ内処理",
+      answerMode: "research",
+      verificationLevel: "evidence-required",
+      sourceCount: 1,
+      researchProvider: "DuckDuckGo",
+      cost: 0,
+      freeOnly: true,
+    }));
+    expect(response.body.answer.evidence).toEqual([
+      expect.objectContaining({
+        sourceUrl: "https://example.com/current",
+        evidenceLevel: "provided",
+      }),
+    ]);
+    expect(researchMock).toHaveBeenCalledWith("今日のニュースを教えてください");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("automatically uses Grounded Research for an explicit research request", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [{
+        title: "Competitor source",
+        url: "https://example.com/competitor",
+        excerpt: "競合サービスの公開情報です。",
+        sourceType: "web-search",
+        domain: "example.com",
+        rank: 1,
+        evidenceLevel: "page-verified",
+        retrievedAt: "2026-09-24T06:00:00.000Z",
+        freshness: "recent",
+      }],
+    }) as unknown as OriginResearchExecutor;
+
+    const response = await request(createApp(execute, {}, undefined, undefined, researchMock))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "競合サービスを調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.routing.answerMode).toBe("research");
+    expect(response.body.routing.sourceCount).toBe(1);
+    expect(researchMock).toHaveBeenCalledTimes(1);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not turn a supplied research-text transformation into a new external search", async () => {
+    const researchMock = vi.fn() as unknown as OriginResearchExecutor;
+    const response = await request(createApp(execute, undefined, undefined, undefined, researchMock))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "この調査結果を200字に要約してください。『競合Aは法人向けです。』" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe("安全な確認結果です。");
+    expect(researchMock).not.toHaveBeenCalled();
+    expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops unsafe research URLs and fails closed when no safe HTTPS evidence remains", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [{
+        title: "Unsafe source",
+        url: "http://example.com/current",
+        excerpt: "安全ではないURLです。",
+        sourceType: "web-search",
+        domain: "example.com",
+        rank: 1,
+        evidenceLevel: "snippet",
+        retrievedAt: "2026-09-24T06:00:00.000Z",
+        freshness: "unknown",
+      }],
+    }) as unknown as OriginResearchExecutor;
+
+    const response = await request(createApp(execute, {}, undefined, undefined, researchMock))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "最新情報を調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.routing.answerMode).toBe("research");
+    expect(response.body.routing.sourceCount).toBe(0);
+    expect(response.body.answer.evidence).toEqual([]);
+    expect(response.body.content).not.toContain("http://example.com/current");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when Grounded Research cannot retrieve current evidence", async () => {
+    const response = await request(createApp(execute, {}))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "現在の料金を教えてください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("現在の情報を推測して回答しません");
+    expect(response.body.routing.answerMode).toBe("research");
+    expect(response.body.routing.sourceCount).toBe(0);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
   it("treats acronym definitions as ordinary stable questions unless freshness is explicit", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "AIO対策について教えて" }] }); expect(response.status).toBe(200); expect(executeMock).toHaveBeenCalledTimes(1); });
   it("does not confuse personal planning for today with live information", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "今日の予定を整理してください" }] }); expect(response.status).toBe(200); expect(response.body.content).toBe("安全な確認結果です。"); expect(executeMock).toHaveBeenCalledTimes(1); });
   it("does not treat supplied pricing text transformation as a live pricing request", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "この文章を200字以内に短くして。『新サービスは10月開始予定で、対象は既存会員です。詳細料金は来週確定します。』" }] }); expect(response.status).toBe(200); expect(response.body.content).toBe("安全な確認結果です。"); expect(executeMock).toHaveBeenCalledTimes(1); });
