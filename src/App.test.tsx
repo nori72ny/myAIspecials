@@ -115,7 +115,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(knowledgeMap.className).toContain('min-w-11');
   });
 
-  it('keeps the composer visually empty, wide, and icon-only while preserving 44px targets', () => {
+  it('keeps the composer wide, icon-only, and minimally self-explanatory while preserving 44px targets', () => {
     render(<App language="ja" onOpenResearch={() => undefined} />);
 
     const composer = document.querySelector('.origin-composer') as HTMLElement;
@@ -123,7 +123,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const add = screen.getByTestId('origin-add-menu-toggle');
     const send = screen.getByTestId('start-request-button');
 
-    expect(input.getAttribute('placeholder')).toBe('');
+    expect(input.getAttribute('placeholder')).toBe('ORIGINに依頼する');
     expect(input.className).toContain('min-w-0');
     expect(input.className).toContain('px-2');
     expect(composer.className).toContain('gap-1');
