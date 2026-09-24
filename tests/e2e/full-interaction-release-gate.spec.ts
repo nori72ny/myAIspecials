@@ -188,7 +188,9 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     }));
     await page.goto('/?workspace=research');
     await page.getByLabel('調べたいこと', { exact: true }).fill('検証用クエリ');
-    await page.getByRole('button', { name: /調べる|Research/ }).last().click();
+    await page.getByRole('button', { name: '調査する', exact: true }).click();
+    await page.getByText('調査結果', { exact: true }).waitFor();
+    await page.getByText('出典・検証の詳細', { exact: true }).click();
     const link = page.getByRole('link', { name: '原文を開く' });
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute('href', 'https://example.com/evidence');
