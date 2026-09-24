@@ -7,7 +7,7 @@ import OriginProjectWorkspaceV31 from '../OriginProjectWorkspaceV31';
 afterEach(cleanup);
 
 describe('OriginProjectWorkspaceV31', () => {
-  it('shows only grounded counts and keeps unavailable views disabled', () => {
+  it('shows a compact grounded summary and hides unavailable views', () => {
     render(<OriginProjectWorkspaceV31
       mode="chat"
       messages={[{ id: 'm1', role: 'user', content: 'hello' }]}
@@ -19,11 +19,12 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={() => undefined}
     />);
 
-    expect(screen.getByText('1')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Project Files unavailable' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Project Tasks unavailable' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Project Sources unavailable' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Project Artifacts unavailable' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('1 messages · 0 artifacts')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Project Files' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Project Tasks' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Project Sources' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Project Artifacts' })).toBeNull();
+    expect(screen.getByText(/必要な証拠や成果物ができた時だけ/)).toBeTruthy();
   });
 
   it('allows artifact navigation only when a real artifact exists', () => {
@@ -43,7 +44,7 @@ describe('OriginProjectWorkspaceV31', () => {
     expect(onViewChange).toHaveBeenCalledWith('artifacts');
   });
 
-  it('does not mutate Mode when project views change', () => {
+  it('keeps detail navigation independent from Mode', () => {
     const onViewChange = vi.fn();
     render(<OriginProjectWorkspaceV31
       mode="research"
@@ -58,10 +59,10 @@ describe('OriginProjectWorkspaceV31', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Project Chat' }));
     expect(onViewChange).toHaveBeenCalledWith('chat');
-    expect(screen.getByText('Research')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Project Sources' })).toBeNull();
   });
 
-  it('enables Sources only from validated research evidence', () => {
+  it('shows Sources only from validated research evidence', () => {
     render(<OriginProjectWorkspaceV31
       mode="research"
       messages={[]}
@@ -83,12 +84,12 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={() => undefined}
     />);
 
-    expect(screen.getByRole('button', { name: 'Project Sources' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Project Sources' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Project Sources' }).textContent).toContain('Verified source');
     expect(screen.getByRole('region', { name: 'Project Sources' }).textContent).toContain('example.com');
   });
 
-  it('enables Files and Tasks only from real coding evidence', () => {
+  it('shows Files and Tasks only from real coding evidence', () => {
     const evidence = {
       jobId: 'coding-abcdefghijklmnopqrstuv',
       status: 'verified' as const,
@@ -107,7 +108,7 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={() => undefined}
     />);
 
-    expect(screen.getByRole('button', { name: 'Project Files' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Project Files' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Project Files' }).textContent).toContain('src/a.ts');
 
     rerender(<OriginProjectWorkspaceV31
@@ -121,7 +122,7 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={() => undefined}
     />);
 
-    expect(screen.getByRole('button', { name: 'Project Tasks' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Project Tasks' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Project Tasks' }).textContent).toContain('verified');
     expect(screen.getByRole('region', { name: 'Project Tasks' }).textContent).toContain('test');
   });
