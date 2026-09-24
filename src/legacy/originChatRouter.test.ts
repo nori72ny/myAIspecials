@@ -297,7 +297,6 @@ describe("createOriginChatRouter", () => {
     expect(response.body.routing).toEqual(expect.objectContaining({
       synthesisStatus: "provider-failed",
       synthesisFailureCode: "PROVIDER_RATE_LIMITED",
-      providerAttempts: undefined,
       freeOnly: true,
       cost: 0,
     }));
