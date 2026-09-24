@@ -209,32 +209,37 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(attempts).toBe(1);
   });
 
-  test('keeps the mobile header on one line with three 44px action targets', async ({ page }) => {
+  test('keeps the pristine mobile header minimal and reveals New conversation only after use', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
+    await page.route('**/api/chat', route => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '確認しました。' }));
     await page.goto('/');
 
     const header = page.locator('header.origin-header');
     const history = page.getByTestId('history-drawer-toggle');
     const settings = page.getByRole('button', { name: '設定を開く' });
-    const newConversation = page.getByRole('button', { name: '新規対話を開始' });
 
     await expect(header).toContainText('ORIGIN');
-    await expect(header.getByRole('button')).toHaveCount(3);
+    await expect(header.getByRole('button')).toHaveCount(2);
+    await expect(page.getByRole('button', { name: '新規対話を開始' })).toHaveCount(0);
     await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
-    for (const button of [history, settings, newConversation]) {
+    for (const button of [history, settings]) {
       const box = await button.boundingBox();
       expect(box?.height).toBeGreaterThanOrEqual(44);
       expect(box?.width).toBeGreaterThanOrEqual(44);
       expect(await button.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
       expect(await button.evaluate((element) => getComputedStyle(element).flexShrink)).toBe('0');
     }
-    await expect(history).toContainText('☰');
-    await expect(settings).toContainText('⚙️');
-    await expect(newConversation).toContainText('＋');
-    for (const brand of await header.locator(':scope > div:first-child > span').all()) {
-      expect(await brand.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
-      expect(await brand.evaluate((element) => getComputedStyle(element).flexShrink)).toBe('0');
-    }
+
+    await page.getByTestId('origin-home-request').fill('会話を開始');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByText('確認しました。')).toBeVisible();
+    const newConversation = page.getByRole('button', { name: '新規対話を開始' });
+    await expect(newConversation).toBeVisible();
+    await expect(header.getByRole('button')).toHaveCount(3);
+    const newBox = await newConversation.boundingBox();
+    expect(newBox?.height).toBeGreaterThanOrEqual(44);
+    expect(newBox?.width).toBeGreaterThanOrEqual(44);
+
     const headerWidth = await header.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
     expect(headerWidth.scroll).toBeLessThanOrEqual(headerWidth.client);
 
