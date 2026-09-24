@@ -382,12 +382,14 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
           type="button"
           onClick={() => void startJob()}
           disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))}
+          aria-describedby="coding-run-status"
+          title={!ready ? '実行環境が利用可能になるまで開始できません' : !goal.trim() ? '変更したいことを入力してください' : job && ACTIVE.has(job.status) ? '現在のジョブが完了するまで新規依頼は開始できません' : undefined}
           className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? '処理中…' : job && ACTIVE.has(job.status) ? '実行中' : '変更を依頼する'}
         </button>
 
-        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+        <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-slate-500">{checkingCapability ? '実行環境を確認中…' : ready ? '実行環境を確認済み' : '現在は実行できません'}</span>
           <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? 'Ready' : 'Unavailable'}</span>
         </div>
