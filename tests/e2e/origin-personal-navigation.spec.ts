@@ -84,7 +84,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('nav-dashboard')).toHaveCount(0);
     await expect(page.getByTestId('nav-chat')).toHaveCount(0);
     await expect(page.getByTestId('nav-workspace')).toHaveCount(0);
-    await expect(page.getByText(/無料AIのみを使用|uses free AI only/i)).toBeVisible();
+    await expect(page.getByText(/無料AIのみ・有料AIへの自動切替なし|Free AI only · no automatic paid fallback/i)).toBeVisible();
   });
 
   test('submits a command-bar request within a compact viewport', async ({ page }) => {
@@ -232,7 +232,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
     await page.getByTestId('origin-home-request').fill('会話を開始');
     await page.getByTestId('start-request-button').click();
-    await expect(page.getByText('確認しました。')).toBeVisible();
+    await expect(page.getByRole('article', { name: 'ORIGINの回答' }).getByText('確認しました。', { exact: true })).toBeVisible();
     const newConversation = page.getByRole('button', { name: '新規対話を開始' });
     await expect(newConversation).toBeVisible();
     await expect(header.getByRole('button')).toHaveCount(3);
