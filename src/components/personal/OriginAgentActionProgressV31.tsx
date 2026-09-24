@@ -115,6 +115,7 @@ export default function OriginAgentActionProgressV31({
       </div>
       {active && <button
         type="button"
+        aria-label="Stop"
         onClick={onStop}
         disabled={stopDisabled}
         className="min-h-11 shrink-0 rounded-xl border border-rose-300 bg-rose-50 px-4 text-sm font-bold text-rose-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200"
