@@ -51,6 +51,9 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await modeNavigation.getByRole('button', { name: 'Create' }).click();
     await expect(page).toHaveURL(/workspace=creative/);
     await expect(page.getByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0')).toBeVisible();
+    await expect(page.getByText('詳細設定', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('用途', { exact: true })).not.toBeVisible();
+    await expect(page.getByRole('region', { name: 'Creative local history' })).toHaveCount(0);
 
     await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('モバイルCreative');
     await page.getByRole('button', { name: 'Visualを生成' }).click();
