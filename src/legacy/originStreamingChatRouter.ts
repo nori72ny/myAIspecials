@@ -11,7 +11,7 @@ import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { executeOriginProviderStream, type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
-import { originChatSystemInstruction, requiresOriginCurrentInformation } from "./originChatResponsePolicy.js";
+import { originChatSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import {
   detectSensitiveConversation,
   isOriginWeatherRequest,
@@ -32,7 +32,7 @@ export interface OriginStreamingChatRouterOptions {
 
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 
-function requiresCurrentInformation(message: string): boolean { return requiresOriginCurrentInformation(message); }
+function requiresGroundedResearch(message: string): boolean { return requiresOriginGroundedResearch(message); }
 
 function systemInstruction(
   intent?: OriginRequestIntent,
@@ -78,7 +78,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     const lastUserMessage = messages.at(-1)?.content ?? "";
     if (isOriginWeatherRequest(lastUserMessage)
       || isOriginCapabilityQuestion(lastUserMessage)
-      || requiresCurrentInformation(lastUserMessage)
+      || requiresGroundedResearch(lastUserMessage)
       || detectSensitiveConversation(messages).length > 0) {
       return next();
     }

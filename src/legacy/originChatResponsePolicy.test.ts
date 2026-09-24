@@ -9,6 +9,7 @@ import {
 describe("originChatResponsePolicy", () => {
   it.each([
     ["今日のニュースを教えて", true],
+    ["今日のAIニュースを教えて", true],
     ["現在のVercel料金を教えて", true],
     ["Vercelの料金について教えて", true],
     ["What is the current USD/JPY rate?", true],
@@ -29,6 +30,7 @@ describe("originChatResponsePolicy", () => {
 
   it.each([
     ["競合サービスを調査してください", true],
+    ["今日のAIニュースを教えて", true],
     ["一次情報を検索して比較してください", true],
     ["Please research the competing services", true],
     ["Find sources for this claim", true],
