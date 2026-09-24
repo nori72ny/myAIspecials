@@ -46,14 +46,11 @@ test.describe('ORIGIN visual QA evidence', () => {
       await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
       const projectWorkspace = page.getByRole('region', { name: 'Project Workspace' });
       await expect(projectWorkspace).toHaveCount(0);
-      await expect(page.getByRole('button', { name: '詳細を開く' })).toBeVisible();
-
-      const workspaceShell = page.getByRole('region', { name: 'ORIGIN workspace shell' });
-      const workspaceBox = await workspaceShell.boundingBox();
-      expect(workspaceBox).not.toBeNull();
-      if (viewport.name === 'mobile-390') {
-        expect(workspaceBox!.height).toBeLessThanOrEqual(100);
-      }
+      await expect(page.getByRole('region', { name: 'ORIGIN workspace shell' })).toHaveCount(0);
+      await expect(page.getByRole('navigation', { name: 'Mode' })).toHaveCount(0);
+      await expect(page.getByTestId('origin-add-menu-toggle')).toBeVisible();
+      const homeWidth = await page.locator('body').evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+      expect(homeWidth.scroll).toBeLessThanOrEqual(homeWidth.client);
       await testInfo.attach(`origin-home-${viewport.name}.png`, {
         body: await page.screenshot({ fullPage: true }),
         contentType: 'image/png',
