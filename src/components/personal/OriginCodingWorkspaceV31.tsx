@@ -23,7 +23,7 @@ export type OriginCodingResultV31 = {
   }>;
 };
 
-type WorkspaceTab = 'files' | 'diff' | 'tests' | 'terminal' | 'checkpoint';
+type WorkspaceTab = 'files' | 'diff' | 'tests';
 
 type Props = {
   result: OriginCodingResultV31 | null;
@@ -32,12 +32,10 @@ type Props = {
 };
 
 const CHECKS: readonly OriginCodingVerificationKindV31[] = ['typecheck', 'lint', 'test', 'build'];
-const TABS: ReadonlyArray<{ id: WorkspaceTab; label: string; availability: 'live' | 'unavailable' }> = [
-  { id: 'files', label: 'Files', availability: 'live' },
-  { id: 'diff', label: 'Diff', availability: 'live' },
-  { id: 'tests', label: 'Tests', availability: 'live' },
-  { id: 'terminal', label: 'Terminal', availability: 'unavailable' },
-  { id: 'checkpoint', label: 'Checkpoint', availability: 'unavailable' },
+const TABS: ReadonlyArray<{ id: WorkspaceTab; label: string }> = [
+  { id: 'files', label: 'Files' },
+  { id: 'diff', label: 'Diff' },
+  { id: 'tests', label: 'Tests' },
 ];
 
 function EmptyEvidence({ children }: { children: React.ReactNode }) {
@@ -124,17 +122,8 @@ function VerificationSnapshot({ result, state }: Pick<Props, 'result' | 'state'>
   })}</div>;
 }
 
-function UnsupportedPanel({ kind }: { kind: 'Terminal' | 'Checkpoint' }) {
-  const isTerminal = kind === 'Terminal';
-  return <UnavailableNotice>
-    <strong className="block text-sm">{kind}はV1.4 runtimeから提供されていません。</strong>
-    <span className="mt-1 block text-xs leading-5">{isTerminal
-      ? 'workerの生ログや擬似コマンド出力は生成しません。安全に公開できる実行ログAPIが追加された時だけ、この面へ接続します。'
-      : '巻き戻し可能なcheckpoint IDや復元APIがないため、Undoできるようには見せません。永続checkpointが実装された時だけ有効化します。'}</span>
-  </UnavailableNotice>;
-}
-
 export default function OriginCodingWorkspaceV31(props: Props) {
+  const hasEvidence = props.result !== null || props.changedPaths.length > 0 || props.state !== 'pending';
   const [selectedTab, setSelectedTab] = useState<WorkspaceTab>('files');
   const manualSelectionRef = useRef(false);
   const changedCount = props.changedPaths.length;
@@ -155,11 +144,13 @@ export default function OriginCodingWorkspaceV31(props: Props) {
     setSelectedTab(tab);
   };
 
+  if (!hasEvidence) return null;
+
   return <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-900/50" aria-labelledby="coding-workspace-v31-title">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Coding Workspace</p>
-        <h2 id="coding-workspace-v31-title" className="mt-1 text-lg font-black">Files · Diff · Tests · Terminal · Checkpoint</h2>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">結果</p>
+        <h2 id="coding-workspace-v31-title" className="mt-1 text-lg font-black">変更と検証</h2>
       </div>
       <div className="flex flex-wrap gap-2 text-[10px] font-bold text-slate-500">
         <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-700">{changedCount} files</span>
@@ -182,7 +173,7 @@ export default function OriginCodingWorkspaceV31(props: Props) {
           onClick={() => selectTab(tab.id)}
           className={`min-h-11 rounded-xl border px-3 text-sm font-bold ${selectedTab === tab.id ? 'border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200' : 'border-slate-200 bg-white/70 text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300'}`}
         >
-          {tab.label}{tab.availability === 'unavailable' && <span className="ml-2 text-[9px] font-bold uppercase text-amber-700 dark:text-amber-300">Unavailable</span>}
+          {tab.label}
         </button>)}
       </div>
     </div>
@@ -191,8 +182,6 @@ export default function OriginCodingWorkspaceV31(props: Props) {
       {selectedTab === 'files' && <FilesPanel {...props} />}
       {selectedTab === 'diff' && <DiffPanel {...props} />}
       {selectedTab === 'tests' && <TestsPanel result={props.result} state={props.state} />}
-      {selectedTab === 'terminal' && <UnsupportedPanel kind="Terminal" />}
-      {selectedTab === 'checkpoint' && <UnsupportedPanel kind="Checkpoint" />}
     </div>
   </section>;
 }
