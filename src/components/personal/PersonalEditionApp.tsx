@@ -7,7 +7,7 @@ import OriginArtifactContextV31 from './OriginArtifactContextV31';
 import OriginProjectWorkspaceV31, { type OriginProjectViewV31 } from './OriginProjectWorkspaceV31';
 import type { ResearchSource } from './ResearchWorkspaceV31';
 import type { CodingProjectEvidence } from '../CodingJobWorkspaceV14';
-import type { OriginWorkspaceModeV31 } from './OriginWorkspaceShellV31';
+import type { OriginWorkspaceModeV31 } from './OriginWorkspaceModeV31';
 
 const ResearchWorkspace = lazy(() => import('./ResearchWorkspaceV31'));
 const CodingJobWorkspace = lazy(() => import('./CodingWorkspaceV31'));
