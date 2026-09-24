@@ -11,13 +11,12 @@ vi.mock('../../CodingJobWorkspaceV14', () => ({
 afterEach(() => cleanup());
 
 describe('CodingWorkspaceV31', () => {
-  it('composes the proven coding runtime without duplicating evidence controls', () => {
+  it('keeps the proven coding runtime as the only primary coding surface', () => {
     render(<CodingWorkspaceV31 />);
 
     expect(screen.queryByRole('region', { name: 'ORIGIN Coding Workspace' })).not.toBeNull();
     expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).not.toBeNull();
-    expect(screen.queryByText('Grounded execution evidence')).not.toBeNull();
-    expect(screen.queryByText(/Files \/ Diff \/ Tests は実結果のみ/)).not.toBeNull();
-    expect(screen.queryByRole('navigation', { name: 'Coding workspace sections' })).toBeNull();
+    expect(screen.queryByText('Grounded execution evidence')).toBeNull();
+    expect(screen.queryByText(/Terminal \/ Checkpoint/)).toBeNull();
   });
 });
