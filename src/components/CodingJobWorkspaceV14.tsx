@@ -436,12 +436,7 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
         </details>
       </section>}
 
-      <OriginAgentActionProgressV31
-        status={job?.status ?? null}
-        cancelRequested={job?.cancelRequested ?? false}
-        busy={busy}
-        onStop={job && ACTIVE.has(job.status) ? () => { void cancelJob(); } : undefined}
-      />
+      <OriginAgentActionProgressV31 status={job?.status ?? null} />
 
       <OriginCodingWorkspaceV31 result={result} state={resultState} changedPaths={job?.changedPaths ?? []} />
 
