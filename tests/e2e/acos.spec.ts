@@ -98,7 +98,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(requests).toBe(1);
     const verification = page.getByTestId('response-verification-details');
     await expect(verification).not.toHaveAttribute('open');
-    await verification.getByText('$0配信を確認').click();
+    await verification.getByText('回答の詳細').click();
     for (const label of ['応答完了', '費用経路', '内容の限界']) await expect(page.getByTestId('response-verification-log')).toContainText(label);
     await expect(page.getByTestId('response-verification-log')).toContainText('出典確認や別AIによる内容検証を示すものではありません');
     await expect(page.locator('.safe-area-bottom .origin-composer')).toBeVisible();
