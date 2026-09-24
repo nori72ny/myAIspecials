@@ -138,6 +138,14 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       )).toBe(true);
 
       await add.click();
+      const addMenu = page.getByRole('menu', { name: '追加機能' });
+      await expect(addMenu).toBeVisible();
+      const addMenuBox = await addMenu.boundingBox();
+      expect(addMenuBox).not.toBeNull();
+      expect(addMenuBox!.x).toBeGreaterThanOrEqual(0);
+      expect(addMenuBox!.x + addMenuBox!.width).toBeLessThanOrEqual(width);
+      expect(addMenuBox!.y).toBeGreaterThanOrEqual(0);
+      expect(addMenuBox!.y + addMenuBox!.height).toBeLessThanOrEqual(width <= 390 ? (width === 320 ? 568 : 844) : 900);
       await page.getByRole('menuitem', { name: '調べる', exact: true }).click();
       await expect(page).toHaveURL(/workspace=research/);
       await expect(page.getByRole('heading', { name: '調べたいことを入力' })).toBeVisible();
@@ -172,7 +180,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.route('**/api/chat', route => route.fulfill({
       status: 200,
       contentType: 'text/plain; charset=utf-8',
-      body: '完成しました。\n\n```html:完成プレビュー\n<main><h1>完成画面</h1><button>実行</button></main>\n```',
+      body: '完成しました。\n\n```html:完成プレビュー\n<main><h1>完成画面</h1><input aria-label="成果物入力" placeholder="入力してください"><button>実行</button></main>\n```',
     }));
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('HTML成果物を作成');
@@ -180,13 +188,25 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible();
-    await expect(workspace.getByTitle('プレビュー')).toBeVisible();
+    const preview = workspace.getByTitle('プレビュー');
+    await expect(preview).toBeVisible();
+    const sandbox = preview.contentFrame();
+    const artifactInput = sandbox.getByLabel('成果物入力');
+    await expect(artifactInput).toBeVisible();
+    const artifactInputMetrics = await artifactInput.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { height: element.getBoundingClientRect().height, fontSize: Number.parseFloat(style.fontSize) };
+    });
+    expect(artifactInputMetrics.height).toBeGreaterThanOrEqual(44);
+    expect(artifactInputMetrics.fontSize).toBeGreaterThanOrEqual(16);
+    const workspaceBox = await workspace.boundingBox();
+    expect(workspaceBox?.width).toBeLessThanOrEqual(390);
     await expect(page.getByRole('button', { name: 'プレビューを表示' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('button', { name: 'コードを表示' })).toHaveAttribute('aria-pressed', 'false');
-    await expect(workspace.getByText('<main><h1>完成画面</h1><button>実行</button></main>', { exact: true })).toHaveCount(0);
+    await expect(workspace.getByText('<main><h1>完成画面</h1><input aria-label="成果物入力" placeholder="入力してください"><button>実行</button></main>', { exact: true })).toHaveCount(0);
 
     await page.getByRole('button', { name: 'コードを表示' }).click();
-    await expect(workspace.getByText('<main><h1>完成画面</h1><button>実行</button></main>', { exact: true })).toBeVisible();
+    await expect(workspace.getByText('<main><h1>完成画面</h1><input aria-label="成果物入力" placeholder="入力してください"><button>実行</button></main>', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
