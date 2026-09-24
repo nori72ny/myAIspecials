@@ -113,6 +113,46 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
+  it("automatically uses Grounded Research for an explicit research request", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [{
+        title: "Competitor source",
+        url: "https://example.com/competitor",
+        excerpt: "競合サービスの公開情報です。",
+        sourceType: "web-search",
+        domain: "example.com",
+        rank: 1,
+        evidenceLevel: "page-verified",
+        retrievedAt: "2026-09-24T06:00:00.000Z",
+        freshness: "recent",
+      }],
+    }) as unknown as OriginResearchExecutor;
+
+    const response = await request(createApp(execute, {}, undefined, undefined, researchMock))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "競合サービスを調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.routing.answerMode).toBe("research");
+    expect(response.body.routing.sourceCount).toBe(1);
+    expect(researchMock).toHaveBeenCalledTimes(1);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not turn a supplied research-text transformation into a new external search", async () => {
+    const researchMock = vi.fn() as unknown as OriginResearchExecutor;
+    const response = await request(createApp(execute, undefined, undefined, undefined, researchMock))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "この調査結果を200字に要約してください。『競合Aは法人向けです。』" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe("安全な確認結果です。");
+    expect(researchMock).not.toHaveBeenCalled();
+    expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+
   it("fails closed when Grounded Research cannot retrieve current evidence", async () => {
     const response = await request(createApp(execute, {}))
       .post("/api/chat")
