@@ -536,6 +536,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'X-Origin-Visual-Provider': 'pollinations-zero-cost',
           'X-Origin-Visual-Model': 'tomdacatto/sana',
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
+          'X-Origin-Visual-Brain': 'visual-brain-v1',
+          'X-Origin-Visual-Prompt-Compiler': 'raster-compiler-v1',
+          'X-Origin-Visual-Plan-Sha256': 'c'.repeat(64),
+          'X-Origin-Visual-Purpose': 'landscape',
           'X-Origin-Visual-Width': '1024',
           'X-Origin-Visual-Height': '1024',
           'X-Origin-Free-Only': 'true',
@@ -562,6 +566,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByText('画像を生成し、実ファイルを検証しました。')).toBeTruthy();
     expect(screen.getByRole('link', { name: '画像を保存' }).getAttribute('download')).toBe('origin-image.png');
     expect(screen.getByText(/tomdacatto\/sana/)).toBeTruthy();
+    expect(screen.getByText(/landscape/)).toBeTruthy();
     expect(screen.getByText(/1024×1024/)).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
