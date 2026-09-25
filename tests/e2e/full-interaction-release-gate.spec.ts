@@ -86,7 +86,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       await installStableWorkspaceRoutes(page);
 
       const surfaces = [
-        { url: '/', heading: '何をしたいですか？' },
+        { url: '/', heading: '今日は何をしますか？' },
         { url: '/?workspace=research', heading: '調べたいことを入力' },
         { url: '/?workspace=coding', heading: 'コードの変更を依頼' },
         { url: '/?workspace=creative', heading: '作りたいものを入力' },
@@ -135,7 +135,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       expect(menuBox).not.toBeNull();
       expect(menuBox!.x).toBeGreaterThanOrEqual(-1);
       expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(viewport.width + 1);
-      for (const label of ['ファイルを添付', '調べる', 'コード', '作る']) {
+      for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '成果物を作る']) {
         const item = page.getByRole('menuitem', { name: label, exact: true });
         await expect(item).toBeVisible();
         expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -200,7 +200,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await page.getByLabel('調べたいこと', { exact: true }).fill('検証用クエリ');
     await page.getByRole('button', { name: '調査する', exact: true }).click();
     await page.getByText('調査結果', { exact: true }).waitFor();
-    await page.getByText('出典・検証の詳細', { exact: true }).click();
+    await page.getByText('出典を見る', { exact: true }).click();
     const link = page.getByRole('link', { name: '原文を開く' });
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute('href', 'https://example.com/evidence');
