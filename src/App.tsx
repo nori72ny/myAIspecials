@@ -180,11 +180,21 @@ export interface ParsedStreamFrame {
   activeArtifact: ArtifactBlock | null;
 }
 
+export type GeneratedImageMessage = {
+  url: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  downloadName: string;
+  sha256: string;
+  providerId: 'pollinations-zero-cost';
+  model: string;
+};
+
 export type ConversationMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   deliveryState?: 'verified' | 'error';
+  image?: GeneratedImageMessage;
 };
 export type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type Attachment = { name: string; content: string; mediaType: string; kind: 'image' | 'text'; bytes: number };
@@ -487,6 +497,39 @@ type OriginChatFailurePayload = {
   retryable?: unknown;
   retryAttempted?: unknown;
 };
+
+export const isDirectImageGenerationRequest = (input: string): boolean => {
+  const normalized = input.trim();
+  if (!normalized) return false;
+  return /(?:画像|イラスト|写真|ポスター|バナー|サムネ(?:イル)?).{0,28}(?:作って|作成して|生成して|描いて|お願い|ほしい|欲しい)/u.test(normalized)
+    || /(?:作って|作成して|生成して|描いて).{0,28}(?:画像|イラスト|写真|ポスター|バナー|サムネ(?:イル)?)/u.test(normalized)
+    || /\b(?:generate|create|make|draw)\b.{0,40}\b(?:image|picture|illustration|poster|banner|thumbnail)\b/i.test(normalized);
+};
+
+const rasterSizeForRequest = (input: string): { width: number; height: number } => {
+  if (/(?:9\s*[:：/]\s*16|縦長|ストーリー|portrait|vertical)/i.test(input)) return { width: 864, height: 1536 };
+  if (/(?:16\s*[:：/]\s*9|横長|landscape|wide)/i.test(input)) return { width: 1536, height: 864 };
+  if (/(?:1\s*[:：/]\s*1|正方形|square)/i.test(input)) return { width: 1024, height: 1024 };
+  return { width: 1024, height: 1024 };
+};
+
+const rasterFilenameFromDisposition = (value: string | null, mimeType: string): string => {
+  const fallback = mimeType === 'image/png' ? 'origin-image.png' : mimeType === 'image/webp' ? 'origin-image.webp' : 'origin-image.jpg';
+  if (!value) return fallback;
+  const match = value.match(/filename="([^"]+)"/i);
+  return match?.[1] || fallback;
+};
+
+async function fetchOriginRasterImage(prompt: string, signal: AbortSignal): Promise<Response> {
+  const size = rasterSizeForRequest(prompt);
+  return fetch('/api/generate-image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'image/png,image/jpeg,image/webp' },
+    signal,
+    credentials: 'same-origin',
+    body: JSON.stringify({ prompt, ...size }),
+  });
+}
 
 async function fetchOriginChat(body: string, signal: AbortSignal): Promise<Response> {
   return fetch('/api/chat', {
