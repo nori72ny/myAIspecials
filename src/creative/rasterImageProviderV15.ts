@@ -5,9 +5,12 @@ const DEFAULT_MODEL = 'tomdacatto/sana';
 const AUDITED_ZERO_COST_MODELS = new Set(['tomdacatto/sana']);
 const MAX_PROMPT_CHARS = 2_000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
-const TIMEOUT_MS = 60_000;
+const IMAGE_GENERATION_TIMEOUT_MS = 45_000;
+const MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
 const USAGE_VERIFY_ATTEMPTS = 7;
 const USAGE_VERIFY_DELAY_MS = 7_000;
+const USAGE_VERIFY_TOTAL_MS = 50_000;
+const USAGE_VERIFY_REQUEST_TIMEOUT_MS = 4_000;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 export type RasterImageSizeV15 = {
@@ -114,7 +117,7 @@ async function timedFetch(
   url: string,
   init: RequestInit,
   fetchImpl: typeof fetch,
-  timeoutMs = TIMEOUT_MS,
+  timeoutMs = IMAGE_GENERATION_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -143,7 +146,7 @@ export async function discoverZeroCostPollinationsModelV15(
     `${POLLINATIONS_ORIGIN}/image/models`,
     { method: 'GET', headers: authHeaders(apiKey), cache: 'no-store' },
     fetchImpl,
-    15_000,
+    MODEL_DISCOVERY_TIMEOUT_MS,
   );
   if (!response.ok) return null;
   const parsed = await response.json() as unknown;
@@ -209,6 +212,7 @@ export async function getRasterProviderStatusV15(
 type UsageVerificationOptionsV15 = {
   attempts?: number;
   delayMs?: number;
+  totalMs?: number;
 };
 
 async function verifyLatestZeroCostUsageV15(
@@ -220,15 +224,23 @@ async function verifyLatestZeroCostUsageV15(
 ): Promise<{ verified: boolean; requests: number }> {
   const attempts = Math.max(1, Math.min(10, options.attempts ?? USAGE_VERIFY_ATTEMPTS));
   const delayMs = Math.max(0, Math.min(10_000, options.delayMs ?? USAGE_VERIFY_DELAY_MS));
+  const totalMs = Math.max(1_000, Math.min(55_000, options.totalMs ?? USAGE_VERIFY_TOTAL_MS));
+  const deadline = Date.now() + totalMs;
   let requests = 0;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (attempt > 0 && delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (attempt > 0 && delayMs > 0) {
+      const remainingBeforeDelay = deadline - Date.now();
+      if (remainingBeforeDelay <= delayMs) break;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     const response = await timedFetch(
       `${POLLINATIONS_ORIGIN}/account/key/usage?format=json&limit=10&days=1`,
       { method: 'GET', headers: authHeaders(apiKey), cache: 'no-store' },
       fetchImpl,
-      15_000,
+      Math.min(USAGE_VERIFY_REQUEST_TIMEOUT_MS, remaining),
     );
     requests += 1;
     if (!response.ok) continue;
