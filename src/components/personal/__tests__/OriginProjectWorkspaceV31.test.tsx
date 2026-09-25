@@ -19,7 +19,7 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={() => undefined}
     />);
 
-    expect(screen.getByText('1 messages · 0 artifacts')).toBeTruthy();
+    expect(screen.getByText('1 messages · 0 作成物')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Project Files' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Tasks' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Sources' })).toBeNull();
