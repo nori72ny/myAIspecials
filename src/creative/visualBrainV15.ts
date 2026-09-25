@@ -50,7 +50,10 @@ export type VisualProviderDescriptorV15 = {
   available: boolean;
   verifiedZeroCost: boolean;
   paidFallback: false;
+  paymentMethodRequired: boolean;
   externalNetwork: boolean;
+  privacyReviewed: boolean;
+  secretDelivery: 'none' | 'server-only';
 };
 
 export type VisualBrainPlanV15 = {
@@ -113,7 +116,10 @@ const PROVIDERS: readonly VisualProviderDescriptorV15[] = [
     available: true,
     verifiedZeroCost: true,
     paidFallback: false,
+    paymentMethodRequired: false,
     externalNetwork: false,
+    privacyReviewed: true,
+    secretDelivery: 'none',
   },
 ];
 
@@ -193,6 +199,8 @@ function providerPolicy(task: VisualTaskV15): VisualBrainPlanV15['providerPolicy
     provider.available
     && provider.verifiedZeroCost
     && provider.paidFallback === false
+    && provider.paymentMethodRequired === false
+    && provider.privacyReviewed
     && required.every(capability => provider.capabilities.includes(capability)),
   );
   return {
@@ -303,10 +311,11 @@ export function visualBrainSelfTestV15(): { ready: boolean; checks: readonly str
   const plan = planVisualBrainV15(sample);
   const checks = [
     plan.providerPolicy.selectedProviderId === 'origin-local-svg' ? 'zero-cost-provider-selected' : '',
+    plan.providerPolicy.candidates.every(provider => !provider.paymentMethodRequired && provider.privacyReviewed) ? 'provider-certification-gate' : '',
     plan.typography.strategy === 'deterministic-overlay' ? 'deterministic-typography' : '',
     plan.changePreserve.preserve.includes('exact text') ? 'preserve-map' : '',
     plan.promptCompiler.universalVisualSpec.includes('ORIGIN Personal') ? 'prompt-compiled' : '',
     plan.iterationPolicy.maxIterations === 3 ? 'bounded-repair-policy' : '',
   ].filter(Boolean);
-  return { ready: checks.length === 5, checks };
+  return { ready: checks.length === 6, checks };
 }
