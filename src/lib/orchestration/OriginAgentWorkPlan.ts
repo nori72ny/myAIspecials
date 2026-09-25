@@ -2,6 +2,7 @@ import type { OriginRequestIntent } from "./OriginRequestIntent.js";
 
 export type OriginWorkStepKind =
   | "understand-goal"
+  | "clarify-requirements"
   | "gather-information"
   | "design-output"
   | "create-output"
@@ -75,6 +76,16 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
     availability: "available",
     reason: "依頼の表現だけでなく、達成したい目的を整理します。",
   }];
+
+  if (intent.interactionMode !== "conversation" || intent.requiredCapabilities.length > 0) {
+    steps.push({
+      id: "clarify-requirements",
+      kind: "clarify-requirements",
+      requiredCapability: "requirement-clarification",
+      availability: "available",
+      reason: "結果を大きく左右する不足情報だけを少数ずつ確認し、回答済み要件を引き継ぎます。",
+    });
+  }
 
   if (intent.requiredCapabilities.includes("research")) {
     steps.push({
