@@ -64,6 +64,10 @@ function svgResponse(options: {
     'x-origin-free-only': options.freeOnly === false ? 'false' : 'true',
     'x-origin-cost-usd': options.costUsd ?? '0',
     'x-origin-external-network': options.externalNetwork === true ? 'true' : 'false',
+    'x-origin-visual-brain': 'visual-brain-v1',
+    'x-origin-visual-provider': 'origin-local-svg',
+    'x-origin-visual-plan-sha256': 'b'.repeat(64),
+    'x-origin-visual-generation-id': `visual-${'d'.repeat(24)}`,
   });
   return {
     ok: status >= 200 && status < 300,
@@ -110,6 +114,12 @@ describe('CreativeWorkspaceV15', () => {
         downloadName: input.downloadName,
         createdAt: 1_789_565_000_000,
         svgBlob: input.svgBlob,
+        generationId: input.generationId,
+        visualBrainVersion: input.visualBrainVersion,
+        providerId: input.providerId,
+        planSha256: input.planSha256,
+        relation: input.relation,
+        parentId: input.parentId,
       },
     }));
     vi.mocked(deleteCreativeHistoryV15).mockResolvedValue('deleted');
@@ -157,6 +167,8 @@ describe('CreativeWorkspaceV15', () => {
     const download = screen.getByRole('link', { name: 'SVG保存' }) as HTMLAnchorElement;
     expect(download.getAttribute('download')).toBe('日本語-portrait.svg');
     expect(screen.getByText(/SHA-256 aaaaaaaaaaaa…/)).toBeTruthy();
+    expect(screen.getByText(/visual-brain-v1/)).toBeTruthy();
+    expect(screen.getByText(/origin-local-svg/)).toBeTruthy();
     expect(screen.getByText(/実バイト照合済み/)).toBeTruthy();
     await screen.findByText('端末内履歴に保存しました。SVGは再読み込み後もこの端末から開けます。');
 
@@ -166,6 +178,11 @@ describe('CreativeWorkspaceV15', () => {
       title: '日本語',
       preset: 'portrait',
       downloadName: '日本語-portrait.svg',
+      generationId: `visual-${'d'.repeat(24)}`,
+      visualBrainVersion: 'visual-brain-v1',
+      providerId: 'origin-local-svg',
+      planSha256: 'b'.repeat(64),
+      relation: 'generated',
     }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -181,7 +198,7 @@ describe('CreativeWorkspaceV15', () => {
     await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
     fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
 
-    await screen.findByText('成果物の実バイトとSHA-256証拠が一致しませんでした。');
+    await screen.findByText('作成物の実バイトとSHA-256証拠が一致しませんでした。');
     expect(screen.queryByRole('link', { name: 'SVG保存' })).toBeNull();
     expect(saveCreativeHistoryV15).not.toHaveBeenCalled();
   });
@@ -281,7 +298,7 @@ describe('CreativeWorkspaceV15', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
 
     await screen.findByRole('alert');
-    expect(screen.getByText('成果物の検証証拠を確認できませんでした。')).toBeTruthy();
+    expect(screen.getByText('作成物の検証証拠を確認できませんでした。')).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'SVG保存' })).toBeNull();
   });
 
@@ -296,7 +313,7 @@ describe('CreativeWorkspaceV15', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
 
     await screen.findByRole('alert');
-    expect(screen.getByText('成果物のゼロコスト境界を確認できませんでした。')).toBeTruthy();
+    expect(screen.getByText('作成物のゼロコスト境界を確認できませんでした。')).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'SVG保存' })).toBeNull();
   });
 
@@ -311,7 +328,7 @@ describe('CreativeWorkspaceV15', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
 
     await screen.findByRole('alert');
-    expect(screen.getByText('成果物のSHA-256証拠を確認できませんでした。')).toBeTruthy();
+    expect(screen.getByText('作成物のSHA-256証拠を確認できませんでした。')).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'SVG保存' })).toBeNull();
   });
 
