@@ -5,6 +5,7 @@ import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
 import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
+import { imageRequirementGapsV15 } from './creative/visualIntentCompilerV15';
 
 export interface ArtifactBlock {
   id: string;
@@ -1003,6 +1004,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const [attachmentError, setAttachmentError] = useState('');
   const [isSafeWaiting, setIsSafeWaiting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [pendingImageRequest, setPendingImageRequest] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -1043,7 +1045,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setPendingImageRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
@@ -1091,11 +1093,49 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     const displayText = interruptCurrent ? `⚡ ${language === 'ja' ? '方向修正' : 'Direction update'}: ${text.trim()}` : text.trim();
     const userMessage: ConversationMessage = { id: `u-${Date.now()}`, role: 'user', content: `${displayText}${attachmentMessage}`.trim() };
     const conversation = updateMessages((current) => [...current, userMessage]);
+    const isImageContinuation = Boolean(pendingImageRequest) && !interruptCurrent && attachments.length === 0;
+    const isImageRequest = isImageContinuation || (!interruptCurrent && attachments.length === 0 && isDirectImageGenerationRequest(text.trim()));
+    const combinedImagePrompt = isImageContinuation
+      ? `${pendingImageRequest}\nAdditional requirements: ${text.trim()}`
+      : text.trim();
     const requestMessages = conversation.map((message) => ({ role: message.role, content: message.content }));
     if (interruptedArtifact?.content) {
       const latestMessage = requestMessages.at(-1);
       if (latestMessage) latestMessage.content += `\n\n[生成途中の作成物: ${interruptedArtifact.title}]\n` + '```' + `${interruptedArtifact.language}:${interruptedArtifact.title}\n${interruptedArtifact.content.slice(0, 24_000)}\n` + '```' + '\n\n上記の途中作成物を土台として、最新の方向修正を優先して作成物を完成してください。';
     }
+    if (isImageRequest) {
+      const cancelled = /^(?:キャンセル|やめる|画像(?:作成|生成)?を?やめる|cancel|never mind)[。.!！\s]*$/iu.test(text.trim());
+      if (cancelled) {
+        setPendingImageRequest(null);
+        setInputText('');
+        setAttachments([]);
+        updateMessages((current) => [...current, {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          content: language === 'en' ? 'Image creation cancelled.' : '画像作成をキャンセルしました。',
+          deliveryState: 'verified',
+        }]);
+        return;
+      }
+      const delegated = /^(?:任せる|おまかせ|お任せ|そちらに任せる|you decide|surprise me)[。.!！\s]*$/iu.test(text.trim());
+      const gaps = delegated ? [] : imageRequirementGapsV15(combinedImagePrompt);
+      if (gaps.includes('subject')) {
+        setPendingImageRequest(combinedImagePrompt);
+        setInputText('');
+        setAttachments([]);
+        updateMessages((current) => [...current, {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          content: language === 'en'
+            ? 'What should the image show? If you do not specify the use, style, or aspect ratio, ORIGIN will choose sensible defaults.'
+            : '何を描く画像にしますか？用途・雰囲気・縦横比は、指定がなければORIGINに任せてください。',
+          deliveryState: 'verified',
+        }]);
+        return;
+      }
+      setPendingImageRequest(null);
+    }
+
     setInputText(''); setAttachments([]); setIsLoading(true);
     const controller = new AbortController(); abortRef.current = controller;
     const appendFailure = (content: string) => {
@@ -1115,8 +1155,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
     try {
-      if (!interruptCurrent && attachments.length === 0 && isDirectImageGenerationRequest(text.trim())) {
-        const response = await fetchOriginRasterImage(text.trim(), controller.signal);
+      if (isImageRequest) {
+        const response = await fetchOriginRasterImage(combinedImagePrompt, controller.signal);
         if (!response.ok) {
           const failure = await response.json().catch(() => null) as { code?: string; message?: string } | null;
           const unavailable = language === 'en'
@@ -1179,7 +1219,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const historyStatus = await saveRasterAssetV15({
           sha256: assetId,
           createdAt: Date.now(),
-          prompt: text.trim(),
+          prompt: combinedImagePrompt,
           mimeType: image.mimeType,
           downloadName,
           providerId: image.providerId,
