@@ -72,7 +72,7 @@ export function createOriginApp(
   app.use(createWebPublicationV131Router(env, webPublicationStore));
   app.use(createCodingJobSmokeV14Router(env));
   app.use(createCodingJobV14Router(env, codingStores.jobStore, undefined, codingStores.resultStore));
-  app.use(createVisualArtifactV15Router());
+  app.use(createVisualArtifactV15Router(env));
   app.use(createRasterImageV15Router(env));
   app.use(createOriginResearchRouter());
   // Browser clients request text/event-stream. Handle provider-eligible requests here
