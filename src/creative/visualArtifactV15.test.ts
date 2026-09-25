@@ -204,6 +204,8 @@ describe('V1.5 verified visual artifacts', () => {
     expect(response.headers['x-origin-visual-brain']).toBe('visual-brain-v1');
     expect(response.headers['x-origin-visual-provider']).toBe('origin-local-svg');
     expect(response.headers['x-origin-visual-typography']).toBe('deterministic-overlay');
+    expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
+    expect(response.headers['x-origin-visual-generation-id']).toMatch(/^visual-[a-f0-9]{24}$/);
     expect(response.body.length).toBeGreaterThan(200);
   });
 
