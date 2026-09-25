@@ -135,7 +135,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       expect(menuBox).not.toBeNull();
       expect(menuBox!.x).toBeGreaterThanOrEqual(-1);
       expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(viewport.width + 1);
-      for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '成果物を作る']) {
+      for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '作る']) {
         const item = page.getByRole('menuitem', { name: label, exact: true });
         await expect(item).toBeVisible();
         expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -229,7 +229,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await chooser;
 
     // Each workspace action must result in navigation, not a silent click.
-    for (const [label, workspace] of [['詳しく調べる', 'research'], ['コード', 'coding'], ['成果物を作る', 'creative']] as const) {
+    for (const [label, workspace] of [['詳しく調べる', 'research'], ['コード', 'coding'], ['作る', 'creative']] as const) {
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`workspace=${workspace}`));
