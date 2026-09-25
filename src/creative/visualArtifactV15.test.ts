@@ -65,8 +65,10 @@ describe('V1.5 verified visual artifacts', () => {
     });
     const svg = artifact.bytes.toString('utf8');
     for (const text of ['売上管理ダッシュボード', '月次サマリー', '売上合計、販売数量、支払方法別の傾向を一目で確認できます。', 'ORIGIN Personal']) {
-      expect(svg).toContain(text);
+      expect(svg).toContain(`data-origin-text="${text}"`);
     }
+    expect(artifact.quality.passed).toBe(true);
+    expect(artifact.quality.checks).toContain('exact-text-fidelity');
 
     expect(() => generateVisualArtifactV15({
       kind: 'poster',
