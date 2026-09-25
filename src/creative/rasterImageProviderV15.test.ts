@@ -66,12 +66,13 @@ describe('rasterImageProviderV15', () => {
           meter_source: 'tier',
           cost_usd: 0,
         }],
-      })) as unknown as typeof fetch;
+      }));
+    const fetchImpl = fetchMock as unknown as typeof fetch;
 
     const result = await generateRasterImageV15(
       { prompt: '静かな湖と朝焼け', width: 768, height: 1024 },
       { POLLINATIONS_API_KEY: 'sk_test', ORIGIN_IMAGE_MODEL: 'tomdacatto/sana' },
-      fetchMock,
+      fetchImpl,
     );
 
     expect(result).toMatchObject({
