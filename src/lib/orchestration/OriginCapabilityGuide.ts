@@ -23,7 +23,7 @@ export function isOriginCapabilityQuestion(input: string): boolean {
 }
 
 function japaneseGuide(): OriginCapabilityGuide {
-  const content = `ORIGINは、質問に答えるだけでなく、調査・成果物生成・Web制作・Codingまでを、現在の公開版で実行できる範囲は実際に実行するAIエージェントです。
+  const content = `ORIGINは、質問に答えるだけでなく、調査・作成物生成・Web制作・Codingまでを、現在の公開版で実行できる範囲は実際に実行するAIエージェントです。
 
 現在できること
 - 会話・分析：相談、比較、意思決定支援、文章、営業台本、メール、SNS投稿、企画を作成
