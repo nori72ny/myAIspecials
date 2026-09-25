@@ -45,6 +45,30 @@ describe('V1.5 verified visual artifacts', () => {
     }
   });
 
+  it('preserves required text instead of silently truncating it', () => {
+    const artifact = generateVisualArtifactV15({
+      kind: 'info-card',
+      preset: 'portrait',
+      layout: 'editorial',
+      title: '売上管理ダッシュボード',
+      subtitle: '月次サマリー',
+      body: '売上合計、販売数量、支払方法別の傾向を一目で確認できます。',
+      footer: 'ORIGIN Personal',
+    });
+    const svg = artifact.bytes.toString('utf8');
+    for (const text of ['売上管理ダッシュボード', '月次サマリー', '売上合計、販売数量、支払方法別の傾向を一目で確認できます。', 'ORIGIN Personal']) {
+      expect(svg).toContain(text);
+    }
+
+    expect(() => generateVisualArtifactV15({
+      kind: 'poster',
+      preset: 'landscape',
+      layout: 'minimal',
+      title: '長文',
+      body: '情報'.repeat(1000),
+    })).toThrow('VISUAL_TEXT_OVERFLOW_BODY');
+  });
+
   it('escapes untrusted text and does not create executable or external SVG features', () => {
     const artifact = generateVisualArtifactV15({
       kind: 'poster',
