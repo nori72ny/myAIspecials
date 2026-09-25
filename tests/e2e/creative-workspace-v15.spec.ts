@@ -47,7 +47,7 @@ test.describe('V1.5 Creative workspace production surface', () => {
 
     await expect(page.getByRole('navigation', { name: 'Mode' })).toHaveCount(0);
     await page.getByTestId('origin-add-menu-toggle').click();
-    await page.getByRole('menuitem', { name: '成果物を作る', exact: true }).click();
+    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
     await expect(page).toHaveURL(/workspace=creative/);
     await expect(page.getByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0')).toBeVisible();
     await expect(page.getByText('詳細設定', { exact: true })).toBeVisible();
