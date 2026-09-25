@@ -508,10 +508,17 @@ type OriginChatFailurePayload = {
 export const isDirectImageGenerationRequest = (input: string): boolean => {
   const normalized = input.trim();
   if (!normalized) return false;
-  return /(?:画像|イラスト|写真|ポスター|バナー|サムネ(?:イル)?).{0,28}(?:作って|作成して|生成して|描いて|お願い|ほしい|欲しい)/u.test(normalized)
-    || /(?:作って|作成して|生成して|描いて).{0,28}(?:画像|イラスト|写真|ポスター|バナー|サムネ(?:イル)?)/u.test(normalized)
-    || /\b(?:generate|create|make|draw)\b.{0,40}\b(?:image|picture|illustration|poster|banner|thumbnail)\b/i.test(normalized);
+  const visualNoun = '(?:画像|イラスト|写真|絵|ポスター|バナー|サムネ(?:イル)?|ロゴ|アイコン|壁紙|アート|キービジュアル)';
+  if (new RegExp(`${visualNoun}.{0,36}(?:作って|作成して|生成して|描いて|描画して|お願い|ほしい|欲しい)`, 'u').test(normalized)) return true;
+  if (new RegExp(`(?:作って|作成して|生成して|描いて|描画して).{0,36}${visualNoun}`, 'u').test(normalized)) return true;
+  if (/\b(?:generate|create|make|draw|render|design)\b.{0,50}\b(?:image|picture|illustration|poster|banner|thumbnail|logo|icon|wallpaper|artwork|key visual)\b/i.test(normalized)) return true;
+  if (!/(?:仕組み|方法|やり方|説明|教えて|what is|how (?:does|to))/i.test(normalized)
+    && /(?:を|の).{0,60}(?:描いて|描画して)$/u.test(normalized)) return true;
+  return false;
 };
+
+const isImageClarificationCancellation = (input: string): boolean =>
+  /^(?:やめ(?:る|ます)?|キャンセル|画像(?:生成)?はやめ|別の話|cancel|stop|never mind)\b/i.test(input.trim());
 
 const rasterSizeForRequest = (input: string): { width: number; height: number } => {
   if (/(?:9\s*[:：/]\s*16|縦長|ストーリー|portrait|vertical)/i.test(input)) return { width: 864, height: 1536 };
@@ -1008,6 +1015,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const abortRef = useRef<AbortController | null>(null);
   const rasterObjectUrls = useRef(new Set<string>());
   const rasterHydratingIds = useRef(new Set<string>());
+  const pendingImageRequestRef = useRef<{ prompt: string; questions: readonly string[] } | null>(null);
   const observedResetSignal = useRef(resetSignal);
   const messages = controlledMessages ?? uncontrolledMessages;
   const artifacts = controlledArtifacts ?? uncontrolledArtifacts;
@@ -1043,7 +1051,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
@@ -1115,10 +1123,37 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
     try {
-      if (!interruptCurrent && attachments.length === 0 && isDirectImageGenerationRequest(text.trim())) {
-        const response = await fetchOriginRasterImage(text.trim(), controller.signal);
+      const pendingImageRequest = pendingImageRequestRef.current;
+      if (pendingImageRequest && isImageClarificationCancellation(text.trim())) pendingImageRequestRef.current = null;
+      const shouldGenerateImage = !interruptCurrent
+        && attachments.length === 0
+        && !isImageClarificationCancellation(text.trim())
+        && (Boolean(pendingImageRequest) || isDirectImageGenerationRequest(text.trim()));
+      if (shouldGenerateImage) {
+        const imageRequestText = pendingImageRequest
+          ? `${pendingImageRequest.prompt}\n\n追加条件: ${text.trim()}`
+          : text.trim();
+        const response = await fetchOriginRasterImage(imageRequestText, controller.signal);
         if (!response.ok) {
-          const failure = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+          const failure = await response.json().catch(() => null) as { code?: string; message?: string; questions?: unknown } | null;
+          if (response.status === 409 && failure?.code === 'IMAGE_REQUIREMENTS_INCOMPLETE' && Array.isArray(failure.questions)) {
+            const questions = failure.questions
+              .filter((question): question is string => typeof question === 'string' && Boolean(question.trim()))
+              .slice(0, 3);
+            if (questions.length > 0) {
+              pendingImageRequestRef.current = { prompt: imageRequestText, questions };
+              updateMessages((current) => [...current, {
+                id: `a-${Date.now()}`,
+                role: 'assistant',
+                content: language === 'en'
+                  ? `Before I generate it, I need ${questions.length === 1 ? 'one detail' : 'a few details'}:\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
+                  : `画像を作る前に、仕上がりを大きく左右する点だけ確認します。\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`,
+                deliveryState: 'verified',
+              }]);
+              return;
+            }
+          }
+          pendingImageRequestRef.current = null;
           const unavailable = language === 'en'
             ? 'Verified $0 image generation is currently unavailable. ORIGIN did not substitute a prompt or use a paid provider.'
             : '検証済みの0円画像生成を現在実行できません。プロンプトへの置き換えや有料プロバイダへの切り替えは行っていません。';
@@ -1131,6 +1166,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const providerId = response.headers.get('x-origin-visual-provider') ?? '';
         const model = response.headers.get('x-origin-visual-model') ?? '';
         const generationId = response.headers.get('x-origin-visual-generation-id') ?? '';
+        const visualPlan = response.headers.get('x-origin-visual-plan') ?? '';
+        const visualPlanSha256 = response.headers.get('x-origin-visual-plan-sha256') ?? '';
         const width = Number(response.headers.get('x-origin-visual-width') ?? '0');
         const height = Number(response.headers.get('x-origin-visual-height') ?? '0');
         const cost = response.headers.get('x-origin-cost-usd');
@@ -1142,6 +1179,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           || providerId !== 'pollinations-zero-cost'
           || !model
           || !/^raster-[a-f0-9]{24}$/i.test(generationId)
+          || visualPlan !== 'raster-visual-plan-v1'
+          || !/^[a-f0-9]{64}$/i.test(visualPlanSha256)
           || !Number.isInteger(width) || width < 256 || width > 1536
           || !Number.isInteger(height) || height < 256 || height > 1536
           || cost !== '0'
@@ -1179,7 +1218,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const historyStatus = await saveRasterAssetV15({
           sha256: assetId,
           createdAt: Date.now(),
-          prompt: text.trim(),
+          prompt: imageRequestText,
           mimeType: image.mimeType,
           downloadName,
           providerId: image.providerId,
@@ -1195,6 +1234,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           rasterObjectUrls.current.delete(imageUrl);
           throw new Error('raster-history-integrity-failed');
         }
+        pendingImageRequestRef.current = null;
         updateMessages((current) => [...current, {
           id: assistantId,
           role: 'assistant',
