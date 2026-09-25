@@ -32,9 +32,9 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe('rasterImageProviderV15', () => {
-  it('selects only a model whose live registry price is exactly zero', async () => {
+  it('selects the audited model only when its live registry price is exactly zero', async () => {
     const fetchMock = vi.fn(async () => json([pricedModel, freeModel])) as unknown as typeof fetch;
-    await expect(discoverZeroCostPollinationsModelV15('sk_test', 'flux', fetchMock)).resolves.toBe('tomdacatto/sana');
+    await expect(discoverZeroCostPollinationsModelV15('sk_test', 'tomdacatto/sana', fetchMock)).resolves.toBe('tomdacatto/sana');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
