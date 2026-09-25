@@ -190,17 +190,10 @@ export function compileVisualIntentV15(input: {
   };
 }
 
-export function imageRequirementGapsV15(input: string): readonly ('subject' | 'purpose' | 'format')[] {
+export function imageRequirementGapsV15(input: string): readonly ('subject')[] {
   const prompt = normalize(input);
   if (!prompt) return ['subject'];
-  const gaps: Array<'subject' | 'purpose' | 'format'> = [];
   const genericOnly = /^(?:画像|イラスト|写真|絵)(?:を)?(?:作って|作成して|生成して|描いて|ほしい|欲しい|お願いします?)[。.!！\s]*$/u.test(prompt);
-  if (genericOnly || prompt.length < 8) gaps.push('subject');
-  if (!/(?:instagram|インスタ|sns|web|lp|広告|ad|poster|ポスター|thumbnail|サムネ|資料|presentation|印刷|print|壁紙|wallpaper|プロフィール|icon|アイコン)/i.test(prompt)) {
-    gaps.push('purpose');
-  }
-  if (!/(?:\b\d{2,4}\s*[x×]\s*\d{2,4}\b|\b\d+\s*[:：/]\s*\d+\b|縦長|横長|正方形|portrait|landscape|square|story)/i.test(prompt)) {
-    gaps.push('format');
-  }
-  return gaps;
+  const formatOnly = /^(?:instagram|インスタ|sns|広告|poster|ポスター|thumbnail|サムネ|縦長|横長|正方形|portrait|landscape|square).{0,16}(?:画像|イラスト)?(?:を)?(?:作って|作成して|生成して|描いて|ほしい|欲しい|お願いします?)[。.!！\s]*$/iu.test(prompt);
+  return genericOnly || formatOnly || prompt.length < 8 ? ['subject'] : [];
 }
