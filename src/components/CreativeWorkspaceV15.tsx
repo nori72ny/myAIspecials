@@ -243,11 +243,15 @@ export default function CreativeWorkspaceV15() {
       const providerId = response.headers.get('x-origin-visual-provider') || '';
       const planSha256 = response.headers.get('x-origin-visual-plan-sha256') || '';
       const generationId = response.headers.get('x-origin-visual-generation-id') || '';
+      const critic = response.headers.get('x-origin-visual-critic') || '';
+      const qualityScore = Number(response.headers.get('x-origin-visual-quality-score') || '0');
       if (visualBrainVersion !== 'visual-brain-v1'
         || providerId !== 'origin-local-svg'
+        || critic !== 'deterministic-v1'
+        || qualityScore < 100
         || !/^[a-f0-9]{64}$/i.test(planSha256)
         || !/^visual-[a-f0-9]{24}$/i.test(generationId)) {
-        throw new Error('Visual Brainの生成証拠を確認できませんでした。');
+        throw new Error('Visual Brainの生成・品質検証証拠を確認できませんでした。');
       }
       const blob = await response.blob();
       if (blob.size <= 0) throw new Error('空の作成物が返されました。');
@@ -441,7 +445,7 @@ export default function CreativeWorkspaceV15() {
             )}
           </div>
           {artifact && previewUrl && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · {artifact.visualBrainVersion ?? 'visual-brain'} · {artifact.providerId ?? 'local'} · 実バイト照合済み · 外部通信なし · PNGは端末内変換
+            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · {artifact.visualBrainVersion ?? 'visual-brain'} · {artifact.providerId ?? 'local'} · Critic 100 · 実バイト照合済み · 外部通信なし · PNGは端末内変換
           </div>}
         </section>
       </div>
