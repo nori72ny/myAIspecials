@@ -110,11 +110,18 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-secret-delivery']).toBe('server-only');
     expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-generation-id']).toMatch(/^raster-[a-f0-9]{24}$/);
+    expect(response.headers['x-origin-visual-brain']).toBe('visual-brain-v1');
+    expect(response.headers['x-origin-visual-prompt-compiler']).toBe('raster-compiler-v1');
+    expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
+    expect(response.headers['x-origin-visual-purpose']).toBe('general');
     expect(response.headers['x-origin-visual-width']).toBe('768');
     expect(response.headers['x-origin-visual-height']).toBe('1024');
     expect(Buffer.isBuffer(response.body)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(4);
 
+    const providerUrl = String(fetchMock.mock.calls[2]?.[0]);
+    expect(decodeURIComponent(providerUrl)).toContain('Create the requested image as a finished, production-quality visual.');
+    expect(decodeURIComponent(providerUrl)).toContain('Original request: 静かな湖と朝焼け');
     const providerRequest = fetchMock.mock.calls[2]?.[1] as RequestInit;
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe('Bearer server_only_key');
