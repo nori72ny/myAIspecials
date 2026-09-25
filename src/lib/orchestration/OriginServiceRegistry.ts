@@ -48,6 +48,7 @@ export const ORIGIN_TEXT_RUNTIME_SERVICE: OriginServiceRegistration = {
   adapterId: "authoritative-origin-chat",
   capabilities: [
     "goal-understanding",
+    "requirement-clarification",
     "output-design",
     "text-generation",
     "quality-review",

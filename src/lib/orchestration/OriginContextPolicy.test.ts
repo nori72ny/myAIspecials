@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { minimizeOriginContext } from "./OriginContextPolicy";
+import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext } from "./OriginContextPolicy";
 
 const conversation = [
   { role: "ai" as const, content: "ORIGINの案内です。" },
@@ -11,6 +11,24 @@ const conversation = [
 ];
 
 describe("minimizeOriginContext", () => {
+  it("keeps enough bounded context for several clarification cycles by default", () => {
+    expect(DEFAULT_ORIGIN_CONTEXT_POLICY).toEqual({
+      version: 1,
+      maxMessages: 12,
+      maxCharacters: 12_000,
+    });
+
+    const clarificationThread = Array.from({ length: 12 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" as const : "ai" as const,
+      content: `turn-${index + 1}`,
+    }));
+    const result = minimizeOriginContext(clarificationThread);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.window.messages).toHaveLength(12);
+    expect(result.window.omittedMessageCount).toBe(0);
+  });
+
   it("keeps the latest coherent window and removes an orphan assistant greeting", () => {
     const result = minimizeOriginContext(conversation, {
       version: 1,

@@ -88,6 +88,30 @@ describe("createOriginStreamingChatRouter", () => {
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps task-specific clarification guidance when the user answers with a short choice", async () => {
+    const streamExecute = vi.fn(async (providerRequest, handlers) => {
+      expect(providerRequest.systemInstruction).toContain("Requirement clarification mode (adaptive");
+      expect(providerRequest.systemInstruction).toContain("user-workflows");
+      expect(providerRequest.systemInstruction).toContain("storage-sharing");
+      expect(providerRequest.systemInstruction).toContain("Never ask the same requirement twice");
+      handlers.onDelta("確認を続けます");
+      return result("確認を続けます");
+    }) as unknown as OriginProviderStreamExecutor;
+
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [
+        { role: "user", content: "ウェブアプリで売上を管理できるようにしてください" },
+        { role: "assistant", content: "簡易版と複数人利用版のどちらにしますか？ 1. 簡易版 2. 複数人利用版" },
+        { role: "user", content: "1" },
+      ] });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('"type":"complete"');
+    expect(streamExecute).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ["supplied pricing transformation", "この文章を200字以内に短くして。『新サービスは10月開始予定で、詳細料金は来週確定します。』"],
     ["hypothetical freshness failure", "最新の為替レートを検索できない状態だと仮定します。1ドルが何円か断定せず、安全な次の行動を示してください。"],

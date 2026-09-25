@@ -74,7 +74,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('origin-add-menu-toggle')).toBeVisible();
     await expect(page.getByRole('menu', { name: '追加機能' })).toBeHidden();
     await page.getByTestId('origin-add-menu-toggle').click();
-    for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '成果物を作る']) {
+    for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '作る']) {
       await expect(page.getByRole('menuitem', { name: label, exact: true })).toBeVisible();
     }
     await expect(page.getByRole('menuitem', { name: '詳細', exact: true })).toHaveCount(0);
@@ -165,7 +165,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
 
       await page.getByTestId('origin-add-menu-toggle').click();
-      await page.getByRole('menuitem', { name: '成果物を作る', exact: true }).click();
+      await page.getByRole('menuitem', { name: '作る', exact: true }).click();
       await expect(page).toHaveURL(/workspace=creative/);
       await expect(page.getByRole('heading', { name: '作りたいものを入力' })).toBeVisible();
       await expect(page.getByLabel('タイトル', { exact: true })).toBeEditable();

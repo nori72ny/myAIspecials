@@ -19,12 +19,12 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={() => undefined}
     />);
 
-    expect(screen.getByText('1 messages · 0 artifacts')).toBeTruthy();
+    expect(screen.getByText('1 messages · 0 作成物')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Project Files' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Tasks' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Sources' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Project Artifacts' })).toBeNull();
-    expect(screen.getByText(/必要な証拠や成果物ができた時だけ/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Project 作成物' })).toBeNull();
+    expect(screen.getByText(/必要な証拠や作成物ができた時だけ/)).toBeTruthy();
   });
 
   it('allows artifact navigation only when a real artifact exists', () => {
@@ -40,7 +40,7 @@ describe('OriginProjectWorkspaceV31', () => {
       onViewChange={onViewChange}
     />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Project 作成物' }));
     expect(onViewChange).toHaveBeenCalledWith('artifacts');
   });
 

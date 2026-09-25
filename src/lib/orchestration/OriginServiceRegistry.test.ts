@@ -38,6 +38,11 @@ describe("OriginServiceRegistry", () => {
 
     expect(resolved.assignments).toEqual(expect.arrayContaining([
       expect.objectContaining({
+        requiredCapability: "requirement-clarification",
+        serviceId: "origin-text-runtime",
+        status: "assigned",
+      }),
+      expect.objectContaining({
         requiredCapability: "text-generation",
         serviceId: "origin-text-runtime",
         status: "assigned",

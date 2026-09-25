@@ -20,7 +20,7 @@ vi.mock('../../../App', () => ({
     appProps(props);
     return <div data-testid="mock-origin-app">ORIGIN</div>;
   },
-  ArtifactWorkspace: ({ artifact, isOpen, onClose }: { artifact: { title: string }; isOpen: boolean; onClose: () => void }) => isOpen ? <aside aria-label="成果物ワークスペース"><p>{artifact.title}</p><button type="button" onClick={onClose}>会話に戻る</button></aside> : null,
+  ArtifactWorkspace: ({ artifact, isOpen, onClose }: { artifact: { title: string }; isOpen: boolean; onClose: () => void }) => isOpen ? <aside aria-label="作成物ワークスペース"><p>{artifact.title}</p><button type="button" onClick={onClose}>会話に戻る</button></aside> : null,
 }));
 
 function latestAppProps(): MockAppProps {
@@ -147,7 +147,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
 
   it('hydrates messages and shows the Artifact layer only after artifacts arrive', () => {
     const { rerender } = render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={[]} artifacts={[]} />);
-    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '作成物' })).toBeNull();
 
     const restoredMessages = [{ id: 'u-restored', role: 'user' as const, content: '再読込後の相談' }];
     const restoredArtifacts = [{ id: 'a-restored', type: 'markdown' as const, title: '復元資料', language: 'markdown', content: '# 復元', isComplete: true }];
@@ -156,48 +156,48 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     const props = latestAppProps();
     expect(props.messages).toEqual(restoredMessages);
     expect(props.artifacts).toEqual(restoredArtifacts);
-    const artifactLayer = screen.getByRole('region', { name: 'Artifact layer' });
-    expect(artifactLayer.textContent).toContain('成果物');
+    const artifactLayer = screen.getByRole('region', { name: '作成物' });
+    expect(artifactLayer.textContent).toContain('作成物');
     expect(artifactLayer.textContent).toContain('復元資料');
     expect(artifactLayer.textContent).toContain('完成');
   });
 
   it('reopens the latest artifact through the mobile Conversation / Artifact tabs', () => {
-    const artifacts = [{ id: 'a-mobile', type: 'markdown' as const, title: 'モバイル成果物', language: 'markdown', content: '# Mobile', isComplete: true }];
+    const artifacts = [{ id: 'a-mobile', type: 'markdown' as const, title: 'モバイル作成物', language: 'markdown', content: '# Mobile', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
 
     const tabs = screen.getByRole('tablist', { name: 'モバイルChat表示' });
     const conversation = screen.getByRole('tab', { name: '会話' });
-    const artifact = screen.getByRole('tab', { name: '成果物' });
+    const artifact = screen.getByRole('tab', { name: '作成物' });
     expect(tabs).toBeTruthy();
     expect(conversation.getAttribute('aria-selected')).toBe('true');
 
     fireEvent.click(artifact);
     expect(artifact.getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByRole('complementary', { name: '成果物ワークスペース' }).textContent).toContain('モバイル成果物');
+    expect(screen.getByRole('complementary', { name: '作成物ワークスペース' }).textContent).toContain('モバイル作成物');
 
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(conversation.getAttribute('aria-selected')).toBe('true');
   });
 
   it('keeps the Chat Artifact layer out of Research, Code, and Create workspaces', async () => {
-    const artifacts = [{ id: 'a-1', type: 'markdown' as const, title: '成果物', language: 'markdown', content: '# A', isComplete: true }];
+    const artifacts = [{ id: 'a-1', type: 'markdown' as const, title: '作成物', language: 'markdown', content: '# A', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
-    expect(screen.getByRole('region', { name: 'Artifact layer' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: '作成物' })).toBeTruthy();
 
     runAppAction('onOpenResearch');
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '作成物' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
 
     runAppAction('onOpenCoding');
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '作成物' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
 
     runAppAction('onOpenCreative');
     expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Artifact layer' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '作成物' })).toBeNull();
   });
 
   it('keeps Project details hidden until explicitly requested and shows only grounded views', async () => {
@@ -213,9 +213,9 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '詳細を開く' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Project 作成物' }));
     expect(window.location.search).toBe('?workspace=research');
-    expect(screen.getByRole('complementary', { name: '成果物ワークスペース' }).textContent).toContain('Project artifact');
+    expect(screen.getByRole('complementary', { name: '作成物ワークスペース' }).textContent).toContain('Project artifact');
   });
 
   it('does not expose Details on a pristine home and still hides empty project views after conversation evidence exists', () => {
@@ -229,6 +229,6 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('button', { name: 'Project Files' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Tasks' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Sources' })).toBeNull();
-    expect(screen.getByText(/必要な証拠や成果物ができた時だけ/)).toBeTruthy();
+    expect(screen.getByText(/必要な証拠や作成物ができた時だけ/)).toBeTruthy();
   });
 });

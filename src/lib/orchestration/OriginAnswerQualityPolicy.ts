@@ -26,7 +26,7 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
   const modeInstruction: Record<OriginAnswerMode, string> = {
     direct: "Give the direct answer first. Use the Fast Path for simple, low-stakes questions: skip heavyweight reasoning, research, and unnecessary framing; stream the answer as soon as the required facts are available. Add only the explanation needed to use it.",
     decision: "Present a decision object: recommendation first, up to three decisive reasons, meaningful trade-offs or risks, uncertainty, and the next action. Do not repeat the conclusion at the end.",
-    deliverable: "Return the requested deliverable first. The first substantive content must be the usable artifact itself. Do not spend tokens on capability introductions, generic preambles, or meta-commentary unless explicitly requested.",
+    deliverable: "If material requirements are still missing, ask the focused clarification questions first. Once requirements are sufficiently clear, return the requested deliverable as the first substantive output. Do not spend tokens on capability introductions, generic preambles, or meta-commentary unless explicitly requested.",
     research: "Separate confirmed facts, user-provided material, inference, and unverified points. Bind each time-sensitive factual claim to a directly supporting source when one was actually checked.",
   };
   const verificationInstruction: Record<OriginVerificationLevel, string> = {
@@ -55,7 +55,7 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
     `- Response mode: ${policy.answerMode}. ${modeInstruction[policy.answerMode]}`,
     `- Verification level: ${policy.verificationLevel}. ${verificationInstruction[policy.verificationLevel]}`,
     `- Executive reasoning: ${policy.executiveReasoningRequired ? "required for consequential decisions" : "apply only when decision stakes warrant it"}.`,
-    "- Deliverable First: when the user asks for something usable, start with the finished output. Remove capability descriptions and generic preambles unless requested.",
+    "- Deliverable First after clarification: when the user asks for something usable, first resolve only the material unknowns that would change the result. Then start with the finished output. Remove capability descriptions and generic preambles unless requested.",
     "- Fast Path: for simple, deterministic, low-stakes requests, answer directly without unnecessary multi-step reasoning or repeated framing. Speed never authorizes invented facts.",
     "- Depth calibration: concise means removing repetition, not removing substance. A short answer is appropriate only when it fully resolves the request. Multi-part, technical, planning, or consequential work must address every explicit requirement with enough concrete reasoning, constraints, examples, and execution detail to be decision-ready.",
     "- Write for a capable adult using professional, domain-appropriate language. Do not flatten important nuance or use childlike explanations unless the user asks for a beginner version.",

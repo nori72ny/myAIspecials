@@ -2,6 +2,7 @@ import type { OriginRequestIntent } from "./OriginRequestIntent.js";
 
 export type OriginWorkStepKind =
   | "understand-goal"
+  | "clarify-requirements"
   | "gather-information"
   | "design-output"
   | "create-output"
@@ -63,7 +64,7 @@ function createOutputStep(output: string, index: number): OriginAgentWorkStep {
     kind: "create-output",
     requiredCapability: capability,
     availability: "partial",
-    reason: `${output}の内容設計はできますが、実ファイルまたは実行可能成果物の生成経路は未接続です。`,
+    reason: `${output}の内容設計はできますが、実ファイルまたは実行可能作成物の生成経路は未接続です。`,
   };
 }
 
@@ -75,6 +76,16 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
     availability: "available",
     reason: "依頼の表現だけでなく、達成したい目的を整理します。",
   }];
+
+  if (intent.interactionMode !== "conversation" || intent.requiredCapabilities.length > 0) {
+    steps.push({
+      id: "clarify-requirements",
+      kind: "clarify-requirements",
+      requiredCapability: "requirement-clarification",
+      availability: "available",
+      reason: "結果を大きく左右する不足情報だけを少数ずつ確認し、回答済み要件を引き継ぎます。",
+    });
+  }
 
   if (intent.requiredCapabilities.includes("research")) {
     steps.push({
@@ -92,7 +103,7 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
       kind: "design-output",
       requiredCapability: "output-design",
       availability: "available",
-      reason: "目的と利用場面に合わせて成果物の構成を設計します。",
+      reason: "目的と利用場面に合わせて作成物の構成を設計します。",
     });
   }
 
@@ -107,7 +118,7 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
     availability: intent.requiredCapabilities.includes("research") ? "partial" : "available",
     reason: intent.requiredCapabilities.includes("research")
       ? "指示適合と内部整合性は確認できますが、外部事実の確認は検索経路の接続状況に従います。"
-      : "回答または成果物の指示適合と内部整合性を確認します。",
+      : "回答または作成物の指示適合と内部整合性を確認します。",
   });
 
   if (intent.interactionMode !== "conversation") {
@@ -118,7 +129,7 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
       availability: intent.requestedOutputs.every((output) => INLINE_TEXT_OUTPUTS.has(output))
         ? "available"
         : "partial",
-      reason: "利用可能な内容は回答内で提示し、未生成のファイルや成果物を完成済みとは表示しません。",
+      reason: "利用可能な内容は回答内で提示し、未生成のファイルや作成物を完成済みとは表示しません。",
     });
   }
 
