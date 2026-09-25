@@ -123,6 +123,64 @@ describe('rasterImageProviderV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('waits for eventually-consistent usage evidence and succeeds only after zero-cost tier proof appears', async () => {
+    const imageBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const matchingUsage = {
+      timestamp: new Date().toISOString().replace('T', ' ').replace('Z', ''),
+      type: 'generate.image',
+      model: 'tomdacatto/sana',
+      meter_source: 'tier',
+      cost_usd: 0,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(new Response(imageBytes, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }))
+      .mockResolvedValueOnce(json({ usage: [] }))
+      .mockResolvedValueOnce(json({ usage: [] }))
+      .mockResolvedValueOnce(json({ usage: [matchingUsage] }));
+    const fetchImpl = fetchMock as unknown as typeof fetch;
+
+    const result = await generateRasterImageV15(
+      { prompt: '夕焼けの海' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchImpl,
+      { attempts: 3, delayMs: 0 },
+    );
+
+    expect(result.externalNetworkRequests).toBe(5);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('rejects paid-balance usage even when the reported USD cost is zero', async () => {
+    const imageBytes = Uint8Array.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(new Response(imageBytes, {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg' },
+      }))
+      .mockResolvedValueOnce(json({
+        usage: [{
+          timestamp: new Date().toISOString().replace('T', ' ').replace('Z', ''),
+          type: 'generate.image',
+          model: 'tomdacatto/sana',
+          meter_source: 'pack',
+          cost_usd: 0,
+        }],
+      }));
+    const fetchImpl = fetchMock as unknown as typeof fetch;
+
+    await expect(generateRasterImageV15(
+      { prompt: 'test' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchImpl,
+      { attempts: 1, delayMs: 0 },
+    )).rejects.toThrow('ZERO_COST_USAGE_NOT_VERIFIED');
+  });
+
   it('rejects the output if actual zero-cost usage cannot be proven after generation', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
@@ -144,6 +202,7 @@ describe('rasterImageProviderV15', () => {
       { prompt: 'test' },
       { POLLINATIONS_API_KEY: 'sk_test' },
       fetchMock,
+      { attempts: 1, delayMs: 0 },
     )).rejects.toThrow('ZERO_COST_USAGE_NOT_VERIFIED');
   });
 });
