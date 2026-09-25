@@ -621,8 +621,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('何を描く画像にしますか？用途・雰囲気・縦横比は、指定がなければORIGINに任せてください。')).toBeTruthy());
     expect(fetchMock).not.toHaveBeenCalled();
 
-    fireEvent.change(input, { target: { value: 'Instagram用、夕焼けの海、9:16、映画のような雰囲気' } });
-    fireEvent.click(screen.getByTestId('start-request-button'));
+    const chatInput = screen.getByTestId('origin-chat-request');
+    fireEvent.change(chatInput, { target: { value: 'Instagram用、夕焼けの海、9:16、映画のような雰囲気' } });
+    fireEvent.click(screen.getByTestId('send-request-button'));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
