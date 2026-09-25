@@ -73,6 +73,49 @@ describe('rasterImageV15Router', () => {
     expect(legacy.body.code).toBe('POLLINATIONS_KEY_NOT_CONFIGURED');
   });
 
+  it('returns focused clarification questions before any provider execution for vague image requests', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({ POLLINATIONS_API_KEY: 'server_only_key' }))
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt: '画像を作ってください' });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'IMAGE_REQUIREMENTS_INCOMPLETE',
+      freeOnly: true,
+      costUsd: 0,
+      providerExecutions: 0,
+      secretDelivery: 'server-only',
+    });
+    expect(response.body.questions).toEqual([expect.stringContaining('何を主役')]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('exposes the structured raster plan without executing an image provider', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app())
+      .post('/api/creative/v1.5/raster/plan')
+      .send({ prompt: '高級で未来的なORIGINのスマホ広告画像を9:16で作ってください' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.code).toBe('RASTER_PLAN_READY');
+    expect(response.body.plan).toMatchObject({
+      version: 'raster-visual-plan-v1',
+      purpose: 'advertisement',
+      platform: 'vertical-mobile',
+      width: 864,
+      height: 1536,
+    });
+    expect(response.body.plan.compiledPrompt).toContain('Art direction');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('blocks sensitive content before any external image-provider request', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -110,6 +153,10 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-secret-delivery']).toBe('server-only');
     expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-generation-id']).toMatch(/^raster-[a-f0-9]{24}$/);
+    expect(response.headers['x-origin-visual-plan']).toBe('raster-visual-plan-v1');
+    expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
+    expect(response.headers['x-origin-visual-purpose']).toBe('photograph');
+    expect(response.headers['x-origin-visual-typography-overlay']).toBe('not-required');
     expect(response.headers['x-origin-visual-width']).toBe('768');
     expect(response.headers['x-origin-visual-height']).toBe('1024');
     expect(Buffer.isBuffer(response.body)).toBe(true);
@@ -119,6 +166,9 @@ describe('rasterImageV15Router', () => {
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe('Bearer server_only_key');
     expect(response.text ?? '').not.toContain('server_only_key');
+    const providerUrl = String(fetchMock.mock.calls[2]?.[0]);
+    expect(decodeURIComponent(providerUrl)).toContain('Create a polished production-quality image');
+    expect(decodeURIComponent(providerUrl)).toContain('User request: 静かな湖と朝焼け');
   });
 
   it('rejects unexpected request fields instead of forwarding them upstream', async () => {
