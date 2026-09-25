@@ -25,6 +25,10 @@ function entry(overrides: Partial<RasterAssetEntryV15> = {}): RasterAssetEntryV1
     relation: 'generated',
     width: 1024,
     height: 1024,
+    purpose: 'general',
+    style: 'unspecified',
+    orientation: 'square',
+    typographyOverlay: false,
     blob: new Blob([Uint8Array.from([1, 2, 3])], { type: 'image/png' }),
     ...overrides,
   };
@@ -40,6 +44,9 @@ describe('localRasterHistoryV15', () => {
     expect(isRasterAssetEntryShapeV15(entry({ parentId: '../bad' }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ mimeType: 'image/jpeg', blob: new Blob(['x'], { type: 'image/png' }) }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ width: 2048 }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ purpose: 'unknown' as never }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ style: 'unknown' as never }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ orientation: 'diagonal' as never }))).toBe(false);
   });
 
   it('supports verified lineage metadata for future variation and editing flows', () => {
@@ -65,6 +72,10 @@ describe('localRasterHistoryV15', () => {
         relation: base.relation,
         width: base.width,
         height: base.height,
+        purpose: base.purpose,
+        style: base.style,
+        orientation: base.orientation,
+        typographyOverlay: base.typographyOverlay,
         blob: base.blob,
       })).resolves.toBe('unavailable');
       await expect(loadRasterAssetV15(base.id)).resolves.toEqual({ status: 'unavailable', entry: null });
