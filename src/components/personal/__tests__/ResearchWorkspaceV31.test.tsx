@@ -39,7 +39,7 @@ describe('ResearchWorkspaceV31', () => {
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Research summary' })).not.toBeNull());
     expect(screen.getByText('Primary source')).not.toBeNull();
     expect(screen.getByText('Second source')).not.toBeNull();
-    expect(screen.getByText('Confidence: Moderate')).not.toBeNull();
+    expect(screen.getByText('確認度: Moderate')).not.toBeNull();
     expect(screen.getAllByRole('link', { name: '原文を開く' })).toHaveLength(2);
   });
 
