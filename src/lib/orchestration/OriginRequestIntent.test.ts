@@ -30,6 +30,7 @@ describe("OriginRequestIntent", () => {
     ["営業用のトークスクリプトを作ってください", "conversation-design", "talk-script"],
     ["バナー画像を作ってください", "image-generation", "image"],
     ["アプリを開発してください", "application-development", "application"],
+    ["ウェブアプリで売上を管理できるようにしてください", "application-development", "application"],
     ["検索のみ行い、調査結果をまとめてください", "research", "research-result"],
     ["Instagram投稿内容を作ってください", "social-content", "social-post"],
     ["ホームページを制作してください", "website-development", "website"],
