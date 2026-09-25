@@ -1080,6 +1080,63 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
     try {
+      if (!interruptCurrent && attachments.length === 0 && isDirectImageGenerationRequest(text.trim())) {
+        const response = await fetchOriginRasterImage(text.trim(), controller.signal);
+        if (!response.ok) {
+          const failure = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+          const unavailable = language === 'en'
+            ? 'Verified $0 image generation is currently unavailable. ORIGIN did not substitute a prompt or use a paid provider.'
+            : '検証済みの0円画像生成を現在実行できません。プロンプトへの置き換えや有料プロバイダへの切り替えは行っていません。';
+          appendFailure(failure?.message && failure.code !== 'POLLINATIONS_KEY_NOT_CONFIGURED' ? failure.message : unavailable);
+          return;
+        }
+
+        const mimeType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+        const sha256 = response.headers.get('x-origin-visual-sha256') ?? '';
+        const providerId = response.headers.get('x-origin-visual-provider') ?? '';
+        const model = response.headers.get('x-origin-visual-model') ?? '';
+        const cost = response.headers.get('x-origin-cost-usd');
+        const freeOnly = response.headers.get('x-origin-free-only');
+        const paidFallback = response.headers.get('x-origin-paid-fallback');
+        const secretDelivery = response.headers.get('x-origin-secret-delivery');
+        if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)
+          || !/^[a-f0-9]{64}$/i.test(sha256)
+          || providerId !== 'pollinations-zero-cost'
+          || !model
+          || cost !== '0'
+          || freeOnly !== 'true'
+          || paidFallback !== 'false'
+          || secretDelivery !== 'server-only') {
+          await response.body?.cancel();
+          throw new Error('unverified-raster-response');
+        }
+
+        const blob = await response.blob();
+        if (blob.size <= 0 || typeof crypto?.subtle?.digest !== 'function') throw new Error('invalid-raster-bytes');
+        const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+        const actualSha = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+        if (actualSha !== sha256.toLowerCase()) throw new Error('raster-sha-mismatch');
+
+        const assistantId = `a-${Date.now()}`;
+        const imageUrl = URL.createObjectURL(blob);
+        const image = {
+          url: imageUrl,
+          mimeType: mimeType as GeneratedImageMessage['mimeType'],
+          downloadName: rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType),
+          sha256: sha256.toLowerCase(),
+          providerId: 'pollinations-zero-cost' as const,
+          model,
+        };
+        updateMessages((current) => [...current, {
+          id: assistantId,
+          role: 'assistant',
+          content: language === 'en' ? 'Image generated and verified.' : '画像を生成し、実ファイルを検証しました。',
+          deliveryState: 'verified',
+          image,
+        }]);
+        return;
+      }
+
       const response = await fetchOriginChat(
         JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages }),
         controller.signal,
@@ -1192,6 +1249,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   </div>
 
   </div>
-</header><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start py-8 sm:justify-center sm:py-4"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p><div className="mt-7 w-full max-w-4xl">{composer}</div><p className="origin-safe-note mt-5 text-center text-[13px]">{t.freeOnlyNotice}</p></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? t.thinking : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />✨ {t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main><ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={isWorkspaceOpen} language={language} designTheme={designTheme} isStreaming={isLoading} onSteer={(direction) => { void handleSend(direction, true); }} onOpenSettings={onOpenSettings} onClose={() => setIsWorkspaceOpen(false)} onArtifactRevision={(next) => { setActiveArtifact(next); updateArtifacts((current) => current.map((block) => block.id === next.id ? next : block)); }} /></div>;
+</header><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start py-8 sm:justify-center sm:py-4"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p><div className="mt-7 w-full max-w-4xl">{composer}</div><p className="origin-safe-note mt-5 text-center text-[13px]">{t.freeOnlyNotice}</p></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? t.thinking : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2"><img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /><figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.model} · SHA-256 {message.image.sha256.slice(0, 12)}… · $0 verified</span><a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a></figcaption></figure>}</>}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />✨ {t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main><ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={isWorkspaceOpen} language={language} designTheme={designTheme} isStreaming={isLoading} onSteer={(direction) => { void handleSend(direction, true); }} onOpenSettings={onOpenSettings} onClose={() => setIsWorkspaceOpen(false)} onArtifactRevision={(next) => { setActiveArtifact(next); updateArtifacts((current) => current.map((block) => block.id === next.id ? next : block)); }} /></div>;
 };
 export default App;
