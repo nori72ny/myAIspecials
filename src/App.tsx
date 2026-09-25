@@ -5,7 +5,7 @@ import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
 import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
-import { imageRequirementGapsV15 } from './creative/visualIntentCompilerV15';
+import { imageRequirementGapsV15, type VisualIntentPurposeV15, type VisualIntentStyleV15 } from './creative/visualIntentCompilerV15';
 
 export interface ArtifactBlock {
   id: string;
@@ -195,6 +195,10 @@ export type GeneratedImageMessage = {
   height: number;
   relation: 'generated' | 'variation' | 'edited-from';
   parentId?: string;
+  purpose: VisualIntentPurposeV15;
+  style: VisualIntentStyleV15;
+  orientation: 'square' | 'portrait' | 'landscape';
+  typographyOverlay: boolean;
 };
 
 export type ConversationMessage = {
@@ -1173,6 +1177,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const generationId = response.headers.get('x-origin-visual-generation-id') ?? '';
         const width = Number(response.headers.get('x-origin-visual-width') ?? '0');
         const height = Number(response.headers.get('x-origin-visual-height') ?? '0');
+        const purpose = response.headers.get('x-origin-visual-purpose') ?? '';
+        const style = response.headers.get('x-origin-visual-style') ?? '';
+        const orientation = response.headers.get('x-origin-visual-orientation') ?? '';
+        const typographyOverlay = response.headers.get('x-origin-typography-overlay') ?? '';
         const cost = response.headers.get('x-origin-cost-usd');
         const freeOnly = response.headers.get('x-origin-free-only');
         const paidFallback = response.headers.get('x-origin-paid-fallback');
@@ -1184,6 +1192,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           || !/^raster-[a-f0-9]{24}$/i.test(generationId)
           || !Number.isInteger(width) || width < 256 || width > 1536
           || !Number.isInteger(height) || height < 256 || height > 1536
+          || !['portrait','product-ad','social-post','poster','thumbnail','infographic','landscape','illustration','general'].includes(purpose)
+          || !['photorealistic','editorial','cinematic','minimal','anime','manga','watercolor','oil-painting','3d','vector-like','unspecified'].includes(style)
+          || !['square','portrait','landscape'].includes(orientation)
+          || !['true','false'].includes(typographyOverlay)
           || cost !== '0'
           || freeOnly !== 'true'
           || paidFallback !== 'false'
@@ -1215,6 +1227,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           width,
           height,
           relation: 'generated',
+          purpose: purpose as VisualIntentPurposeV15,
+          style: style as VisualIntentStyleV15,
+          orientation: orientation as GeneratedImageMessage['orientation'],
+          typographyOverlay: typographyOverlay === 'true',
         };
         const historyStatus = await saveRasterAssetV15({
           sha256: assetId,
@@ -1228,6 +1244,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           relation: 'generated',
           width,
           height,
+          purpose: image.purpose,
+          style: image.style,
+          orientation: image.orientation,
+          typographyOverlay: image.typographyOverlay,
           blob,
         });
         if (historyStatus === 'failed') {
