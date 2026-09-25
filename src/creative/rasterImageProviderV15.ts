@@ -328,7 +328,7 @@ export async function generateRasterImageV15(
   url.searchParams.set('model', verifiedModel);
   url.searchParams.set('width', String(size.width));
   url.searchParams.set('height', String(size.height));
-  url.searchParams.set('safe', 'true');
+  url.searchParams.set('safe', 'privacy,secrets,sexual,violence,shield');
 
   const response = await timedFetch(
     url.toString(),
