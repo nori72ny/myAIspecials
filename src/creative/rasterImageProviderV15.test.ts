@@ -86,12 +86,22 @@ describe('rasterImageProviderV15', () => {
       externalNetworkRequests: 4,
       width: 768,
       height: 1024,
+      visualIntent: {
+        purpose: 'general',
+        style: 'unspecified',
+        orientation: 'portrait',
+        typographyOverlay: false,
+      },
     });
     expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/image/');
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain('model=tomdacatto%2Fsana');
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('safe=privacy%2Csecrets%2Csexual%2Cviolence%2Cshield');
+    const providerUrl = String(fetchMock.mock.calls[2]?.[0]);
+    expect(providerUrl).toContain('safe=privacy%2Csecrets%2Csexual%2Cviolence%2Cshield');
+    expect(decodeURIComponent(new URL(providerUrl).pathname)).toContain('Purpose: general.');
+    expect(decodeURIComponent(new URL(providerUrl).pathname)).toContain('Canvas: 768x1024, portrait.');
+    expect(decodeURIComponent(new URL(providerUrl).pathname)).toContain('Avoid: low quality');
   });
 
   it('does not auto-adopt an unknown community model even when its live price is zero', async () => {
