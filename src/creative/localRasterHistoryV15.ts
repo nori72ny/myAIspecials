@@ -20,6 +20,10 @@ export type RasterAssetEntryV15 = {
   providerId: 'pollinations-zero-cost';
   model: string;
   generationId: string;
+  visualBrainVersion: 'visual-brain-v1';
+  promptCompiler: 'raster-compiler-v1';
+  planSha256: string;
+  purpose: string;
   relation: RasterAssetRelationV15;
   parentId?: string;
   width: number;
@@ -57,6 +61,10 @@ export function isRasterAssetEntryShapeV15(value: unknown): value is RasterAsset
   if (value.providerId !== 'pollinations-zero-cost') return false;
   if (typeof value.model !== 'string' || !value.model || value.model.length > 180) return false;
   if (typeof value.generationId !== 'string' || !/^raster-[a-f0-9]{24}$/i.test(value.generationId)) return false;
+  if (value.visualBrainVersion !== 'visual-brain-v1') return false;
+  if (value.promptCompiler !== 'raster-compiler-v1') return false;
+  if (typeof value.planSha256 !== 'string' || !SHA256.test(value.planSha256)) return false;
+  if (typeof value.purpose !== 'string' || !/^[a-z-]{1,40}$/.test(value.purpose)) return false;
   if (!['generated', 'variation', 'edited-from'].includes(String(value.relation))) return false;
   if (value.parentId !== undefined && (typeof value.parentId !== 'string' || !SHA256.test(value.parentId))) return false;
   if (typeof value.width !== 'number' || !Number.isInteger(value.width) || value.width < 256 || value.width > 1536) return false;
@@ -123,6 +131,7 @@ export async function saveRasterAssetV15(input: RasterAssetSaveInputV15): Promis
     id: input.sha256.toLowerCase(),
     sha256: input.sha256.toLowerCase(),
     parentId: input.parentId?.toLowerCase(),
+    planSha256: input.planSha256.toLowerCase(),
     prompt: input.prompt.normalize('NFKC').trim().slice(0, 2_000),
   };
   if (!isRasterAssetEntryShapeV15(entry)) return 'failed';
