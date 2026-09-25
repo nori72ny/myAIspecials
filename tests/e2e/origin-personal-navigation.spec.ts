@@ -151,7 +151,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(addMenuBox!.y + addMenuBox!.height).toBeLessThanOrEqual(width <= 390 ? (width === 320 ? 568 : 844) : 900);
       await page.getByRole('menuitem', { name: '詳しく調べる', exact: true }).click();
       await expect(page).toHaveURL(/workspace=research/);
-      await expect(page.getByRole('heading', { name: '調べたいことを入力' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '詳しく調べる' })).toBeVisible();
       await expect(page.getByLabel('調べたいこと', { exact: true })).toBeEditable();
       await noOverflow();
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
