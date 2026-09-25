@@ -22,6 +22,10 @@ function entry(overrides: Partial<RasterAssetEntryV15> = {}): RasterAssetEntryV1
     providerId: 'pollinations-zero-cost',
     model: 'tomdacatto/sana',
     generationId: `raster-${'b'.repeat(24)}`,
+    visualBrainVersion: 'visual-brain-v1',
+    promptCompiler: 'raster-compiler-v1',
+    planSha256: 'd'.repeat(64),
+    purpose: 'general',
     relation: 'generated',
     width: 1024,
     height: 1024,
@@ -40,6 +44,9 @@ describe('localRasterHistoryV15', () => {
     expect(isRasterAssetEntryShapeV15(entry({ parentId: '../bad' }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ mimeType: 'image/jpeg', blob: new Blob(['x'], { type: 'image/png' }) }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ width: 2048 }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ planSha256: 'bad' }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ visualBrainVersion: 'other' as never }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ promptCompiler: 'other' as never }))).toBe(false);
   });
 
   it('supports verified lineage metadata for future variation and editing flows', () => {
@@ -62,6 +69,10 @@ describe('localRasterHistoryV15', () => {
         providerId: base.providerId,
         model: base.model,
         generationId: base.generationId,
+        visualBrainVersion: base.visualBrainVersion,
+        promptCompiler: base.promptCompiler,
+        planSha256: base.planSha256,
+        purpose: base.purpose,
         relation: base.relation,
         width: base.width,
         height: base.height,
