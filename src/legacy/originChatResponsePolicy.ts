@@ -10,6 +10,7 @@ import {
   originServiceAssignmentInstruction,
   type OriginResolvedWorkPlan,
 } from "../lib/orchestration/OriginServiceRegistry.js";
+import { originRequirementClarificationInstruction } from "../lib/orchestration/OriginRequirementClarifier.js";
 
 export function requiresOriginFutureReleaseInformation(message: string): boolean {
   return /(?:今後|これから|次に).{0,18}(?:登場|出てくる|発売|公開|リリース|提供開始|予定)|(?:登場|発売|公開|リリース|提供開始)予定|次世代.{0,12}(?:AI|モデル)/.test(message)
@@ -73,6 +74,7 @@ export function originChatSystemInstruction(
   qualityInstruction?: string,
 ): string {
   const requestGuidance = intent ? `\n\n${originRequestIntentInstruction(intent)}` : "";
+  const requirementGuidance = intent ? `\n\n${originRequirementClarificationInstruction(intent)}` : "";
   const workPlanGuidance = workPlan ? `\n\n${originAgentWorkPlanInstruction(workPlan)}` : "";
   const assignmentGuidance = resolvedPlan ? `\n\n${originServiceAssignmentInstruction(resolvedPlan)}` : "";
   const qualityGuidance = qualityInstruction ? `\n\n${qualityInstruction}` : "";
@@ -110,5 +112,5 @@ export function originChatSystemInstruction(
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
 - When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line.
 - Do not use that citation format when the source does not directly support the statement.
-- For consequential decisions, state what the user must independently confirm before acting.${requestGuidance}${workPlanGuidance}${assignmentGuidance}${qualityGuidance}`;
+- For consequential decisions, state what the user must independently confirm before acting.${requestGuidance}${requirementGuidance}${workPlanGuidance}${assignmentGuidance}${qualityGuidance}`;
 }
