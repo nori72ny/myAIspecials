@@ -64,6 +64,23 @@ describe("createOriginApp provider isolation", () => {
     },
   );
 
+  it("routes generate-image to the new fail-closed raster boundary instead of the retired legacy handler", async () => {
+    const response = await request(createOriginApp()).post("/api/generate-image").send({
+      prompt: "静かな湖の画像を作ってください",
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.body).toMatchObject({
+      code: "POLLINATIONS_KEY_NOT_CONFIGURED",
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      secretDelivery: "server-only",
+    });
+    expect(response.body.code).not.toBe("ORIGIN_PROVIDER_PATH_DISABLED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("does not use the configured Gemini key as fallback for authoritative chat", async () => {
     const response = await request(createOriginApp()).post("/api/chat").send({
       messages: [{ role: "user", content: "文章を安全に整理してください" }],
