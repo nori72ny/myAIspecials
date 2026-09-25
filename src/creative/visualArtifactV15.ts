@@ -177,10 +177,11 @@ function assertTextFits(text: string, maxUnits: number, maxLines: number, code: 
   }
 }
 
-function svgText(lines: string[], x: number, y: number, size: number, color: string, weight: number, lineHeight: number, role: 'title' | 'subtitle' | 'body' | 'footer'): string {
+function svgText(lines: string[], originalText: string, x: number, y: number, size: number, color: string, weight: number, lineHeight: number, role: 'title' | 'subtitle' | 'body' | 'footer'): string {
   if (lines.length === 0) return '';
   const tspans = lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : lineHeight}">${xml(line)}</tspan>`).join('');
-  return `<text data-origin-role="${role}" x="${x}" y="${y}" fill="${color}" font-family="system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="${size}" font-weight="${weight}" letter-spacing="-0.02em">${tspans}</text>`;
+  const sourceText = originalText.replace(/\s+/g, ' ').trim();
+  return `<text data-origin-role="${role}" data-origin-text="${xml(sourceText)}" x="${x}" y="${y}" fill="${color}" font-family="system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="${size}" font-weight="${weight}" letter-spacing="-0.02em">${tspans}</text>`;
 }
 
 function buildSvg(request: ReturnType<typeof parseVisualArtifactRequestV15>): { svg: string; width: number; height: number } {
@@ -220,19 +221,19 @@ function buildSvg(request: ReturnType<typeof parseVisualArtifactRequestV15>): { 
   const contentWidth = width - contentX - pad;
   const top = request.preset === 'story' ? Math.round(height * 0.23) : Math.round(height * 0.25);
   const titleLineHeight = Math.round(titleSize * 1.12);
-  elements.push(svgText(title, contentX, top, titleSize, foreground, 760, titleLineHeight, 'title'));
+  elements.push(svgText(title, request.title, contentX, top, titleSize, foreground, 760, titleLineHeight, 'title'));
 
   let cursor = top + Math.max(1, title.length) * titleLineHeight + Math.round(titleSize * 0.45);
   if (subtitle.length > 0) {
-    elements.push(svgText(subtitle, contentX, cursor, subtitleSize, accent, 650, Math.round(subtitleSize * 1.35), 'subtitle'));
+    elements.push(svgText(subtitle, request.subtitle, contentX, cursor, subtitleSize, accent, 650, Math.round(subtitleSize * 1.35), 'subtitle'));
     cursor += subtitle.length * Math.round(subtitleSize * 1.35) + Math.round(titleSize * 0.45);
   }
   if (body.length > 0) {
     elements.push(`<line x1="${contentX}" y1="${cursor - Math.round(bodySize * 0.7)}" x2="${contentX + Math.min(contentWidth, Math.round(width * 0.22))}" y2="${cursor - Math.round(bodySize * 0.7)}" stroke="${muted}" stroke-width="3" opacity="0.3"/>`);
-    elements.push(svgText(body, contentX, cursor, bodySize, muted, 430, Math.round(bodySize * 1.48), 'body'));
+    elements.push(svgText(body, request.body, contentX, cursor, bodySize, muted, 430, Math.round(bodySize * 1.48), 'body'));
   }
   if (footer.length > 0) {
-    elements.push(svgText(footer, contentX, height - pad, Math.max(24, Math.round(bodySize * 0.82)), muted, 560, Math.round(bodySize * 1.1), 'footer'));
+    elements.push(svgText(footer, request.footer, contentX, height - pad, Math.max(24, Math.round(bodySize * 0.82)), muted, 560, Math.round(bodySize * 1.1), 'footer'));
   }
 
   const label = xml(request.kind.toUpperCase().replace('-', ' '));
@@ -278,9 +279,12 @@ function normalizeVisibleText(value: string): string {
   return value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
-function roleText(svg: string, role: 'title' | 'subtitle' | 'body' | 'footer'): string {
-  const match = svg.match(new RegExp(`<text[^>]*data-origin-role="${role}"[^>]*>([\\s\\S]*?)<\\/text>`, 'i'));
-  return match ? normalizeVisibleText(match[1] ?? '') : '';
+function roleText(svg: string, role: 'title' | 'subtitle' | 'body' | 'footer'): { source: string; visible: string } {
+  const match = svg.match(new RegExp(`<text[^>]*data-origin-role="${role}"[^>]*data-origin-text="([^"]*)"[^>]*>([\\s\\S]*?)<\\/text>`, 'i'));
+  return {
+    source: match?.[1] ?? '',
+    visible: match ? normalizeVisibleText(match[2] ?? '') : '',
+  };
 }
 
 export function critiqueVisualSvgV15(
@@ -297,9 +301,13 @@ export function critiqueVisualSvgV15(
     body: xml(request.body.replace(/\s+/g, ' ').trim()),
     footer: xml(request.footer.replace(/\s+/g, ' ').trim()),
   };
-  const textChecks = (Object.keys(expected) as Array<keyof typeof expected>).every((role) =>
-    expected[role] === '' || roleText(svg, role) === expected[role],
-  );
+  const textChecks = (Object.keys(expected) as Array<keyof typeof expected>).every((role) => {
+    if (expected[role] === '') return true;
+    const rendered = roleText(svg, role);
+    const sourceMatches = rendered.source === expected[role];
+    const visibleCharactersMatch = rendered.visible.replace(/\s+/g, '') === expected[role].replace(/\s+/g, '');
+    return sourceMatches && visibleCharactersMatch;
+  });
   const foregroundContrast = contrastRatio(request.theme.foreground, request.theme.background);
   const mutedContrast = request.body || request.footer
     ? contrastRatio(request.theme.muted, request.theme.background)
