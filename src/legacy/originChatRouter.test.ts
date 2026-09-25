@@ -61,6 +61,23 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
   it("sends only the latest coherent context window", async () => { const response = await request(createApp(execute, undefined, undefined, { version: 1, maxMessages: 3, maxCharacters: 12_000 })).post("/api/chat").send({ messages: [{ role: "ai", content: "初期案内" }, { role: "user", content: "古い依頼" }, { role: "ai", content: "古い回答" }, { role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }] }); expect(response.status).toBe(200); const call = executeMock.mock.calls[0]?.[0]; expect(call?.messages).toEqual([{ role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }]); });
+  it("keeps creation intent and task-specific clarification guidance after a short option reply", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({
+      messages: [
+        { role: "user", content: "ウェブアプリで売上を管理できるようにしてください" },
+        { role: "ai", content: "簡易版と複数人利用版のどちらにしますか？ 1. 簡易版 2. 複数人利用版" },
+        { role: "user", content: "1" },
+      ],
+    });
+    expect(response.status).toBe(200);
+    const call = executeMock.mock.calls[0]?.[0];
+    expect(call?.messages).toHaveLength(3);
+    expect(call?.systemInstruction).toContain("Requirement clarification mode (adaptive");
+    expect(call?.systemInstruction).toContain("user-workflows");
+    expect(call?.systemInstruction).toContain("platform-device");
+    expect(call?.systemInstruction).toContain("storage-sharing");
+    expect(call?.systemInstruction).toContain("Never ask the same requirement twice");
+  });
   it("sanitizes non-retryable authentication failures", async () => { executeMock.mockRejectedValueOnce(new OriginProviderError("PROVIDER_NOT_CONFIGURED", "内部詳細", 401, false, undefined, { upstreamStatus: 401 })); const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "文章を作ってください" }] }); expect(response.status).toBe(401); expect(JSON.stringify(response.body)).not.toContain("内部詳細"); expect(executeMock).toHaveBeenCalledTimes(1); });
   it.each([
     ["PROVIDER_RATE_LIMITED", 429], ["PROVIDER_TIMEOUT", 504],
