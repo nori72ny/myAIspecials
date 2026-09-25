@@ -23,7 +23,7 @@ const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';
 const SESSION_STORAGE_KEY = 'origin_personal_sessions';
 
-type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string; deliveryState?: 'verified' | 'error'; image?: { url?: string; assetId: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; downloadName: string; sha256: string; providerId: 'pollinations-zero-cost'; model: string; generationId: string; width: number; height: number; relation: 'generated' | 'variation' | 'edited-from'; parentId?: string } };
+type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string; deliveryState?: 'verified' | 'error'; image?: { url?: string; assetId: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; downloadName: string; sha256: string; providerId: 'pollinations-zero-cost'; model: string; generationId: string; visualBrainVersion: 'visual-brain-v1'; promptCompiler: 'raster-compiler-v1'; planSha256: string; purpose: string; width: number; height: number; relation: 'generated' | 'variation' | 'edited-from'; parentId?: string } };
 type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' | 'restore' };
 type PersistedArtifact = { id: string; type: 'code' | 'markdown' | 'mermaid' | 'html'; title: string; language: string; content: string; isComplete: boolean; revision?: number; revisions?: readonly ArtifactRevision[] };
@@ -61,6 +61,10 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
       const validSha = typeof sourceImage.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(sourceImage.sha256);
       const validAsset = typeof sourceImage.assetId === 'string' && validSha && sourceImage.assetId.toLowerCase() === sourceImage.sha256?.toLowerCase();
       const validGeneration = typeof sourceImage.generationId === 'string' && /^raster-[a-f0-9]{24}$/i.test(sourceImage.generationId);
+      const validVisualPlan = sourceImage.visualBrainVersion === 'visual-brain-v1'
+        && sourceImage.promptCompiler === 'raster-compiler-v1'
+        && typeof sourceImage.planSha256 === 'string' && /^[a-f0-9]{64}$/i.test(sourceImage.planSha256)
+        && typeof sourceImage.purpose === 'string' && /^[a-z-]{1,40}$/.test(sourceImage.purpose);
       const validDimensions = Number.isInteger(sourceImage.width) && Number(sourceImage.width) >= 256 && Number(sourceImage.width) <= 1536
         && Number.isInteger(sourceImage.height) && Number(sourceImage.height) >= 256 && Number(sourceImage.height) <= 1536;
       const validRelation = sourceImage.relation === 'generated' || sourceImage.relation === 'variation' || sourceImage.relation === 'edited-from';
@@ -68,7 +72,7 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
       if (validMime && validAsset && sourceImage.providerId === 'pollinations-zero-cost'
         && typeof sourceImage.model === 'string' && sourceImage.model.length > 0 && sourceImage.model.length <= 180
         && typeof sourceImage.downloadName === 'string' && /^[^\\/\u0000-\u001f\u007f]{1,180}\.(?:png|jpe?g|webp)$/i.test(sourceImage.downloadName)
-        && validGeneration && validDimensions && validRelation && validParent) {
+        && validGeneration && validVisualPlan && validDimensions && validRelation && validParent) {
         image = {
           assetId: sourceImage.assetId!.toLowerCase(),
           mimeType: sourceImage.mimeType!,
@@ -77,6 +81,10 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
           providerId: 'pollinations-zero-cost',
           model: sourceImage.model!,
           generationId: sourceImage.generationId!,
+          visualBrainVersion: 'visual-brain-v1',
+          promptCompiler: 'raster-compiler-v1',
+          planSha256: sourceImage.planSha256!.toLowerCase(),
+          purpose: sourceImage.purpose!,
           width: Number(sourceImage.width),
           height: Number(sourceImage.height),
           relation: sourceImage.relation!,
