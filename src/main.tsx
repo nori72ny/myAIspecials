@@ -23,7 +23,7 @@ const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';
 const SESSION_STORAGE_KEY = 'origin_personal_sessions';
 
-type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string; deliveryState?: 'verified' | 'error'; image?: { url: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; downloadName: string; sha256: string; providerId: 'pollinations-zero-cost'; model: string } };
+type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string; deliveryState?: 'verified' | 'error'; image?: { url?: string; assetId: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; downloadName: string; sha256: string; providerId: 'pollinations-zero-cost'; model: string; generationId: string; width: number; height: number; relation: 'generated' | 'variation' | 'edited-from'; parentId?: string } };
 type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' | 'restore' };
 type PersistedArtifact = { id: string; type: 'code' | 'markdown' | 'mermaid' | 'html'; title: string; language: string; content: string; isComplete: boolean; revision?: number; revisions?: readonly ArtifactRevision[] };
@@ -40,7 +40,53 @@ function scheduleIdle(task: () => void): () => void {
   return () => window.clearTimeout(handle);
 }
 
-function parseImportedHistory(value: unknown): ConversationMessage[] { if (!value || typeof value !== 'object' || !Array.isArray((value as { messages?: unknown }).messages)) throw new Error('invalid-history'); const messages = (value as { messages: unknown[] }).messages; if (messages.length > 500) throw new Error('history-too-large'); return messages.map((message, index) => { if (!message || typeof message !== 'object') throw new Error(`invalid-history-${index}`); const candidate = message as Partial<ConversationMessage>; if ((candidate.role !== 'user' && candidate.role !== 'assistant') || typeof candidate.content !== 'string') throw new Error(`invalid-history-${index}`); return { id: typeof candidate.id === 'string' && candidate.id.length <= 128 ? candidate.id : `import-${index}-${Date.now()}`, role: candidate.role, content: candidate.content.slice(0, 50_000), deliveryState: candidate.deliveryState === 'verified' || candidate.deliveryState === 'error' ? candidate.deliveryState : undefined }; }); }
+function parseImportedHistory(value: unknown): ConversationMessage[] {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as { messages?: unknown }).messages)) throw new Error('invalid-history');
+  const messages = (value as { messages: unknown[] }).messages;
+  if (messages.length > 500) throw new Error('history-too-large');
+  return messages.map((message, index) => {
+    if (!message || typeof message !== 'object') throw new Error(`invalid-history-${index}`);
+    const candidate = message as Partial<ConversationMessage>;
+    if ((candidate.role !== 'user' && candidate.role !== 'assistant') || typeof candidate.content !== 'string') throw new Error(`invalid-history-${index}`);
+    let image: ConversationMessage['image'];
+    const sourceImage = candidate.image;
+    if (sourceImage && typeof sourceImage === 'object') {
+      const validMime = sourceImage.mimeType === 'image/png' || sourceImage.mimeType === 'image/jpeg' || sourceImage.mimeType === 'image/webp';
+      const validSha = typeof sourceImage.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(sourceImage.sha256);
+      const validAsset = typeof sourceImage.assetId === 'string' && validSha && sourceImage.assetId.toLowerCase() === sourceImage.sha256?.toLowerCase();
+      const validGeneration = typeof sourceImage.generationId === 'string' && /^raster-[a-f0-9]{24}$/i.test(sourceImage.generationId);
+      const validDimensions = Number.isInteger(sourceImage.width) && Number(sourceImage.width) >= 256 && Number(sourceImage.width) <= 1536
+        && Number.isInteger(sourceImage.height) && Number(sourceImage.height) >= 256 && Number(sourceImage.height) <= 1536;
+      const validRelation = sourceImage.relation === 'generated' || sourceImage.relation === 'variation' || sourceImage.relation === 'edited-from';
+      const validParent = sourceImage.parentId === undefined || typeof sourceImage.parentId === 'string' && /^[a-f0-9]{64}$/i.test(sourceImage.parentId);
+      if (validMime && validAsset && sourceImage.providerId === 'pollinations-zero-cost'
+        && typeof sourceImage.model === 'string' && sourceImage.model.length > 0 && sourceImage.model.length <= 180
+        && typeof sourceImage.downloadName === 'string' && /^[^\\/\u0000-\u001f\u007f]{1,180}\.(?:png|jpe?g|webp)$/i.test(sourceImage.downloadName)
+        && validGeneration && validDimensions && validRelation && validParent) {
+        image = {
+          assetId: sourceImage.assetId!.toLowerCase(),
+          mimeType: sourceImage.mimeType!,
+          downloadName: sourceImage.downloadName!,
+          sha256: sourceImage.sha256!.toLowerCase(),
+          providerId: 'pollinations-zero-cost',
+          model: sourceImage.model!,
+          generationId: sourceImage.generationId!,
+          width: Number(sourceImage.width),
+          height: Number(sourceImage.height),
+          relation: sourceImage.relation!,
+          parentId: sourceImage.parentId?.toLowerCase(),
+        };
+      }
+    }
+    return {
+      id: typeof candidate.id === 'string' && candidate.id.length <= 128 ? candidate.id : `import-${index}-${Date.now()}`,
+      role: candidate.role,
+      content: candidate.content.slice(0, 50_000),
+      deliveryState: candidate.deliveryState === 'verified' || candidate.deliveryState === 'error' ? candidate.deliveryState : undefined,
+      image,
+    };
+  });
+}
 function loadStoredHistory(): ConversationMessage[] { try { const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY); return raw ? parseImportedHistory(JSON.parse(raw)) : []; } catch { return []; } }
 function loadStoredSessions(): ConversationSession[] { try { const raw = window.localStorage.getItem(SESSION_STORAGE_KEY); if (!raw) return []; const parsed = JSON.parse(raw) as unknown; if (!Array.isArray(parsed)) return []; return parsed.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); } catch { return []; } }
 function loadSessionsFromSnapshot(value: unknown): ConversationSession[] { if (!Array.isArray(value)) return []; return value.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); }
