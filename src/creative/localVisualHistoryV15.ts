@@ -23,6 +23,12 @@ export type CreativeHistoryEntryV15 = {
   downloadName: string;
   createdAt: number;
   svgBlob: Blob;
+  generationId?: string;
+  visualBrainVersion?: string;
+  providerId?: string;
+  planSha256?: string;
+  relation?: 'generated' | 'variation' | 'edited-from';
+  parentId?: string;
 };
 
 export type CreativeHistorySaveInputV15 = {
@@ -32,6 +38,12 @@ export type CreativeHistorySaveInputV15 = {
   downloadName: string;
   svgBlob: Blob;
   createdAt?: number;
+  generationId?: string;
+  visualBrainVersion?: string;
+  providerId?: string;
+  planSha256?: string;
+  relation?: 'generated' | 'variation' | 'edited-from';
+  parentId?: string;
 };
 
 export type CreativeHistoryLoadResultV15 = {
@@ -65,6 +77,12 @@ export function isCreativeHistoryEntryShapeV15(value: unknown): value is Creativ
   if (typeof value.downloadName !== 'string' || value.downloadName.length > MAX_FILENAME_LENGTH || !SAFE_FILENAME.test(value.downloadName)) return false;
   if (typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt) || value.createdAt <= 0) return false;
   if (!(value.svgBlob instanceof Blob) || value.svgBlob.size <= 0 || value.svgBlob.size > MAX_SVG_BYTES) return false;
+  if (value.generationId !== undefined && (typeof value.generationId !== 'string' || !/^visual-[a-f0-9]{24}$/i.test(value.generationId))) return false;
+  if (value.visualBrainVersion !== undefined && (typeof value.visualBrainVersion !== 'string' || value.visualBrainVersion.length > 64)) return false;
+  if (value.providerId !== undefined && (typeof value.providerId !== 'string' || value.providerId.length > 80)) return false;
+  if (value.planSha256 !== undefined && (typeof value.planSha256 !== 'string' || !SHA256.test(value.planSha256))) return false;
+  if (value.relation !== undefined && !['generated', 'variation', 'edited-from'].includes(String(value.relation))) return false;
+  if (value.parentId !== undefined && (typeof value.parentId !== 'string' || !SHA256.test(value.parentId))) return false;
   return value.svgBlob.type.toLowerCase().includes('image/svg+xml');
 }
 
@@ -90,6 +108,12 @@ function createHistoryEntry(input: CreativeHistorySaveInputV15): CreativeHistory
     downloadName,
     createdAt: input.createdAt ?? Date.now(),
     svgBlob: input.svgBlob,
+    generationId: input.generationId,
+    visualBrainVersion: input.visualBrainVersion,
+    providerId: input.providerId,
+    planSha256: input.planSha256?.toLowerCase(),
+    relation: input.relation,
+    parentId: input.parentId?.toLowerCase(),
   };
   return isCreativeHistoryEntryShapeV15(candidate) ? candidate : null;
 }
