@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -513,6 +513,62 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('recognizes explicit image creation requests without hijacking image-related questions', () => {
+    expect(isDirectImageGenerationRequest('夕焼けの海の画像を作ってください')).toBe(true);
+    expect(isDirectImageGenerationRequest('Create a cinematic image of Tokyo at night')).toBe(true);
+    expect(isDirectImageGenerationRequest('画像生成AIの仕組みを教えてください')).toBe(false);
+  });
+
+  it('routes an image request to real raster generation and never falls through to text prompt generation', async () => {
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const digest = new Uint8Array(32);
+    digest.fill(0xab);
+    const sha = Array.from(digest).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/generate-image');
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/png',
+          'Content-Disposition': 'attachment; filename="origin-image.png"',
+          'X-Origin-Visual-Verified': 'true',
+          'X-Origin-Visual-Sha256': sha,
+          'X-Origin-Visual-Provider': 'pollinations-zero-cost',
+          'X-Origin-Visual-Model': 'tomdacatto/sana',
+          'X-Origin-Free-Only': 'true',
+          'X-Origin-Cost-Usd': '0',
+          'X-Origin-Paid-Fallback': 'false',
+          'X-Origin-Secret-Delivery': 'server-only',
+        },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { subtle: { digest: vi.fn(async () => digest.buffer) } },
+    });
+    const originalCreateObjectURL = URL.createObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:origin-generated-image') });
+
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '夕焼けの海の画像を作ってください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
+    expect(screen.getByText('画像を生成し、実ファイルを検証しました。')).toBeTruthy();
+    expect(screen.getByRole('link', { name: '画像を保存' }).getAttribute('download')).toBe('origin-image.png');
+    expect(screen.getByText(/tomdacatto\/sana/)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({ prompt: '夕焼けの海の画像を作ってください', width: 1024, height: 1024 });
+
+    if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
+    else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+    vi.unstubAllGlobals();
+  });
+
   it('uses executive-native English instructions while retaining the single fixed free model', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('Executive response', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -523,9 +579,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { model: string; systemPrompt: string };
     expect(request.model).toBe('inclusionai/ling-3.0-flash-sante:free');
     expect(request.systemPrompt).toBe(getOriginSystemPrompt('en'));
-    for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'verified facts', 'never invent sources', 'material unknowns', 'do not stop at a terse overview', 'production-ready']) expect(request.systemPrompt).toContain(phrase);
+    for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'verified facts', 'never invent sources', 'material unknowns', 'do not stop at a terse overview', 'production-ready', 'never substitute an image-generation prompt']) expect(request.systemPrompt).toContain(phrase);
     const japanesePrompt = getOriginSystemPrompt('ja');
-    for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず', '汎用デモを勝手に題材へ選ばず', '指定された形式は守り', 'Artifact-1のような機械的な名前', '端末内保存']) expect(japanesePrompt).toContain(phrase);
+    for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず', '汎用デモを勝手に題材へ選ばず', '指定された形式は守り', '画像生成プロンプト・SVG・HTML・文章説明を代用品として返さない', 'Artifact-1のような機械的な名前', '端末内保存']) expect(japanesePrompt).toContain(phrase);
     vi.unstubAllGlobals();
   });
 
