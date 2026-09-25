@@ -23,7 +23,7 @@ const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';
 const SESSION_STORAGE_KEY = 'origin_personal_sessions';
 
-type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string; deliveryState?: 'verified' | 'error'; image?: { url?: string; assetId: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; downloadName: string; sha256: string; providerId: 'pollinations-zero-cost'; model: string; generationId: string; width: number; height: number; relation: 'generated' | 'variation' | 'edited-from'; parentId?: string } };
+type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string; deliveryState?: 'verified' | 'error'; image?: { url?: string; assetId: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; downloadName: string; sha256: string; providerId: 'pollinations-zero-cost'; model: string; generationId: string; width: number; height: number; relation: 'generated' | 'variation' | 'edited-from'; parentId?: string; purpose: 'portrait' | 'product-ad' | 'social-post' | 'poster' | 'thumbnail' | 'infographic' | 'landscape' | 'illustration' | 'general'; style: 'photorealistic' | 'editorial' | 'cinematic' | 'minimal' | 'anime' | 'manga' | 'watercolor' | 'oil-painting' | '3d' | 'vector-like' | 'unspecified'; orientation: 'square' | 'portrait' | 'landscape'; typographyOverlay: boolean } };
 type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' | 'restore' };
 type PersistedArtifact = { id: string; type: 'code' | 'markdown' | 'mermaid' | 'html'; title: string; language: string; content: string; isComplete: boolean; revision?: number; revisions?: readonly ArtifactRevision[] };
@@ -65,10 +65,14 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
         && Number.isInteger(sourceImage.height) && Number(sourceImage.height) >= 256 && Number(sourceImage.height) <= 1536;
       const validRelation = sourceImage.relation === 'generated' || sourceImage.relation === 'variation' || sourceImage.relation === 'edited-from';
       const validParent = sourceImage.parentId === undefined || typeof sourceImage.parentId === 'string' && /^[a-f0-9]{64}$/i.test(sourceImage.parentId);
+      const validPurpose = ['portrait','product-ad','social-post','poster','thumbnail','infographic','landscape','illustration','general'].includes(String(sourceImage.purpose));
+      const validStyle = ['photorealistic','editorial','cinematic','minimal','anime','manga','watercolor','oil-painting','3d','vector-like','unspecified'].includes(String(sourceImage.style));
+      const validOrientation = sourceImage.orientation === 'square' || sourceImage.orientation === 'portrait' || sourceImage.orientation === 'landscape';
       if (validMime && validAsset && sourceImage.providerId === 'pollinations-zero-cost'
         && typeof sourceImage.model === 'string' && sourceImage.model.length > 0 && sourceImage.model.length <= 180
         && typeof sourceImage.downloadName === 'string' && /^[^\\/\u0000-\u001f\u007f]{1,180}\.(?:png|jpe?g|webp)$/i.test(sourceImage.downloadName)
-        && validGeneration && validDimensions && validRelation && validParent) {
+        && validGeneration && validDimensions && validRelation && validParent && validPurpose && validStyle && validOrientation
+        && typeof sourceImage.typographyOverlay === 'boolean') {
         image = {
           assetId: sourceImage.assetId!.toLowerCase(),
           mimeType: sourceImage.mimeType!,
@@ -81,6 +85,10 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
           height: Number(sourceImage.height),
           relation: sourceImage.relation!,
           parentId: sourceImage.parentId?.toLowerCase(),
+          purpose: sourceImage.purpose!,
+          style: sourceImage.style!,
+          orientation: sourceImage.orientation!,
+          typographyOverlay: sourceImage.typographyOverlay!,
         };
       }
     }
