@@ -69,7 +69,7 @@ export const DEFAULT_ORIGIN_REQUEST_INTENT_CATALOG: OriginRequestIntentCatalog =
     { id: "document", patterns: [/資料(?:を)?作成|文書|報告書|レポート|手順書|\b(?:document|report)\b/i] },
     { id: "talk-script", patterns: [/トークスクリプト|営業トーク|電話スクリプト|\b(?:talk script|sales script)\b/i] },
     { id: "image", patterns: [/画像生成|画像を作|イラスト|バナー|\b(?:image|illustration|banner)\b/i] },
-    { id: "application", patterns: [/アプリ.{0,12}(?:作|生成|開発|実装|完成)|\b(?:build|create|develop)\s+(?:an?\s+)?app\b/i] },
+    { id: "application", patterns: [/(?:ウェブ|Web)?アプリ.{0,18}(?:作|生成|開発|実装|完成|で.{0,12}管理|で.{0,12}使|として.{0,12}使|できるよう)|\b(?:build|create|develop|manage\s+with|use)\s+(?:an?\s+)?(?:web\s+)?app\b/i] },
     { id: "website", patterns: [/(?:ホームページ|Webサイト|ウェブサイト).{0,16}(?:作|制作|生成|開発|完成)|\b(?:build|create|develop)\s+(?:a\s+)?website\b/i] },
     { id: "dashboard", patterns: [/ダッシュボード|管理画面|KPI画面|\bdashboard\b/i] },
     { id: "social-post", patterns: [/Instagram投稿|インスタグラム投稿|SNS投稿|リール台本|フィード投稿|\b(?:social post|instagram post)\b/i] },
