@@ -554,7 +554,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(request.systemPrompt).toBe(getOriginSystemPrompt('en'));
     for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'verified facts', 'never invent sources', 'material unknowns', 'do not stop at a terse overview', 'production-ready']) expect(request.systemPrompt).toContain(phrase);
     const japanesePrompt = getOriginSystemPrompt('ja');
-    for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず']) expect(japanesePrompt).toContain(phrase);
+    for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず', '汎用デモを勝手に成果物の題材へ選ばず']) expect(japanesePrompt).toContain(phrase);
     vi.unstubAllGlobals();
   });
 
