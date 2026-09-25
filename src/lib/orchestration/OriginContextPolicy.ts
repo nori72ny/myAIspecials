@@ -28,10 +28,10 @@ export type OriginContextResult =
 
 export const DEFAULT_ORIGIN_CONTEXT_POLICY: OriginContextPolicy = {
   version: 1,
-  // A compact window materially reduces first-token latency on free models.
-  // Six turns still preserve the immediate conversational thread.
-  maxMessages: 6,
-  maxCharacters: 7_000,
+  // Clarification-heavy work needs enough recent turns to preserve the evolving brief.
+  // Keep the window bounded for privacy and latency while retaining several Q&A cycles.
+  maxMessages: 12,
+  maxCharacters: 12_000,
 };
 
 function isValidPolicy(policy: OriginContextPolicy): boolean {
