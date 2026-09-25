@@ -12,7 +12,6 @@ export const ORIGIN_DISABLED_PROVIDER_ROUTES: readonly OriginDisabledProviderRou
   { method: "all", routePath: "/api/gemini", testPath: "/api/gemini" },
   { method: "all", routePath: "/api/v1/validate-mission", testPath: "/api/v1/validate-mission" },
   { method: "all", routePath: "/api/analyze", testPath: "/api/analyze" },
-  { method: "all", routePath: "/api/generate-image", testPath: "/api/generate-image" },
   { method: "all", routePath: "/api/swarm/run", testPath: "/api/swarm/run" },
   { method: "all", routePath: "/api/github/generate-changelog", testPath: "/api/github/generate-changelog" },
   { method: "all", routePath: "/api/github/audit-issues", testPath: "/api/github/audit-issues" },

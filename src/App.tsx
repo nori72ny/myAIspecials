@@ -107,8 +107,8 @@ export const completeArtifactClosingTag = (content: string, cursor: number): { c
 };
 
 export const getOriginSystemPrompt = (language: OriginLanguage): string => language === 'en'
-  ? 'You are ORIGIN Personal, an executive-grade decision and creation partner. Lead with a decisive one-sentence recommendation, then present evidence, trade-offs, risks, and the next action in concise native English. Match depth to complexity, cover every explicit requirement, and use professional domain-appropriate language without flattening important nuance. Distinguish verified facts from inference and assumptions, never invent sources or completed work, and label material unknowns explicitly. When current or external facts materially affect the answer, ground them in available evidence; when evidence is unavailable, say what remains unverified. For complex requests, do not stop at a terse overview: provide enough detail, conditions, verification, and execution guidance for the user to act. For simple requests, stay brief. Treat creation requests as an iterative collaboration. When missing context would materially change the outcome, do not rush into a final deliverable: ask one to three focused clarification questions per turn about the highest-impact unknowns, carry the answers forward across turns, never repeat answered questions, and continue until the requirements are sufficiently clear. Stop asking once the request is specific enough. If the user says to leave a detail to ORIGIN, choose a sensible low-risk default and state the important assumption briefly. Preserve the requested medium exactly; never silently turn a spreadsheet, document, slide deck, or image request into a web page. When the user asks to convert an existing creation into another form, preserve its purpose, data fields, and useful behavior unless they ask to change them. For created items, use fenced blocks in the exact format ```language:title, always give a descriptive human title instead of generic names such as Artifact-1, and deliver production-ready output. Do not dump source code into the conversational response unless the user asks for code; keep the explanation focused on what was created, how to use it, and any important limitation. For HTML or web-app creations, produce a complete, polished, responsive app rather than a bare form: include clear hierarchy, 44px+ controls, validation, helpful empty states, safe destructive confirmations, data persistence when appropriate, editing/deleting for managed records, automatic calculations implied by the task, useful summary views, and export/import where it materially helps. Prefer local-first storage for a simple single-user app; if multi-device or multi-user use would materially change the design, explain the choice and ask before introducing a backend.'
-  : 'あなたは ORIGIN Personal です。結論を1文で先に示し、根拠、比較、リスク、次の行動を論理的に整理してください。簡潔さを情報不足と取り違えず、複雑な依頼では明示された要件をすべて扱い、重要なニュアンスを落とさない専門的で実用的な回答にしてください。確認済みの事実と推論・仮定を区別し、出典や完了実績を創作せず、重要な未確認点は明示してください。最新情報や外部事実が結論に影響する場合は利用可能な根拠に結び付け、確認できない場合は未確認と明記してください。複雑な依頼では短い概要だけで打ち切らず、実行に必要な詳細、条件、検証方法、具体的な進め方まで十分に示し、単純な依頼は簡潔にしてください。作成依頼は一回で雑に出して終わらせず、利用者と一緒に仕上げる前提で扱ってください。依頼内容だけでは目的、対象者、利用場面、必要項目、形式、デザイン、期限、予算、保存・共有方法、成功条件などが不足することがあります。結果を大きく左右する情報が不足している場合は、いきなり完成品を出さず、重要度の高い質問を1回に1〜3個だけ分かりやすく聞き、回答を受けて要件を更新し、必要なら次の質問を続けてください。すでに答えられた内容は再質問せず、十分に具体化できたら質問を止めて制作・回答へ進んでください。利用者が「任せる」と言った部分は安全で妥当な既定値を選び、重要な前提だけ明示してください。指定された形式は守り、表計算・文書・スライド・画像の依頼を勝手にWebページへ置き換えないでください。既に作ったものを別形式へ発展させる依頼では、目的、項目、データ、便利な機能を引き継ぎ、変更指定がない部分を不用意に削らないでください。作成物は ```language:title 形式で、Artifact-1のような機械的な名前ではなく内容が分かる具体的な名前を付け、本番利用できる品質に仕上げてください。利用者がコード自体を求めていない限り、会話欄へ長いソースコードをそのまま流さず、何を作ったか、どう使うか、重要な制約だけを分かりやすく説明してください。ユーザーが特定の題材を指定していない限り、ToDo・タスク管理・天気・カウンターなどの汎用デモを勝手に題材へ選ばず、依頼内容そのものに沿った実用的な作成物を作ってください。HTMLやWebアプリは未装飾のブラウザ標準UIや入力フォームだけで終わらせず、モバイル優先、44px以上の操作領域、十分な余白、明確な階層、読みやすい文字、入力検証、分かりやすい空状態、削除前確認、必要なデータの編集・削除、用途上当然な自動計算、役立つ集計、必要に応じたCSV等の入出力まで含む完成品にしてください。簡単な1人用Webアプリは原則として端末内保存を使い、複数端末・複数人利用でバックエンドが必要になる場合は勝手に導入せず、違いを説明してから確認してください。';
+  ? 'You are ORIGIN Personal, an executive-grade decision and creation partner. Lead with a decisive one-sentence recommendation, then present evidence, trade-offs, risks, and the next action in concise native English. Match depth to complexity, cover every explicit requirement, and use professional domain-appropriate language without flattening important nuance. Distinguish verified facts from inference and assumptions, never invent sources or completed work, and label material unknowns explicitly. When current or external facts materially affect the answer, ground them in available evidence; when evidence is unavailable, say what remains unverified. For complex requests, do not stop at a terse overview: provide enough detail, conditions, verification, and execution guidance for the user to act. For simple requests, stay brief. Treat creation requests as an iterative collaboration. When missing context would materially change the outcome, do not rush into a final deliverable: ask one to three focused clarification questions per turn about the highest-impact unknowns, carry the answers forward across turns, never repeat answered questions, and continue until the requirements are sufficiently clear. Stop asking once the request is specific enough. If the user says to leave a detail to ORIGIN, choose a sensible low-risk default and state the important assumption briefly. Preserve the requested medium exactly; never silently turn a spreadsheet, document, slide deck, or image request into a web page. For image requests, never substitute an image-generation prompt, SVG, HTML, or text description unless the user explicitly asks for that substitute; a requested image is complete only when verified image bytes were actually generated. When the user asks to convert an existing creation into another form, preserve its purpose, data fields, and useful behavior unless they ask to change them. For created items, use fenced blocks in the exact format ```language:title, always give a descriptive human title instead of generic names such as Artifact-1, and deliver production-ready output. Do not dump source code into the conversational response unless the user asks for code; keep the explanation focused on what was created, how to use it, and any important limitation. For HTML or web-app creations, produce a complete, polished, responsive app rather than a bare form: include clear hierarchy, 44px+ controls, validation, helpful empty states, safe destructive confirmations, data persistence when appropriate, editing/deleting for managed records, automatic calculations implied by the task, useful summary views, and export/import where it materially helps. Prefer local-first storage for a simple single-user app; if multi-device or multi-user use would materially change the design, explain the choice and ask before introducing a backend.'
+  : 'あなたは ORIGIN Personal です。結論を1文で先に示し、根拠、比較、リスク、次の行動を論理的に整理してください。簡潔さを情報不足と取り違えず、複雑な依頼では明示された要件をすべて扱い、重要なニュアンスを落とさない専門的で実用的な回答にしてください。確認済みの事実と推論・仮定を区別し、出典や完了実績を創作せず、重要な未確認点は明示してください。最新情報や外部事実が結論に影響する場合は利用可能な根拠に結び付け、確認できない場合は未確認と明記してください。複雑な依頼では短い概要だけで打ち切らず、実行に必要な詳細、条件、検証方法、具体的な進め方まで十分に示し、単純な依頼は簡潔にしてください。作成依頼は一回で雑に出して終わらせず、利用者と一緒に仕上げる前提で扱ってください。依頼内容だけでは目的、対象者、利用場面、必要項目、形式、デザイン、期限、予算、保存・共有方法、成功条件などが不足することがあります。結果を大きく左右する情報が不足している場合は、いきなり完成品を出さず、重要度の高い質問を1回に1〜3個だけ分かりやすく聞き、回答を受けて要件を更新し、必要なら次の質問を続けてください。すでに答えられた内容は再質問せず、十分に具体化できたら質問を止めて制作・回答へ進んでください。利用者が「任せる」と言った部分は安全で妥当な既定値を選び、重要な前提だけ明示してください。指定された形式は守り、表計算・文書・スライド・画像の依頼を勝手にWebページへ置き換えないでください。画像を求められた場合、利用者が明示的にプロンプト等を求めていない限り、画像生成プロンプト・SVG・HTML・文章説明を代用品として返さないでください。画像依頼は、検証済みの実画像バイトを生成できたときだけ完成扱いにしてください。既に作ったものを別形式へ発展させる依頼では、目的、項目、データ、便利な機能を引き継ぎ、変更指定がない部分を不用意に削らないでください。作成物は ```language:title 形式で、Artifact-1のような機械的な名前ではなく内容が分かる具体的な名前を付け、本番利用できる品質に仕上げてください。利用者がコード自体を求めていない限り、会話欄へ長いソースコードをそのまま流さず、何を作ったか、どう使うか、重要な制約だけを分かりやすく説明してください。ユーザーが特定の題材を指定していない限り、ToDo・タスク管理・天気・カウンターなどの汎用デモを勝手に題材へ選ばず、依頼内容そのものに沿った実用的な作成物を作ってください。HTMLやWebアプリは未装飾のブラウザ標準UIや入力フォームだけで終わらせず、モバイル優先、44px以上の操作領域、十分な余白、明確な階層、読みやすい文字、入力検証、分かりやすい空状態、削除前確認、必要なデータの編集・削除、用途上当然な自動計算、役立つ集計、必要に応じたCSV等の入出力まで含む完成品にしてください。簡単な1人用Webアプリは原則として端末内保存を使い、複数端末・複数人利用でバックエンドが必要になる場合は勝手に導入せず、違いを説明してから確認してください。';
 
 const splitArtifactVisualUnits = (content: string): string[] => content
   .replace(/>\s*</g, '>\n<')
@@ -180,11 +180,21 @@ export interface ParsedStreamFrame {
   activeArtifact: ArtifactBlock | null;
 }
 
+export type GeneratedImageMessage = {
+  url: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  downloadName: string;
+  sha256: string;
+  providerId: 'pollinations-zero-cost';
+  model: string;
+};
+
 export type ConversationMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   deliveryState?: 'verified' | 'error';
+  image?: GeneratedImageMessage;
 };
 export type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type Attachment = { name: string; content: string; mediaType: string; kind: 'image' | 'text'; bytes: number };
@@ -487,6 +497,39 @@ type OriginChatFailurePayload = {
   retryable?: unknown;
   retryAttempted?: unknown;
 };
+
+export const isDirectImageGenerationRequest = (input: string): boolean => {
+  const normalized = input.trim();
+  if (!normalized) return false;
+  return /(?:画像|イラスト|写真|ポスター|バナー|サムネ(?:イル)?).{0,28}(?:作って|作成して|生成して|描いて|お願い|ほしい|欲しい)/u.test(normalized)
+    || /(?:作って|作成して|生成して|描いて).{0,28}(?:画像|イラスト|写真|ポスター|バナー|サムネ(?:イル)?)/u.test(normalized)
+    || /\b(?:generate|create|make|draw)\b.{0,40}\b(?:image|picture|illustration|poster|banner|thumbnail)\b/i.test(normalized);
+};
+
+const rasterSizeForRequest = (input: string): { width: number; height: number } => {
+  if (/(?:9\s*[:：/]\s*16|縦長|ストーリー|portrait|vertical)/i.test(input)) return { width: 864, height: 1536 };
+  if (/(?:16\s*[:：/]\s*9|横長|landscape|wide)/i.test(input)) return { width: 1536, height: 864 };
+  if (/(?:1\s*[:：/]\s*1|正方形|square)/i.test(input)) return { width: 1024, height: 1024 };
+  return { width: 1024, height: 1024 };
+};
+
+const rasterFilenameFromDisposition = (value: string | null, mimeType: string): string => {
+  const fallback = mimeType === 'image/png' ? 'origin-image.png' : mimeType === 'image/webp' ? 'origin-image.webp' : 'origin-image.jpg';
+  if (!value) return fallback;
+  const match = value.match(/filename="([^"]+)"/i);
+  return match?.[1] || fallback;
+};
+
+async function fetchOriginRasterImage(prompt: string, signal: AbortSignal): Promise<Response> {
+  const size = rasterSizeForRequest(prompt);
+  return fetch('/api/generate-image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'image/png,image/jpeg,image/webp' },
+    signal,
+    credentials: 'same-origin',
+    body: JSON.stringify({ prompt, ...size }),
+  });
+}
 
 async function fetchOriginChat(body: string, signal: AbortSignal): Promise<Response> {
   return fetch('/api/chat', {
@@ -1037,6 +1080,63 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
     try {
+      if (!interruptCurrent && attachments.length === 0 && isDirectImageGenerationRequest(text.trim())) {
+        const response = await fetchOriginRasterImage(text.trim(), controller.signal);
+        if (!response.ok) {
+          const failure = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+          const unavailable = language === 'en'
+            ? 'Verified $0 image generation is currently unavailable. ORIGIN did not substitute a prompt or use a paid provider.'
+            : '検証済みの0円画像生成を現在実行できません。プロンプトへの置き換えや有料プロバイダへの切り替えは行っていません。';
+          appendFailure(failure?.message && failure.code !== 'POLLINATIONS_KEY_NOT_CONFIGURED' ? failure.message : unavailable);
+          return;
+        }
+
+        const mimeType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+        const sha256 = response.headers.get('x-origin-visual-sha256') ?? '';
+        const providerId = response.headers.get('x-origin-visual-provider') ?? '';
+        const model = response.headers.get('x-origin-visual-model') ?? '';
+        const cost = response.headers.get('x-origin-cost-usd');
+        const freeOnly = response.headers.get('x-origin-free-only');
+        const paidFallback = response.headers.get('x-origin-paid-fallback');
+        const secretDelivery = response.headers.get('x-origin-secret-delivery');
+        if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)
+          || !/^[a-f0-9]{64}$/i.test(sha256)
+          || providerId !== 'pollinations-zero-cost'
+          || !model
+          || cost !== '0'
+          || freeOnly !== 'true'
+          || paidFallback !== 'false'
+          || secretDelivery !== 'server-only') {
+          await response.body?.cancel();
+          throw new Error('unverified-raster-response');
+        }
+
+        const blob = await response.blob();
+        if (blob.size <= 0 || typeof crypto?.subtle?.digest !== 'function') throw new Error('invalid-raster-bytes');
+        const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+        const actualSha = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+        if (actualSha !== sha256.toLowerCase()) throw new Error('raster-sha-mismatch');
+
+        const assistantId = `a-${Date.now()}`;
+        const imageUrl = URL.createObjectURL(blob);
+        const image = {
+          url: imageUrl,
+          mimeType: mimeType as GeneratedImageMessage['mimeType'],
+          downloadName: rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType),
+          sha256: sha256.toLowerCase(),
+          providerId: 'pollinations-zero-cost' as const,
+          model,
+        };
+        updateMessages((current) => [...current, {
+          id: assistantId,
+          role: 'assistant',
+          content: language === 'en' ? 'Image generated and verified.' : '画像を生成し、実ファイルを検証しました。',
+          deliveryState: 'verified',
+          image,
+        }]);
+        return;
+      }
+
       const response = await fetchOriginChat(
         JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages }),
         controller.signal,
@@ -1149,6 +1249,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   </div>
 
   </div>
-</header><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start py-8 sm:justify-center sm:py-4"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p><div className="mt-7 w-full max-w-4xl">{composer}</div><p className="origin-safe-note mt-5 text-center text-[13px]">{t.freeOnlyNotice}</p></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? t.thinking : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />✨ {t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main><ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={isWorkspaceOpen} language={language} designTheme={designTheme} isStreaming={isLoading} onSteer={(direction) => { void handleSend(direction, true); }} onOpenSettings={onOpenSettings} onClose={() => setIsWorkspaceOpen(false)} onArtifactRevision={(next) => { setActiveArtifact(next); updateArtifacts((current) => current.map((block) => block.id === next.id ? next : block)); }} /></div>;
+</header><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start py-8 sm:justify-center sm:py-4"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p><div className="mt-7 w-full max-w-4xl">{composer}</div><p className="origin-safe-note mt-5 text-center text-[13px]">{t.freeOnlyNotice}</p></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? t.thinking : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2"><img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /><figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.model} · SHA-256 {message.image.sha256.slice(0, 12)}… · $0 verified</span><a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a></figcaption></figure>}</>}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />✨ {t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main><ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={isWorkspaceOpen} language={language} designTheme={designTheme} isStreaming={isLoading} onSteer={(direction) => { void handleSend(direction, true); }} onOpenSettings={onOpenSettings} onClose={() => setIsWorkspaceOpen(false)} onArtifactRevision={(next) => { setActiveArtifact(next); updateArtifacts((current) => current.map((block) => block.id === next.id ? next : block)); }} /></div>;
 };
 export default App;
