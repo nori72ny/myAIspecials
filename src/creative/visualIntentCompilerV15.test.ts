@@ -55,8 +55,9 @@ describe('visualIntentCompilerV15', () => {
   });
 
   it('asks only for material gaps on truly underspecified image requests', () => {
-    expect(imageRequirementGapsV15('画像を作って')).toEqual(['subject', 'purpose', 'format']);
+    expect(imageRequirementGapsV15('画像を作って')).toEqual(['subject']);
+    expect(imageRequirementGapsV15('Instagram画像を作って')).toEqual(['subject']);
     expect(imageRequirementGapsV15('Instagram投稿用に、夕焼けの海を9:16でミニマルに作って')).toEqual([]);
-    expect(imageRequirementGapsV15('夕焼けの海をリアルに描いて')).toEqual(['purpose', 'format']);
+    expect(imageRequirementGapsV15('夕焼けの海をリアルに描いて')).toEqual([]);
   });
 });
