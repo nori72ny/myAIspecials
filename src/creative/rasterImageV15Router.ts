@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import {
@@ -5,6 +6,7 @@ import {
   getRasterProviderStatusV15,
   type RasterImageRequestV15,
 } from './rasterImageProviderV15.js';
+import { compileRasterVisualPromptV15 } from './rasterVisualPromptCompilerV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 
@@ -84,13 +86,27 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     }
 
     try {
-      const result = await generateRasterImageV15(input, env);
+      const width = typeof input.width === 'number' ? Math.max(256, Math.min(1536, input.width)) : 1024;
+      const height = typeof input.height === 'number' ? Math.max(256, Math.min(1536, input.height)) : 1024;
+      const plan = compileRasterVisualPromptV15(input.prompt, width, height);
+      const planSha256 = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
+      const result = await generateRasterImageV15({
+        ...input,
+        prompt: plan.providerPrompt,
+        negativePrompt: plan.negativePrompt,
+        width,
+        height,
+      }, env);
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', result.mimeType);
       res.setHeader('Content-Disposition', `attachment; filename="${filename(result.mimeType)}"`);
       res.setHeader('X-Origin-Visual-Verified', 'true');
       res.setHeader('X-Origin-Visual-Sha256', result.sha256);
       res.setHeader('X-Origin-Visual-Generation-Id', `raster-${result.sha256.slice(0, 24)}`);
+      res.setHeader('X-Origin-Visual-Brain', 'visual-brain-v1');
+      res.setHeader('X-Origin-Visual-Prompt-Compiler', 'raster-compiler-v1');
+      res.setHeader('X-Origin-Visual-Plan-Sha256', planSha256);
+      res.setHeader('X-Origin-Visual-Purpose', plan.purpose);
       res.setHeader('X-Origin-Visual-Provider', result.providerId);
       res.setHeader('X-Origin-Visual-Model', result.model);
       res.setHeader('X-Origin-Visual-Width', String(result.width));
