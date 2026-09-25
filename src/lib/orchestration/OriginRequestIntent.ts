@@ -24,6 +24,30 @@ export interface OriginRequestIntent {
   suggestedOutputs: readonly string[];
 }
 
+export interface OriginIntentContextMessage {
+  role: "user" | "ai" | "assistant" | "model";
+  content: string;
+}
+
+function isContextDependentFollowUp(input: string): boolean {
+  const normalized = input.trim();
+  if (!normalized) return false;
+  if (normalized.length <= 4) return true;
+  return /^(?:はい|いいえ|お願いします|お願い(?:します)?|それで|それでお願いします|その方向で|そのまま|任せます|任せる|お任せします|続けて|進めて|これ|それ|上記|前の|一つ目|二つ目|三つ目|[１２３1-3])(?:[。.!！]?)*$/u.test(normalized)
+    || /^(?:yes|no|please|please proceed|go ahead|continue|that one|this one|option\s*[1-3]|the (?:first|second|third) one)[.!]?$/i.test(normalized);
+}
+
+export function originIntentInputFromContext(messages: readonly OriginIntentContextMessage[]): string {
+  const latest = messages.at(-1);
+  if (!latest) return "";
+  if (latest.role !== "user" || !isContextDependentFollowUp(latest.content)) return latest.content;
+
+  const recent = messages.slice(-5);
+  return recent
+    .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content.trim()}`)
+    .join("\n");
+}
+
 export const DEFAULT_ORIGIN_REQUEST_INTENT_CATALOG: OriginRequestIntentCatalog = {
   capabilities: [
     { id: "research", patterns: [/検索|調査|リサーチ|最新情報|一次情報|出典|\b(?:search|research)\b/i] },
