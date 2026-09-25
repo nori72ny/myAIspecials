@@ -1,0 +1,45 @@
+import { describe, expect, it } from 'vitest';
+
+import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15';
+
+describe('rasterVisualPlannerV15', () => {
+  it('asks focused questions for an underspecified image request instead of generating a generic image', () => {
+    const plan = planRasterVisualRequestV15('画像を作ってください');
+    expect(plan.ready).toBe(false);
+    expect(plan.questions).toHaveLength(1);
+    expect(plan.questions[0]).toContain('何を主役');
+  });
+
+  it('turns a mobile premium ad request into a production-oriented visual spec', () => {
+    const plan = planRasterVisualRequestV15(
+      'スマホ広告用に、高級感のある黒背景で未来的なORIGIN Personalの広告画像を9:16で作ってください',
+    );
+    expect(plan.ready).toBe(true);
+    expect(plan.purpose).toBe('advertisement');
+    expect(plan.platform).toBe('vertical-mobile');
+    expect(plan).toMatchObject({ width: 864, height: 1536 });
+    expect(plan.style.join(' ')).toContain('premium restrained');
+    expect(plan.style.join(' ')).toContain('futuristic');
+    expect(plan.composition).toContain('clear single hero subject');
+    expect(plan.compiledPrompt).toContain('controlled commercial key light');
+    expect(plan.negativePrompt).toContain('extra fingers');
+  });
+
+  it('extracts exact quoted copy and marks typography-sensitive requests', () => {
+    const plan = planRasterVisualRequestV15(
+      'Instagram 4:5の広告画像。文字は「ORIGIN Personal」を必ず入れて、高級でミニマルに。',
+    );
+    expect(plan.exactText).toEqual(['ORIGIN Personal']);
+    expect(plan.requiresDeterministicTypography).toBe(true);
+    expect(plan.width).toBe(1024);
+    expect(plan.height).toBe(1280);
+    expect(plan.compiledPrompt).toContain('"ORIGIN Personal"');
+  });
+
+  it('does not ask an aspect-ratio question for ordinary unconstrained photographs', () => {
+    const plan = planRasterVisualRequestV15('朝焼けの富士山をリアルな写真として生成してください');
+    expect(plan.ready).toBe(true);
+    expect(plan.purpose).toBe('photograph');
+    expect(plan.questions).toEqual([]);
+  });
+});
