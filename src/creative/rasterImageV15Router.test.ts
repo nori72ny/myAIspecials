@@ -31,17 +31,19 @@ function successfulFetchMock() {
   const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
   return vi.fn()
     .mockResolvedValueOnce(json([freeModel]))
+    .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-router' }] }))
     .mockResolvedValueOnce(new Response(png, {
       status: 200,
       headers: { 'content-type': 'image/png' },
     }))
     .mockResolvedValueOnce(json({
       usage: [{
-        timestamp: new Date().toISOString().replace('T', ' ').replace('Z', ''),
+        cursor_event_id: 'after-router',
         type: 'generate.image',
         model: 'tomdacatto/sana',
         meter_source: 'tier',
         cost_usd: 0,
+        output_image_tokens: 1,
       }],
     }));
 }
@@ -104,13 +106,13 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-cost-usd']).toBe('0');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
     expect(response.headers['x-origin-external-network']).toBe('true');
-    expect(response.headers['x-origin-external-network-requests']).toBe('3');
+    expect(response.headers['x-origin-external-network-requests']).toBe('4');
     expect(response.headers['x-origin-secret-delivery']).toBe('server-only');
     expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(Buffer.isBuffer(response.body)).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
-    const providerRequest = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    const providerRequest = fetchMock.mock.calls[2]?.[1] as RequestInit;
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe('Bearer server_only_key');
     expect(response.text ?? '').not.toContain('server_only_key');
