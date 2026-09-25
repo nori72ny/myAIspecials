@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, chooseArtifactDisplayTitle, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -738,6 +738,14 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('オフライン中は新規AI応答を停止しています。端末内の履歴・作成物は閲覧、直接編集、保存、パッケージ化を継続できます。')).toBeTruthy());
     if (online) Object.defineProperty(window.navigator, 'onLine', online);
     else delete (window.navigator as { onLine?: boolean }).onLine;
+  });
+});
+
+describe('creation titles', () => {
+  it('uses request-aware names instead of generic Artifact labels', () => {
+    expect(chooseArtifactDisplayTitle('Artifact-1', '簡単な売り上げ管理表を作ってください')).toBe('簡単な売り上げ管理表');
+    expect(chooseArtifactDisplayTitle('Artifact-1', 'ウェブアプリで管理できるようにしてください', [{ id: 'a', type: 'html', title: '売上管理表', language: 'html', content: '<main/>', isComplete: true }])).toBe('売上管理表 Webアプリ');
+    expect(chooseArtifactDisplayTitle('sales.html', '何か作って')).toBe('sales.html');
   });
 });
 
