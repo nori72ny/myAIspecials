@@ -48,6 +48,28 @@ describe("OriginRequirementClarifier", () => {
     ]) expect(instruction).toContain(phrase);
   });
 
+  it("asks image-specific questions only around material visual unknowns", () => {
+    const intent = classifyOriginRequestIntent(
+      "この人物はそのままで背景だけ東京にした画像を作ってください",
+      "implementation",
+    );
+    const dimensions = requirementDimensionsForIntent(intent);
+    const instruction = originRequirementClarificationInstruction(intent);
+
+    expect(dimensions).toEqual(expect.arrayContaining([
+      "reference-images",
+      "exact-text",
+      "change-preserve",
+      "aspect-output",
+      "style-reference",
+      "identity-fidelity",
+      "verification",
+    ]));
+    expect(instruction).toContain("required text, reference images, aspect/output format");
+    expect(instruction).toContain("preserve-first edit");
+    expect(instruction).toContain("背景だけ変えて");
+  });
+
   it("adds approval and verification concerns to end-to-end workflows without making every dimension mandatory", () => {
     const intent = classifyOriginRequestIntent(
       "市場を調査してホームページを完成まで制作してください",

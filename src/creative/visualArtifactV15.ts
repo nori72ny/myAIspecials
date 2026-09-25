@@ -39,6 +39,12 @@ export type GeneratedVisualArtifactV15 = {
   sha256: string;
   verified: boolean;
   verification: readonly string[];
+  quality: {
+    passed: boolean;
+    score: number;
+    checks: readonly string[];
+    issues: readonly string[];
+  };
   externalNetworkRequests: 0;
   providerExecutions: 0;
   costUsd: 0;
@@ -161,17 +167,21 @@ function wrapText(text: string, maxUnits: number, maxLines: number): string[] {
     units += charUnits;
   }
   if (output.length < maxLines && line) output.push(line.trimEnd());
-  if (output.length === maxLines && textUnits(output.join('')) < textUnits(text.replace(/\s+/g, ' ').trim())) {
-    const last = output[maxLines - 1] ?? '';
-    output[maxLines - 1] = `${last.slice(0, Math.max(0, last.length - 1))}…`;
-  }
   return output;
 }
 
-function svgText(lines: string[], x: number, y: number, size: number, color: string, weight: number, lineHeight: number): string {
+function assertTextFits(text: string, maxUnits: number, maxLines: number, code: string): void {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (textUnits(normalized) > maxUnits * maxLines) {
+    throw new VisualArtifactValidationErrorV15(code);
+  }
+}
+
+function svgText(lines: string[], originalText: string, x: number, y: number, size: number, color: string, weight: number, lineHeight: number, role: 'title' | 'subtitle' | 'body' | 'footer'): string {
   if (lines.length === 0) return '';
   const tspans = lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : lineHeight}">${xml(line)}</tspan>`).join('');
-  return `<text x="${x}" y="${y}" fill="${color}" font-family="system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="${size}" font-weight="${weight}" letter-spacing="-0.02em">${tspans}</text>`;
+  const sourceText = originalText.replace(/\s+/g, ' ').trim();
+  return `<text data-origin-role="${role}" data-origin-text="${xml(sourceText)}" x="${x}" y="${y}" fill="${color}" font-family="system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="${size}" font-weight="${weight}" letter-spacing="-0.02em">${tspans}</text>`;
 }
 
 function buildSvg(request: ReturnType<typeof parseVisualArtifactRequestV15>): { svg: string; width: number; height: number } {
@@ -182,9 +192,14 @@ function buildSvg(request: ReturnType<typeof parseVisualArtifactRequestV15>): { 
   const titleSize = request.preset === 'story' ? 82 : request.preset === 'landscape' ? 68 : 76;
   const subtitleSize = Math.round(titleSize * 0.42);
   const bodySize = Math.round(titleSize * 0.34);
+  const bodyLines = request.preset === 'story' ? 10 : 7;
+  assertTextFits(request.title, maxUnits, 4, 'VISUAL_TEXT_OVERFLOW_TITLE');
+  assertTextFits(request.subtitle, maxUnits + 6, 3, 'VISUAL_TEXT_OVERFLOW_SUBTITLE');
+  assertTextFits(request.body, maxUnits + 10, bodyLines, 'VISUAL_TEXT_OVERFLOW_BODY');
+  assertTextFits(request.footer, maxUnits + 12, 2, 'VISUAL_TEXT_OVERFLOW_FOOTER');
   const title = wrapText(request.title, maxUnits, 4);
   const subtitle = wrapText(request.subtitle, maxUnits + 6, 3);
-  const body = wrapText(request.body, maxUnits + 10, request.preset === 'story' ? 10 : 7);
+  const body = wrapText(request.body, maxUnits + 10, bodyLines);
   const footer = wrapText(request.footer, maxUnits + 12, 2);
 
   const elements: string[] = [
@@ -206,19 +221,19 @@ function buildSvg(request: ReturnType<typeof parseVisualArtifactRequestV15>): { 
   const contentWidth = width - contentX - pad;
   const top = request.preset === 'story' ? Math.round(height * 0.23) : Math.round(height * 0.25);
   const titleLineHeight = Math.round(titleSize * 1.12);
-  elements.push(svgText(title, contentX, top, titleSize, foreground, 760, titleLineHeight));
+  elements.push(svgText(title, request.title, contentX, top, titleSize, foreground, 760, titleLineHeight, 'title'));
 
   let cursor = top + Math.max(1, title.length) * titleLineHeight + Math.round(titleSize * 0.45);
   if (subtitle.length > 0) {
-    elements.push(svgText(subtitle, contentX, cursor, subtitleSize, accent, 650, Math.round(subtitleSize * 1.35)));
+    elements.push(svgText(subtitle, request.subtitle, contentX, cursor, subtitleSize, accent, 650, Math.round(subtitleSize * 1.35), 'subtitle'));
     cursor += subtitle.length * Math.round(subtitleSize * 1.35) + Math.round(titleSize * 0.45);
   }
   if (body.length > 0) {
     elements.push(`<line x1="${contentX}" y1="${cursor - Math.round(bodySize * 0.7)}" x2="${contentX + Math.min(contentWidth, Math.round(width * 0.22))}" y2="${cursor - Math.round(bodySize * 0.7)}" stroke="${muted}" stroke-width="3" opacity="0.3"/>`);
-    elements.push(svgText(body, contentX, cursor, bodySize, muted, 430, Math.round(bodySize * 1.48)));
+    elements.push(svgText(body, request.body, contentX, cursor, bodySize, muted, 430, Math.round(bodySize * 1.48), 'body'));
   }
   if (footer.length > 0) {
-    elements.push(svgText(footer, contentX, height - pad, Math.max(24, Math.round(bodySize * 0.82)), muted, 560, Math.round(bodySize * 1.1)));
+    elements.push(svgText(footer, request.footer, contentX, height - pad, Math.max(24, Math.round(bodySize * 0.82)), muted, 560, Math.round(bodySize * 1.1), 'footer'));
   }
 
   const label = xml(request.kind.toUpperCase().replace('-', ' '));
@@ -243,11 +258,85 @@ export function verifyVisualSvgV15(bytes: Buffer, width: number, height: number)
   return { verified: Object.values(checks).every(Boolean), checks: Object.entries(checks).filter(([, ok]) => ok).map(([name]) => name) };
 }
 
+function hexRgb(value: string): [number, number, number] {
+  return [Number.parseInt(value.slice(1, 3), 16), Number.parseInt(value.slice(3, 5), 16), Number.parseInt(value.slice(5, 7), 16)];
+}
+
+function luminanceChannel(value: number): number {
+  const normalized = value / 255;
+  return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const [r1, g1, b1] = hexRgb(foreground);
+  const [r2, g2, b2] = hexRgb(background);
+  const l1 = 0.2126 * luminanceChannel(r1) + 0.7152 * luminanceChannel(g1) + 0.0722 * luminanceChannel(b1);
+  const l2 = 0.2126 * luminanceChannel(r2) + 0.7152 * luminanceChannel(g2) + 0.0722 * luminanceChannel(b2);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+function normalizeVisibleText(value: string): string {
+  return value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function roleText(svg: string, role: 'title' | 'subtitle' | 'body' | 'footer'): { source: string; visible: string } {
+  const match = svg.match(new RegExp(`<text[^>]*data-origin-role="${role}"[^>]*data-origin-text="([^"]*)"[^>]*>([\\s\\S]*?)<\\/text>`, 'i'));
+  return {
+    source: match?.[1] ?? '',
+    visible: match ? normalizeVisibleText(match[2] ?? '') : '',
+  };
+}
+
+export function critiqueVisualSvgV15(
+  bytes: Buffer,
+  request: ReturnType<typeof parseVisualArtifactRequestV15>,
+  width: number,
+  height: number,
+): GeneratedVisualArtifactV15['quality'] {
+  const svg = bytes.toString('utf8');
+  const structural = verifyVisualSvgV15(bytes, width, height);
+  const expected = {
+    title: xml(request.title.replace(/\s+/g, ' ').trim()),
+    subtitle: xml(request.subtitle.replace(/\s+/g, ' ').trim()),
+    body: xml(request.body.replace(/\s+/g, ' ').trim()),
+    footer: xml(request.footer.replace(/\s+/g, ' ').trim()),
+  };
+  const textChecks = (Object.keys(expected) as Array<keyof typeof expected>).every((role) => {
+    if (expected[role] === '') return true;
+    const rendered = roleText(svg, role);
+    const sourceMatches = rendered.source === expected[role];
+    const visibleCharactersMatch = rendered.visible.replace(/\s+/g, '') === expected[role].replace(/\s+/g, '');
+    return sourceMatches && visibleCharactersMatch;
+  });
+  const foregroundContrast = contrastRatio(request.theme.foreground, request.theme.background);
+  const mutedContrast = request.body || request.footer
+    ? contrastRatio(request.theme.muted, request.theme.background)
+    : 7;
+  const contrastPass = foregroundContrast >= 4.5 && mutedContrast >= 4.5;
+  const ariaPass = /<svg\b[^>]*role="img"[^>]*aria-label="[^"]+"/i.test(svg);
+
+  const checks = [
+    structural.verified ? 'artifact-safety' : '',
+    textChecks ? 'exact-text-fidelity' : '',
+    contrastPass ? 'wcag-text-contrast' : '',
+    ariaPass ? 'meaningful-image-label' : '',
+  ].filter(Boolean);
+  const issues = [
+    !structural.verified ? 'artifact-safety-failed' : '',
+    !textChecks ? 'text-fidelity-failed' : '',
+    !contrastPass ? 'text-contrast-below-aa' : '',
+    !ariaPass ? 'missing-image-label' : '',
+  ].filter(Boolean);
+  const score = Math.round((checks.length / 4) * 100);
+  return { passed: issues.length === 0, score, checks, issues };
+}
+
 export function generateVisualArtifactV15(input: unknown): GeneratedVisualArtifactV15 {
   const request = parseVisualArtifactRequestV15(input);
   const { svg, width, height } = buildSvg(request);
   const bytes = Buffer.from(svg, 'utf8');
   const verification = verifyVisualSvgV15(bytes, width, height);
+  const quality = critiqueVisualSvgV15(bytes, request, width, height);
   return {
     version: '1.5',
     kind: request.kind,
@@ -259,8 +348,9 @@ export function generateVisualArtifactV15(input: unknown): GeneratedVisualArtifa
     mimeType: 'image/svg+xml',
     bytes,
     sha256: createHash('sha256').update(bytes).digest('hex'),
-    verified: verification.verified,
+    verified: verification.verified && quality.passed,
     verification: verification.checks,
+    quality,
     externalNetworkRequests: 0,
     providerExecutions: 0,
     costUsd: 0,

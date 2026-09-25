@@ -17,6 +17,12 @@ export type OriginRequirementDimension =
   | "platform-device"
   | "permissions-integrations"
   | "brand-assets"
+  | "reference-images"
+  | "exact-text"
+  | "change-preserve"
+  | "aspect-output"
+  | "style-reference"
+  | "identity-fidelity"
   | "scope-criteria"
   | "freshness-sources"
   | "target-runtime"
@@ -39,7 +45,7 @@ const OUTPUT_DIMENSIONS: Readonly<Record<string, readonly OriginRequirementDimen
   proposal: ["audience", "usage-context", "source-material", "structure-depth", "tone-design"],
   document: ["audience", "source-material", "structure-depth", "tone-design"],
   "talk-script": ["audience", "usage-context", "tone-design"],
-  image: ["audience", "usage-context", "tone-design", "brand-assets", "platform-device"],
+  image: ["audience", "usage-context", "tone-design", "brand-assets", "reference-images", "exact-text", "change-preserve", "aspect-output", "style-reference", "identity-fidelity", "platform-device"],
   "social-post": ["audience", "usage-context", "tone-design", "brand-assets"],
   "research-result": ["scope-criteria", "freshness-sources", "source-material", "success-criteria"],
   comparison: ["scope-criteria", "success-criteria", "source-material"],
@@ -49,6 +55,7 @@ const OUTPUT_DIMENSIONS: Readonly<Record<string, readonly OriginRequirementDimen
 const CAPABILITY_DIMENSIONS: Readonly<Record<string, readonly OriginRequirementDimension[]>> = {
   "application-development": ["target-runtime", "expected-behavior", "verification"],
   "website-development": ["platform-device", "expected-behavior", "verification"],
+  "image-generation": ["reference-images", "exact-text", "change-preserve", "aspect-output", "style-reference", "identity-fidelity", "verification"],
   "data-analysis": ["data-fields", "scope-criteria", "success-criteria", "verification"],
   research: ["scope-criteria", "freshness-sources", "success-criteria"],
   design: ["audience", "usage-context", "tone-design", "brand-assets"],
@@ -102,6 +109,8 @@ export function originRequirementClarificationInstruction(intent: OriginRequestI
     "- Never ask the same requirement twice after the user has answered it. Carry accepted requirements forward into later turns and into the final deliverable.",
     "- If the user says to leave a detail to ORIGIN, choose a sensible low-risk default and do not ask again unless a new conflict appears.",
     "- Continue the clarification loop only while material uncertainty remains; once the request is sufficiently specified, stop questioning and execute.",
+    "- For image/visual work, explicitly resolve any material uncertainty about required text, reference images, aspect/output format, and what must change versus remain identical. Do not ask for all of them when they are already clear.",
+    "- For image edits, interpret requests like '背景だけ変えて' as a preserve-first edit: preserve unmentioned identity, pose, clothing, crop, camera, accepted layout, and exact text unless the user says otherwise.",
     "- After a draft is delivered, treat user feedback as requirement updates and preserve accepted parts unless the user asks to replace them.",
   ].join("\n");
 }

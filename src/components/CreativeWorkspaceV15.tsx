@@ -46,6 +46,10 @@ type VerifiedCreativeArtifact = {
   title: string;
   downloadName: string;
   sha256: string;
+  generationId?: string;
+  visualBrainVersion?: string;
+  providerId?: string;
+  planSha256?: string;
 };
 
 const INITIAL_DRAFT: CreativeDraft = {
@@ -102,9 +106,9 @@ async function errorMessage(response: Response): Promise<string> {
 }
 
 function historyStorageMessage(status: 'unavailable' | 'quota' | 'failed'): string {
-  if (status === 'quota') return '端末の保存容量が不足しているため、この成果物は履歴に保存できませんでした。';
+  if (status === 'quota') return '端末の保存容量が不足しているため、この作成物は履歴に保存できませんでした。';
   if (status === 'unavailable') return 'この環境では端末内のCreative履歴を利用できません。生成と保存は引き続き利用できます。';
-  return '端末内のCreative履歴を更新できませんでした。生成済み成果物はそのまま保存できます。';
+  return '端末内のCreative履歴を更新できませんでした。生成済み作成物はそのまま保存できます。';
 }
 
 export default function CreativeWorkspaceV15() {
@@ -183,6 +187,11 @@ export default function CreativeWorkspaceV15() {
       preset: nextArtifact.preset,
       downloadName: nextArtifact.downloadName,
       svgBlob: nextArtifact.blob,
+      generationId: nextArtifact.generationId,
+      visualBrainVersion: nextArtifact.visualBrainVersion,
+      providerId: nextArtifact.providerId,
+      planSha256: nextArtifact.planSha256,
+      relation: 'generated',
     });
     if (result.status === 'saved') {
       setHistoryStatus('ready');
@@ -221,19 +230,33 @@ export default function CreativeWorkspaceV15() {
         }),
       });
       if (!response.ok) throw new Error(await errorMessage(response));
-      if (response.headers.get('x-origin-visual-verified') !== 'true') throw new Error('成果物の検証証拠を確認できませんでした。');
+      if (response.headers.get('x-origin-visual-verified') !== 'true') throw new Error('作成物の検証証拠を確認できませんでした。');
       if (response.headers.get('x-origin-free-only') !== 'true'
         || response.headers.get('x-origin-cost-usd') !== '0'
         || response.headers.get('x-origin-external-network') !== 'false') {
-        throw new Error('成果物のゼロコスト境界を確認できませんでした。');
+        throw new Error('作成物のゼロコスト境界を確認できませんでした。');
       }
-      if (!response.headers.get('content-type')?.toLowerCase().includes('image/svg+xml')) throw new Error('想定外の成果物形式が返されました。');
+      if (!response.headers.get('content-type')?.toLowerCase().includes('image/svg+xml')) throw new Error('想定外の作成物形式が返されました。');
       const artifactSha256 = response.headers.get('x-origin-visual-sha256') || '';
-      if (!/^[a-f0-9]{64}$/i.test(artifactSha256)) throw new Error('成果物のSHA-256証拠を確認できませんでした。');
+      if (!/^[a-f0-9]{64}$/i.test(artifactSha256)) throw new Error('作成物のSHA-256証拠を確認できませんでした。');
+      const visualBrainVersion = response.headers.get('x-origin-visual-brain') || '';
+      const providerId = response.headers.get('x-origin-visual-provider') || '';
+      const planSha256 = response.headers.get('x-origin-visual-plan-sha256') || '';
+      const generationId = response.headers.get('x-origin-visual-generation-id') || '';
+      const critic = response.headers.get('x-origin-visual-critic') || '';
+      const qualityScore = Number(response.headers.get('x-origin-visual-quality-score') || '0');
+      if (visualBrainVersion !== 'visual-brain-v1'
+        || providerId !== 'origin-local-svg'
+        || critic !== 'deterministic-v1'
+        || qualityScore < 100
+        || !/^[a-f0-9]{64}$/i.test(planSha256)
+        || !/^visual-[a-f0-9]{24}$/i.test(generationId)) {
+        throw new Error('Visual Brainの生成・品質検証証拠を確認できませんでした。');
+      }
       const blob = await response.blob();
-      if (blob.size <= 0) throw new Error('空の成果物が返されました。');
+      if (blob.size <= 0) throw new Error('空の作成物が返されました。');
       if (!(await verifyVisualBlobSha256V15(blob, artifactSha256))) {
-        throw new Error('成果物の実バイトとSHA-256証拠が一致しませんでした。');
+        throw new Error('作成物の実バイトとSHA-256証拠が一致しませんでした。');
       }
 
       const nextArtifact: VerifiedCreativeArtifact = {
@@ -242,6 +265,10 @@ export default function CreativeWorkspaceV15() {
         title: draft.title,
         downloadName: filenameFromDisposition(response.headers.get('content-disposition'), 'origin-creative.svg'),
         sha256: artifactSha256.toLowerCase(),
+        generationId,
+        visualBrainVersion,
+        providerId,
+        planSha256: planSha256.toLowerCase(),
       };
       applyArtifact(nextArtifact);
       await persistHistory(nextArtifact);
@@ -276,7 +303,7 @@ export default function CreativeWorkspaceV15() {
     setHistoryNotice('');
     try {
       if (!(await verifyVisualBlobSha256V15(entry.svgBlob, entry.sha256))) {
-        setHistoryNotice('履歴の整合性を確認できなかったため、この成果物は開きませんでした。');
+        setHistoryNotice('履歴の整合性を確認できなかったため、この作成物は開きませんでした。');
         return;
       }
       applyArtifact({
@@ -285,10 +312,14 @@ export default function CreativeWorkspaceV15() {
         title: entry.title,
         downloadName: entry.downloadName,
         sha256: entry.sha256,
+        generationId: entry.generationId,
+        visualBrainVersion: entry.visualBrainVersion,
+        providerId: entry.providerId,
+        planSha256: entry.planSha256,
       });
       setHistoryNotice('端末内履歴から検証済みSVGを開きました。');
     } catch {
-      setHistoryNotice('履歴の整合性を確認できなかったため、この成果物は開きませんでした。');
+      setHistoryNotice('履歴の整合性を確認できなかったため、この作成物は開きませんでした。');
     } finally {
       setHistoryBusyId('');
     }
@@ -320,7 +351,7 @@ export default function CreativeWorkspaceV15() {
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Create</p>
           <h1 className="mt-1 text-xl font-black text-slate-950 dark:text-white">作りたいものを入力</h1>
-          <p className="mt-1 text-sm leading-6 text-slate-500">ORIGINが生成・検証し、保存できる成果物として仕上げます。</p>
+          <p className="mt-1 text-sm leading-6 text-slate-500">ORIGINが生成・検証し、保存できる作成物として仕上げます。</p>
         </div>
         <span className={`shrink-0 text-xs font-semibold ${status === 'ready' ? 'text-emerald-700 dark:text-emerald-300' : status === 'loading' ? 'text-slate-500' : 'text-amber-700 dark:text-amber-300'}`} role="status">{verificationText}</span>
       </header>
@@ -409,12 +440,12 @@ export default function CreativeWorkspaceV15() {
               <div className="max-w-sm text-center text-slate-500 dark:text-slate-400">
                 <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-300 bg-white text-2xl shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-hidden="true">✦</div>
                 <p className="text-sm font-bold text-slate-700 dark:text-slate-200">まだ生成されていません</p>
-                <p className="mt-1 text-xs leading-5">左の内容を整えて「Visualを生成」を押すと、検証済み成果物だけをここに表示します。</p>
+                <p className="mt-1 text-xs leading-5">左の内容を整えて「Visualを生成」を押すと、検証済み作成物だけをここに表示します。</p>
               </div>
             )}
           </div>
           {artifact && previewUrl && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · 実バイト照合済み · 外部通信なし · PNGは端末内変換
+            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · {artifact.visualBrainVersion ?? 'visual-brain'} · {artifact.providerId ?? 'local'} · Critic 100 · 実バイト照合済み · 外部通信なし · PNGは端末内変換
           </div>}
         </section>
       </div>
