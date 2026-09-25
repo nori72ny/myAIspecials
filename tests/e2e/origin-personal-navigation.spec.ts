@@ -43,6 +43,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
+    await page.getByText('実行に必要な認証', { exact: true }).click();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
     await expect(page.getByText('Grounded execution evidence', { exact: true })).toHaveCount(0);
@@ -52,8 +53,10 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
+    await page.getByText('実行に必要な認証', { exact: true }).click();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await page.reload();
+    await page.getByText('実行に必要な認証', { exact: true }).click();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByRole('button', { name: '変更を依頼する', exact: true })).toBeDisabled();
   });
@@ -71,7 +74,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('origin-add-menu-toggle')).toBeVisible();
     await expect(page.getByRole('menu', { name: '追加機能' })).toBeHidden();
     await page.getByTestId('origin-add-menu-toggle').click();
-    for (const label of ['ファイルを添付', '調べる', 'コード', '作る']) {
+    for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '成果物を作る']) {
       await expect(page.getByRole('menuitem', { name: label, exact: true })).toBeVisible();
     }
     await expect(page.getByRole('menuitem', { name: '詳細', exact: true })).toHaveCount(0);
@@ -84,7 +87,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('nav-dashboard')).toHaveCount(0);
     await expect(page.getByTestId('nav-chat')).toHaveCount(0);
     await expect(page.getByTestId('nav-workspace')).toHaveCount(0);
-    await expect(page.getByText(/無料AIのみ・有料AIへの自動切替なし|Free AI only · no automatic paid fallback/i)).toBeVisible();
+    await expect(page.getByText(/追加料金が発生するAIへ自動で切り替わりません|No automatic switch to paid AI/i)).toBeVisible();
   });
 
   for (const width of [320, 390, 1440]) {
@@ -121,7 +124,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       const add = page.getByTestId('origin-add-menu-toggle');
       const send = page.getByTestId('start-request-button');
 
-      await expect(input).toHaveAttribute('placeholder', 'ORIGINに依頼する');
+      await expect(input).toHaveAttribute('placeholder', 'やりたいことを、そのまま入力してください');
       await expect(add).toHaveText('＋');
       await expect(send).toHaveText('↑');
       const composerBox = await composer.boundingBox();
@@ -146,7 +149,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(addMenuBox!.x + addMenuBox!.width).toBeLessThanOrEqual(width);
       expect(addMenuBox!.y).toBeGreaterThanOrEqual(0);
       expect(addMenuBox!.y + addMenuBox!.height).toBeLessThanOrEqual(width <= 390 ? (width === 320 ? 568 : 844) : 900);
-      await page.getByRole('menuitem', { name: '調べる', exact: true }).click();
+      await page.getByRole('menuitem', { name: '詳しく調べる', exact: true }).click();
       await expect(page).toHaveURL(/workspace=research/);
       await expect(page.getByRole('heading', { name: '調べたいことを入力' })).toBeVisible();
       await expect(page.getByLabel('調べたいこと', { exact: true })).toBeEditable();
@@ -162,7 +165,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
 
       await page.getByTestId('origin-add-menu-toggle').click();
-      await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+      await page.getByRole('menuitem', { name: '成果物を作る', exact: true }).click();
       await expect(page).toHaveURL(/workspace=creative/);
       await expect(page.getByRole('heading', { name: '作りたいものを入力' })).toBeVisible();
       await expect(page.getByLabel('タイトル', { exact: true })).toBeEditable();
@@ -246,7 +249,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(answer.getByRole('table')).toBeVisible();
     await expect(answer.getByRole('img')).toHaveCount(0);
     await expect(answer.getByRole('note')).toContainText('外部画像は自動表示しません');
-    await expect(page.getByTestId('response-verification-details')).toContainText('回答の詳細');
+    await expect(page.getByTestId('response-verification-details')).toContainText('詳細');
     const typography = await answer.evaluate((element) => {
       const heading = element.querySelector('h2');
       const paragraph = element.querySelector('p');
