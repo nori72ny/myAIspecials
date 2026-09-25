@@ -5,13 +5,13 @@ const DEFAULT_MODEL = 'tomdacatto/sana';
 const AUDITED_ZERO_COST_MODELS = new Set(['tomdacatto/sana']);
 const MAX_PROMPT_CHARS = 2_000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_IMAGE_RESPONSE_BYTES = Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 64 * 1024;
 const IMAGE_GENERATION_TIMEOUT_MS = 45_000;
 const MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
 const USAGE_VERIFY_ATTEMPTS = 7;
 const USAGE_VERIFY_DELAY_MS = 7_000;
 const USAGE_VERIFY_TOTAL_MS = 50_000;
 const USAGE_VERIFY_REQUEST_TIMEOUT_MS = 4_000;
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 export type RasterImageSizeV15 = {
   width: number;
