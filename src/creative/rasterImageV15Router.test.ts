@@ -109,6 +109,9 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-external-network-requests']).toBe('4');
     expect(response.headers['x-origin-secret-delivery']).toBe('server-only');
     expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
+    expect(response.headers['x-origin-visual-generation-id']).toMatch(/^raster-[a-f0-9]{24}$/);
+    expect(response.headers['x-origin-visual-width']).toBe('768');
+    expect(response.headers['x-origin-visual-height']).toBe('1024');
     expect(Buffer.isBuffer(response.body)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(4);
 
