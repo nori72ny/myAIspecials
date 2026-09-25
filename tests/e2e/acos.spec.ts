@@ -7,7 +7,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('header').getByText('ORIGIN', { exact: true })).toBeVisible();
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: '何をしたいですか？' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
     const commandBar = page.getByTestId('origin-home-request');
     await expect(commandBar).toBeVisible();
     expect(Number.parseFloat(await commandBar.evaluate((element) => getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(60);
@@ -49,7 +49,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible({ timeout: 15_000 });
 
-    for (const id of ['artifact-action-save', 'artifact-action-share', 'artifact-action-edit', 'artifact-action-details']) {
+    for (const id of ['artifact-action-save', 'artifact-action-edit', 'artifact-action-details']) {
       const control = page.getByTestId(id);
       const bounds = await control.boundingBox();
       expect(bounds).not.toBeNull();
@@ -57,6 +57,17 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       expect(bounds!.width).toBeGreaterThanOrEqual(44);
       await expect(control).toHaveCSS('min-width', '44px');
     }
+    await expect(page.getByTestId('artifact-action-share')).toHaveCount(0);
+    await page.getByTestId('artifact-action-details').click();
+    for (const id of ['artifact-action-share', 'artifact-action-bundle', 'preview-viewport-375']) {
+      const control = page.getByTestId(id);
+      await expect(control).toBeVisible();
+      const bounds = await control.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.height).toBeGreaterThanOrEqual(44);
+      expect(bounds!.width).toBeGreaterThanOrEqual(44);
+    }
+    await page.getByTestId('artifact-action-details').click();
 
     await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
@@ -98,7 +109,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(requests).toBe(1);
     const verification = page.getByTestId('response-verification-details');
     await expect(verification).not.toHaveAttribute('open');
-    await verification.getByText('回答の詳細').click();
+    await verification.getByText('詳細', { exact: true }).click();
     for (const label of ['応答完了', '費用経路', '内容の限界']) await expect(page.getByTestId('response-verification-log')).toContainText(label);
     await expect(page.getByTestId('response-verification-log')).toContainText('出典確認や別AIによる内容検証を示すものではありません');
     await expect(page.locator('.safe-area-bottom .origin-composer')).toBeVisible();
@@ -404,18 +415,20 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('artifact-action-save')).toBeVisible();
-    await expect(page.getByTestId('artifact-action-share')).toBeVisible();
     await expect(page.getByTestId('artifact-action-edit')).toBeVisible();
     await expect(page.getByTestId('artifact-action-details')).toBeVisible();
     await expect(page.getByTestId('artifact-action-edit')).toHaveText('✏️ 編集');
-    await expect(page.getByTestId('artifact-action-share')).toHaveText('📲 共有');
     await expect(page.getByTestId('artifact-action-save')).toHaveText('📥 保存');
-    for (const control of ['artifact-action-save', 'artifact-action-share', 'artifact-action-edit', 'artifact-action-details']) {
+    await expect(page.getByTestId('artifact-action-share')).toHaveCount(0);
+    for (const control of ['artifact-action-save', 'artifact-action-edit', 'artifact-action-details']) {
       await expect(page.getByTestId(control)).toHaveClass(/min-h-11/);
       await expect(page.getByTestId(control)).toHaveClass(/min-w-11/);
     }
     await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('artifact-action-copy')).toBeVisible();
+    await expect(page.getByTestId('artifact-action-share')).toBeVisible();
+    await expect(page.getByTestId('artifact-action-share')).toContainText('共有');
+    await page.getByTestId('artifact-action-details').click();
     await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
     await expect(preview).toBeVisible();
@@ -451,15 +464,19 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const preview = workspace.getByTitle('プレビュー');
     const sandbox = preview.contentFrame();
     await expect(sandbox.locator('body')).toBeVisible();
+    await page.getByTestId('artifact-action-details').click();
     await page.getByTestId('preview-viewport-375').click();
     await expect(preview).toHaveAttribute('style', /width: 375px/);
+    await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('preview-viewport-375')).toContainText('375px');
     await page.getByTestId('preview-viewport-768').click();
     await expect(preview).toHaveAttribute('style', /width: 768px/);
+    await page.getByTestId('artifact-action-details').click();
     await page.getByTestId('preview-viewport-fluid').click();
     await expect(preview).toHaveAttribute('style', /width: 100%/);
     await page.getByTestId('artifact-action-details').click();
     await page.getByTestId('presentation-mode-toggle').click();
+    await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('presentation-mode-toggle')).toHaveAttribute('aria-pressed', 'true');
     await expect(sandbox.getByText('Slide one')).toBeVisible();
     await expect(sandbox.getByText('Slide two')).toBeHidden();
@@ -497,8 +514,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(target).toHaveAttribute('contenteditable', 'plaintext-only');
     await expect(preview).toHaveAttribute('data-origin-srcdoc', /oninput=/);
     await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Edited locally' }], timestamp: Date.now() }, '*'));
-    await expect(page.getByTestId('artifact-revision-indicator')).toHaveText('最新');
-    await expect(page.getByText('1つ前の版あり')).toBeVisible();
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible();
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible();
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('data-origin-srcdoc', /Edited locally/);
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
   });
@@ -534,7 +551,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(editor).toHaveValue('<main><section></section></main>');
     await expect(page.getByTestId('artifact-code-apply')).toBeEnabled();
     await page.getByTestId('artifact-code-apply').click();
-    await expect(page.getByText('1つ前の版あり')).toBeVisible();
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible();
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('data-origin-srcdoc', /<section><\/section>/);
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
   });
@@ -576,7 +593,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const preview = workspace.getByTitle('プレビュー');
     const sandbox = preview.contentFrame();
     await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Updated visual text' }], timestamp: Date.now() }, '*'));
-    await expect(page.getByTestId('artifact-revision-indicator')).toHaveText('最新');
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible();
     await page.getByTestId('artifact-action-details').click();
     await page.getByTestId('artifact-visual-diff-toggle').click();
     await expect(page.getByTestId('artifact-visual-diff')).toContainText('Updated visual text');
@@ -623,7 +640,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByRole('button', { name: 'システム設定' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', /light|dark/);
     await page.getByRole('button', { name: 'English' }).click();
-    await expect(page.getByRole('heading', { name: 'What do you want to do?' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'What are we working on today?' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Export' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Import' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Clear' })).toBeVisible();

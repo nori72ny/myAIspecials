@@ -23,7 +23,7 @@ for (const viewport of VIEWPORTS) {
 
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: '何をしたいですか？' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     await expect(page.getByTestId(/^starter-/)).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
@@ -67,6 +67,7 @@ test('Personal 2.0 preserves the release settings dialog and SHA control', async
 
   const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
   await expect(dialog).toBeVisible();
+  await dialog.getByText('技術情報', { exact: true }).click();
   await expect(dialog.getByTestId('release-sha-value')).toContainText(`${E2E_RELEASE_SHA.slice(0, 12)}…`);
   await dialog.getByRole('button', { name: /全文を表示|Show full ID/i }).click();
   await expect(dialog.getByTestId('release-sha-value')).toHaveText(E2E_RELEASE_SHA);

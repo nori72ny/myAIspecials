@@ -176,8 +176,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
   return <section aria-label="Research Workspace" className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5">
     <div className="mx-auto max-w-4xl space-y-4">
       <section className="origin-workspace rounded-2xl p-4 md:p-5">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Research</p>
-        <h1 className="mt-1 text-xl font-black">調べたいことを入力</h1>
+        <h1 className="text-xl font-black">詳しく調べる</h1>
         <p className="mt-1 text-sm leading-6 text-slate-500">ORIGINが公開情報を確認し、出典付きでまとめます。</p>
 
         <label htmlFor="research-query" className="mt-4 block text-sm font-bold">調べたいこと</label>
@@ -196,7 +195,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
 
         <details className="mt-3 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">調査の安全条件</summary>
-          <p className="leading-5 text-slate-500">無料の公開情報のみを使い、有料fallbackは使いません。機微情報の可能性がある入力は外部送信前に停止します。</p>
+          <p className="leading-5 text-slate-500">公開情報を使って調査します。有料AIへの自動切り替えは行いません。機密性の高い情報は外部へ送る前に停止します。</p>
         </details>
 
         {error && <div role="alert" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{error}</div>}
@@ -208,21 +207,21 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
             <h2 id="research-report-title" className="font-black">調査結果</h2>
             <span className="text-xs text-slate-500">{result.sourceCount}件の出典</span>
           </div>
-          <pre className="mt-3 max-h-[42rem] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 dark:border-slate-800 dark:bg-slate-950">{result.report}</pre>
+          <div className="mt-3 max-h-[42rem] overflow-auto whitespace-pre-wrap break-words text-sm leading-7">{result.report}</div>
         </section>
 
         <section aria-label="Research summary" className="origin-workspace rounded-2xl px-4">
           <details>
-            <summary className="min-h-11 cursor-pointer py-3 font-semibold">出典・検証の詳細</summary>
+            <summary className="min-h-11 cursor-pointer py-3 font-semibold">出典を見る</summary>
 
             <div className="pb-4">
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="rounded-full border border-slate-200 px-3 py-1 font-bold dark:border-slate-700">Confidence: {confidenceLabel(result.confidence)}</span>
-                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.sourceCount} sources</span>
-                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.distinctDomainCount} domains</span>
-                {result.provider && <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">Provider: {result.provider}</span>}
+                <span className="rounded-full border border-slate-200 px-3 py-1 font-bold dark:border-slate-700">確認度: {confidenceLabel(result.confidence)}</span>
+                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.sourceCount}件</span>
+                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.distinctDomainCount}サイト</span>
+                
               </div>
-              <p className="mt-2 text-xs leading-5 text-slate-500">Confidenceは取得証拠の強さだけを示します。意味的な不一致の検出は価格・version・percentageなどの構造化値に限定しています。</p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">確認度は、取得できた出典の強さを示します。内容全体の正しさを保証するものではありません。</p>
 
               <div className="mt-4 space-y-3">{result.sources.map(source => {
                 const href = safeExternalUrl(source.url);
@@ -233,11 +232,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
                       <h3 className="mt-1 break-words text-sm font-bold">{source.title}</h3>
                       <p className="mt-1 text-xs text-slate-500">{source.domain}</p>
                     </div>
-                    <div className="flex shrink-0 flex-wrap gap-1 text-[10px]">
-                      <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-700">{source.evidenceLevel}</span>
-                      <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-700">{source.freshness}</span>
-                      <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-700">score {source.score}/100</span>
-                    </div>
+                    
                   </div>
                   {href
                     ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-3 inline-flex min-h-11 items-center break-all text-sm font-semibold text-indigo-600 underline dark:text-indigo-300">原文を開く</a>
@@ -246,9 +241,9 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
               })}</div>
 
               <div className="mt-4 rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-800">
-                <strong>Conflict review</strong>
+                <strong>出典同士の違い</strong>
                 {result.conflicts.length === 0
-                  ? <p className="mt-2 text-slate-500">構造化値の不一致は検出されませんでした。これは意味的な一致を保証するものではありません。</p>
+                  ? <p className="mt-2 text-slate-500">価格・バージョン・割合など、比較できる数値の食い違いは見つかりませんでした。</p>
                   : <ul className="mt-2 space-y-2 pl-5">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{conflict.topic}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}</li>)}</ul>}
               </div>
             </div>

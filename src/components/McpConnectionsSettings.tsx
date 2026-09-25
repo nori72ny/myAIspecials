@@ -189,11 +189,11 @@ export default function McpConnectionsSettings({ language }: { language: 'ja' | 
   const connections = overview?.connections ?? [];
   const selectedServer = choices.find(server => server.id === selected);
   const ready = overview?.configured && overview.authenticated;
-  const button = 'origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold disabled:opacity-50';
+  const button = 'origin-secondary-button min-h-12 rounded-xl border px-3 text-sm font-semibold disabled:opacity-50';
   const input = 'origin-surface min-h-11 w-full rounded-xl border px-3 text-sm';
 
   return <section className="space-y-3 border-t border-[var(--border-default)] pt-5" onPointerDown={event => event.stopPropagation()}>
-    <button type="button" className="flex min-h-11 w-full items-center justify-between text-left text-sm font-bold" aria-expanded={expanded} aria-controls="mcp-settings-content" onClick={() => setExpanded(value => !value)}>{t.title}<span aria-hidden="true">{expanded ? '−' : '+'}</span></button>
+    <button type="button" className="flex min-h-12 w-full items-center justify-between text-left text-sm font-bold" aria-expanded={expanded} aria-controls="mcp-settings-content" onClick={() => setExpanded(value => !value)}>{t.title}<span aria-hidden="true">{expanded ? '−' : '+'}</span></button>
     {expanded && <div id="mcp-settings-content" className="space-y-3" aria-busy={busy}>
       <p className="origin-muted text-sm">{t.help}</p>
       {busy && <p role="status" className="origin-muted text-sm">{t.loading}</p>}
