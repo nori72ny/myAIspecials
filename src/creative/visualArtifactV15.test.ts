@@ -8,6 +8,11 @@ import {
   visualArtifactSelfTestV15,
 } from './visualArtifactV15.js';
 import { createVisualArtifactV15Router } from './visualArtifactV15Router.js';
+import {
+  planVisualBrainV15,
+  visualBrainSelfTestV15,
+  visualProviderRegistryV15,
+} from './visualBrainV15.js';
 
 function app() {
   const app = express();
@@ -79,6 +84,52 @@ describe('V1.5 verified visual artifacts', () => {
     expect(selfTest.costUsd).toBe(0);
   });
 
+  it('builds a provider-agnostic Visual Brain plan before generation', () => {
+    const plan = planVisualBrainV15({
+      kind: 'poster',
+      preset: 'story',
+      layout: 'minimal',
+      title: 'ORIGIN Personal',
+      subtitle: 'Visual Intelligence',
+      body: '静かで高級感のある広告。文字は正確に保持する。',
+    });
+
+    expect(plan.version).toBe('visual-brain-v1');
+    expect(plan.platform).toBe('vertical-mobile-story');
+    expect(plan.composition.principle).toBe('minimal-center');
+    expect(plan.typography.strategy).toBe('deterministic-overlay');
+    expect(plan.typography.preserveExactText).toBe(true);
+    expect(plan.promptCompiler.universalVisualSpec).toContain('ORIGIN Personal');
+    expect(plan.promptCompiler.avoid).toContain('uncontrolled typography');
+    expect(plan.providerPolicy.selectedProviderId).toBe('origin-local-svg');
+    expect(plan.providerPolicy.failClosedReason).toBeNull();
+    expect(plan.iterationPolicy).toMatchObject({ maxIterations: 3, bestOfN: 1, repairOnlyWhenBelow: 92 });
+  });
+
+  it('fails closed when a visual task needs a capability without a verified zero-cost provider', () => {
+    const plan = planVisualBrainV15({
+      kind: 'social-card',
+      title: 'Edit target',
+    }, 'inpaint');
+
+    expect(plan.providerPolicy.selectedProviderId).toBeNull();
+    expect(plan.providerPolicy.failClosedReason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER');
+    expect(plan.providerPolicy.requiredCapabilities).toContain('inpaint');
+    expect(visualProviderRegistryV15().every(provider => provider.paidFallback === false)).toBe(true);
+  });
+
+  it('passes the Visual Brain self-test', () => {
+    const result = visualBrainSelfTestV15();
+    expect(result.ready).toBe(true);
+    expect(result.checks).toEqual(expect.arrayContaining([
+      'zero-cost-provider-selected',
+      'deterministic-typography',
+      'preserve-map',
+      'prompt-compiled',
+      'bounded-repair-policy',
+    ]));
+  });
+
   it('reports bounded readiness and returns a verified downloadable SVG', async () => {
     const status = await request(app()).get('/api/creative/v1.5/status');
     expect(status.status).toBe(200);
@@ -94,6 +145,20 @@ describe('V1.5 verified visual artifacts', () => {
       rasterImageGeneration: false,
       modelBasedImageEditing: false,
     });
+    expect(status.body.visualBrain).toMatchObject({
+      version: 'visual-brain-v1',
+      ready: true,
+      providerAgnostic: true,
+      typographyStrategy: 'deterministic-overlay',
+    });
+    expect(status.body.visualBrain.stages).toEqual(expect.arrayContaining([
+      'intent',
+      'scene-plan',
+      'composition',
+      'prompt-compile',
+      'provider-route',
+      'critic-rubric',
+    ]));
     expect(status.body.presets).toContain('portrait');
 
     const response = await request(app()).post('/api/creative/v1.5/generate').send({
@@ -112,7 +177,32 @@ describe('V1.5 verified visual artifacts', () => {
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
     expect(response.headers['x-origin-external-network']).toBe('false');
+    expect(response.headers['x-origin-visual-brain']).toBe('visual-brain-v1');
+    expect(response.headers['x-origin-visual-provider']).toBe('origin-local-svg');
+    expect(response.headers['x-origin-visual-typography']).toBe('deterministic-overlay');
     expect(response.body.length).toBeGreaterThan(200);
+  });
+
+  it('returns a structured zero-cost visual plan without executing a provider', async () => {
+    const response = await request(app()).post('/api/creative/v1.5/plan').send({
+      kind: 'info-card',
+      preset: 'landscape',
+      layout: 'split',
+      title: '市場調査サマリー',
+      body: '重要な数字と結論を読みやすく伝える。',
+      footer: 'ORIGIN Research',
+    });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      freeOnly: true,
+      costUsd: 0,
+      providerExecutions: 0,
+      externalNetworkRequests: 0,
+    });
+    expect(response.body.plan.composition.principle).toBe('split-grid');
+    expect(response.body.plan.typography.preserveExactText).toBe(true);
+    expect(response.body.plan.providerPolicy.selectedProviderId).toBe('origin-local-svg');
   });
 
   it('fails closed for invalid and sensitive requests', async () => {
