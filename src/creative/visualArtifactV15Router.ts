@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Router, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import {
@@ -163,9 +164,12 @@ export function createVisualArtifactV15Router() {
       res.setHeader('X-Origin-Free-Only', 'true');
       res.setHeader('X-Origin-Cost-Usd', '0');
       res.setHeader('X-Origin-External-Network', 'false');
+      const planSha256 = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
       res.setHeader('X-Origin-Visual-Brain', plan.version);
       res.setHeader('X-Origin-Visual-Provider', plan.providerPolicy.selectedProviderId);
       res.setHeader('X-Origin-Visual-Typography', plan.typography.strategy);
+      res.setHeader('X-Origin-Visual-Plan-Sha256', planSha256);
+      res.setHeader('X-Origin-Visual-Generation-Id', `visual-${artifact.sha256.slice(0, 24)}`);
       return res.status(200).send(artifact.bytes);
     } catch (error) {
       if (error instanceof VisualArtifactValidationErrorV15) return safeFailure(res, 400, error.code);
