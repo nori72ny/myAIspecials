@@ -88,7 +88,7 @@ function extractExactText(input: string): string[] {
   ];
   for (const pattern of patterns) {
     for (const match of input.matchAll(pattern)) {
-      const value = clean(match[1] ?? '');
+      const value = clean(match[1] ?? '').replace(/^[「『"“]+|[」』"”]+$/g, '').trim();
       if (value && !values.includes(value)) values.push(value);
       if (values.length >= 6) return values;
     }
