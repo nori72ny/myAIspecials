@@ -1,3 +1,5 @@
+import type { VisualIntentPurposeV15, VisualIntentStyleV15 } from './visualIntentCompilerV15';
+
 const DB_NAME = 'origin-raster-visual-local-v1';
 const STORE_NAME = 'images';
 const DB_VERSION = 1;
@@ -24,6 +26,10 @@ export type RasterAssetEntryV15 = {
   parentId?: string;
   width: number;
   height: number;
+  purpose: VisualIntentPurposeV15;
+  style: VisualIntentStyleV15;
+  orientation: 'square' | 'portrait' | 'landscape';
+  typographyOverlay: boolean;
   blob: Blob;
 };
 
@@ -61,6 +67,10 @@ export function isRasterAssetEntryShapeV15(value: unknown): value is RasterAsset
   if (value.parentId !== undefined && (typeof value.parentId !== 'string' || !SHA256.test(value.parentId))) return false;
   if (typeof value.width !== 'number' || !Number.isInteger(value.width) || value.width < 256 || value.width > 1536) return false;
   if (typeof value.height !== 'number' || !Number.isInteger(value.height) || value.height < 256 || value.height > 1536) return false;
+  if (!['portrait','product-ad','social-post','poster','thumbnail','infographic','landscape','illustration','general'].includes(String(value.purpose))) return false;
+  if (!['photorealistic','editorial','cinematic','minimal','anime','manga','watercolor','oil-painting','3d','vector-like','unspecified'].includes(String(value.style))) return false;
+  if (!['square','portrait','landscape'].includes(String(value.orientation))) return false;
+  if (typeof value.typographyOverlay !== 'boolean') return false;
   if (!(value.blob instanceof Blob) || value.blob.size <= 0 || value.blob.size > MAX_IMAGE_BYTES) return false;
   return value.blob.type === value.mimeType;
 }
