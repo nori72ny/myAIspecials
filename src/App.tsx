@@ -348,6 +348,24 @@ export const createOfflineArtifactBundle = async (artifacts: readonly ArtifactBl
   return new Blob([createStoredZip(bundleEntries)], { type: 'application/zip' });
 };
 
+const isGenericArtifactTitle = (title: string): boolean =>
+  /^(?:artifact|art|output|result|作成物|成果物|untitled|new\s+file|file)[\s._-]*\d*$/i.test(title.trim());
+
+const inferArtifactTitleFromContent = (language: string, content: string, fallback: string): string => {
+  const normalized = content.trim();
+  if (!normalized) return fallback;
+  if (language === 'html') {
+    const title = normalized.match(/<title[^>]*>([^<]{1,100})<\/title>/i)?.[1]?.trim()
+      || normalized.match(/<h1[^>]*>([^<]{1,100})<\/h1>/i)?.[1]?.trim();
+    if (title) return title;
+  }
+  if (language === 'markdown' || language === 'md') {
+    const heading = normalized.match(/^#\s+(.{1,100})$/m)?.[1]?.trim();
+    if (heading) return heading;
+  }
+  return fallback;
+};
+
 export class StreamArtifactParser {
   public static parse(fullText: string): ParsedStreamFrame {
     if (!fullText) return { conversationalText: '', artifacts: [], activeArtifact: null };
@@ -366,7 +384,7 @@ export class StreamArtifactParser {
       const rawLang = (match[1] || 'text').trim().toLowerCase();
       const rawTitle = (match[2] || '').trim();
       const fallbackTitle = rawLang === 'html' ? `Webページ ${artifactIndex + 1}` : rawLang === 'markdown' || rawLang === 'md' ? `文書 ${artifactIndex + 1}` : rawLang === 'mermaid' ? `図解 ${artifactIndex + 1}` : `作成物 ${artifactIndex + 1}`;
-      const title = rawTitle.slice(0, 100).replace(/[\x00-\x1F\x7F\u202A-\u202E\u2066-\u2069]/g, '').trim() || fallbackTitle;
+      const sanitizedTitle = rawTitle.slice(0, 100).replace(/[\x00-\x1F\x7F\u202A-\u202E\u2066-\u2069]/g, '').trim();
       const contentStart = matchIndex + match[0].length - (match[0].startsWith('\n') ? 1 : 0);
       const closeFenceRegex = /(?:^|\n)```[ \t]*(?:\n|$)/g;
       closeFenceRegex.lastIndex = contentStart;
@@ -381,7 +399,11 @@ export class StreamArtifactParser {
         continue;
       }
       const id = `art-${artifactIndex++}`;
-      if (!closeMatch) { artifacts.push({ id, type, title, language: rawLang, content: normalized.slice(contentStart), isComplete: false }); break; }
+      const partialContent = normalized.slice(contentStart, closeMatch ? closeMatch.index + (closeMatch[0].startsWith('\n') ? 1 : 0) : normalized.length);
+      const title = sanitizedTitle && !isGenericArtifactTitle(sanitizedTitle)
+        ? sanitizedTitle
+        : inferArtifactTitleFromContent(rawLang, partialContent, fallbackTitle);
+      if (!closeMatch) { artifacts.push({ id, type, title, language: rawLang, content: partialContent, isComplete: false }); break; }
       const contentEnd = closeMatch.index + (closeMatch[0].startsWith('\n') ? 1 : 0);
       artifacts.push({ id, type, title, language: rawLang, content: normalized.slice(contentStart, contentEnd), isComplete: true });
       cursor = closeMatch.index + closeMatch[0].length;
