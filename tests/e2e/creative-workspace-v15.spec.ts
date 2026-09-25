@@ -33,6 +33,12 @@ test.describe('V1.5 Creative workspace production surface', () => {
         'X-Origin-Free-Only': 'true',
         'X-Origin-Cost-Usd': '0',
         'X-Origin-External-Network': 'false',
+        'X-Origin-Visual-Brain': 'visual-brain-v1',
+        'X-Origin-Visual-Provider': 'origin-local-svg',
+        'X-Origin-Visual-Critic': 'deterministic-v1',
+        'X-Origin-Visual-Quality-Score': '100',
+        'X-Origin-Visual-Plan-Sha256': 'b'.repeat(64),
+        'X-Origin-Visual-Generation-Id': `visual-${'d'.repeat(24)}`,
       },
       body: svg,
     }));
@@ -61,6 +67,8 @@ test.describe('V1.5 Creative workspace production surface', () => {
     const svgDownload = page.getByRole('link', { name: 'SVG保存' });
     await expect(svgDownload).toHaveAttribute('download', 'creative-e2e-portrait.svg');
     await expect(page.getByText(new RegExp(`SHA-256 ${svgSha256.slice(0, 12)}…`))).toBeVisible();
+    await expect(page.getByText(/visual-brain-v1/)).toBeVisible();
+    await expect(page.getByText(/Critic 100/)).toBeVisible();
     await expect(page.getByText(/実バイト照合済み/)).toBeVisible();
     await expect(page.getByRole('button', { name: '履歴を開く: モバイルCreative' })).toBeVisible();
 
