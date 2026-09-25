@@ -87,7 +87,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
 
       const surfaces = [
         { url: '/', heading: '今日は何をしますか？' },
-        { url: '/?workspace=research', heading: '調べたいことを入力' },
+        { url: '/?workspace=research', heading: '詳しく調べる' },
         { url: '/?workspace=coding', heading: 'コードの変更を依頼' },
         { url: '/?workspace=creative', heading: '作りたいものを入力' },
       ];
