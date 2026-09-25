@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 
 const POLLINATIONS_ORIGIN = 'https://gen.pollinations.ai';
 const DEFAULT_MODEL = 'tomdacatto/sana';
-const MAX_PROMPT_CHARS = 4_000;
+const AUDITED_ZERO_COST_MODELS = new Set(['tomdacatto/sana']);
+const MAX_PROMPT_CHARS = 2_000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const TIMEOUT_MS = 60_000;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -87,6 +88,19 @@ function modelName(model: PollinationsImageModel): string | null {
   return typeof model.name === 'string' && model.name.trim() ? model.name.trim() : null;
 }
 
+function imageBytesMatchMime(bytes: Buffer, mime: string): boolean {
+  if (mime === 'image/png') {
+    return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (mime === 'image/jpeg') {
+    return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9;
+  }
+  if (mime === 'image/webp') {
+    return bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+  }
+  return false;
+}
+
 function normalizePrompt(input: RasterImageRequestV15): string {
   const prompt = input.prompt.normalize('NFKC').trim();
   if (!prompt || prompt.length > MAX_PROMPT_CHARS) throw new Error('INVALID_RASTER_PROMPT');
@@ -136,9 +150,8 @@ export async function discoverZeroCostPollinationsModelV15(
     .filter((item): item is PollinationsImageModel => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
     .filter(modelIsVerifiedZeroCost)
     .map(modelName)
-    .filter((name): name is string => Boolean(name));
-  if (zeroCostModels.includes(preferredModel)) return preferredModel;
-  return zeroCostModels[0] ?? null;
+    .filter((name): name is string => Boolean(name) && AUDITED_ZERO_COST_MODELS.has(name));
+  return zeroCostModels.includes(preferredModel) ? preferredModel : null;
 }
 
 export async function getRasterProviderStatusV15(
@@ -209,16 +222,17 @@ async function verifyLatestZeroCostUsageV15(
   const usage = (parsed as Record<string, unknown>).usage;
   if (!Array.isArray(usage)) return false;
   const floorMs = startedAtMs - 15_000;
-  return usage.some((entry) => {
+  const matching = usage.filter((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
     const row = entry as Record<string, unknown>;
     const timestamp = typeof row.timestamp === 'string' ? Date.parse(row.timestamp.replace(' ', 'T') + 'Z') : Number.NaN;
-    const sameModel = row.model === model;
-    const imageRequest = row.type === 'generate.image';
-    const costZero = row.cost_usd === 0 || row.cost_usd === '0';
-    const notPaidBalance = row.meter_source !== 'pack';
-    return sameModel && imageRequest && costZero && notPaidBalance && Number.isFinite(timestamp) && timestamp >= floorMs;
-  });
+    return row.model === model
+      && row.type === 'generate.image'
+      && Number.isFinite(timestamp)
+      && timestamp >= floorMs;
+  }) as Array<Record<string, unknown>>;
+  if (matching.length === 0) return false;
+  return matching.every((row) => Number(row.cost_usd) === 0 && row.meter_source !== 'pack');
 }
 
 export async function generateRasterImageV15(
@@ -267,6 +281,7 @@ export async function generateRasterImageV15(
   if (!IMAGE_TYPES.has(mime)) throw new Error('UNEXPECTED_RASTER_CONTENT_TYPE');
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length <= 0 || bytes.length > MAX_IMAGE_BYTES) throw new Error('RASTER_IMAGE_SIZE_OUT_OF_BOUNDS');
+  if (!imageBytesMatchMime(bytes, mime)) throw new Error('RASTER_IMAGE_SIGNATURE_MISMATCH');
   const zeroCostUsageVerified = await verifyLatestZeroCostUsageV15(apiKey, verifiedModel, startedAtMs, fetchImpl);
   if (!zeroCostUsageVerified) throw new Error('ZERO_COST_USAGE_NOT_VERIFIED');
 
