@@ -538,6 +538,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
           'X-Origin-Visual-Width': '1024',
           'X-Origin-Visual-Height': '1024',
+          'X-Origin-Visual-Purpose': 'general',
+          'X-Origin-Visual-Style': 'unspecified',
+          'X-Origin-Visual-Orientation': 'square',
+          'X-Origin-Typography-Overlay': 'false',
           'X-Origin-Free-Only': 'true',
           'X-Origin-Cost-Usd': '0',
           'X-Origin-Paid-Fallback': 'false',
@@ -566,6 +570,66 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body).toMatchObject({ prompt: '夕焼けの海の画像を作ってください', width: 1024, height: 1024 });
+
+    if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
+    else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+    vi.unstubAllGlobals();
+  });
+
+  it('asks one focused question for a truly vague image request, then carries the answer into generation', async () => {
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7, 6]);
+    const digest = new Uint8Array(32);
+    digest.fill(0xcd);
+    const sha = Array.from(digest).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const fetchMock = vi.fn(async () => new Response(bytes, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Disposition': 'attachment; filename="origin-image.png"',
+        'X-Origin-Visual-Verified': 'true',
+        'X-Origin-Visual-Sha256': sha,
+        'X-Origin-Visual-Provider': 'pollinations-zero-cost',
+        'X-Origin-Visual-Model': 'tomdacatto/sana',
+        'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
+        'X-Origin-Visual-Width': '864',
+        'X-Origin-Visual-Height': '1536',
+        'X-Origin-Visual-Purpose': 'social-post',
+        'X-Origin-Visual-Style': 'cinematic',
+        'X-Origin-Visual-Orientation': 'portrait',
+        'X-Origin-Typography-Overlay': 'false',
+        'X-Origin-Free-Only': 'true',
+        'X-Origin-Cost-Usd': '0',
+        'X-Origin-Paid-Fallback': 'false',
+        'X-Origin-Secret-Delivery': 'server-only',
+      },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { subtle: { digest: vi.fn(async () => digest.buffer) } },
+    });
+    const originalCreateObjectURL = URL.createObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:vague-image') });
+
+    render(<App language="ja" />);
+    const input = screen.getByTestId('origin-home-request');
+    fireEvent.change(input, { target: { value: '画像を作って' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText('何を描く画像にしますか？用途・雰囲気・縦横比は、指定がなければORIGINに任せてください。')).toBeTruthy());
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: 'Instagram用、夕焼けの海、9:16、映画のような雰囲気' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.prompt).toContain('画像を作って');
+    expect(body.prompt).toContain('Instagram用、夕焼けの海、9:16、映画のような雰囲気');
+    expect(body).toMatchObject({ width: 864, height: 1536 });
+    await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
 
     if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
     else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
