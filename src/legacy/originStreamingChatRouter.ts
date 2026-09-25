@@ -4,7 +4,7 @@ import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContex
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
 import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy.js";
-import { classifyOriginRequestIntent, type OriginRequestIntent } from "../lib/orchestration/OriginRequestIntent.js";
+import { classifyOriginRequestIntent, originIntentInputFromContext, type OriginRequestIntent } from "../lib/orchestration/OriginRequestIntent.js";
 import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orchestration/OriginAgentWorkPlan.js";
 import { isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
@@ -105,7 +105,8 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     let providerDeltaCount = 0;
 
     try {
-      const requestIntent = classifyOriginRequestIntent(lastUserMessage, planningResult.plan.taskType);
+      const intentInput = originIntentInputFromContext(contextResult.window.messages);
+      const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType);
       const workPlan = buildOriginAgentWorkPlan(requestIntent);
       const resolvedPlan = resolveOriginAgentWorkPlan(workPlan);
       const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage);
