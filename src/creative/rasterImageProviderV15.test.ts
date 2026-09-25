@@ -51,7 +51,7 @@ describe('rasterImageProviderV15', () => {
   });
 
   it('generates raster bytes only after live zero-price discovery and post-usage verification', async () => {
-    const imageBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+    const imageBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(new Response(imageBytes, {
@@ -90,6 +90,28 @@ describe('rasterImageProviderV15', () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain('model=tomdacatto%2Fsana');
   });
 
+  it('does not auto-adopt an unknown community model even when its live price is zero', async () => {
+    const unknownFree = { ...freeModel, name: 'community/new-free-model' };
+    const fetchMock = vi.fn(async () => json([unknownFree])) as unknown as typeof fetch;
+    await expect(discoverZeroCostPollinationsModelV15('sk_test', 'community/new-free-model', fetchMock)).resolves.toBeNull();
+  });
+
+  it('rejects content-type spoofing when the returned bytes are not a real image signature', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(new Response(Uint8Array.from([1, 2, 3, 4]), {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })) as unknown as typeof fetch;
+
+    await expect(generateRasterImageV15(
+      { prompt: 'test' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock,
+    )).rejects.toThrow('RASTER_IMAGE_SIGNATURE_MISMATCH');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('blocks priced models and never executes the image request', async () => {
     const fetchMock = vi.fn(async () => json([pricedModel])) as unknown as typeof fetch;
     await expect(generateRasterImageV15(
@@ -103,7 +125,7 @@ describe('rasterImageProviderV15', () => {
   it('rejects the output if actual zero-cost usage cannot be proven after generation', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
-      .mockResolvedValueOnce(new Response(Uint8Array.from([1, 2, 3]), {
+      .mockResolvedValueOnce(new Response(Uint8Array.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]), {
         status: 200,
         headers: { 'content-type': 'image/jpeg' },
       }))
