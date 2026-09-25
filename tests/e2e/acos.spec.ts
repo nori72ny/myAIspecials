@@ -428,6 +428,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('artifact-action-copy')).toBeVisible();
     await expect(page.getByTestId('artifact-action-share')).toBeVisible();
     await expect(page.getByTestId('artifact-action-share')).toContainText('共有');
+    await page.getByTestId('artifact-action-details').click();
     await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
     await expect(preview).toBeVisible();
@@ -475,6 +476,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(preview).toHaveAttribute('style', /width: 100%/);
     await page.getByTestId('artifact-action-details').click();
     await page.getByTestId('presentation-mode-toggle').click();
+    await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('presentation-mode-toggle')).toHaveAttribute('aria-pressed', 'true');
     await expect(sandbox.getByText('Slide one')).toBeVisible();
     await expect(sandbox.getByText('Slide two')).toBeHidden();
