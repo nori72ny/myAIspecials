@@ -348,6 +348,27 @@ export const createOfflineArtifactBundle = async (artifacts: readonly ArtifactBl
   return new Blob([createStoredZip(bundleEntries)], { type: 'application/zip' });
 };
 
+export const chooseArtifactDisplayTitle = (
+  generatedTitle: string,
+  latestUserRequest: string,
+  priorArtifacts: readonly ArtifactBlock[] = [],
+): string => {
+  if (!/^Artifact-\d+$/i.test(generatedTitle.trim())) return generatedTitle;
+  const priorTitle = [...priorArtifacts].reverse().find((item) => !/^Artifact-\d+$/i.test(item.title.trim()))?.title.trim();
+  const request = latestUserRequest
+    .replace(/^⚡\s*方向修正:\s*/u, '')
+    .replace(/\[[^\]]+\][\s\S]*$/u, '')
+    .trim();
+  const webAppRequested = /(?:web|ウェブ)\s*(?:app|アプリ)|Webアプリ/ui.test(request);
+  if (priorTitle) return webAppRequested ? `${priorTitle} Webアプリ`.slice(0, 100) : priorTitle.slice(0, 100);
+  const cleaned = request
+    .replace(/(?:を)?(?:作って|作成して|生成して|まとめて|用意して)(?:ください|下さい)?[。！!]?$/u, '')
+    .replace(/(?:してください|して下さい)[。！!]?$/u, '')
+    .replace(/[。！!]+$/u, '')
+    .trim();
+  return (cleaned || generatedTitle).slice(0, 100);
+};
+
 export class StreamArtifactParser {
   public static parse(fullText: string): ParsedStreamFrame {
     if (!fullText) return { conversationalText: '', artifacts: [], activeArtifact: null };
@@ -1055,7 +1076,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       }
       const reader = verifiedResponseText === undefined ? response.body?.getReader() : undefined; const decoder = new TextDecoder(); let fullText = ''; const assistantId = `a-${Date.now()}`;
       updateMessages((current) => [...current, { id: assistantId, role: 'assistant', content: '' }]);
-      const displayVerifiedText = (next: string) => { fullText += next; const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } };
+      const displayVerifiedText = (next: string) => { fullText += next; const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const latestUserRequest = requestMessages.filter((message) => message.role === 'user').at(-1)?.content ?? ''; const priorArtifacts = artifacts.filter((block) => !block.id.startsWith(`${assistantId}-`)); const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, title: chooseArtifactDisplayTitle(block.title, latestUserRequest, priorArtifacts), id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } };
       if (verifiedResponseText !== undefined) displayVerifiedText(verifiedResponseText);
       if (reader) {
         streamRenderBatcher = createOriginStreamRenderBatcher(displayVerifiedText);
