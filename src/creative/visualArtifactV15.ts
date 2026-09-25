@@ -161,11 +161,14 @@ function wrapText(text: string, maxUnits: number, maxLines: number): string[] {
     units += charUnits;
   }
   if (output.length < maxLines && line) output.push(line.trimEnd());
-  if (output.length === maxLines && textUnits(output.join('')) < textUnits(text.replace(/\s+/g, ' ').trim())) {
-    const last = output[maxLines - 1] ?? '';
-    output[maxLines - 1] = `${last.slice(0, Math.max(0, last.length - 1))}…`;
-  }
   return output;
+}
+
+function assertTextFits(text: string, maxUnits: number, maxLines: number, code: string): void {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (textUnits(normalized) > maxUnits * maxLines) {
+    throw new VisualArtifactValidationErrorV15(code);
+  }
 }
 
 function svgText(lines: string[], x: number, y: number, size: number, color: string, weight: number, lineHeight: number): string {
@@ -182,9 +185,14 @@ function buildSvg(request: ReturnType<typeof parseVisualArtifactRequestV15>): { 
   const titleSize = request.preset === 'story' ? 82 : request.preset === 'landscape' ? 68 : 76;
   const subtitleSize = Math.round(titleSize * 0.42);
   const bodySize = Math.round(titleSize * 0.34);
+  const bodyLines = request.preset === 'story' ? 10 : 7;
+  assertTextFits(request.title, maxUnits, 4, 'VISUAL_TEXT_OVERFLOW_TITLE');
+  assertTextFits(request.subtitle, maxUnits + 6, 3, 'VISUAL_TEXT_OVERFLOW_SUBTITLE');
+  assertTextFits(request.body, maxUnits + 10, bodyLines, 'VISUAL_TEXT_OVERFLOW_BODY');
+  assertTextFits(request.footer, maxUnits + 12, 2, 'VISUAL_TEXT_OVERFLOW_FOOTER');
   const title = wrapText(request.title, maxUnits, 4);
   const subtitle = wrapText(request.subtitle, maxUnits + 6, 3);
-  const body = wrapText(request.body, maxUnits + 10, request.preset === 'story' ? 10 : 7);
+  const body = wrapText(request.body, maxUnits + 10, bodyLines);
   const footer = wrapText(request.footer, maxUnits + 12, 2);
 
   const elements: string[] = [
