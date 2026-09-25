@@ -348,7 +348,7 @@ function verificationMatchesRouting(
 
 function answerModeLabel(mode: RoutingMetadata['answerMode'], isEn: boolean): string {
   if (mode === 'decision') return isEn ? 'Decision support' : '判断支援';
-  if (mode === 'deliverable') return isEn ? 'Deliverable' : '成果物';
+  if (mode === 'deliverable') return isEn ? 'Deliverable' : '作成物';
   if (mode === 'research') return isEn ? 'Research' : '調査';
   return isEn ? 'Direct answer' : '直接回答';
 }
