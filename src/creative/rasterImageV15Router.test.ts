@@ -112,6 +112,10 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-generation-id']).toMatch(/^raster-[a-f0-9]{24}$/);
     expect(response.headers['x-origin-visual-width']).toBe('768');
     expect(response.headers['x-origin-visual-height']).toBe('1024');
+    expect(response.headers['x-origin-visual-purpose']).toBe('general');
+    expect(response.headers['x-origin-visual-style']).toBe('unspecified');
+    expect(response.headers['x-origin-visual-orientation']).toBe('portrait');
+    expect(response.headers['x-origin-typography-overlay']).toBe('false');
     expect(Buffer.isBuffer(response.body)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(4);
 
