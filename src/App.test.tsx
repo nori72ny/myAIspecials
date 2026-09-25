@@ -760,6 +760,16 @@ describe('code examples remain in conversation context', () => {
     const web = StreamArtifactParser.parse('```html\n<main>売上管理</main>\n```');
     const doc = StreamArtifactParser.parse('```markdown\n# 月次レポート\n```');
     expect(web.activeArtifact?.title).toBe('Webページ 1');
-    expect(doc.activeArtifact?.title).toBe('文書 1');
+    expect(doc.activeArtifact?.title).toBe('月次レポート');
+  });
+
+  it('repairs generic provider titles from the created content without renaming real filenames', () => {
+    const genericWeb = StreamArtifactParser.parse('```html:Artifact-1\n<!doctype html><title>営業ダッシュボード</title><main><h1>営業ダッシュボード</h1></main>\n```');
+    const genericDoc = StreamArtifactParser.parse('```markdown:作成物-2\n# 提案書ドラフト\n\n本文\n```');
+    const namedCode = StreamArtifactParser.parse('```ts:artifact-utils.ts\nexport const ready = true;\n```');
+
+    expect(genericWeb.activeArtifact?.title).toBe('営業ダッシュボード');
+    expect(genericDoc.activeArtifact?.title).toBe('提案書ドラフト');
+    expect(namedCode.activeArtifact?.title).toBe('artifact-utils.ts');
   });
 });
