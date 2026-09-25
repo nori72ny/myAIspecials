@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyOriginRequestIntent,
+  originIntentInputFromContext,
   originRequestIntentInstruction,
   type OriginRequestIntentCatalog,
 } from "./OriginRequestIntent";
@@ -74,6 +75,30 @@ describe("OriginRequestIntent", () => {
     expect(instruction).toContain("guidance only; not execution evidence");
     expect(instruction).toContain("Requested interaction mode: deliverable");
     expect(instruction).toContain("Do not say that an agent");
+  });
+
+  it("preserves the earlier creation intent when the user answers a clarification with a short choice", () => {
+    const input = originIntentInputFromContext([
+      { role: "user", content: "ウェブアプリで売上を管理できるようにしてください" },
+      { role: "assistant", content: "簡易版と複数人利用版のどちらにしますか？ 1. 簡易版 2. 複数人利用版" },
+      { role: "user", content: "1" },
+    ]);
+    const intent = classifyOriginRequestIntent(input, "review");
+
+    expect(input).toContain("ウェブアプリ");
+    expect(intent.requiredCapabilities).toContain("application-development");
+    expect(intent.requestedOutputs).toContain("application");
+    expect(intent.interactionMode).toBe("deliverable");
+  });
+
+  it("does not contaminate a clear new request with stale conversation intent", () => {
+    const input = originIntentInputFromContext([
+      { role: "user", content: "ウェブアプリを作ってください" },
+      { role: "assistant", content: "用途を確認します。" },
+      { role: "user", content: "この文章を100字に要約してください" },
+    ]);
+
+    expect(input).toBe("この文章を100字に要約してください");
   });
 
   it("returns a minimal classification for a plain conversation", () => {
