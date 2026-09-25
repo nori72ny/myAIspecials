@@ -65,6 +65,8 @@ describe("originChatResponsePolicy", () => {
       "never repeat a question that the user has already answered",
       "If the request is already sufficiently specified, proceed immediately without unnecessary questions",
       "Preserve the requested medium",
+      "do not substitute an image-generation prompt",
+      "real image request is complete only when the image-generation runtime actually returns verified image bytes",
       "Name created items descriptively",
     ]) expect(instruction).toContain(phrase);
   });
