@@ -239,10 +239,10 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(preview).toHaveAttribute('data-origin-srcdoc', /default-src 'none';/);
     await expect(preview).toHaveAttribute('data-origin-srcdoc', /window\.open=function/);
     const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: '成果物をダウンロード' }).click();
+    await page.getByRole('button', { name: '作成物をダウンロード' }).click();
     await expect((await download).suggestedFilename()).toBe('preview.html');
     await expect.poll(() => page.evaluate(() => (window as Window & { originBlobTypes?: string[] }).originBlobTypes ?? [])).toContain('text/html;charset=utf-8');
-    await page.getByRole('button', { name: '成果物ワークスペースを閉じる' }).click();
+    await page.getByRole('button', { name: '作成物ワークスペースを閉じる' }).click();
     await expect(workspace).toBeHidden();
   });
 
@@ -393,7 +393,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('origin-chat-request').fill('成果物を追加');
     await page.getByTestId('origin-chat-request').press('Control+Enter');
     await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: '成果物ワークスペースを閉じる' }).click();
+    await page.getByRole('button', { name: '作成物ワークスペースを閉じる' }).click();
     await page.waitForTimeout(250);
     await page.getByTestId('history-drawer-toggle').click();
     const search = page.getByTestId('history-search-input');

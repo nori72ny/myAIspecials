@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, chooseArtifactDisplayTitle, getOriginSystemPrompt, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -203,7 +203,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(onOpenCoding).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
-    fireEvent.click(screen.getByRole('menuitem', { name: '成果物を作る' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '作成物を作る' }));
     expect(onOpenCreative).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
@@ -525,7 +525,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(request.systemPrompt).toBe(getOriginSystemPrompt('en'));
     for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'verified facts', 'never invent sources', 'material unknowns', 'do not stop at a terse overview', 'production-ready']) expect(request.systemPrompt).toContain(phrase);
     const japanesePrompt = getOriginSystemPrompt('ja');
-    for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず', '汎用デモを勝手に成果物の題材へ選ばず']) expect(japanesePrompt).toContain(phrase);
+    for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず', '実用的な第1版', '短い確認質問を1つ', '登録・編集・削除', '端末内保存', '汎用デモを勝手に作成物の題材へ選ばず']) expect(japanesePrompt).toContain(phrase);
     vi.unstubAllGlobals();
   });
 
@@ -735,9 +735,17 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'オフライン要求' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('オフライン中は新規AI応答を停止しています。端末内の履歴・成果物は閲覧、直接編集、保存、パッケージ化を継続できます。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('オフライン中は新規AI応答を停止しています。端末内の履歴・作成物は閲覧、直接編集、保存、パッケージ化を継続できます。')).toBeTruthy());
     if (online) Object.defineProperty(window.navigator, 'onLine', online);
     else delete (window.navigator as { onLine?: boolean }).onLine;
+  });
+});
+
+describe('creation titles', () => {
+  it('uses request-aware names instead of generic Artifact labels', () => {
+    expect(chooseArtifactDisplayTitle('Artifact-1', '簡単な売り上げ管理表を作ってください')).toBe('簡単な売り上げ管理表');
+    expect(chooseArtifactDisplayTitle('Artifact-1', 'ウェブアプリで管理できるようにしてください', [{ id: 'a', type: 'html', title: '売上管理表', language: 'html', content: '<main/>', isComplete: true }])).toBe('売上管理表 Webアプリ');
+    expect(chooseArtifactDisplayTitle('sales.html', '何か作って')).toBe('sales.html');
   });
 });
 

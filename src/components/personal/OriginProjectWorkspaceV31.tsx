@@ -39,7 +39,7 @@ export default function OriginProjectWorkspaceV31({
     { id: 'chat', label: 'Chat', available: true, detail: `${messages.length} messages · ${sessions.length} sessions` },
     { id: 'files', label: 'Files', available: codingEvidence.changedPaths.length > 0, detail: codingEvidence.changedPaths.length > 0 ? `${codingEvidence.changedPaths.length} changed files` : (mode === 'coding' ? '変更ファイルはまだありません' : 'Code実行証拠が必要') },
     { id: 'tasks', label: 'Tasks', available: Boolean(codingEvidence.jobId && codingEvidence.status), detail: codingEvidence.status ? `Coding job · ${codingEvidence.status}` : '実Agent jobが必要' },
-    { id: 'artifacts', label: 'Artifacts', available: artifacts.length > 0, detail: artifacts.length > 0 ? `${artifacts.length} artifacts` : '成果物はまだありません' },
+    { id: 'artifacts', label: 'Artifacts', available: artifacts.length > 0, detail: artifacts.length > 0 ? `${artifacts.length} artifacts` : '作成物はまだありません' },
     { id: 'sources', label: 'Sources', available: sources.length > 0, detail: sources.length > 0 ? `${sources.length} verified sources` : (mode === 'research' ? 'Research結果がまだありません' : 'Research結果が必要') },
   ];
 
@@ -82,7 +82,7 @@ export default function OriginProjectWorkspaceV31({
         </select>
       </div>
 
-      {activeView === 'overview' && <p className="origin-muted m-0 mt-3 hidden text-sm md:block">必要な証拠や成果物ができた時だけ、ここに追加の詳細が表示されます。</p>}
+      {activeView === 'overview' && <p className="origin-muted m-0 mt-3 hidden text-sm md:block">必要な証拠や作成物ができた時だけ、ここに追加の詳細が表示されます。</p>}
       {activeView === 'files' && codingEvidence.changedPaths.length > 0 && <section aria-label="Project Files" className="mt-3 origin-card border p-3">
         <div className="flex items-center justify-between gap-3">
           <h3 className="m-0 text-sm font-black">Changed files</h3>
