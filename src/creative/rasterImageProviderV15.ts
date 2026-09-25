@@ -6,6 +6,8 @@ const AUDITED_ZERO_COST_MODELS = new Set(['tomdacatto/sana']);
 const MAX_PROMPT_CHARS = 2_000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const TIMEOUT_MS = 60_000;
+const USAGE_VERIFY_ATTEMPTS = 7;
+const USAGE_VERIFY_DELAY_MS = 7_000;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 export type RasterImageSizeV15 = {
@@ -204,41 +206,61 @@ export async function getRasterProviderStatusV15(
   }
 }
 
+type UsageVerificationOptionsV15 = {
+  attempts?: number;
+  delayMs?: number;
+};
+
 async function verifyLatestZeroCostUsageV15(
   apiKey: string,
   model: string,
   startedAtMs: number,
   fetchImpl: typeof fetch,
-): Promise<boolean> {
-  const response = await timedFetch(
-    `${POLLINATIONS_ORIGIN}/account/key/usage?format=json&limit=5&days=1`,
-    { method: 'GET', headers: authHeaders(apiKey), cache: 'no-store' },
-    fetchImpl,
-    15_000,
-  );
-  if (!response.ok) return false;
-  const parsed = await response.json() as unknown;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
-  const usage = (parsed as Record<string, unknown>).usage;
-  if (!Array.isArray(usage)) return false;
-  const floorMs = startedAtMs - 15_000;
-  const matching = usage.filter((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
-    const row = entry as Record<string, unknown>;
-    const timestamp = typeof row.timestamp === 'string' ? Date.parse(row.timestamp.replace(' ', 'T') + 'Z') : Number.NaN;
-    return row.model === model
-      && row.type === 'generate.image'
-      && Number.isFinite(timestamp)
-      && timestamp >= floorMs;
-  }) as Array<Record<string, unknown>>;
-  if (matching.length === 0) return false;
-  return matching.every((row) => Number(row.cost_usd) === 0 && row.meter_source !== 'pack');
+  options: UsageVerificationOptionsV15 = {},
+): Promise<{ verified: boolean; requests: number }> {
+  const attempts = Math.max(1, Math.min(10, options.attempts ?? USAGE_VERIFY_ATTEMPTS));
+  const delayMs = Math.max(0, Math.min(10_000, options.delayMs ?? USAGE_VERIFY_DELAY_MS));
+  let requests = 0;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0 && delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const response = await timedFetch(
+      `${POLLINATIONS_ORIGIN}/account/key/usage?format=json&limit=10&days=1`,
+      { method: 'GET', headers: authHeaders(apiKey), cache: 'no-store' },
+      fetchImpl,
+      15_000,
+    );
+    requests += 1;
+    if (!response.ok) continue;
+    const parsed = await response.json() as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+    const usage = (parsed as Record<string, unknown>).usage;
+    if (!Array.isArray(usage)) continue;
+    const floorMs = startedAtMs - 15_000;
+    const matching = usage.filter((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+      const row = entry as Record<string, unknown>;
+      const timestamp = typeof row.timestamp === 'string' ? Date.parse(row.timestamp.replace(' ', 'T') + 'Z') : Number.NaN;
+      return row.model === model
+        && row.type === 'generate.image'
+        && Number.isFinite(timestamp)
+        && timestamp >= floorMs;
+    }) as Array<Record<string, unknown>>;
+    if (matching.length === 0) continue;
+    return {
+      verified: matching.every((row) => Number(row.cost_usd) === 0 && row.meter_source === 'tier'),
+      requests,
+    };
+  }
+
+  return { verified: false, requests };
 }
 
 export async function generateRasterImageV15(
   input: RasterImageRequestV15,
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: typeof fetch = fetch,
+  usageVerification: UsageVerificationOptionsV15 = {},
 ): Promise<RasterImageResultV15> {
   const apiKey = env.POLLINATIONS_API_KEY?.trim() ?? '';
   if (!apiKey) throw new Error('POLLINATIONS_KEY_NOT_CONFIGURED');
@@ -282,8 +304,14 @@ export async function generateRasterImageV15(
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length <= 0 || bytes.length > MAX_IMAGE_BYTES) throw new Error('RASTER_IMAGE_SIZE_OUT_OF_BOUNDS');
   if (!imageBytesMatchMime(bytes, mime)) throw new Error('RASTER_IMAGE_SIGNATURE_MISMATCH');
-  const zeroCostUsageVerified = await verifyLatestZeroCostUsageV15(apiKey, verifiedModel, startedAtMs, fetchImpl);
-  if (!zeroCostUsageVerified) throw new Error('ZERO_COST_USAGE_NOT_VERIFIED');
+  const usageVerificationResult = await verifyLatestZeroCostUsageV15(
+    apiKey,
+    verifiedModel,
+    startedAtMs,
+    fetchImpl,
+    usageVerification,
+  );
+  if (!usageVerificationResult.verified) throw new Error('ZERO_COST_USAGE_NOT_VERIFIED');
 
   return {
     bytes,
@@ -295,6 +323,6 @@ export async function generateRasterImageV15(
     height: size.height,
     costUsd: 0,
     freeOnly: true,
-    externalNetworkRequests: 3,
+    externalNetworkRequests: 2 + usageVerificationResult.requests,
   };
 }
