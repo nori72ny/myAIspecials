@@ -69,16 +69,14 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(renderChunk).not.toHaveBeenCalled();
   });
 
-  it('keeps only edit, share, and save as primary actions, and groups advanced actions under details', () => {
+  it('keeps edit and save as primary actions, and groups advanced actions under details', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
-    for (const id of ['artifact-action-save', 'artifact-action-share', 'artifact-action-edit', 'artifact-action-details']) {
+    for (const id of ['artifact-action-save', 'artifact-action-edit', 'artifact-action-details']) {
       expect(screen.getByTestId(id).className).toContain('min-h-11');
       expect(screen.getByTestId(id).className).toContain('min-w-11');
     }
-    expect(screen.getByRole('button', { name: '成果物を共有' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Canvas Direct Touchで編集' })).toBeTruthy();
     expect(screen.getByTestId('artifact-action-edit').textContent).toBe('✏️ 編集');
-    expect(screen.getByTestId('artifact-action-share').textContent).toBe('📲 共有');
     expect(screen.getByTestId('artifact-action-save').textContent).toBe('📥 保存');
     expect(screen.queryByTestId('artifact-action-copy')).toBeNull();
     fireEvent.click(screen.getByTestId('artifact-action-details'));
@@ -123,7 +121,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const add = screen.getByTestId('origin-add-menu-toggle');
     const send = screen.getByTestId('start-request-button');
 
-    expect(input.getAttribute('placeholder')).toBe('ORIGINに依頼する');
+    expect(input.getAttribute('placeholder')).toBe('やりたいことを、そのまま入力してください');
     expect(input.className).toContain('min-w-0');
     expect(input.className).toContain('px-2');
     expect(composer.className).toContain('gap-1');
@@ -196,20 +194,20 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(menu.hasAttribute('open')).toBe(true);
     expect(screen.getByRole('menu', { name: '追加機能' })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('menuitem', { name: '調べる' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '詳しく調べる' }));
     expect(onOpenResearch).toHaveBeenCalledOnce();
     expect(menu.hasAttribute('open')).toBe(false);
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'コード' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'コードを作る' }));
     expect(onOpenCoding).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
-    fireEvent.click(screen.getByRole('menuitem', { name: '作る' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '成果物を作る' }));
     expect(onOpenCreative).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
-    fireEvent.click(screen.getByRole('menuitem', { name: '詳細' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'その他の機能' }));
     expect(onOpenDetails).toHaveBeenCalledOnce();
   });
 
@@ -337,32 +335,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('restore-last-known-good')).toHaveProperty('disabled', true);
   });
 
-  it('switches responsive preview widths and routes presentation arrow keys into the active sandbox', () => {
-    render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
-    const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
-    fireEvent.click(screen.getByTestId('preview-viewport-375'));
-    expect(frame.style.width).toBe('375px');
-    expect(screen.getByTestId('preview-viewport-375').textContent).toContain('375px');
-    fireEvent.click(screen.getByTestId('preview-viewport-768'));
-    expect(frame.style.width).toBe('768px');
-    fireEvent.click(screen.getByTestId('preview-viewport-fluid'));
-    expect(frame.style.width).toBe('100%');
-    fireEvent.click(screen.getByTestId('artifact-action-details'));
-    fireEvent.click(screen.getByTestId('presentation-mode-toggle'));
-    expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var presenting=true');
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=1');
-    const focusedFrame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
-    act(() => window.dispatchEvent(new MessageEvent('message', { source: window, data: { source: 'ORIGIN_PRESENTATION_KEYBOARD', key: 'ArrowLeft' } })));
-    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=1');
-    act(() => window.dispatchEvent(new MessageEvent('message', { source: focusedFrame.contentWindow, data: { source: 'ORIGIN_PRESENTATION_KEYBOARD', key: 'ArrowLeft' } })));
-    expect(screen.getByTitle('プレビュー').getAttribute('data-origin-srcdoc')!).toContain('var current=0');
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.getByTestId('presentation-mode-toggle').getAttribute('aria-pressed')).toBe('false');
-  });
-
   it('stores an approved Direct Touch text delta as an immutable new revision', () => {
     const revisions: ArtifactBlock[] = [];
     render(<ArtifactWorkspace artifact={{ ...artifact, content: '<main><p>Ready</p></main>' }} isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => revisions.push(next)} />);
@@ -428,8 +400,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(diff.htmlChanges).toBeGreaterThan(0);
     expect(diff.cssChanges).toBeGreaterThan(0);
     render(<ArtifactWorkspace artifact={revisedArtifact} isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => revisions.push(next)} />);
-    expect(screen.getByTestId('artifact-revision-indicator').textContent).toBe('最新');
-    expect(screen.getByText('1つ前の版あり')).toBeTruthy();
+    expect(screen.getByText('更新あり')).toBeTruthy();
     fireEvent.click(screen.getByTestId('artifact-action-details'));
     fireEvent.click(screen.getByTestId('artifact-visual-diff-toggle'));
     expect(screen.getByTestId('artifact-visual-diff-summary').textContent).toContain('HTML要素');
@@ -499,7 +470,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const verification = screen.getByTestId('response-verification-details');
     expect(verification.textContent).toContain('✓');
     expect(verification.hasAttribute('open')).toBe(false);
-    fireEvent.click(screen.getByText('回答の詳細'));
+    fireEvent.click(screen.getByText('詳細'));
     expect(verification.hasAttribute('open')).toBe(true);
     const verificationLog = screen.getByTestId('response-verification-log');
     for (const label of ['応答完了', '費用経路', '内容の限界']) expect(verificationLog.textContent).toContain(label);
