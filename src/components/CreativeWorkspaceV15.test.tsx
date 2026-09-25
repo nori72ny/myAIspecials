@@ -66,6 +66,8 @@ function svgResponse(options: {
     'x-origin-external-network': options.externalNetwork === true ? 'true' : 'false',
     'x-origin-visual-brain': 'visual-brain-v1',
     'x-origin-visual-provider': 'origin-local-svg',
+    'x-origin-visual-critic': 'deterministic-v1',
+    'x-origin-visual-quality-score': '100',
     'x-origin-visual-plan-sha256': 'b'.repeat(64),
     'x-origin-visual-generation-id': `visual-${'d'.repeat(24)}`,
   });
@@ -169,6 +171,7 @@ describe('CreativeWorkspaceV15', () => {
     expect(screen.getByText(/SHA-256 aaaaaaaaaaaa…/)).toBeTruthy();
     expect(screen.getByText(/visual-brain-v1/)).toBeTruthy();
     expect(screen.getByText(/origin-local-svg/)).toBeTruthy();
+    expect(screen.getByText(/Critic 100/)).toBeTruthy();
     expect(screen.getByText(/実バイト照合済み/)).toBeTruthy();
     await screen.findByText('端末内履歴に保存しました。SVGは再読み込み後もこの端末から開けます。');
 
