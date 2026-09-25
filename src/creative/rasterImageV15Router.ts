@@ -1,4 +1,4 @@
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import {
   generateRasterImageV15,
@@ -70,7 +70,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     });
   });
 
-  const handler = async (req: Parameters<ReturnType<typeof Router>['post']>[1] extends never ? never : any, res: Response) => {
+  const handler = async (req: Request, res: Response) => {
     const kinds = sensitiveKinds(req.body);
     if (kinds.length > 0) {
       return fail(res, 422, 'SENSITIVE_INPUT_BLOCKED', '機密・個人情報の可能性があるため、外部画像プロバイダへ送信しませんでした。');
