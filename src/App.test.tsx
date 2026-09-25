@@ -199,7 +199,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(menu.hasAttribute('open')).toBe(false);
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'コードを作る' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'コード' }));
     expect(onOpenCoding).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
