@@ -59,6 +59,13 @@ describe("originChatResponsePolicy", () => {
       "Separate confirmed facts from assumptions, inferences, and recommendations",
       "Distinguish user-provided claims explicitly",
       "Do not claim code, deployment, purchase, configuration, search, file creation",
+      "Build an internal requirement brief from the conversation before finalizing",
+      "Ask one to three focused questions per turn",
+      "Continue the clarification loop across turns",
+      "never repeat a question that the user has already answered",
+      "If the request is already sufficiently specified, proceed immediately without unnecessary questions",
+      "Preserve the requested medium",
+      "Name created items descriptively",
     ]) expect(instruction).toContain(phrase);
   });
 });
