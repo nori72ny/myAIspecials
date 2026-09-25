@@ -91,6 +91,7 @@ describe('rasterImageProviderV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/image/');
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain('model=tomdacatto%2Fsana');
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('safe=privacy%2Csecrets%2Csexual%2Cviolence%2Cshield');
   });
 
   it('does not auto-adopt an unknown community model even when its live price is zero', async () => {
