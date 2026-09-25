@@ -41,6 +41,14 @@ describe('V1.5 verified visual artifacts', () => {
       expect(artifact.externalNetworkRequests).toBe(0);
       expect(artifact.costUsd).toBe(0);
       expect(artifact.freeOnly).toBe(true);
+      expect(artifact.quality.passed).toBe(true);
+      expect(artifact.quality.score).toBe(100);
+      expect(artifact.quality.checks).toEqual(expect.arrayContaining([
+        'artifact-safety',
+        'exact-text-fidelity',
+        'wcag-text-contrast',
+        'meaningful-image-label',
+      ]));
       expect(artifact.bytes.toString('utf8')).toContain('<svg');
     }
   });
@@ -96,6 +104,16 @@ describe('V1.5 verified visual artifacts', () => {
     expect(() => parseVisualArtifactRequestV15({ kind: 'poster', title: 'x', preset: 'giant' })).toThrow('INVALID_VISUAL_PRESET');
     expect(() => parseVisualArtifactRequestV15({ kind: 'poster', title: 'x', theme: { accent: 'url(https://example.invalid)' } })).toThrow('INVALID_VISUAL_COLOR');
     expect(() => parseVisualArtifactRequestV15({ kind: 'poster', title: 'x', unknown: true })).toThrow('INVALID_VISUAL_REQUEST_FIELD');
+
+    const lowContrast = generateVisualArtifactV15({
+      kind: 'info-card',
+      title: 'Low contrast',
+      body: 'This should be rejected by the critic.',
+      theme: { background: '#FFFFFF', foreground: '#F5F5F5', muted: '#F0F0F0', accent: '#EEEEEE' },
+    });
+    expect(lowContrast.verified).toBe(false);
+    expect(lowContrast.quality.passed).toBe(false);
+    expect(lowContrast.quality.issues).toContain('text-contrast-below-aa');
   });
 
   it('passes the bounded local generator self-test', () => {
@@ -204,6 +222,8 @@ describe('V1.5 verified visual artifacts', () => {
     expect(response.headers['x-origin-visual-brain']).toBe('visual-brain-v1');
     expect(response.headers['x-origin-visual-provider']).toBe('origin-local-svg');
     expect(response.headers['x-origin-visual-typography']).toBe('deterministic-overlay');
+    expect(response.headers['x-origin-visual-quality-score']).toBe('100');
+    expect(response.headers['x-origin-visual-critic']).toBe('deterministic-v1');
     expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-generation-id']).toMatch(/^visual-[a-f0-9]{24}$/);
     expect(response.body.length).toBeGreaterThan(200);
