@@ -95,6 +95,10 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Model', result.model);
       res.setHeader('X-Origin-Visual-Width', String(result.width));
       res.setHeader('X-Origin-Visual-Height', String(result.height));
+      res.setHeader('X-Origin-Visual-Purpose', result.visualIntent.purpose);
+      res.setHeader('X-Origin-Visual-Style', result.visualIntent.style);
+      res.setHeader('X-Origin-Visual-Orientation', result.visualIntent.orientation);
+      res.setHeader('X-Origin-Typography-Overlay', result.visualIntent.typographyOverlay ? 'true' : 'false');
       res.setHeader('X-Origin-Free-Only', 'true');
       res.setHeader('X-Origin-Cost-Usd', '0');
       res.setHeader('X-Origin-Paid-Fallback', 'false');
