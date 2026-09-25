@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { compileVisualIntentV15, type VisualIntentPurposeV15, type VisualIntentStyleV15 } from './visualIntentCompilerV15.js';
 
 const POLLINATIONS_ORIGIN = 'https://gen.pollinations.ai';
 const DEFAULT_MODEL = 'tomdacatto/sana';
@@ -50,6 +51,12 @@ export type RasterImageResultV15 = {
   costUsd: 0;
   freeOnly: true;
   externalNetworkRequests: number;
+  visualIntent: {
+    purpose: VisualIntentPurposeV15;
+    style: VisualIntentStyleV15;
+    orientation: 'square' | 'portrait' | 'landscape';
+    typographyOverlay: boolean;
+  };
 };
 
 type PollinationsImageModel = {
@@ -311,7 +318,7 @@ export async function generateRasterImageV15(
   const apiKey = env.POLLINATIONS_API_KEY?.trim() ?? '';
   if (!apiKey) throw new Error('POLLINATIONS_KEY_NOT_CONFIGURED');
 
-  const prompt = normalizePrompt(input);
+  const rawPrompt = normalizePrompt({ ...input, negativePrompt: undefined });
   const requestedModel = input.model?.trim() || env.ORIGIN_IMAGE_MODEL || DEFAULT_MODEL;
   const verifiedModel = await discoverZeroCostPollinationsModelV15(apiKey, requestedModel, fetchImpl);
   if (!verifiedModel) throw new Error('NO_VERIFIED_ZERO_COST_RASTER_MODEL');
@@ -324,7 +331,11 @@ export async function generateRasterImageV15(
     width: boundedInt(input.width, 1024),
     height: boundedInt(input.height, 1024),
   };
-  const url = new URL(`${POLLINATIONS_ORIGIN}/image/${encodeURIComponent(prompt)}`);
+  const intent = compileVisualIntentV15({ prompt: rawPrompt, width: size.width, height: size.height });
+  const providerPrompt = input.negativePrompt?.trim()
+    ? `${intent.positivePrompt}\n\nAvoid: ${input.negativePrompt.normalize('NFKC').trim().slice(0, 1_000)}`
+    : `${intent.positivePrompt}\n\nAvoid: ${intent.negativePrompt}`;
+  const url = new URL(`${POLLINATIONS_ORIGIN}/image/${encodeURIComponent(providerPrompt)}`);
   url.searchParams.set('model', verifiedModel);
   url.searchParams.set('width', String(size.width));
   url.searchParams.set('height', String(size.height));
@@ -372,5 +383,11 @@ export async function generateRasterImageV15(
     costUsd: 0,
     freeOnly: true,
     externalNetworkRequests: 3 + usageVerificationResult.requests,
+    visualIntent: {
+      purpose: intent.purpose,
+      style: intent.style,
+      orientation: intent.orientation,
+      typographyOverlay: intent.requiresTypographyOverlay,
+    },
   };
 }
