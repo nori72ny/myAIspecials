@@ -27,15 +27,20 @@ function json(value: unknown, status = 200): Response {
   });
 }
 
+function imageJson(bytes: Uint8Array, mediaType = 'image/png'): Response {
+  return json({
+    created: 1,
+    data: [{ b64_json: Buffer.from(bytes).toString('base64'), media_type: mediaType }],
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2, input_tokens_details: {} },
+  });
+}
+
 function successfulFetchMock() {
   const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
   return vi.fn()
     .mockResolvedValueOnce(json([freeModel]))
     .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-router' }] }))
-    .mockResolvedValueOnce(new Response(png, {
-      status: 200,
-      headers: { 'content-type': 'image/png' },
-    }))
+.mockResolvedValueOnce(imageJson(png))
     .mockResolvedValueOnce(json({
       usage: [{
         cursor_event_id: 'after-router',
@@ -120,9 +125,19 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
 
     const providerUrl = String(fetchMock.mock.calls[2]?.[0]);
-    expect(decodeURIComponent(providerUrl)).toContain('Create the requested image as a finished, production-quality visual.');
-    expect(decodeURIComponent(providerUrl)).toContain('Original request: 静かな湖と朝焼け');
+    expect(providerUrl).toBe('https://gen.pollinations.ai/v1/images/generations');
     const providerRequest = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect(providerRequest.method).toBe('POST');
+    const providerBody = JSON.parse(String(providerRequest.body));
+    expect(providerBody.prompt).toContain('Create the requested image as a finished, production-quality visual.');
+    expect(providerBody.prompt).toContain('Original request: 静かな湖と朝焼け');
+    expect(providerBody).toMatchObject({
+      model: 'tomdacatto/sana',
+      n: 1,
+      size: '768x1024',
+      response_format: 'b64_json',
+      safe: 'privacy,secrets,sexual,violence,shield',
+    });
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe('Bearer server_only_key');
     expect(response.text ?? '').not.toContain('server_only_key');
