@@ -213,7 +213,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '詳細を開く' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Project Artifacts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Project 作成物' }));
     expect(window.location.search).toBe('?workspace=research');
     expect(screen.getByRole('complementary', { name: '作成物ワークスペース' }).textContent).toContain('Project artifact');
   });
