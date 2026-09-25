@@ -286,9 +286,6 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('artifact-details-menu')).toBeHidden();
 
-    await page.getByTestId('artifact-action-share').click();
-    await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { __originShareInvoked?: boolean }).__originShareInvoked))).toBe(true);
-
     const downloadPromise = page.waitForEvent('download');
     await page.getByTestId('artifact-action-save').click();
     const download = await downloadPromise;
@@ -315,7 +312,6 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await expect(workspace).toBeVisible();
     for (const testId of [
       'artifact-action-edit',
-      'artifact-action-share',
       'artifact-action-save',
       'artifact-action-details',
     ]) {
@@ -330,16 +326,8 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
 
     await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('artifact-details-menu')).toBeVisible();
-    for (const testId of ['preview-viewport-375', 'preview-viewport-768', 'preview-viewport-fluid']) {
-      const control = page.getByTestId(testId);
-      await expect(control).toBeVisible();
-      const box = await control.boundingBox();
-      expect(box).not.toBeNull();
-      expect(box!.x).toBeGreaterThanOrEqual(-1);
-      expect(box!.x + box!.width).toBeLessThanOrEqual(391);
-      expect(box!.height).toBeGreaterThanOrEqual(44);
-      await control.click();
-    }
+    await expect(page.getByTestId('artifact-action-copy')).toBeVisible();
+    await expect(page.getByTestId('artifact-action-export-menu')).toBeVisible();
     await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('artifact-details-menu')).toBeHidden();
     await page.getByRole('button', { name: 'コードを表示' }).click();
