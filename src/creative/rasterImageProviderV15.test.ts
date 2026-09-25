@@ -112,6 +112,12 @@ describe('rasterImageProviderV15', () => {
     });
   });
 
+  it('rejects ambiguous nonnumeric pricing instead of treating it as free', async () => {
+    const ambiguous = { ...freeModel, pricing: { currency: 'pollen', completionImageTokens: '0.002' } };
+    const fetchMock = vi.fn(async () => json([ambiguous])) as unknown as typeof fetch;
+    await expect(discoverZeroCostPollinationsModelV15('sk_test', 'tomdacatto/sana', fetchMock)).resolves.toBeNull();
+  });
+
   it('does not auto-adopt an unknown community model even when its live price is zero', async () => {
     const unknownFree = { ...freeModel, name: 'community/new-free-model' };
     const fetchMock = vi.fn(async () => json([unknownFree])) as unknown as typeof fetch;
