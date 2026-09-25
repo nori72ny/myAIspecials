@@ -29,6 +29,21 @@ describe('localVisualHistoryV15', () => {
     expect(isCreativeHistoryEntryShapeV15({ ...entry(4), sha256: 'bad' })).toBe(false);
   });
 
+  it('accepts bounded provenance and lineage metadata without breaking legacy entries', () => {
+    const base = entry(5);
+    expect(isCreativeHistoryEntryShapeV15({
+      ...base,
+      generationId: `visual-${'a'.repeat(24)}`,
+      visualBrainVersion: 'visual-brain-v1',
+      providerId: 'origin-local-svg',
+      planSha256: 'b'.repeat(64),
+      relation: 'generated',
+    })).toBe(true);
+    expect(isCreativeHistoryEntryShapeV15({ ...base, planSha256: 'bad' })).toBe(false);
+    expect(isCreativeHistoryEntryShapeV15({ ...base, relation: 'unknown' })).toBe(false);
+    expect(isCreativeHistoryEntryShapeV15({ ...base, parentId: '../bad' })).toBe(false);
+  });
+
   it('keeps only the newest bounded history entries', () => {
     const entries = Array.from({ length: CREATIVE_HISTORY_LIMIT_V15 + 5 }, (_, index) => entry(index + 1));
     const selected = selectNewestCreativeHistoryV15(entries);
