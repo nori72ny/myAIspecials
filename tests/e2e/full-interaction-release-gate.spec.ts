@@ -229,7 +229,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await chooser;
 
     // Each workspace action must result in navigation, not a silent click.
-    for (const [label, workspace] of [['調べる', 'research'], ['コード', 'coding'], ['作る', 'creative']] as const) {
+    for (const [label, workspace] of [['詳しく調べる', 'research'], ['コード', 'coding'], ['成果物を作る', 'creative']] as const) {
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`workspace=${workspace}`));
