@@ -90,8 +90,11 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('Content-Disposition', `attachment; filename="${filename(result.mimeType)}"`);
       res.setHeader('X-Origin-Visual-Verified', 'true');
       res.setHeader('X-Origin-Visual-Sha256', result.sha256);
+      res.setHeader('X-Origin-Visual-Generation-Id', `raster-${result.sha256.slice(0, 24)}`);
       res.setHeader('X-Origin-Visual-Provider', result.providerId);
       res.setHeader('X-Origin-Visual-Model', result.model);
+      res.setHeader('X-Origin-Visual-Width', String(result.width));
+      res.setHeader('X-Origin-Visual-Height', String(result.height));
       res.setHeader('X-Origin-Free-Only', 'true');
       res.setHeader('X-Origin-Cost-Usd', '0');
       res.setHeader('X-Origin-Paid-Fallback', 'false');

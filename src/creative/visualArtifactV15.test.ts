@@ -188,6 +188,16 @@ describe('V1.5 verified visual artifacts', () => {
       providerExecutions: 0,
       rasterImageGeneration: false,
       modelBasedImageEditing: false,
+      persistence: 'client-local-verified-asset-graph',
+    });
+    expect(status.body.rasterRuntime).toMatchObject({
+      configured: false,
+      ready: false,
+      providerId: 'pollinations-zero-cost',
+      zeroCostVerified: false,
+      reason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
     });
     expect(status.body.visualBrain).toMatchObject({
       version: 'visual-brain-v1',

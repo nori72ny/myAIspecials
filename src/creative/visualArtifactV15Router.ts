@@ -15,6 +15,7 @@ import {
   visualBrainSelfTestV15,
   visualProviderRegistryV15,
 } from './visualBrainV15.js';
+import { getRasterProviderStatusV15 } from './rasterImageProviderV15.js';
 
 function sensitiveKinds(body: unknown): string[] {
   let serialized = '';
@@ -38,12 +39,13 @@ function utf8DownloadDisposition(filename: string, fallback: string): string {
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
-export function createVisualArtifactV15Router() {
+export function createVisualArtifactV15Router(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
-  router.get('/api/creative/v1.5/status', (_req, res) => {
+  router.get('/api/creative/v1.5/status', async (_req, res) => {
     const selfTest = visualArtifactSelfTestV15();
     const visualBrain = visualBrainSelfTestV15();
+    const raster = await getRasterProviderStatusV15(env);
     const ready = selfTest.ready && visualBrain.ready;
     return res.status(ready ? 200 : 503).json({
       ok: true,
@@ -91,9 +93,19 @@ export function createVisualArtifactV15Router() {
       externalRuntimeDependencies: 0,
       externalNetworkRequests: 0,
       providerExecutions: 0,
-      rasterImageGeneration: false,
+      rasterImageGeneration: raster.ready,
+      rasterRuntime: {
+        configured: raster.configured,
+        ready: raster.ready,
+        providerId: raster.providerId,
+        model: raster.model,
+        zeroCostVerified: raster.zeroCostVerified,
+        reason: raster.reason,
+        paidFallbackEnabled: false,
+        secretDelivery: 'server-only',
+      },
       modelBasedImageEditing: false,
-      persistence: 'client-save-only',
+      persistence: 'client-local-verified-asset-graph',
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
