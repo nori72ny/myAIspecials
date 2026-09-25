@@ -582,7 +582,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const digest = new Uint8Array(32);
     digest.fill(0xcd);
     const sha = Array.from(digest).map((byte) => byte.toString(16).padStart(2, '0')).join('');
-    const fetchMock = vi.fn(async () => new Response(bytes, {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(bytes, {
       status: 200,
       headers: {
         'Content-Type': 'image/png',
