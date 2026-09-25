@@ -10,9 +10,9 @@ export default function OriginArtifactContextV31({ artifacts }: OriginArtifactCo
 
   const latest = artifacts.at(-1)!;
 
-  return <section aria-label="Artifact layer" className="origin-surface-muted shrink-0 border-b px-3 py-2 sm:px-5">
+  return <section aria-label="作成物" className="origin-surface-muted shrink-0 border-b px-3 py-2 sm:px-5">
     <div className="mx-auto flex w-full max-w-7xl items-center gap-2 text-sm">
-      <span className="shrink-0 font-bold">成果物</span>
+      <span className="shrink-0 font-bold">作成物</span><span className="origin-muted hidden shrink-0 text-xs sm:inline">文書・表・Webなど</span>
       <span className="origin-muted min-w-0 flex-1 truncate">{latest.title}</span>
       <span className="origin-muted shrink-0 text-xs">{latest.isComplete ? '完成' : '生成中'}</span>
     </div>
