@@ -43,8 +43,8 @@ function normalize(value: string): string {
 
 function purposeFor(input: string): VisualIntentPurposeV15 {
   if (/(?:portrait|headshot|人物|ポートレート|プロフィール写真)/i.test(input)) return 'portrait';
-  if (/(?:商品|product).{0,20}(?:広告|ad|advert|hero)|(?:広告|ad|advert).{0,20}(?:商品|product)/i.test(input)) return 'product-ad';
-  if (/(?:instagram|インスタ|sns|social).{0,20}(?:投稿|post|画像|image)/i.test(input)) return 'social-post';
+  if (/(?:instagram|インスタ|sns|social).{0,28}(?:投稿|post|画像|image|広告|ad)|(?:投稿|post|画像|image|広告|ad).{0,28}(?:instagram|インスタ|sns|social)/i.test(input)) return 'social-post';
+  if (/(?:商品|product).{0,20}(?:広告|ad|advert|hero)|(?:広告|ad|advert|キャンペーン|campaign|hero)/i.test(input)) return 'product-ad';
   if (/(?:poster|ポスター|flyer|チラシ)/i.test(input)) return 'poster';
   if (/(?:thumbnail|サムネ(?:イル)?|youtube)/i.test(input)) return 'thumbnail';
   if (/(?:infographic|インフォグラフィック|図解|比較図)/i.test(input)) return 'infographic';
