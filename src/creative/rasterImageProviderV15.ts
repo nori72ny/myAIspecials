@@ -93,17 +93,36 @@ function modelName(model: PollinationsImageModel): string | null {
   return typeof model.name === 'string' && model.name.trim() ? model.name.trim() : null;
 }
 
-function imageBytesMatchMime(bytes: Buffer, mime: string): boolean {
-  if (mime === 'image/png') {
-    return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+function detectImageMime(bytes: Buffer): RasterImageResultV15['mimeType'] | null {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9) return 'image/jpeg';
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  return null;
+}
+
+function decodeImageResponseBody(body: Buffer): { bytes: Buffer; mimeType: RasterImageResultV15['mimeType'] } {
+  if (body.length <= 0 || body.length > MAX_IMAGE_RESPONSE_BYTES) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+  let parsed: unknown;
+  try { parsed = JSON.parse(body.toString('utf8')); }
+  catch { throw new Error('INVALID_RASTER_PROVIDER_JSON'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('INVALID_RASTER_PROVIDER_JSON');
+  const data = (parsed as Record<string, unknown>).data;
+  if (!Array.isArray(data) || data.length !== 1 || !data[0] || typeof data[0] !== 'object' || Array.isArray(data[0])) {
+    throw new Error('INVALID_RASTER_PROVIDER_PAYLOAD');
   }
-  if (mime === 'image/jpeg') {
-    return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9;
+  const row = data[0] as Record<string, unknown>;
+  const encoded = typeof row.b64_json === 'string' ? row.b64_json : '';
+  if (!encoded || encoded.length > Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 4 || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+    throw new Error('INVALID_RASTER_BASE64');
   }
-  if (mime === 'image/webp') {
-    return bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+  const bytes = Buffer.from(encoded, 'base64');
+  if (bytes.length <= 0 || bytes.length > MAX_IMAGE_BYTES) throw new Error('RASTER_IMAGE_SIZE_OUT_OF_BOUNDS');
+  const detectedMime = detectImageMime(bytes);
+  if (!detectedMime) throw new Error('RASTER_IMAGE_SIGNATURE_MISMATCH');
+  if (typeof row.media_type === 'string' && row.media_type && row.media_type !== detectedMime) {
+    throw new Error('RASTER_IMAGE_MIME_MISMATCH');
   }
-  return false;
+  return { bytes, mimeType: detectedMime };
 }
 
 function normalizePrompt(input: RasterImageRequestV15): string {
@@ -324,34 +343,38 @@ export async function generateRasterImageV15(
     width: boundedInt(input.width, 1024),
     height: boundedInt(input.height, 1024),
   };
-  const url = new URL(`${POLLINATIONS_ORIGIN}/image/${encodeURIComponent(prompt)}`);
-  url.searchParams.set('model', verifiedModel);
-  url.searchParams.set('width', String(size.width));
-  url.searchParams.set('height', String(size.height));
-  url.searchParams.set('safe', 'privacy,secrets,sexual,violence,shield');
-
   const response = await timedFetch(
-    url.toString(),
+    `${POLLINATIONS_ORIGIN}/v1/images/generations`,
     {
-      method: 'GET',
+      method: 'POST',
       headers: {
         ...authHeaders(apiKey),
-        Accept: 'image/png,image/jpeg,image/webp',
+        'Content-Type': 'application/json',
+        'Pollinations-Safe': 'privacy,secrets,sexual,violence,shield',
       },
+      body: JSON.stringify({
+        prompt,
+        model: verifiedModel,
+        n: 1,
+        size: `${size.width}x${size.height}`,
+        quality: 'medium',
+        response_format: 'b64_json',
+        safe: 'privacy,secrets,sexual,violence,shield',
+      }),
       cache: 'no-store',
     },
     fetchImpl,
   );
   if (!response.ok) {
     if (response.status === 402) throw new Error('PAID_OR_EXHAUSTED_PROVIDER_PATH_BLOCKED');
+    if (response.status === 400) throw new Error('RASTER_PROVIDER_SAFETY_OR_REQUEST_BLOCKED');
     throw new Error(`RASTER_PROVIDER_HTTP_${response.status}`);
   }
 
-  const mime = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-  if (!IMAGE_TYPES.has(mime)) throw new Error('UNEXPECTED_RASTER_CONTENT_TYPE');
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length <= 0 || bytes.length > MAX_IMAGE_BYTES) throw new Error('RASTER_IMAGE_SIZE_OUT_OF_BOUNDS');
-  if (!imageBytesMatchMime(bytes, mime)) throw new Error('RASTER_IMAGE_SIGNATURE_MISMATCH');
+  const responseType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (responseType !== 'application/json') throw new Error('UNEXPECTED_RASTER_CONTENT_TYPE');
+  const decoded = decodeImageResponseBody(Buffer.from(await response.arrayBuffer()));
+  const { bytes, mimeType: mime } = decoded;
   const usageVerificationResult = await verifyLatestZeroCostUsageV15(
     apiKey,
     verifiedModel,
@@ -363,7 +386,7 @@ export async function generateRasterImageV15(
 
   return {
     bytes,
-    mimeType: mime as RasterImageResultV15['mimeType'],
+    mimeType: mime,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     model: verifiedModel,
     providerId: 'pollinations-zero-cost',
