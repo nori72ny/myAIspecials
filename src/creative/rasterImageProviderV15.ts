@@ -191,6 +191,36 @@ export async function getRasterProviderStatusV15(
   }
 }
 
+async function verifyLatestZeroCostUsageV15(
+  apiKey: string,
+  model: string,
+  startedAtMs: number,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  const response = await timedFetch(
+    `${POLLINATIONS_ORIGIN}/account/key/usage?format=json&limit=5&days=1`,
+    { method: 'GET', headers: authHeaders(apiKey), cache: 'no-store' },
+    fetchImpl,
+    15_000,
+  );
+  if (!response.ok) return false;
+  const parsed = await response.json() as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const usage = (parsed as Record<string, unknown>).usage;
+  if (!Array.isArray(usage)) return false;
+  const floorMs = startedAtMs - 15_000;
+  return usage.some((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+    const row = entry as Record<string, unknown>;
+    const timestamp = typeof row.timestamp === 'string' ? Date.parse(row.timestamp.replace(' ', 'T') + 'Z') : Number.NaN;
+    const sameModel = row.model === model;
+    const imageRequest = row.type === 'generate.image';
+    const costZero = row.cost_usd === 0 || row.cost_usd === '0';
+    const notPaidBalance = row.meter_source !== 'pack';
+    return sameModel && imageRequest && costZero && notPaidBalance && Number.isFinite(timestamp) && timestamp >= floorMs;
+  });
+}
+
 export async function generateRasterImageV15(
   input: RasterImageRequestV15,
   env: NodeJS.ProcessEnv = process.env,
@@ -215,6 +245,7 @@ export async function generateRasterImageV15(
   url.searchParams.set('height', String(size.height));
   url.searchParams.set('safe', 'true');
 
+  const startedAtMs = Date.now();
   const response = await timedFetch(
     url.toString(),
     {
@@ -236,6 +267,8 @@ export async function generateRasterImageV15(
   if (!IMAGE_TYPES.has(mime)) throw new Error('UNEXPECTED_RASTER_CONTENT_TYPE');
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length <= 0 || bytes.length > MAX_IMAGE_BYTES) throw new Error('RASTER_IMAGE_SIZE_OUT_OF_BOUNDS');
+  const zeroCostUsageVerified = await verifyLatestZeroCostUsageV15(apiKey, verifiedModel, startedAtMs, fetchImpl);
+  if (!zeroCostUsageVerified) throw new Error('ZERO_COST_USAGE_NOT_VERIFIED');
 
   return {
     bytes,
@@ -247,6 +280,6 @@ export async function generateRasterImageV15(
     height: size.height,
     costUsd: 0,
     freeOnly: true,
-    externalNetworkRequests: 2,
+    externalNetworkRequests: 3,
   };
 }
