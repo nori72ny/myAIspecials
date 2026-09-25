@@ -71,11 +71,8 @@ function isZeroCostPricing(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (record.currency !== 'pollen') return false;
-  const numeric = Object.entries(record)
-    .filter(([key]) => key !== 'currency')
-    .map(([, item]) => item)
-    .filter((item): item is number => typeof item === 'number' && Number.isFinite(item));
-  return numeric.every((item) => item === 0);
+  const priceEntries = Object.entries(record).filter(([key]) => key !== 'currency');
+  return priceEntries.every(([, item]) => typeof item === 'number' && Number.isFinite(item) && item === 0);
 }
 
 function modelIsVerifiedZeroCost(model: PollinationsImageModel): boolean {
