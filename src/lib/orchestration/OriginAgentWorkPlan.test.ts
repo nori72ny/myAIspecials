@@ -29,6 +29,11 @@ describe("OriginAgentWorkPlan", () => {
     expect(plan.mode).toBe("deliverable");
     expect(plan.steps).toEqual(expect.arrayContaining([
       expect.objectContaining({
+        kind: "clarify-requirements",
+        requiredCapability: "requirement-clarification",
+        availability: "available",
+      }),
+      expect.objectContaining({
         kind: "create-output",
         requiredCapability: "text-generation",
         availability: "available",
