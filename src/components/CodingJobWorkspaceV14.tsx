@@ -351,7 +351,7 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
           <h1 className="mt-1 text-xl font-black">コードの変更を依頼</h1>
           <p className="mt-1 text-sm leading-6 text-slate-500">変更したいことを伝えると、確認・編集・検証まで進めます。</p>
         </div>
-        <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">$0 only</span>
+        
       </header>
 
       <section className="origin-workspace rounded-2xl p-4">
@@ -366,7 +366,7 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
         />
         <div className="mt-1 text-right text-[10px] text-slate-500">{goal.length}/4000</div>
 
-        <label htmlFor="coding-operator-key" className="mt-3 block text-xs font-bold text-slate-600 dark:text-slate-300">実行キー</label>
+        <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold text-slate-600 dark:text-slate-300">実行に必要な認証</summary><p className="mb-2 text-xs leading-5 text-slate-500">コード変更を実行するときだけ必要です。入力内容は端末へ保存しません。</p><label htmlFor="coding-operator-key" className="sr-only">実行キー</label>
         <input
           ref={credentialInputRef}
           id="coding-operator-key"
@@ -375,8 +375,8 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
           autoComplete="off"
           spellCheck={false}
           placeholder="Coding operator key"
-          className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"
-        />
+          className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"
+        /></details>
 
         <button
           type="button"
@@ -391,12 +391,12 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
 
         <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-slate-500">{checkingCapability ? '実行環境を確認中…' : ready ? '実行環境を確認済み' : '現在は実行できません'}</span>
-          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? 'Ready' : 'Unavailable'}</span>
+          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '利用できます' : '利用できません'}</span>
         </div>
 
         <details className="mt-2 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
-          <summary className="min-h-11 cursor-pointer py-3 font-semibold">接続・既存ジョブの詳細</summary>
-          <p className="leading-5 text-slate-500">実行キーはReact state・localStorage・ログへ保存しません。開始/再接続後は入力欄を消去し、active jobの操作中だけページメモリで利用します。</p>
+          <summary className="min-h-11 cursor-pointer py-3 font-semibold">詳しい実行情報</summary>
+          <p className="leading-5 text-slate-500">認証情報は端末へ保存せず、実行中に必要な範囲だけで利用します。</p>
 
           <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
             <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境の設定</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '設定確認済み' : '設定を確認できません'}</span></div>
@@ -422,7 +422,7 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
         </details>
 
         {capability?.authorizationMode === 'legacy-agent-compat' && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">互換モードです。<code>ORIGIN_CODING_OPERATOR_SECRET</code> を設定するとCoding権限を他のAgent操作から分離できます。</div>}
-        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">Coding workerは現在fail-closedです。実行条件が揃うまで新規ジョブは開始されません。</div>}
+        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">現在はコード変更を実行できません。安全に実行できる条件が揃うまで、新しい変更は開始しません。</div>}
         {error && <ErrorNotice code={error} />}
       </section>
 
