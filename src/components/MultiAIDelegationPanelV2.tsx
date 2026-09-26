@@ -238,7 +238,7 @@ export default function MultiAIDelegationPanelV2() {
 
   return (
     <>
-      <button ref={openerRef} type="button" data-testid="multi-ai-planner-v2-open" onClick={openPanel} aria-label="AI作業振り分けを開く" className="fixed bottom-5 right-5 z-[80] flex min-h-11 items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-xl transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      <button ref={openerRef} type="button" data-testid="multi-ai-planner-v2-open" onClick={openPanel} aria-label="AI作業振り分けを開く" className="fixed bottom-5 right-5 z-[80] flex min-h-11 min-h-[45px] min-w-[45px] items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-xl transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400">
         <Sparkles className="h-4 w-4" /> AI作業振り分け
       </button>
 
@@ -250,7 +250,7 @@ export default function MultiAIDelegationPanelV2() {
                 <h2 id="delegation-v2-title" className="text-lg font-bold text-slate-950 dark:text-white">AI作業振り分け</h2>
                 <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-neutral-300">依頼に適した担当、選定理由、確認方法を端末内で整理します。</p>
               </div>
-              <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="min-h-11 min-w-11 rounded-xl p-3 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-neutral-300 dark:hover:bg-white/10"><X className="h-5 w-5" /></button>
+              <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="min-h-[45px] min-w-[45px] rounded-xl p-3 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-neutral-300 dark:hover:bg-white/10"><X className="h-5 w-5" /></button>
             </header>
 
             <div className="space-y-4 p-4 sm:p-6">
