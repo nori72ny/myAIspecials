@@ -55,6 +55,9 @@ export type RasterImageResultV15 = {
 type PollinationsImageModel = {
   name?: unknown;
   category?: unknown;
+  title?: unknown;
+  description?: unknown;
+  community?: unknown;
   pricing?: unknown;
   pricing_variants?: unknown;
   paid_only?: unknown;
@@ -62,25 +65,43 @@ type PollinationsImageModel = {
   output_modalities?: unknown;
 };
 
+type PollinationsKeyInfoV15 = {
+  valid?: unknown;
+  type?: unknown;
+  permissions?: unknown;
+  pollenBudget?: unknown;
+};
+
 function boundedInt(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isInteger(value)) return fallback;
   return Math.max(256, Math.min(1536, value));
 }
 
-function isZeroCostPricing(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+function pricingProof(value: unknown): 'numeric-zero' | 'explicit-free-marker' | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  if (record.currency !== 'pollen') return false;
+  if (record.currency !== 'pollen') return null;
   const priceEntries = Object.entries(record).filter(([key]) => key !== 'currency');
-  return priceEntries.every(([, item]) => typeof item === 'number' && Number.isFinite(item) && item === 0);
+  if (priceEntries.length === 0) return 'explicit-free-marker';
+  return priceEntries.every(([, item]) => typeof item === 'number' && Number.isFinite(item) && item === 0)
+    ? 'numeric-zero'
+    : null;
 }
 
 function modelIsVerifiedZeroCost(model: PollinationsImageModel): boolean {
+  const name = modelName(model);
+  if (!name || !AUDITED_ZERO_COST_MODELS.has(name)) return false;
   if (model.category !== 'image' || model.paid_only === true) return false;
-  if (!isZeroCostPricing(model.pricing)) return false;
+  const proof = pricingProof(model.pricing);
+  if (!proof) return false;
+  if (proof === 'explicit-free-marker') {
+    const title = typeof model.title === 'string' ? model.title.toLowerCase() : '';
+    const description = typeof model.description === 'string' ? model.description.toLowerCase() : '';
+    if (model.community !== true || !title.includes('free') || !description.includes('free image model')) return false;
+  }
   if (Array.isArray(model.pricing_variants) && model.pricing_variants.some((variant) => {
     if (!variant || typeof variant !== 'object') return true;
-    return !isZeroCostPricing((variant as Record<string, unknown>).pricing);
+    return pricingProof((variant as Record<string, unknown>).pricing) !== 'numeric-zero';
   })) return false;
   const outputs = Array.isArray(model.output_modalities) ? model.output_modalities : [];
   return outputs.includes('image');
@@ -235,6 +256,32 @@ function authHeaders(apiKey: string): HeadersInit {
   };
 }
 
+async function verifyScopedPollinationsKeyV15(
+  apiKey: string,
+  expectedModel: string,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  const response = await timedFetch(
+    `${POLLINATIONS_ORIGIN}/account/key`,
+    { method: 'GET', headers: authHeaders(apiKey), cache: 'no-store' },
+    fetchImpl,
+    MODEL_DISCOVERY_TIMEOUT_MS,
+  );
+  if (!response.ok) return false;
+  let parsed: PollinationsKeyInfoV15;
+  try { parsed = await response.json() as PollinationsKeyInfoV15; }
+  catch { return false; }
+  if (parsed.valid !== true || parsed.type !== 'secret') return false;
+  if (!parsed.permissions || typeof parsed.permissions !== 'object' || Array.isArray(parsed.permissions)) return false;
+  const permissions = parsed.permissions as Record<string, unknown>;
+  const models = permissions.models;
+  const account = permissions.account;
+  if (!Array.isArray(models) || models.length !== 1 || models[0] !== expectedModel) return false;
+  if (!Array.isArray(account) || !account.includes('usage')) return false;
+  if (parsed.pollenBudget !== null && (typeof parsed.pollenBudget !== 'number' || !Number.isFinite(parsed.pollenBudget) || parsed.pollenBudget < 0)) return false;
+  return true;
+}
+
 export async function discoverZeroCostPollinationsModelV15(
   apiKey: string,
   preferredModel = DEFAULT_MODEL,
@@ -279,7 +326,23 @@ export async function getRasterProviderStatusV15(
   }
 
   try {
-    const model = await discoverZeroCostPollinationsModelV15(apiKey, env.ORIGIN_IMAGE_MODEL || DEFAULT_MODEL, fetchImpl);
+    const requestedModel = env.ORIGIN_IMAGE_MODEL || DEFAULT_MODEL;
+    const scopedKey = await verifyScopedPollinationsKeyV15(apiKey, requestedModel, fetchImpl);
+    if (!scopedKey) {
+      return {
+        configured: true,
+        ready: false,
+        providerId: 'pollinations-zero-cost',
+        model: null,
+        zeroCostVerified: false,
+        paidFallbackEnabled: false,
+        paymentMethodRequired: false,
+        secretDelivery: 'server-only',
+        externalNetwork: true,
+        reason: 'POLLINATIONS_KEY_SCOPE_INVALID',
+      };
+    }
+    const model = await discoverZeroCostPollinationsModelV15(apiKey, requestedModel, fetchImpl);
     return {
       configured: true,
       ready: Boolean(model),
@@ -412,6 +475,8 @@ export async function generateRasterImageV15(
 
   const prompt = normalizePrompt(input);
   const requestedModel = input.model?.trim() || env.ORIGIN_IMAGE_MODEL || DEFAULT_MODEL;
+  const scopedKey = await verifyScopedPollinationsKeyV15(apiKey, requestedModel, fetchImpl);
+  if (!scopedKey) throw new Error('POLLINATIONS_KEY_SCOPE_INVALID');
   const verifiedModel = await discoverZeroCostPollinationsModelV15(apiKey, requestedModel, fetchImpl);
   if (!verifiedModel) throw new Error('NO_VERIFIED_ZERO_COST_RASTER_MODEL');
   if (requestedModel !== verifiedModel && input.model) throw new Error('REQUESTED_IMAGE_MODEL_NOT_ZERO_COST');
@@ -478,6 +543,6 @@ export async function generateRasterImageV15(
     height: actualSize.height,
     costUsd: 0,
     freeOnly: true,
-    externalNetworkRequests: 3 + usageVerificationResult.requests,
+    externalNetworkRequests: 4 + usageVerificationResult.requests,
   };
 }
