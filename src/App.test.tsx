@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -660,6 +660,93 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body).toMatchObject({ prompt: '夕焼けの海の画像を作ってください', width: 1024, height: 1024 });
+
+    if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
+    else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps repeated variation prompts bounded to the original visual brief', () => {
+    const first = buildRasterVariationPrompt('夕焼けの海の画像を作ってください');
+    const second = buildRasterVariationPrompt(first);
+    expect(second).toBe(first);
+    expect(second.match(/Create a clearly distinct alternative variation\./g)).toHaveLength(1);
+    expect(second.length).toBeLessThanOrEqual(2_000);
+  });
+
+  it('creates a lineage-aware alternative variation from an existing generated image', async () => {
+    const bytes1 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const bytes2 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6, 7, 8]);
+    const digest1 = new Uint8Array(32); digest1.fill(0xab);
+    const digest2 = new Uint8Array(32); digest2.fill(0xcd);
+    const sha1 = Array.from(digest1).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const sha2 = Array.from(digest2).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const responseFor = (bytes: Uint8Array, sha: string) => new Response(bytes, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Disposition': 'attachment; filename="origin-image.png"',
+        'X-Origin-Visual-Verified': 'true',
+        'X-Origin-Visual-Sha256': sha,
+        'X-Origin-Visual-Provider': 'pollinations-zero-cost',
+        'X-Origin-Visual-Model': 'tomdacatto/sana',
+        'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
+        'X-Origin-Visual-Brain': 'visual-brain-v1',
+        'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
+        'X-Origin-Visual-Purpose': 'photograph',
+        'X-Origin-Visual-Template': 'general-square',
+        'X-Origin-Visual-Safe-Margin-Pct': '7',
+        'X-Origin-Visual-Typography-Zone': 'bottom',
+        'X-Origin-Visual-Critic': 'raster-structural-critic-v1',
+        'X-Origin-Visual-Quality-Score': '100',
+        'X-Origin-Visual-Actual-Width': '1024',
+        'X-Origin-Visual-Actual-Height': '1024',
+        'X-Origin-Visual-Typography-Overlay': 'not-required',
+        'X-Origin-Visual-Plan-Sha256': 'e'.repeat(64),
+        'X-Origin-Visual-Width': '1024',
+        'X-Origin-Visual-Height': '1024',
+        'X-Origin-Free-Only': 'true',
+        'X-Origin-Cost-Usd': '0',
+        'X-Origin-Paid-Fallback': 'false',
+        'X-Origin-Secret-Delivery': 'server-only',
+      },
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(responseFor(bytes1, sha1))
+      .mockResolvedValueOnce(responseFor(bytes2, sha2));
+    vi.stubGlobal('fetch', fetchMock);
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { subtle: { digest: vi.fn()
+        .mockResolvedValueOnce(digest1.buffer)
+        .mockResolvedValueOnce(digest2.buffer) } },
+    });
+    const originalCreateObjectURL = URL.createObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn()
+        .mockReturnValueOnce('blob:origin-generated-image')
+        .mockReturnValueOnce('blob:origin-variation-image'),
+    });
+    const onMessagesChange = vi.fn();
+
+    render(<App language="ja" onMessagesChange={onMessagesChange} />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '夕焼けの海の画像を作ってください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByRole('button', { name: '別案を作る' })).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: '別案を作る' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(secondBody.prompt).toContain('夕焼けの海の画像を作ってください');
+    expect(secondBody.prompt).toContain('Create a clearly distinct alternative variation');
+    const latestMessages = onMessagesChange.mock.calls.at(-1)?.[0] as Array<{ image?: { relation?: string; parentId?: string; prompt?: string } }>;
+    const latestImage = [...latestMessages].reverse().find((message) => message.image)?.image;
+    expect(latestImage).toMatchObject({ relation: 'variation', parentId: sha1 });
+    expect(latestImage?.prompt).toContain('Create a clearly distinct alternative variation');
 
     if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
     else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
