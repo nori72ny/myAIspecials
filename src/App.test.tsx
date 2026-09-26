@@ -657,6 +657,48 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('withholds a raster image when structural critic evidence is missing or below the exact gate', async () => {
+    const sha = 'a'.repeat(64);
+    const fetchMock = vi.fn(async () => new Response(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]), {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Disposition': 'attachment; filename="origin-image.png"',
+        'X-Origin-Visual-Verified': 'true',
+        'X-Origin-Visual-Sha256': sha,
+        'X-Origin-Visual-Provider': 'pollinations-zero-cost',
+        'X-Origin-Visual-Model': 'tomdacatto/sana',
+        'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
+        'X-Origin-Visual-Brain': 'visual-brain-v1',
+        'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
+        'X-Origin-Visual-Purpose': 'photograph',
+        'X-Origin-Visual-Typography-Overlay': 'not-required',
+        'X-Origin-Visual-Plan-Sha256': 'c'.repeat(64),
+        'X-Origin-Visual-Critic': 'raster-structural-critic-v1',
+        'X-Origin-Visual-Quality-Score': '75',
+        'X-Origin-Visual-Actual-Width': '1024',
+        'X-Origin-Visual-Actual-Height': '1024',
+        'X-Origin-Visual-Width': '1024',
+        'X-Origin-Visual-Height': '1024',
+        'X-Origin-Free-Only': 'true',
+        'X-Origin-Cost-Usd': '0',
+        'X-Origin-Paid-Fallback': 'false',
+        'X-Origin-Secret-Delivery': 'server-only',
+      },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '夕焼けの海の画像を作ってください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state')).toBeTruthy());
+    expect(screen.queryByAltText('ORIGINが生成した画像')).toBeNull();
+    expect(screen.queryByRole('link', { name: '画像を保存' })).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
   it('uses executive-native English instructions while retaining the single fixed free model', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('Executive response', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
