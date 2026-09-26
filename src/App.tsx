@@ -7,6 +7,7 @@ import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
 import { composeRasterTypographyOverlayV15 } from './creative/localRasterTypographyV15';
 import { planRasterVisualRequestV15 } from './creative/rasterVisualPlannerV15';
+import { inspectRasterBlobV15 } from './creative/rasterTechnicalCriticV15';
 
 export interface ArtifactBlock {
   id: string;
@@ -199,6 +200,8 @@ export type GeneratedImageMessage = {
   typographyOverlay: boolean;
   sourceCriticVersion: 'raster-structural-critic-v1';
   sourceQualityScore: number;
+  technicalCriticVersion: 'raster-technical-critic-v1';
+  technicalQualityScore: number;
   prompt?: string;
   width: number;
   height: number;
@@ -1253,32 +1256,18 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const actualSha = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
         if (actualSha !== sha256.toLowerCase()) throw new Error('raster-sha-mismatch');
 
+        const baseTechnicalQuality = await inspectRasterBlobV15(blob);
+        if (!baseTechnicalQuality.passed) {
+          pendingImageRequestRef.current = null;
+          appendFailure(language === 'en'
+            ? 'The generated image failed ORIGIN’s technical quality inspection, so it was withheld. Please try generating it again.'
+            : '生成画像がORIGINの技術品質検査に合格しなかったため、表示・保存せず破棄しました。もう一度生成してください。');
+          return;
+        }
+
         const assistantId = `a-${Date.now()}`;
         const baseAssetId = sha256.toLowerCase();
         const baseDownloadName = rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType);
-        const baseHistoryStatus = await saveRasterAssetV15({
-          sha256: baseAssetId,
-          createdAt: Date.now(),
-          prompt: imageRequestText,
-          mimeType: mimeType as GeneratedImageMessage['mimeType'],
-          downloadName: baseDownloadName,
-          providerId: 'pollinations-zero-cost',
-          model,
-          generationId,
-          visualBrainVersion: 'visual-brain-v1',
-          planVersion: 'raster-visual-plan-v1',
-          planSha256: visualPlanSha256.toLowerCase(),
-          purpose,
-          typographyOverlay: false,
-          sourceCriticVersion: 'raster-structural-critic-v1',
-          sourceQualityScore,
-          relation: requestedRelation,
-          parentId: requestedParentId,
-          width,
-          height,
-          blob,
-        });
-        if (baseHistoryStatus === 'failed') throw new Error('raster-history-integrity-failed');
 
         let finalBlob = blob;
         let finalAssetId = baseAssetId;
@@ -1287,6 +1276,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         let finalRelation: GeneratedImageMessage['relation'] = requestedRelation;
         let finalParentId: string | undefined = requestedParentId;
         let deterministicTypographyApplied = false;
+        let finalTechnicalQuality = baseTechnicalQuality;
 
         if (typographyOverlay === 'recommended') {
           const localPlan = planRasterVisualRequestV15(imageRequestText);
@@ -1310,7 +1300,45 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           finalRelation = 'edited-from';
           finalParentId = baseAssetId;
           deterministicTypographyApplied = true;
+          finalTechnicalQuality = await inspectRasterBlobV15(finalBlob);
+          if (!finalTechnicalQuality.passed) {
+            pendingImageRequestRef.current = null;
+            appendFailure(language === 'en'
+              ? 'The finished image failed ORIGIN’s technical quality inspection, so it was withheld. Please try again.'
+              : '文字合成後の画像がORIGINの技術品質検査に合格しなかったため、表示・保存せず破棄しました。もう一度生成してください。');
+            return;
+          }
+        }
 
+        // Persist only after every local delivery gate has passed. This avoids
+        // leaking rejected provider or typography outputs into Visual Memory.
+        const baseHistoryStatus = await saveRasterAssetV15({
+          sha256: baseAssetId,
+          createdAt: Date.now(),
+          prompt: imageRequestText,
+          mimeType: mimeType as GeneratedImageMessage['mimeType'],
+          downloadName: baseDownloadName,
+          providerId: 'pollinations-zero-cost',
+          model,
+          generationId,
+          visualBrainVersion: 'visual-brain-v1',
+          planVersion: 'raster-visual-plan-v1',
+          planSha256: visualPlanSha256.toLowerCase(),
+          purpose,
+          typographyOverlay: false,
+          sourceCriticVersion: 'raster-structural-critic-v1',
+          sourceQualityScore,
+          technicalCriticVersion: 'raster-technical-critic-v1',
+          technicalQualityScore: baseTechnicalQuality.score,
+          relation: requestedRelation,
+          parentId: requestedParentId,
+          width,
+          height,
+          blob,
+        });
+        if (baseHistoryStatus === 'failed') throw new Error('raster-history-integrity-failed');
+
+        if (deterministicTypographyApplied) {
           const composedHistoryStatus = await saveRasterAssetV15({
             sha256: finalAssetId,
             createdAt: Date.now() + 1,
@@ -1327,6 +1355,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             typographyOverlay: true,
             sourceCriticVersion: 'raster-structural-critic-v1',
             sourceQualityScore,
+            technicalCriticVersion: 'raster-technical-critic-v1',
+            technicalQualityScore: finalTechnicalQuality.score,
             relation: finalRelation,
             parentId: finalParentId,
             width,
@@ -1354,6 +1384,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           typographyOverlay: deterministicTypographyApplied,
           sourceCriticVersion: 'raster-structural-critic-v1',
           sourceQualityScore,
+          technicalCriticVersion: 'raster-technical-critic-v1',
+          technicalQualityScore: finalTechnicalQuality.score,
           prompt: imageRequestText.slice(0, 2_000),
           width,
           height,
@@ -1510,6 +1542,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   </div>
 
   </div>
-</header><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start py-8 sm:justify-center sm:py-4"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p><div className="mt-7 w-full max-w-4xl">{composer}</div><p className="origin-safe-note mt-5 text-center text-[13px]">{t.freeOnlyNotice}</p></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? t.thinking : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.model} · {message.image.purpose} · {message.image.width}×{message.image.height} · SHA-256 {message.image.sha256.slice(0, 12)}… · $0 verified</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}</span></figcaption></figure>}</>}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />✨ {t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main><ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={isWorkspaceOpen} language={language} designTheme={designTheme} isStreaming={isLoading} onSteer={(direction) => { void handleSend(direction, true); }} onOpenSettings={onOpenSettings} onClose={() => setIsWorkspaceOpen(false)} onArtifactRevision={(next) => { setActiveArtifact(next); updateArtifacts((current) => current.map((block) => block.id === next.id ? next : block)); }} /></div>;
+</header><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start py-8 sm:justify-center sm:py-4"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p><div className="mt-7 w-full max-w-4xl">{composer}</div><p className="origin-safe-note mt-5 text-center text-[13px]">{t.freeOnlyNotice}</p></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? t.thinking : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.model} · {message.image.purpose} · {message.image.width}×{message.image.height} · Technical {message.image.technicalQualityScore}/100 · SHA-256 {message.image.sha256.slice(0, 12)}… · $0 verified</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}</span></figcaption></figure>}</>}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />✨ {t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main><ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={isWorkspaceOpen} language={language} designTheme={designTheme} isStreaming={isLoading} onSteer={(direction) => { void handleSend(direction, true); }} onOpenSettings={onOpenSettings} onClose={() => setIsWorkspaceOpen(false)} onArtifactRevision={(next) => { setActiveArtifact(next); updateArtifacts((current) => current.map((block) => block.id === next.id ? next : block)); }} /></div>;
 };
 export default App;

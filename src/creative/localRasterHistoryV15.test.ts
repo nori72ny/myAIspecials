@@ -29,6 +29,8 @@ function entry(overrides: Partial<RasterAssetEntryV15> = {}): RasterAssetEntryV1
     typographyOverlay: false,
     sourceCriticVersion: 'raster-structural-critic-v1',
     sourceQualityScore: 100,
+    technicalCriticVersion: 'raster-technical-critic-v1',
+    technicalQualityScore: 87,
     relation: 'generated',
     width: 1024,
     height: 1024,
@@ -53,6 +55,8 @@ describe('localRasterHistoryV15', () => {
     expect(isRasterAssetEntryShapeV15(entry({ typographyOverlay: 'yes' as never }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ sourceCriticVersion: 'other' as never }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ sourceQualityScore: 101 }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ technicalCriticVersion: 'other' as never }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ technicalQualityScore: 101 }))).toBe(false);
   });
 
   it('supports verified lineage metadata for future variation and editing flows', () => {
@@ -82,6 +86,8 @@ describe('localRasterHistoryV15', () => {
         typographyOverlay: base.typographyOverlay,
         sourceCriticVersion: base.sourceCriticVersion,
         sourceQualityScore: base.sourceQualityScore,
+        technicalCriticVersion: base.technicalCriticVersion,
+        technicalQualityScore: base.technicalQualityScore,
         relation: base.relation,
         width: base.width,
         height: base.height,

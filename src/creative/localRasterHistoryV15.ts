@@ -27,6 +27,8 @@ export type RasterAssetEntryV15 = {
   typographyOverlay: boolean;
   sourceCriticVersion: 'raster-structural-critic-v1';
   sourceQualityScore: number;
+  technicalCriticVersion: 'raster-technical-critic-v1';
+  technicalQualityScore: number;
   relation: RasterAssetRelationV15;
   parentId?: string;
   width: number;
@@ -71,6 +73,8 @@ export function isRasterAssetEntryShapeV15(value: unknown): value is RasterAsset
   if (typeof value.typographyOverlay !== 'boolean') return false;
   if (value.sourceCriticVersion !== 'raster-structural-critic-v1') return false;
   if (typeof value.sourceQualityScore !== 'number' || !Number.isInteger(value.sourceQualityScore) || value.sourceQualityScore < 0 || value.sourceQualityScore > 100) return false;
+  if (value.technicalCriticVersion !== 'raster-technical-critic-v1') return false;
+  if (typeof value.technicalQualityScore !== 'number' || !Number.isInteger(value.technicalQualityScore) || value.technicalQualityScore < 0 || value.technicalQualityScore > 100) return false;
   if (!['generated', 'variation', 'edited-from'].includes(String(value.relation))) return false;
   if (value.parentId !== undefined && (typeof value.parentId !== 'string' || !SHA256.test(value.parentId))) return false;
   if (typeof value.width !== 'number' || !Number.isInteger(value.width) || value.width < 256 || value.width > 1536) return false;

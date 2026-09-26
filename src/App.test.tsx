@@ -1,6 +1,32 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('./creative/rasterTechnicalCriticV15', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./creative/rasterTechnicalCriticV15')>();
+  return {
+    ...actual,
+    inspectRasterBlobV15: vi.fn(async () => ({
+      version: 'raster-technical-critic-v1' as const,
+      passed: true,
+      score: 88,
+      checks: ['non-empty-alpha', 'non-uniform-content', 'not-fully-black', 'not-fully-white', 'minimum-information-density'],
+      issues: [],
+      metrics: {
+        width: 96,
+        height: 96,
+        sampledPixels: 9216,
+        opaqueCoverage: 1,
+        meanLuminance: 0.5,
+        luminanceStdDev: 0.2,
+        darkClipRatio: 0,
+        brightClipRatio: 0,
+        edgeEnergy: 0.1,
+        histogramEntropy: 0.8,
+      },
+    })),
+  };
+});
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
@@ -750,6 +776,79 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
     else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+    vi.unstubAllGlobals();
+  });
+
+  it('withholds raster output when the local technical critic rejects the decoded image', async () => {
+    const criticModule = await import('./creative/rasterTechnicalCriticV15');
+    vi.mocked(criticModule.inspectRasterBlobV15).mockResolvedValueOnce({
+      version: 'raster-technical-critic-v1',
+      passed: false,
+      score: 12,
+      checks: ['non-empty-alpha'],
+      issues: ['near-uniform-image', 'insufficient-visual-information'],
+      metrics: {
+        width: 96,
+        height: 96,
+        sampledPixels: 9216,
+        opaqueCoverage: 1,
+        meanLuminance: 0.5,
+        luminanceStdDev: 0,
+        darkClipRatio: 0,
+        brightClipRatio: 0,
+        edgeEnergy: 0,
+        histogramEntropy: 0,
+      },
+    });
+
+    const digest = new Uint8Array(32);
+    digest.fill(0xef);
+    const sha = Array.from(digest).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const fetchMock = vi.fn(async () => new Response(
+      Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/png',
+          'Content-Disposition': 'attachment; filename="origin-image.png"',
+          'X-Origin-Visual-Verified': 'true',
+          'X-Origin-Visual-Sha256': sha,
+          'X-Origin-Visual-Provider': 'pollinations-zero-cost',
+          'X-Origin-Visual-Model': 'tomdacatto/sana',
+          'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
+          'X-Origin-Visual-Brain': 'visual-brain-v1',
+          'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
+          'X-Origin-Visual-Purpose': 'photograph',
+          'X-Origin-Visual-Critic': 'raster-structural-critic-v1',
+          'X-Origin-Visual-Quality-Score': '100',
+          'X-Origin-Visual-Actual-Width': '1024',
+          'X-Origin-Visual-Actual-Height': '1024',
+          'X-Origin-Visual-Typography-Overlay': 'not-required',
+          'X-Origin-Visual-Plan-Sha256': 'f'.repeat(64),
+          'X-Origin-Visual-Width': '1024',
+          'X-Origin-Visual-Height': '1024',
+          'X-Origin-Free-Only': 'true',
+          'X-Origin-Cost-Usd': '0',
+          'X-Origin-Paid-Fallback': 'false',
+          'X-Origin-Secret-Delivery': 'server-only',
+        },
+      },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { subtle: { digest: vi.fn(async () => digest.buffer) } },
+    });
+
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '夕焼けの海の画像を作ってください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText(/技術品質検査に合格しなかったため/)).toBeTruthy());
+    expect(screen.queryByAltText('ORIGINが生成した画像')).toBeNull();
+
     Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
     vi.unstubAllGlobals();
   });
