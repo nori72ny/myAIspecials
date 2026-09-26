@@ -202,7 +202,7 @@ describe('rasterImageProviderV15', () => {
       { POLLINATIONS_API_KEY: 'sk_test' },
       fetchMock,
     )).rejects.toThrow('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('rejects content-type spoofing when the returned bytes are not a real image signature', async () => {
@@ -217,7 +217,7 @@ describe('rasterImageProviderV15', () => {
       { POLLINATIONS_API_KEY: 'sk_test' },
       fetchMock,
     )).rejects.toThrow('RASTER_IMAGE_SIGNATURE_MISMATCH');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('blocks priced models and never executes the image request', async () => {
@@ -229,7 +229,7 @@ describe('rasterImageProviderV15', () => {
       { POLLINATIONS_API_KEY: 'sk_test' },
       fetchMock,
     )).rejects.toThrow('NO_VERIFIED_ZERO_COST_RASTER_MODEL');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('waits for eventually-consistent usage evidence and succeeds only after zero-cost tier proof appears', async () => {
@@ -302,7 +302,7 @@ describe('rasterImageProviderV15', () => {
       fetchMock,
       { attempts: 1, delayMs: 0 },
     )).rejects.toThrow('USAGE_BASELINE_UNAVAILABLE');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('rejects the output if actual zero-cost usage cannot be proven after generation', async () => {
