@@ -54,3 +54,65 @@ describe('image connection', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
+
+it('rechecks readiness after approval without repeating authorization', async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.fn().mockResolvedValueOnce(json(start))
+    .mockResolvedValueOnce(json({ ok: true, connected: true }))
+    .mockResolvedValueOnce(json({ ready: false }, 503))
+    .mockResolvedValueOnce(json({ ready: true, zeroCostVerified: true, freeOnly: true, paidFallbackEnabled: false }));
+  vi.stubGlobal('fetch', fetchMock);
+  const connected = vi.fn();
+  render(<ImageProviderConnect language="ja" onConnected={connected} onCancel={vi.fn()} />);
+  await act(async () => { fireEvent.click(screen.getByText('接続を開始')); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+  await act(async () => { fireEvent.click(screen.getByText('承認を確認して再開')); });
+  expect(screen.getByText(/接続は承認済み/)).toBeTruthy();
+  expect(screen.queryByText('接続を開始')).toBeNull();
+  await act(async () => { fireEvent.click(screen.getByText('無料モデルを再確認')); });
+  expect(connected).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
+    '/api/creative/v1.5/raster/connect/start', '/api/creative/v1.5/raster/connect/complete',
+    '/api/creative/v1.5/raster/status', '/api/creative/v1.5/raster/status',
+  ]);
+});
+
+it.each([200, 503])('only reports disconnect after a confirmed response (%s)', async status => {
+  vi.useFakeTimers();
+  const fetchMock = vi.fn().mockResolvedValueOnce(json(start))
+    .mockResolvedValueOnce(json({ ok: true, connected: true }))
+    .mockResolvedValueOnce(json({ ready: false }, 503))
+    .mockResolvedValueOnce(json(status === 200 ? { ok: true, connected: false } : { ok: false }, status));
+  vi.stubGlobal('fetch', fetchMock);
+  const connected = vi.fn();
+  render(<ImageProviderConnect language="ja" onConnected={connected} onCancel={vi.fn()} />);
+  await act(async () => { fireEvent.click(screen.getByText('接続を開始')); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+  await act(async () => { fireEvent.click(screen.getByText('承認を確認して再開')); });
+  await act(async () => { fireEvent.click(screen.getByText('このブラウザの接続を解除')); });
+  expect(fetchMock.mock.calls[3][0]).toBe('/api/creative/v1.5/raster/connect/disconnect');
+  expect(connected).not.toHaveBeenCalled();
+  if (status === 200) {
+    expect(screen.getByText('このブラウザの接続を解除しました。')).toBeTruthy();
+    expect(screen.getByText('接続を開始')).toBeTruthy();
+  } else {
+    expect(screen.getByText(/接続解除を確認できませんでした/)).toBeTruthy();
+    expect(screen.queryByText('接続を開始')).toBeNull();
+  }
+});
+it('does not resume after closing an in-flight readiness check', async () => {
+  vi.useFakeTimers();
+  let finish: (response: Response) => void = () => {};
+  const fetchMock = vi.fn().mockResolvedValueOnce(json(start))
+    .mockResolvedValueOnce(json({ ok: true, connected: true }))
+    .mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+  vi.stubGlobal('fetch', fetchMock);
+  const connected = vi.fn();
+  render(<ImageProviderConnect language="ja" onConnected={connected} onCancel={vi.fn()} />);
+  await act(async () => { fireEvent.click(screen.getByText('接続を開始')); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+  await act(async () => { fireEvent.click(screen.getByText('承認を確認して再開')); });
+  fireEvent.click(screen.getByText('閉じる'));
+  await act(async () => { finish(json({ ready: true, zeroCostVerified: true, freeOnly: true, paidFallbackEnabled: false })); });
+  expect(connected).not.toHaveBeenCalled();
+});
