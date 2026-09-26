@@ -175,10 +175,13 @@ function compiledPrompt(input: string, plan: Omit<RasterVisualPlanV15, 'compiled
   ].join('\n');
 }
 
-export function planRasterVisualRequestV15(input: string): RasterVisualPlanV15 {
+export function planRasterVisualRequestV15(
+  input: string,
+  requestedSize?: { width?: number; height?: number },
+): RasterVisualPlanV15 {
   const originalRequest = input.normalize('NFKC').trim();
   const purpose = purposeFor(originalRequest);
-  const template = resolveRasterVisualTemplateV15(originalRequest);
+  const template = resolveRasterVisualTemplateV15(originalRequest, requestedSize);
   const exactText = quotedText(originalRequest);
   const questions = questionsFor(originalRequest);
   const base = {
