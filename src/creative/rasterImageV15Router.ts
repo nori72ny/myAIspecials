@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
+import { type RasterImageRequestV15 } from './rasterImageProviderV15.js';
 import {
-  generateRasterImageV15,
-  getRasterProviderStatusV15,
-  type RasterImageRequestV15,
-} from './rasterImageProviderV15.js';
+  rasterProviderRuntimeStatusV15,
+  selectRasterProviderV15,
+} from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
@@ -60,15 +60,28 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
   const router = Router();
 
   router.get('/api/creative/v1.5/raster/status', async (_req, res) => {
-    const status = await getRasterProviderStatusV15(env);
-    return res.status(status.ready ? 200 : 503).json({
-      ok: status.ready,
-      ...status,
+    const runtime = await rasterProviderRuntimeStatusV15(env);
+    const selection = await selectRasterProviderV15('text-to-image', env);
+    const status = selection.ready ? selection.status : null;
+    return res.status(runtime.textToImageReady ? 200 : 503).json({
+      ok: runtime.textToImageReady,
+      configured: status?.configured ?? selection.statuses.some(item => item.reason !== 'POLLINATIONS_KEY_NOT_CONFIGURED'),
+      ready: runtime.textToImageReady,
+      providerId: status?.providerId ?? null,
+      model: status?.model ?? null,
+      zeroCostVerified: status?.zeroCostVerified ?? false,
+      paymentMethodRequired: status?.paymentMethodRequired ?? false,
+      secretDelivery: status?.secretDelivery ?? 'server-only',
+      externalNetwork: status?.externalNetwork ?? true,
+      reason: selection.ready ? null : selection.reason,
+      providerAgnostic: runtime.providerAgnostic,
+      registryVersion: runtime.registryVersion,
+      providers: runtime.providers,
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
-      supportedTasks: status.ready ? ['text-to-image'] : [],
-      modelBasedImageEditing: false,
+      supportedTasks: runtime.supportedTasks,
+      modelBasedImageEditing: runtime.editingReady,
     });
   });
 
@@ -128,7 +141,11 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           secretDelivery: 'server-only',
         });
       }
-      const result = await generateRasterImageV15({
+      const selection = await selectRasterProviderV15('text-to-image', env);
+      if (!selection.ready) {
+        return fail(res, 503, selection.reason, '検証済みの0円画像生成プロバイダを現在利用できません。');
+      }
+      const result = await selection.provider.generate({
         ...input,
         prompt: plan.compiledPrompt,
         negativePrompt: input.negativePrompt?.trim()
