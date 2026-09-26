@@ -99,7 +99,15 @@ describe('rasterImageV15Router', () => {
         version: 'raster-structural-critic-v1',
         failClosed: true,
       },
+      templateEngine: {
+        version: 'raster-template-engine-v1',
+      },
     });
+    expect(response.body.templateEngine.templates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'instagram-story', width: 864, height: 1536, safeMarginPct: 9 }),
+      expect.objectContaining({ id: 'youtube-thumbnail', width: 1536, height: 864 }),
+      expect.objectContaining({ id: 'lp-hero', width: 1536, height: 864 }),
+    ]));
 
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
     expect(legacy.status).toBe(503);
@@ -223,6 +231,9 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-plan']).toBe('raster-visual-plan-v1');
     expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-purpose']).toBe('photograph');
+    expect(response.headers['x-origin-visual-template']).toBe('general-square');
+    expect(response.headers['x-origin-visual-safe-margin-pct']).toBe('7');
+    expect(response.headers['x-origin-visual-typography-zone']).toBe('bottom');
     expect(response.headers['x-origin-visual-critic']).toBe('raster-structural-critic-v1');
     expect(response.headers['x-origin-visual-quality-score']).toBe('100');
     expect(response.headers['x-origin-visual-actual-width']).toBe('768');
