@@ -7,6 +7,7 @@ import {
   type RasterImageRequestV15,
 } from './rasterImageProviderV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
+import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 
@@ -68,6 +69,11 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       costUsd: 0,
       paidFallbackEnabled: false,
       supportedTasks: status.ready ? ['text-to-image'] : [],
+      rasterCritic: {
+        version: 'raster-structural-critic-v1',
+        failClosed: true,
+        checks: ['decodable-dimensions', 'dimensions-within-origin-bounds', 'requested-dimensions-match', 'nontrivial-image-payload'],
+      },
       modelBasedImageEditing: false,
     });
   });
@@ -137,6 +143,19 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         width: input.width ?? plan.width,
         height: input.height ?? plan.height,
       }, env);
+      const critic = critiqueRasterStructureV15(result.bytes, result.mimeType, result.width, result.height);
+      if (!critic.passed) {
+        return res.status(502).json({
+          ok: false,
+          code: 'RASTER_CRITIC_REJECTED',
+          message: '生成画像の構造検証に失敗したため、画像を返しませんでした。',
+          critic,
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+          secretDelivery: 'server-only',
+        });
+      }
       const planSha256 = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', result.mimeType);
@@ -148,6 +167,10 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Plan', plan.version);
       res.setHeader('X-Origin-Visual-Plan-Sha256', planSha256);
       res.setHeader('X-Origin-Visual-Purpose', plan.purpose);
+      res.setHeader('X-Origin-Visual-Critic', critic.version);
+      res.setHeader('X-Origin-Visual-Quality-Score', String(critic.score));
+      res.setHeader('X-Origin-Visual-Actual-Width', String(critic.actualWidth));
+      res.setHeader('X-Origin-Visual-Actual-Height', String(critic.actualHeight));
       res.setHeader('X-Origin-Visual-Typography-Overlay', plan.requiresDeterministicTypography ? 'recommended' : 'not-required');
       res.setHeader('X-Origin-Visual-Provider', result.providerId);
       res.setHeader('X-Origin-Visual-Model', result.model);
