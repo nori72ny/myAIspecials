@@ -162,7 +162,7 @@ function cameraFor(purpose: RasterVisualPurposeV15): string[] {
 
 function compiledPrompt(input: string, plan: Omit<RasterVisualPlanV15, 'compiledPrompt' | 'negativePrompt'>): string {
   const exactTextInstruction = plan.exactText.length
-    ? `Critical text: ${plan.exactText.map((value) => `"${value}"`).join(', ')}. Reserve a clean high-contrast typography-safe region for downstream deterministic typography. Do not invent additional words or logos and avoid drawing conflicting copy.`
+    ? `Critical text will be rendered later by ORIGIN deterministic typography: ${plan.exactText.map((value) => `"${value}"`).join(', ')}. Reserve a clean high-contrast typography-safe region, but do not render this critical text yourself. Do not invent additional words or logos and avoid drawing conflicting copy.`
     : 'Do not invent logos, labels, watermarks, signatures, or unnecessary text.';
   return [
     'Create a polished production-quality image from the following user request.',
