@@ -97,6 +97,60 @@ function detectImageMime(bytes: Buffer): RasterImageResultV15['mimeType'] | null
   return null;
 }
 
+function readRasterDimensionsV15(bytes: Buffer, mimeType: RasterImageResultV15['mimeType']): RasterImageSizeV15 | null {
+  if (mimeType === 'image/png') {
+    if (bytes.length < 24) return null;
+    const width = bytes.readUInt32BE(16);
+    const height = bytes.readUInt32BE(20);
+    return width > 0 && height > 0 ? { width, height } : null;
+  }
+
+  if (mimeType === 'image/jpeg') {
+    let offset = 2;
+    const sofMarkers = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+    while (offset + 3 < bytes.length) {
+      if (bytes[offset] !== 0xff) { offset += 1; continue; }
+      while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+      if (offset >= bytes.length) break;
+      const marker = bytes[offset];
+      offset += 1;
+      if (marker === 0xd8 || marker === 0xd9 || marker === 0x01 || marker >= 0xd0 && marker <= 0xd7) continue;
+      if (offset + 1 >= bytes.length) break;
+      const length = bytes.readUInt16BE(offset);
+      if (length < 2 || offset + length > bytes.length) break;
+      if (sofMarkers.has(marker) && length >= 7) {
+        const height = bytes.readUInt16BE(offset + 3);
+        const width = bytes.readUInt16BE(offset + 5);
+        return width > 0 && height > 0 ? { width, height } : null;
+      }
+      offset += length;
+    }
+    return null;
+  }
+
+  if (mimeType === 'image/webp') {
+    if (bytes.length < 30 || bytes.subarray(0, 4).toString('ascii') !== 'RIFF' || bytes.subarray(8, 12).toString('ascii') !== 'WEBP') return null;
+    const chunk = bytes.subarray(12, 16).toString('ascii');
+    if (chunk === 'VP8X' && bytes.length >= 30) {
+      const width = 1 + bytes.readUIntLE(24, 3);
+      const height = 1 + bytes.readUIntLE(27, 3);
+      return { width, height };
+    }
+    if (chunk === 'VP8L' && bytes.length >= 25 && bytes[20] === 0x2f) {
+      const b1 = bytes[21], b2 = bytes[22], b3 = bytes[23], b4 = bytes[24];
+      const width = 1 + (((b2 & 0x3f) << 8) | b1);
+      const height = 1 + (((b4 & 0x0f) << 10) | (b3 << 2) | ((b2 & 0xc0) >> 6));
+      return { width, height };
+    }
+    if (chunk === 'VP8 ' && bytes.length >= 30 && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+      const width = bytes.readUInt16LE(26) & 0x3fff;
+      const height = bytes.readUInt16LE(28) & 0x3fff;
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+  }
+  return null;
+}
+
 function decodeImageResponseBody(body: Buffer): { bytes: Buffer; mimeType: RasterImageResultV15['mimeType'] } {
   if (body.length <= 0 || body.length > MAX_IMAGE_RESPONSE_BYTES) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
   let parsed: unknown;
@@ -372,6 +426,10 @@ export async function generateRasterImageV15(
   if (responseType !== 'application/json') throw new Error('UNEXPECTED_RASTER_CONTENT_TYPE');
   const decoded = decodeImageResponseBody(Buffer.from(await response.arrayBuffer()));
   const { bytes, mimeType: mime } = decoded;
+  const actualSize = readRasterDimensionsV15(bytes, mime);
+  if (!actualSize || actualSize.width !== size.width || actualSize.height !== size.height) {
+    throw new Error('RASTER_IMAGE_DIMENSION_MISMATCH');
+  }
   const usageVerificationResult = await verifyLatestZeroCostUsageV15(
     apiKey,
     verifiedModel,
@@ -387,8 +445,8 @@ export async function generateRasterImageV15(
     sha256: createHash('sha256').update(bytes).digest('hex'),
     model: verifiedModel,
     providerId: 'pollinations-zero-cost',
-    width: size.width,
-    height: size.height,
+    width: actualSize.width,
+    height: actualSize.height,
     costUsd: 0,
     freeOnly: true,
     externalNetworkRequests: 3 + usageVerificationResult.requests,
