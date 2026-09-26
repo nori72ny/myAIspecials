@@ -147,6 +147,23 @@ describe('rasterImageProviderV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it('rejects an oversized provider response before buffering the payload', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [] }))
+      .mockResolvedValueOnce(new Response('{}', {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'content-length': '99999999' },
+      })) as unknown as typeof fetch;
+
+    await expect(generateRasterImageV15(
+      { prompt: 'test' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock,
+    )).rejects.toThrow('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('rejects content-type spoofing when the returned bytes are not a real image signature', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
