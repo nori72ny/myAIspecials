@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
-import type { Request, Response } from 'express';
+import type { Request, Response as ExpressResponse } from 'express';
 
 const AUTH_ORIGIN = 'https://enter.pollinations.ai';
 const DEVICE_CLIENT_ID = 'pk_NgBAArhUeGvSRFba';
@@ -72,12 +72,12 @@ function cookies(req: Request): Map<string, string> {
   return result;
 }
 
-function setCookie(res: Response, name: string, value: string, maxAgeSeconds: number): void {
+function setCookie(res: ExpressResponse, name: string, value: string, maxAgeSeconds: number): void {
   const seconds = Math.max(0, Math.min(DEFAULT_TOKEN_TTL_SECONDS, Math.floor(maxAgeSeconds)));
   res.append('Set-Cookie', `${name}=${value}; Path=/; Max-Age=${seconds}; HttpOnly; Secure; SameSite=Strict`);
 }
 
-function clearCookie(res: Response, name: string): void {
+function clearCookie(res: ExpressResponse, name: string): void {
   res.append('Set-Cookie', `${name}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`);
 }
 
@@ -85,7 +85,7 @@ function exactText(value: unknown, max: number): string | null {
   return typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value) ? value : null;
 }
 
-async function fetchJson(url: string, init: RequestInit, timeoutMs = 10_000): Promise<{ response: Response; body: Record<string, unknown> }> {
+async function fetchJson(url: string, init: RequestInit, timeoutMs = 10_000): Promise<{ response: globalThis.Response; body: Record<string, unknown> }> {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   try {
@@ -109,7 +109,7 @@ export function resolveRasterDeviceApiKeyV15(req: Request, env: NodeJS.ProcessEn
   return state.accessToken;
 }
 
-export async function startRasterDeviceAuthV15(req: Request, res: Response, env: NodeJS.ProcessEnv = process.env) {
+export async function startRasterDeviceAuthV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
   if (!rasterDeviceAuthConfiguredV15(env)) return res.status(503).json({ ok: false, code: 'IMAGE_AUTH_KEY_UNAVAILABLE' });
   const form = new URLSearchParams({ client_id: DEVICE_CLIENT_ID, scope: DEVICE_SCOPE });
   const { response, body } = await fetchJson(`${AUTH_ORIGIN}/api/device/code`, {
@@ -148,7 +148,7 @@ export async function startRasterDeviceAuthV15(req: Request, res: Response, env:
   });
 }
 
-export async function completeRasterDeviceAuthV15(req: Request, res: Response, env: NodeJS.ProcessEnv = process.env) {
+export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
   const state = open<PendingStateV15>('pending', cookies(req).get(PENDING_COOKIE), env);
   if (!state || !exactText(state.deviceCode, 2048) || state.clientId !== DEVICE_CLIENT_ID
     || !Number.isSafeInteger(state.expiresAt) || state.expiresAt <= Date.now()) {
@@ -193,7 +193,7 @@ export async function completeRasterDeviceAuthV15(req: Request, res: Response, e
   return res.status(200).json({ ok: true, connected: true, expiresIn: ttlSeconds, scope, secretDelivery: 'server-only' });
 }
 
-export function disconnectRasterDeviceAuthV15(_req: Request, res: Response) {
+export function disconnectRasterDeviceAuthV15(_req: Request, res: ExpressResponse) {
   clearCookie(res, TOKEN_COOKIE);
   clearCookie(res, PENDING_COOKIE);
   return res.status(200).json({ ok: true, connected: false });
