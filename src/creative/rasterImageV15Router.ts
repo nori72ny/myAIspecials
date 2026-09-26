@@ -144,6 +144,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Verified', 'true');
       res.setHeader('X-Origin-Visual-Sha256', result.sha256);
       res.setHeader('X-Origin-Visual-Generation-Id', `raster-${result.sha256.slice(0, 24)}`);
+      res.setHeader('X-Origin-Visual-Brain', 'visual-brain-v1');
       res.setHeader('X-Origin-Visual-Plan', plan.version);
       res.setHeader('X-Origin-Visual-Plan-Sha256', planSha256);
       res.setHeader('X-Origin-Visual-Purpose', plan.purpose);
