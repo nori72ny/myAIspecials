@@ -87,11 +87,12 @@ describe('rasterTechnicalCriticV15', () => {
       16,
       16,
     );
-    const stronger = { ...base, score: Math.min(100, base.score + 10) };
+    const baseline = { ...base, score: Math.max(1, Math.min(80, base.score)) };
+    const stronger = { ...base, score: Math.min(100, baseline.score + 10) };
     const failed = { ...base, passed: false, score: 100, issues: ['synthetic-failure'] };
 
     expect(selectBestTechnicalCandidateV15([
-      { value: 'a', quality: base },
+      { value: 'a', quality: baseline },
       { value: 'bad', quality: failed },
       { value: 'b', quality: stronger },
     ])?.value).toBe('b');
