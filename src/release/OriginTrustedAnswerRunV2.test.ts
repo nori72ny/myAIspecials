@@ -77,6 +77,13 @@ describe("AQ V2 trusted run aggregation", () => {
     expect(report.binding.rubricDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(report.binding.roundId).toBe(roundId);
     expect(Object.values(report.familyCounts).every(count => count === 3)).toBe(true);
+    expect(report.scoringBindings).toHaveLength(48);
+    expect(report.scoringBindings[0]).toEqual({
+      caseId: "aq2-01-1",
+      family: ORIGIN_AQ_V2_FAMILIES[0],
+      answerDigest: cases()[0].result.answerDigest,
+    });
+    expect(report.scoringBindings.every(item => /^[a-f0-9]{64}$/.test(item.answerDigest))).toBe(true);
   });
 
   it("fails closed on missing cases, mixed SHA or duplicated ordinals", () => {
