@@ -410,7 +410,7 @@ export async function generateRasterImageV15(
         size: `${size.width}x${size.height}`,
         quality: 'medium',
         response_format: 'b64_json',
-        safe: 'privacy,secrets,sexual,violence,shield',
+        safe: true,
       }),
       cache: 'no-store',
     },
