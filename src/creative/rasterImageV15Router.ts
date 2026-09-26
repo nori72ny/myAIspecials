@@ -9,6 +9,12 @@ import {
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
+import {
+  critiqueRasterWithVisionV15,
+  rasterVisionCriticStatusV15,
+  ORIGIN_RASTER_VISION_CRITIC_MODEL_V15,
+  type RasterVisionCriticResultV15,
+} from './rasterVisionCriticV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 
@@ -70,6 +76,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
   router.get('/api/creative/v1.5/raster/status', async (_req, res) => {
     const runtime = await rasterProviderRuntimeStatusV15(env);
     const status = runtime.textToImageStatus;
+    const visionCritic = await rasterVisionCriticStatusV15(env);
     return res.status(runtime.textToImageReady ? 200 : 503).json({
       ok: runtime.textToImageReady,
       configured: status?.configured ?? false,
@@ -92,6 +99,17 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         version: 'raster-structural-critic-v1',
         failClosed: true,
         checks: ['decodable-dimensions', 'dimensions-within-origin-bounds', 'requested-dimensions-match', 'nontrivial-image-payload'],
+      },
+      visionCritic: {
+        version: 'raster-vision-critic-v1',
+        configured: visionCritic.configured,
+        ready: visionCritic.ready,
+        model: visionCritic.model,
+        zeroCostVerified: visionCritic.zeroCostVerified,
+        imageInputExpected: visionCritic.imageInputExpected,
+        paidFallbackEnabled: visionCritic.paidFallbackEnabled,
+        reason: visionCritic.reason,
+        dimensions: ['promptAdherence', 'composition', 'realism', 'artifactControl', 'textAccuracy'],
       },
       templateEngine: {
         version: 'raster-template-engine-v1',
@@ -192,6 +210,40 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           secretDelivery: 'server-only',
         });
       }
+
+      let visionCritic: RasterVisionCriticResultV15 | null = null;
+      let visionCriticState: 'passed' | 'rejected' | 'unavailable' = 'unavailable';
+      const visionStatus = await rasterVisionCriticStatusV15(env);
+      if (visionStatus.ready) {
+        try {
+          visionCritic = await critiqueRasterWithVisionV15({
+            bytes: result.bytes,
+            mimeType: result.mimeType,
+            prompt: input.prompt,
+          }, env);
+          visionCriticState = visionCritic.passed ? 'passed' : 'rejected';
+        } catch {
+          visionCriticState = 'unavailable';
+        }
+      }
+      if (visionCritic && !visionCritic.passed) {
+        return res.status(422).json({
+          ok: false,
+          code: 'RASTER_VISION_CRITIC_REJECTED',
+          message: '生成画像を視覚評価した結果、品質基準に届かなかったため画像を返しませんでした。',
+          critic: {
+            version: visionCritic.version,
+            score: visionCritic.score,
+            dimensions: visionCritic.dimensions,
+            issues: visionCritic.issues,
+            repairInstructions: visionCritic.repairInstructions,
+          },
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+          secretDelivery: 'server-only',
+        });
+      }
       const planSha256 = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', result.mimeType);
@@ -208,6 +260,9 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Typography-Zone', plan.typographyZone);
       res.setHeader('X-Origin-Visual-Critic', critic.version);
       res.setHeader('X-Origin-Visual-Quality-Score', String(critic.score));
+      res.setHeader('X-Origin-Visual-Vision-Critic', visionCriticState);
+      res.setHeader('X-Origin-Visual-Vision-Critic-Model', ORIGIN_RASTER_VISION_CRITIC_MODEL_V15);
+      if (visionCritic) res.setHeader('X-Origin-Visual-Vision-Score', String(visionCritic.score));
       res.setHeader('X-Origin-Visual-Actual-Width', String(critic.actualWidth));
       res.setHeader('X-Origin-Visual-Actual-Height', String(critic.actualHeight));
       res.setHeader('X-Origin-Visual-Typography-Overlay', plan.requiresDeterministicTypography ? 'recommended' : 'not-required');
