@@ -4,6 +4,7 @@ import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { type RasterImageRequestV15 } from './rasterImageProviderV15.js';
 import {
   rasterProviderRuntimeStatusV15,
+  resolveRasterProviderV15,
   selectRasterProviderV15,
 } from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
@@ -141,12 +142,11 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           secretDelivery: 'server-only',
         });
       }
-      const selection = await selectRasterProviderV15('text-to-image', env);
-      if (!selection.ready) {
-        const providerReason = selection.statuses.find(item => item.supportsTask)?.reason ?? selection.reason;
-        return fail(res, 503, providerReason, '検証済みの0円画像生成プロバイダを現在利用できません。');
+      const provider = resolveRasterProviderV15('text-to-image');
+      if (!provider) {
+        return fail(res, 503, 'NO_PROVIDER_SUPPORTS_TASK', '画像生成に対応する検証済みプロバイダがありません。');
       }
-      const result = await selection.provider.generate({
+      const result = await provider.generate({
         ...input,
         prompt: plan.compiledPrompt,
         negativePrompt: input.negativePrompt?.trim()
