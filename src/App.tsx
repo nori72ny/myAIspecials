@@ -1268,6 +1268,50 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const assistantId = `a-${Date.now()}`;
         const baseAssetId = sha256.toLowerCase();
         const baseDownloadName = rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType);
+
+        let finalBlob = blob;
+        let finalAssetId = baseAssetId;
+        let finalMimeType = mimeType as GeneratedImageMessage['mimeType'];
+        let finalDownloadName = baseDownloadName;
+        let finalRelation: GeneratedImageMessage['relation'] = requestedRelation;
+        let finalParentId: string | undefined = requestedParentId;
+        let deterministicTypographyApplied = false;
+        let finalTechnicalQuality = baseTechnicalQuality;
+
+        if (typographyOverlay === 'recommended') {
+          const localPlan = planRasterVisualRequestV15(imageRequestText);
+          if (!localPlan.ready
+            || localPlan.purpose !== purpose
+            || localPlan.width !== width
+            || localPlan.height !== height
+            || !localPlan.requiresDeterministicTypography
+            || localPlan.exactText.length === 0) {
+            throw new Error('raster-typography-plan-mismatch');
+          }
+          const composed = await composeRasterTypographyOverlayV15(blob, localPlan.exactText, width, height);
+          if (typeof crypto?.subtle?.digest !== 'function') throw new Error('raster-composite-sha-unavailable');
+          const compositeDigest = await crypto.subtle.digest('SHA-256', await composed.blob.arrayBuffer());
+          const compositeSha = Array.from(new Uint8Array(compositeDigest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+
+          finalBlob = composed.blob;
+          finalAssetId = compositeSha;
+          finalMimeType = 'image/png';
+          finalDownloadName = baseDownloadName.replace(/\.(?:png|jpe?g|webp)$/i, '-text.png');
+          finalRelation = 'edited-from';
+          finalParentId = baseAssetId;
+          deterministicTypographyApplied = true;
+          finalTechnicalQuality = await inspectRasterBlobV15(finalBlob);
+          if (!finalTechnicalQuality.passed) {
+            pendingImageRequestRef.current = null;
+            appendFailure(language === 'en'
+              ? 'The finished image failed ORIGIN’s technical quality inspection, so it was withheld. Please try again.'
+              : '文字合成後の画像がORIGINの技術品質検査に合格しなかったため、表示・保存せず破棄しました。もう一度生成してください。');
+            return;
+          }
+        }
+
+        // Persist only after every local delivery gate has passed. This avoids
+        // leaking rejected provider or typography outputs into Visual Memory.
         const baseHistoryStatus = await saveRasterAssetV15({
           sha256: baseAssetId,
           createdAt: Date.now(),
@@ -1294,46 +1338,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         });
         if (baseHistoryStatus === 'failed') throw new Error('raster-history-integrity-failed');
 
-        let finalBlob = blob;
-        let finalAssetId = baseAssetId;
-        let finalMimeType = mimeType as GeneratedImageMessage['mimeType'];
-        let finalDownloadName = baseDownloadName;
-        let finalRelation: GeneratedImageMessage['relation'] = requestedRelation;
-        let finalParentId: string | undefined = requestedParentId;
-        let deterministicTypographyApplied = false;
-
-        if (typographyOverlay === 'recommended') {
-          const localPlan = planRasterVisualRequestV15(imageRequestText);
-          if (!localPlan.ready
-            || localPlan.purpose !== purpose
-            || localPlan.width !== width
-            || localPlan.height !== height
-            || !localPlan.requiresDeterministicTypography
-            || localPlan.exactText.length === 0) {
-            throw new Error('raster-typography-plan-mismatch');
-          }
-          const composed = await composeRasterTypographyOverlayV15(blob, localPlan.exactText, width, height);
-          if (typeof crypto?.subtle?.digest !== 'function') throw new Error('raster-composite-sha-unavailable');
-          const compositeDigest = await crypto.subtle.digest('SHA-256', await composed.blob.arrayBuffer());
-          const compositeSha = Array.from(new Uint8Array(compositeDigest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
-
-          finalBlob = composed.blob;
-          finalAssetId = compositeSha;
-          finalMimeType = 'image/png';
-          finalDownloadName = baseDownloadName.replace(/\.(?:png|jpe?g|webp)$/i, '-text.png');
-          finalRelation = 'edited-from';
-          finalParentId = baseAssetId;
-          deterministicTypographyApplied = true;
-
-          const composedTechnicalQuality = await inspectRasterBlobV15(finalBlob);
-          if (!composedTechnicalQuality.passed) {
-            pendingImageRequestRef.current = null;
-            appendFailure(language === 'en'
-              ? 'The finished image failed ORIGIN’s technical quality inspection, so it was withheld. Please try again.'
-              : '文字合成後の画像がORIGINの技術品質検査に合格しなかったため、表示・保存せず破棄しました。もう一度生成してください。');
-            return;
-          }
-
+        if (deterministicTypographyApplied) {
           const composedHistoryStatus = await saveRasterAssetV15({
             sha256: finalAssetId,
             createdAt: Date.now() + 1,
@@ -1351,7 +1356,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             sourceCriticVersion: 'raster-structural-critic-v1',
             sourceQualityScore,
             technicalCriticVersion: 'raster-technical-critic-v1',
-            technicalQualityScore: composedTechnicalQuality.score,
+            technicalQualityScore: finalTechnicalQuality.score,
             relation: finalRelation,
             parentId: finalParentId,
             width,
@@ -1360,11 +1365,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           });
           if (composedHistoryStatus === 'failed') throw new Error('raster-composite-history-integrity-failed');
         }
-
-        const finalTechnicalQuality = deterministicTypographyApplied
-          ? await inspectRasterBlobV15(finalBlob)
-          : baseTechnicalQuality;
-        if (!finalTechnicalQuality.passed) throw new Error('raster-technical-quality-gate-failed');
 
         const imageUrl = URL.createObjectURL(finalBlob);
         rasterObjectUrls.current.add(imageUrl);
