@@ -16,6 +16,7 @@ import {
   visualProviderRegistryV15,
 } from './visualBrainV15.js';
 import { getRasterProviderStatusV15 } from './rasterImageProviderV15.js';
+import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 
 function sensitiveKinds(body: unknown): string[] {
   let serialized = '';
@@ -103,6 +104,13 @@ export function createVisualArtifactV15Router(env: NodeJS.ProcessEnv = process.e
         reason: raster.reason,
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
+        visualPlanning: {
+          version: 'raster-visual-plan-v1',
+          adaptiveClarification: true,
+          promptCompilation: true,
+          sampleReady: planRasterVisualRequestV15('高級で未来的なORIGINの広告画像を9:16で作ってください').ready,
+          rawPromptPassThrough: false,
+        },
       },
       modelBasedImageEditing: false,
       persistence: 'client-local-verified-asset-graph',
