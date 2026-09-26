@@ -48,7 +48,7 @@ describe('rasterProviderRegistryV15', () => {
   it('keeps text-to-image unavailable when the audited provider is not configured', async () => {
     const selection = await selectRasterProviderV15('text-to-image', {});
     expect(selection.ready).toBe(false);
-    if (!selection.ready) {
+    if ('reason' in selection) {
       expect(selection.reason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
       expect(selection.statuses).toEqual([
         {
