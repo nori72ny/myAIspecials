@@ -121,7 +121,7 @@ export async function startRasterDeviceAuthV15(req: Request, res: ExpressRespons
   const userCode = exactText(body.user_code, 64);
   const verificationUriRaw = exactText(body.verification_uri, 2048);
   const expiresIn = typeof body.expires_in === 'number' ? body.expires_in : Number(body.expires_in);
-  const interval = typeof body.interval === 'number' ? body.interval : Number(body.interval);
+  const interval = typeof body.interval === 'number' ? body.interval : Number(body.interval ?? 5);
   if (!response.ok || !deviceCode || !userCode || !verificationUriRaw || !Number.isFinite(expiresIn) || expiresIn < 60 || expiresIn > 1800
     || !Number.isFinite(interval) || interval < 1 || interval > 60) {
     return res.status(502).json({ ok: false, code: 'IMAGE_DEVICE_AUTH_START_FAILED' });
@@ -151,7 +151,8 @@ export async function startRasterDeviceAuthV15(req: Request, res: ExpressRespons
 export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
   const state = open<PendingStateV15>('pending', cookies(req).get(PENDING_COOKIE), env);
   if (!state || !exactText(state.deviceCode, 2048) || state.clientId !== DEVICE_CLIENT_ID
-    || !Number.isSafeInteger(state.expiresAt) || state.expiresAt <= Date.now()) {
+    || !Number.isSafeInteger(state.expiresAt) || state.expiresAt <= Date.now()
+    || !Number.isSafeInteger(state.intervalSeconds) || state.intervalSeconds < 1) {
     clearCookie(res, PENDING_COOKIE);
     return res.status(409).json({ ok: false, code: 'IMAGE_DEVICE_AUTH_EXPIRED' });
   }
@@ -168,7 +169,13 @@ export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResp
   });
   if (!response.ok) {
     if (body.error === 'authorization_pending' || body.error === 'slow_down') {
-      return res.status(202).json({ ok: false, pending: true, code: String(body.error), interval: state.intervalSeconds });
+      // RFC 8628 section 3.5: retain the increased interval for every later poll.
+      const intervalSeconds = state.intervalSeconds + (body.error === 'slow_down' ? 5 : 0);
+      if (body.error === 'slow_down') {
+        setCookie(res, PENDING_COOKIE, seal('pending', { ...state, intervalSeconds }, env),
+          Math.max(0, Math.floor((state.expiresAt - Date.now()) / 1000)));
+      }
+      return res.status(202).json({ ok: false, pending: true, code: String(body.error), interval: intervalSeconds });
     }
     clearCookie(res, PENDING_COOKIE);
     return res.status(409).json({ ok: false, code: 'IMAGE_DEVICE_AUTH_DENIED' });

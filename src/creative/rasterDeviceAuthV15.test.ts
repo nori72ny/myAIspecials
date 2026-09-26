@@ -127,6 +127,37 @@ describe('raster device authorization', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('defaults an omitted polling interval and persists cumulative slow_down delays', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        device_code: 'provider-device-secret', user_code: 'ABCD-1234',
+        verification_uri: '/device', expires_in: 600,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'slow_down' }), { status: 400 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'slow_down' }), { status: 400 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'authorization_pending' }), { status: 400 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const instance = app();
+    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
+    expect(start.status).toBe(200);
+    expect(start.body.interval).toBe(5);
+    let cookie = sealedCookie(start.headers, '__Host-origin-image-device');
+    for (const interval of [10, 15]) {
+      const result = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
+        .set('Cookie', cookie).send({});
+      expect(result.status).toBe(202);
+      expect(result.body).toMatchObject({ pending: true, code: 'slow_down', interval });
+      cookie = sealedCookie(result.headers, '__Host-origin-image-device');
+      expect(cookie).not.toContain('provider-device-secret');
+    }
+    const pending = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
+      .set('Cookie', cookie).send({});
+    expect(pending.status).toBe(202);
+    expect(pending.body).toMatchObject({ code: 'authorization_pending', interval: 15 });
+    expect(setCookies(pending.headers)).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it.each(['access_denied', 'expired_token'])('clears pending state after %s without issuing a token', async (error) => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
