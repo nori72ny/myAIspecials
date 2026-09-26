@@ -98,7 +98,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         version: 'raster-technical-critic-v1',
         implemented: true,
         execution: 'available-local-module',
-        deliveryGateWired: false,
+        deliveryGateWired: true,
         checks: ['non-empty-alpha', 'non-uniform-content', 'black-white-clipping', 'minimum-information-density'],
         semanticVisionJudgment: false,
       },
