@@ -238,7 +238,7 @@ export default function MultiAIDelegationPanelV2() {
 
   return (
     <>
-      <button ref={openerRef} type="button" data-testid="multi-ai-planner-v2-open" onClick={openPanel} aria-label="AI作業振り分けを開く" className="fixed bottom-5 right-5 z-[80] flex min-h-11 items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-xl transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      <button ref={openerRef} type="button" data-testid="multi-ai-planner-v2-open" onClick={openPanel} aria-label="AI作業振り分けを開く" className="fixed bottom-5 right-5 z-[80] flex min-h-11 min-h-[45px] min-w-[45px] items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-xl transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400">
         <Sparkles className="h-4 w-4" /> AI作業振り分け
       </button>
 
