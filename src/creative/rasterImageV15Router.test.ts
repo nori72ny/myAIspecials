@@ -99,6 +99,19 @@ describe('rasterImageV15Router', () => {
         version: 'raster-structural-critic-v1',
         failClosed: true,
       },
+      technicalPixelCritic: {
+        version: 'raster-technical-critic-v1',
+        implemented: true,
+        execution: 'client-local-after-verified-bytes',
+        semanticVisionJudgment: false,
+      },
+      candidateSelection: {
+        version: 'raster-candidate-policy-v1',
+        recommendedCandidates: 2,
+        activeCandidates: 1,
+        bestOfNEnabled: false,
+        activationGate: 'live-zero-cost-quota-and-latency-evidence',
+      },
       templateEngine: {
         version: 'raster-template-engine-v1',
       },
@@ -216,6 +229,12 @@ describe('rasterImageV15Router', () => {
       height: 1536,
     });
     expect(response.body.plan.compiledPrompt).toContain('Art direction');
+    expect(response.body.candidatePolicy).toMatchObject({
+      version: 'raster-candidate-policy-v1',
+      recommendedCandidates: 2,
+      activeCandidates: 1,
+      bestOfNEnabled: false,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -268,6 +287,10 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-actual-width']).toBe('768');
     expect(response.headers['x-origin-visual-actual-height']).toBe('1024');
     expect(response.headers['x-origin-visual-typography-overlay']).toBe('not-required');
+    expect(response.headers['x-origin-visual-candidate-policy']).toBe('raster-candidate-policy-v1');
+    expect(response.headers['x-origin-visual-candidates-recommended']).toBe('1');
+    expect(response.headers['x-origin-visual-candidates-active']).toBe('1');
+    expect(response.headers['x-origin-visual-best-of-n']).toBe('false');
     expect(response.headers['x-origin-visual-width']).toBe('768');
     expect(response.headers['x-origin-visual-height']).toBe('1024');
     expect(Buffer.isBuffer(response.body)).toBe(true);
