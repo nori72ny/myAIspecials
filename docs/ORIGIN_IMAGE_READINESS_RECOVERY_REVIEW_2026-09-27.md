@@ -1,7 +1,9 @@
 # ORIGIN continuation audit — 2026-09-27
 
 Source: PR #698 exact head `6eed2e02634a055c0aadeca64ca27f5c974e2ef7`.
-This is a local candidate; no remote write, workflow dispatch, merge, deployment,
+Initial review was local. Owner subsequently approved updating PR #698 and
+retargeting it to main for combined CI/Preview validation. The code update is
+5a1a7f0ed3dcaef1cf84bd4e380f9e5a86f2474f. No merge, Production deployment,
 provider authorization, secret or billing change was performed.
 
 ## Implemented correction
@@ -27,7 +29,7 @@ unverified. Existing image provider/credential policy is unchanged.
 - Regression reproduced before the fix (1 failed, 4 passed).
 - Related Vitest suites: 97 tests passed (App, connection UI, response policy).
 - TypeScript/design-token lint: passed.
-- Production build: passed before final explanatory-copy/browser-test additions.
+- Production build: passed again with final explanatory copy and browser tests.
 - New browser regressions: authored/typechecked, not executed. Playwright browser
   download returned truncated/non-ZIP data; no browser pass is claimed.
 - Production desktop UI was directly inspected in the browser: initial composer
@@ -38,9 +40,9 @@ unverified. Existing image provider/credential policy is unchanged.
 
 PR #698 targets `feat/raster-device-auth-v15`. The CI, ACOS, CodeQL and Scorecard
 pull_request triggers match only `main`. Its zero workflow runs are explained by
-this configuration, not by a queue. Recommended next approval: push this reviewed
-candidate to #698 and retarget #698 to main to validate the combined #696/#698
-change. Retargeting can trigger CI and preview builds; approval is required.
+this configuration, not by a queue. Owner approved pushing this reviewed candidate and retargeting #698 to main.
+Both are complete. This evidence update triggers normal PR synchronization CI;
+Preview creation is also within the approved validation scope.
 Do not merge #696 and #698 blindly as separate overlapping candidates.
 
 ## Primary GitHub evidence
