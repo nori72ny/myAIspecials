@@ -51,12 +51,17 @@ describe('rasterProviderRegistryV15', () => {
     if ('reason' in selection) {
       expect(selection.reason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
       expect(selection.statuses).toEqual([
-        {
+        expect.objectContaining({
           providerId: 'pollinations-zero-cost',
           ready: false,
           reason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
           supportsTask: true,
-        },
+          status: expect.objectContaining({
+            configured: false,
+            ready: false,
+            reason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
+          }),
+        }),
       ]);
     }
   });
