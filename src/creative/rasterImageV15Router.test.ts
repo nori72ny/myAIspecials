@@ -128,11 +128,12 @@ describe('rasterImageV15Router', () => {
     expect(legacy.body.code).toBe('POLLINATIONS_KEY_NOT_CONFIGURED');
   });
 
-  it('reports configured-but-not-ready when the provider key is not least-privilege scoped', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(json({
-      ...scopedKeyInfo,
-      permissions: { models: null, account: ['usage'] },
-    }));
+  it.each([
+    { ...scopedKeyInfo, type: 'publishable' },
+    { ...scopedKeyInfo, permissions: { models: null, account: [] } },
+    { ...scopedKeyInfo, permissions: { models: ['unreviewed-model'], account: ['usage'] } },
+  ])('rejects provider credentials without secret type, usage access, or the audited model: %j', async (keyInfo) => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(json(keyInfo));
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app({ POLLINATIONS_API_KEY: 'server_only_key' }))
@@ -157,6 +158,20 @@ describe('rasterImageV15Router', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each([null, undefined, ['tomdacatto/sana', 'unreviewed-model']])(
+    'pins broad credential scopes to the audited model: %j', async (models) => {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(json({ ...scopedKeyInfo, permissions: { models, account: ['usage'] } }))
+        .mockResolvedValueOnce(json([freeModel, { ...freeModel, name: 'unreviewed-model' }]));
+      vi.stubGlobal('fetch', fetchMock);
+      const response = await request(app({ POLLINATIONS_API_KEY: 'server_only_key' }))
+        .get('/api/creative/v1.5/raster/status');
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ ready: true, model: 'tomdacatto/sana', zeroCostVerified: true });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it('returns focused clarification questions before any provider execution for vague image requests', async () => {
     const fetchMock = vi.fn();

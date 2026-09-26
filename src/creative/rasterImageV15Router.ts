@@ -10,6 +10,13 @@ import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
+import {
+  completeRasterDeviceAuthV15,
+  disconnectRasterDeviceAuthV15,
+  rasterDeviceAuthConfiguredV15,
+  resolveRasterDeviceApiKeyV15,
+  startRasterDeviceAuthV15,
+} from './rasterDeviceAuthV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 
@@ -59,6 +66,11 @@ function parseBody(body: unknown): RasterImageRequestV15 {
   };
 }
 
+function providerEnvForRequest(req: Request, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const cookieKey = resolveRasterDeviceApiKeyV15(req, env);
+  return cookieKey ? { ...env, POLLINATIONS_API_KEY: cookieKey } : env;
+}
+
 function filename(mime: string): string {
   if (mime === 'image/png') return 'origin-image.png';
   if (mime === 'image/webp') return 'origin-image.webp';
@@ -68,8 +80,9 @@ function filename(mime: string): string {
 export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
-  router.get('/api/creative/v1.5/raster/status', async (_req, res) => {
-    const runtime = await rasterProviderRuntimeStatusV15(env);
+  router.get('/api/creative/v1.5/raster/status', async (req, res) => {
+    const runtimeEnv = providerEnvForRequest(req, env);
+    const runtime = await rasterProviderRuntimeStatusV15(runtimeEnv);
     const status = runtime.textToImageStatus;
     return res.status(runtime.textToImageReady ? 200 : 503).json({
       ok: runtime.textToImageReady,
@@ -119,6 +132,42 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       },
       modelBasedImageEditing: runtime.editingReady,
     });
+  });
+
+  router.get('/api/creative/v1.5/raster/connect/status', (req, res) => {
+    const connected = Boolean(resolveRasterDeviceApiKeyV15(req, env) || env.POLLINATIONS_API_KEY?.trim());
+    return res.status(200).json({
+      ok: true,
+      connected,
+      deviceAuthReady: rasterDeviceAuthConfiguredV15(env),
+      mode: resolveRasterDeviceApiKeyV15(req, env) ? 'device-cookie' : env.POLLINATIONS_API_KEY?.trim() ? 'server-env' : 'disconnected',
+      secretDelivery: 'server-only',
+      freeOnly: true,
+      paidFallbackEnabled: false,
+    });
+  });
+
+  router.post('/api/creative/v1.5/raster/connect/start', async (req, res) => {
+    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
+      return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
+    }
+    try { return await startRasterDeviceAuthV15(req, res, env); }
+    catch { return fail(res, 502, 'IMAGE_DEVICE_AUTH_START_FAILED'); }
+  });
+
+  router.post('/api/creative/v1.5/raster/connect/complete', async (req, res) => {
+    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
+      return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
+    }
+    try { return await completeRasterDeviceAuthV15(req, res, env); }
+    catch { return fail(res, 502, 'IMAGE_DEVICE_AUTH_COMPLETE_FAILED'); }
+  });
+
+  router.post('/api/creative/v1.5/raster/connect/disconnect', (req, res) => {
+    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
+      return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
+    }
+    return disconnectRasterDeviceAuthV15(req, res);
   });
 
   router.post('/api/creative/v1.5/raster/plan', (req, res) => {
@@ -183,6 +232,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       if (!provider) {
         return fail(res, 503, 'NO_PROVIDER_SUPPORTS_TASK', '画像生成に対応する検証済みプロバイダがありません。');
       }
+      const runtimeEnv = providerEnvForRequest(req, env);
       const result = await provider.generate({
         ...input,
         prompt: plan.compiledPrompt,
@@ -191,7 +241,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           : plan.negativePrompt,
         width: input.width ?? plan.width,
         height: input.height ?? plan.height,
-      }, env);
+      }, runtimeEnv);
       const expectedWidth = input.width ?? plan.width;
       const expectedHeight = input.height ?? plan.height;
       const critic = critiqueRasterStructureV15(result.bytes, result.mimeType, expectedWidth, expectedHeight);
