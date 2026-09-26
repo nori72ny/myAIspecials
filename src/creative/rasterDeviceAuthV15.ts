@@ -15,6 +15,7 @@ type PendingStateV15 = {
   clientId: string;
   expiresAt: number;
   intervalSeconds: number;
+  nextPollAt: number;
 };
 
 type TokenStateV15 = {
@@ -130,19 +131,22 @@ export async function startRasterDeviceAuthV15(req: Request, res: ExpressRespons
   if (verificationUri.origin !== AUTH_ORIGIN || verificationUri.protocol !== 'https:') {
     return res.status(502).json({ ok: false, code: 'IMAGE_DEVICE_AUTH_URI_INVALID' });
   }
-  const expiresAt = Date.now() + Math.floor(expiresIn * 1000);
+  const intervalSeconds = Math.ceil(interval);
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + Math.floor(expiresIn * 1000);
   setCookie(res, PENDING_COOKIE, seal('pending', {
     deviceCode,
     clientId: DEVICE_CLIENT_ID,
     expiresAt,
-    intervalSeconds: Math.ceil(interval),
+    intervalSeconds,
+    nextPollAt: issuedAt + intervalSeconds * 1000,
   } satisfies PendingStateV15, env), expiresIn);
   return res.status(200).json({
     ok: true,
     userCode,
     verificationUri: verificationUri.href,
     expiresIn: Math.floor(expiresIn),
-    interval: Math.ceil(interval),
+    interval: intervalSeconds,
     scope: DEVICE_SCOPE,
     secretDelivery: 'server-only',
   });
@@ -150,11 +154,23 @@ export async function startRasterDeviceAuthV15(req: Request, res: ExpressRespons
 
 export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
   const state = open<PendingStateV15>('pending', cookies(req).get(PENDING_COOKIE), env);
+  const now = Date.now();
   if (!state || !exactText(state.deviceCode, 2048) || state.clientId !== DEVICE_CLIENT_ID
-    || !Number.isSafeInteger(state.expiresAt) || state.expiresAt <= Date.now()
-    || !Number.isSafeInteger(state.intervalSeconds) || state.intervalSeconds < 1) {
+    || !Number.isSafeInteger(state.expiresAt) || state.expiresAt <= now
+    || !Number.isSafeInteger(state.intervalSeconds) || state.intervalSeconds < 1
+    || !Number.isSafeInteger(state.nextPollAt) || state.nextPollAt < 1) {
     clearCookie(res, PENDING_COOKIE);
     return res.status(409).json({ ok: false, code: 'IMAGE_DEVICE_AUTH_EXPIRED' });
+  }
+  if (now < state.nextPollAt) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((state.nextPollAt - now) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+    return res.status(202).json({
+      ok: false,
+      pending: true,
+      code: 'authorization_pending',
+      interval: retryAfterSeconds,
+    });
   }
 
   const form = new URLSearchParams({
@@ -169,12 +185,14 @@ export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResp
   });
   if (!response.ok) {
     if (body.error === 'authorization_pending' || body.error === 'slow_down') {
-      // RFC 8628 section 3.5: retain the increased interval for every later poll.
+      // RFC 8628 section 3.5: enforce the current polling interval server-side and
+      // retain every slow_down increase for all later polls from this browser.
       const intervalSeconds = state.intervalSeconds + (body.error === 'slow_down' ? 5 : 0);
-      if (body.error === 'slow_down') {
-        setCookie(res, PENDING_COOKIE, seal('pending', { ...state, intervalSeconds }, env),
-          Math.max(0, Math.floor((state.expiresAt - Date.now()) / 1000)));
-      }
+      const polledAt = Date.now();
+      const nextPollAt = polledAt + intervalSeconds * 1000;
+      setCookie(res, PENDING_COOKIE, seal('pending', { ...state, intervalSeconds, nextPollAt }, env),
+        Math.max(0, Math.floor((state.expiresAt - polledAt) / 1000)));
+      res.setHeader('Retry-After', String(intervalSeconds));
       return res.status(202).json({ ok: false, pending: true, code: String(body.error), interval: intervalSeconds });
     }
     clearCookie(res, PENDING_COOKIE);
