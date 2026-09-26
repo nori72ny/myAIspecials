@@ -165,6 +165,35 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects incomplete or out-of-bounds raster dimension pairs before provider execution', async () => {
+    const missingHeight = await request(app())
+      .post('/api/creative/v1.5/raster/plan')
+      .send({ prompt: '広告画像を作って', width: 1200 });
+    expect(missingHeight.status).toBe(400);
+    expect(missingHeight.body.code).toBe('INVALID_RASTER_DIMENSION_PAIR');
+
+    const tooLarge = await request(app())
+      .post('/api/creative/v1.5/raster/plan')
+      .send({ prompt: '広告画像を作って', width: 1600, height: 900 });
+    expect(tooLarge.status).toBe(400);
+    expect(tooLarge.body.code).toBe('INVALID_RASTER_DIMENSION');
+  });
+
+  it('keeps exact API dimensions aligned with plan provenance', async () => {
+    const response = await request(app())
+      .post('/api/creative/v1.5/raster/plan')
+      .send({ prompt: '広告画像を作ってください', width: 1200, height: 628 });
+    expect(response.status).toBe(200);
+    expect(response.body.plan).toMatchObject({
+      templateId: 'custom-size',
+      platform: 'custom-size',
+      width: 1200,
+      height: 628,
+      safeMarginPct: 7,
+    });
+    expect(response.body.plan.compiledPrompt).toContain('Output: 1200x628');
+  });
+
   it('exposes the structured raster plan without executing an image provider', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
