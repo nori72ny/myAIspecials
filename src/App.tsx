@@ -515,6 +515,13 @@ type OriginChatFailurePayload = {
   retryAttempted?: unknown;
 };
 
+export const buildRasterVariationPrompt = (sourcePrompt: string): string => {
+  const normalized = sourcePrompt.normalize('NFKC').trim();
+  const base = normalized.split(/\n\nCreate a clearly distinct alternative variation\./i)[0]?.trim().slice(0, 1_500) ?? '';
+  if (!base) return '';
+  return `${base}\n\nCreate a clearly distinct alternative variation. Preserve the original purpose, subject, exact requested text, aspect ratio, and overall art direction, while exploring a different composition, framing, or visual treatment. Do not introduce unrelated subjects, logos, or copy.`;
+};
+
 export const isDirectImageGenerationRequest = (input: string): boolean => {
   const normalized = input.trim();
   if (!normalized) return false;
@@ -1334,7 +1341,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           typographyOverlay: deterministicTypographyApplied,
           sourceCriticVersion: 'raster-structural-critic-v1',
           sourceQualityScore,
-          prompt: imageRequestText,
+          prompt: imageRequestText.slice(0, 2_000),
           width,
           height,
           relation: finalRelation,
@@ -1459,8 +1466,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       setIsSafeWaiting(true);
       return;
     }
+    const variationPrompt = buildRasterVariationPrompt(sourcePrompt);
+    if (!variationPrompt) return;
     pendingImageRequestRef.current = {
-      prompt: `${sourcePrompt}\n\nCreate a clearly distinct alternative variation. Preserve the original purpose, subject, exact requested text, aspect ratio, and overall art direction, while exploring a different composition, framing, or visual treatment. Do not introduce unrelated subjects, logos, or copy.`,
+      prompt: variationPrompt,
       questions: [],
       relation: 'variation',
       parentId: image.assetId,
