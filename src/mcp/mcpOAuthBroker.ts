@@ -5,38 +5,68 @@ import { McpOAuthTokenCipher, oauthFailure, validateOAuthOwner, type McpOAuthGra
 
 /** Server-only broker. No global credential cache; no default environment/provider activation. */
 export class McpOAuthBroker {
-  private readonly authorization: McpOAuthAuthorization;
-  private readonly providers: ReadonlyMap<string, { provider: McpOAuthProvider; configHash: string; client: McpOAuthTokenEndpoint }>;
+  private readonly providers: ReadonlyMap<string, McpOAuthProvider>;
+  private readonly pkceKey: Buffer;
   constructor(private readonly options: {
     providers: readonly McpOAuthProvider[]; pendingStore: McpOAuthPendingStore; grantStore: McpOAuthGrantStore;
     pkceKey: Buffer; tokenCipher: McpOAuthTokenCipher; clientSecrets?: Readonly<Record<string, string>>;
+    /** Optional owner-bound metadata resolver for dynamically registered OAuth clients. */
+    resolveProvider?: (ownerId: string, serverId: string, reviewed: McpOAuthProvider) => Promise<McpOAuthProvider>;
+    /** Optional owner-bound secret resolver for dynamically registered confidential clients. */
+    resolveClientSecret?: (ownerId: string, serverId: string) => Promise<string | undefined>;
     /** Trusted test seam; production defaults to guarded Node HTTPS. */
-    createTokenClient?: (provider: McpOAuthProvider) => McpOAuthTokenEndpoint;
+    createTokenClient?: (provider: McpOAuthProvider, clientSecret?: string) => McpOAuthTokenEndpoint;
     /** Optional pre-authorization discovery verification. Failures block OAuth before state/grant creation. */
     verifyProvider?: (provider: McpOAuthProvider) => Promise<void>;
   }) {
-    this.authorization = new McpOAuthAuthorization(options.pendingStore, options.pkceKey, options.providers);
-    this.providers = new Map(options.providers.map(value => {
-      const provider = structuredClone(value);
-      return [provider.serverId, { provider, configHash: oauthProviderHash(provider),
-        client: options.createTokenClient?.(provider) ?? new McpOAuthTokenClient(provider, options.clientSecrets?.[provider.serverId]) }];
-    }));
+    // Construct once for strict startup validation. Actual authorization objects are
+    // recreated with owner-resolved metadata so dynamic client IDs are state-bound.
+    new McpOAuthAuthorization(options.pendingStore, options.pkceKey, options.providers);
+    this.pkceKey = Buffer.from(options.pkceKey);
+    this.providers = new Map(options.providers.map(value => [value.serverId, structuredClone(value)]));
   }
   /** Public metadata only: lets management UI distinguish reviewed OAuth servers without exposing provider endpoints or credentials. */
   supports(serverId: string): boolean {
     return /^[A-Za-z0-9-]{1,64}$/.test(serverId) && this.providers.has(serverId);
   }
-  private provider(ownerId: string, serverId: string) {
+  private baseProvider(ownerId: string, serverId: string): McpOAuthProvider {
     validateOAuthOwner(ownerId, serverId);
-    return this.providers.get(serverId) ?? oauthFailure('MCP_OAUTH_SERVER_NOT_ALLOWED');
+    return structuredClone(this.providers.get(serverId) ?? oauthFailure('MCP_OAUTH_SERVER_NOT_ALLOWED'));
   }
-  private async read(ownerId: string, serverId: string) {
-    const provider = this.provider(ownerId, serverId);
+  private authorization(provider: McpOAuthProvider) {
+    return new McpOAuthAuthorization(this.options.pendingStore, this.pkceKey, [provider]);
+  }
+  private async provider(ownerId: string, serverId: string) {
+    const reviewed = this.baseProvider(ownerId, serverId);
+    let provider = reviewed;
+    if (this.options.resolveProvider) {
+      try { provider = await this.options.resolveProvider(ownerId, serverId, structuredClone(reviewed)); }
+      catch { return oauthFailure('MCP_OAUTH_PROVIDER_UNAVAILABLE'); }
+    }
+    if (!provider || provider.serverId !== serverId) return oauthFailure('MCP_OAUTH_PROVIDER_UNAVAILABLE');
+    try { this.authorization(provider); }
+    catch { return oauthFailure('MCP_OAUTH_PROVIDER_UNAVAILABLE'); }
+    return { provider: structuredClone(provider), configHash: oauthProviderHash(provider) };
+  }
+  private async client(ownerId: string, serverId: string, provider?: McpOAuthProvider): Promise<McpOAuthTokenEndpoint> {
+    const resolved = provider ?? (await this.provider(ownerId, serverId)).provider;
+    let secret = this.options.clientSecrets?.[serverId];
+    if (!secret && this.options.resolveClientSecret) {
+      try { secret = await this.options.resolveClientSecret(ownerId, serverId); }
+      catch { return oauthFailure('MCP_OAUTH_CREDENTIAL_UNAVAILABLE'); }
+    }
+    if (resolved.tokenEndpointAuthMethod !== 'none' && !secret && !this.options.createTokenClient) {
+      return oauthFailure('MCP_OAUTH_CREDENTIAL_UNAVAILABLE');
+    }
+    return this.options.createTokenClient?.(resolved, secret) ?? new McpOAuthTokenClient(resolved, secret);
+  }
+  private async read(ownerId: string, serverId: string, resolved?: Awaited<ReturnType<McpOAuthBroker['provider']>>) {
+    const provider = resolved ?? await this.provider(ownerId, serverId);
     let record: McpOAuthGrant | undefined;
     try { record = await this.options.grantStore.get(ownerId, serverId); }
     catch { return oauthFailure('MCP_OAUTH_STORE_UNAVAILABLE'); }
     if (!record || record.ownerId !== ownerId || record.serverId !== serverId || record.configHash !== provider.configHash) return oauthFailure('MCP_OAUTH_REAUTHORIZATION_REQUIRED');
-    return { record, ...provider };
+    return { record, client: await this.client(ownerId, serverId, provider.provider), ...provider };
   }
   private async change(record: McpOAuthGrant, status: McpOAuthGrant['status'], ciphertext: string | null = null): Promise<McpOAuthGrant> {
     const next = { ...record, version: record.version + 1, status, ciphertext };
@@ -53,7 +83,8 @@ export class McpOAuthBroker {
   }
   async begin(who: McpOAuthIdentity, serverId: string): Promise<{ authorizationUrl: string }> {
     oauthIdentityHash(who);
-    const { provider, configHash } = this.provider(who.ownerId, serverId);
+    const resolved = await this.provider(who.ownerId, serverId);
+    const { provider, configHash } = resolved;
     if (this.options.verifyProvider) {
       try { await this.options.verifyProvider(structuredClone(provider)); }
       catch { return oauthFailure('MCP_OAUTH_DISCOVERY_FAILED'); }
@@ -61,7 +92,7 @@ export class McpOAuthBroker {
     const record: McpOAuthGrant = { ownerId: who.ownerId, serverId, grantId: randomUUID(), configHash, version: 1, status: 'authorizing', ciphertext: null };
     try { await this.options.grantStore.begin(record); }
     catch { return oauthFailure('MCP_OAUTH_BEGIN_UNAVAILABLE'); }
-    try { return await this.authorization.begin(who, serverId, record.grantId); }
+    try { return await this.authorization(provider).begin(who, serverId, record.grantId); }
     catch { await this.abandon(record); return oauthFailure('MCP_OAUTH_BEGIN_UNAVAILABLE'); }
   }
   private async persist(record: McpOAuthGrant, client: McpOAuthTokenEndpoint, tokens: McpOAuthTokens) {
@@ -75,8 +106,9 @@ export class McpOAuthBroker {
     }
   }
   async complete(who: McpOAuthIdentity, serverId: string, query: URLSearchParams): Promise<{ linked: true; serverId: string }> {
-    const callback = await this.authorization.consumeCallback(who, serverId, query);
-    const { record, client } = await this.read(who.ownerId, serverId);
+    const resolved = await this.provider(who.ownerId, serverId);
+    const callback = await this.authorization(resolved.provider).consumeCallback(who, serverId, query);
+    const { record, client } = await this.read(who.ownerId, serverId, resolved);
     if (record.status !== 'authorizing' || record.grantId !== callback.grantId || record.configHash !== callback.configHash) return oauthFailure('MCP_OAUTH_GRANT_CHANGED');
     const claim = await this.change(record, 'exchanging');
     let tokens: McpOAuthTokens;
@@ -103,14 +135,14 @@ export class McpOAuthBroker {
     return refreshed.accessToken;
   }
   async disconnect(ownerId: string, serverId: string): Promise<{ disconnected: true; remoteRevocationConfirmed: boolean }> {
-    const provider = this.provider(ownerId, serverId);
+    const resolved = await this.provider(ownerId, serverId);
     let previous: McpOAuthGrant | undefined;
     try { previous = await this.options.grantStore.revoke(ownerId, serverId); }
     catch { return oauthFailure('MCP_OAUTH_STORE_UNAVAILABLE'); }
     let remoteRevocationConfirmed = false;
-    if (previous?.ownerId === ownerId && previous.serverId === serverId && previous.configHash === provider.configHash && previous.ciphertext) {
+    if (previous?.ownerId === ownerId && previous.serverId === serverId && previous.configHash === resolved.configHash && previous.ciphertext) {
       try {
-        const confirmed = await provider.client.revoke(this.options.tokenCipher.open(previous));
+        const confirmed = await (await this.client(ownerId, serverId, resolved.provider)).revoke(this.options.tokenCipher.open(previous));
         // An in-flight exchange may have issued credentials we haven't seen yet.
         remoteRevocationConfirmed = confirmed && previous.status === 'active';
       } catch { /* Locally disconnected; upstream state remains unknown. */ }
