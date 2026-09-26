@@ -99,6 +99,15 @@ describe('rasterImageV15Router', () => {
         version: 'raster-structural-critic-v1',
         failClosed: true,
       },
+      visionCritic: {
+        version: 'raster-vision-critic-v1',
+        configured: false,
+        ready: false,
+        model: 'inclusionai/ling-3.0-flash-vl:free',
+        zeroCostVerified: false,
+        paidFallbackEnabled: false,
+        reason: 'VISION_CRITIC_KEY_NOT_CONFIGURED',
+      },
       templateEngine: {
         version: 'raster-template-engine-v1',
       },
@@ -264,6 +273,9 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-safe-margin-pct']).toBe('7');
     expect(response.headers['x-origin-visual-typography-zone']).toBe('bottom');
     expect(response.headers['x-origin-visual-critic']).toBe('raster-structural-critic-v1');
+    expect(response.headers['x-origin-visual-vision-critic']).toBe('unavailable');
+    expect(response.headers['x-origin-visual-vision-critic-model']).toBe('inclusionai/ling-3.0-flash-vl:free');
+    expect(response.headers['x-origin-visual-vision-score']).toBeUndefined();
     expect(response.headers['x-origin-visual-quality-score']).toBe('100');
     expect(response.headers['x-origin-visual-actual-width']).toBe('768');
     expect(response.headers['x-origin-visual-actual-height']).toBe('1024');
@@ -286,6 +298,99 @@ describe('rasterImageV15Router', () => {
       size: '768x1024',
       response_format: 'b64_json',
     });
+  });
+
+  it('runs the exact zero-cost multimodal critic when the OpenRouter key is configured', async () => {
+    const png = pngBytes(768, 1024);
+    const visionModel = {
+      id: 'inclusionai/ling-3.0-flash-vl:free',
+      pricing: { prompt: '0', completion: '0' },
+    };
+    const criticPayload = {
+      dimensions: { promptAdherence: 92, composition: 90, realism: 88, artifactControl: 91, textAccuracy: 95 },
+      issues: [],
+      repairInstructions: [],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/account/key')) return json(scopedKeyInfo);
+      if (url.endsWith('/image/models')) return json([freeModel]);
+      if (url.includes('/account/key/usage')) {
+        const calls = fetchMock.mock.calls.filter(([candidate]) => String(candidate).includes('/account/key/usage')).length;
+        return calls === 1
+          ? json({ usage: [{ cursor_event_id: 'before-vision' }] })
+          : json({ usage: [{ cursor_event_id: 'after-vision', type: 'generate.image', model: 'tomdacatto/sana', meter_source: 'tier', cost_usd: 0, output_image_tokens: 1 }] });
+      }
+      if (url.endsWith('/v1/images/generations')) return imageJson(png);
+      if (url === 'https://openrouter.ai/api/v1/models') return json({ data: [visionModel] });
+      if (url === 'https://openrouter.ai/api/v1/chat/completions') return json({
+        model: 'inclusionai/ling-3.0-flash-vl',
+        choices: [{ message: { content: JSON.stringify(criticPayload) } }],
+        usage: { cost: 0, cost_details: { upstream_inference_cost: 0 }, is_byok: false },
+        billing_tier: 'free',
+        is_free: true,
+        pricing: { prompt: 0, completion: 0 },
+      });
+      return json({ error: 'unexpected' }, 500);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      POLLINATIONS_API_KEY: 'server_only_key',
+      ORIGIN_IMAGE_MODEL: 'tomdacatto/sana',
+      OPENROUTER_API_KEY: 'openrouter-server-key',
+    }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-vision-critic']).toBe('passed');
+    expect(response.headers['x-origin-visual-vision-critic-model']).toBe('inclusionai/ling-3.0-flash-vl:free');
+    expect(Number(response.headers['x-origin-visual-vision-score'])).toBeGreaterThanOrEqual(82);
+    expect(fetchMock.mock.calls.some(([candidate]) => String(candidate) === 'https://openrouter.ai/api/v1/chat/completions')).toBe(true);
+  });
+
+  it('withholds an image that the zero-cost semantic critic rejects', async () => {
+    const png = pngBytes(768, 1024);
+    const visionModel = { id: 'inclusionai/ling-3.0-flash-vl:free', pricing: { prompt: '0', completion: '0' } };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/account/key')) return json(scopedKeyInfo);
+      if (url.endsWith('/image/models')) return json([freeModel]);
+      if (url.includes('/account/key/usage')) {
+        const calls = fetchMock.mock.calls.filter(([candidate]) => String(candidate).includes('/account/key/usage')).length;
+        return calls === 1
+          ? json({ usage: [{ cursor_event_id: 'before-reject' }] })
+          : json({ usage: [{ cursor_event_id: 'after-reject', type: 'generate.image', model: 'tomdacatto/sana', meter_source: 'tier', cost_usd: 0, output_image_tokens: 1 }] });
+      }
+      if (url.endsWith('/v1/images/generations')) return imageJson(png);
+      if (url === 'https://openrouter.ai/api/v1/models') return json({ data: [visionModel] });
+      if (url === 'https://openrouter.ai/api/v1/chat/completions') return json({
+        model: 'inclusionai/ling-3.0-flash-vl',
+        choices: [{ message: { content: JSON.stringify({
+          dimensions: { promptAdherence: 60, composition: 62, realism: 55, artifactControl: 50, textAccuracy: 40 },
+          issues: ['指示と構図が大きく違う'],
+          repairInstructions: ['主役と構図を指示どおり再生成'],
+        }) } }],
+        usage: { cost: 0, cost_details: { upstream_inference_cost: 0 }, is_byok: false },
+        billing_tier: 'free',
+        is_free: true,
+      });
+      return json({ error: 'unexpected' }, 500);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      POLLINATIONS_API_KEY: 'server_only_key',
+      OPENROUTER_API_KEY: 'openrouter-server-key',
+    }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe('RASTER_VISION_CRITIC_REJECTED');
+    expect(response.body.critic.score).toBeLessThan(82);
+    expect(response.body.critic.repairInstructions).toContain('主役と構図を指示どおり再生成');
   });
 
   it('rejects unexpected request fields instead of forwarding them upstream', async () => {
