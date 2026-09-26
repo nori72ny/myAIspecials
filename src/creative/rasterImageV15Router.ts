@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
+import { type RasterImageRequestV15 } from './rasterImageProviderV15.js';
 import {
-  generateRasterImageV15,
-  getRasterProviderStatusV15,
-  type RasterImageRequestV15,
-} from './rasterImageProviderV15.js';
+  rasterProviderRuntimeStatusV15,
+  resolveRasterProviderV15,
+} from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
 
@@ -61,20 +61,32 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
   const router = Router();
 
   router.get('/api/creative/v1.5/raster/status', async (_req, res) => {
-    const status = await getRasterProviderStatusV15(env);
-    return res.status(status.ready ? 200 : 503).json({
-      ok: status.ready,
-      ...status,
+    const runtime = await rasterProviderRuntimeStatusV15(env);
+    const status = runtime.textToImageStatus;
+    return res.status(runtime.textToImageReady ? 200 : 503).json({
+      ok: runtime.textToImageReady,
+      configured: status?.configured ?? false,
+      ready: runtime.textToImageReady,
+      providerId: status?.providerId ?? null,
+      model: status?.model ?? null,
+      zeroCostVerified: status?.zeroCostVerified ?? false,
+      paymentMethodRequired: status?.paymentMethodRequired ?? false,
+      secretDelivery: status?.secretDelivery ?? 'server-only',
+      externalNetwork: status?.externalNetwork ?? true,
+      reason: runtime.textToImageReason,
+      providerAgnostic: runtime.providerAgnostic,
+      registryVersion: runtime.registryVersion,
+      providers: runtime.providers,
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
-      supportedTasks: status.ready ? ['text-to-image'] : [],
+      supportedTasks: runtime.supportedTasks,
       rasterCritic: {
         version: 'raster-structural-critic-v1',
         failClosed: true,
         checks: ['decodable-dimensions', 'dimensions-within-origin-bounds', 'requested-dimensions-match', 'nontrivial-image-payload'],
       },
-      modelBasedImageEditing: false,
+      modelBasedImageEditing: runtime.editingReady,
     });
   });
 
@@ -134,7 +146,11 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           secretDelivery: 'server-only',
         });
       }
-      const result = await generateRasterImageV15({
+      const provider = resolveRasterProviderV15('text-to-image');
+      if (!provider) {
+        return fail(res, 503, 'NO_PROVIDER_SUPPORTS_TASK', '画像生成に対応する検証済みプロバイダがありません。');
+      }
+      const result = await provider.generate({
         ...input,
         prompt: plan.compiledPrompt,
         negativePrompt: input.negativePrompt?.trim()
