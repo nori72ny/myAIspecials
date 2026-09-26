@@ -117,7 +117,7 @@ describe('rasterImageProviderV15', () => {
       size: '768x1024',
       quality: 'medium',
       response_format: 'b64_json',
-      safe: 'privacy,secrets,sexual,violence,shield',
+      safe: true,
     });
   });
 
