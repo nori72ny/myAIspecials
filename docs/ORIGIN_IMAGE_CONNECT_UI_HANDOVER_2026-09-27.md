@@ -20,13 +20,9 @@ Before real owner consent, the device-flow `client_id` was compared with Pollina
 
 PR #698 now requires an ORIGIN-specific publishable App Key through `ORIGIN_POLLINATIONS_CLIENT_ID` and rejects the shared SDK default. Missing or shared identity reports `deviceAuthReady=false` and fails closed before contacting the provider. The configured client ID is sealed into the pending session and must remain unchanged through token exchange.
 
-This prevents the first real ORIGIN authorization from being performed under an ambiguous/shared provider identity.
-
 ## Evidence boundary
 
-An earlier exact head passed ACOS, Production Release CI/CD, CodeQL, OpenSSF, Node 22/24 build/unit/E2E/Lighthouse and three-browser Artifact isolation, and its Vercel Preview was READY. Those checks are historical baseline only.
-
-The app-identity hardening and its documentation updates create a newer exact head. Always read the current PR head directly from GitHub and require CI/Preview evidence for that exact SHA; do not copy a SHA into this handover as a durable release claim.
+Earlier green CI/Preview evidence is historical baseline only. The current PR head from GitHub is the source of truth. Every release decision must bind CI, Preview and live-provider evidence to that exact SHA; this handover intentionally avoids embedding a mutable candidate SHA.
 
 ## Next gate
 
