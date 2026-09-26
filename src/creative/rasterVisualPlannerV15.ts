@@ -98,13 +98,20 @@ function meaningfulSubject(input: string): boolean {
   return stripped.length >= 4;
 }
 
-function questionsFor(input: string): string[] {
+function questionsFor(input: string, requestedSize?: { width?: number; height?: number }): string[] {
   const questions: string[] = [];
   if (!meaningfulSubject(input)) {
     questions.push('何を主役にした画像にしますか？ 例：人物、商品、風景、ORIGINの広告ビジュアル');
   }
+  const hasExplicitRequestedSize = Number.isInteger(requestedSize?.width)
+    && Number.isInteger(requestedSize?.height)
+    && Number(requestedSize?.width) >= 256
+    && Number(requestedSize?.width) <= 1536
+    && Number(requestedSize?.height) >= 256
+    && Number(requestedSize?.height) <= 1536;
   if (/(?:広告|SNS|ポスター|バナー|サムネ|Instagram|インスタ|YouTube)/i.test(input)
-    && !/(?:9\s*[:：/]\s*16|16\s*[:：/]\s*9|4\s*[:：/]\s*5|1\s*[:：/]\s*1|縦長|横長|正方形|story|portrait|landscape|square)/i.test(input)) {
+    && !hasExplicitRequestedSize
+    && !/(?:9\s*[:：/]\s*16|16\s*[:：/]\s*9|4\s*[:：/]\s*5|1\s*[:：/]\s*1|2\s*[:：/]\s*3|縦長|横長|正方形|story|portrait|landscape|square|A4)/i.test(input)) {
     questions.push('主な使用先と比率はどれですか？ 例：Instagram 4:5、Story 9:16、YouTube 16:9');
   }
   if (/(?:文字|テキスト|コピー|ロゴ|title|headline|caption)/i.test(input) && quotedText(input).length === 0) {
@@ -183,7 +190,7 @@ export function planRasterVisualRequestV15(
   const purpose = purposeFor(originalRequest);
   const template = resolveRasterVisualTemplateV15(originalRequest, requestedSize);
   const exactText = quotedText(originalRequest);
-  const questions = questionsFor(originalRequest);
+  const questions = questionsFor(originalRequest, requestedSize);
   const base = {
     version: 'raster-visual-plan-v1' as const,
     originalRequest,
