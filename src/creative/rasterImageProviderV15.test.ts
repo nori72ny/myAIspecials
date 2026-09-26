@@ -42,6 +42,15 @@ function imageJson(bytes: Uint8Array, mediaType?: string): Response {
   });
 }
 
+function pngBytes(width: number, height: number): Uint8Array {
+  const bytes = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
+  Buffer.from('IHDR', 'ascii').copy(bytes, 12);
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return Uint8Array.from(bytes);
+}
+
 describe('rasterImageProviderV15', () => {
   it('selects the audited model only when its live registry price is exactly zero', async () => {
     const fetchMock = vi.fn(async () => json([pricedModel, freeModel])) as unknown as typeof fetch;
@@ -62,7 +71,7 @@ describe('rasterImageProviderV15', () => {
   });
 
   it('generates raster bytes only after live zero-price discovery and post-usage verification', async () => {
-    const imageBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const imageBytes = pngBytes(768, 1024);
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-1' }] }))
@@ -124,6 +133,20 @@ describe('rasterImageProviderV15', () => {
     await expect(discoverZeroCostPollinationsModelV15('sk_test', 'community/new-free-model', fetchMock)).resolves.toBeNull();
   });
 
+  it('fails closed when provider bytes do not match the requested raster dimensions', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [] }))
+      .mockResolvedValueOnce(imageJson(pngBytes(512, 512), 'image/png')) as unknown as typeof fetch;
+
+    await expect(generateRasterImageV15(
+      { prompt: 'test', width: 1024, height: 1024 },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock,
+    )).rejects.toThrow('RASTER_IMAGE_DIMENSION_MISMATCH');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('rejects content-type spoofing when the returned bytes are not a real image signature', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
@@ -149,7 +172,7 @@ describe('rasterImageProviderV15', () => {
   });
 
   it('waits for eventually-consistent usage evidence and succeeds only after zero-cost tier proof appears', async () => {
-    const imageBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const imageBytes = pngBytes(1024, 1024);
     const matchingUsage = {
       cursor_event_id: 'after-eventual',
       type: 'generate.image',
@@ -179,11 +202,11 @@ describe('rasterImageProviderV15', () => {
   });
 
   it('rejects paid-balance usage even when the reported USD cost is zero', async () => {
-    const imageBytes = Uint8Array.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]);
+    const imageBytes = pngBytes(1024, 1024);
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-paid' }] }))
-      .mockResolvedValueOnce(imageJson(imageBytes, 'image/jpeg'))
+      .mockResolvedValueOnce(imageJson(imageBytes, 'image/png'))
       .mockResolvedValueOnce(json({
         usage: [{
           cursor_event_id: 'after-paid',
@@ -222,7 +245,7 @@ describe('rasterImageProviderV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-cost' }] }))
-      .mockResolvedValueOnce(imageJson(Uint8Array.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]), 'image/jpeg'))
+      .mockResolvedValueOnce(imageJson(pngBytes(1024, 1024), 'image/png'))
       .mockResolvedValueOnce(json({
         usage: [{
           cursor_event_id: 'after-cost',
