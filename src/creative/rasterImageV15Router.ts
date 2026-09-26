@@ -97,7 +97,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       technicalPixelCritic: {
         version: 'raster-technical-critic-v1',
         implemented: true,
-        execution: 'client-local-after-verified-bytes',
+        execution: 'available-local-module',
+        deliveryGateWired: false,
         checks: ['non-empty-alpha', 'non-uniform-content', 'black-white-clipping', 'minimum-information-density'],
         semanticVisionJudgment: false,
       },
