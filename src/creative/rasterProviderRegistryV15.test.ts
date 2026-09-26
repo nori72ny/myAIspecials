@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   rasterProviderRegistryV15,
   rasterProviderRuntimeStatusV15,
+  resolveRasterProviderV15,
   selectRasterProviderV15,
 } from './rasterProviderRegistryV15';
 
@@ -24,6 +25,12 @@ describe('rasterProviderRegistryV15', () => {
         identityPreservation: false,
       }),
     ]);
+  });
+
+  it('resolves the current text-to-image implementation without claiming unsupported editing capabilities', () => {
+    expect(resolveRasterProviderV15('text-to-image')?.descriptor.id).toBe('pollinations-zero-cost');
+    expect(resolveRasterProviderV15('edit')).toBeNull();
+    expect(resolveRasterProviderV15('inpaint')).toBeNull();
   });
 
   it('fails closed for editing until a separately verified provider supports it', async () => {
@@ -61,6 +68,8 @@ describe('rasterProviderRegistryV15', () => {
       registryVersion: 'raster-provider-registry-v1',
       supportedTasks: [],
       textToImageReady: false,
+      textToImageStatus: null,
+      textToImageReason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
       editingReady: false,
       paidFallbackEnabled: false,
       freeOnly: true,
