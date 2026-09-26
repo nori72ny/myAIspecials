@@ -60,4 +60,30 @@ describe('rasterImageCriticV15', () => {
     expect(readRasterDimensionsV15(png(864, 1536), 'image/png')).toEqual({ width: 864, height: 1536 });
     expect(readRasterDimensionsV15(Buffer.from('not-an-image'), 'image/png')).toBeNull();
   });
+
+  it('reads bounded JPEG and WebP dimensions from their structural headers only', () => {
+    const jpeg = Buffer.alloc(80);
+    jpeg[0] = 0xff; jpeg[1] = 0xd8;
+    jpeg[2] = 0xff; jpeg[3] = 0xc0;
+    jpeg.writeUInt16BE(17, 4);
+    jpeg[6] = 8;
+    jpeg.writeUInt16BE(900, 7);
+    jpeg.writeUInt16BE(1200, 9);
+    jpeg[11] = 3;
+    expect(readRasterDimensionsV15(jpeg, 'image/jpeg')).toEqual({ width: 1200, height: 900 });
+
+    const webp = Buffer.alloc(80);
+    Buffer.from('RIFF', 'ascii').copy(webp, 0);
+    Buffer.from('WEBP', 'ascii').copy(webp, 8);
+    Buffer.from('VP8X', 'ascii').copy(webp, 12);
+    const widthMinusOne = 999;
+    const heightMinusOne = 749;
+    webp[24] = widthMinusOne & 0xff;
+    webp[25] = (widthMinusOne >> 8) & 0xff;
+    webp[26] = (widthMinusOne >> 16) & 0xff;
+    webp[27] = heightMinusOne & 0xff;
+    webp[28] = (heightMinusOne >> 8) & 0xff;
+    webp[29] = (heightMinusOne >> 16) & 0xff;
+    expect(readRasterDimensionsV15(webp, 'image/webp')).toEqual({ width: 1000, height: 750 });
+  });
 });
