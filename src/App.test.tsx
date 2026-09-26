@@ -519,6 +519,73 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(isDirectImageGenerationRequest('画像生成AIの仕組みを教えてください')).toBe(false);
   });
 
+  it('recognizes broader visual creation language without hijacking explanatory questions', () => {
+    expect(isDirectImageGenerationRequest('猫の絵を描いて')).toBe(true);
+    expect(isDirectImageGenerationRequest('ORIGINのロゴを作って')).toBe(true);
+    expect(isDirectImageGenerationRequest('Design a premium app icon')).toBe(true);
+    expect(isDirectImageGenerationRequest('画像生成AIの仕組みを教えて')).toBe(false);
+  });
+
+  it('keeps a vague image request in a focused clarification loop before generation', async () => {
+    const digest = new Uint8Array(32);
+    digest.fill(0xcd);
+    const sha = Array.from(digest).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: false,
+        code: 'IMAGE_REQUIREMENTS_INCOMPLETE',
+        questions: ['何を主役にした画像にしますか？'],
+      }), { status: 409, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(bytes, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/png',
+          'Content-Disposition': 'attachment; filename="origin-image.png"',
+          'X-Origin-Visual-Verified': 'true',
+          'X-Origin-Visual-Sha256': sha,
+          'X-Origin-Visual-Provider': 'pollinations-zero-cost',
+          'X-Origin-Visual-Model': 'tomdacatto/sana',
+          'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
+          'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
+          'X-Origin-Visual-Plan-Sha256': 'd'.repeat(64),
+          'X-Origin-Visual-Width': '1024',
+          'X-Origin-Visual-Height': '1024',
+          'X-Origin-Free-Only': 'true',
+          'X-Origin-Cost-Usd': '0',
+          'X-Origin-Paid-Fallback': 'false',
+          'X-Origin-Secret-Delivery': 'server-only',
+        },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { subtle: { digest: vi.fn(async () => digest.buffer) } },
+    });
+    const originalCreateObjectURL = URL.createObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:origin-clarified-image') });
+
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '画像を作ってください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText(/何を主役にした画像にしますか/)).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(screen.getByTestId('origin-chat-request'), { target: { value: '朝焼けの富士山をリアルな写真で' } });
+    fireEvent.click(screen.getByTestId('send-request-button'));
+    await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(secondBody.prompt).toContain('画像を作ってください');
+    expect(secondBody.prompt).toContain('追加条件: 朝焼けの富士山をリアルな写真で');
+
+    if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
+    else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+    vi.unstubAllGlobals();
+  });
+
   it('routes an image request to real raster generation and never falls through to text prompt generation', async () => {
     const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
     const digest = new Uint8Array(32);
@@ -536,6 +603,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'X-Origin-Visual-Provider': 'pollinations-zero-cost',
           'X-Origin-Visual-Model': 'tomdacatto/sana',
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
+          'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
+          'X-Origin-Visual-Plan-Sha256': 'c'.repeat(64),
           'X-Origin-Visual-Width': '1024',
           'X-Origin-Visual-Height': '1024',
           'X-Origin-Free-Only': 'true',
