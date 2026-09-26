@@ -22,6 +22,24 @@ describe('rasterVisualTemplatesV15', () => {
     expect(template.safeMarginPct).toBeLessThanOrEqual(10);
   });
 
+  it('uses an exact bounded custom size when no named template applies', () => {
+    expect(resolveRasterVisualTemplateV15('広告画像を作って', { width: 1200, height: 628 })).toMatchObject({
+      id: 'custom-size',
+      platform: 'custom-size',
+      width: 1200,
+      height: 628,
+      safeMarginPct: 7,
+    });
+  });
+
+  it('keeps semantic templates authoritative over conflicting generic size hints', () => {
+    expect(resolveRasterVisualTemplateV15('Instagram Story 9:16で作って', { width: 1024, height: 1024 })).toMatchObject({
+      id: 'instagram-story',
+      width: 864,
+      height: 1536,
+    });
+  });
+
   it('falls back to a safe square template for unconstrained general requests', () => {
     expect(resolveRasterVisualTemplateV15('朝焼けの富士山の写真を作って')).toMatchObject({
       id: 'general-square',
