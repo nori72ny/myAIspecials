@@ -1,76 +1,40 @@
 # ORIGIN continuation audit — 2026-09-27
 
-Source: PR #698 exact head `6eed2e02634a055c0aadeca64ca27f5c974e2ef7`.
-Initial review was local. Owner subsequently approved updating PR #698 and
-retargeting it to main for combined CI/Preview validation. The code update is
-5a1a7f0ed3dcaef1cf84bd4e380f9e5a86f2474f. No merge, Production deployment,
-provider authorization, secret or billing change was performed.
+Source: PR #698, continuing from the previously verified device-auth and image-connect candidate.
+Owner delegated implementation and verification; main merge and Production deployment remain separate approval boundaries.
 
-## Implemented correction
+## Pollinations app-identity review
 
-An approved image connection whose free-model readiness check failed previously
-returned to the start-authorization screen. A regression test failed against the
-original implementation, proving the misleading state.
+Before asking the owner to perform the first real provider consent, the device flow was compared against Pollinations' current BYOP/device-flow implementation and SDK.
 
-- Retain the approved state when readiness is unavailable.
-- Explicitly recheck readiness without creating another device authorization.
-- Resume only after ready, zeroCostVerified, freeOnly and no-paid-fallback checks.
-- Offer browser-local disconnect while waiting for readiness; only report success
-  after the server confirms connected=false. Failure retains the approved state.
-- Closing an in-flight readiness check cannot resume the image request.
-- Added 320px/1440px mock-provider browser regression coverage.
+The previous branch hardcoded `pk_NgBAArhUeGvSRFba`. Pollinations' own SDK currently uses that exact value as its shared default device-flow client ID. Pollinations documentation describes `client_id` as the publishable App Key used for app attribution on the consent surface. Using the shared SDK identity for ORIGIN would therefore be an ambiguous consent/attribution boundary and is not acceptable for the live owner authorization gate.
 
-Scope limit: this is recovery-card connection management, not a persistent global
-settings page. Real OAuth, live image generation and paid-usage accounting remain
-unverified. Existing image provider/credential policy is unchanged.
+The candidate now:
 
-## Verification
+- requires `ORIGIN_POLLINATIONS_CLIENT_ID` for device authorization;
+- accepts only a syntactically valid `pk_` publishable App Key;
+- explicitly rejects the Pollinations shared SDK default client ID;
+- keeps the existing encrypted data key requirement;
+- reports `deviceAuthReady=false` and fails closed before any provider request when the ORIGIN-specific client ID is missing or shared;
+- seals the configured client ID into pending authorization state and requires it to remain unchanged through token exchange;
+- keeps the requested least-privilege account scope at `generate usage`;
+- keeps Secure + HttpOnly + SameSite=Strict sealed cookies and server-only token delivery;
+- keeps server-enforced RFC 8628 polling intervals and cumulative `slow_down` handling.
 
-- Regression reproduced before the fix (1 failed, 4 passed).
-- Related Vitest suites: 97 tests passed (App, connection UI, response policy).
-- TypeScript/design-token lint: passed.
-- Production build: passed again with final explanatory copy and browser tests.
-- New browser regressions: authored/typechecked, not executed. Playwright browser
-  download returned truncated/non-ZIP data; no browser pass is claimed.
-- Production desktop UI was directly inspected in the browser: initial composer
-  and expanded additional-actions menu render within the observed desktop view.
-  This is not mobile acceptance or a preview of this local change.
+Pollinations' current server implementation accepts form-encoded `/api/device/code` requests as used by ORIGIN, and the standard `/api/oauth/token` device-code exchange remains supported. The provider's device code is never returned to browser JavaScript; only the public user code and allowlisted approval URI are exposed.
 
-## CI routing blocker
+## Current release boundary
 
-PR #698 targets `feat/raster-device-auth-v15`. The CI, ACOS, CodeQL and Scorecard
-pull_request triggers match only `main`. Its zero workflow runs are explained by
-this configuration, not by a queue. Owner approved pushing this reviewed candidate and retargeting #698 to main.
-Both are complete. This evidence update triggers normal PR synchronization CI;
-Preview creation is also within the approved validation scope.
-Do not merge #696 and #698 blindly as separate overlapping candidates.
+Real provider consent is intentionally not started until an ORIGIN-owned Pollinations App Key is configured in Preview. No Pollinations secret key is required in the browser and no user token should be copied manually.
 
-## Primary GitHub evidence
+Still outstanding:
 
-- #696 head 5091daeb7479257867ead7ae007f640092d61289: CI success, run 36262442127.
-- #697 head ab70918a0fb4f9f13f209cf6807cecc714e5e101: CI success, run 36262651692.
-- main 564a1a144e89f2543b4f0066e2e7a6ada5e68261: Production CI 36242866320;
-  job 108407795966 passed exact production SHA, live upstream stream and multiturn
-  context. Log reports streamChunkCount=35, streamSource=upstream,
-  contextVerified=true. PWA/history/failure recovery used three mocked chat calls.
-- Scheduled held-out run 36256641941: workflow success, but benchmark and aggregate
-  jobs skipped. Preflight log: final prerequisites not configured, no provider call.
-- Scheduled AQ run 36255503270: actual comparison and aggregate skipped. Log says
-  live AQ skipped until 2026-09-26T21:38:40Z. Do not treat timer expiry as execution.
-- AQ V2 run 36242866308: skipped.
-- Coding production smoke 36230284373 on older SHA e1fdd172...: failed while waiting
-  for exact main in production; authenticated coding smoke was skipped. This does
-  not establish a coding-model failure or a current-SHA coding pass.
+1. Exact-head CI and Preview build for the app-identity hardening.
+2. Configure an ORIGIN-owned Pollinations publishable App Key in Preview as `ORIGIN_POLLINATIONS_CLIENT_ID` without exposing a secret key.
+3. Confirm `/api/creative/v1.5/raster/connect/status` reports `deviceAuthReady=true` on the exact-head Preview.
+4. Owner performs the explicit Pollinations approval step.
+5. Complete live image generation, exact post-generation `$0` usage evidence, Technical Critic, display/download/persistence and reconnect checks.
+6. Fresh trusted AQ/held-out coding evidence remains independent of ordinary CI.
+7. Main merge and Production publication require their own approval after all release evidence is assembled.
 
-## Remaining gates
-
-1. Approved remote candidate update and main-target exact-head CI.
-2. Inspect browser reports/screenshots at 320/390/1440px; verify controls, clipping,
-   keyboard/focus, history preservation, image display/download and persistence.
-3. Separate owner provider consent; real zero-cost image end-to-end evidence.
-4. Fresh trusted held-out/AQ evidence for the final candidate, with independent
-   scoring and one-shot corpus isolation; ordinary CI is not quality qualification.
-5. Controlled comparative evidence before any world-best or competitor-superiority
-   claim. No such claim is established by this audit.
-6. Separate owner approval for main merge and production publication, followed by
-   exact released-SHA checks and real coding/answer verification.
+No main merge, Production deployment, paid fallback, billing change, or secret relaxation occurred in this batch.
