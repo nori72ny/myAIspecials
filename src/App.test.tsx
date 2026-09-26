@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -517,6 +517,16 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(isDirectImageGenerationRequest('夕焼けの海の画像を作ってください')).toBe(true);
     expect(isDirectImageGenerationRequest('Create a cinematic image of Tokyo at night')).toBe(true);
     expect(isDirectImageGenerationRequest('画像生成AIの仕組みを教えてください')).toBe(false);
+  });
+
+  it('maps standard and exact image sizes consistently with the visual template engine', () => {
+    expect(rasterSizeForRequest('Instagram 4:5のフィード投稿を作って')).toEqual({ width: 1024, height: 1280 });
+    expect(rasterSizeForRequest('Instagram Story 9:16で作って')).toEqual({ width: 864, height: 1536 });
+    expect(rasterSizeForRequest('YouTubeサムネイルを作って')).toEqual({ width: 1536, height: 864 });
+    expect(rasterSizeForRequest('A4印刷用のポスターを作って')).toEqual({ width: 1086, height: 1536 });
+    expect(rasterSizeForRequest('人物ポートレートを2:3で作って')).toEqual({ width: 1024, height: 1536 });
+    expect(rasterSizeForRequest('1200×628で広告画像を作って')).toEqual({ width: 1200, height: 628 });
+    expect(rasterSizeForRequest('2000×1000で画像を作って')).toEqual({ width: 1024, height: 1024 });
   });
 
   it('recognizes broader visual creation language without hijacking explanatory questions', () => {
