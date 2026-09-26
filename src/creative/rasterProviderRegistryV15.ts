@@ -77,6 +77,10 @@ export function rasterProviderRegistryV15(): readonly RasterProviderDescriptorV1
   return PROVIDERS.map(provider => structuredClone(provider.descriptor));
 }
 
+export function resolveRasterProviderV15(task: RasterTaskV15): RasterProviderRuntimeV15 | null {
+  return PROVIDERS.find(provider => provider.descriptor.capabilities.some(capability => capability.task === task)) ?? null;
+}
+
 export async function selectRasterProviderV15(
   task: RasterTaskV15,
   env: NodeJS.ProcessEnv = process.env,
