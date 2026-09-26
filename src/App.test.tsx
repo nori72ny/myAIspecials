@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -655,6 +655,14 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
     Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
     vi.unstubAllGlobals();
+  });
+
+  it('keeps repeated variation prompts bounded to the original visual brief', () => {
+    const first = buildRasterVariationPrompt('夕焼けの海の画像を作ってください');
+    const second = buildRasterVariationPrompt(first);
+    expect(second).toBe(first);
+    expect(second.match(/Create a clearly distinct alternative variation\./g)).toHaveLength(1);
+    expect(second.length).toBeLessThanOrEqual(2_000);
   });
 
   it('creates a lineage-aware alternative variation from an existing generated image', async () => {
