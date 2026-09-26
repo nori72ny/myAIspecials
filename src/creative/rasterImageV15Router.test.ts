@@ -171,7 +171,10 @@ describe('rasterImageV15Router', () => {
     expect(response.body.plan).toMatchObject({
       version: 'raster-visual-plan-v1',
       purpose: 'advertisement',
-      platform: 'vertical-mobile',
+      platform: 'vertical-mobile-story',
+      templateId: 'instagram-story',
+      safeMarginPct: 9,
+      typographyZone: 'bottom',
       width: 864,
       height: 1536,
     });
