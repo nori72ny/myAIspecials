@@ -31,6 +31,17 @@ function json(value: unknown, status = 200): Response {
   });
 }
 
+function imageJson(bytes: Uint8Array, mediaType?: string): Response {
+  return json({
+    created: 1,
+    data: [{
+      b64_json: Buffer.from(bytes).toString('base64'),
+      ...(mediaType ? { media_type: mediaType } : {}),
+    }],
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2, input_tokens_details: {} },
+  });
+}
+
 describe('rasterImageProviderV15', () => {
   it('selects the audited model only when its live registry price is exactly zero', async () => {
     const fetchMock = vi.fn(async () => json([pricedModel, freeModel])) as unknown as typeof fetch;
@@ -55,10 +66,7 @@ describe('rasterImageProviderV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-1' }] }))
-      .mockResolvedValueOnce(new Response(imageBytes, {
-        status: 200,
-        headers: { 'content-type': 'image/png' },
-      }))
+      .mockResolvedValueOnce(imageJson(imageBytes, 'image/png'))
       .mockResolvedValueOnce(json({
         usage: [{
           cursor_event_id: 'after-1',
@@ -89,9 +97,25 @@ describe('rasterImageProviderV15', () => {
     });
     expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/image/');
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('model=tomdacatto%2Fsana');
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('safe=privacy%2Csecrets%2Csexual%2Cviolence%2Cshield');
+    expect(String(fetchMock.mock.calls[2]?.[0])).toBe('https://gen.pollinations.ai/v1/images/generations');
+    const generationInit = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect(generationInit.method).toBe('POST');
+    expect(new Headers(generationInit.headers).get('pollinations-safe')).toBe('privacy,secrets,sexual,violence,shield');
+    expect(JSON.parse(String(generationInit.body))).toMatchObject({
+      prompt: '静かな湖と朝焼け',
+      model: 'tomdacatto/sana',
+      n: 1,
+      size: '768x1024',
+      quality: 'medium',
+      response_format: 'b64_json',
+      safe: 'privacy,secrets,sexual,violence,shield',
+    });
+  });
+
+  it('rejects ambiguous nonnumeric pricing instead of treating it as free', async () => {
+    const ambiguous = { ...freeModel, pricing: { currency: 'pollen', completionImageTokens: '0.002' } };
+    const fetchMock = vi.fn(async () => json([ambiguous])) as unknown as typeof fetch;
+    await expect(discoverZeroCostPollinationsModelV15('sk_test', 'tomdacatto/sana', fetchMock)).resolves.toBeNull();
   });
 
   it('does not auto-adopt an unknown community model even when its live price is zero', async () => {
@@ -104,10 +128,7 @@ describe('rasterImageProviderV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [] }))
-      .mockResolvedValueOnce(new Response(Uint8Array.from([1, 2, 3, 4]), {
-        status: 200,
-        headers: { 'content-type': 'image/png' },
-      })) as unknown as typeof fetch;
+      .mockResolvedValueOnce(imageJson(Uint8Array.from([1, 2, 3, 4]), 'image/png')) as unknown as typeof fetch;
 
     await expect(generateRasterImageV15(
       { prompt: 'test' },
@@ -140,10 +161,7 @@ describe('rasterImageProviderV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-eventual' }] }))
-      .mockResolvedValueOnce(new Response(imageBytes, {
-        status: 200,
-        headers: { 'content-type': 'image/png' },
-      }))
+      .mockResolvedValueOnce(imageJson(imageBytes, 'image/png'))
       .mockResolvedValueOnce(json({ usage: [] }))
       .mockResolvedValueOnce(json({ usage: [] }))
       .mockResolvedValueOnce(json({ usage: [matchingUsage] }));
@@ -165,10 +183,7 @@ describe('rasterImageProviderV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-paid' }] }))
-      .mockResolvedValueOnce(new Response(imageBytes, {
-        status: 200,
-        headers: { 'content-type': 'image/jpeg' },
-      }))
+      .mockResolvedValueOnce(imageJson(imageBytes, 'image/jpeg'))
       .mockResolvedValueOnce(json({
         usage: [{
           cursor_event_id: 'after-paid',
@@ -207,10 +222,7 @@ describe('rasterImageProviderV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-cost' }] }))
-      .mockResolvedValueOnce(new Response(Uint8Array.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]), {
-        status: 200,
-        headers: { 'content-type': 'image/jpeg' },
-      }))
+      .mockResolvedValueOnce(imageJson(Uint8Array.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]), 'image/jpeg'))
       .mockResolvedValueOnce(json({
         usage: [{
           cursor_event_id: 'after-cost',
