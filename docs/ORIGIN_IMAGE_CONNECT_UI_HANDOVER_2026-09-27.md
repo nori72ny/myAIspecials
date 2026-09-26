@@ -22,15 +22,15 @@ PR #698 now requires an ORIGIN-specific publishable App Key through `ORIGIN_POLL
 
 This prevents the first real ORIGIN authorization from being performed under an ambiguous/shared provider identity.
 
-## Current evidence boundary
+## Evidence boundary
 
-The earlier exact head `e6af9653929ef69e729057ddc8266e3ab4a6a120` passed ACOS, Production Release CI/CD, CodeQL, OpenSSF, Node 22/24 build/unit/E2E/Lighthouse and three-browser Artifact isolation, and its Vercel Preview was READY.
+An earlier exact head passed ACOS, Production Release CI/CD, CodeQL, OpenSSF, Node 22/24 build/unit/E2E/Lighthouse and three-browser Artifact isolation, and its Vercel Preview was READY. Those checks are historical baseline only.
 
-The app-identity hardening creates a new exact head. Prior green checks are historical baseline only and must not be reused as acceptance of the new head. New exact-head CI and Preview validation are required.
+The app-identity hardening and its documentation updates create a newer exact head. Always read the current PR head directly from GitHub and require CI/Preview evidence for that exact SHA; do not copy a SHA into this handover as a durable release claim.
 
 ## Next gate
 
-1. Finish exact-head CI and Preview build for the app-identity hardening.
+1. Finish exact-head CI and Preview build for the current PR head.
 2. Configure an ORIGIN-owned Pollinations publishable App Key in Preview as `ORIGIN_POLLINATIONS_CLIENT_ID` without exposing a secret key.
 3. Confirm the exact-head Preview reports `deviceAuthReady=true`.
 4. Owner performs only the explicit Pollinations approval step.
