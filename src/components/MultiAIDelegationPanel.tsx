@@ -330,7 +330,7 @@ export default function MultiAIDelegationPanel() {
                   外部AIを呼ばず、依頼に適した担当と検証方法をこの端末内で判定します。
                 </p>
               </div>
-              <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-neutral-300 dark:hover:bg-white/10">
+              <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="min-h-[45px] min-w-[45px] rounded-lg p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-neutral-300 dark:hover:bg-white/10">
                 <X className="h-4 w-4" />
               </button>
             </header>
