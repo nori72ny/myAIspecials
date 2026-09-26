@@ -1,4 +1,5 @@
 export type RasterVisualTemplateIdV15 =
+  | 'custom-size'
   | 'general-square'
   | 'instagram-feed'
   | 'instagram-story'
@@ -117,7 +118,10 @@ export function rasterVisualTemplatesV15(): readonly RasterVisualTemplateV15[] {
   return TEMPLATES.map(template => ({ ...template, compositionGuidance: [...template.compositionGuidance] }));
 }
 
-export function resolveRasterVisualTemplateV15(input: string): RasterVisualTemplateV15 {
+export function resolveRasterVisualTemplateV15(
+  input: string,
+  requestedSize?: { width?: number; height?: number },
+): RasterVisualTemplateV15 {
   const text = input.normalize('NFKC');
 
   if (/(?:Instagram|インスタ).{0,24}(?:Story|ストーリー|Reel|リール)|(?:Story|ストーリー|Reel|リール).{0,24}(?:Instagram|インスタ)|9\s*[:：/]\s*16/i.test(text)) {
@@ -144,5 +148,29 @@ export function resolveRasterVisualTemplateV15(input: string): RasterVisualTempl
   if (/(?:16\s*[:：/]\s*9|横長|landscape|wide|X投稿|LinkedIn)/i.test(text)) {
     return TEMPLATES.find(template => template.id === 'social-landscape')!;
   }
+
+  const width = requestedSize?.width;
+  const height = requestedSize?.height;
+  if (Number.isInteger(width) && Number.isInteger(height)
+    && Number(width) >= 256 && Number(width) <= 1536
+    && Number(height) >= 256 && Number(height) <= 1536) {
+    const exact = TEMPLATES.find(template => template.width === width && template.height === height);
+    if (exact) return exact;
+    return {
+      id: 'custom-size',
+      label: `Custom ${width}×${height}`,
+      platform: 'custom-size',
+      width: Number(width),
+      height: Number(height),
+      safeMarginPct: 7,
+      typographyZone: 'bottom',
+      compositionGuidance: [
+        'respect the exact requested canvas dimensions',
+        'keep the primary subject inside a central crop-safe region',
+        'keep critical copy and logos away from the outer 7 percent safe margin',
+      ],
+    };
+  }
+
   return TEMPLATES.find(template => template.id === 'general-square')!;
 }
