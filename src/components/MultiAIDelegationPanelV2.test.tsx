@@ -10,6 +10,8 @@ describe("MultiAIDelegationPanelV2", () => {
     expect(html).toContain("AI作業振り分け");
     expect(html).toContain("aria-label=\"AI作業振り分けを開く\"");
     expect(html).toContain("min-h-11");
+    expect(html).toContain("min-h-[45px]");
+    expect(html).toContain("min-w-[45px]");
     expect(html).not.toContain("security-review-assistant");
     expect(html).not.toContain("ai-studio-primary");
     expect(html).not.toContain("Human Approval Gate");
