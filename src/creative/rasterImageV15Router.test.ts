@@ -182,7 +182,7 @@ describe('rasterImageV15Router', () => {
   it('keeps exact API dimensions aligned with plan provenance', async () => {
     const response = await request(app())
       .post('/api/creative/v1.5/raster/plan')
-      .send({ prompt: '広告画像を作ってください', width: 1200, height: 628 });
+      .send({ prompt: 'ORIGINの広告画像を作ってください', width: 1200, height: 628 });
     expect(response.status).toBe(200);
     expect(response.body.plan).toMatchObject({
       templateId: 'custom-size',
@@ -260,7 +260,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-plan']).toBe('raster-visual-plan-v1');
     expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-purpose']).toBe('photograph');
-    expect(response.headers['x-origin-visual-template']).toBe('general-square');
+    expect(response.headers['x-origin-visual-template']).toBe('custom-size');
     expect(response.headers['x-origin-visual-safe-margin-pct']).toBe('7');
     expect(response.headers['x-origin-visual-typography-zone']).toBe('bottom');
     expect(response.headers['x-origin-visual-critic']).toBe('raster-structural-critic-v1');
