@@ -9,6 +9,7 @@ import {
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
+import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 
@@ -93,6 +94,17 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         failClosed: true,
         checks: ['decodable-dimensions', 'dimensions-within-origin-bounds', 'requested-dimensions-match', 'nontrivial-image-payload'],
       },
+      technicalPixelCritic: {
+        version: 'raster-technical-critic-v1',
+        implemented: true,
+        execution: 'client-local-after-verified-bytes',
+        checks: ['non-empty-alpha', 'non-uniform-content', 'black-white-clipping', 'minimum-information-density'],
+        semanticVisionJudgment: false,
+      },
+      candidateSelection: {
+        ...candidatePolicyForRasterRequestV15('高品質な広告画像を作ってください', 'advertisement'),
+        activationGate: 'live-zero-cost-quota-and-latency-evidence',
+      },
       templateEngine: {
         version: 'raster-template-engine-v1',
         templates: rasterVisualTemplatesV15().map(template => ({
@@ -119,6 +131,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         ok: plan.ready,
         code: plan.ready ? 'RASTER_PLAN_READY' : 'IMAGE_REQUIREMENTS_INCOMPLETE',
         plan,
+        candidatePolicy: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose),
         freeOnly: true,
         costUsd: 0,
         paidFallbackUsed: false,
@@ -157,6 +170,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
             width: plan.width,
             height: plan.height,
           },
+          candidatePolicy: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose),
           freeOnly: true,
           costUsd: 0,
           paidFallbackUsed: false,
@@ -210,7 +224,12 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Quality-Score', String(critic.score));
       res.setHeader('X-Origin-Visual-Actual-Width', String(critic.actualWidth));
       res.setHeader('X-Origin-Visual-Actual-Height', String(critic.actualHeight));
+      const candidatePolicy = candidatePolicyForRasterRequestV15(input.prompt, plan.purpose);
       res.setHeader('X-Origin-Visual-Typography-Overlay', plan.requiresDeterministicTypography ? 'recommended' : 'not-required');
+      res.setHeader('X-Origin-Visual-Candidate-Policy', candidatePolicy.version);
+      res.setHeader('X-Origin-Visual-Candidates-Recommended', String(candidatePolicy.recommendedCandidates));
+      res.setHeader('X-Origin-Visual-Candidates-Active', String(candidatePolicy.activeCandidates));
+      res.setHeader('X-Origin-Visual-Best-Of-N', candidatePolicy.bestOfNEnabled ? 'true' : 'false');
       res.setHeader('X-Origin-Visual-Provider', result.providerId);
       res.setHeader('X-Origin-Visual-Model', result.model);
       res.setHeader('X-Origin-Visual-Width', String(result.width));
