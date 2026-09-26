@@ -59,6 +59,19 @@ describe('rasterVisualPlannerV15', () => {
     expect(plan.composition).toContain('desktop and mobile crop resilience');
   });
 
+  it('compiles exact requested dimensions into the visual plan and provenance', () => {
+    const plan = planRasterVisualRequestV15('広告画像を作ってください', { width: 1200, height: 628 });
+    expect(plan).toMatchObject({
+      templateId: 'custom-size',
+      platform: 'custom-size',
+      width: 1200,
+      height: 628,
+      safeMarginPct: 7,
+    });
+    expect(plan.compiledPrompt).toContain('Template: custom-size');
+    expect(plan.compiledPrompt).toContain('Output: 1200x628');
+  });
+
   it('does not ask an aspect-ratio question for ordinary unconstrained photographs', () => {
     const plan = planRasterVisualRequestV15('朝焼けの富士山をリアルな写真として生成してください');
     expect(plan.ready).toBe(true);
