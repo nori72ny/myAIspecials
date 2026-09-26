@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import {
@@ -5,6 +6,7 @@ import {
   getRasterProviderStatusV15,
   type RasterImageRequestV15,
 } from './rasterImageProviderV15.js';
+import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 
@@ -70,6 +72,27 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     });
   });
 
+  router.post('/api/creative/v1.5/raster/plan', (req, res) => {
+    const kinds = sensitiveKinds(req.body);
+    if (kinds.length > 0) return fail(res, 422, 'SENSITIVE_INPUT_BLOCKED');
+
+    try {
+      const input = parseBody(req.body);
+      const plan = planRasterVisualRequestV15(input.prompt);
+      return res.status(plan.ready ? 200 : 409).json({
+        ok: plan.ready,
+        code: plan.ready ? 'RASTER_PLAN_READY' : 'IMAGE_REQUIREMENTS_INCOMPLETE',
+        plan,
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+        providerExecutions: 0,
+      });
+    } catch (error) {
+      return fail(res, 400, error instanceof Error ? error.message : 'INVALID_RASTER_REQUEST');
+    }
+  });
+
   const handler = async (req: Request, res: Response) => {
     const kinds = sensitiveKinds(req.body);
     if (kinds.length > 0) {
@@ -84,13 +107,47 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     }
 
     try {
-      const result = await generateRasterImageV15(input, env);
+      const plan = planRasterVisualRequestV15(input.prompt);
+      if (!plan.ready) {
+        return res.status(409).json({
+          ok: false,
+          code: 'IMAGE_REQUIREMENTS_INCOMPLETE',
+          message: '画像の仕上がりを大きく左右する情報が不足しています。',
+          questions: plan.questions,
+          plan: {
+            version: plan.version,
+            purpose: plan.purpose,
+            platform: plan.platform,
+            width: plan.width,
+            height: plan.height,
+          },
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+          providerExecutions: 0,
+          secretDelivery: 'server-only',
+        });
+      }
+      const result = await generateRasterImageV15({
+        ...input,
+        prompt: plan.compiledPrompt,
+        negativePrompt: input.negativePrompt?.trim()
+          ? `${plan.negativePrompt}, ${input.negativePrompt.trim()}`
+          : plan.negativePrompt,
+        width: input.width ?? plan.width,
+        height: input.height ?? plan.height,
+      }, env);
+      const planSha256 = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', result.mimeType);
       res.setHeader('Content-Disposition', `attachment; filename="${filename(result.mimeType)}"`);
       res.setHeader('X-Origin-Visual-Verified', 'true');
       res.setHeader('X-Origin-Visual-Sha256', result.sha256);
       res.setHeader('X-Origin-Visual-Generation-Id', `raster-${result.sha256.slice(0, 24)}`);
+      res.setHeader('X-Origin-Visual-Plan', plan.version);
+      res.setHeader('X-Origin-Visual-Plan-Sha256', planSha256);
+      res.setHeader('X-Origin-Visual-Purpose', plan.purpose);
+      res.setHeader('X-Origin-Visual-Typography-Overlay', plan.requiresDeterministicTypography ? 'recommended' : 'not-required');
       res.setHeader('X-Origin-Visual-Provider', result.providerId);
       res.setHeader('X-Origin-Visual-Model', result.model);
       res.setHeader('X-Origin-Visual-Width', String(result.width));
