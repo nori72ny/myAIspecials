@@ -197,6 +197,8 @@ export type GeneratedImageMessage = {
   planSha256: string;
   purpose: string;
   typographyOverlay: boolean;
+  sourceCriticVersion: 'raster-structural-critic-v1';
+  sourceQualityScore: number;
   width: number;
   height: number;
   relation: 'generated' | 'variation' | 'edited-from';
@@ -1178,6 +1180,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const visualPlanSha256 = response.headers.get('x-origin-visual-plan-sha256') ?? '';
         const purpose = response.headers.get('x-origin-visual-purpose') ?? '';
         const typographyOverlay = response.headers.get('x-origin-visual-typography-overlay') ?? '';
+        const sourceCriticVersion = response.headers.get('x-origin-visual-critic') ?? '';
+        const sourceQualityScore = Number(response.headers.get('x-origin-visual-quality-score') ?? '0');
+        const sourceActualWidth = Number(response.headers.get('x-origin-visual-actual-width') ?? '0');
+        const sourceActualHeight = Number(response.headers.get('x-origin-visual-actual-height') ?? '0');
         const width = Number(response.headers.get('x-origin-visual-width') ?? '0');
         const height = Number(response.headers.get('x-origin-visual-height') ?? '0');
         const cost = response.headers.get('x-origin-cost-usd');
@@ -1194,6 +1200,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           || !/^[a-f0-9]{64}$/i.test(visualPlanSha256)
           || !/^[a-z-]{1,40}$/.test(purpose)
           || (typographyOverlay !== 'recommended' && typographyOverlay !== 'not-required')
+          || sourceCriticVersion !== 'raster-structural-critic-v1'
+          || sourceQualityScore !== 100
+          || sourceActualWidth !== width
+          || sourceActualHeight !== height
           || !Number.isInteger(width) || width < 256 || width > 1536
           || !Number.isInteger(height) || height < 256 || height > 1536
           || cost !== '0'
@@ -1227,6 +1237,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           planSha256: visualPlanSha256.toLowerCase(),
           purpose,
           typographyOverlay: false,
+          sourceCriticVersion: 'raster-structural-critic-v1',
+          sourceQualityScore,
           relation: 'generated',
           width,
           height,
@@ -1279,6 +1291,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             planSha256: visualPlanSha256.toLowerCase(),
             purpose,
             typographyOverlay: true,
+            sourceCriticVersion: 'raster-structural-critic-v1',
+            sourceQualityScore,
             relation: finalRelation,
             parentId: finalParentId,
             width,
@@ -1304,6 +1318,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           planSha256: visualPlanSha256.toLowerCase(),
           purpose,
           typographyOverlay: deterministicTypographyApplied,
+          sourceCriticVersion: 'raster-structural-critic-v1',
+          sourceQualityScore,
           width,
           height,
           relation: finalRelation,
