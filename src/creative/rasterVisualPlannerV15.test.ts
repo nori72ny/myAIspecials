@@ -16,12 +16,20 @@ describe('rasterVisualPlannerV15', () => {
     );
     expect(plan.ready).toBe(true);
     expect(plan.purpose).toBe('advertisement');
-    expect(plan.platform).toBe('vertical-mobile');
-    expect(plan).toMatchObject({ width: 864, height: 1536 });
+    expect(plan.platform).toBe('vertical-mobile-story');
+    expect(plan).toMatchObject({
+      templateId: 'instagram-story',
+      safeMarginPct: 9,
+      typographyZone: 'bottom',
+      width: 864,
+      height: 1536,
+    });
     expect(plan.style.join(' ')).toContain('premium restrained');
     expect(plan.style.join(' ')).toContain('futuristic');
     expect(plan.composition).toContain('clear single hero subject');
     expect(plan.compiledPrompt).toContain('controlled commercial key light');
+    expect(plan.compiledPrompt).toContain('Template: instagram-story');
+    expect(plan.compiledPrompt).toContain('Safe area: keep critical content at least 9% away from the canvas edge');
     expect(plan.negativePrompt).toContain('extra fingers');
   });
 
@@ -36,6 +44,19 @@ describe('rasterVisualPlannerV15', () => {
     expect(plan.compiledPrompt).toContain('"ORIGIN Personal"');
     expect(plan.compiledPrompt).toContain('rendered later by ORIGIN deterministic typography');
     expect(plan.compiledPrompt).toContain('do not render this critical text yourself');
+  });
+
+  it('selects an LP hero template with crop-resilient negative space guidance', () => {
+    const plan = planRasterVisualRequestV15('ORIGINのLPヒーロー用キービジュアルを、洗練された未来的な雰囲気で作ってください');
+    expect(plan).toMatchObject({
+      templateId: 'lp-hero',
+      platform: 'web-hero',
+      width: 1536,
+      height: 864,
+      typographyZone: 'left',
+    });
+    expect(plan.composition).toContain('hero subject offset away from copy zone');
+    expect(plan.composition).toContain('desktop and mobile crop resilience');
   });
 
   it('does not ask an aspect-ratio question for ordinary unconstrained photographs', () => {
