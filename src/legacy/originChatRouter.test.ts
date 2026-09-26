@@ -35,6 +35,18 @@ describe("createOriginChatRouter", () => {
   let executeMock: ReturnType<typeof vi.fn>;
   beforeEach(() => { executeMock = vi.fn().mockResolvedValue(defaultExecutionResult); execute = executeMock as OriginChatExecutor; });
 
+  it("answers supplied price arithmetic without requiring public-source retrieval", async () => {
+    const researchMock = vi.fn();
+    executeMock.mockResolvedValueOnce({ ...defaultExecutionResult, text: "元の価格に戻ります。1000 × 0.8 × 1.25 = 1000円です。" });
+    const response = await request(createApp(execute, undefined, undefined, undefined, researchMock))
+      .post("/api/chat").send({ messages: [{ role: "user", content: "商品を20%値引きした後、値引き後の価格を25%値上げしました。元の価格を1000円として計算してください。" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("1000 × 0.8 × 1.25");
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    expect(researchMock).not.toHaveBeenCalled();
+    expect(response.body.routing.answerMode).not.toBe("research");
+  });
+
   it("rejects invalid messages before provider execution", async () => { const response = await request(createApp(execute)).post("/api/chat").send({}); expect(response.status).toBe(400); expect(response.body.code).toBe("INVALID_CHAT_MESSAGES"); expect(executeMock).not.toHaveBeenCalled(); });
   it("blocks synthetic secrets before provider execution", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "Authorization: Bearer synthetic_token_value_123456" }] }); expect(response.status).toBe(422); expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED"); expect(JSON.stringify(response.body)).not.toContain("synthetic_token_value_123456"); expect(executeMock).not.toHaveBeenCalled(); });
   it("returns a validated zero-cost routing envelope", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "認証処理をレビューしてください" }] }); expect(response.status).toBe(200); expect(response.body.content).toBe("安全な確認結果です。"); expect(response.body.routing).toEqual(expect.objectContaining({ model: "ORIGIN 無料AI", providerId: "openrouter-free", modelId: "inclusionai/ling-3.0-flash-sante:free", cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, freeOnly: true, traceId: "origin-test-trace", verificationStatus: "not-run", reviewRequired: true, providerAttempts: 1, providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true }, providerRouting: { requestedModel: "inclusionai/ling-3.0-flash-sante:free", servedModel: "inclusionai/ling-3.0-flash-sante:free", strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1, fallbackUsed: false }, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 } })); expect(executeMock).toHaveBeenCalledTimes(1); const call = executeMock.mock.calls[0]?.[0]; expect(call?.systemInstruction).toContain("For routine explanatory or comparison answers"); expect(call?.systemInstruction).toContain("For complex multi-part requests, use as many distinct points as needed"); expect(call?.systemInstruction).toContain("Ask one to three focused questions per turn"); expect(call?.systemInstruction).toContain("Continue the clarification loop across turns"); });
