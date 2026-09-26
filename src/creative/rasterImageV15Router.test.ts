@@ -99,7 +99,15 @@ describe('rasterImageV15Router', () => {
         version: 'raster-structural-critic-v1',
         failClosed: true,
       },
+      templateEngine: {
+        version: 'raster-template-engine-v1',
+      },
     });
+    expect(status.body.templateEngine.templates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'instagram-story', width: 864, height: 1536, safeMarginPct: 9 }),
+      expect.objectContaining({ id: 'youtube-thumbnail', width: 1536, height: 864 }),
+      expect.objectContaining({ id: 'lp-hero', width: 1536, height: 864 }),
+    ]));
 
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
     expect(legacy.status).toBe(503);
@@ -157,6 +165,35 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects incomplete or out-of-bounds raster dimension pairs before provider execution', async () => {
+    const missingHeight = await request(app())
+      .post('/api/creative/v1.5/raster/plan')
+      .send({ prompt: '広告画像を作って', width: 1200 });
+    expect(missingHeight.status).toBe(400);
+    expect(missingHeight.body.code).toBe('INVALID_RASTER_DIMENSION_PAIR');
+
+    const tooLarge = await request(app())
+      .post('/api/creative/v1.5/raster/plan')
+      .send({ prompt: '広告画像を作って', width: 1600, height: 900 });
+    expect(tooLarge.status).toBe(400);
+    expect(tooLarge.body.code).toBe('INVALID_RASTER_DIMENSION');
+  });
+
+  it('keeps exact API dimensions aligned with plan provenance', async () => {
+    const response = await request(app())
+      .post('/api/creative/v1.5/raster/plan')
+      .send({ prompt: 'ORIGINの広告画像を作ってください', width: 1200, height: 628 });
+    expect(response.status).toBe(200);
+    expect(response.body.plan).toMatchObject({
+      templateId: 'custom-size',
+      platform: 'custom-size',
+      width: 1200,
+      height: 628,
+      safeMarginPct: 7,
+    });
+    expect(response.body.plan.compiledPrompt).toContain('Output: 1200x628');
+  });
+
   it('exposes the structured raster plan without executing an image provider', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -171,7 +208,10 @@ describe('rasterImageV15Router', () => {
     expect(response.body.plan).toMatchObject({
       version: 'raster-visual-plan-v1',
       purpose: 'advertisement',
-      platform: 'vertical-mobile',
+      platform: 'vertical-mobile-story',
+      templateId: 'instagram-story',
+      safeMarginPct: 9,
+      typographyZone: 'bottom',
       width: 864,
       height: 1536,
     });
@@ -220,6 +260,9 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-plan']).toBe('raster-visual-plan-v1');
     expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-purpose']).toBe('photograph');
+    expect(response.headers['x-origin-visual-template']).toBe('custom-size');
+    expect(response.headers['x-origin-visual-safe-margin-pct']).toBe('7');
+    expect(response.headers['x-origin-visual-typography-zone']).toBe('bottom');
     expect(response.headers['x-origin-visual-critic']).toBe('raster-structural-critic-v1');
     expect(response.headers['x-origin-visual-quality-score']).toBe('100');
     expect(response.headers['x-origin-visual-actual-width']).toBe('768');

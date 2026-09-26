@@ -529,10 +529,23 @@ export const isDirectImageGenerationRequest = (input: string): boolean => {
 const isImageClarificationCancellation = (input: string): boolean =>
   /^(?:やめ(?:る|ます)?|キャンセル|画像(?:生成)?はやめ|別の話|cancel|stop|never mind)\b/i.test(input.trim());
 
-const rasterSizeForRequest = (input: string): { width: number; height: number } => {
-  if (/(?:9\s*[:：/]\s*16|縦長|ストーリー|portrait|vertical)/i.test(input)) return { width: 864, height: 1536 };
-  if (/(?:16\s*[:：/]\s*9|横長|landscape|wide)/i.test(input)) return { width: 1536, height: 864 };
-  if (/(?:1\s*[:：/]\s*1|正方形|square)/i.test(input)) return { width: 1024, height: 1024 };
+export const rasterSizeForRequest = (input: string): { width: number; height: number } => {
+  const exact = input.normalize('NFKC').match(/(?:^|\D)(\d{3,4})\s*[x×X]\s*(\d{3,4})(?:\D|$)/);
+  if (exact) {
+    const width = Number(exact[1]);
+    const height = Number(exact[2]);
+    if (Number.isInteger(width) && Number.isInteger(height)
+      && width >= 256 && width <= 1536
+      && height >= 256 && height <= 1536) {
+      return { width, height };
+    }
+  }
+  if (/(?:Instagram|インスタ).{0,24}(?:Story|ストーリー|Reel|リール)|(?:Story|ストーリー|Reel|リール).{0,24}(?:Instagram|インスタ)|9\s*[:：/]\s*16|縦長|portrait|vertical/i.test(input)) return { width: 864, height: 1536 };
+  if (/(?:YouTube|ユーチューブ).{0,20}(?:サムネ|thumbnail)|(?:LP|landing page|ランディングページ).{0,24}(?:hero|ヒーロー|kv|キービジュアル)|16\s*[:：/]\s*9|横長|landscape|wide|X投稿|LinkedIn/i.test(input)) return { width: 1536, height: 864 };
+  if (/(?:A4|印刷|print).{0,20}(?:ポスター|poster|チラシ|flyer)/i.test(input)) return { width: 1086, height: 1536 };
+  if (/(?:人物|portrait|ポートレート).{0,24}(?:ポスター|poster)|2\s*[:：/]\s*3/i.test(input)) return { width: 1024, height: 1536 };
+  if (/(?:Instagram|インスタ).{0,24}(?:投稿|feed)|4\s*[:：/]\s*5|(?:商品|product|EC|物撮り).{0,24}(?:広告|ad|advert|campaign|訴求)/i.test(input)) return { width: 1024, height: 1280 };
+  if (/(?:1\s*[:：/]\s*1|正方形|square|ロゴ|logo|アイコン|icon)/i.test(input)) return { width: 1024, height: 1024 };
   return { width: 1024, height: 1024 };
 };
 

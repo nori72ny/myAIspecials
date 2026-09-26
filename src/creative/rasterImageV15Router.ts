@@ -8,6 +8,7 @@ import {
 } from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
+import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 
@@ -38,10 +39,16 @@ function parseBody(body: unknown): RasterImageRequestV15 {
   if (record.negativePrompt !== undefined && typeof record.negativePrompt !== 'string') throw new Error('INVALID_RASTER_NEGATIVE_PROMPT');
   if (record.model !== undefined && typeof record.model !== 'string') throw new Error('INVALID_RASTER_MODEL');
   for (const key of ['width', 'height'] as const) {
-    if (record[key] !== undefined && (typeof record[key] !== 'number' || !Number.isInteger(record[key]))) {
+    if (record[key] !== undefined && (
+      typeof record[key] !== 'number'
+      || !Number.isInteger(record[key])
+      || record[key] < 256
+      || record[key] > 1536
+    )) {
       throw new Error('INVALID_RASTER_DIMENSION');
     }
   }
+  if ((record.width === undefined) !== (record.height === undefined)) throw new Error('INVALID_RASTER_DIMENSION_PAIR');
   return {
     prompt: record.prompt,
     negativePrompt: record.negativePrompt as string | undefined,
@@ -86,6 +93,17 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         failClosed: true,
         checks: ['decodable-dimensions', 'dimensions-within-origin-bounds', 'requested-dimensions-match', 'nontrivial-image-payload'],
       },
+      templateEngine: {
+        version: 'raster-template-engine-v1',
+        templates: rasterVisualTemplatesV15().map(template => ({
+          id: template.id,
+          platform: template.platform,
+          width: template.width,
+          height: template.height,
+          safeMarginPct: template.safeMarginPct,
+          typographyZone: template.typographyZone,
+        })),
+      },
       modelBasedImageEditing: runtime.editingReady,
     });
   });
@@ -96,7 +114,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
 
     try {
       const input = parseBody(req.body);
-      const plan = planRasterVisualRequestV15(input.prompt);
+      const plan = planRasterVisualRequestV15(input.prompt, { width: input.width, height: input.height });
       return res.status(plan.ready ? 200 : 409).json({
         ok: plan.ready,
         code: plan.ready ? 'RASTER_PLAN_READY' : 'IMAGE_REQUIREMENTS_INCOMPLETE',
@@ -125,7 +143,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     }
 
     try {
-      const plan = planRasterVisualRequestV15(input.prompt);
+      const plan = planRasterVisualRequestV15(input.prompt, { width: input.width, height: input.height });
       if (!plan.ready) {
         return res.status(409).json({
           ok: false,
@@ -185,6 +203,9 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Plan', plan.version);
       res.setHeader('X-Origin-Visual-Plan-Sha256', planSha256);
       res.setHeader('X-Origin-Visual-Purpose', plan.purpose);
+      res.setHeader('X-Origin-Visual-Template', plan.templateId);
+      res.setHeader('X-Origin-Visual-Safe-Margin-Pct', String(plan.safeMarginPct));
+      res.setHeader('X-Origin-Visual-Typography-Zone', plan.typographyZone);
       res.setHeader('X-Origin-Visual-Critic', critic.version);
       res.setHeader('X-Origin-Visual-Quality-Score', String(critic.score));
       res.setHeader('X-Origin-Visual-Actual-Width', String(critic.actualWidth));
