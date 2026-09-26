@@ -5,13 +5,13 @@ const DEFAULT_MODEL = 'tomdacatto/sana';
 const AUDITED_ZERO_COST_MODELS = new Set(['tomdacatto/sana']);
 const MAX_PROMPT_CHARS = 2_000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_IMAGE_RESPONSE_BYTES = Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 64 * 1024;
 const IMAGE_GENERATION_TIMEOUT_MS = 45_000;
 const MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
 const USAGE_VERIFY_ATTEMPTS = 7;
 const USAGE_VERIFY_DELAY_MS = 7_000;
 const USAGE_VERIFY_TOTAL_MS = 50_000;
 const USAGE_VERIFY_REQUEST_TIMEOUT_MS = 4_000;
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 export type RasterImageSizeV15 = {
   width: number;
@@ -55,6 +55,9 @@ export type RasterImageResultV15 = {
 type PollinationsImageModel = {
   name?: unknown;
   category?: unknown;
+  title?: unknown;
+  description?: unknown;
+  community?: unknown;
   pricing?: unknown;
   pricing_variants?: unknown;
   paid_only?: unknown;
@@ -62,28 +65,43 @@ type PollinationsImageModel = {
   output_modalities?: unknown;
 };
 
+type PollinationsKeyInfoV15 = {
+  valid?: unknown;
+  type?: unknown;
+  permissions?: unknown;
+  pollenBudget?: unknown;
+};
+
 function boundedInt(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isInteger(value)) return fallback;
   return Math.max(256, Math.min(1536, value));
 }
 
-function isZeroCostPricing(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+function pricingProof(value: unknown): 'numeric-zero' | 'explicit-free-marker' | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  if (record.currency !== 'pollen') return false;
-  const numeric = Object.entries(record)
-    .filter(([key]) => key !== 'currency')
-    .map(([, item]) => item)
-    .filter((item): item is number => typeof item === 'number' && Number.isFinite(item));
-  return numeric.every((item) => item === 0);
+  if (record.currency !== 'pollen') return null;
+  const priceEntries = Object.entries(record).filter(([key]) => key !== 'currency');
+  if (priceEntries.length === 0) return 'explicit-free-marker';
+  return priceEntries.every(([, item]) => typeof item === 'number' && Number.isFinite(item) && item === 0)
+    ? 'numeric-zero'
+    : null;
 }
 
 function modelIsVerifiedZeroCost(model: PollinationsImageModel): boolean {
+  const name = modelName(model);
+  if (!name || !AUDITED_ZERO_COST_MODELS.has(name)) return false;
   if (model.category !== 'image' || model.paid_only === true) return false;
-  if (!isZeroCostPricing(model.pricing)) return false;
+  const proof = pricingProof(model.pricing);
+  if (!proof) return false;
+  if (proof === 'explicit-free-marker') {
+    const title = typeof model.title === 'string' ? model.title.toLowerCase() : '';
+    const description = typeof model.description === 'string' ? model.description.toLowerCase() : '';
+    if (model.community !== true || !title.includes('free') || !description.includes('free image model')) return false;
+  }
   if (Array.isArray(model.pricing_variants) && model.pricing_variants.some((variant) => {
     if (!variant || typeof variant !== 'object') return true;
-    return !isZeroCostPricing((variant as Record<string, unknown>).pricing);
+    return pricingProof((variant as Record<string, unknown>).pricing) !== 'numeric-zero';
   })) return false;
   const outputs = Array.isArray(model.output_modalities) ? model.output_modalities : [];
   return outputs.includes('image');
@@ -93,17 +111,119 @@ function modelName(model: PollinationsImageModel): string | null {
   return typeof model.name === 'string' && model.name.trim() ? model.name.trim() : null;
 }
 
-function imageBytesMatchMime(bytes: Buffer, mime: string): boolean {
-  if (mime === 'image/png') {
-    return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+function detectImageMime(bytes: Buffer): RasterImageResultV15['mimeType'] | null {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9) return 'image/jpeg';
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  return null;
+}
+
+function readRasterDimensionsV15(bytes: Buffer, mimeType: RasterImageResultV15['mimeType']): RasterImageSizeV15 | null {
+  if (mimeType === 'image/png') {
+    if (bytes.length < 24) return null;
+    const width = bytes.readUInt32BE(16);
+    const height = bytes.readUInt32BE(20);
+    return width > 0 && height > 0 ? { width, height } : null;
   }
-  if (mime === 'image/jpeg') {
-    return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9;
+
+  if (mimeType === 'image/jpeg') {
+    let offset = 2;
+    const sofMarkers = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+    while (offset + 3 < bytes.length) {
+      if (bytes[offset] !== 0xff) { offset += 1; continue; }
+      while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+      if (offset >= bytes.length) break;
+      const marker = bytes[offset];
+      offset += 1;
+      if (marker === 0xd8 || marker === 0xd9 || marker === 0x01 || marker >= 0xd0 && marker <= 0xd7) continue;
+      if (offset + 1 >= bytes.length) break;
+      const length = bytes.readUInt16BE(offset);
+      if (length < 2 || offset + length > bytes.length) break;
+      if (sofMarkers.has(marker) && length >= 7) {
+        const height = bytes.readUInt16BE(offset + 3);
+        const width = bytes.readUInt16BE(offset + 5);
+        return width > 0 && height > 0 ? { width, height } : null;
+      }
+      offset += length;
+    }
+    return null;
   }
-  if (mime === 'image/webp') {
-    return bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+
+  if (mimeType === 'image/webp') {
+    if (bytes.length < 30 || bytes.subarray(0, 4).toString('ascii') !== 'RIFF' || bytes.subarray(8, 12).toString('ascii') !== 'WEBP') return null;
+    const chunk = bytes.subarray(12, 16).toString('ascii');
+    if (chunk === 'VP8X' && bytes.length >= 30) {
+      const width = 1 + bytes.readUIntLE(24, 3);
+      const height = 1 + bytes.readUIntLE(27, 3);
+      return { width, height };
+    }
+    if (chunk === 'VP8L' && bytes.length >= 25 && bytes[20] === 0x2f) {
+      const b1 = bytes[21], b2 = bytes[22], b3 = bytes[23], b4 = bytes[24];
+      const width = 1 + (((b2 & 0x3f) << 8) | b1);
+      const height = 1 + (((b4 & 0x0f) << 10) | (b3 << 2) | ((b2 & 0xc0) >> 6));
+      return { width, height };
+    }
+    if (chunk === 'VP8 ' && bytes.length >= 30 && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+      const width = bytes.readUInt16LE(26) & 0x3fff;
+      const height = bytes.readUInt16LE(28) & 0x3fff;
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
   }
-  return false;
+  return null;
+}
+
+async function readBoundedProviderBodyV15(response: Response, maxBytes: number): Promise<Buffer> {
+  const declared = Number(response.headers.get('content-length') ?? '0');
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+  if (!response.body) {
+    const body = Buffer.from(await response.arrayBuffer());
+    if (body.length > maxBytes) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+    return body;
+  }
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      const chunk = Buffer.from(next.value);
+      total += chunk.length;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
+}
+
+function decodeImageResponseBody(body: Buffer): { bytes: Buffer; mimeType: RasterImageResultV15['mimeType'] } {
+  if (body.length <= 0 || body.length > MAX_IMAGE_RESPONSE_BYTES) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+  let parsed: unknown;
+  try { parsed = JSON.parse(body.toString('utf8')); }
+  catch { throw new Error('INVALID_RASTER_PROVIDER_JSON'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('INVALID_RASTER_PROVIDER_JSON');
+  const data = (parsed as Record<string, unknown>).data;
+  if (!Array.isArray(data) || data.length !== 1 || !data[0] || typeof data[0] !== 'object' || Array.isArray(data[0])) {
+    throw new Error('INVALID_RASTER_PROVIDER_PAYLOAD');
+  }
+  const row = data[0] as Record<string, unknown>;
+  const encoded = typeof row.b64_json === 'string' ? row.b64_json : '';
+  if (!encoded || encoded.length > Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 4 || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+    throw new Error('INVALID_RASTER_BASE64');
+  }
+  const bytes = Buffer.from(encoded, 'base64');
+  if (bytes.length <= 0 || bytes.length > MAX_IMAGE_BYTES) throw new Error('RASTER_IMAGE_SIZE_OUT_OF_BOUNDS');
+  const detectedMime = detectImageMime(bytes);
+  if (!detectedMime) throw new Error('RASTER_IMAGE_SIGNATURE_MISMATCH');
+  if (typeof row.media_type === 'string' && row.media_type && row.media_type !== detectedMime) {
+    throw new Error('RASTER_IMAGE_MIME_MISMATCH');
+  }
+  return { bytes, mimeType: detectedMime };
 }
 
 function normalizePrompt(input: RasterImageRequestV15): string {
@@ -134,6 +254,32 @@ function authHeaders(apiKey: string): HeadersInit {
     'User-Agent': 'ORIGIN-Personal/1.5',
     Accept: 'application/json',
   };
+}
+
+async function verifyScopedPollinationsKeyV15(
+  apiKey: string,
+  expectedModel: string,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  const response = await timedFetch(
+    `${POLLINATIONS_ORIGIN}/account/key`,
+    { method: 'GET', headers: authHeaders(apiKey), cache: 'no-store' },
+    fetchImpl,
+    MODEL_DISCOVERY_TIMEOUT_MS,
+  );
+  if (!response.ok) return false;
+  let parsed: PollinationsKeyInfoV15;
+  try { parsed = await response.json() as PollinationsKeyInfoV15; }
+  catch { return false; }
+  if (parsed.valid !== true || parsed.type !== 'secret') return false;
+  if (!parsed.permissions || typeof parsed.permissions !== 'object' || Array.isArray(parsed.permissions)) return false;
+  const permissions = parsed.permissions as Record<string, unknown>;
+  const models = permissions.models;
+  const account = permissions.account;
+  if (!Array.isArray(models) || models.length !== 1 || models[0] !== expectedModel) return false;
+  if (!Array.isArray(account) || !account.includes('usage')) return false;
+  if (parsed.pollenBudget !== null && (typeof parsed.pollenBudget !== 'number' || !Number.isFinite(parsed.pollenBudget) || parsed.pollenBudget < 0)) return false;
+  return true;
 }
 
 export async function discoverZeroCostPollinationsModelV15(
@@ -180,7 +326,23 @@ export async function getRasterProviderStatusV15(
   }
 
   try {
-    const model = await discoverZeroCostPollinationsModelV15(apiKey, env.ORIGIN_IMAGE_MODEL || DEFAULT_MODEL, fetchImpl);
+    const requestedModel = env.ORIGIN_IMAGE_MODEL || DEFAULT_MODEL;
+    const scopedKey = await verifyScopedPollinationsKeyV15(apiKey, requestedModel, fetchImpl);
+    if (!scopedKey) {
+      return {
+        configured: true,
+        ready: false,
+        providerId: 'pollinations-zero-cost',
+        model: null,
+        zeroCostVerified: false,
+        paidFallbackEnabled: false,
+        paymentMethodRequired: false,
+        secretDelivery: 'server-only',
+        externalNetwork: true,
+        reason: 'POLLINATIONS_KEY_SCOPE_INVALID',
+      };
+    }
+    const model = await discoverZeroCostPollinationsModelV15(apiKey, requestedModel, fetchImpl);
     return {
       configured: true,
       ready: Boolean(model),
@@ -313,6 +475,8 @@ export async function generateRasterImageV15(
 
   const prompt = normalizePrompt(input);
   const requestedModel = input.model?.trim() || env.ORIGIN_IMAGE_MODEL || DEFAULT_MODEL;
+  const scopedKey = await verifyScopedPollinationsKeyV15(apiKey, requestedModel, fetchImpl);
+  if (!scopedKey) throw new Error('POLLINATIONS_KEY_SCOPE_INVALID');
   const verifiedModel = await discoverZeroCostPollinationsModelV15(apiKey, requestedModel, fetchImpl);
   if (!verifiedModel) throw new Error('NO_VERIFIED_ZERO_COST_RASTER_MODEL');
   if (requestedModel !== verifiedModel && input.model) throw new Error('REQUESTED_IMAGE_MODEL_NOT_ZERO_COST');
@@ -324,34 +488,42 @@ export async function generateRasterImageV15(
     width: boundedInt(input.width, 1024),
     height: boundedInt(input.height, 1024),
   };
-  const url = new URL(`${POLLINATIONS_ORIGIN}/image/${encodeURIComponent(prompt)}`);
-  url.searchParams.set('model', verifiedModel);
-  url.searchParams.set('width', String(size.width));
-  url.searchParams.set('height', String(size.height));
-  url.searchParams.set('safe', 'privacy,secrets,sexual,violence,shield');
-
   const response = await timedFetch(
-    url.toString(),
+    `${POLLINATIONS_ORIGIN}/v1/images/generations`,
     {
-      method: 'GET',
+      method: 'POST',
       headers: {
         ...authHeaders(apiKey),
-        Accept: 'image/png,image/jpeg,image/webp',
+        'Content-Type': 'application/json',
+        'Pollinations-Safe': 'privacy,secrets,sexual,violence,shield',
       },
+      body: JSON.stringify({
+        prompt,
+        model: verifiedModel,
+        n: 1,
+        size: `${size.width}x${size.height}`,
+        quality: 'medium',
+        response_format: 'b64_json',
+        safe: true,
+      }),
       cache: 'no-store',
     },
     fetchImpl,
   );
   if (!response.ok) {
     if (response.status === 402) throw new Error('PAID_OR_EXHAUSTED_PROVIDER_PATH_BLOCKED');
+    if (response.status === 400) throw new Error('RASTER_PROVIDER_SAFETY_OR_REQUEST_BLOCKED');
     throw new Error(`RASTER_PROVIDER_HTTP_${response.status}`);
   }
 
-  const mime = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-  if (!IMAGE_TYPES.has(mime)) throw new Error('UNEXPECTED_RASTER_CONTENT_TYPE');
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length <= 0 || bytes.length > MAX_IMAGE_BYTES) throw new Error('RASTER_IMAGE_SIZE_OUT_OF_BOUNDS');
-  if (!imageBytesMatchMime(bytes, mime)) throw new Error('RASTER_IMAGE_SIGNATURE_MISMATCH');
+  const responseType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (responseType !== 'application/json') throw new Error('UNEXPECTED_RASTER_CONTENT_TYPE');
+  const decoded = decodeImageResponseBody(await readBoundedProviderBodyV15(response, MAX_IMAGE_RESPONSE_BYTES));
+  const { bytes, mimeType: mime } = decoded;
+  const actualSize = readRasterDimensionsV15(bytes, mime);
+  if (!actualSize || actualSize.width !== size.width || actualSize.height !== size.height) {
+    throw new Error('RASTER_IMAGE_DIMENSION_MISMATCH');
+  }
   const usageVerificationResult = await verifyLatestZeroCostUsageV15(
     apiKey,
     verifiedModel,
@@ -363,14 +535,14 @@ export async function generateRasterImageV15(
 
   return {
     bytes,
-    mimeType: mime as RasterImageResultV15['mimeType'],
+    mimeType: mime,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     model: verifiedModel,
     providerId: 'pollinations-zero-cost',
-    width: size.width,
-    height: size.height,
+    width: actualSize.width,
+    height: actualSize.height,
     costUsd: 0,
     freeOnly: true,
-    externalNetworkRequests: 3 + usageVerificationResult.requests,
+    externalNetworkRequests: 4 + usageVerificationResult.requests,
   };
 }

@@ -190,6 +190,11 @@ export type GeneratedImageMessage = {
   providerId: 'pollinations-zero-cost';
   model: string;
   generationId: string;
+  visualBrainVersion: 'visual-brain-v1';
+  planVersion: 'raster-visual-plan-v1';
+  planSha256: string;
+  purpose: string;
+  typographyOverlay: boolean;
   width: number;
   height: number;
   relation: 'generated' | 'variation' | 'edited-from';
@@ -508,10 +513,17 @@ type OriginChatFailurePayload = {
 export const isDirectImageGenerationRequest = (input: string): boolean => {
   const normalized = input.trim();
   if (!normalized) return false;
-  return /(?:画像|イラスト|写真|ポスター|バナー|サムネ(?:イル)?).{0,28}(?:作って|作成して|生成して|描いて|お願い|ほしい|欲しい)/u.test(normalized)
-    || /(?:作って|作成して|生成して|描いて).{0,28}(?:画像|イラスト|写真|ポスター|バナー|サムネ(?:イル)?)/u.test(normalized)
-    || /\b(?:generate|create|make|draw)\b.{0,40}\b(?:image|picture|illustration|poster|banner|thumbnail)\b/i.test(normalized);
+  const visualNoun = '(?:画像|イラスト|写真|絵|ポスター|バナー|サムネ(?:イル)?|ロゴ|アイコン|壁紙|アート|キービジュアル)';
+  if (new RegExp(`${visualNoun}.{0,36}(?:作って|作成して|生成して|描いて|描画して|お願い|ほしい|欲しい)`, 'u').test(normalized)) return true;
+  if (new RegExp(`(?:作って|作成して|生成して|描いて|描画して).{0,36}${visualNoun}`, 'u').test(normalized)) return true;
+  if (/\b(?:generate|create|make|draw|render|design)\b.{0,50}\b(?:image|picture|illustration|poster|banner|thumbnail|logo|icon|wallpaper|artwork|key visual)\b/i.test(normalized)) return true;
+  if (!/(?:仕組み|方法|やり方|説明|教えて|what is|how (?:does|to))/i.test(normalized)
+    && /(?:を|の).{0,60}(?:描いて|描画して)$/u.test(normalized)) return true;
+  return false;
 };
+
+const isImageClarificationCancellation = (input: string): boolean =>
+  /^(?:やめ(?:る|ます)?|キャンセル|画像(?:生成)?はやめ|別の話|cancel|stop|never mind)\b/i.test(input.trim());
 
 const rasterSizeForRequest = (input: string): { width: number; height: number } => {
   if (/(?:9\s*[:：/]\s*16|縦長|ストーリー|portrait|vertical)/i.test(input)) return { width: 864, height: 1536 };
@@ -1008,6 +1020,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const abortRef = useRef<AbortController | null>(null);
   const rasterObjectUrls = useRef(new Set<string>());
   const rasterHydratingIds = useRef(new Set<string>());
+  const pendingImageRequestRef = useRef<{ prompt: string; questions: readonly string[] } | null>(null);
   const observedResetSignal = useRef(resetSignal);
   const messages = controlledMessages ?? uncontrolledMessages;
   const artifacts = controlledArtifacts ?? uncontrolledArtifacts;
@@ -1043,7 +1056,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
@@ -1115,10 +1128,37 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
     try {
-      if (!interruptCurrent && attachments.length === 0 && isDirectImageGenerationRequest(text.trim())) {
-        const response = await fetchOriginRasterImage(text.trim(), controller.signal);
+      const pendingImageRequest = pendingImageRequestRef.current;
+      if (pendingImageRequest && isImageClarificationCancellation(text.trim())) pendingImageRequestRef.current = null;
+      const shouldGenerateImage = !interruptCurrent
+        && attachments.length === 0
+        && !isImageClarificationCancellation(text.trim())
+        && (Boolean(pendingImageRequest) || isDirectImageGenerationRequest(text.trim()));
+      if (shouldGenerateImage) {
+        const imageRequestText = pendingImageRequest
+          ? `${pendingImageRequest.prompt}\n\n追加条件: ${text.trim()}`
+          : text.trim();
+        const response = await fetchOriginRasterImage(imageRequestText, controller.signal);
         if (!response.ok) {
-          const failure = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+          const failure = await response.json().catch(() => null) as { code?: string; message?: string; questions?: unknown } | null;
+          if (response.status === 409 && failure?.code === 'IMAGE_REQUIREMENTS_INCOMPLETE' && Array.isArray(failure.questions)) {
+            const questions = failure.questions
+              .filter((question): question is string => typeof question === 'string' && Boolean(question.trim()))
+              .slice(0, 3);
+            if (questions.length > 0) {
+              pendingImageRequestRef.current = { prompt: imageRequestText, questions };
+              updateMessages((current) => [...current, {
+                id: `a-${Date.now()}`,
+                role: 'assistant',
+                content: language === 'en'
+                  ? `Before I generate it, I need ${questions.length === 1 ? 'one detail' : 'a few details'}:\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
+                  : `画像を作る前に、仕上がりを大きく左右する点だけ確認します。\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`,
+                deliveryState: 'verified',
+              }]);
+              return;
+            }
+          }
+          pendingImageRequestRef.current = null;
           const unavailable = language === 'en'
             ? 'Verified $0 image generation is currently unavailable. ORIGIN did not substitute a prompt or use a paid provider.'
             : '検証済みの0円画像生成を現在実行できません。プロンプトへの置き換えや有料プロバイダへの切り替えは行っていません。';
@@ -1131,6 +1171,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const providerId = response.headers.get('x-origin-visual-provider') ?? '';
         const model = response.headers.get('x-origin-visual-model') ?? '';
         const generationId = response.headers.get('x-origin-visual-generation-id') ?? '';
+        const visualBrainVersion = response.headers.get('x-origin-visual-brain') ?? '';
+        const visualPlan = response.headers.get('x-origin-visual-plan') ?? '';
+        const visualPlanSha256 = response.headers.get('x-origin-visual-plan-sha256') ?? '';
+        const purpose = response.headers.get('x-origin-visual-purpose') ?? '';
+        const typographyOverlay = response.headers.get('x-origin-visual-typography-overlay') ?? '';
         const width = Number(response.headers.get('x-origin-visual-width') ?? '0');
         const height = Number(response.headers.get('x-origin-visual-height') ?? '0');
         const cost = response.headers.get('x-origin-cost-usd');
@@ -1142,6 +1187,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           || providerId !== 'pollinations-zero-cost'
           || !model
           || !/^raster-[a-f0-9]{24}$/i.test(generationId)
+          || visualBrainVersion !== 'visual-brain-v1'
+          || visualPlan !== 'raster-visual-plan-v1'
+          || !/^[a-f0-9]{64}$/i.test(visualPlanSha256)
+          || !/^[a-z-]{1,40}$/.test(purpose)
+          || (typographyOverlay !== 'recommended' && typographyOverlay !== 'not-required')
           || !Number.isInteger(width) || width < 256 || width > 1536
           || !Number.isInteger(height) || height < 256 || height > 1536
           || cost !== '0'
@@ -1172,6 +1222,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           providerId: 'pollinations-zero-cost',
           model,
           generationId,
+          visualBrainVersion: 'visual-brain-v1',
+          planVersion: 'raster-visual-plan-v1',
+          planSha256: visualPlanSha256.toLowerCase(),
+          purpose,
+          typographyOverlay: typographyOverlay === 'recommended',
           width,
           height,
           relation: 'generated',
@@ -1179,12 +1234,17 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const historyStatus = await saveRasterAssetV15({
           sha256: assetId,
           createdAt: Date.now(),
-          prompt: text.trim(),
+          prompt: imageRequestText,
           mimeType: image.mimeType,
           downloadName,
           providerId: image.providerId,
           model,
           generationId,
+          visualBrainVersion: image.visualBrainVersion,
+          planVersion: image.planVersion,
+          planSha256: image.planSha256,
+          purpose: image.purpose,
+          typographyOverlay: image.typographyOverlay,
           relation: 'generated',
           width,
           height,
@@ -1195,6 +1255,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           rasterObjectUrls.current.delete(imageUrl);
           throw new Error('raster-history-integrity-failed');
         }
+        pendingImageRequestRef.current = null;
         updateMessages((current) => [...current, {
           id: assistantId,
           role: 'assistant',
@@ -1317,6 +1378,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   </div>
 
   </div>
-</header><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start py-8 sm:justify-center sm:py-4"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p><div className="mt-7 w-full max-w-4xl">{composer}</div><p className="origin-safe-note mt-5 text-center text-[13px]">{t.freeOnlyNotice}</p></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? t.thinking : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.model} · {message.image.width}×{message.image.height} · SHA-256 {message.image.sha256.slice(0, 12)}… · $0 verified</span>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}</figcaption></figure>}</>}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />✨ {t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main><ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={isWorkspaceOpen} language={language} designTheme={designTheme} isStreaming={isLoading} onSteer={(direction) => { void handleSend(direction, true); }} onOpenSettings={onOpenSettings} onClose={() => setIsWorkspaceOpen(false)} onArtifactRevision={(next) => { setActiveArtifact(next); updateArtifacts((current) => current.map((block) => block.id === next.id ? next : block)); }} /></div>;
+</header><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start py-8 sm:justify-center sm:py-4"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p><div className="mt-7 w-full max-w-4xl">{composer}</div><p className="origin-safe-note mt-5 text-center text-[13px]">{t.freeOnlyNotice}</p></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? t.thinking : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.model} · {message.image.purpose} · {message.image.width}×{message.image.height} · SHA-256 {message.image.sha256.slice(0, 12)}… · $0 verified</span>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}</figcaption></figure>}</>}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />✨ {t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main><ArtifactWorkspace artifact={activeArtifact} artifacts={artifacts} isOpen={isWorkspaceOpen} language={language} designTheme={designTheme} isStreaming={isLoading} onSteer={(direction) => { void handleSend(direction, true); }} onOpenSettings={onOpenSettings} onClose={() => setIsWorkspaceOpen(false)} onArtifactRevision={(next) => { setActiveArtifact(next); updateArtifacts((current) => current.map((block) => block.id === next.id ? next : block)); }} /></div>;
 };
 export default App;
