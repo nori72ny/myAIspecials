@@ -27,6 +27,8 @@ function entry(overrides: Partial<RasterAssetEntryV15> = {}): RasterAssetEntryV1
     planSha256: 'd'.repeat(64),
     purpose: 'photograph',
     typographyOverlay: false,
+    sourceCriticVersion: 'raster-structural-critic-v1',
+    sourceQualityScore: 100,
     relation: 'generated',
     width: 1024,
     height: 1024,
@@ -49,6 +51,8 @@ describe('localRasterHistoryV15', () => {
     expect(isRasterAssetEntryShapeV15(entry({ visualBrainVersion: 'other' as never }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ planVersion: 'other' as never }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ typographyOverlay: 'yes' as never }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ sourceCriticVersion: 'other' as never }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ sourceQualityScore: 101 }))).toBe(false);
   });
 
   it('supports verified lineage metadata for future variation and editing flows', () => {
@@ -76,6 +80,8 @@ describe('localRasterHistoryV15', () => {
         planSha256: base.planSha256,
         purpose: base.purpose,
         typographyOverlay: base.typographyOverlay,
+        sourceCriticVersion: base.sourceCriticVersion,
+        sourceQualityScore: base.sourceQualityScore,
         relation: base.relation,
         width: base.width,
         height: base.height,

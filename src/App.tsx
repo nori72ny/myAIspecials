@@ -5,6 +5,8 @@ import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
 import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
+import { composeRasterTypographyOverlayV15 } from './creative/localRasterTypographyV15';
+import { planRasterVisualRequestV15 } from './creative/rasterVisualPlannerV15';
 
 export interface ArtifactBlock {
   id: string;
@@ -195,6 +197,8 @@ export type GeneratedImageMessage = {
   planSha256: string;
   purpose: string;
   typographyOverlay: boolean;
+  sourceCriticVersion: 'raster-structural-critic-v1';
+  sourceQualityScore: number;
   width: number;
   height: number;
   relation: 'generated' | 'variation' | 'edited-from';
@@ -1176,6 +1180,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const visualPlanSha256 = response.headers.get('x-origin-visual-plan-sha256') ?? '';
         const purpose = response.headers.get('x-origin-visual-purpose') ?? '';
         const typographyOverlay = response.headers.get('x-origin-visual-typography-overlay') ?? '';
+        const sourceCriticVersion = response.headers.get('x-origin-visual-critic') ?? '';
+        const sourceQualityScore = Number(response.headers.get('x-origin-visual-quality-score') ?? '0');
+        const sourceActualWidth = Number(response.headers.get('x-origin-visual-actual-width') ?? '0');
+        const sourceActualHeight = Number(response.headers.get('x-origin-visual-actual-height') ?? '0');
         const width = Number(response.headers.get('x-origin-visual-width') ?? '0');
         const height = Number(response.headers.get('x-origin-visual-height') ?? '0');
         const cost = response.headers.get('x-origin-cost-usd');
@@ -1192,6 +1200,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           || !/^[a-f0-9]{64}$/i.test(visualPlanSha256)
           || !/^[a-z-]{1,40}$/.test(purpose)
           || (typographyOverlay !== 'recommended' && typographyOverlay !== 'not-required')
+          || sourceCriticVersion !== 'raster-structural-critic-v1'
+          || sourceQualityScore !== 100
+          || sourceActualWidth !== width
+          || sourceActualHeight !== height
           || !Number.isInteger(width) || width < 256 || width > 1536
           || !Number.isInteger(height) || height < 256 || height > 1536
           || cost !== '0'
@@ -1209,16 +1221,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         if (actualSha !== sha256.toLowerCase()) throw new Error('raster-sha-mismatch');
 
         const assistantId = `a-${Date.now()}`;
-        const imageUrl = URL.createObjectURL(blob);
-        rasterObjectUrls.current.add(imageUrl);
-        const assetId = sha256.toLowerCase();
-        const downloadName = rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType);
-        const image: GeneratedImageMessage = {
-          url: imageUrl,
-          assetId,
+        const baseAssetId = sha256.toLowerCase();
+        const baseDownloadName = rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType);
+        const baseHistoryStatus = await saveRasterAssetV15({
+          sha256: baseAssetId,
+          createdAt: Date.now(),
+          prompt: imageRequestText,
           mimeType: mimeType as GeneratedImageMessage['mimeType'],
-          downloadName,
-          sha256: assetId,
+          downloadName: baseDownloadName,
           providerId: 'pollinations-zero-cost',
           model,
           generationId,
@@ -1226,40 +1236,102 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           planVersion: 'raster-visual-plan-v1',
           planSha256: visualPlanSha256.toLowerCase(),
           purpose,
-          typographyOverlay: typographyOverlay === 'recommended',
-          width,
-          height,
-          relation: 'generated',
-        };
-        const historyStatus = await saveRasterAssetV15({
-          sha256: assetId,
-          createdAt: Date.now(),
-          prompt: imageRequestText,
-          mimeType: image.mimeType,
-          downloadName,
-          providerId: image.providerId,
-          model,
-          generationId,
-          visualBrainVersion: image.visualBrainVersion,
-          planVersion: image.planVersion,
-          planSha256: image.planSha256,
-          purpose: image.purpose,
-          typographyOverlay: image.typographyOverlay,
+          typographyOverlay: false,
+          sourceCriticVersion: 'raster-structural-critic-v1',
+          sourceQualityScore,
           relation: 'generated',
           width,
           height,
           blob,
         });
-        if (historyStatus === 'failed') {
-          URL.revokeObjectURL(imageUrl);
-          rasterObjectUrls.current.delete(imageUrl);
-          throw new Error('raster-history-integrity-failed');
+        if (baseHistoryStatus === 'failed') throw new Error('raster-history-integrity-failed');
+
+        let finalBlob = blob;
+        let finalAssetId = baseAssetId;
+        let finalMimeType = mimeType as GeneratedImageMessage['mimeType'];
+        let finalDownloadName = baseDownloadName;
+        let finalRelation: GeneratedImageMessage['relation'] = 'generated';
+        let finalParentId: string | undefined;
+        let deterministicTypographyApplied = false;
+
+        if (typographyOverlay === 'recommended') {
+          const localPlan = planRasterVisualRequestV15(imageRequestText);
+          if (!localPlan.ready
+            || localPlan.purpose !== purpose
+            || localPlan.width !== width
+            || localPlan.height !== height
+            || !localPlan.requiresDeterministicTypography
+            || localPlan.exactText.length === 0) {
+            throw new Error('raster-typography-plan-mismatch');
+          }
+          const composed = await composeRasterTypographyOverlayV15(blob, localPlan.exactText, width, height);
+          if (typeof crypto?.subtle?.digest !== 'function') throw new Error('raster-composite-sha-unavailable');
+          const compositeDigest = await crypto.subtle.digest('SHA-256', await composed.blob.arrayBuffer());
+          const compositeSha = Array.from(new Uint8Array(compositeDigest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+
+          finalBlob = composed.blob;
+          finalAssetId = compositeSha;
+          finalMimeType = 'image/png';
+          finalDownloadName = baseDownloadName.replace(/\.(?:png|jpe?g|webp)$/i, '-text.png');
+          finalRelation = 'edited-from';
+          finalParentId = baseAssetId;
+          deterministicTypographyApplied = true;
+
+          const composedHistoryStatus = await saveRasterAssetV15({
+            sha256: finalAssetId,
+            createdAt: Date.now() + 1,
+            prompt: imageRequestText,
+            mimeType: finalMimeType,
+            downloadName: finalDownloadName,
+            providerId: 'pollinations-zero-cost',
+            model,
+            generationId,
+            visualBrainVersion: 'visual-brain-v1',
+            planVersion: 'raster-visual-plan-v1',
+            planSha256: visualPlanSha256.toLowerCase(),
+            purpose,
+            typographyOverlay: true,
+            sourceCriticVersion: 'raster-structural-critic-v1',
+            sourceQualityScore,
+            relation: finalRelation,
+            parentId: finalParentId,
+            width,
+            height,
+            blob: finalBlob,
+          });
+          if (composedHistoryStatus === 'failed') throw new Error('raster-composite-history-integrity-failed');
         }
+
+        const imageUrl = URL.createObjectURL(finalBlob);
+        rasterObjectUrls.current.add(imageUrl);
+        const image: GeneratedImageMessage = {
+          url: imageUrl,
+          assetId: finalAssetId,
+          mimeType: finalMimeType,
+          downloadName: finalDownloadName,
+          sha256: finalAssetId,
+          providerId: 'pollinations-zero-cost',
+          model,
+          generationId,
+          visualBrainVersion: 'visual-brain-v1',
+          planVersion: 'raster-visual-plan-v1',
+          planSha256: visualPlanSha256.toLowerCase(),
+          purpose,
+          typographyOverlay: deterministicTypographyApplied,
+          sourceCriticVersion: 'raster-structural-critic-v1',
+          sourceQualityScore,
+          width,
+          height,
+          relation: finalRelation,
+          parentId: finalParentId,
+        };
         pendingImageRequestRef.current = null;
         updateMessages((current) => [...current, {
           id: assistantId,
           role: 'assistant',
-          content: language === 'en' ? 'Image generated and verified.' : '画像を生成し、実ファイルを検証しました。',
+          content: deterministicTypographyApplied
+            ? (language === 'en' ? 'Image generated, verified, and finished with exact deterministic typography.' : '画像を生成・検証し、指定文字を正確なタイポグラフィで仕上げました。')
+            : (language === 'en' ? 'Image generated and verified.' : '画像を生成し、実ファイルを検証しました。'),
           deliveryState: 'verified',
           image,
         }]);

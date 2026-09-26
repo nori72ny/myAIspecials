@@ -34,6 +34,8 @@ describe('rasterVisualPlannerV15', () => {
     expect(plan.width).toBe(1024);
     expect(plan.height).toBe(1280);
     expect(plan.compiledPrompt).toContain('"ORIGIN Personal"');
+    expect(plan.compiledPrompt).toContain('rendered later by ORIGIN deterministic typography');
+    expect(plan.compiledPrompt).toContain('do not render this critical text yourself');
   });
 
   it('does not ask an aspect-ratio question for ordinary unconstrained photographs', () => {

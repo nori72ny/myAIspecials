@@ -42,7 +42,7 @@ function json(value: unknown, status = 200): Response {
 }
 
 function pngBytes(width: number, height: number): Uint8Array {
-  const bytes = Buffer.alloc(24);
+  const bytes = Buffer.alloc(96);
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
   Buffer.from('IHDR', 'ascii').copy(bytes, 12);
   bytes.writeUInt32BE(width, 16);
@@ -116,6 +116,10 @@ describe('rasterImageV15Router', () => {
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
+      rasterCritic: {
+        version: 'raster-structural-critic-v1',
+        failClosed: true,
+      },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -204,6 +208,10 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-plan']).toBe('raster-visual-plan-v1');
     expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-purpose']).toBe('photograph');
+    expect(response.headers['x-origin-visual-critic']).toBe('raster-structural-critic-v1');
+    expect(response.headers['x-origin-visual-quality-score']).toBe('100');
+    expect(response.headers['x-origin-visual-actual-width']).toBe('768');
+    expect(response.headers['x-origin-visual-actual-height']).toBe('1024');
     expect(response.headers['x-origin-visual-typography-overlay']).toBe('not-required');
     expect(response.headers['x-origin-visual-width']).toBe('768');
     expect(response.headers['x-origin-visual-height']).toBe('1024');
