@@ -73,7 +73,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       paymentMethodRequired: status?.paymentMethodRequired ?? false,
       secretDelivery: status?.secretDelivery ?? 'server-only',
       externalNetwork: status?.externalNetwork ?? true,
-      reason: selection.ready ? null : selection.reason,
+      reason: selection.ready ? null : selection.statuses.find(item => item.supportsTask)?.reason ?? selection.reason,
       providerAgnostic: runtime.providerAgnostic,
       registryVersion: runtime.registryVersion,
       providers: runtime.providers,
@@ -143,7 +143,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       }
       const selection = await selectRasterProviderV15('text-to-image', env);
       if (!selection.ready) {
-        return fail(res, 503, selection.reason, '検証済みの0円画像生成プロバイダを現在利用できません。');
+        const providerReason = selection.statuses.find(item => item.supportsTask)?.reason ?? selection.reason;
+        return fail(res, 503, providerReason, '検証済みの0円画像生成プロバイダを現在利用できません。');
       }
       const result = await selection.provider.generate({
         ...input,
