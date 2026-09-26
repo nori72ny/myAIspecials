@@ -136,12 +136,19 @@ export async function selectRasterProviderV15(
 export async function rasterProviderRuntimeStatusV15(env: NodeJS.ProcessEnv = process.env) {
   const selections = await Promise.all(RASTER_TASKS_V15.map(task => selectRasterProviderV15(task, env)));
   const supportedTasks = selections.filter(result => result.ready).map(result => result.task);
+  const textSelection = selections.find(result => result.task === 'text-to-image');
+  const textToImageStatus = textSelection?.ready ? textSelection.status : null;
+  const textToImageReason = textSelection?.ready
+    ? null
+    : textSelection?.statuses.find(item => item.supportsTask)?.reason ?? textSelection?.reason ?? 'NO_VERIFIED_ZERO_COST_PROVIDER_READY';
   return {
     providerAgnostic: true,
     registryVersion: 'raster-provider-registry-v1',
     providers: rasterProviderRegistryV15(),
     supportedTasks,
     textToImageReady: supportedTasks.includes('text-to-image'),
+    textToImageStatus,
+    textToImageReason,
     editingReady: ['edit', 'inpaint', 'outpaint', 'variation'].some(task => supportedTasks.includes(task as RasterTaskV15)),
     paidFallbackEnabled: false,
     freeOnly: true,
