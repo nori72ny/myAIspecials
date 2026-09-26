@@ -9,6 +9,9 @@ import {
 const freeModel = {
   name: 'tomdacatto/sana',
   category: 'image',
+  title: 'Sana Sprint (Free)',
+  description: 'Free image model',
+  community: true,
   pricing: { currency: 'pollen' },
   paid_only: false,
   input_modalities: ['text'],
@@ -22,6 +25,17 @@ const pricedModel = {
   paid_only: false,
   input_modalities: ['text'],
   output_modalities: ['image'],
+};
+
+const scopedKeyInfo = {
+  valid: true,
+  type: 'secret',
+  permissions: {
+    models: ['tomdacatto/sana'],
+    account: ['usage'],
+  },
+  pollenBudget: 1,
+  rateLimitEnabled: false,
 };
 
 function json(value: unknown, status = 200): Response {
@@ -70,9 +84,34 @@ describe('rasterImageProviderV15', () => {
     });
   });
 
+  it('requires a least-privilege secret key scoped to the audited model and usage evidence', async () => {
+    for (const keyInfo of [
+      { ...scopedKeyInfo, type: 'publishable' },
+      { ...scopedKeyInfo, permissions: { models: null, account: ['usage'] } },
+      { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana', 'flux'], account: ['usage'] } },
+      { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana'], account: [] } },
+    ]) {
+      const fetchMock = vi.fn().mockResolvedValueOnce(json(keyInfo)) as unknown as typeof fetch;
+      await expect(generateRasterImageV15(
+        { prompt: 'test' },
+        { POLLINATIONS_API_KEY: 'sk_test' },
+        fetchMock,
+        { attempts: 1, delayMs: 0 },
+      )).rejects.toThrow('POLLINATIONS_KEY_SCOPE_INVALID');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('does not infer zero cost from an empty pricing object unless the exact audited registry row explicitly says free', async () => {
+    const ambiguous = { ...freeModel, title: 'Sana Sprint', description: 'Image model', community: true };
+    const fetchMock = vi.fn(async () => json([ambiguous])) as unknown as typeof fetch;
+    await expect(discoverZeroCostPollinationsModelV15('sk_test', 'tomdacatto/sana', fetchMock)).resolves.toBeNull();
+  });
+
   it('generates raster bytes only after live zero-price discovery and post-usage verification', async () => {
     const imageBytes = pngBytes(768, 1024);
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-1' }] }))
       .mockResolvedValueOnce(imageJson(imageBytes, 'image/png'))
@@ -100,14 +139,14 @@ describe('rasterImageProviderV15', () => {
       providerId: 'pollinations-zero-cost',
       costUsd: 0,
       freeOnly: true,
-      externalNetworkRequests: 4,
+      externalNetworkRequests: 5,
       width: 768,
       height: 1024,
     });
     expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(String(fetchMock.mock.calls[2]?.[0])).toBe('https://gen.pollinations.ai/v1/images/generations');
-    const generationInit = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(String(fetchMock.mock.calls[3]?.[0])).toBe('https://gen.pollinations.ai/v1/images/generations');
+    const generationInit = fetchMock.mock.calls[3]?.[1] as RequestInit;
     expect(generationInit.method).toBe('POST');
     expect(new Headers(generationInit.headers).get('pollinations-safe')).toBe('privacy,secrets,sexual,violence,shield');
     expect(JSON.parse(String(generationInit.body))).toMatchObject({
@@ -135,6 +174,7 @@ describe('rasterImageProviderV15', () => {
 
   it('fails closed when provider bytes do not match the requested raster dimensions', async () => {
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [] }))
       .mockResolvedValueOnce(imageJson(pngBytes(512, 512), 'image/png')) as unknown as typeof fetch;
@@ -144,11 +184,12 @@ describe('rasterImageProviderV15', () => {
       { POLLINATIONS_API_KEY: 'sk_test' },
       fetchMock,
     )).rejects.toThrow('RASTER_IMAGE_DIMENSION_MISMATCH');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('rejects an oversized provider response before buffering the payload', async () => {
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [] }))
       .mockResolvedValueOnce(new Response('{}', {
@@ -166,6 +207,7 @@ describe('rasterImageProviderV15', () => {
 
   it('rejects content-type spoofing when the returned bytes are not a real image signature', async () => {
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [] }))
       .mockResolvedValueOnce(imageJson(Uint8Array.from([1, 2, 3, 4]), 'image/png')) as unknown as typeof fetch;
@@ -179,13 +221,15 @@ describe('rasterImageProviderV15', () => {
   });
 
   it('blocks priced models and never executes the image request', async () => {
-    const fetchMock = vi.fn(async () => json([pricedModel])) as unknown as typeof fetch;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ ...scopedKeyInfo, permissions: { models: ['flux'], account: ['usage'] } }))
+      .mockResolvedValueOnce(json([pricedModel])) as unknown as typeof fetch;
     await expect(generateRasterImageV15(
       { prompt: 'test', model: 'flux' },
       { POLLINATIONS_API_KEY: 'sk_test' },
       fetchMock,
     )).rejects.toThrow('NO_VERIFIED_ZERO_COST_RASTER_MODEL');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('waits for eventually-consistent usage evidence and succeeds only after zero-cost tier proof appears', async () => {
@@ -199,6 +243,7 @@ describe('rasterImageProviderV15', () => {
       output_image_tokens: 1,
     };
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-eventual' }] }))
       .mockResolvedValueOnce(imageJson(imageBytes, 'image/png'))
@@ -214,13 +259,14 @@ describe('rasterImageProviderV15', () => {
       { attempts: 3, delayMs: 0 },
     );
 
-    expect(result.externalNetworkRequests).toBe(6);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(result.externalNetworkRequests).toBe(7);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
   it('rejects paid-balance usage even when the reported USD cost is zero', async () => {
     const imageBytes = pngBytes(1024, 1024);
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-paid' }] }))
       .mockResolvedValueOnce(imageJson(imageBytes, 'image/png'))
@@ -246,6 +292,7 @@ describe('rasterImageProviderV15', () => {
 
   it('fails before generation when the provider cannot supply a trustworthy usage baseline', async () => {
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ model: 'tomdacatto/sana' }] })) as unknown as typeof fetch;
 
@@ -260,6 +307,7 @@ describe('rasterImageProviderV15', () => {
 
   it('rejects the output if actual zero-cost usage cannot be proven after generation', async () => {
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
       .mockResolvedValueOnce(json([freeModel]))
       .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-cost' }] }))
       .mockResolvedValueOnce(imageJson(pngBytes(1024, 1024), 'image/png'))
