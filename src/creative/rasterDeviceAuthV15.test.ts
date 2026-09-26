@@ -4,12 +4,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRasterImageV15Router } from './rasterImageV15Router.js';
 
 const DATA_KEY = Buffer.alloc(32, 7).toString('base64');
-const env = { ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY };
+const APP_CLIENT_ID = 'pk_ORIGINPersonalTest123';
+const SHARED_SDK_CLIENT_ID = 'pk_NgBAArhUeGvSRFba';
+const env: NodeJS.ProcessEnv = {
+  ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY,
+  ORIGIN_POLLINATIONS_CLIENT_ID: APP_CLIENT_ID,
+};
 
-function app() {
+function app(runtimeEnv: NodeJS.ProcessEnv = env) {
   const instance = express();
   instance.use(express.json({ limit: '64kb' }));
-  instance.use(createRasterImageV15Router(env));
+  instance.use(createRasterImageV15Router(runtimeEnv));
   return instance;
 }
 
@@ -42,6 +47,27 @@ describe('raster device authorization', () => {
     vi.restoreAllMocks();
   });
 
+  it('fails closed without an ORIGIN-specific Pollinations app client id', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const invalidEnvs: NodeJS.ProcessEnv[] = [
+      { ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY },
+      { ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY, ORIGIN_POLLINATIONS_CLIENT_ID: SHARED_SDK_CLIENT_ID },
+    ];
+
+    for (const runtimeEnv of invalidEnvs) {
+      const instance = app(runtimeEnv);
+      const status = await request(instance).get('/api/creative/v1.5/raster/connect/status');
+      expect(status.status).toBe(200);
+      expect(status.body).toMatchObject({ connected: false, deviceAuthReady: false });
+
+      const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
+      expect(start.status).toBe(503);
+      expect(start.body).toEqual({ ok: false, code: 'IMAGE_AUTH_CONFIGURATION_UNAVAILABLE' });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('starts device authorization without exposing the provider device code', async () => {
     const fetchMock = vi.fn(async (_input?: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
       device_code: 'provider-device-secret',
@@ -70,6 +96,9 @@ describe('raster device authorization', () => {
     expect(cookie).toContain('SameSite=Strict');
     expect(cookie).not.toContain('provider-device-secret');
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://enter.pollinations.ai/api/device/code');
+    const outbound = new URLSearchParams(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(outbound.get('client_id')).toBe(APP_CLIENT_ID);
+    expect(outbound.get('client_id')).not.toBe(SHARED_SDK_CLIENT_ID);
   });
 
   it('enforces the sealed polling interval before contacting the token endpoint', async () => {
