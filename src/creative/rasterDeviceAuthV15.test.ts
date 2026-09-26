@@ -13,6 +13,12 @@ function app() {
   return instance;
 }
 
+function setCookies(headers: Record<string, unknown>): string[] {
+  const raw = headers['set-cookie'];
+  if (Array.isArray(raw)) return raw.map(String);
+  return typeof raw === 'string' ? [raw] : [];
+}
+
 describe('raster device authorization', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -20,7 +26,7 @@ describe('raster device authorization', () => {
   });
 
   it('starts device authorization without exposing the provider device code', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+    const fetchMock = vi.fn(async (_input?: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
       device_code: 'provider-device-secret',
       user_code: 'ABCD-1234',
       verification_uri: '/device',
@@ -40,7 +46,7 @@ describe('raster device authorization', () => {
       secretDelivery: 'server-only',
     });
     expect(JSON.stringify(response.body)).not.toContain('provider-device-secret');
-    const cookie = response.headers['set-cookie']?.[0] ?? '';
+    const cookie = setCookies(response.headers as Record<string, unknown>)[0] ?? '';
     expect(cookie).toContain('__Host-origin-image-device=');
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('Secure');
@@ -74,7 +80,7 @@ describe('raster device authorization', () => {
     expect(complete.status).toBe(200);
     expect(complete.body).toMatchObject({ ok: true, connected: true, secretDelivery: 'server-only' });
     expect(JSON.stringify(complete.body)).not.toContain('sk_provider_secret_token');
-    const cookies = complete.headers['set-cookie'] ?? [];
+    const cookies = setCookies(complete.headers as Record<string, unknown>);
     expect(cookies.some((value: string) => value.includes('__Host-origin-image-token='))).toBe(true);
     expect(cookies.join('\n')).not.toContain('sk_provider_secret_token');
 
@@ -108,7 +114,7 @@ describe('raster device authorization', () => {
     const response = await request(app()).post('/api/creative/v1.5/raster/connect/disconnect').send({});
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true, connected: false });
-    const cookies = response.headers['set-cookie'] ?? [];
+    const cookies = setCookies(response.headers as Record<string, unknown>);
     expect(cookies.join('\n')).toContain('__Host-origin-image-token=');
     expect(cookies.join('\n')).toContain('Max-Age=0');
   });
