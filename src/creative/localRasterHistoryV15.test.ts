@@ -53,6 +53,15 @@ describe('localRasterHistoryV15', () => {
     expect(isRasterAssetEntryShapeV15(entry({ typographyOverlay: 'yes' as never }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ sourceCriticVersion: 'other' as never }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ sourceQualityScore: 101 }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({
+      visionCriticState: 'passed',
+      visionCriticVersion: 'raster-vision-critic-v1',
+      visionCriticModel: 'inclusionai/ling-3.0-flash-vl:free',
+      visionQualityScore: 91,
+    }))).toBe(true);
+    expect(isRasterAssetEntryShapeV15(entry({ visionCriticState: 'passed' }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ visionQualityScore: 101 }))).toBe(false);
+    expect(isRasterAssetEntryShapeV15(entry({ visionCriticState: 'unavailable' }))).toBe(true);
   });
 
   it('supports verified lineage metadata for future variation and editing flows', () => {
