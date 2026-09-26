@@ -1,3 +1,4 @@
+import { resolveRasterVisualTemplateV15 } from './rasterVisualTemplatesV15.js';
 export type RasterVisualPurposeV15 =
   | 'photograph'
   | 'illustration'
@@ -19,6 +20,9 @@ export type RasterVisualPlanV15 = {
   questions: readonly string[];
   purpose: RasterVisualPurposeV15;
   platform: string;
+  templateId: string;
+  safeMarginPct: number;
+  typographyZone: string;
   width: number;
   height: number;
   style: readonly string[];
@@ -62,13 +66,6 @@ function purposeFor(input: string): RasterVisualPurposeV15 {
   return 'photograph';
 }
 
-function sizeFor(input: string): { width: number; height: number; platform: string } {
-  if (/(?:9\s*[:：/]\s*16|縦長|ストーリー|story|vertical)/i.test(input)) return { width: 864, height: 1536, platform: 'vertical-mobile' };
-  if (/(?:16\s*[:：/]\s*9|横長|landscape|wide|YouTube|サムネ)/i.test(input)) return { width: 1536, height: 864, platform: 'landscape-screen' };
-  if (/(?:4\s*[:：/]\s*5|Instagram|インスタ|portrait feed)/i.test(input)) return { width: 1024, height: 1280, platform: 'portrait-feed' };
-  if (/(?:1\s*[:：/]\s*1|正方形|square|ロゴ|logo|アイコン|icon)/i.test(input)) return { width: 1024, height: 1024, platform: 'square' };
-  return { width: 1024, height: 1024, platform: 'general' };
-}
 
 function quotedText(input: string): string[] {
   const values: string[] = [];
@@ -167,7 +164,8 @@ function compiledPrompt(input: string, plan: Omit<RasterVisualPlanV15, 'compiled
   return [
     'Create a polished production-quality image from the following user request.',
     `User request: ${input.trim()}`,
-    `Purpose: ${plan.purpose}. Platform: ${plan.platform}. Output: ${plan.width}x${plan.height}.`,
+    `Purpose: ${plan.purpose}. Platform: ${plan.platform}. Template: ${plan.templateId}. Output: ${plan.width}x${plan.height}.`,
+    `Safe area: keep critical content at least ${plan.safeMarginPct}% away from the canvas edge. Typography zone: ${plan.typographyZone}.`,
     `Art direction: ${plan.style.join('; ')}.`,
     `Composition: ${plan.composition.join('; ')}.`,
     `Lighting: ${plan.lighting.join('; ')}.`,
@@ -180,7 +178,7 @@ function compiledPrompt(input: string, plan: Omit<RasterVisualPlanV15, 'compiled
 export function planRasterVisualRequestV15(input: string): RasterVisualPlanV15 {
   const originalRequest = input.normalize('NFKC').trim();
   const purpose = purposeFor(originalRequest);
-  const size = sizeFor(originalRequest);
+  const template = resolveRasterVisualTemplateV15(originalRequest);
   const exactText = quotedText(originalRequest);
   const questions = questionsFor(originalRequest);
   const base = {
@@ -189,11 +187,14 @@ export function planRasterVisualRequestV15(input: string): RasterVisualPlanV15 {
     ready: questions.length === 0,
     questions,
     purpose,
-    platform: size.platform,
-    width: size.width,
-    height: size.height,
+    platform: template.platform,
+    templateId: template.id,
+    safeMarginPct: template.safeMarginPct,
+    typographyZone: template.typographyZone,
+    width: template.width,
+    height: template.height,
     style: styleFor(originalRequest),
-    composition: compositionFor(purpose),
+    composition: [...compositionFor(purpose), ...template.compositionGuidance],
     lighting: lightingFor(purpose, originalRequest),
     camera: cameraFor(purpose),
     exactText,
