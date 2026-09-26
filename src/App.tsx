@@ -5,6 +5,8 @@ import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
 import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
+import { composeRasterTypographyOverlayV15 } from './creative/localRasterTypographyV15';
+import { planRasterVisualRequestV15 } from './creative/rasterVisualPlannerV15';
 
 export interface ArtifactBlock {
   id: string;
@@ -1209,16 +1211,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         if (actualSha !== sha256.toLowerCase()) throw new Error('raster-sha-mismatch');
 
         const assistantId = `a-${Date.now()}`;
-        const imageUrl = URL.createObjectURL(blob);
-        rasterObjectUrls.current.add(imageUrl);
-        const assetId = sha256.toLowerCase();
-        const downloadName = rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType);
-        const image: GeneratedImageMessage = {
-          url: imageUrl,
-          assetId,
+        const baseAssetId = sha256.toLowerCase();
+        const baseDownloadName = rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType);
+        const baseHistoryStatus = await saveRasterAssetV15({
+          sha256: baseAssetId,
+          createdAt: Date.now(),
+          prompt: imageRequestText,
           mimeType: mimeType as GeneratedImageMessage['mimeType'],
-          downloadName,
-          sha256: assetId,
+          downloadName: baseDownloadName,
           providerId: 'pollinations-zero-cost',
           model,
           generationId,
@@ -1226,40 +1226,96 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           planVersion: 'raster-visual-plan-v1',
           planSha256: visualPlanSha256.toLowerCase(),
           purpose,
-          typographyOverlay: typographyOverlay === 'recommended',
-          width,
-          height,
-          relation: 'generated',
-        };
-        const historyStatus = await saveRasterAssetV15({
-          sha256: assetId,
-          createdAt: Date.now(),
-          prompt: imageRequestText,
-          mimeType: image.mimeType,
-          downloadName,
-          providerId: image.providerId,
-          model,
-          generationId,
-          visualBrainVersion: image.visualBrainVersion,
-          planVersion: image.planVersion,
-          planSha256: image.planSha256,
-          purpose: image.purpose,
-          typographyOverlay: image.typographyOverlay,
+          typographyOverlay: false,
           relation: 'generated',
           width,
           height,
           blob,
         });
-        if (historyStatus === 'failed') {
-          URL.revokeObjectURL(imageUrl);
-          rasterObjectUrls.current.delete(imageUrl);
-          throw new Error('raster-history-integrity-failed');
+        if (baseHistoryStatus === 'failed') throw new Error('raster-history-integrity-failed');
+
+        let finalBlob = blob;
+        let finalAssetId = baseAssetId;
+        let finalMimeType = mimeType as GeneratedImageMessage['mimeType'];
+        let finalDownloadName = baseDownloadName;
+        let finalRelation: GeneratedImageMessage['relation'] = 'generated';
+        let finalParentId: string | undefined;
+        let deterministicTypographyApplied = false;
+
+        if (typographyOverlay === 'recommended') {
+          const localPlan = planRasterVisualRequestV15(imageRequestText);
+          if (!localPlan.ready
+            || localPlan.purpose !== purpose
+            || localPlan.width !== width
+            || localPlan.height !== height
+            || !localPlan.requiresDeterministicTypography
+            || localPlan.exactText.length === 0) {
+            throw new Error('raster-typography-plan-mismatch');
+          }
+          const composed = await composeRasterTypographyOverlayV15(blob, localPlan.exactText, width, height);
+          if (typeof crypto?.subtle?.digest !== 'function') throw new Error('raster-composite-sha-unavailable');
+          const compositeDigest = await crypto.subtle.digest('SHA-256', await composed.blob.arrayBuffer());
+          const compositeSha = Array.from(new Uint8Array(compositeDigest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+
+          finalBlob = composed.blob;
+          finalAssetId = compositeSha;
+          finalMimeType = 'image/png';
+          finalDownloadName = baseDownloadName.replace(/\.(?:png|jpe?g|webp)$/i, '-text.png');
+          finalRelation = 'edited-from';
+          finalParentId = baseAssetId;
+          deterministicTypographyApplied = true;
+
+          const composedHistoryStatus = await saveRasterAssetV15({
+            sha256: finalAssetId,
+            createdAt: Date.now() + 1,
+            prompt: imageRequestText,
+            mimeType: finalMimeType,
+            downloadName: finalDownloadName,
+            providerId: 'pollinations-zero-cost',
+            model,
+            generationId,
+            visualBrainVersion: 'visual-brain-v1',
+            planVersion: 'raster-visual-plan-v1',
+            planSha256: visualPlanSha256.toLowerCase(),
+            purpose,
+            typographyOverlay: true,
+            relation: finalRelation,
+            parentId: finalParentId,
+            width,
+            height,
+            blob: finalBlob,
+          });
+          if (composedHistoryStatus === 'failed') throw new Error('raster-composite-history-integrity-failed');
         }
+
+        const imageUrl = URL.createObjectURL(finalBlob);
+        rasterObjectUrls.current.add(imageUrl);
+        const image: GeneratedImageMessage = {
+          url: imageUrl,
+          assetId: finalAssetId,
+          mimeType: finalMimeType,
+          downloadName: finalDownloadName,
+          sha256: finalAssetId,
+          providerId: 'pollinations-zero-cost',
+          model,
+          generationId,
+          visualBrainVersion: 'visual-brain-v1',
+          planVersion: 'raster-visual-plan-v1',
+          planSha256: visualPlanSha256.toLowerCase(),
+          purpose,
+          typographyOverlay: deterministicTypographyApplied,
+          width,
+          height,
+          relation: finalRelation,
+          parentId: finalParentId,
+        };
         pendingImageRequestRef.current = null;
         updateMessages((current) => [...current, {
           id: assistantId,
           role: 'assistant',
-          content: language === 'en' ? 'Image generated and verified.' : '画像を生成し、実ファイルを検証しました。',
+          content: deterministicTypographyApplied
+            ? (language === 'en' ? 'Image generated, verified, and finished with exact deterministic typography.' : '画像を生成・検証し、指定文字を正確なタイポグラフィで仕上げました。')
+            : (language === 'en' ? 'Image generated and verified.' : '画像を生成し、実ファイルを検証しました。'),
           deliveryState: 'verified',
           image,
         }]);
