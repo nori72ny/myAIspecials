@@ -215,11 +215,17 @@ function normalizedRequiredLanes(
   return Object.freeze(allowed.filter((lane) => seen.has(lane)));
 }
 
+export interface OriginAnswerQualityBenchmarkScopedProbeOptions {
+  readonly codingReadiness?: "durable-http" | "checkout";
+  readonly codingCheckoutReady?: boolean;
+}
+
 export async function probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
   baseUrl: string,
   expectedGitSha: string,
   requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[],
   fetchImpl: typeof fetch = fetch,
+  options: OriginAnswerQualityBenchmarkScopedProbeOptions = {},
 ): Promise<OriginAnswerQualityBenchmarkScopedEnvironmentProofResult> {
   const base = validBaseUrl(baseUrl);
   if (!base) return { ok: false, code: "AQ_BENCHMARK_ENV_INVALID_BASE_URL" };
@@ -283,20 +289,27 @@ export async function probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
   }
 
   if (normalized.includes("coding")) {
-    const coding = await getJson(fetchImpl, base, "/api/coding/v1.4/status");
-    if (!coding) return { ok: false, code: "AQ_BENCHMARK_ENV_FETCH_FAILED" };
-    if (
-      coding.ok !== true
-      || coding.version !== "1.4"
-      || coding.capability !== "durable-agentic-coding-jobs"
-      || coding.ready !== true
-      || coding.freeOnly !== true
-      || coding.costUsd !== 0
-      || coding.paidFallbackEnabled !== false
-    ) {
-      return { ok: false, code: "AQ_BENCHMARK_ENV_CODING_NOT_READY" };
+    if (options.codingReadiness === "checkout") {
+      if (options.codingCheckoutReady !== true) {
+        return { ok: false, code: "AQ_BENCHMARK_ENV_CODING_NOT_READY" };
+      }
+      runtimeIds.coding = "coding-v1.4";
+    } else {
+      const coding = await getJson(fetchImpl, base, "/api/coding/v1.4/status");
+      if (!coding) return { ok: false, code: "AQ_BENCHMARK_ENV_FETCH_FAILED" };
+      if (
+        coding.ok !== true
+        || coding.version !== "1.4"
+        || coding.capability !== "durable-agentic-coding-jobs"
+        || coding.ready !== true
+        || coding.freeOnly !== true
+        || coding.costUsd !== 0
+        || coding.paidFallbackEnabled !== false
+      ) {
+        return { ok: false, code: "AQ_BENCHMARK_ENV_CODING_NOT_READY" };
+      }
+      runtimeIds.coding = "coding-v1.4";
     }
-    runtimeIds.coding = "coding-v1.4";
   }
 
   if (normalized.includes("chat")) {

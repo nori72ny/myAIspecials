@@ -166,4 +166,41 @@ describe("OriginAnswerQualityBenchmarkEnvironmentProof", () => {
       code: "AQ_BENCHMARK_ENV_CODING_NOT_READY",
     });
   });
+  it("allows checkout-proven coding readiness without probing the durable job API", async () => {
+    const fetchImpl = fetchFor({ coding: { ready: false } });
+
+    const result = await probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
+      "https://candidate.example/",
+      sha,
+      ["coding"],
+      fetchImpl as typeof fetch,
+      { codingReadiness: "checkout", codingCheckoutReady: true },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok === false) return;
+    expect(result.value.requiredLanes).toEqual(["coding"]);
+    expect(result.value.runtimeIds).toEqual({ coding: "coding-v1.4" });
+
+    const requestedPaths = fetchImpl.mock.calls.map((call) =>
+      new URL(String(call[0])).pathname
+    );
+    expect(requestedPaths).toEqual(["/api/health"]);
+  });
+
+  it("fails closed when checkout-proven coding readiness is absent", async () => {
+    const result = await probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
+      "https://candidate.example/",
+      sha,
+      ["coding"],
+      fetchFor() as typeof fetch,
+      { codingReadiness: "checkout", codingCheckoutReady: false },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      code: "AQ_BENCHMARK_ENV_CODING_NOT_READY",
+    });
+  });
+
 });
