@@ -143,7 +143,9 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         width: input.width ?? plan.width,
         height: input.height ?? plan.height,
       }, env);
-      const critic = critiqueRasterStructureV15(result.bytes, result.mimeType, result.width, result.height);
+      const expectedWidth = input.width ?? plan.width;
+      const expectedHeight = input.height ?? plan.height;
+      const critic = critiqueRasterStructureV15(result.bytes, result.mimeType, expectedWidth, expectedHeight);
       if (!critic.passed) {
         return res.status(502).json({
           ok: false,
