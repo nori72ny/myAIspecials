@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 const VIEWPORTS = [320, 390, 1440] as const;
 
 async function waitForBootTransition(page: Page) {
+  await expect(page.getByTestId('origin-home-request')).toBeVisible();
   await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
 }
 
