@@ -103,7 +103,7 @@ describe('rasterImageV15Router', () => {
         version: 'raster-technical-critic-v1',
         implemented: true,
         execution: 'available-local-module',
-        deliveryGateWired: false,
+        deliveryGateWired: true,
         semanticVisionJudgment: false,
       },
       candidateSelection: {
