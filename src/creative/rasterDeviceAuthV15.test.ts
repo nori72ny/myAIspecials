@@ -30,6 +30,12 @@ function sealedCookie(headers: Record<string, unknown>, name: string): string {
   return cookie!.split(';')[0];
 }
 
+function controlledNow(initial = Date.UTC(2026, 8, 27, 0, 0, 0)) {
+  let current = initial;
+  vi.spyOn(Date, 'now').mockImplementation(() => current);
+  return { advance: (milliseconds: number) => { current += milliseconds; } };
+}
+
 describe('raster device authorization', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -66,7 +72,35 @@ describe('raster device authorization', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://enter.pollinations.ai/api/device/code');
   });
 
+  it('enforces the sealed polling interval before contacting the token endpoint', async () => {
+    const clock = controlledNow();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        device_code: 'provider-device-secret', user_code: 'ABCD-1234', verification_uri: '/device', expires_in: 600, interval: 5,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: 'sk_provider_secret_token', token_type: 'bearer', expires_in: 3600, scope: 'generate usage',
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const instance = app();
+    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
+    const cookie = sealedCookie(start.headers, '__Host-origin-image-device');
+
+    const early = await request(instance).post('/api/creative/v1.5/raster/connect/complete').set('Cookie', cookie).send({});
+    expect(early.status).toBe(202);
+    expect(early.headers['retry-after']).toBe('5');
+    expect(early.body).toMatchObject({ pending: true, code: 'authorization_pending', interval: 5 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    clock.advance(5_000);
+    const complete = await request(instance).post('/api/creative/v1.5/raster/connect/complete').set('Cookie', cookie).send({});
+    expect(complete.status).toBe(200);
+    expect(complete.body).toMatchObject({ ok: true, connected: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('exchanges the sealed pending code and keeps the access token out of response and plaintext cookies', async () => {
+    const clock = controlledNow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         device_code: 'provider-device-secret',
@@ -86,6 +120,7 @@ describe('raster device authorization', () => {
     const agent = request.agent(app());
     const start = await agent.post('/api/creative/v1.5/raster/connect/start').send({});
     expect(start.status).toBe(200);
+    clock.advance(5_000);
 
     const complete = await agent.post('/api/creative/v1.5/raster/connect/complete')
       .set('Cookie', sealedCookie(start.headers, '__Host-origin-image-device')).send({});
@@ -102,7 +137,8 @@ describe('raster device authorization', () => {
     expect(status.body).toMatchObject({ connected: true, mode: 'device-cookie', deviceAuthReady: true });
   });
 
-  it('reports authorization_pending without clearing the pending session', async () => {
+  it('reports authorization_pending and seals the next allowed poll time', async () => {
+    const clock = controlledNow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         device_code: 'provider-device-secret',
@@ -116,18 +152,26 @@ describe('raster device authorization', () => {
       }), { status: 400, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const agent = request.agent(app());
-    const start = await agent.post('/api/creative/v1.5/raster/connect/start').send({});
+    const instance = app();
+    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
     expect(start.status).toBe(200);
-    const complete = await agent.post('/api/creative/v1.5/raster/connect/complete')
+    clock.advance(5_000);
+    const complete = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
       .set('Cookie', sealedCookie(start.headers, '__Host-origin-image-device')).send({});
     expect(complete.status).toBe(202);
+    expect(complete.headers['retry-after']).toBe('5');
     expect(complete.body).toMatchObject({ pending: true, code: 'authorization_pending', interval: 5 });
-    expect(setCookies(complete.headers)).toEqual([]);
+    const pendingCookie = sealedCookie(complete.headers, '__Host-origin-image-device');
+    expect(pendingCookie).not.toContain('provider-device-secret');
+
+    const tooSoon = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
+      .set('Cookie', pendingCookie).send({});
+    expect(tooSoon.status).toBe(202);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('defaults an omitted polling interval and persists cumulative slow_down delays', async () => {
+    const clock = controlledNow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         device_code: 'provider-device-secret', user_code: 'ABCD-1234',
@@ -142,23 +186,30 @@ describe('raster device authorization', () => {
     expect(start.status).toBe(200);
     expect(start.body.interval).toBe(5);
     let cookie = sealedCookie(start.headers, '__Host-origin-image-device');
+    let waitMs = 5_000;
     for (const interval of [10, 15]) {
+      clock.advance(waitMs);
       const result = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
         .set('Cookie', cookie).send({});
       expect(result.status).toBe(202);
+      expect(result.headers['retry-after']).toBe(String(interval));
       expect(result.body).toMatchObject({ pending: true, code: 'slow_down', interval });
       cookie = sealedCookie(result.headers, '__Host-origin-image-device');
       expect(cookie).not.toContain('provider-device-secret');
+      waitMs = interval * 1000;
     }
+    clock.advance(waitMs);
     const pending = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
       .set('Cookie', cookie).send({});
     expect(pending.status).toBe(202);
     expect(pending.body).toMatchObject({ code: 'authorization_pending', interval: 15 });
-    expect(setCookies(pending.headers)).toEqual([]);
+    expect(pending.headers['retry-after']).toBe('15');
+    expect(sealedCookie(pending.headers, '__Host-origin-image-device')).not.toContain('provider-device-secret');
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it.each(['access_denied', 'expired_token'])('clears pending state after %s without issuing a token', async (error) => {
+    const clock = controlledNow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         device_code: 'provider-device-secret', user_code: 'ABCD-1234',
@@ -168,6 +219,7 @@ describe('raster device authorization', () => {
     vi.stubGlobal('fetch', fetchMock);
     const instance = app();
     const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
+    clock.advance(5_000);
     const complete = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
       .set('Cookie', sealedCookie(start.headers, '__Host-origin-image-device')).send({});
     expect(complete.status).toBe(409);
