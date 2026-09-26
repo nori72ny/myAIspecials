@@ -199,6 +199,10 @@ export type GeneratedImageMessage = {
   typographyOverlay: boolean;
   sourceCriticVersion: 'raster-structural-critic-v1';
   sourceQualityScore: number;
+  visionCriticState?: 'passed' | 'unavailable';
+  visionCriticVersion?: 'raster-vision-critic-v1';
+  visionCriticModel?: string;
+  visionQualityScore?: number;
   width: number;
   height: number;
   relation: 'generated' | 'variation' | 'edited-from';
@@ -1197,6 +1201,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const sourceQualityScore = Number(response.headers.get('x-origin-visual-quality-score') ?? '0');
         const sourceActualWidth = Number(response.headers.get('x-origin-visual-actual-width') ?? '0');
         const sourceActualHeight = Number(response.headers.get('x-origin-visual-actual-height') ?? '0');
+        const visionCriticState = response.headers.get('x-origin-visual-vision-critic') ?? '';
+        const visionCriticModel = response.headers.get('x-origin-visual-vision-critic-model') ?? '';
+        const visionQualityScoreHeader = response.headers.get('x-origin-visual-vision-score');
+        const visionQualityScore = visionQualityScoreHeader === null ? undefined : Number(visionQualityScoreHeader);
         const width = Number(response.headers.get('x-origin-visual-width') ?? '0');
         const height = Number(response.headers.get('x-origin-visual-height') ?? '0');
         const cost = response.headers.get('x-origin-cost-usd');
@@ -1215,6 +1223,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           || (typographyOverlay !== 'recommended' && typographyOverlay !== 'not-required')
           || sourceCriticVersion !== 'raster-structural-critic-v1'
           || sourceQualityScore !== 100
+          || (visionCriticState !== 'passed' && visionCriticState !== 'unavailable')
+          || !visionCriticModel
+          || (visionCriticState === 'passed' && (!Number.isInteger(visionQualityScore) || Number(visionQualityScore) < 0 || Number(visionQualityScore) > 100))
           || sourceActualWidth !== width
           || sourceActualHeight !== height
           || !Number.isInteger(width) || width < 256 || width > 1536
@@ -1252,6 +1263,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           typographyOverlay: false,
           sourceCriticVersion: 'raster-structural-critic-v1',
           sourceQualityScore,
+          visionCriticState: visionCriticState as 'passed' | 'unavailable',
+          visionCriticVersion: visionCriticState === 'passed' ? 'raster-vision-critic-v1' : undefined,
+          visionCriticModel,
+          visionQualityScore: visionCriticState === 'passed' ? visionQualityScore : undefined,
           relation: 'generated',
           width,
           height,
@@ -1306,6 +1321,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             typographyOverlay: true,
             sourceCriticVersion: 'raster-structural-critic-v1',
             sourceQualityScore,
+            visionCriticState: visionCriticState as 'passed' | 'unavailable',
+            visionCriticVersion: visionCriticState === 'passed' ? 'raster-vision-critic-v1' : undefined,
+            visionCriticModel,
+            visionQualityScore: visionCriticState === 'passed' ? visionQualityScore : undefined,
             relation: finalRelation,
             parentId: finalParentId,
             width,
@@ -1333,6 +1352,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           typographyOverlay: deterministicTypographyApplied,
           sourceCriticVersion: 'raster-structural-critic-v1',
           sourceQualityScore,
+          visionCriticState: visionCriticState as 'passed' | 'unavailable',
+          visionCriticVersion: visionCriticState === 'passed' ? 'raster-vision-critic-v1' : undefined,
+          visionCriticModel,
+          visionQualityScore: visionCriticState === 'passed' ? visionQualityScore : undefined,
           width,
           height,
           relation: finalRelation,
