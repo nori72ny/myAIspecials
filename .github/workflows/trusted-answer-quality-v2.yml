@@ -15,6 +15,14 @@ on:
         description: Frozen AQ V2 evaluation round id
         required: true
         type: string
+      corpus_id:
+        description: Exact sealed AQ V2 corpus id already stored in the trusted private store
+        required: true
+        type: string
+      corpus_digest:
+        description: Expected sha256 digest for that sealed corpus
+        required: true
+        type: string
   push:
     branches: [main]
 
@@ -31,8 +39,8 @@ env:
   AQ_V2_DEFAULT_CANDIDATE_SHA: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb
   AQ_V2_DEFAULT_PR_NUMBER: '608'
   AQ_V2_DEFAULT_ROUND_ID: round-2026-09-23-independent-claude-1
-  AQ_V2_CORPUS_ID: origin-aq-v2-independent-2026-09
-  AQ_V2_EXPECTED_CORPUS_DIGEST: 7b81ab3d76b3ede127378d2a21d6b7844664046b683f9eff7248ca9b87ff9517
+  AQ_V2_DEFAULT_CORPUS_ID: origin-aq-v2-independent-2026-09
+  AQ_V2_DEFAULT_CORPUS_DIGEST: 7b81ab3d76b3ede127378d2a21d6b7844664046b683f9eff7248ca9b87ff9517
 
 jobs:
   preflight:
@@ -64,15 +72,21 @@ jobs:
           CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
           PR_NUMBER: ${{ inputs.pr_number || env.AQ_V2_DEFAULT_PR_NUMBER }}
           ROUND_ID: ${{ inputs.round_id || env.AQ_V2_DEFAULT_ROUND_ID }}
+          CORPUS_ID: ${{ inputs.corpus_id || env.AQ_V2_DEFAULT_CORPUS_ID }}
+          CORPUS_DIGEST: ${{ inputs.corpus_digest || env.AQ_V2_DEFAULT_CORPUS_DIGEST }}
         run: |
           set -euo pipefail
           node <<'NODE'
           const sha=process.env.CANDIDATE_SHA||'';
           const pr=process.env.PR_NUMBER||'';
           const round=process.env.ROUND_ID||'';
+          const corpusId=process.env.CORPUS_ID||'';
+          const corpusDigest=process.env.CORPUS_DIGEST||'';
           if(!/^[a-f0-9]{40}$/.test(sha)) process.exit(2);
           if(!/^[1-9][0-9]*$/.test(pr)) process.exit(2);
           if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,119}$/.test(round)) process.exit(2);
+          if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,159}$/.test(corpusId)) process.exit(2);
+          if(!/^[a-f0-9]{64}$/.test(corpusDigest)) process.exit(2);
           NODE
           curl --fail --silent --show-error \
             -H 'Accept: application/vnd.github+json' \
@@ -104,8 +118,8 @@ jobs:
         id: corpus
         env:
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
-          ORIGIN_AQ_V2_CORPUS_ID: ${{ env.AQ_V2_CORPUS_ID }}
-          ORIGIN_AQ_V2_EXPECTED_CORPUS_DIGEST: ${{ env.AQ_V2_EXPECTED_CORPUS_DIGEST }}
+          ORIGIN_AQ_V2_CORPUS_ID: ${{ inputs.corpus_id || env.AQ_V2_DEFAULT_CORPUS_ID }}
+          ORIGIN_AQ_V2_EXPECTED_CORPUS_DIGEST: ${{ inputs.corpus_digest || env.AQ_V2_DEFAULT_CORPUS_DIGEST }}
           ORIGIN_AQ_V2_SEALED_CORPUS_PATH: ${{ runner.temp }}/aq-v2-preflight-corpus.b64
         run: |
           set -euo pipefail
@@ -156,8 +170,8 @@ jobs:
       - name: Fetch sealed corpus into trusted runner temp
         env:
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
-          ORIGIN_AQ_V2_CORPUS_ID: ${{ env.AQ_V2_CORPUS_ID }}
-          ORIGIN_AQ_V2_EXPECTED_CORPUS_DIGEST: ${{ env.AQ_V2_EXPECTED_CORPUS_DIGEST }}
+          ORIGIN_AQ_V2_CORPUS_ID: ${{ inputs.corpus_id || env.AQ_V2_DEFAULT_CORPUS_ID }}
+          ORIGIN_AQ_V2_EXPECTED_CORPUS_DIGEST: ${{ inputs.corpus_digest || env.AQ_V2_DEFAULT_CORPUS_DIGEST }}
           ORIGIN_AQ_V2_SEALED_CORPUS_PATH: ${{ runner.temp }}/aq-v2-sealed-corpus.b64
           ORIGIN_AQ_V2_CORPUS_CHECK_PATH: ${{ runner.temp }}/aq-v2-evaluate-corpus-check.json
         run: |
