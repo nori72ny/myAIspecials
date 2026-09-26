@@ -25,6 +25,8 @@ export type RasterAssetEntryV15 = {
   planSha256: string;
   purpose: string;
   typographyOverlay: boolean;
+  criticVersion: 'raster-structural-critic-v1';
+  qualityScore: number;
   relation: RasterAssetRelationV15;
   parentId?: string;
   width: number;
@@ -67,6 +69,8 @@ export function isRasterAssetEntryShapeV15(value: unknown): value is RasterAsset
   if (typeof value.planSha256 !== 'string' || !SHA256.test(value.planSha256)) return false;
   if (typeof value.purpose !== 'string' || !/^[a-z-]{1,40}$/.test(value.purpose)) return false;
   if (typeof value.typographyOverlay !== 'boolean') return false;
+  if (value.criticVersion !== 'raster-structural-critic-v1') return false;
+  if (typeof value.qualityScore !== 'number' || !Number.isInteger(value.qualityScore) || value.qualityScore < 0 || value.qualityScore > 100) return false;
   if (!['generated', 'variation', 'edited-from'].includes(String(value.relation))) return false;
   if (value.parentId !== undefined && (typeof value.parentId !== 'string' || !SHA256.test(value.parentId))) return false;
   if (typeof value.width !== 'number' || !Number.isInteger(value.width) || value.width < 256 || value.width > 1536) return false;
