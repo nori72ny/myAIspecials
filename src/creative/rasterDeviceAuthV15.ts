@@ -2,7 +2,8 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:cr
 import type { Request, Response as ExpressResponse } from 'express';
 
 const AUTH_ORIGIN = 'https://enter.pollinations.ai';
-const DEVICE_CLIENT_ID = 'pk_NgBAArhUeGvSRFba';
+const CLIENT_ID_ENV = 'ORIGIN_POLLINATIONS_CLIENT_ID';
+const SHARED_SDK_CLIENT_ID = 'pk_NgBAArhUeGvSRFba';
 const DEVICE_SCOPE = 'generate usage';
 const DATA_KEY_ENV = 'ORIGIN_CODING_JOB_DATA_KEY';
 const PENDING_COOKIE = '__Host-origin-image-device';
@@ -30,6 +31,14 @@ function dataKey(env: NodeJS.ProcessEnv): Buffer {
   const source = Buffer.from(raw, 'base64');
   if (source.length !== 32 || source.toString('base64') !== raw) throw new Error('IMAGE_AUTH_KEY_UNAVAILABLE');
   return Buffer.from(hkdfSync('sha256', source, Buffer.from('origin-image-auth-v15'), Buffer.from('pollinations-device-cookie'), 32));
+}
+
+function deviceClientId(env: NodeJS.ProcessEnv): string {
+  const raw = env[CLIENT_ID_ENV]?.trim();
+  if (!raw || !/^pk_[A-Za-z0-9]{8,128}$/.test(raw) || raw === SHARED_SDK_CLIENT_ID) {
+    throw new Error('IMAGE_AUTH_CLIENT_ID_UNAVAILABLE');
+  }
+  return raw;
 }
 
 function seal(kind: 'pending' | 'token', value: object, env: NodeJS.ProcessEnv): string {
@@ -99,7 +108,7 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 10_000): Pr
 }
 
 export function rasterDeviceAuthConfiguredV15(env: NodeJS.ProcessEnv = process.env): boolean {
-  try { dataKey(env); return true; } catch { return false; }
+  try { dataKey(env); deviceClientId(env); return true; } catch { return false; }
 }
 
 export function resolveRasterDeviceApiKeyV15(req: Request, env: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -111,8 +120,10 @@ export function resolveRasterDeviceApiKeyV15(req: Request, env: NodeJS.ProcessEn
 }
 
 export async function startRasterDeviceAuthV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
-  if (!rasterDeviceAuthConfiguredV15(env)) return res.status(503).json({ ok: false, code: 'IMAGE_AUTH_KEY_UNAVAILABLE' });
-  const form = new URLSearchParams({ client_id: DEVICE_CLIENT_ID, scope: DEVICE_SCOPE });
+  let clientId: string;
+  try { dataKey(env); clientId = deviceClientId(env); }
+  catch { return res.status(503).json({ ok: false, code: 'IMAGE_AUTH_CONFIGURATION_UNAVAILABLE' }); }
+  const form = new URLSearchParams({ client_id: clientId, scope: DEVICE_SCOPE });
   const { response, body } = await fetchJson(`${AUTH_ORIGIN}/api/device/code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
@@ -136,7 +147,7 @@ export async function startRasterDeviceAuthV15(req: Request, res: ExpressRespons
   const expiresAt = issuedAt + Math.floor(expiresIn * 1000);
   setCookie(res, PENDING_COOKIE, seal('pending', {
     deviceCode,
-    clientId: DEVICE_CLIENT_ID,
+    clientId,
     expiresAt,
     intervalSeconds,
     nextPollAt: issuedAt + intervalSeconds * 1000,
@@ -153,9 +164,15 @@ export async function startRasterDeviceAuthV15(req: Request, res: ExpressRespons
 }
 
 export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
+  let clientId: string;
+  try { dataKey(env); clientId = deviceClientId(env); }
+  catch {
+    clearCookie(res, PENDING_COOKIE);
+    return res.status(503).json({ ok: false, code: 'IMAGE_AUTH_CONFIGURATION_UNAVAILABLE' });
+  }
   const state = open<PendingStateV15>('pending', cookies(req).get(PENDING_COOKIE), env);
   const now = Date.now();
-  if (!state || !exactText(state.deviceCode, 2048) || state.clientId !== DEVICE_CLIENT_ID
+  if (!state || !exactText(state.deviceCode, 2048) || state.clientId !== clientId
     || !Number.isSafeInteger(state.expiresAt) || state.expiresAt <= now
     || !Number.isSafeInteger(state.intervalSeconds) || state.intervalSeconds < 1
     || !Number.isSafeInteger(state.nextPollAt) || state.nextPollAt < 1) {
@@ -176,7 +193,7 @@ export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResp
   const form = new URLSearchParams({
     grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
     device_code: state.deviceCode,
-    client_id: DEVICE_CLIENT_ID,
+    client_id: clientId,
   });
   const { response, body } = await fetchJson(`${AUTH_ORIGIN}/api/oauth/token`, {
     method: 'POST',
