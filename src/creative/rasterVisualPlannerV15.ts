@@ -84,9 +84,11 @@ function quotedText(input: string): string[] {
       if (value && !values.includes(value)) values.push(value);
     }
   }
-  const explicit = input.match(/(?:文字|テキスト|コピー|見出し|title|headline|caption|text)\s*(?:は|:|：)\s*([^。\n]{1,120})/i)?.[1];
-  const normalizedExplicit = explicit ? explicit.trim().replace(/[。,.，]+$/g, '') : '';
-  if (normalizedExplicit && !values.includes(normalizedExplicit)) values.push(normalizedExplicit);
+  if (values.length === 0) {
+    const explicit = input.match(/(?:文字|テキスト|コピー|見出し|title|headline|caption|text)\s*(?:は|:|：)\s*([^。\n]{1,120})/i)?.[1];
+    const normalizedExplicit = explicit ? explicit.trim().replace(/[。,.，]+$/g, '') : '';
+    if (normalizedExplicit && !values.includes(normalizedExplicit)) values.push(normalizedExplicit);
+  }
   return values.slice(0, 8);
 }
 
