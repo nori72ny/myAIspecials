@@ -39,10 +39,16 @@ function parseBody(body: unknown): RasterImageRequestV15 {
   if (record.negativePrompt !== undefined && typeof record.negativePrompt !== 'string') throw new Error('INVALID_RASTER_NEGATIVE_PROMPT');
   if (record.model !== undefined && typeof record.model !== 'string') throw new Error('INVALID_RASTER_MODEL');
   for (const key of ['width', 'height'] as const) {
-    if (record[key] !== undefined && (typeof record[key] !== 'number' || !Number.isInteger(record[key]))) {
+    if (record[key] !== undefined && (
+      typeof record[key] !== 'number'
+      || !Number.isInteger(record[key])
+      || record[key] < 256
+      || record[key] > 1536
+    )) {
       throw new Error('INVALID_RASTER_DIMENSION');
     }
   }
+  if ((record.width === undefined) !== (record.height === undefined)) throw new Error('INVALID_RASTER_DIMENSION_PAIR');
   return {
     prompt: record.prompt,
     negativePrompt: record.negativePrompt as string | undefined,
@@ -108,7 +114,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
 
     try {
       const input = parseBody(req.body);
-      const plan = planRasterVisualRequestV15(input.prompt);
+      const plan = planRasterVisualRequestV15(input.prompt, { width: input.width, height: input.height });
       return res.status(plan.ready ? 200 : 409).json({
         ok: plan.ready,
         code: plan.ready ? 'RASTER_PLAN_READY' : 'IMAGE_REQUIREMENTS_INCOMPLETE',
@@ -137,7 +143,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     }
 
     try {
-      const plan = planRasterVisualRequestV15(input.prompt);
+      const plan = planRasterVisualRequestV15(input.prompt, { width: input.width, height: input.height });
       if (!plan.ready) {
         return res.status(409).json({
           ok: false,
