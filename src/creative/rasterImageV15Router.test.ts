@@ -7,10 +7,24 @@ import { createRasterImageV15Router } from './rasterImageV15Router';
 const freeModel = {
   name: 'tomdacatto/sana',
   category: 'image',
+  title: 'Sana Sprint (Free)',
+  description: 'Free image model',
+  community: true,
   pricing: { currency: 'pollen' },
   paid_only: false,
   input_modalities: ['text'],
   output_modalities: ['image'],
+};
+
+const scopedKeyInfo = {
+  valid: true,
+  type: 'secret',
+  permissions: {
+    models: ['tomdacatto/sana'],
+    account: ['usage'],
+  },
+  pollenBudget: 1,
+  rateLimitEnabled: false,
 };
 
 function app(env: NodeJS.ProcessEnv = {}) {
@@ -43,6 +57,7 @@ function imageJson(bytes: Uint8Array): Response {
 function successfulFetchMock() {
   const png = pngBytes(768, 1024);
   return vi.fn()
+    .mockResolvedValueOnce(json(scopedKeyInfo))
     .mockResolvedValueOnce(json([freeModel]))
     .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-router' }] }))
     .mockResolvedValueOnce(imageJson(png))
@@ -81,6 +96,28 @@ describe('rasterImageV15Router', () => {
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
     expect(legacy.status).toBe(503);
     expect(legacy.body.code).toBe('POLLINATIONS_KEY_NOT_CONFIGURED');
+  });
+
+  it('reports configured-but-not-ready when the provider key is not least-privilege scoped', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(json({
+      ...scopedKeyInfo,
+      permissions: { models: null, account: ['usage'] },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({ POLLINATIONS_API_KEY: 'server_only_key' }))
+      .get('/api/creative/v1.5/raster/status');
+
+    expect(response.status).toBe(503);
+    expect(response.body).toMatchObject({
+      configured: true,
+      ready: false,
+      reason: 'POLLINATIONS_KEY_SCOPE_INVALID',
+      freeOnly: true,
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns focused clarification questions before any provider execution for vague image requests', async () => {
@@ -159,7 +196,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-cost-usd']).toBe('0');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
     expect(response.headers['x-origin-external-network']).toBe('true');
-    expect(response.headers['x-origin-external-network-requests']).toBe('4');
+    expect(response.headers['x-origin-external-network-requests']).toBe('5');
     expect(response.headers['x-origin-secret-delivery']).toBe('server-only');
     expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-generation-id']).toMatch(/^raster-[a-f0-9]{24}$/);
@@ -171,13 +208,13 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-width']).toBe('768');
     expect(response.headers['x-origin-visual-height']).toBe('1024');
     expect(Buffer.isBuffer(response.body)).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
 
-    const providerRequest = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    const providerRequest = fetchMock.mock.calls[3]?.[1] as RequestInit;
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe('Bearer server_only_key');
     expect(response.text ?? '').not.toContain('server_only_key');
-    expect(String(fetchMock.mock.calls[2]?.[0])).toBe('https://gen.pollinations.ai/v1/images/generations');
+    expect(String(fetchMock.mock.calls[3]?.[0])).toBe('https://gen.pollinations.ai/v1/images/generations');
     const providerBody = JSON.parse(String(providerRequest.body));
     expect(providerBody.prompt).toContain('Create a polished production-quality image');
     expect(providerBody.prompt).toContain('User request: 静かな湖と朝焼け');
