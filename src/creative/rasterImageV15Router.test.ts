@@ -27,15 +27,25 @@ function json(value: unknown, status = 200): Response {
   });
 }
 
+function pngBytes(width: number, height: number): Uint8Array {
+  const bytes = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
+  Buffer.from('IHDR', 'ascii').copy(bytes, 12);
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return Uint8Array.from(bytes);
+}
+
+function imageJson(bytes: Uint8Array): Response {
+  return json({ data: [{ b64_json: Buffer.from(bytes).toString('base64'), media_type: 'image/png' }] });
+}
+
 function successfulFetchMock() {
-  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+  const png = pngBytes(768, 1024);
   return vi.fn()
     .mockResolvedValueOnce(json([freeModel]))
     .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-router' }] }))
-    .mockResolvedValueOnce(new Response(png, {
-      status: 200,
-      headers: { 'content-type': 'image/png' },
-    }))
+    .mockResolvedValueOnce(imageJson(png))
     .mockResolvedValueOnce(json({
       usage: [{
         cursor_event_id: 'after-router',
@@ -153,6 +163,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-secret-delivery']).toBe('server-only');
     expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-generation-id']).toMatch(/^raster-[a-f0-9]{24}$/);
+    expect(response.headers['x-origin-visual-brain']).toBe('visual-brain-v1');
     expect(response.headers['x-origin-visual-plan']).toBe('raster-visual-plan-v1');
     expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-purpose']).toBe('photograph');
@@ -166,9 +177,15 @@ describe('rasterImageV15Router', () => {
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe('Bearer server_only_key');
     expect(response.text ?? '').not.toContain('server_only_key');
-    const providerUrl = String(fetchMock.mock.calls[2]?.[0]);
-    expect(decodeURIComponent(providerUrl)).toContain('Create a polished production-quality image');
-    expect(decodeURIComponent(providerUrl)).toContain('User request: 静かな湖と朝焼け');
+    expect(String(fetchMock.mock.calls[2]?.[0])).toBe('https://gen.pollinations.ai/v1/images/generations');
+    const providerBody = JSON.parse(String(providerRequest.body));
+    expect(providerBody.prompt).toContain('Create a polished production-quality image');
+    expect(providerBody.prompt).toContain('User request: 静かな湖と朝焼け');
+    expect(providerBody).toMatchObject({
+      model: 'tomdacatto/sana',
+      size: '768x1024',
+      response_format: 'b64_json',
+    });
   });
 
   it('rejects unexpected request fields instead of forwarding them upstream', async () => {
