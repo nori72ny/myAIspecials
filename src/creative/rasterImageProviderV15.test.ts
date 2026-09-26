@@ -84,11 +84,10 @@ describe('rasterImageProviderV15', () => {
     });
   });
 
-  it('requires a least-privilege secret key scoped to the audited model and usage evidence', async () => {
+  it('requires a secret key with usage permission and rejects explicit model scopes that omit the audited model', async () => {
     for (const keyInfo of [
       { ...scopedKeyInfo, type: 'publishable' },
-      { ...scopedKeyInfo, permissions: { models: null, account: ['usage'] } },
-      { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana', 'flux'], account: ['usage'] } },
+      { ...scopedKeyInfo, permissions: { models: ['flux'], account: ['usage'] } },
       { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana'], account: [] } },
     ]) {
       const fetchMock = vi.fn().mockResolvedValueOnce(json(keyInfo)) as unknown as typeof fetch;
@@ -100,6 +99,25 @@ describe('rasterImageProviderV15', () => {
       )).rejects.toThrow('POLLINATIONS_KEY_SCOPE_INVALID');
       expect(fetchMock).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it('accepts a device-authorized broad model scope while the runtime still hard-pins the audited zero-cost model', async () => {
+    const broadKeyInfo = { ...scopedKeyInfo, permissions: { models: null, account: ['usage'] } };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(broadKeyInfo))
+      .mockResolvedValueOnce(json([freeModel])) as unknown as typeof fetch;
+    const status = await getRasterProviderStatusV15(
+      { POLLINATIONS_API_KEY: 'sk_device_token', ORIGIN_IMAGE_MODEL: 'tomdacatto/sana' },
+      fetchMock,
+    );
+    expect(status).toMatchObject({
+      configured: true,
+      ready: true,
+      model: 'tomdacatto/sana',
+      zeroCostVerified: true,
+      paidFallbackEnabled: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not infer zero cost from an empty pricing object unless the exact audited registry row explicitly says free', async () => {
