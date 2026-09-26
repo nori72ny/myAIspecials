@@ -91,6 +91,14 @@ describe('rasterImageV15Router', () => {
       costUsd: 0,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
+      providerAgnostic: true,
+      registryVersion: 'raster-provider-registry-v1',
+      supportedTasks: [],
+      modelBasedImageEditing: false,
+      rasterCritic: {
+        version: 'raster-structural-critic-v1',
+        failClosed: true,
+      },
     });
 
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
@@ -116,6 +124,10 @@ describe('rasterImageV15Router', () => {
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
+      providerAgnostic: true,
+      registryVersion: 'raster-provider-registry-v1',
+      supportedTasks: [],
+      modelBasedImageEditing: false,
       rasterCritic: {
         version: 'raster-structural-critic-v1',
         failClosed: true,
