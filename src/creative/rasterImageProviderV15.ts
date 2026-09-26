@@ -151,6 +151,35 @@ function readRasterDimensionsV15(bytes: Buffer, mimeType: RasterImageResultV15['
   return null;
 }
 
+async function readBoundedProviderBodyV15(response: Response, maxBytes: number): Promise<Buffer> {
+  const declared = Number(response.headers.get('content-length') ?? '0');
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+  if (!response.body) {
+    const body = Buffer.from(await response.arrayBuffer());
+    if (body.length > maxBytes) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+    return body;
+  }
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      const chunk = Buffer.from(next.value);
+      total += chunk.length;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
+}
+
 function decodeImageResponseBody(body: Buffer): { bytes: Buffer; mimeType: RasterImageResultV15['mimeType'] } {
   if (body.length <= 0 || body.length > MAX_IMAGE_RESPONSE_BYTES) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
   let parsed: unknown;
@@ -424,7 +453,7 @@ export async function generateRasterImageV15(
 
   const responseType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   if (responseType !== 'application/json') throw new Error('UNEXPECTED_RASTER_CONTENT_TYPE');
-  const decoded = decodeImageResponseBody(Buffer.from(await response.arrayBuffer()));
+  const decoded = decodeImageResponseBody(await readBoundedProviderBodyV15(response, MAX_IMAGE_RESPONSE_BYTES));
   const { bytes, mimeType: mime } = decoded;
   const actualSize = readRasterDimensionsV15(bytes, mime);
   if (!actualSize || actualSize.width !== size.width || actualSize.height !== size.height) {
