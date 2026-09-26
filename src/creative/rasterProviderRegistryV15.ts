@@ -69,6 +69,7 @@ export type RasterProviderSelectionV15 =
         ready: boolean;
         reason: string | null;
         supportsTask: boolean;
+        status: RasterProviderStatusV15 | null;
       }[];
       reason: 'NO_PROVIDER_SUPPORTS_TASK' | 'NO_VERIFIED_ZERO_COST_PROVIDER_READY';
     };
@@ -90,6 +91,7 @@ export async function selectRasterProviderV15(
     ready: boolean;
     reason: string | null;
     supportsTask: boolean;
+    status: RasterProviderStatusV15 | null;
   }[] = [];
 
   let anySupport = false;
@@ -102,6 +104,7 @@ export async function selectRasterProviderV15(
         ready: false,
         reason: 'TASK_NOT_SUPPORTED',
         supportsTask: false,
+        status: null,
       });
       continue;
     }
@@ -119,6 +122,7 @@ export async function selectRasterProviderV15(
       ready: safe,
       reason: safe ? null : status.reason ?? 'PROVIDER_NOT_READY',
       supportsTask: true,
+      status,
     });
 
     if (safe) return { ready: true, task, provider, status };
@@ -144,8 +148,9 @@ export async function rasterProviderRuntimeStatusV15(env: NodeJS.ProcessEnv = pr
       textToImageStatus = textSelection.status;
       textToImageReason = null;
     } else if ('statuses' in textSelection) {
-      textToImageReason = textSelection.statuses.find(item => item.supportsTask)?.reason
-        ?? textSelection.reason;
+      const probed = textSelection.statuses.find(item => item.supportsTask);
+      textToImageStatus = probed?.status ?? null;
+      textToImageReason = probed?.reason ?? textSelection.reason;
     }
   }
   return {
