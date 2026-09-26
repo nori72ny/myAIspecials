@@ -5,7 +5,6 @@ import { type RasterImageRequestV15 } from './rasterImageProviderV15.js';
 import {
   rasterProviderRuntimeStatusV15,
   resolveRasterProviderV15,
-  selectRasterProviderV15,
 } from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 
@@ -62,11 +61,10 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
 
   router.get('/api/creative/v1.5/raster/status', async (_req, res) => {
     const runtime = await rasterProviderRuntimeStatusV15(env);
-    const selection = await selectRasterProviderV15('text-to-image', env);
-    const status = selection.ready ? selection.status : null;
+    const status = runtime.textToImageStatus;
     return res.status(runtime.textToImageReady ? 200 : 503).json({
       ok: runtime.textToImageReady,
-      configured: status?.configured ?? selection.statuses.some(item => item.reason !== 'POLLINATIONS_KEY_NOT_CONFIGURED'),
+      configured: status?.configured ?? false,
       ready: runtime.textToImageReady,
       providerId: status?.providerId ?? null,
       model: status?.model ?? null,
@@ -74,7 +72,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       paymentMethodRequired: status?.paymentMethodRequired ?? false,
       secretDelivery: status?.secretDelivery ?? 'server-only',
       externalNetwork: status?.externalNetwork ?? true,
-      reason: selection.ready ? null : selection.statuses.find(item => item.supportsTask)?.reason ?? selection.reason,
+      reason: runtime.textToImageReason,
       providerAgnostic: runtime.providerAgnostic,
       registryVersion: runtime.registryVersion,
       providers: runtime.providers,
