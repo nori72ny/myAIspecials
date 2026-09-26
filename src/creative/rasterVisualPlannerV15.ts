@@ -8,7 +8,9 @@ export type RasterVisualPurposeV15 =
   | 'product'
   | 'portrait'
   | 'infographic'
-  | 'ui-visual';
+  | 'ui-visual'
+  | 'logo'
+  | 'icon';
 
 export type RasterVisualPlanV15 = {
   version: 'raster-visual-plan-v1';
@@ -37,12 +39,17 @@ const STYLE_RULES: readonly [RegExp, string][] = [
   [/(?:リアル|写実|photoreal|realistic|写真)/i, 'photorealistic materials, natural texture, physically plausible detail'],
   [/(?:映画|cinematic|シネマ)/i, 'cinematic visual storytelling with controlled depth and atmosphere'],
   [/(?:editorial|雑誌)/i, 'editorial art direction, disciplined hierarchy, sophisticated spacing'],
-  [/(?:anime|アニメ)/i, 'high-quality anime illustration with coherent anatomy and clean linework'],
+  [/(?:anime|アニメ|セル画)/i, 'high-quality anime illustration with coherent anatomy and clean linework'],
+  [/(?:manga|漫画|マンガ|comic)/i, 'refined manga illustration with confident linework, controlled screentones and expressive composition'],
   [/(?:watercolor|水彩)/i, 'watercolor illustration with organic pigments and subtle paper texture'],
-  [/(?:vector|ベクター)/i, 'clean vector-like forms, crisp geometry, flat controlled surfaces'],
+  [/(?:oil painting|oil-paint|油彩|油絵)/i, 'traditional oil-painting treatment with layered pigments, visible brushwork and tonal depth'],
+  [/(?:3d|CG|render|レンダー)/i, 'high-end physically based 3D rendering with polished geometry and realistic global illumination'],
+  [/(?:vector|ベクター|フラットイラスト)/i, 'clean vector-like forms, crisp geometry, flat controlled surfaces'],
 ];
 
 function purposeFor(input: string): RasterVisualPurposeV15 {
+  if (/(?:ロゴ|logo)/i.test(input)) return 'logo';
+  if (/(?:アイコン|app icon|favicon|icon)/i.test(input)) return 'icon';
   if (/(?:広告|ad(?:vertisement)?|campaign|訴求)/i.test(input)) return 'advertisement';
   if (/(?:Instagram|インスタ|SNS|social|X投稿|LinkedIn)/i.test(input)) return 'social';
   if (/(?:ポスター|poster)/i.test(input)) return 'poster';
@@ -51,7 +58,7 @@ function purposeFor(input: string): RasterVisualPurposeV15 {
   if (/(?:人物|portrait|ポートレート|顔写真)/i.test(input)) return 'portrait';
   if (/(?:インフォグラフィック|infographic|図解)/i.test(input)) return 'infographic';
   if (/(?:UI|画面|dashboard|app screen|mockup)/i.test(input)) return 'ui-visual';
-  if (/(?:イラスト|illustration|draw|描いて|anime|アニメ|水彩)/i.test(input)) return 'illustration';
+  if (/(?:イラスト|illustration|draw|描いて|anime|アニメ|漫画|manga|水彩|油絵|vector)/i.test(input)) return 'illustration';
   return 'photograph';
 }
 
@@ -59,7 +66,7 @@ function sizeFor(input: string): { width: number; height: number; platform: stri
   if (/(?:9\s*[:：/]\s*16|縦長|ストーリー|story|vertical)/i.test(input)) return { width: 864, height: 1536, platform: 'vertical-mobile' };
   if (/(?:16\s*[:：/]\s*9|横長|landscape|wide|YouTube|サムネ)/i.test(input)) return { width: 1536, height: 864, platform: 'landscape-screen' };
   if (/(?:4\s*[:：/]\s*5|Instagram|インスタ|portrait feed)/i.test(input)) return { width: 1024, height: 1280, platform: 'portrait-feed' };
-  if (/(?:1\s*[:：/]\s*1|正方形|square)/i.test(input)) return { width: 1024, height: 1024, platform: 'square' };
+  if (/(?:1\s*[:：/]\s*1|正方形|square|ロゴ|logo|アイコン|icon)/i.test(input)) return { width: 1024, height: 1024, platform: 'square' };
   return { width: 1024, height: 1024, platform: 'general' };
 }
 
@@ -77,14 +84,17 @@ function quotedText(input: string): string[] {
       if (value && !values.includes(value)) values.push(value);
     }
   }
+  const explicit = input.match(/(?:文字|テキスト|コピー|見出し|title|headline|caption|text)\s*(?:は|:|：)\s*([^。\n]{1,120})/i)?.[1];
+  const normalizedExplicit = explicit ? explicit.trim().replace(/[。,.，]+$/g, '') : '';
+  if (normalizedExplicit && !values.includes(normalizedExplicit)) values.push(normalizedExplicit);
   return values.slice(0, 8);
 }
 
 function meaningfulSubject(input: string): boolean {
   const stripped = input
-    .replace(/(?:画像|イラスト|写真|ポスター|バナー|サムネ(?:イル)?)/gi, ' ')
+    .replace(/(?:画像|イラスト|写真|絵|ポスター|バナー|サムネ(?:イル)?|ロゴ|アイコン|壁紙|アート|キービジュアル)/gi, ' ')
     .replace(/(?:作って|作成して|生成して|描いて|お願い(?:します)?|ほしい|欲しい|ください)/g, ' ')
-    .replace(/\b(?:generate|create|make|draw|please|image|picture|illustration|poster|banner|thumbnail)\b/gi, ' ')
+    .replace(/\b(?:generate|create|make|draw|render|design|please|image|picture|illustration|poster|banner|thumbnail|logo|icon|wallpaper|artwork|key visual)\b/gi, ' ')
     .replace(/[\s。、,.!?！？]+/g, '');
   return stripped.length >= 4;
 }
@@ -126,6 +136,9 @@ function compositionFor(purpose: RasterVisualPurposeV15): string[] {
   if (purpose === 'infographic' || purpose === 'ui-visual') {
     return ['structured information hierarchy', 'clean grid', 'ample whitespace', 'precise alignment'];
   }
+  if (purpose === 'logo' || purpose === 'icon') {
+    return ['single memorable mark', 'strong silhouette', 'balanced negative space', 'works at small size', 'avoid unnecessary mockups'];
+  }
   return ['clear primary subject', 'balanced depth', 'intentional framing', 'natural visual hierarchy'];
 }
 
@@ -133,6 +146,7 @@ function lightingFor(purpose: RasterVisualPurposeV15, input: string): string[] {
   if (/(?:夜|night|暗|dark)/i.test(input)) return ['controlled low-key lighting', 'preserve readable subject separation', 'avoid crushed blacks'];
   if (purpose === 'product' || purpose === 'advertisement') return ['controlled commercial key light', 'subtle fill', 'precise highlights and reflections'];
   if (purpose === 'portrait') return ['soft directional key light', 'natural skin tones', 'subtle eye catchlights'];
+  if (purpose === 'logo' || purpose === 'icon' || purpose === 'infographic' || purpose === 'ui-visual') return ['flat controlled presentation unless depth is explicitly requested'];
   return ['coherent physically plausible lighting', 'consistent shadows and reflections'];
 }
 
@@ -140,12 +154,13 @@ function cameraFor(purpose: RasterVisualPurposeV15): string[] {
   if (purpose === 'portrait') return ['85mm-equivalent portrait perspective', 'eye-level camera unless requested otherwise', 'natural depth of field'];
   if (purpose === 'product') return ['commercial product photography perspective', 'minimal lens distortion', 'precise focus on product details'];
   if (purpose === 'photograph' || purpose === 'advertisement') return ['natural photographic perspective', 'controlled depth of field', 'avoid extreme lens distortion'];
+  if (purpose === 'logo' || purpose === 'icon' || purpose === 'infographic' || purpose === 'ui-visual') return ['orthographic or flat presentation where appropriate'];
   return ['camera treatment appropriate to the requested visual style'];
 }
 
 function compiledPrompt(input: string, plan: Omit<RasterVisualPlanV15, 'compiledPrompt' | 'negativePrompt'>): string {
   const exactTextInstruction = plan.exactText.length
-    ? `Critical text to preserve exactly if text is rendered: ${plan.exactText.map((value) => `"${value}"`).join(', ')}. Keep a clean typography-safe area and do not invent extra words.`
+    ? `Critical text: ${plan.exactText.map((value) => `"${value}"`).join(', ')}. Reserve a clean high-contrast typography-safe region. Do not invent additional words or logos. Critical copy will be overlaid deterministically when exact lettering matters.`
     : 'Do not invent logos, labels, watermarks, signatures, or unnecessary text.';
   return [
     'Create a polished production-quality image from the following user request.',
@@ -180,22 +195,29 @@ export function planRasterVisualRequestV15(input: string): RasterVisualPlanV15 {
     lighting: lightingFor(purpose, originalRequest),
     camera: cameraFor(purpose),
     exactText,
-    requiresDeterministicTypography: exactText.length > 0 || purpose === 'infographic' || purpose === 'ui-visual',
+    requiresDeterministicTypography: exactText.length > 0 || purpose === 'infographic' || purpose === 'ui-visual' || purpose === 'poster' || purpose === 'thumbnail',
   };
-  const negativePrompt = [
+  const negatives = [
     'low quality',
     'blurry',
+    'jpeg artifacts',
     'deformed anatomy',
+    'extra limbs',
     'extra fingers',
+    'fused fingers',
     'duplicate subjects',
+    'distorted face',
     'broken perspective',
-    'unreadable accidental text',
+    'inconsistent lighting',
     'watermark',
     'signature',
     'generic AI robot imagery unless explicitly requested',
     'excessive neon unless explicitly requested',
     'busy composition',
-  ].join(', ');
+  ];
+  if (!exactText.length && purpose !== 'infographic' && purpose !== 'ui-visual') negatives.push('unwanted text', 'unwanted logo');
+  else negatives.push('garbled lettering', 'misspelled lettering', 'distorted typography');
+  const negativePrompt = negatives.join(', ');
   return {
     ...base,
     compiledPrompt: compiledPrompt(originalRequest, base),
