@@ -91,6 +91,10 @@ describe('rasterImageV15Router', () => {
       costUsd: 0,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
+      providerAgnostic: true,
+      registryVersion: 'raster-provider-registry-v1',
+      supportedTasks: [],
+      modelBasedImageEditing: false,
     });
 
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
