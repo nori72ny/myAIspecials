@@ -8,6 +8,21 @@ import {
 
 describe("originChatResponsePolicy", () => {
   it.each([
+    ['商品を20%値引きした後、値引き後の価格を25%値上げしました。元の価格と同じになりますか？元の価格を1000円として計算し、結論と計算式を日本語で簡潔に説明してください。', false],
+    ['価格が1,000円の商品を20％値引きした金額を計算してください。', false],
+    ['Calculate the final price for a $100 item after a 20 percent discount.', false],
+    ['今日の価格が1000円の商品を20%値引きした金額を計算してください。', true],
+    ['最新の為替で1000円を換算し、価格を20%増やして計算してください。', true],
+    ['現在の税率で1000円の価格を計算し20%引きしてください。', true],
+    ['価格が1000円の商品を20%引きした金額を計算し、最新の価格を調べてください。', true],
+    ['Calculate the current price of a $100 item with a 20% discount.', true],
+    ['Find sources and calculate the price of a $100 item with a 20% discount.', true],
+    ['商品の価格を教えてください。', true],
+  ])('separates supplied arithmetic from external pricing: %s', (message, research) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(research);
+  });
+
+  it.each([
     ["今日のニュースを教えて", true],
     ["今日のAIニュースを教えて", true],
     ["現在のVercel料金を教えて", true],
