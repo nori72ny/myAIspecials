@@ -1,0 +1,43 @@
+name: AQ V2 fresh PR 698 one-shot trigger
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: ${{ contains(github.event.head_commit.message, '[aq-v2-fresh-698]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch trusted AQ V2 with frozen fresh inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cat > payload.json <<'JSON'
+          {
+            "ref": "main",
+            "inputs": {
+              "candidate_sha": "d0c307fd3d915474730a033fc46e273cbb6a6231",
+              "pr_number": "698",
+              "round_id": "round-2026-09-28-independent-fresh-1",
+              "corpus_id": "origin-aq-v2-independent-2026-09-28-fresh-1",
+              "corpus_digest": "edb40b80c46c390daef2836b78df2f6986d5996960e84c2bb4b74a3269cbfdfa"
+            }
+          }
+          JSON
+          curl --fail --silent --show-error \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/workflows/trusted-answer-quality-v2.yml/dispatches" \
+            --data-binary @payload.json
+          rm -f payload.json
