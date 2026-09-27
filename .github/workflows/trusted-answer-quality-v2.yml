@@ -168,6 +168,9 @@ jobs:
       - name: Prepare isolated runtime image
         run: docker pull node:22-bookworm-slim
 
+      - name: Verify isolated runner bootstrap before reserving sealed corpus
+        run: node scripts/verify-trusted-answer-runtime-v2.mjs
+
       - name: Revalidate exact candidate PR binding immediately before execution
         shell: bash
         env:
