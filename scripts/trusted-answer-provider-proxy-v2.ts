@@ -8,28 +8,57 @@ import {
 import {
   assertOriginZeroCostExecutionResult,
   executeOriginProvider,
+  OriginProviderError,
   type OriginProviderExecutionRequest,
 } from "../src/legacy/originProviderClient.js";
 
 const socketPath = process.env.ORIGIN_TRUSTED_ANSWER_PROVIDER_SOCKET ?? "";
 const token = process.env.ORIGIN_TRUSTED_ANSWER_PROVIDER_TOKEN ?? "";
 const apiKey = process.env.OPENROUTER_API_KEY ?? "";
+const TRANSIENT_RETRY_DELAY_MS = 750;
+const MAX_TRUSTED_UPSTREAM_ATTEMPTS = 2;
+const RETRYABLE_TRANSIENT_CODES = new Set([
+  "PROVIDER_UNAVAILABLE",
+  "PROVIDER_TIMEOUT",
+  "PROVIDER_INVALID_RESPONSE",
+]);
 
 if (!socketPath.startsWith("/") || !/^[a-f0-9]{64}$/.test(token) || !apiKey) {
   process.stderr.write(JSON.stringify({ code: "TRUSTED_ANSWER_PROVIDER_PROXY_CONFIG_INVALID" }) + "\n");
   process.exit(2);
 }
 
+function shouldRetryTransientProviderFailure(error: unknown): error is OriginProviderError {
+  return error instanceof OriginProviderError
+    && error.retryable === true
+    && RETRYABLE_TRANSIENT_CODES.has(error.code);
+}
+
+async function executeWithBoundedTransientRetry(request: OriginProviderExecutionRequest) {
+  for (let attempt = 1; attempt <= MAX_TRUSTED_UPSTREAM_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await executeOriginProvider(request, {
+        OPENROUTER_API_KEY: apiKey,
+        FREE_ONLY: "true",
+      });
+      assertOriginZeroCostExecutionResult(result, request.plan.modelId, request.plan.providerId);
+      return result;
+    } catch (error) {
+      if (attempt >= MAX_TRUSTED_UPSTREAM_ATTEMPTS || !shouldRetryTransientProviderFailure(error)) throw error;
+      process.stdout.write(JSON.stringify({
+        event: "trusted-answer-provider-transient-retry",
+        attempt,
+        code: error.code,
+      }) + "\n");
+      await new Promise(resolve => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
+    }
+  }
+  throw new Error("TRUSTED_ANSWER_PROVIDER_RETRY_EXHAUSTED");
+}
+
 const boundary = createTrustedAnswerProviderBoundaryV2({
   token,
-  execute: async (request: OriginProviderExecutionRequest) => {
-    const result = await executeOriginProvider(request, {
-      OPENROUTER_API_KEY: apiKey,
-      FREE_ONLY: "true",
-    });
-    assertOriginZeroCostExecutionResult(result, request.plan.modelId, request.plan.providerId);
-    return result;
-  },
+  execute: executeWithBoundedTransientRetry,
 });
 
 let stopping = false;
