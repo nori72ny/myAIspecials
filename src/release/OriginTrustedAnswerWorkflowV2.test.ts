@@ -19,8 +19,19 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(workflow).toContain("AQ_V2_DEFAULT_CANDIDATE_SHA: ef8825f1b8f9580c37c6a7e286072f3e7caa0abb");
     expect(workflow).toContain("AQ_V2_DEFAULT_PR_NUMBER: '608'");
     expect(workflow).toContain("AQ_V2_DEFAULT_ROUND_ID: round-2026-09-23-independent-claude-1");
-    expect(workflow).toContain("AQ_V2_CORPUS_ID: origin-aq-v2-independent-2026-09");
-    expect(workflow).toContain("AQ_V2_EXPECTED_CORPUS_DIGEST: 7b81ab3d76b3ede127378d2a21d6b7844664046b683f9eff7248ca9b87ff9517");
+    expect(workflow).toContain("AQ_V2_DEFAULT_CORPUS_ID: origin-aq-v2-independent-2026-09");
+    expect(workflow).toContain("AQ_V2_DEFAULT_CORPUS_DIGEST: 7b81ab3d76b3ede127378d2a21d6b7844664046b683f9eff7248ca9b87ff9517");
+  });
+
+  it("allows a fresh sealed corpus identity only through explicit id and sha256 digest inputs", () => {
+    expect(workflow).toContain("corpus_id:");
+    expect(workflow).toContain("corpus_digest:");
+    expect(workflow).toContain("ORIGIN_AQ_V2_CORPUS_ID: ${{ inputs.corpus_id || env.AQ_V2_DEFAULT_CORPUS_ID }}");
+    expect(workflow).toContain("ORIGIN_AQ_V2_EXPECTED_CORPUS_DIGEST: ${{ inputs.corpus_digest || env.AQ_V2_DEFAULT_CORPUS_DIGEST }}");
+    expect(workflow).toContain("const corpusId=process.env.CORPUS_ID||'';");
+    expect(workflow).toContain("const corpusDigest=process.env.CORPUS_DIGEST||'';");
+    expect(workflow).toContain("if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,159}$/.test(corpusId)) process.exit(2);");
+    expect(workflow).toContain("if(!/^[a-f0-9]{64}$/.test(corpusDigest)) process.exit(2);");
   });
 
   it("binds execution to an exact open same-repository PR head and rechecks immediately before provider use", () => {
