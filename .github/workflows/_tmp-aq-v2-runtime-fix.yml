@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout fix branch
@@ -22,62 +21,34 @@ jobs:
 
       - name: Apply audited runtime correction and pre-reservation calibration
         shell: bash
+        env:
+          AQ_PREFLIGHT_INSERT_B64: ICAgICAgLSBuYW1lOiBDaGVja291dCBleGFjdCBjYW5kaWRhdGUgZm9yIHB1YmxpYyBydW50aW1lIGNhbGlicmF0aW9uCiAgICAgICAgdXNlczogYWN0aW9ucy9jaGVja291dEAxMWJkNzE5MDFiYmU1YjE2MzBjZWVhNzNkMjc1OTczNjRjOWFmNjgzCiAgICAgICAgd2l0aDoKICAgICAgICAgIHJlZjogJHt7IGlucHV0cy5jYW5kaWRhdGVfc2hhIHx8IGVudi5BUV9WMl9ERUZBVUxUX0NBTkRJREFURV9TSEEgfX0KICAgICAgICAgIHBhdGg6IGNhbmRpZGF0ZS1wcmVmbGlnaHQKICAgICAgICAgIHBlcnNpc3QtY3JlZGVudGlhbHM6IGZhbHNlCgogICAgICAtIG5hbWU6IFByZXBhcmUgaXNvbGF0ZWQgcnVudGltZSBpbWFnZSBiZWZvcmUgc2VhbGVkLWNvcnB1cyBhY2Nlc3MKICAgICAgICBydW46IGRvY2tlciBwdWxsIG5vZGU6MjItYm9va3dvcm0tc2xpbQoKICAgICAgLSBuYW1lOiBFeGVyY2lzZSB0cnVzdGVkIHJ1bnRpbWUgb24gcHVibGljIGNhbGlicmF0aW9uIGJlZm9yZSBzZWFsZWQtY29ycHVzIGFjY2VzcwogICAgICAgIGVudjoKICAgICAgICAgIE9QRU5ST1VURVJfQVBJX0tFWTogJHt7IHNlY3JldHMuT1BFTlJPVVRFUl9BUElfS0VZIH19CiAgICAgICAgICBPUklHSU5fQ0FORElEQVRFX1NIQTogJHt7IGlucHV0cy5jYW5kaWRhdGVfc2hhIHx8IGVudi5BUV9WMl9ERUZBVUxUX0NBTkRJREFURV9TSEEgfX0KICAgICAgICAgIE9SSUdJTl9BUV9WMl9DQU5ESURBVEVfQ0hFQ0tPVVQ6ICR7eyBnaXRodWIud29ya3NwYWNlIH19L2NhbmRpZGF0ZS1wcmVmbGlnaHQKICAgICAgICAgIE9SSUdJTl9BUV9WMl9QUkVGTElHSFRfUkVTVUxUX1BBVEg6ICR7eyBnaXRodWIud29ya3NwYWNlIH19L3Rlc3QtcmVzdWx0cy90cnVzdGVkLWFuc3dlci1ydW50aW1lLXByZWZsaWdodC12Mi5qc29uCiAgICAgICAgcnVuOiB8CiAgICAgICAgICBzZXQgLWV1byBwaXBlZmFpbAogICAgICAgICAgbm9kZSAtLWltcG9ydCB0c3ggc2NyaXB0cy9wcmVmbGlnaHQtdHJ1c3RlZC1hbnN3ZXItcnVudGltZS12Mi50cwoKICAgICAgLSBuYW1lOiBQcmVzZXJ2ZSBzYW5pdGl6ZWQgcnVudGltZSBjYWxpYnJhdGlvbiBldmlkZW5jZQogICAgICAgIGlmOiBhbHdheXMoKQogICAgICAgIHVzZXM6IGFjdGlvbnMvdXBsb2FkLWFydGlmYWN0QGVhMTY1ZjhkNjViNmU3NWI1NDA0NDllOTJiNDg4NmY0MzYwN2ZhMDIKICAgICAgICB3aXRoOgogICAgICAgICAgbmFtZTogYXEtdjItcnVudGltZS1wcmVmbGlnaHQtJHt7IGlucHV0cy5jYW5kaWRhdGVfc2hhIHx8IGVudi5BUV9WMl9ERUZBVUxUX0NBTkRJREFURV9TSEEgfX0tJHt7IGdpdGh1Yi5ydW5faWQgfX0KICAgICAgICAgIHBhdGg6IHRlc3QtcmVzdWx0cy90cnVzdGVkLWFuc3dlci1ydW50aW1lLXByZWZsaWdodC12Mi5qc29uCiAgICAgICAgICBpZi1uby1maWxlcy1mb3VuZDogd2FybgogICAgICAgICAgcmV0ZW50aW9uLWRheXM6IDkwCgo=
         run: |
           set -euo pipefail
           git fetch --no-tags origin d583f9337c00b748d902b2422ac07171d4190ecc
           git show FETCH_HEAD:scripts/preflight-trusted-answer-runtime-v2.ts > scripts/preflight-trusted-answer-runtime-v2.ts
           python <<'PY'
+          import base64
+          import os
           from pathlib import Path
-
-          runner = Path('scripts/run-trusted-answer-case-v2.ts')
-          text = runner.read_text()
           old = 'dst=/work/node_modules,readonly'
           new = 'dst=/node_modules,readonly'
+          runner = Path('scripts/run-trusted-answer-case-v2.ts')
+          text = runner.read_text()
           if text.count(old) != 1:
               raise SystemExit('AQ_V2_RUNTIME_MOUNT_PATCH_TARGET_INVALID')
           runner.write_text(text.replace(old, new, 1))
-
           preflight = Path('scripts/preflight-trusted-answer-runtime-v2.ts')
           text = preflight.read_text()
           if text.count(old) != 1:
               raise SystemExit('AQ_V2_PREFLIGHT_MOUNT_PATCH_TARGET_INVALID')
           preflight.write_text(text.replace(old, new, 1))
-
           workflow = Path('.github/workflows/trusted-answer-quality-v2.yml')
           text = workflow.read_text()
           marker = '      - name: Fetch sealed AQ V2 corpus from private trusted store\n'
           if text.count(marker) != 1:
               raise SystemExit('AQ_V2_PREFLIGHT_INSERT_TARGET_INVALID')
-          insert = '''      - name: Checkout exact candidate for public runtime calibration
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
-          path: candidate-preflight
-          persist-credentials: false
-
-      - name: Prepare isolated runtime image before sealed-corpus access
-        run: docker pull node:22-bookworm-slim
-
-      - name: Exercise trusted runtime on public calibration before sealed-corpus access
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          ORIGIN_CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
-          ORIGIN_AQ_V2_CANDIDATE_CHECKOUT: ${{ github.workspace }}/candidate-preflight
-          ORIGIN_AQ_V2_PREFLIGHT_RESULT_PATH: ${{ github.workspace }}/test-results/trusted-answer-runtime-preflight-v2.json
-        run: |
-          set -euo pipefail
-          node --import tsx scripts/preflight-trusted-answer-runtime-v2.ts
-
-      - name: Preserve sanitized runtime calibration evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: aq-v2-runtime-preflight-${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}-${{ github.run_id }}
-          path: test-results/trusted-answer-runtime-preflight-v2.json
-          if-no-files-found: warn
-          retention-days: 90
-
-'''
+          insert = base64.b64decode(os.environ['AQ_PREFLIGHT_INSERT_B64']).decode()
           workflow.write_text(text.replace(marker, insert + marker, 1))
           PY
           rm -f .github/workflows/_tmp-aq-v2-runtime-fix.yml
@@ -88,7 +59,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add scripts/run-trusted-answer-case-v2.ts scripts/preflight-trusted-answer-runtime-v2.ts .github/workflows/trusted-answer-quality-v2.yml .github/workflows/_tmp-aq-v2-runtime-fix.yml
+          git add -A
           git diff --cached --check
           git commit -m 'fix(aq): preflight trusted runtime before sealed corpus'
           git push origin HEAD:fix/aq-v2-trusted-runtime
