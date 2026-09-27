@@ -3,6 +3,10 @@ name: V1.4 held-out coding benchmark
 on:
   workflow_dispatch:
     inputs:
+      candidate_sha:
+        description: Exact 40-character candidate HEAD SHA to evaluate; must match the dispatched ref
+        required: true
+        type: string
       task_id:
         description: Optional opaque task id; leave blank to run the full private corpus
         required: false
@@ -22,6 +26,22 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+
+      - name: Bind selector to exact candidate HEAD
+        shell: bash
+        env:
+          EXPECTED_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha=$(git rev-parse HEAD)
+          if [[ ! "$EXPECTED_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "candidate_sha must be a lowercase 40-character commit SHA" >&2
+            exit 2
+          fi
+          if [ "$actual_sha" != "$EXPECTED_CANDIDATE_SHA" ]; then
+            echo "held-out candidate mismatch: expected $EXPECTED_CANDIDATE_SHA but checkout is $actual_sha" >&2
+            exit 2
+          fi
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -63,6 +83,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Bind benchmark controller to exact candidate HEAD
+        shell: bash
+        env:
+          EXPECTED_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha=$(git rev-parse HEAD)
+          if [[ ! "$EXPECTED_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "candidate_sha must be a lowercase 40-character commit SHA" >&2
+            exit 2
+          fi
+          if [ "$actual_sha" != "$EXPECTED_CANDIDATE_SHA" ]; then
+            echo "held-out candidate mismatch: expected $EXPECTED_CANDIDATE_SHA but checkout is $actual_sha" >&2
+            exit 2
+          fi
+
       - name: Prepare trusted benchmark controller and isolated verifier
         shell: bash
         run: |
@@ -97,6 +133,19 @@ jobs:
           set -euo pipefail
           node --import tsx scripts/run-held-out-coding-trusted-v14.ts
 
+      - name: Preserve exact-candidate provenance
+        if: always()
+        shell: bash
+        env:
+          EXPECTED_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          actual_sha=$(git rev-parse HEAD)
+          printf '{"candidateSha":"%s","checkedOutSha":"%s","workflowRunId":"%s","workflowRunAttempt":"%s"}\n' \
+            "$EXPECTED_CANDIDATE_SHA" "$actual_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > test-results/held-out-candidate-provenance.json
+
       - name: Preserve public benchmark evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -106,5 +155,6 @@ jobs:
             test-results/held-out-task-public.json
             test-results/held-out-run.json
             test-results/held-out-score.json
+            test-results/held-out-candidate-provenance.json
           if-no-files-found: error
           retention-days: 30
