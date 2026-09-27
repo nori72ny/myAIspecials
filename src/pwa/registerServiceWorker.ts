@@ -10,7 +10,8 @@ function announceUpdateReady() {
 function hasUnsavedUserWork(): boolean {
   if (document.visibilityState !== 'visible') return true;
   const textInputs = Array.from(document.querySelectorAll('textarea, input[type="text"], input[type="search"]'));
-  if (textInputs.some((element) => (element as HTMLInputElement | HTMLTextAreaElement).value.trim())) return true;
+  if (textInputs.some((element) => (element as HTMLInputElement | HTMLTextAreaElement).value.length > 0)) return true;
+  if (document.documentElement.dataset.originStorageState === 'hydrating') return true;
   if (document.querySelector('[data-testid="origin-thinking"], [aria-busy="true"]')) return true;
   const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
   if (fileInputs.some((element) => (element as HTMLInputElement).files?.length)) return true;
@@ -33,6 +34,31 @@ export function registerOriginServiceWorker(): void {
   sessionStorage.removeItem(UPDATE_RELOAD_GUARD_KEY);
 
   window.addEventListener('load', () => {
+    // A first install calls clients.claim(), but the current page is already fresh.
+    // Subscribe before register() resolves so a fast first claim cannot be missed.
+    let hadController = Boolean(navigator.serviceWorker.controller);
+    let reloadPending = false;
+    let reloadRequested = false;
+    const reloadWhenSafe = () => {
+      if (!reloadPending || reloadRequested || !canAutoApplyUpdate()) return;
+      if (sessionStorage.getItem(UPDATE_RELOAD_GUARD_KEY) === '1') return;
+      reloadRequested = true;
+      sessionStorage.setItem(UPDATE_RELOAD_GUARD_KEY, '1');
+      window.location.reload();
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!navigator.serviceWorker.controller) return;
+      if (!hadController) {
+        hadController = true;
+        return;
+      }
+      // Another tab may activate the update, or typing may start after SKIP_WAITING.
+      // Check for unsaved work again at the actual reload boundary.
+      reloadPending = true;
+      announceUpdateReady();
+      reloadWhenSafe();
+    });
+
     void navigator.serviceWorker.register('/sw.js', {
       scope: '/',
       updateViaCache: 'none',
@@ -61,12 +87,6 @@ export function registerOriginServiceWorker(): void {
         });
       };
 
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (sessionStorage.getItem(UPDATE_RELOAD_GUARD_KEY) === '1') return;
-        sessionStorage.setItem(UPDATE_RELOAD_GUARD_KEY, '1');
-        window.location.reload();
-      }, { once: true });
-
       const waitingAtLaunch = Boolean(registration.waiting);
       if (waitingAtLaunch && canAutoApplyUpdate()) {
         activateWaitingWorker(registration);
@@ -84,6 +104,7 @@ export function registerOriginServiceWorker(): void {
       });
 
       const retrySafeApply = () => {
+        reloadWhenSafe();
         if (registration.waiting) {
           updatePending = true;
           scheduleSafeApply();
