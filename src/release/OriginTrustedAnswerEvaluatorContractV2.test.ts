@@ -67,11 +67,29 @@ describe("AQ V2 trusted exact-candidate execution contract", () => {
     expect(codingBoundary).toContain("plan.taskType !== 'implementation'");
   });
 
-  it("counts provider attempts even when the trusted provider call fails", () => {
+  it("permits only one bounded trusted-host retry for transient zero-cost upstream failures", () => {
     const proxy = read("scripts/trusted-answer-provider-proxy-v2.ts");
-    const catchStart = proxy.indexOf("} catch (error) {");
+    expect(proxy).toContain("MAX_TRUSTED_UPSTREAM_ATTEMPTS = 2");
+    expect(proxy).toContain("TRANSIENT_RETRY_DELAY_MS = 750");
+    expect(proxy).toContain('"PROVIDER_UNAVAILABLE"');
+    expect(proxy).toContain('"PROVIDER_TIMEOUT"');
+    expect(proxy).toContain('"PROVIDER_INVALID_RESPONSE"');
+    expect(proxy).not.toContain('"PROVIDER_POLICY_VIOLATION",\n  "PROVIDER_RATE_LIMITED"');
+    expect(proxy).toContain("error instanceof OriginProviderError");
+    expect(proxy).toContain("error.retryable === true");
+    expect(proxy).toContain("assertOriginZeroCostExecutionResult(result, request.plan.modelId, request.plan.providerId)");
+    expect(proxy).toContain('event: "trusted-answer-provider-transient-retry"');
+    expect(proxy).toContain("execute: executeWithBoundedTransientRetry");
+  });
+
+  it("still counts exactly one candidate-to-proxy request even when the trusted upstream attempt fails", () => {
+    const proxy = read("scripts/trusted-answer-provider-proxy-v2.ts");
+    const serverExecution = proxy.indexOf("const result = await boundary.execute(presented, payload)");
+    const catchStart = proxy.indexOf("} catch (error) {", serverExecution);
     const catchEnd = proxy.indexOf("\n    }", catchStart);
     const catchBlock = proxy.slice(catchStart, catchEnd);
+    expect(serverExecution).toBeGreaterThan(0);
+    expect(catchStart).toBeGreaterThan(serverExecution);
     expect(catchBlock).toContain("const requestCount = boundary.used()");
     expect(catchBlock).toContain('event: "trusted-answer-provider-request"');
     expect(catchBlock).toContain("requestCount");
