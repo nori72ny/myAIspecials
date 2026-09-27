@@ -95,7 +95,7 @@ export function registerOriginServiceWorker(): void {
       registration.addEventListener('updatefound', () => {
         const installing = registration.installing;
         installing?.addEventListener('statechange', () => {
-          if (installing.state === 'installed' && registration.waiting) {
+          if (installing.state === 'installed' && registration.waiting && hadController) {
             updatePending = true;
             announceUpdateReady();
             scheduleSafeApply();

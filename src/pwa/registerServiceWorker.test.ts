@@ -24,6 +24,7 @@ function eventTarget() {
 async function launch(controlled = false, waiting = false, claimBeforeResolve = false) {
   let reloads = 0;
   let activations = 0;
+  let announcements = 0;
   const draft = { value: '' };
   const files = { files: [] as unknown[] };
   const busy = { value: false };
@@ -32,6 +33,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   const storage = new Map<string, string>();
   const registration = {
     ...eventTarget(),
+    installing: null as null | (ReturnType<typeof eventTarget> & { state: string }),
     waiting: waiting ? { postMessage: () => { activations += 1; } } : null,
     update: async () => undefined,
   };
@@ -59,7 +61,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     self: {},
     top: {},
     location: { reload: () => { reloads += 1; } },
-    dispatchEvent: () => true,
+    dispatchEvent: () => { announcements += 1; return true; },
     setTimeout: (callback: Listener) => timers.push(callback),
     setInterval: (callback: Listener) => intervals.push(callback),
   };
@@ -84,6 +86,15 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     draft, files, busy, document, window, registration,
     reloads: () => reloads,
     activations: () => activations,
+    announcements: () => announcements,
+    installWaiting: () => {
+      const installing = { ...eventTarget(), state: 'installing' };
+      registration.installing = installing;
+      registration.emit('updatefound');
+      registration.waiting = { postMessage: () => { activations += 1; } };
+      installing.state = 'installed';
+      installing.emit('statechange');
+    },
     changeController: () => { serviceWorker.controller = {}; serviceWorker.emit('controllerchange'); },
     flushTimers: () => { for (const callback of timers.splice(0)) callback(); },
     retry: () => { for (const callback of intervals) callback(); },
@@ -91,6 +102,28 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
 }
 
 describe('PWA controller changes preserve user work', () => {
+  it('does not show an update notice for the first installation', async () => {
+    const app = await launch();
+    app.installWaiting();
+    assert.equal(app.announcements(), 0);
+    app.changeController();
+    assert.equal(app.announcements(), 0);
+    assert.equal(app.reloads(), 0);
+  });
+
+  it('announces a real waiting update and waits for a safe activation', async () => {
+    const app = await launch(true);
+    app.draft.value = '編集中';
+    app.installWaiting();
+    assert.equal(app.announcements(), 1);
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.draft.value = '';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 1);
+  });
+
   it('never reloads the first claim while Japanese input is being composed', async () => {
     const app = await launch();
     app.draft.value = '日本語を変換中です';
