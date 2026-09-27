@@ -85,7 +85,7 @@ describe('raster device authorization', () => {
       ok: true,
       userCode: 'ABCD-1234',
       verificationUri: 'https://enter.pollinations.ai/device',
-      scope: 'generate usage',
+      scope: 'usage',
       secretDelivery: 'server-only',
     });
     expect(JSON.stringify(response.body)).not.toContain('provider-device-secret');
@@ -99,6 +99,7 @@ describe('raster device authorization', () => {
     const outbound = new URLSearchParams(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(outbound.get('client_id')).toBe(APP_CLIENT_ID);
     expect(outbound.get('client_id')).not.toBe(SHARED_SDK_CLIENT_ID);
+    expect(outbound.get('scope')).toBe('usage');
   });
 
   it('enforces the sealed polling interval before contacting the token endpoint', async () => {
@@ -108,7 +109,7 @@ describe('raster device authorization', () => {
         device_code: 'provider-device-secret', user_code: 'ABCD-1234', verification_uri: '/device', expires_in: 600, interval: 5,
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        access_token: 'sk_provider_secret_token', token_type: 'bearer', expires_in: 3600, scope: 'generate usage',
+        access_token: 'sk_provider_secret_token', token_type: 'bearer', expires_in: 3600, scope: 'usage',
       }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const instance = app();
@@ -142,7 +143,7 @@ describe('raster device authorization', () => {
         access_token: 'sk_provider_secret_token',
         token_type: 'bearer',
         expires_in: 3600,
-        scope: 'generate usage',
+        scope: 'usage',
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
