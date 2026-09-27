@@ -5,39 +5,44 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  parseOriginAnswerExperienceSealedCorpusGzipBase64V2,
-} from "../src/release/OriginAnswerExperienceSealedCorpusV2.js";
-import {
-  assertOriginAnswerCaseLeaseIsolationV2,
-  buildOriginAnswerCaseResultTrustedV2,
-  leaseOriginAnswerExperienceCaseV2,
-} from "../src/release/OriginAnswerTrustedCaseLeaseV2.js";
-import {
   assertTrustedCandidateVerificationBaselineV15,
 } from "../src/release/OriginTrustedCandidateWorkspaceGuardV15.js";
-import type {
-  OriginTrustedAnswerCaseEvidenceV2,
-} from "../src/release/OriginTrustedAnswerRunV2.js";
 
 const IMAGE = "node:22-bookworm-slim";
 const RESULT_PREFIX = "ORIGIN_TRUSTED_ANSWER_RESULT ";
 const MAX_CAPTURE_BYTES = 1024 * 1024;
 const PROXY_STOP_TIMEOUT_MS = 15_000;
 const CANDIDATE_TIMEOUT_MS = 90_000;
+const PUBLIC_CALIBRATION_PROMPT =
+  "Calibration request: reply with one short sentence confirming that you can answer this simple request. Do not use external facts, links, tools, or private information.";
 
 type Child = ReturnType<typeof spawn>;
+type Stage =
+  | "configuration"
+  | "candidate-workspace"
+  | "provider-proxy"
+  | "candidate-container"
+  | "candidate-result";
 
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`AQ_V2_REQUIRED_ENV_MISSING:${name}`);
-  return value;
+interface PreflightEvidence {
+  readonly schemaVersion: "origin.trusted-answer-runtime-preflight.v2";
+  readonly ok: boolean;
+  readonly candidateSha: string;
+  readonly promptKind: "public-calibration";
+  readonly stage: Stage;
+  readonly diagnostic: string;
+  readonly providerRequests: number;
+  readonly costUsd: 0;
+  readonly networkBlocked: true;
+  readonly providerCredentialWithheldFromCandidate: true;
+  readonly sealedCorpusUsed: false;
+  readonly reservationLedgerTouched: false;
 }
 
-function parseOrdinal(value: string): number {
-  if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error("AQ_V2_CASE_ORDINAL_INVALID");
-  const ordinal = Number(value);
-  if (!Number.isSafeInteger(ordinal)) throw new Error("AQ_V2_CASE_ORDINAL_INVALID");
-  return ordinal;
+function requiredEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`AQ_V2_PREFLIGHT_REQUIRED_ENV_MISSING:${name}`);
+  return value;
 }
 
 function appendBounded(current: string, chunk: Buffer | string): string {
@@ -94,7 +99,7 @@ async function waitForSocket(socketPath: string, child: Child): Promise<void> {
       const stat = await fs.stat(socketPath);
       if (stat.isSocket()) return;
     } catch {
-      // keep waiting
+      // bounded readiness wait
     }
     await new Promise(resolve => setTimeout(resolve, 50));
   }
@@ -192,11 +197,31 @@ async function sanitizedCandidateWorkspace(candidateCheckout: string, candidateS
   return workspace;
 }
 
-function parseTrustedRunnerEnvelope(output: string, leaseId: string) {
+function providerRequestCount(proxyOutput: string): number {
+  let max = 0;
+  for (const line of proxyOutput.split("\n")) {
+    if (!line.includes("trusted-answer-provider-request")) continue;
+    try {
+      const row = JSON.parse(line);
+      if (
+        row?.event === "trusted-answer-provider-request"
+        && Number.isInteger(row.requestCount)
+        && row.requestCount >= 0
+        && row.requestCount <= 1
+      ) {
+        max = Math.max(max, row.requestCount);
+      }
+    } catch {
+      // ignore non-event output
+    }
+  }
+  return max;
+}
+
+function parseRunnerEnvelope(output: string, leaseId: string): Record<string, unknown> {
   const index = output.lastIndexOf(RESULT_PREFIX);
   if (index < 0) throw new Error("TRUSTED_ANSWER_RESULT_MISSING");
-  const tail = output.slice(index + RESULT_PREFIX.length);
-  const line = tail.split("\n", 1)[0];
+  const line = output.slice(index + RESULT_PREFIX.length).split("\n", 1)[0];
   let parsed: unknown;
   try {
     parsed = JSON.parse(line);
@@ -220,107 +245,80 @@ function parseTrustedRunnerEnvelope(output: string, leaseId: string) {
   return value;
 }
 
-function sanitizedCandidateFailure(output: string): string {
+function classifyCandidateFailure(output: string, code: number | null, timedOut: boolean): string {
+  if (timedOut) return "TRUSTED_ANSWER_CANDIDATE_TIMEOUT";
   const index = output.lastIndexOf(RESULT_PREFIX);
-  if (index < 0) return "TRUSTED_ANSWER_CANDIDATE_FAILED";
-  const line = output.slice(index + RESULT_PREFIX.length).split("\n", 1)[0];
-  try {
-    const value = JSON.parse(line) as Record<string, unknown>;
-    const error = value?.error;
-    if (typeof error === "string" && /^(?:TRUSTED_ANSWER|PROVIDER|FREE_MODEL|FREE_PROVIDER|INVALID_EXECUTION)_[A-Z0-9_:-]+$/.test(error)) {
-      return error;
+  if (index >= 0) {
+    const line = output.slice(index + RESULT_PREFIX.length).split("\n", 1)[0];
+    try {
+      const value = JSON.parse(line) as Record<string, unknown>;
+      const error = value?.error;
+      if (typeof error === "string" && /^(?:TRUSTED_ANSWER|PROVIDER|FREE_MODEL|FREE_PROVIDER|INVALID_EXECUTION)_[A-Z0-9_:-]+$/.test(error)) {
+        return error;
+      }
+      const status = value?.httpStatus;
+      if (Number.isInteger(status) && Number(status) >= 400 && Number(status) <= 599) {
+        return `TRUSTED_ANSWER_CANDIDATE_HTTP_${status}`;
+      }
+      return "TRUSTED_ANSWER_CANDIDATE_RESULT_INVALID";
+    } catch {
+      return "TRUSTED_ANSWER_CANDIDATE_RESULT_INVALID";
     }
-    const status = value?.httpStatus;
-    if (Number.isInteger(status) && Number(status) >= 400 && Number(status) <= 599) {
-      return `TRUSTED_ANSWER_CANDIDATE_HTTP_${status}`;
-    }
-  } catch {
-    return "TRUSTED_ANSWER_CANDIDATE_RESULT_INVALID";
+  }
+  if (code === 125) return "TRUSTED_ANSWER_DOCKER_RUNTIME_FAILED";
+  if (code === 126) return "TRUSTED_ANSWER_DOCKER_COMMAND_NOT_EXECUTABLE";
+  if (code === 127) return "TRUSTED_ANSWER_DOCKER_COMMAND_NOT_FOUND";
+  if (/ERR_MODULE_NOT_FOUND/.test(output) && /tsx/.test(output)) {
+    return "TRUSTED_ANSWER_RUNNER_BOOTSTRAP_MODULE_MISSING";
+  }
+  if (/EACCES|permission denied/i.test(output) && /provider\.sock|trusted-socket/i.test(output)) {
+    return "TRUSTED_ANSWER_PROVIDER_SOCKET_PERMISSION_DENIED";
   }
   return "TRUSTED_ANSWER_CANDIDATE_FAILED";
 }
 
-function providerRequestCount(proxyOutput: string): number {
-  let max = 0;
-  for (const line of proxyOutput.split("\n")) {
-    if (!line.includes("trusted-answer-provider-request")) continue;
-    try {
-      const row = JSON.parse(line);
-      if (
-        row?.event === "trusted-answer-provider-request"
-        && Number.isInteger(row.requestCount)
-        && row.requestCount >= 0
-        && row.requestCount <= 1
-      ) {
-        max = Math.max(max, row.requestCount);
-      }
-    } catch {
-      // ignore non-event lines
-    }
-  }
-  return max;
+function safeErrorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return /^(?:AQ_V2_PREFLIGHT|AQ_V2|TRUSTED_ANSWER|PROVIDER|FREE_MODEL|FREE_PROVIDER|INVALID_EXECUTION)_[A-Z0-9_:-]+$/.test(message)
+    ? message
+    : "AQ_V2_PREFLIGHT_FATAL";
 }
 
-function assertNoLeak(input: {
-  candidateOutput: string;
-  token: string;
-  apiKey: string;
-  candidateSha: string;
-  roundId: string;
-  corpusDigest: string;
-  currentPrompt: string;
-  allPrompts: readonly string[];
-  allNotes: readonly string[];
-}): void {
-  const haystack = input.candidateOutput;
-  const forbidden = [
-    input.token,
-    input.apiKey,
-    input.candidateSha,
-    input.roundId,
-    input.corpusDigest,
-    ...input.allNotes,
-    ...input.allPrompts.filter(prompt => prompt !== input.currentPrompt),
-  ].filter(value => typeof value === "string" && value.length >= 12);
-  if (forbidden.some(value => haystack.includes(value))) {
-    throw new Error("TRUSTED_ANSWER_CANDIDATE_LEAK_DETECTED");
-  }
+async function writeEvidence(outputPath: string, evidence: PreflightEvidence): Promise<void> {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, JSON.stringify(evidence, null, 2) + "\n", {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 async function main(): Promise<void> {
-  const encodedCorpus = requiredEnv("ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64");
   const candidateSha = requiredEnv("ORIGIN_CANDIDATE_SHA").toLowerCase();
   const candidateCheckout = requiredEnv("ORIGIN_AQ_V2_CANDIDATE_CHECKOUT");
-  const roundId = requiredEnv("ORIGIN_AQ_V2_ROUND_ID");
-  const ordinal = parseOrdinal(requiredEnv("ORIGIN_AQ_V2_CASE_ORDINAL"));
   const apiKey = requiredEnv("OPENROUTER_API_KEY");
-  const outputPath = process.env.ORIGIN_AQ_V2_CASE_RESULT_PATH
-    ?? path.resolve("test-results", `trusted-answer-case-${ordinal}.json`);
+  const outputPath = process.env.ORIGIN_AQ_V2_PREFLIGHT_RESULT_PATH
+    ?? path.resolve("test-results", "trusted-answer-runtime-preflight-v2.json");
+  if (!/^[a-f0-9]{40}$/.test(candidateSha)) throw new Error("AQ_V2_PREFLIGHT_CANDIDATE_SHA_INVALID");
 
-  if (!/^[a-f0-9]{40}$/.test(candidateSha)) throw new Error("AQ_V2_CANDIDATE_SHA_INVALID");
-
-  const prepared = parseOriginAnswerExperienceSealedCorpusGzipBase64V2(encodedCorpus);
-  const leased = leaseOriginAnswerExperienceCaseV2(prepared, { candidateSha, roundId, ordinal });
-  assertOriginAnswerCaseLeaseIsolationV2({
-    ...leased,
-    fullCorpusSerialized: JSON.stringify(prepared.privateCorpus),
-  });
-
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "origin-aq-v2-trusted-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "origin-aq-v2-preflight-"));
   const socketDir = path.join(root, "socket");
   const trustedDir = path.join(root, "trusted");
   await fs.mkdir(socketDir, { mode: 0o700 });
   await fs.mkdir(trustedDir, { mode: 0o700 });
 
+  let stage: Stage = "configuration";
   let proxy: Child | undefined;
   let proxyOutput = "";
+  let providerRequests = 0;
   try {
+    stage = "candidate-workspace";
     const workspace = await sanitizedCandidateWorkspace(candidateCheckout, candidateSha, root);
     const runnerSource = path.resolve("scripts", "trusted-answer-candidate-runner-v2.ts");
     const runnerTarget = path.join(trustedDir, "trusted-answer-candidate-runner-v2.ts");
     await fs.copyFile(runnerSource, runnerTarget);
     await fs.chmod(runnerTarget, 0o444);
 
+    stage = "provider-proxy";
     const token = randomBytes(32).toString("hex");
     const socketPath = path.join(socketDir, "provider.sock");
     proxy = spawn(
@@ -341,10 +339,16 @@ async function main(): Promise<void> {
     proxy.stderr.on("data", chunk => { proxyOutput = appendBounded(proxyOutput, chunk); });
     await waitForSocket(socketPath, proxy);
 
+    stage = "candidate-container";
     const uid = typeof process.getuid === "function" ? process.getuid() : 1000;
     const gid = typeof process.getgid === "function" ? process.getgid() : 1000;
-    const containerName = `origin-aq-v2-${ordinal}-${randomUUID().slice(0, 10)}`;
-    const leaseB64 = Buffer.from(JSON.stringify(leased.candidateLease), "utf8").toString("base64");
+    const containerName = `origin-aq-v2-preflight-${randomUUID().slice(0, 10)}`;
+    const leaseId = randomBytes(16).toString("hex");
+    const leaseB64 = Buffer.from(JSON.stringify({
+      schemaVersion: "origin.answer-case-lease-candidate.v2",
+      leaseId,
+      prompt: PUBLIC_CALIBRATION_PROMPT,
+    }), "utf8").toString("base64");
     const args = [
       "run", "--rm", "--name", containerName,
       "--network", "none",
@@ -379,83 +383,66 @@ async function main(): Promise<void> {
       cleanHostEnv(root),
       CANDIDATE_TIMEOUT_MS,
     );
-
     if (candidate.timedOut) {
       await execFixed("docker", ["rm", "-f", containerName], process.cwd(), cleanHostEnv(root), 15_000).catch(() => undefined);
-      throw new Error("TRUSTED_ANSWER_CANDIDATE_TIMEOUT");
     }
 
     await stopChild(proxy);
     proxy = undefined;
+    providerRequests = providerRequestCount(proxyOutput);
 
-    assertNoLeak({
-      candidateOutput: candidate.output,
-      token,
-      apiKey,
-      candidateSha,
-      roundId,
-      corpusDigest: prepared.corpusDigest,
-      currentPrompt: leased.candidateLease.prompt,
-      allPrompts: prepared.privateCorpus.cases.map(row => row.prompt),
-      allNotes: prepared.privateCorpus.cases.map(row => row.evaluatorNotes),
-    });
-
-    if (candidate.code !== 0) {
-      const diagnostic = sanitizedCandidateFailure(candidate.output);
-      process.stderr.write(JSON.stringify({
-        event: "trusted-answer-candidate-failed",
-        ordinal,
-        diagnostic,
-        providerRequests: providerRequestCount(proxyOutput),
-      }) + "\n");
-      throw new Error(diagnostic);
+    if (candidate.code !== 0 || candidate.timedOut) {
+      throw new Error(classifyCandidateFailure(candidate.output, candidate.code, candidate.timedOut));
     }
-    const envelope = parseTrustedRunnerEnvelope(candidate.output, leased.candidateLease.leaseId);
-    const count = providerRequestCount(proxyOutput);
-    const result = buildOriginAnswerCaseResultTrustedV2({
-      candidateLease: leased.candidateLease,
-      trustedLease: leased.trustedLease,
-      answer: String(envelope.content),
-      providerRequests: count,
-      costUsd: 0,
-    });
 
-    const evidence: OriginTrustedAnswerCaseEvidenceV2 = {
-      schemaVersion: "origin.trusted-answer-case-evidence.v2",
+    stage = "candidate-result";
+    const envelope = parseRunnerEnvelope(candidate.output, leaseId);
+    const routing = envelope.routing && typeof envelope.routing === "object"
+      ? envelope.routing as Record<string, unknown>
+      : {};
+    if (providerRequests !== 1) throw new Error("AQ_V2_PREFLIGHT_PROVIDER_REQUEST_COUNT_INVALID");
+    if (routing.freeOnly !== true || routing.actualCostUsd !== 0) {
+      throw new Error("AQ_V2_PREFLIGHT_ZERO_COST_EVIDENCE_INVALID");
+    }
+
+    await writeEvidence(outputPath, {
+      schemaVersion: "origin.trusted-answer-runtime-preflight.v2",
+      ok: true,
       candidateSha,
-      corpusDigest: prepared.corpusDigest,
-      roundId,
-      ordinal,
-      caseId: leased.trustedLease.caseId,
-      family: leased.trustedLease.family,
-      promptDigest: leased.trustedLease.promptDigest,
-      leaseId: leased.trustedLease.leaseId,
-      providerRequests: count,
+      promptKind: "public-calibration",
+      stage,
+      diagnostic: "AQ_V2_PREFLIGHT_PASS",
+      providerRequests,
       costUsd: 0,
       networkBlocked: true,
-      fullCorpusWithheldFromCandidate: true,
       providerCredentialWithheldFromCandidate: true,
-      gitMetadataWithheldFromCandidate: true,
-      trustedProxyEnforced: true,
-      leakDetected: false,
-      result,
-    };
-
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, JSON.stringify(evidence, null, 2) + "\n", {
-      encoding: "utf8",
-      mode: 0o600,
-      flag: "wx",
+      sealedCorpusUsed: false,
+      reservationLedgerTouched: false,
     });
-
     process.stdout.write(JSON.stringify({
-      event: "trusted-answer-case-complete",
-      ordinal,
-      caseId: leased.trustedLease.caseId,
-      family: leased.trustedLease.family,
-      providerRequests: count,
+      event: "trusted-answer-runtime-preflight-complete",
+      candidateSha,
+      providerRequests,
       costUsd: 0,
     }) + "\n");
+  } catch (error) {
+    const diagnostic = safeErrorCode(error);
+    providerRequests = Math.max(providerRequests, providerRequestCount(proxyOutput));
+    await writeEvidence(outputPath, {
+      schemaVersion: "origin.trusted-answer-runtime-preflight.v2",
+      ok: false,
+      candidateSha,
+      promptKind: "public-calibration",
+      stage,
+      diagnostic,
+      providerRequests,
+      costUsd: 0,
+      networkBlocked: true,
+      providerCredentialWithheldFromCandidate: true,
+      sealedCorpusUsed: false,
+      reservationLedgerTouched: false,
+    }).catch(() => undefined);
+    throw error;
   } finally {
     if (proxy) await stopChild(proxy).catch(() => undefined);
     await fs.rm(root, { recursive: true, force: true });
@@ -463,10 +450,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "";
-  const code = /^(?:AQ_V2|TRUSTED_ANSWER)_[A-Z0-9_:-]+$/.test(message)
-    ? message
-    : "TRUSTED_ANSWER_CASE_FATAL";
-  process.stderr.write(code + "\n");
+  process.stderr.write(safeErrorCode(error) + "\n");
   process.exitCode = 1;
 });
