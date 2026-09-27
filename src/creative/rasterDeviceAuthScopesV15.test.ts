@@ -47,7 +47,7 @@ describe('raster device authorization scopes', () => {
     vi.restoreAllMocks();
   });
 
-  it.each(['usage', 'generate'])('rejects a narrowed token missing a required scope: %s', async (scope) => {
+  it.each(['profile', 'keys'])('rejects a token missing the required usage scope: %s', async (scope) => {
     const clock = controlledNow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(providerStartResponse())
@@ -62,6 +62,7 @@ describe('raster device authorization scopes', () => {
     const instance = app();
     const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
     expect(start.status).toBe(200);
+    expect(start.body.scope).toBe('usage');
     clock.advance(1_000);
 
     const complete = await request(instance)
@@ -79,7 +80,7 @@ describe('raster device authorization scopes', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('accepts both required scopes regardless of order and preserves additional scopes', async () => {
+  it.each(['usage', 'profile usage', 'usage profile'])('accepts usage scope and preserves additional account scopes: %s', async (scope) => {
     const clock = controlledNow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(providerStartResponse())
@@ -87,13 +88,14 @@ describe('raster device authorization scopes', () => {
         access_token: 'sk_provider_secret_token',
         token_type: 'bearer',
         expires_in: 3600,
-        scope: 'profile usage generate',
+        scope,
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
     const instance = app();
     const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
     expect(start.status).toBe(200);
+    expect(start.body.scope).toBe('usage');
     clock.advance(1_000);
 
     const complete = await request(instance)
@@ -105,7 +107,7 @@ describe('raster device authorization scopes', () => {
     expect(complete.body).toMatchObject({
       ok: true,
       connected: true,
-      scope: 'profile usage generate',
+      scope,
       secretDelivery: 'server-only',
     });
     expect(sealedCookie(complete.headers, '__Host-origin-image-token')).not.toContain('sk_provider_secret_token');
