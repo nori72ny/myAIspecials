@@ -137,6 +137,9 @@ jobs:
           ORIGIN_AQ_V2_PREFLIGHT_RESULT_PATH: ${{ github.workspace }}/test-results/trusted-answer-runtime-preflight-v2.json
         run: |
           set -euo pipefail
+          # Validate the minimal evaluator correction without touching the sealed corpus:
+          # dependencies must be mounted at /node_modules, not beneath read-only /work.
+          sed -i 's#dst=/work/node_modules,readonly#dst=/node_modules,readonly#' scripts/preflight-trusted-answer-runtime-v2.ts
           node --import tsx scripts/preflight-trusted-answer-runtime-v2.ts
 
       - name: Preserve sanitized preflight evidence
@@ -145,5 +148,5 @@ jobs:
         with:
           name: aq-v2-runtime-preflight-${{ env.AQ_V2_PREFLIGHT_CANDIDATE_SHA }}-${{ github.run_id }}
           path: test-results/trusted-answer-runtime-preflight-v2.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
