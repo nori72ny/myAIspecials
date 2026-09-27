@@ -13,6 +13,7 @@ const cleanEnv = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: root };
 try {
   mkdirSync(work, { mode: 0o700 });
   mkdirSync(trusted, { mode: 0o700 });
+  mkdirSync(path.join(work, 'node_modules'), { mode: 0o755 });
   writeFileSync(path.join(work, 'package.json'), '{"type":"module"}\n');
   copyFileSync('scripts/trusted-answer-candidate-runner-v2.ts', path.join(trusted, 'trusted-answer-candidate-runner-v2.ts'));
   const args = [
@@ -38,7 +39,8 @@ try {
   try { parsed = JSON.parse(envelope?.slice('ORIGIN_TRUSTED_ANSWER_RESULT '.length) ?? ''); } catch { /* fail below */ }
   if (result.status !== 1 || parsed?.error !== expected || parsed?.schemaVersion !== 'origin.trusted-answer-candidate-result.v2') {
     // Only fixed classifications are emitted, never raw child output.
-    const diagnostic = output.includes('ERR_MODULE_NOT_FOUND') ? 'MODULE_NOT_FOUND'
+    const diagnostic = output.includes('read-only file system') ? 'READ_ONLY_MOUNT_TARGET'
+      : output.includes('ERR_MODULE_NOT_FOUND') ? 'MODULE_NOT_FOUND'
       : output.includes('ERR_UNKNOWN_FILE_EXTENSION') ? 'UNKNOWN_FILE_EXTENSION'
       : output.includes('Permission denied') ? 'PERMISSION_DENIED'
       : result.error?.code === 'ETIMEDOUT' ? 'TIMEOUT' : 'RUNNER_ENVELOPE_MISSING';
