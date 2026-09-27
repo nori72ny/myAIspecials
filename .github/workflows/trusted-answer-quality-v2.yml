@@ -100,6 +100,35 @@ jobs:
           test -n "$POSTGRES_URL"
           test -n "$OPENROUTER_API_KEY"
 
+      - name: Checkout exact candidate for public runtime calibration
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
+          path: candidate-preflight
+          persist-credentials: false
+
+      - name: Prepare isolated runtime image before sealed-corpus access
+        run: docker pull node:22-bookworm-slim
+
+      - name: Exercise trusted runtime on public calibration before sealed-corpus access
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ORIGIN_CANDIDATE_SHA: ${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}
+          ORIGIN_AQ_V2_CANDIDATE_CHECKOUT: ${{ github.workspace }}/candidate-preflight
+          ORIGIN_AQ_V2_PREFLIGHT_RESULT_PATH: ${{ github.workspace }}/test-results/trusted-answer-runtime-preflight-v2.json
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/preflight-trusted-answer-runtime-v2.ts
+
+      - name: Preserve sanitized runtime calibration evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aq-v2-runtime-preflight-${{ inputs.candidate_sha || env.AQ_V2_DEFAULT_CANDIDATE_SHA }}-${{ github.run_id }}
+          path: test-results/trusted-answer-runtime-preflight-v2.json
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Fetch sealed AQ V2 corpus from private trusted store
         id: corpus
         env:

@@ -45,20 +45,26 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(workflow).not.toMatch(/candidate[^\n]*npm ci/);
   });
 
-  it("checks trusted database, provider and runtime prerequisites before consuming the global one-shot reservation", () => {
+  it("checks public runtime calibration plus trusted database, provider and runtime prerequisites before consuming the global one-shot reservation", () => {
     const preflightSecretCheck = workflow.indexOf("Verify required trusted-run secrets before reserving the one-shot corpus");
+    const calibrationCheckout = workflow.indexOf("Checkout exact candidate for public runtime calibration");
+    const calibrationDockerPull = workflow.indexOf("Prepare isolated runtime image before sealed-corpus access");
+    const calibrationRun = workflow.indexOf("Exercise trusted runtime on public calibration before sealed-corpus access");
     const preflightFetch = workflow.indexOf("Fetch sealed AQ V2 corpus from private trusted store");
     const runtimeFetch = workflow.indexOf("Fetch sealed corpus into trusted runner temp");
-    const dockerPull = workflow.indexOf("Prepare isolated runtime image");
+    const runtimeDockerPull = workflow.indexOf("      - name: Prepare isolated runtime image\n", runtimeFetch);
     const rebind = workflow.indexOf("Revalidate exact candidate PR binding immediately before execution");
     const boundaryCheck = workflow.indexOf("Verify secret boundary before execution");
     const reserve = workflow.indexOf("Reserve exact candidate and sealed corpus before provider execution");
     const evaluate = workflow.indexOf("Run 48 leased cases through the trusted boundary");
     expect(preflightSecretCheck).toBeGreaterThan(0);
-    expect(preflightFetch).toBeGreaterThan(preflightSecretCheck);
+    expect(calibrationCheckout).toBeGreaterThan(preflightSecretCheck);
+    expect(calibrationDockerPull).toBeGreaterThan(calibrationCheckout);
+    expect(calibrationRun).toBeGreaterThan(calibrationDockerPull);
+    expect(preflightFetch).toBeGreaterThan(calibrationRun);
     expect(runtimeFetch).toBeGreaterThan(preflightFetch);
-    expect(dockerPull).toBeGreaterThan(runtimeFetch);
-    expect(rebind).toBeGreaterThan(dockerPull);
+    expect(runtimeDockerPull).toBeGreaterThan(runtimeFetch);
+    expect(rebind).toBeGreaterThan(runtimeDockerPull);
     expect(boundaryCheck).toBeGreaterThan(rebind);
     expect(reserve).toBeGreaterThan(boundaryCheck);
     expect(evaluate).toBeGreaterThan(reserve);
@@ -67,6 +73,7 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(preReserve).toContain("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
     expect(preReserve).toContain('test -n "$POSTGRES_URL"');
     expect(preReserve).toContain('test -n "$OPENROUTER_API_KEY"');
+    expect(preReserve).toContain("scripts/preflight-trusted-answer-runtime-v2.ts");
     expect(preReserve).toContain("scripts/fetch-trusted-answer-corpus-v2.ts");
     expect(preReserve).not.toContain("ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64: ${{ secrets.");
   });
