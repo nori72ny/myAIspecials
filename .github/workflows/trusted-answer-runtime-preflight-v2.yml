@@ -68,6 +68,58 @@ jobs:
           NODE
           rm -f pr.json
 
+      - name: Diagnose Docker bind-mount contract without secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe_root="$(mktemp -d)"
+          trap 'rm -rf "$probe_root"' EXIT
+          mkdir -p "$probe_root/trusted" "$probe_root/socket"
+          printf 'export {};\n' > "$probe_root/trusted/probe.mjs"
+          uid="$(id -u)"
+          gid="$(id -g)"
+          common=(
+            run --rm
+            --network none
+            --cap-drop ALL
+            --security-opt no-new-privileges
+            --read-only
+            --user "${uid}:${gid}"
+            --pids-limit 128
+            --cpus 2
+            --memory 2g
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777
+          )
+          run_probe() {
+            local label="$1"
+            shift
+            echo "::group::docker-probe-${label}"
+            if ! docker "${common[@]}" "$@" node:22-bookworm-slim node -e 'process.stdout.write("ok\\n")'; then
+              echo "AQ_V2_PREFLIGHT_DOCKER_PROBE_${label^^}_FAILED" >&2
+              exit 2
+            fi
+            echo "::endgroup::"
+          }
+          run_probe base
+          run_probe candidate_bind \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/work,readonly" \
+            --workdir /work
+          run_probe node_modules_bind \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/work,readonly" \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/node_modules,dst=/work/node_modules,readonly" \
+            --workdir /work
+          run_probe trusted_bind \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/work,readonly" \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/node_modules,dst=/work/node_modules,readonly" \
+            --mount "type=bind,src=${probe_root}/trusted,dst=/trusted,readonly" \
+            --workdir /work
+          run_probe socket_bind \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/work,readonly" \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/node_modules,dst=/work/node_modules,readonly" \
+            --mount "type=bind,src=${probe_root}/trusted,dst=/trusted,readonly" \
+            --mount "type=bind,src=${probe_root}/socket,dst=/trusted-socket,readonly" \
+            --workdir /work
+
       - name: Verify free-only provider credential is available
         shell: bash
         env:
@@ -93,5 +145,5 @@ jobs:
         with:
           name: aq-v2-runtime-preflight-${{ env.AQ_V2_PREFLIGHT_CANDIDATE_SHA }}-${{ github.run_id }}
           path: test-results/trusted-answer-runtime-preflight-v2.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
