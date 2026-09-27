@@ -104,18 +104,18 @@ jobs:
           run_probe candidate_bind \
             --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/work,readonly" \
             --workdir /work
-          run_probe node_modules_bind \
+          run_probe node_modules_root_bind \
             --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/work,readonly" \
-            --mount "type=bind,src=${GITHUB_WORKSPACE}/node_modules,dst=/work/node_modules,readonly" \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/node_modules,dst=/node_modules,readonly" \
             --workdir /work
           run_probe trusted_bind \
             --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/work,readonly" \
-            --mount "type=bind,src=${GITHUB_WORKSPACE}/node_modules,dst=/work/node_modules,readonly" \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/node_modules,dst=/node_modules,readonly" \
             --mount "type=bind,src=${probe_root}/trusted,dst=/trusted,readonly" \
             --workdir /work
           run_probe socket_bind \
             --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/work,readonly" \
-            --mount "type=bind,src=${GITHUB_WORKSPACE}/node_modules,dst=/work/node_modules,readonly" \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/node_modules,dst=/node_modules,readonly" \
             --mount "type=bind,src=${probe_root}/trusted,dst=/trusted,readonly" \
             --mount "type=bind,src=${probe_root}/socket,dst=/trusted-socket,readonly" \
             --workdir /work
