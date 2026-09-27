@@ -5,6 +5,7 @@ const AUTH_ORIGIN = 'https://enter.pollinations.ai';
 const CLIENT_ID_ENV = 'ORIGIN_POLLINATIONS_CLIENT_ID';
 const SHARED_SDK_CLIENT_ID = 'pk_NgBAArhUeGvSRFba';
 const DEVICE_SCOPE = 'generate usage';
+const REQUIRED_DEVICE_SCOPES = ['generate', 'usage'] as const;
 const DATA_KEY_ENV = 'ORIGIN_CODING_JOB_DATA_KEY';
 const PENDING_COOKIE = '__Host-origin-image-device';
 const TOKEN_COOKIE = '__Host-origin-image-token';
@@ -39,6 +40,11 @@ function deviceClientId(env: NodeJS.ProcessEnv): string {
     throw new Error('IMAGE_AUTH_CLIENT_ID_UNAVAILABLE');
   }
   return raw;
+}
+
+function hasRequiredDeviceScopes(scope: string): boolean {
+  const granted = new Set(scope.trim().split(/\s+/).filter(Boolean));
+  return REQUIRED_DEVICE_SCOPES.every((required) => granted.has(required));
 }
 
 function seal(kind: 'pending' | 'token', value: object, env: NodeJS.ProcessEnv): string {
@@ -115,7 +121,7 @@ export function resolveRasterDeviceApiKeyV15(req: Request, env: NodeJS.ProcessEn
   const state = open<TokenStateV15>('token', cookies(req).get(TOKEN_COOKIE), env);
   if (!state || !exactText(state.accessToken, 8192) || !state.accessToken.startsWith('sk_')
     || !Number.isSafeInteger(state.expiresAt) || state.expiresAt <= Date.now()
-    || typeof state.scope !== 'string' || !state.scope.split(/\s+/).includes('usage')) return undefined;
+    || typeof state.scope !== 'string' || !hasRequiredDeviceScopes(state.scope)) return undefined;
   return state.accessToken;
 }
 
@@ -221,7 +227,7 @@ export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResp
   const scope = exactText(body.scope, 512) ?? DEVICE_SCOPE;
   const expiresIn = typeof body.expires_in === 'number' ? body.expires_in : Number(body.expires_in ?? DEFAULT_TOKEN_TTL_SECONDS);
   if (!accessToken || !accessToken.startsWith('sk_') || tokenType?.toLowerCase() !== 'bearer'
-    || !scope.split(/\s+/).includes('usage') || !Number.isFinite(expiresIn) || expiresIn < 60) {
+    || !hasRequiredDeviceScopes(scope) || !Number.isFinite(expiresIn) || expiresIn < 60) {
     clearCookie(res, PENDING_COOKIE);
     return res.status(502).json({ ok: false, code: 'IMAGE_DEVICE_TOKEN_INVALID' });
   }
