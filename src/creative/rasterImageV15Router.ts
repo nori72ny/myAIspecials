@@ -296,11 +296,20 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       return res.status(200).send(result.bytes);
     } catch (error) {
       const code = error instanceof Error ? error.message : 'RASTER_IMAGE_GENERATION_FAILED';
-      if (code === 'POLLINATIONS_KEY_NOT_CONFIGURED') {
-        return fail(res, 503, code, '無料画像生成プロバイダの認証がまだ構成されていません。');
+      if (code === 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED') {
+        return fail(res, 503, code, '無料画像生成のCloudflare Workers AI接続がまだ構成されていません。');
       }
-      if (code === 'NO_VERIFIED_ZERO_COST_RASTER_MODEL' || code === 'REQUESTED_IMAGE_MODEL_NOT_ZERO_COST' || code === 'PAID_OR_EXHAUSTED_PROVIDER_PATH_BLOCKED') {
-        return fail(res, 503, code, '費用0円を証明できる画像モデルがないため、生成を停止しました。');
+      if (code === 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED'
+        || code === 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED'
+        || code === 'CLOUDFLARE_BILLING_READ_REQUIRED'
+        || code === 'CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE') {
+        return fail(res, 503, code, '費用0円を事前保証できないため、画像生成を停止しました。');
+      }
+      if (code === 'POLLINATIONS_KEY_NOT_CONFIGURED'
+        || code === 'NO_VERIFIED_ZERO_COST_RASTER_MODEL'
+        || code === 'REQUESTED_IMAGE_MODEL_NOT_ZERO_COST'
+        || code === 'PAID_OR_EXHAUSTED_PROVIDER_PATH_BLOCKED') {
+        return fail(res, 503, code, '旧画像プロバイダ経路は有効化していません。');
       }
       return fail(res, 502, code, '画像生成プロバイダの検証または生成に失敗しました。');
     }
