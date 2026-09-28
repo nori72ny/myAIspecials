@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   dispatch:
-    if: ${{ contains(github.event.head_commit.message, '[aq-v2-fresh2-698]') }}
+    if: ${{ contains(github.event.head_commit.message, '[aq-v2-fresh2-fixed-698]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -26,9 +26,9 @@ jobs:
             "inputs": {
               "candidate_sha": "d0c307fd3d915474730a033fc46e273cbb6a6231",
               "pr_number": "698",
-              "round_id": "round-2026-09-28-independent-fresh-2",
+              "round_id": "round-2026-09-28-independent-fresh-2-corrected-1",
               "corpus_id": "origin-aq-v2-independent-2026-09-28-fresh-2",
-              "corpus_digest": "37db6013cb9eaf3178f219b4bd1b88a0a74adf25e856da44f8b36073c842da79"
+              "corpus_digest": "1f12c209e1c497712789cd5c5c216d2687d1e99eef968137f44bdf200d3529f7"
             }
           }
           JSON
