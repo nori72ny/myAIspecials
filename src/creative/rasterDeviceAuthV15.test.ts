@@ -5,10 +5,10 @@ import { createRasterImageV15Router } from './rasterImageV15Router.js';
 
 const DATA_KEY = Buffer.alloc(32, 7).toString('base64');
 const APP_CLIENT_ID = 'pk_ORIGINPersonalTest123';
-const SHARED_SDK_CLIENT_ID = 'pk_NgBAArhUeGvSRFba';
 const env: NodeJS.ProcessEnv = {
   ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY,
   ORIGIN_POLLINATIONS_CLIENT_ID: APP_CLIENT_ID,
+  APP_URL: 'https://origin.example.com',
 };
 
 function app(runtimeEnv: NodeJS.ProcessEnv = env) {
@@ -18,273 +18,114 @@ function app(runtimeEnv: NodeJS.ProcessEnv = env) {
   return instance;
 }
 
-function setCookies(headers: Record<string, unknown>): string[] {
+function cookies(headers: Record<string, unknown>): string[] {
   const raw = headers['set-cookie'];
-  if (Array.isArray(raw)) return raw.map(String);
-  return typeof raw === 'string' ? [raw] : [];
+  return Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? [raw] : [];
 }
 
-// Supertest uses HTTP, so its cookie jar correctly withholds Secure cookies.
-// Explicitly transport only the sealed cookie, preserving the production flags.
-function sealedCookie(headers: Record<string, unknown>, name: string): string {
-  const cookie = setCookies(headers).find(value => value.startsWith(`${name}=`));
-  expect(cookie).toBeDefined();
-  expect(cookie).toContain('; Path=/;');
-  expect(cookie).toContain('; HttpOnly; Secure; SameSite=Strict');
-  expect(cookie).not.toContain('Domain=');
-  return cookie!.split(';')[0];
+function cookie(headers: Record<string, unknown>, name: string): string {
+  const found = cookies(headers).find(value => value.startsWith(`${name}=`));
+  expect(found).toBeDefined();
+  return found!.split(';')[0];
 }
 
-function controlledNow(initial = Date.UTC(2026, 8, 27, 0, 0, 0)) {
-  let current = initial;
-  vi.spyOn(Date, 'now').mockImplementation(() => current);
-  return { advance: (milliseconds: number) => { current += milliseconds; } };
-}
-
-describe('raster device authorization', () => {
+describe('raster PKCE authorization', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it('fails closed without an ORIGIN-specific Pollinations app client id', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-    const invalidEnvs: NodeJS.ProcessEnv[] = [
-      { ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY },
-      { ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY, ORIGIN_POLLINATIONS_CLIENT_ID: SHARED_SDK_CLIENT_ID },
-    ];
-
-    for (const runtimeEnv of invalidEnvs) {
-      const instance = app(runtimeEnv);
-      const status = await request(instance).get('/api/creative/v1.5/raster/connect/status');
-      expect(status.status).toBe(200);
-      expect(status.body).toMatchObject({ connected: false, deviceAuthReady: false });
-
-      const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
+  it('fails closed unless app id, app URL and encryption key are all configured', async () => {
+    for (const runtimeEnv of [
+      { ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY, APP_URL: 'https://origin.example.com' },
+      { ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY, ORIGIN_POLLINATIONS_CLIENT_ID: APP_CLIENT_ID },
+      { APP_URL: 'https://origin.example.com', ORIGIN_POLLINATIONS_CLIENT_ID: APP_CLIENT_ID },
+    ]) {
+      const status = await request(app(runtimeEnv)).get('/api/creative/v1.5/raster/connect/status');
+      expect(status.body.deviceAuthReady).toBe(false);
+      const start = await request(app(runtimeEnv)).post('/api/creative/v1.5/raster/connect/start').send({});
       expect(start.status).toBe(503);
-      expect(start.body).toEqual({ ok: false, code: 'IMAGE_AUTH_CONFIGURATION_UNAVAILABLE' });
     }
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('starts device authorization without exposing the provider device code', async () => {
-    const fetchMock = vi.fn(async (_input?: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
-      device_code: 'provider-device-secret',
-      user_code: 'ABCD-1234',
-      verification_uri: '/device',
-      expires_in: 600,
-      interval: 5,
-    }), { status: 200, headers: { 'content-type': 'application/json' } }));
-    vi.stubGlobal('fetch', fetchMock);
-
+  it('creates a PKCE authorization restricted to audited model, zero budget and usage scope', async () => {
     const response = await request(app()).post('/api/creative/v1.5/raster/connect/start').send({});
-
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
-      ok: true,
-      userCode: 'ABCD-1234',
-      verificationUri: 'https://enter.pollinations.ai/device',
-      scope: 'usage',
-      secretDelivery: 'server-only',
-    });
-    expect(JSON.stringify(response.body)).not.toContain('provider-device-secret');
-    const cookie = setCookies(response.headers as Record<string, unknown>)[0] ?? '';
-    expect(cookie).toContain('__Host-origin-image-device=');
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('Secure');
-    expect(cookie).toContain('SameSite=Strict');
-    expect(cookie).not.toContain('provider-device-secret');
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://enter.pollinations.ai/api/device/code');
-    const outbound = new URLSearchParams(String(fetchMock.mock.calls[0]?.[1]?.body));
-    expect(outbound.get('client_id')).toBe(APP_CLIENT_ID);
-    expect(outbound.get('client_id')).not.toBe(SHARED_SDK_CLIENT_ID);
-    expect(outbound.get('scope')).toBe('usage');
+    const url = new URL(response.body.authorizationUri);
+    expect(url.origin).toBe('https://enter.pollinations.ai');
+    expect(url.pathname).toBe('/authorize');
+    expect(url.searchParams.get('response_type')).toBe('code');
+    expect(url.searchParams.get('client_id')).toBe(APP_CLIENT_ID);
+    expect(url.searchParams.get('redirect_uri')).toBe('https://origin.example.com/api/creative/v1.5/raster/connect/callback');
+    expect(url.searchParams.get('scope')).toBe('usage');
+    expect(url.searchParams.get('models')).toBe('tomdacatto/sana');
+    expect(url.searchParams.get('budget')).toBe('0');
+    expect(url.searchParams.get('expiry')).toBe('7');
+    expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(url.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(response.body).toMatchObject({ model: 'tomdacatto/sana', budgetPollen: 0, secretDelivery: 'server-only' });
+    const pending = cookies(response.headers as Record<string, unknown>).join('\n');
+    expect(pending).toContain('__Host-origin-image-device=');
+    expect(pending).toContain('HttpOnly');
+    expect(pending).toContain('Secure');
+    expect(pending).toContain('SameSite=Strict');
+    expect(pending).not.toContain(url.searchParams.get('state') ?? 'impossible');
   });
 
-  it('enforces the sealed polling interval before contacting the token endpoint', async () => {
-    const clock = controlledNow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        device_code: 'provider-device-secret', user_code: 'ABCD-1234', verification_uri: '/device', expires_in: 600, interval: 5,
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        access_token: 'sk_provider_secret_token', token_type: 'bearer', expires_in: 3600, scope: 'usage',
-      }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-    const instance = app();
-    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
-    const cookie = sealedCookie(start.headers, '__Host-origin-image-device');
+  it('exchanges callback code server-side and never exposes sk token', async () => {
+    const start = await request(app()).post('/api/creative/v1.5/raster/connect/start').send({});
+    const auth = new URL(start.body.authorizationUri);
+    const state = auth.searchParams.get('state')!;
 
-    const early = await request(instance).post('/api/creative/v1.5/raster/connect/complete').set('Cookie', cookie).send({});
-    expect(early.status).toBe(202);
-    expect(early.headers['retry-after']).toBe('5');
-    expect(early.body).toMatchObject({ pending: true, code: 'authorization_pending', interval: 5 });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    clock.advance(5_000);
-    const complete = await request(instance).post('/api/creative/v1.5/raster/connect/complete').set('Cookie', cookie).send({});
-    expect(complete.status).toBe(200);
-    expect(complete.body).toMatchObject({ ok: true, connected: true });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('exchanges the sealed pending code and keeps the access token out of response and plaintext cookies', async () => {
-    const clock = controlledNow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        device_code: 'provider-device-secret',
-        user_code: 'ABCD-1234',
-        verification_uri: '/device',
-        expires_in: 600,
-        interval: 5,
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe('https://enter.pollinations.ai/api/oauth/token');
+      expect(init?.method).toBe('POST');
+      const form = new URLSearchParams(String(init?.body));
+      expect(form.get('grant_type')).toBe('authorization_code');
+      expect(form.get('client_id')).toBe(APP_CLIENT_ID);
+      expect(form.get('redirect_uri')).toBe('https://origin.example.com/api/creative/v1.5/raster/connect/callback');
+      expect(form.get('code_verifier')).toMatch(/^[A-Za-z0-9_-]{64}$/);
+      return new Response(JSON.stringify({
         access_token: 'sk_provider_secret_token',
         token_type: 'bearer',
         expires_in: 3600,
         scope: 'usage',
-      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
     vi.stubGlobal('fetch', fetchMock);
 
-    const agent = request.agent(app());
-    const start = await agent.post('/api/creative/v1.5/raster/connect/start').send({});
-    expect(start.status).toBe(200);
-    clock.advance(5_000);
+    const callback = await request(app())
+      .get('/api/creative/v1.5/raster/connect/callback')
+      .set('Cookie', cookie(start.headers, '__Host-origin-image-device'))
+      .query({ code: 'oauth-code', state });
 
-    const complete = await agent.post('/api/creative/v1.5/raster/connect/complete')
-      .set('Cookie', sealedCookie(start.headers, '__Host-origin-image-device')).send({});
-    expect(complete.status).toBe(200);
-    expect(complete.body).toMatchObject({ ok: true, connected: true, secretDelivery: 'server-only' });
-    expect(JSON.stringify(complete.body)).not.toContain('sk_provider_secret_token');
-    const cookies = setCookies(complete.headers as Record<string, unknown>);
-    expect(cookies.some((value: string) => value.includes('__Host-origin-image-token='))).toBe(true);
-    expect(cookies.join('\n')).not.toContain('sk_provider_secret_token');
-
-    const status = await agent.get('/api/creative/v1.5/raster/connect/status')
-      .set('Cookie', sealedCookie(complete.headers, '__Host-origin-image-token'));
-    expect(status.status).toBe(200);
-    expect(status.body).toMatchObject({ connected: true, mode: 'device-cookie', deviceAuthReady: true });
+    expect(callback.status).toBe(303);
+    expect(callback.headers.location).toBe('https://origin.example.com/?image_connect=approved');
+    const set = cookies(callback.headers).join('\n');
+    expect(set).toContain('__Host-origin-image-token=');
+    expect(set).not.toContain('sk_provider_secret_token');
   });
 
-  it('reports authorization_pending and seals the next allowed poll time', async () => {
-    const clock = controlledNow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        device_code: 'provider-device-secret',
-        user_code: 'ABCD-1234',
-        verification_uri: '/device',
-        expires_in: 600,
-        interval: 5,
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        error: 'authorization_pending',
-      }), { status: 400, headers: { 'content-type': 'application/json' } }));
+  it('rejects callback state mismatch before token exchange', async () => {
+    const start = await request(app()).post('/api/creative/v1.5/raster/connect/start').send({});
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-
-    const instance = app();
-    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
-    expect(start.status).toBe(200);
-    clock.advance(5_000);
-    const complete = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
-      .set('Cookie', sealedCookie(start.headers, '__Host-origin-image-device')).send({});
-    expect(complete.status).toBe(202);
-    expect(complete.headers['retry-after']).toBe('5');
-    expect(complete.body).toMatchObject({ pending: true, code: 'authorization_pending', interval: 5 });
-    const pendingCookie = sealedCookie(complete.headers, '__Host-origin-image-device');
-    expect(pendingCookie).not.toContain('provider-device-secret');
-
-    const tooSoon = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
-      .set('Cookie', pendingCookie).send({});
-    expect(tooSoon.status).toBe(202);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const callback = await request(app())
+      .get('/api/creative/v1.5/raster/connect/callback')
+      .set('Cookie', cookie(start.headers, '__Host-origin-image-device'))
+      .query({ code: 'oauth-code', state: 'wrong-state' });
+    expect(callback.status).toBe(303);
+    expect(callback.headers.location).toBe('https://origin.example.com/?image_connect=invalid');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('defaults an omitted polling interval and persists cumulative slow_down delays', async () => {
-    const clock = controlledNow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        device_code: 'provider-device-secret', user_code: 'ABCD-1234',
-        verification_uri: '/device', expires_in: 600,
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'slow_down' }), { status: 400 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'slow_down' }), { status: 400 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'authorization_pending' }), { status: 400 }));
-    vi.stubGlobal('fetch', fetchMock);
-    const instance = app();
-    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
-    expect(start.status).toBe(200);
-    expect(start.body.interval).toBe(5);
-    let cookie = sealedCookie(start.headers, '__Host-origin-image-device');
-    let waitMs = 5_000;
-    for (const interval of [10, 15]) {
-      clock.advance(waitMs);
-      const result = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
-        .set('Cookie', cookie).send({});
-      expect(result.status).toBe(202);
-      expect(result.headers['retry-after']).toBe(String(interval));
-      expect(result.body).toMatchObject({ pending: true, code: 'slow_down', interval });
-      cookie = sealedCookie(result.headers, '__Host-origin-image-device');
-      expect(cookie).not.toContain('provider-device-secret');
-      waitMs = interval * 1000;
-    }
-    clock.advance(waitMs);
-    const pending = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
-      .set('Cookie', cookie).send({});
-    expect(pending.status).toBe(202);
-    expect(pending.body).toMatchObject({ code: 'authorization_pending', interval: 15 });
-    expect(pending.headers['retry-after']).toBe('15');
-    expect(sealedCookie(pending.headers, '__Host-origin-image-device')).not.toContain('provider-device-secret');
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-  });
-
-  it.each(['access_denied', 'expired_token'])('clears pending state after %s without issuing a token', async (error) => {
-    const clock = controlledNow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        device_code: 'provider-device-secret', user_code: 'ABCD-1234',
-        verification_uri: '/device', expires_in: 600, interval: 5,
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error }), { status: 400 }));
-    vi.stubGlobal('fetch', fetchMock);
-    const instance = app();
-    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
-    clock.advance(5_000);
-    const complete = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
-      .set('Cookie', sealedCookie(start.headers, '__Host-origin-image-device')).send({});
-    expect(complete.status).toBe(409);
-    expect(complete.body.code).toBe('IMAGE_DEVICE_AUTH_DENIED');
-    const cookies = setCookies(complete.headers);
-    expect(cookies).toHaveLength(1);
-    expect(cookies[0]).toContain('__Host-origin-image-device=;');
-    expect(cookies[0]).toContain('Max-Age=0');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('rejects a tampered pending cookie before contacting the provider', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
-      device_code: 'provider-device-secret', user_code: 'ABCD-1234',
-      verification_uri: '/device', expires_in: 600, interval: 5,
-    }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-    const instance = app();
-    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
-    const cookie = sealedCookie(start.headers, '__Host-origin-image-device');
-    const parts = cookie.split('.');
-    parts[3] = (parts[3][0] === 'A' ? 'B' : 'A') + parts[3].slice(1);
-    const complete = await request(instance).post('/api/creative/v1.5/raster/connect/complete')
-      .set('Cookie', parts.join('.')).send({});
-    expect(complete.status).toBe(409);
-    expect(complete.body.code).toBe('IMAGE_DEVICE_AUTH_EXPIRED');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('disconnects by expiring both sealed cookies', async () => {
+  it('disconnects by expiring both auth cookies', async () => {
     const response = await request(app()).post('/api/creative/v1.5/raster/connect/disconnect').send({});
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true, connected: false });
-    const cookies = setCookies(response.headers as Record<string, unknown>);
-    expect(cookies.join('\n')).toContain('__Host-origin-image-token=');
-    expect(cookies.join('\n')).toContain('Max-Age=0');
+    const set = cookies(response.headers as Record<string, unknown>).join('\n');
+    expect(set).toContain('__Host-origin-image-token=');
+    expect(set).toContain('__Host-origin-image-device=');
+    expect(set).toContain('Max-Age=0');
   });
 });
