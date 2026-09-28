@@ -3,6 +3,8 @@ import { classifyTask, type AITaskRequest, type AITaskType } from "./MultiAIOrch
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG, ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, selectCurrentOriginFreeModel, type OriginFreeModelEvidence } from "./OriginFreeModelCatalog.js";
 
 export const ORIGIN_OPENROUTER_FREE_PROVIDER_ID = "openrouter-free" as const;
+export const ORIGIN_QUALITY_OBJECTIVE = "max-quality-within-verified-zero-cost" as const;
+export const ORIGIN_QUALITY_SELECTION_POLICY = "benchmark-preferred-when-current-otherwise-retain-audited-route" as const;
 export const ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID = "google-ai-studio-free" as const;
 export const ORIGIN_GROQ_FREE_PROVIDER_ID = "groq-free" as const;
 export const ORIGIN_OPENROUTER_FREE_MODEL = ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
@@ -31,6 +33,9 @@ export interface OriginExecutionPlan {
   estimatedCostUsd: 0;
   timeoutMs: number;
   requiresOwnerApproval: false;
+  qualityObjective: typeof ORIGIN_QUALITY_OBJECTIVE;
+  qualitySelectionPolicy: typeof ORIGIN_QUALITY_SELECTION_POLICY;
+  qualityEvidenceStatus: "audited-route-no-superiority-claim";
   reason: string;
   providerDataPolicy: OriginProviderDataPolicy;
   modelEvidence: OriginProviderFreeEvidence;
@@ -91,5 +96,21 @@ export function buildOriginExecutionPlan(request: OriginExecutionRequest, availa
   const modelEvidence = evidence as OriginProviderFreeEvidence;
   const modelId = ORIGIN_OPENROUTER_FREE_MODEL;
   const providerDataPolicy = DEFAULT_ORIGIN_PROVIDER_DATA_POLICY;
-  return { ok: true, plan: { providerId, providerLabel: "ORIGIN 無料AI", modelId, taskType, capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: policy.timeoutMs, requiresOwnerApproval: false, reason: `依頼を capability「${capabilityDecision.capability}」/ task「${taskType}」としてローカル分類し、検証済みのOpenRouter無料モデルのみを選択します。Provider自身の無料利用証拠が期限内である場合のみ実行します。`, providerDataPolicy, modelEvidence } };
+  return { ok: true, plan: {
+    providerId,
+    providerLabel: "ORIGIN 無料AI",
+    modelId,
+    taskType,
+    capabilityDecision,
+    freeOnly: true,
+    estimatedCostUsd: 0,
+    timeoutMs: policy.timeoutMs,
+    requiresOwnerApproval: false,
+    qualityObjective: ORIGIN_QUALITY_OBJECTIVE,
+    qualitySelectionPolicy: ORIGIN_QUALITY_SELECTION_POLICY,
+    qualityEvidenceStatus: "audited-route-no-superiority-claim",
+    reason: `依頼を capability「${capabilityDecision.capability}」/ task「${taskType}」としてローカル分類し、費用0円を絶対条件として監査済み経路を選択します。より高品質な無料候補へ切り替えるのは、現在の比較評価・料金・プライバシー証拠が揃った場合だけです。現時点では優越性を未証明のまま主張せず、検証済みOpenRouter無料モデルを維持します。`,
+    providerDataPolicy,
+    modelEvidence,
+  } };
 }
