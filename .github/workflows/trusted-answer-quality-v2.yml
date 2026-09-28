@@ -134,6 +134,39 @@ jobs:
           set -euo pipefail
           node --import tsx scripts/preflight-trusted-answer-runtime-v2.ts
 
+      - name: Record same-day free-provider quota exhaustion
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
+          PREFLIGHT_RESULT: ${{ github.workspace }}/test-results/trusted-answer-runtime-preflight-v2.json
+        run: |
+          set -euo pipefail
+          test -f "$PREFLIGHT_RESULT" || exit 0
+          diagnostic="$(node -e "const fs=require('node:fs');const v=JSON.parse(fs.readFileSync(process.env.PREFLIGHT_RESULT,'utf8'));process.stdout.write(String(v?.diagnostic||''))")"
+          [ "$diagnostic" = 'PROVIDER_RATE_LIMITED' ] || exit 0
+          utc_day="$(date -u +%F)"
+          context="origin/aq-v2-free-quota/${utc_day}"
+          CONTEXT="$context" node <<'NODE' > quota-status.json
+          const payload={
+            state:'failure',
+            context:process.env.CONTEXT,
+            description:'AQ V2 free-provider quota exhausted for UTC day',
+            target_url:`https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          curl --fail --silent --show-error \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${LEDGER_ANCHOR_SHA}" \
+            --data-binary @quota-status.json \
+            -o /dev/null
+          rm -f quota-status.json
+
       - name: Preserve sanitized runtime calibration evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
