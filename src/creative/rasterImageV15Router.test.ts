@@ -79,6 +79,23 @@ describe('rasterImageV15Router', () => {
     vi.restoreAllMocks();
   });
 
+  it('rate limits image connection authorization routes without affecting unrelated raster status', async () => {
+    const instance = app();
+    for (let index = 0; index < 8; index += 1) {
+      const allowed = await request(instance).get('/api/creative/v1.5/raster/connect/status');
+      expect(allowed.status).toBe(200);
+    }
+
+    const limited = await request(instance).get('/api/creative/v1.5/raster/connect/status');
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe('CHAT_RATE_LIMITED');
+    expect(limited.headers['retry-after']).toBeDefined();
+
+    const unrelated = await request(instance).get('/api/creative/v1.5/raster/status');
+    expect(unrelated.status).toBe(503);
+    expect(unrelated.body.reason).toBe('POLLINATIONS_KEY_NOT_CONFIGURED');
+  });
+
   it('keeps both raster routes fail-closed when the server-only provider key is absent', async () => {
     const status = await request(app()).get('/api/creative/v1.5/raster/status');
     expect(status.status).toBe(503);
