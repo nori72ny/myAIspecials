@@ -106,9 +106,9 @@ function cookies(req: Request): Map<string, string> {
   return result;
 }
 
-function setCookie(res: ExpressResponse, name: string, value: string, maxAgeSeconds: number): void {
+function setCookie(res: ExpressResponse, name: string, value: string, maxAgeSeconds: number, sameSite: 'Lax' | 'Strict' = 'Strict'): void {
   const seconds = Math.max(0, Math.min(DEFAULT_TOKEN_TTL_SECONDS, Math.floor(maxAgeSeconds)));
-  res.append('Set-Cookie', `${name}=${value}; Path=/; Max-Age=${seconds}; HttpOnly; Secure; SameSite=Strict`);
+  res.append('Set-Cookie', `${name}=${value}; Path=/; Max-Age=${seconds}; HttpOnly; Secure; SameSite=${sameSite}`);
 }
 
 function clearCookie(res: ExpressResponse, name: string): void {
@@ -171,7 +171,7 @@ export async function startRasterDeviceAuthV15(_req: Request, res: ExpressRespon
     clientId,
     redirectUri,
     expiresAt,
-  } satisfies PendingStateV15, env), expiresIn);
+  } satisfies PendingStateV15, env), expiresIn, 'Lax');
 
   const authorization = new URL('/authorize', AUTH_ORIGIN);
   authorization.searchParams.set('response_type', 'code');
@@ -205,7 +205,7 @@ export async function completeRasterOAuthCallbackV15(req: Request, res: ExpressR
     expectedRedirect = callbackUri(env);
   } catch {
     clearCookie(res, PENDING_COOKIE);
-    return res.redirect(303, safeReturnUrl(env, 'invalid'));
+    return res.status(503).json({ ok: false, code: 'IMAGE_AUTH_CONFIGURATION_UNAVAILABLE' });
   }
 
   const pending = open<PendingStateV15>('pending', cookies(req).get(PENDING_COOKIE), env);
