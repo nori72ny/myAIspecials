@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { createOriginChatRateLimiter } from '../server/originSecurity.js';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { type RasterImageRequestV15 } from './rasterImageProviderV15.js';
@@ -80,7 +81,17 @@ function filename(mime: string): string {
 
 export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
-  router.use('/api/creative/v1.5/raster/connect', createOriginChatRateLimiter(Date.now, ['GET', 'POST']));
+  const standardConnectRateLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 60,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: (_req, res) => {
+      res.setHeader('Retry-After', '1');
+      return fail(res, 429, 'IMAGE_DEVICE_AUTH_RATE_LIMITED', '短時間の接続確認が集中しています。少し待ってから再度お試しください。');
+    },
+  });
+  router.use('/api/creative/v1.5/raster/connect', standardConnectRateLimiter, createOriginChatRateLimiter(Date.now, ['GET', 'POST']));
 
   router.get('/api/creative/v1.5/raster/status', async (req, res) => {
     const runtimeEnv = providerEnvForRequest(req, env);
@@ -136,8 +147,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     });
   });
 
-  // Protected by the router-level createOriginChatRateLimiter above; CodeQL does not model this project-local limiter.
-  // codeql[js/missing-rate-limiting]
   router.get('/api/creative/v1.5/raster/connect/status', (req, res) => {
     const connected = Boolean(resolveRasterDeviceApiKeyV15(req, env) || env.POLLINATIONS_API_KEY?.trim());
     return res.status(200).json({
@@ -151,8 +160,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     });
   });
 
-  // Protected by the router-level createOriginChatRateLimiter above; CodeQL does not model this project-local limiter.
-  // codeql[js/missing-rate-limiting]
   router.post('/api/creative/v1.5/raster/connect/start', async (req, res) => {
     if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
       return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
@@ -161,8 +168,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     catch { return fail(res, 502, 'IMAGE_DEVICE_AUTH_START_FAILED'); }
   });
 
-  // Protected by the router-level createOriginChatRateLimiter above; CodeQL does not model this project-local limiter.
-  // codeql[js/missing-rate-limiting]
   router.post('/api/creative/v1.5/raster/connect/complete', async (req, res) => {
     if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
       return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
@@ -171,8 +176,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     catch { return fail(res, 502, 'IMAGE_DEVICE_AUTH_COMPLETE_FAILED'); }
   });
 
-  // Protected by the router-level createOriginChatRateLimiter above; CodeQL does not model this project-local limiter.
-  // codeql[js/missing-rate-limiting]
   router.post('/api/creative/v1.5/raster/connect/disconnect', (req, res) => {
     if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
       return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
