@@ -586,8 +586,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'Content-Disposition': 'attachment; filename="origin-image.png"',
           'X-Origin-Visual-Verified': 'true',
           'X-Origin-Visual-Sha256': sha,
-          'X-Origin-Visual-Provider': 'pollinations-zero-cost',
-          'X-Origin-Visual-Model': 'tomdacatto/sana',
+          'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
+          'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
           'X-Origin-Visual-Brain': 'visual-brain-v1',
           'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
@@ -649,8 +649,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'Content-Disposition': 'attachment; filename="origin-image.png"',
           'X-Origin-Visual-Verified': 'true',
           'X-Origin-Visual-Sha256': sha,
-          'X-Origin-Visual-Provider': 'pollinations-zero-cost',
-          'X-Origin-Visual-Model': 'tomdacatto/sana',
+          'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
+          'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
           'X-Origin-Visual-Brain': 'visual-brain-v1',
           'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
@@ -686,7 +686,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
     expect(screen.getByText('画像を生成し、実ファイルを検証しました。')).toBeTruthy();
     expect(screen.getByRole('link', { name: '画像を保存' }).getAttribute('download')).toBe('origin-image.png');
-    expect(screen.getByText(/tomdacatto\/sana/)).toBeTruthy();
+    expect(screen.getByText(/stable-diffusion-xl-base-1\.0/)).toBeTruthy();
     expect(screen.getByText(/photograph/)).toBeTruthy();
     expect(screen.getByText(/1024×1024/)).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -721,8 +721,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
         'Content-Disposition': 'attachment; filename="origin-image.png"',
         'X-Origin-Visual-Verified': 'true',
         'X-Origin-Visual-Sha256': sha,
-        'X-Origin-Visual-Provider': 'pollinations-zero-cost',
-        'X-Origin-Visual-Model': 'tomdacatto/sana',
+        'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
+        'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
         'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
         'X-Origin-Visual-Brain': 'visual-brain-v1',
         'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
@@ -820,8 +820,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'Content-Disposition': 'attachment; filename="origin-image.png"',
           'X-Origin-Visual-Verified': 'true',
           'X-Origin-Visual-Sha256': sha,
-          'X-Origin-Visual-Provider': 'pollinations-zero-cost',
-          'X-Origin-Visual-Model': 'tomdacatto/sana',
+          'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
+          'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
           'X-Origin-Visual-Brain': 'visual-brain-v1',
           'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
@@ -868,8 +868,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
         'Content-Disposition': 'attachment; filename="origin-image.png"',
         'X-Origin-Visual-Verified': 'true',
         'X-Origin-Visual-Sha256': sha,
-        'X-Origin-Visual-Provider': 'pollinations-zero-cost',
-        'X-Origin-Visual-Model': 'tomdacatto/sana',
+        'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
+        'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
         'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
         'X-Origin-Visual-Brain': 'visual-brain-v1',
         'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
