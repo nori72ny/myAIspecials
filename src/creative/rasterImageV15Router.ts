@@ -6,14 +6,6 @@ import {
   rasterProviderRuntimeStatusV15,
   resolveRasterProviderV15,
 } from './rasterProviderRegistryV15.js';
-import {
-  completeRasterDeviceAuthV15,
-  completeRasterOAuthCallbackV15,
-  disconnectRasterDeviceAuthV15,
-  rasterDeviceAuthConfiguredV15,
-  resolveRasterDeviceApiKeyV15,
-  startRasterDeviceAuthV15,
-} from './rasterDeviceAuthV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
@@ -67,11 +59,6 @@ function parseBody(body: unknown): RasterImageRequestV15 {
   };
 }
 
-function providerEnvForRequest(req: Request, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const cookieKey = resolveRasterDeviceApiKeyV15(req, env);
-  return cookieKey ? { ...env, POLLINATIONS_API_KEY: cookieKey } : env;
-}
-
 function filename(mime: string): string {
   if (mime === 'image/png') return 'origin-image.png';
   if (mime === 'image/webp') return 'origin-image.webp';
@@ -81,9 +68,8 @@ function filename(mime: string): string {
 export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
-  router.get('/api/creative/v1.5/raster/status', async (req, res) => {
-    const runtimeEnv = providerEnvForRequest(req, env);
-    const runtime = await rasterProviderRuntimeStatusV15(runtimeEnv);
+  router.get('/api/creative/v1.5/raster/status', async (_req, res) => {
+    const runtime = await rasterProviderRuntimeStatusV15(env);
     const status = runtime.textToImageStatus;
     return res.status(runtime.textToImageReady ? 200 : 503).json({
       ok: runtime.textToImageReady,
@@ -133,49 +119,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       },
       modelBasedImageEditing: runtime.editingReady,
     });
-  });
-
-  router.get('/api/creative/v1.5/raster/connect/status', (req, res) => {
-    const deviceKey = resolveRasterDeviceApiKeyV15(req, env);
-    const serverKey = env.POLLINATIONS_API_KEY?.trim();
-    return res.status(200).json({
-      ok: true,
-      connected: Boolean(deviceKey || serverKey),
-      deviceAuthReady: rasterDeviceAuthConfiguredV15(env),
-      mode: deviceKey ? 'device-cookie' : serverKey ? 'server-env' : 'disconnected',
-      secretDelivery: 'server-only',
-      freeOnly: true,
-      costUsd: 0,
-      paidFallbackEnabled: false,
-    });
-  });
-
-  router.post('/api/creative/v1.5/raster/connect/start', async (req, res) => {
-    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
-      return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
-    }
-    try { return await startRasterDeviceAuthV15(req, res, env); }
-    catch { return fail(res, 502, 'IMAGE_DEVICE_AUTH_START_FAILED'); }
-  });
-
-  router.get('/api/creative/v1.5/raster/connect/callback', async (req, res) => {
-    try { return await completeRasterOAuthCallbackV15(req, res, env); }
-    catch { return res.redirect(303, '/?image_connect=invalid'); }
-  });
-
-  router.post('/api/creative/v1.5/raster/connect/complete', async (req, res) => {
-    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
-      return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
-    }
-    try { return await completeRasterDeviceAuthV15(req, res, env); }
-    catch { return fail(res, 502, 'IMAGE_DEVICE_AUTH_COMPLETE_FAILED'); }
-  });
-
-  router.post('/api/creative/v1.5/raster/connect/disconnect', (req, res) => {
-    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
-      return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
-    }
-    return disconnectRasterDeviceAuthV15(req, res);
   });
 
   router.post('/api/creative/v1.5/raster/plan', (req, res) => {
@@ -240,7 +183,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       if (!provider) {
         return fail(res, 503, 'NO_PROVIDER_SUPPORTS_TASK', '画像生成に対応する検証済みプロバイダがありません。');
       }
-      const runtimeEnv = providerEnvForRequest(req, env);
       const result = await provider.generate({
         ...input,
         prompt: plan.compiledPrompt,
@@ -249,7 +191,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           : plan.negativePrompt,
         width: input.width ?? plan.width,
         height: input.height ?? plan.height,
-      }, runtimeEnv);
+      }, env);
       const expectedWidth = input.width ?? plan.width;
       const expectedHeight = input.height ?? plan.height;
       const critic = critiqueRasterStructureV15(result.bytes, result.mimeType, expectedWidth, expectedHeight);
@@ -302,11 +244,20 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       return res.status(200).send(result.bytes);
     } catch (error) {
       const code = error instanceof Error ? error.message : 'RASTER_IMAGE_GENERATION_FAILED';
-      if (code === 'POLLINATIONS_KEY_NOT_CONFIGURED') {
-        return fail(res, 503, code, '無料画像生成プロバイダの認証がまだ構成されていません。');
+      if (code === 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED') {
+        return fail(res, 503, code, '無料画像生成のCloudflare Workers AI接続がまだ構成されていません。');
       }
-      if (code === 'NO_VERIFIED_ZERO_COST_RASTER_MODEL' || code === 'REQUESTED_IMAGE_MODEL_NOT_ZERO_COST' || code === 'PAID_OR_EXHAUSTED_PROVIDER_PATH_BLOCKED') {
-        return fail(res, 503, code, '費用0円を証明できる画像モデルがないため、生成を停止しました。');
+      if (code === 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED'
+        || code === 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED'
+        || code === 'CLOUDFLARE_BILLING_READ_REQUIRED'
+        || code === 'CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE') {
+        return fail(res, 503, code, '費用0円を事前保証できないため、画像生成を停止しました。');
+      }
+      if (code === 'POLLINATIONS_KEY_NOT_CONFIGURED'
+        || code === 'NO_VERIFIED_ZERO_COST_RASTER_MODEL'
+        || code === 'REQUESTED_IMAGE_MODEL_NOT_ZERO_COST'
+        || code === 'PAID_OR_EXHAUSTED_PROVIDER_PATH_BLOCKED') {
+        return fail(res, 503, code, '旧画像プロバイダ経路は有効化していません。');
       }
       return fail(res, 502, code, '画像生成プロバイダの検証または生成に失敗しました。');
     }
