@@ -76,7 +76,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('origin-add-menu-toggle')).toBeVisible();
     await expect(page.getByRole('menu', { name: '追加機能' })).toBeHidden();
     await page.getByTestId('origin-add-menu-toggle').click();
-    for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '作る']) {
+    for (const label of ['ファイルを添付', '詳しく調べる', 'エージェントに任せる', 'コード', '作る']) {
       await expect(page.getByRole('menuitem', { name: label, exact: true })).toBeVisible();
     }
     await expect(page.getByRole('menuitem', { name: '詳細', exact: true })).toHaveCount(0);
@@ -95,6 +95,22 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
   for (const width of [320, 390, 1440]) {
     test(`audits every progressive workspace link and maximizes composer space at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width <= 390 ? (width === 320 ? 568 : 844) : 900 });
+      await page.route('**/api/agent/v3/status', route => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          protocolVersion: 3,
+          ready: true,
+          approvalSigningConfigured: true,
+          replayProtectionConfigured: true,
+          replayProtection: 'shared-atomic',
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackEnabled: false,
+          secretDelivery: 'server-only',
+        }),
+      }));
       await page.route('**/api/coding/v1.4/status', route => route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -155,6 +171,14 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(page).toHaveURL(/workspace=research/);
       await expect(page.getByRole('heading', { name: '詳しく調べる' })).toBeVisible();
       await expect(page.getByLabel('調べたいこと', { exact: true })).toBeEditable();
+      await noOverflow();
+      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+
+      await page.getByTestId('origin-add-menu-toggle').click();
+      await page.getByRole('menuitem', { name: 'エージェントに任せる', exact: true }).click();
+      await expect(page).toHaveURL(/workspace=agent/);
+      await expect(page.getByRole('heading', { name: 'エージェントに任せる' })).toBeVisible();
+      await expect(page.getByLabel('達成したいこと', { exact: true })).toBeEditable();
       await noOverflow();
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
 
