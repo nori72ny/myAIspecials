@@ -8,6 +8,7 @@ import {
 } from './rasterProviderRegistryV15.js';
 import {
   completeRasterDeviceAuthV15,
+  completeRasterOAuthCallbackV15,
   disconnectRasterDeviceAuthV15,
   rasterDeviceAuthConfiguredV15,
   resolveRasterDeviceApiKeyV15,
@@ -155,6 +156,11 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     }
     try { return await startRasterDeviceAuthV15(req, res, env); }
     catch { return fail(res, 502, 'IMAGE_DEVICE_AUTH_START_FAILED'); }
+  });
+
+  router.get('/api/creative/v1.5/raster/connect/callback', async (req, res) => {
+    try { return await completeRasterOAuthCallbackV15(req, res, env); }
+    catch { return res.redirect(303, '/?image_connect=invalid'); }
   });
 
   router.post('/api/creative/v1.5/raster/connect/complete', async (req, res) => {
