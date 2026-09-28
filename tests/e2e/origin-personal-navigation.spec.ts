@@ -11,6 +11,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
           body: requests.length === 1 ? '## 進め方\n\n要件を確認してから実装し、動作を確認します。' : '具体的な手順を補足しました。' });
       });
       await page.goto('/');
+      await expect(page.getByTestId('origin-home-request')).toBeVisible();
+      await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
       await page.getByTestId('origin-home-request').fill('開発の進め方を説明してください');
       await page.getByTestId('start-request-button').click();
       const detail = page.getByRole('button', { name: '実務レベルに深掘り', exact: true });
