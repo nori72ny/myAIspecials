@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, string>([
-  ['package-lock.json', '6ffbdaf5d08d45f3632432fec27324d840c6dce5'],
+  ['package-lock.json', '163c0c4bbf7bf90996be52422c244235bc576c1f'],
   ['vite.config.ts', 'fa396109dd321106533a27070567fb77f30b6e90'],
   ['tsconfig.json', '166577ad1b6c79a81519689f71b0769e7f465ff3'],
   ['scripts/design-token-lock.js', 'a47fc4b878f84bf3b0bf303e6bf7ea5093e27803'],
