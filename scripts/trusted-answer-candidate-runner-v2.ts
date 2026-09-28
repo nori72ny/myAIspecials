@@ -54,7 +54,7 @@ function appendBounded(current: string, chunk: Buffer | string): string {
   return Buffer.from(next, "utf8").subarray(0, MAX_PROXY_RESPONSE_BYTES).toString("utf8");
 }
 
-async function proxyExecute(rawRequest: unknown): Promise<any> {
+async function requestViaProxy(rawRequest: unknown): Promise<any> {
   const socketPath = process.env.ORIGIN_TRUSTED_ANSWER_PROVIDER_SOCKET ?? "";
   const token = process.env.ORIGIN_TRUSTED_ANSWER_PROVIDER_TOKEN ?? "";
   if (!socketPath.startsWith("/") || !/^[a-f0-9]{64}$/.test(token)) {
@@ -144,17 +144,9 @@ async function main(): Promise<void> {
     "PROVIDER_INTERNAL_ERROR",
   ]);
 
-  const app = express();
-  app.use(express.json({ limit: "64kb" }));
-  app.use(routerModule.createOriginChatRouter({
-    env: {
-      NODE_ENV: "test",
-      OPENROUTER_API_KEY: "trusted-proxy-only",
-      FREE_ONLY: "true",
-    },
-    execute: async (request: unknown) => {
+  const proxyExecute = async (request: unknown) => {
       try {
-        return await proxyExecute(request);
+        return await requestViaProxy(request);
       } catch (error) {
         const failure = error as { code?: unknown; status?: unknown } | null;
         if (failure && typeof failure.code === "string" && providerCodes.has(failure.code)
@@ -167,7 +159,17 @@ async function main(): Promise<void> {
         }
         throw error;
       }
+  };
+
+  const app = express();
+  app.use(express.json({ limit: "64kb" }));
+  app.use(routerModule.createOriginChatRouter({
+    env: {
+      NODE_ENV: "test",
+      OPENROUTER_API_KEY: "trusted-proxy-only",
+      FREE_ONLY: "true",
     },
+    execute: proxyExecute,
     createRequestId: () => "trusted-answer-case",
   }));
 
