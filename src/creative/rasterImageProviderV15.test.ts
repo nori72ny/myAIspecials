@@ -34,7 +34,7 @@ const scopedKeyInfo = {
     models: ['tomdacatto/sana'],
     account: ['usage'],
   },
-  pollenBudget: 1,
+  pollenBudget: 0,
   rateLimitEnabled: false,
 };
 
@@ -124,6 +124,7 @@ describe('rasterImageProviderV15', () => {
       { ...scopedKeyInfo, permissions: { models: null, account: ['usage'] } },
       { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana', 'flux'], account: ['usage'] } },
       { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana'], account: [] } },
+      { ...scopedKeyInfo, pollenBudget: 1 },
     ]) {
       const fetchMock = vi.fn().mockResolvedValueOnce(json(keyInfo)) as unknown as typeof fetch;
       await expect(generateRasterImageV15(

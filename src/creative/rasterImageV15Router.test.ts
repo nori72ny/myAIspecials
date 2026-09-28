@@ -23,7 +23,7 @@ const scopedKeyInfo = {
     models: ['tomdacatto/sana'],
     account: ['usage'],
   },
-  pollenBudget: 1,
+  pollenBudget: 0,
   rateLimitEnabled: false,
 };
 
