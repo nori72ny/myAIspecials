@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   dispatch:
-    if: ${{ contains(github.event.head_commit.message, '[aq-v2-fresh2-fixed-698]') }}
+    if: ${{ contains(github.event.head_commit.message, '[aq-v2-fresh3-remediation-698]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -24,11 +24,11 @@ jobs:
           {
             "ref": "main",
             "inputs": {
-              "candidate_sha": "d0c307fd3d915474730a033fc46e273cbb6a6231",
+              "candidate_sha": "cb5a6a6e3ef44973da1e40bb253b6b6bf26779e0",
               "pr_number": "698",
-              "round_id": "round-2026-09-28-independent-fresh-2-corrected-1",
-              "corpus_id": "origin-aq-v2-independent-2026-09-28-fresh-2",
-              "corpus_digest": "1f12c209e1c497712789cd5c5c216d2687d1e99eef968137f44bdf200d3529f7"
+              "round_id": "round-2026-09-28-remediation-fresh-3-1",
+              "corpus_id": "origin-aq-v2-independent-2026-09-28-fresh-3",
+              "corpus_digest": "d989db1d9e2e1ca1bed64f76db139f306238ad74dec11167df1442d04b5e834a"
             }
           }
           JSON
