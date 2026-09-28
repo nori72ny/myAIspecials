@@ -4,28 +4,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createRasterImageV15Router } from './rasterImageV15Router';
 
-const freeModel = {
-  name: 'tomdacatto/sana',
-  category: 'image',
-  title: 'Sana Sprint (Free)',
-  description: 'Free image model',
-  community: true,
-  pricing: { currency: 'pollen' },
-  paid_only: false,
-  input_modalities: ['text'],
-  output_modalities: ['image'],
+const CF_ENV: NodeJS.ProcessEnv = {
+  CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+  CLOUDFLARE_API_TOKEN: 'cf_test_token_abcdefghijklmnopqrstuvwxyz',
 };
 
-const scopedKeyInfo = {
-  valid: true,
-  type: 'secret',
-  permissions: {
-    models: ['tomdacatto/sana'],
-    account: ['usage'],
-  },
-  pollenBudget: 1,
-  rateLimitEnabled: false,
-};
+function cfEnvelope(result: unknown, status = 200): Response {
+  return new Response(JSON.stringify({ success: status >= 200 && status < 300, result, errors: [], messages: [] }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
 
 function app(env: NodeJS.ProcessEnv = {}) {
   const instance = express();
@@ -57,20 +46,9 @@ function imageJson(bytes: Uint8Array): Response {
 function successfulFetchMock() {
   const png = pngBytes(768, 1024);
   return vi.fn()
-    .mockResolvedValueOnce(json(scopedKeyInfo))
-    .mockResolvedValueOnce(json([freeModel]))
-    .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-router' }] }))
-    .mockResolvedValueOnce(imageJson(png))
-    .mockResolvedValueOnce(json({
-      usage: [{
-        cursor_event_id: 'after-router',
-        type: 'generate.image',
-        model: 'tomdacatto/sana',
-        meter_source: 'tier',
-        cost_usd: 0,
-        output_image_tokens: 1,
-      }],
-    }));
+    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+    .mockResolvedValueOnce(cfEnvelope([]))
+    .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')));
 }
 
 describe('rasterImageV15Router', () => {
@@ -86,7 +64,7 @@ describe('rasterImageV15Router', () => {
       ok: false,
       ready: false,
       configured: false,
-      reason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
+      reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
@@ -125,24 +103,20 @@ describe('rasterImageV15Router', () => {
 
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
     expect(legacy.status).toBe(503);
-    expect(legacy.body.code).toBe('POLLINATIONS_KEY_NOT_CONFIGURED');
+    expect(legacy.body.code).toBe('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
   });
 
-  it('reports configured-but-not-ready when the provider key is not least-privilege scoped', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(json({
-      ...scopedKeyInfo,
-      permissions: { models: null, account: ['usage'] },
-    }));
+  it('reports configured-but-not-ready when Workers Paid/Standard is detected', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'standard' }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await request(app({ POLLINATIONS_API_KEY: 'server_only_key' }))
-      .get('/api/creative/v1.5/raster/status');
+    const response = await request(app(CF_ENV)).get('/api/creative/v1.5/raster/status');
 
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
       configured: true,
       ready: false,
-      reason: 'POLLINATIONS_KEY_SCOPE_INVALID',
+      reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED',
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
@@ -150,10 +124,6 @@ describe('rasterImageV15Router', () => {
       registryVersion: 'raster-provider-registry-v1',
       supportedTasks: [],
       modelBasedImageEditing: false,
-      rasterCritic: {
-        version: 'raster-structural-critic-v1',
-        failClosed: true,
-      },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -162,7 +132,7 @@ describe('rasterImageV15Router', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await request(app({ POLLINATIONS_API_KEY: 'server_only_key' }))
+    const response = await request(app(CF_ENV))
       .post('/api/creative/v1.5/raster/generate')
       .send({ prompt: '画像を作ってください' });
 
@@ -243,7 +213,7 @@ describe('rasterImageV15Router', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await request(app({ POLLINATIONS_API_KEY: 'server_only_key' }))
+    const response = await request(app(CF_ENV))
       .post('/api/creative/v1.5/raster/generate')
       .send({ prompt: 'このキー sk-abcdefghijklmnop を画像にしてください' });
 
@@ -256,18 +226,15 @@ describe('rasterImageV15Router', () => {
     const fetchMock = successfulFetchMock();
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await request(app({
-      POLLINATIONS_API_KEY: 'server_only_key',
-      ORIGIN_IMAGE_MODEL: 'tomdacatto/sana',
-    }))
+    const response = await request(app(CF_ENV))
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('image/png');
     expect(response.headers['x-origin-visual-verified']).toBe('true');
-    expect(response.headers['x-origin-visual-provider']).toBe('pollinations-zero-cost');
-    expect(response.headers['x-origin-visual-model']).toBe('tomdacatto/sana');
+    expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
+    expect(response.headers['x-origin-visual-model']).toBe('@cf/stabilityai/stable-diffusion-xl-base-1.0');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
@@ -295,28 +262,22 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-width']).toBe('768');
     expect(response.headers['x-origin-visual-height']).toBe('1024');
     expect(Buffer.isBuffer(response.body)).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
-    const providerRequest = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    const providerRequest = fetchMock.mock.calls[2]?.[1] as RequestInit;
     const authorization = new Headers(providerRequest.headers).get('authorization');
-    expect(authorization).toBe('Bearer server_only_key');
-    expect(response.text ?? '').not.toContain('server_only_key');
-    expect(String(fetchMock.mock.calls[3]?.[0])).toBe('https://gen.pollinations.ai/v1/images/generations');
+    expect(authorization).toBe('Bearer cf_test_token_abcdefghijklmnopqrstuvwxyz');
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0');
     const providerBody = JSON.parse(String(providerRequest.body));
     expect(providerBody.prompt).toContain('Create a polished production-quality image');
-    expect(providerBody.prompt).toContain('User request: 静かな湖と朝焼け');
-    expect(providerBody).toMatchObject({
-      model: 'tomdacatto/sana',
-      size: '768x1024',
-      response_format: 'b64_json',
-    });
+    expect(providerBody).toMatchObject({ width: 768, height: 1024, num_steps: 20 });
   });
 
   it('rejects unexpected request fields instead of forwarding them upstream', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await request(app({ POLLINATIONS_API_KEY: 'server_only_key' }))
+    const response = await request(app(CF_ENV))
       .post('/api/creative/v1.5/raster/generate')
       .send({ prompt: 'test', callbackUrl: 'https://attacker.example' });
 
