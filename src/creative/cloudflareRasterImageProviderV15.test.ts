@@ -94,14 +94,15 @@ describe('cloudflareRasterImageProviderV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(json([]))
-      .mockResolvedValueOnce(json(bytes.toString('base64'))) as unknown as typeof fetch;
+      .mockResolvedValueOnce(json(bytes.toString('base64')));
+    const fetchImpl = fetchMock as unknown as typeof fetch;
 
     const result = await generateCloudflareRasterImageV15({
       prompt: '静かな湖と朝焼け',
       negativePrompt: 'text, watermark',
       width: 768,
       height: 1024,
-    }, ENV, fetchMock);
+    }, ENV, fetchImpl);
 
     expect(result).toMatchObject({
       providerId: 'cloudflare-workers-ai-free',
