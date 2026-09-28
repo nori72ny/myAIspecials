@@ -12,7 +12,7 @@ describe('rasterProviderRegistryV15', () => {
     const providers = rasterProviderRegistryV15();
     expect(providers).toHaveLength(1);
     expect(providers[0]).toMatchObject({
-      id: 'pollinations-zero-cost',
+      id: 'cloudflare-workers-ai-free',
       zeroCostRequired: true,
       paidFallback: false,
       paymentMethodRequired: false,
@@ -28,7 +28,7 @@ describe('rasterProviderRegistryV15', () => {
   });
 
   it('resolves the current text-to-image implementation without claiming unsupported editing capabilities', () => {
-    expect(resolveRasterProviderV15('text-to-image')?.descriptor.id).toBe('pollinations-zero-cost');
+    expect(resolveRasterProviderV15('text-to-image')?.descriptor.id).toBe('cloudflare-workers-ai-free');
     expect(resolveRasterProviderV15('edit')).toBeNull();
     expect(resolveRasterProviderV15('inpaint')).toBeNull();
   });
@@ -52,14 +52,14 @@ describe('rasterProviderRegistryV15', () => {
       expect(selection.reason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
       expect(selection.statuses).toEqual([
         expect.objectContaining({
-          providerId: 'pollinations-zero-cost',
+          providerId: 'cloudflare-workers-ai-free',
           ready: false,
-          reason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
+          reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
           supportsTask: true,
           status: expect.objectContaining({
             configured: false,
             ready: false,
-            reason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
+            reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
           }),
         }),
       ]);
@@ -76,14 +76,14 @@ describe('rasterProviderRegistryV15', () => {
       textToImageStatus: {
         configured: false,
         ready: false,
-        reason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
-        providerId: 'pollinations-zero-cost',
+        reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+        providerId: 'cloudflare-workers-ai-free',
         zeroCostVerified: false,
         paidFallbackEnabled: false,
         paymentMethodRequired: false,
         secretDelivery: 'server-only',
       },
-      textToImageReason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
+      textToImageReason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
       editingReady: false,
       paidFallbackEnabled: false,
       freeOnly: true,
