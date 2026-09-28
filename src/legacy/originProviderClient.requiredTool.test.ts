@@ -11,6 +11,9 @@ const plan: OriginExecutionPlan = {
   estimatedCostUsd: 0,
   timeoutMs: 20_000,
   requiresOwnerApproval: false,
+    qualityObjective: "max-quality-within-verified-zero-cost",
+    qualitySelectionPolicy: "benchmark-preferred-when-current-otherwise-retain-audited-route",
+    qualityEvidenceStatus: "audited-route-no-superiority-claim",
   reason: 'test',
   providerDataPolicy: { allowProviderFallbacks: false, dataCollection: 'deny', requireZeroDataRetention: true },
   modelEvidence: {
