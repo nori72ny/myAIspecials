@@ -80,7 +80,7 @@ const OFFICIAL_SOURCE_RULES: readonly {
 const GENERIC_LATIN_TERMS = new Set([
   "the", "and", "for", "from", "with", "about", "please", "explain", "summary", "summarize",
   "research", "source", "sources", "official", "help", "support", "latest", "recent", "current",
-  "information", "short", "brief", "using", "based", "method", "how", "news",
+  "information", "news", "updates", "short", "brief", "using", "based", "method", "how", "news",
 ]);
 
 const GENERIC_JAPANESE_TERMS = new Set([
