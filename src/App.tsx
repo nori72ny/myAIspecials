@@ -1,4 +1,3 @@
-import { ImageProviderConnect } from './components/ImageProviderConnect';
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
 import OriginAnswerMarkdown from './components/personal/OriginAnswerMarkdown';
@@ -1042,7 +1041,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
-  const [imageConnectionPrompt, setImageConnectionPrompt] = useState<string | null>(null);
   const [isSafeWaiting, setIsSafeWaiting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1096,8 +1094,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
     if (!fileList?.length) return;
-    if (imageConnectionPrompt) pendingImageRequestRef.current = null;
-    setImageConnectionPrompt(null);
     setAttachmentError('');
     setIsSafeWaiting(false);
     const loaded: Attachment[] = [];
@@ -1111,7 +1107,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     if (loaded.length) setAttachments((current) => [...current, ...loaded]);
   };
   const handleDrop = (event: React.DragEvent<HTMLElement>) => { event.preventDefault(); setIsDragging(false); void attachFiles(event.dataTransfer.files); };
-  const handleSend = async (textToSend?: string, interruptCurrent = false, resumeImage = false) => {
+  const handleSend = async (textToSend?: string, interruptCurrent = false) => {
     const text = textToSend || inputText;
     if ((!text.trim() && !attachments.length) || (isLoading && !interruptCurrent)) return;
     if (isOffline) {
@@ -1133,8 +1129,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       return;
     }
 
-    if (imageConnectionPrompt && !resumeImage) pendingImageRequestRef.current = null;
-    setImageConnectionPrompt(null);
     setAttachmentError('');
     setIsSafeWaiting(false);
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
@@ -1142,7 +1136,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     const attachmentMessage = attachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
     const displayText = interruptCurrent ? `⚡ ${language === 'ja' ? '方向修正' : 'Direction update'}: ${text.trim()}` : text.trim();
     const userMessage: ConversationMessage = { id: `u-${Date.now()}`, role: 'user', content: `${displayText}${attachmentMessage}`.trim() };
-    const conversation = resumeImage ? messagesRef.current : updateMessages((current) => [...current, userMessage]);
+    const conversation = updateMessages((current) => [...current, userMessage]);
     const requestMessages = conversation.map((message) => ({ role: message.role, content: message.content }));
     if (interruptedArtifact?.content) {
       const latestMessage = requestMessages.at(-1);
@@ -1174,7 +1168,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         && !isImageClarificationCancellation(text.trim())
         && (Boolean(pendingImageRequest) || isDirectImageGenerationRequest(text.trim()));
       if (shouldGenerateImage) {
-        const imageRequestText = resumeImage && pendingImageRequest ? pendingImageRequest.prompt : pendingImageRequest
+        const imageRequestText = pendingImageRequest
           ? `${pendingImageRequest.prompt}\n\n追加条件: ${text.trim()}`
           : text.trim();
         const requestedRelation = pendingImageRequest?.relation ?? 'generated';
@@ -1205,15 +1199,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             }
           }
           pendingImageRequestRef.current = null;
-          if (failure?.code === 'POLLINATIONS_KEY_NOT_CONFIGURED') {
-            pendingImageRequestRef.current = { prompt: imageRequestText, questions: [], relation: requestedRelation, parentId: requestedParentId };
-            setImageConnectionPrompt(imageRequestText);
-            return;
-          }
           const unavailable = language === 'en'
             ? 'Verified $0 image generation is currently unavailable. ORIGIN did not substitute a prompt or use a paid provider.'
             : '検証済みの0円画像生成を現在実行できません。プロンプトへの置き換えや有料プロバイダへの切り替えは行っていません。';
-          appendFailure(failure?.message && failure.code !== 'POLLINATIONS_KEY_NOT_CONFIGURED' ? failure.message : unavailable);
+          appendFailure(failure?.message || unavailable);
           return;
         }
 
@@ -1239,7 +1228,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const secretDelivery = response.headers.get('x-origin-secret-delivery');
         if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)
           || !/^[a-f0-9]{64}$/i.test(sha256)
-          || providerId !== 'pollinations-zero-cost'
+          || providerId !== 'cloudflare-workers-ai-free'
           || !model
           || !/^raster-[a-f0-9]{24}$/i.test(generationId)
           || visualBrainVersion !== 'visual-brain-v1'
@@ -1535,11 +1524,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
 
   const hasExtendedActions = Boolean(onOpenResearch || onOpenAgent || onOpenCoding || onOpenCreative || onOpenDetails);
   const closeComposerMenu = (target: HTMLElement) => target.closest('details')?.removeAttribute('open');
-  const composer = <>{imageConnectionPrompt && <ImageProviderConnect language={language} onCancel={() => { pendingImageRequestRef.current = null; setImageConnectionPrompt(null); }} onConnected={() => {
-    const prompt = imageConnectionPrompt;
-    setImageConnectionPrompt(null);
-    void handleSend(prompt, false, true);
-  }} />}<input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} /><div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><textarea ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" />{hasExtendedActions ? <details data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
+  const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} /><div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><textarea ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" />{hasExtendedActions ? <details data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
   <summary data-testid="origin-add-menu-toggle" aria-label={language === 'ja' ? '追加メニュー' : 'Add menu'} className="inline-flex h-11 min-h-11 w-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full text-2xl leading-none transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">＋</summary>
   <div role="menu" aria-label={language === 'ja' ? '追加機能' : 'Additional tools'} className="origin-add-menu__panel origin-surface absolute bottom-14 right-0 z-50 grid min-w-40 gap-0.5 rounded-xl border border-[var(--border-default)] p-1.5 shadow-xl">
     <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); fileInputRef.current?.click(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? 'ファイルを添付' : 'Attach file'}</button>
