@@ -153,10 +153,33 @@ export function createTrustedAnswerProviderBoundaryV2(options: {
   });
 }
 
-export function publicTrustedAnswerProviderErrorV2(error: unknown): {
+export interface PublicTrustedAnswerProviderErrorV2 {
   code: string;
   status: number;
-} {
+  retryAfterSeconds?: number;
+  upstreamStatus?: number;
+  upstreamErrorType?: string;
+}
+
+function boundedRetryAfterSeconds(value: unknown): number | undefined {
+  return Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 86_400
+    ? Number(value)
+    : undefined;
+}
+
+function safeUpstreamStatus(value: unknown): number | undefined {
+  return Number.isInteger(value) && Number(value) >= 400 && Number(value) <= 599
+    ? Number(value)
+    : undefined;
+}
+
+function safeUpstreamErrorType(value: unknown): string | undefined {
+  return typeof value === "string" && /^(?:rate_limit_exceeded|timeout|provider_overloaded|provider_unavailable)$/.test(value)
+    ? value
+    : undefined;
+}
+
+export function publicTrustedAnswerProviderErrorV2(error: unknown): PublicTrustedAnswerProviderErrorV2 {
   if (error instanceof TrustedAnswerProviderBoundaryErrorV2) {
     return { code: error.code, status: error.status };
   }
@@ -164,11 +187,21 @@ export function publicTrustedAnswerProviderErrorV2(error: unknown): {
     const code = (error as { code?: unknown }).code;
     const status = (error as { status?: unknown }).status;
     if (typeof code === "string" && /^PROVIDER_[A-Z0-9_:-]+$/.test(code)) {
+      const retryAfterSeconds = boundedRetryAfterSeconds((error as { retryAfterSeconds?: unknown }).retryAfterSeconds);
+      const diagnostic = (error as { diagnostic?: unknown }).diagnostic;
+      const upstream = diagnostic && typeof diagnostic === "object" && !Array.isArray(diagnostic)
+        ? diagnostic as { upstreamStatus?: unknown; upstreamErrorType?: unknown }
+        : undefined;
+      const upstreamStatus = safeUpstreamStatus(upstream?.upstreamStatus);
+      const upstreamErrorType = safeUpstreamErrorType(upstream?.upstreamErrorType);
       return {
         code,
         status: Number.isInteger(status) && Number(status) >= 400 && Number(status) <= 599
           ? Number(status)
           : 502,
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+        ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
+        ...(upstreamErrorType !== undefined ? { upstreamErrorType } : {}),
       };
     }
   }
