@@ -16,6 +16,7 @@ const containers = new Set();
 let root;
 let server;
 let requestCount = 0;
+let scenario = 'success';
 const report = {
   schemaVersion: 'origin.aq-runtime-calibration.v1',
   purpose: 'public-mock-only', qualityEvaluated: false, liveProviderCalled: false,
@@ -55,9 +56,9 @@ function diagnostic(output) {
   if (/TRUSTED_ANSWER_CANDIDATE_FATAL/.test(output)) return 'candidate-fatal';
   return 'unclassified';
 }
-async function stage(name, args, accept) {
+async function stage(name, args, accept, expectedCode = 0) {
   const result = await run('docker', args);
-  const ok = result.code === 0 && !result.timedOut && accept(result.output);
+  const ok = result.code === expectedCode && !result.timedOut && accept(result.output);
   rows.push({ stage: name, ok, exitCode: result.code, timedOut: result.timedOut,
     diagnostic: ok ? 'none' : diagnostic(result.output) });
   if (!ok) throw new Error('CALIBRATION_STAGE_FAILED');
@@ -71,7 +72,7 @@ function dockerArgs(extraEnv = []) {
     '--pids-limit', '128', '--cpus', '2', '--memory', '2g',
     '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777',
     '--mount', 'type=bind,src=' + path.join(root, 'candidate') + ',dst=/work,readonly',
-    '--mount', 'type=bind,src=' + path.resolve('node_modules') + ',dst=/work/node_modules,readonly',
+    '--mount', 'type=bind,src=' + path.resolve('node_modules') + ',dst=/node_modules,readonly',
     '--mount', 'type=bind,src=' + path.join(root, 'trusted') + ',dst=/trusted,readonly',
     '--mount', 'type=bind,src=' + path.join(root, 'socket') + ',dst=/trusted-socket,readonly',
     '--workdir', '/work', '--env', 'HOME=/tmp', '--env', 'CI=true', '--env', 'NODE_ENV=test',
@@ -95,6 +96,7 @@ async function main() {
   const extracted = await run('tar', ['-xf', archive, '-C', path.join(root, 'candidate'), '--no-same-owner', '--no-same-permissions']);
   if (extracted.code !== 0) throw new Error('ARCHIVE_FAILED');
   await fs.copyFile('scripts/trusted-answer-candidate-runner-v2.ts', path.join(root, 'trusted', 'trusted-answer-candidate-runner-v2.ts'));
+  await fs.copyFile(path.join(candidateCheckout, 'scripts/trusted-answer-candidate-runner-v2.ts'), path.join(root, 'trusted', 'baseline-runner.ts'));
   await fs.writeFile(path.join(root, 'trusted', 'loader-probe.ts'), "const value: string = 'AQ_LOADER_READY'; console.log(value);\n");
   await fs.writeFile(path.join(root, 'trusted', 'dependency-probe.ts'), [
     "import { createRequire } from 'node:module';",
@@ -124,6 +126,11 @@ async function main() {
       try {
         const value = JSON.parse(body);
         if (!value.plan?.modelId || !Array.isArray(value.messages)) return reject();
+        if (scenario !== 'success') {
+          res.writeHead(429, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, code: scenario === 'unknown' ? 'PROVIDER_UNKNOWN_SENTINEL' : 'PROVIDER_RATE_LIMITED' }));
+          return;
+        }
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ ok: true, result: {
           text: answer, actualCostUsd: 0, usage: { costUsd: 0 },
@@ -156,6 +163,26 @@ async function main() {
         && value.content === answer && requestCount === 1;
     } catch { return false; }
   });
+  const expectFailure = (expected, status) => output => {
+    try {
+      const index = output.lastIndexOf(prefix);
+      if (index < 0) return false;
+      const value = JSON.parse(output.slice(index + prefix.length).split('\n')[0]);
+      return value.schemaVersion === 'origin.trusted-answer-candidate-result.v2'
+        && value.leaseId === lease.leaseId && value.httpStatus === status
+        && value.error === expected && requestCount === 1
+        && !output.includes('PROVIDER_UNKNOWN_SENTINEL');
+    } catch { return false; }
+  };
+  scenario = 'rate-limit'; requestCount = 0;
+  await stage('baseline-error-masking', [...dockerArgs(env), 'node', '--import', 'tsx', '/trusted/baseline-runner.ts'],
+    expectFailure('PROVIDER_INTERNAL_ERROR', 503), 1);
+  requestCount = 0;
+  await stage('provider-error-preserved', [...dockerArgs(env), 'node', '--import', 'tsx', '/trusted/trusted-answer-candidate-runner-v2.ts'],
+    expectFailure('PROVIDER_RATE_LIMITED', 429), 1);
+  scenario = 'unknown'; requestCount = 0;
+  await stage('unknown-error-sanitized', [...dockerArgs(env), 'node', '--import', 'tsx', '/trusted/trusted-answer-candidate-runner-v2.ts'],
+    expectFailure('PROVIDER_INTERNAL_ERROR', 503), 1);
 }
 try {
   await main();
