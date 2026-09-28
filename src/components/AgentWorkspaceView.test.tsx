@@ -127,7 +127,7 @@ describe('AgentWorkspaceView v3', () => {
 
     await waitFor(() => expect(screen.getByText('# 完成した文書')).toBeTruthy());
     expect(saveCheckpointToIndexedDB).toHaveBeenCalledWith(checkpoint);
-    expect((screen.getByLabelText('Agent認証キー') as HTMLInputElement).value).toBe('');
+    expect(screen.queryByLabelText('Agent認証キー')).toBeNull();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       '/api/agent/v3/status',
       '/api/agent/v3/plan',
