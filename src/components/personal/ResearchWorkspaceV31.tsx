@@ -121,14 +121,46 @@ function safeExternalUrl(value: string): string | null {
 }
 
 function confidenceLabel(value: ResearchSuccess['confidence']) {
-  if (value === 'strong') return 'Strong';
-  if (value === 'moderate') return 'Moderate';
-  return 'Limited';
+  if (value === 'strong') return '高';
+  if (value === 'moderate') return '中';
+  return '限定的';
+}
+
+function renderInlineResearchMarkdown(text: string, sources: readonly ResearchSource[]) {
+  const parts = text.split(/(\*\*[^*\n]+\*\*|\[S\d+\]\(https:\/\/[^)\s]+\))/g);
+  return parts.map((part, index) => {
+    const bold = part.match(/^\*\*([^*\n]+)\*\*$/);
+    if (bold) return <strong key={`bold-${index}`}>{bold[1]}</strong>;
+
+    const citation = part.match(/^\[(S\d+)\]\((https:\/\/[^)\s]+)\)$/);
+    if (citation) {
+      const source = sources.find(item => item.id === citation[1]);
+      const expected = source ? safeExternalUrl(source.url) : null;
+      const actual = safeExternalUrl(citation[2]);
+      if (expected && actual && expected === actual) {
+        return <a key={`citation-${index}`} href={actual} target="_blank" rel="noreferrer" className="font-semibold text-indigo-600 underline dark:text-indigo-300">{citation[1]}</a>;
+      }
+    }
+    return <React.Fragment key={`text-${index}`}>{part}</React.Fragment>;
+  });
+}
+
+function ResearchReport({ report, sources }: { report: string; sources: readonly ResearchSource[] }) {
+  return <div className="mt-3 max-h-[42rem] overflow-auto break-words text-sm leading-7">
+    {report.split('\n').map((line, index) => {
+      if (!line.trim()) return <div key={`space-${index}`} className="h-2" aria-hidden="true" />;
+      if (line.startsWith('### ')) return <h4 key={`h4-${index}`} className="mt-4 text-sm font-black">{renderInlineResearchMarkdown(line.slice(4), sources)}</h4>;
+      if (line.startsWith('## ')) return <h3 key={`h3-${index}`} className="mt-4 text-base font-black">{renderInlineResearchMarkdown(line.slice(3), sources)}</h3>;
+      if (line.startsWith('- ')) return <p key={`bullet-${index}`} className="ml-4 before:mr-2 before:content-['•']">{renderInlineResearchMarkdown(line.slice(2), sources)}</p>;
+      return <p key={`line-${index}`}>{renderInlineResearchMarkdown(line, sources)}</p>;
+    })}
+  </div>;
 }
 
 function failureMessage(code?: string, message?: string) {
   if (code === 'SENSITIVE_INPUT_BLOCKED') return '機微情報の可能性があるため、外部情報源への送信を停止しました。';
-  if (code === 'RESEARCH_SOURCE_UNAVAILABLE') return '無料の公開情報源から確認可能な情報を取得できませんでした。未確認内容で補完していません。';
+  if (code === 'RESEARCH_SOURCE_CONSTRAINT_UNMET') return '指定された公式情報源またはドメインから、質問に関連する根拠を確認できませんでした。無関係な出典では補完していません。';
+  if (code === 'RESEARCH_SOURCE_UNAVAILABLE') return '無料の公開情報源から質問に関連する確認可能な情報を取得できませんでした。未確認内容で補完していません。';
   if (code === 'INVALID_RESEARCH_QUERY') return '調査内容を1〜1200文字で入力してください。';
   return message || '調査を完了できませんでした。確認できていない内容は表示していません。';
 }
@@ -207,7 +239,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
             <h2 id="research-report-title" className="font-black">調査結果</h2>
             <span className="text-xs text-slate-500">{result.sourceCount}件の出典</span>
           </div>
-          <div className="mt-3 max-h-[42rem] overflow-auto whitespace-pre-wrap break-words text-sm leading-7">{result.report}</div>
+          <ResearchReport report={result.report} sources={result.sources} />
         </section>
 
         <section aria-label="Research summary" className="origin-workspace rounded-2xl px-4">
@@ -216,12 +248,12 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
 
             <div className="pb-4">
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="rounded-full border border-slate-200 px-3 py-1 font-bold dark:border-slate-700">確認度: {confidenceLabel(result.confidence)}</span>
+                <span className="rounded-full border border-slate-200 px-3 py-1 font-bold dark:border-slate-700">取得証拠: {confidenceLabel(result.confidence)}</span>
                 <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.sourceCount}件</span>
                 <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.distinctDomainCount}サイト</span>
-                
+                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">本文確認済み {result.sources.filter(source => source.evidenceLevel === 'page-verified').length}件</span>
               </div>
-              <p className="mt-2 text-xs leading-5 text-slate-500">確認度は、取得できた出典の強さを示します。内容全体の正しさを保証するものではありません。</p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">「本文確認済み」は取得時に原文本文を読めた出典です。「検索結果の要約」は検索スニペットのみで、本文確認済みとは扱いません。取得証拠の強さは、回答全体の正しさを保証する評価ではありません。</p>
 
               <div className="mt-4 space-y-3">{result.sources.map(source => {
                 const href = safeExternalUrl(source.url);
@@ -230,7 +262,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
                     <div className="min-w-0">
                       <p className="m-0 text-xs font-black text-indigo-500">{source.id}</p>
                       <h3 className="mt-1 break-words text-sm font-bold">{source.title}</h3>
-                      <p className="mt-1 text-xs text-slate-500">{source.domain}</p>
+                      <p className="mt-1 text-xs text-slate-500">{source.domain} · {source.evidenceLevel === 'page-verified' ? '本文確認済み' : '検索結果の要約'}</p>
                     </div>
                     
                   </div>

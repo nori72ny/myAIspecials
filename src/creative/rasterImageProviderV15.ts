@@ -53,7 +53,9 @@ export type RasterImageResultV15 = {
 };
 
 type PollinationsImageModel = {
+  id?: unknown;
   name?: unknown;
+  aliases?: unknown;
   category?: unknown;
   title?: unknown;
   description?: unknown;
@@ -83,14 +85,26 @@ function pricingProof(value: unknown): 'numeric-zero' | 'explicit-free-marker' |
   if (record.currency !== 'pollen') return null;
   const priceEntries = Object.entries(record).filter(([key]) => key !== 'currency');
   if (priceEntries.length === 0) return 'explicit-free-marker';
-  return priceEntries.every(([, item]) => typeof item === 'number' && Number.isFinite(item) && item === 0)
-    ? 'numeric-zero'
-    : null;
+  return priceEntries.every(([, item]) => {
+    if (typeof item === 'number') return Number.isFinite(item) && item === 0;
+    if (typeof item === 'string' && /^0(?:\.0+)?$/.test(item.trim())) return true;
+    return false;
+  }) ? 'numeric-zero' : null;
+}
+
+function modelAliases(model: PollinationsImageModel): string[] {
+  if (!Array.isArray(model.aliases)) return [];
+  return model.aliases.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).map(value => value.trim());
+}
+
+function modelIsAudited(model: PollinationsImageModel): boolean {
+  const names = [modelName(model), ...modelAliases(model)].filter((value): value is string => Boolean(value));
+  return names.some(name => AUDITED_ZERO_COST_MODELS.has(name));
 }
 
 function modelIsVerifiedZeroCost(model: PollinationsImageModel): boolean {
   const name = modelName(model);
-  if (!name || !AUDITED_ZERO_COST_MODELS.has(name)) return false;
+  if (!name || !modelIsAudited(model)) return false;
   if (model.category !== 'image' || model.paid_only === true) return false;
   const proof = pricingProof(model.pricing);
   if (!proof) return false;
@@ -108,7 +122,24 @@ function modelIsVerifiedZeroCost(model: PollinationsImageModel): boolean {
 }
 
 function modelName(model: PollinationsImageModel): string | null {
+  if (typeof model.id === 'string' && model.id.trim()) return model.id.trim();
   return typeof model.name === 'string' && model.name.trim() ? model.name.trim() : null;
+}
+
+function catalogRows(value: unknown): PollinationsImageModel[] {
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object' && !Array.isArray(value) && Array.isArray((value as Record<string, unknown>).data)
+      ? (value as Record<string, unknown>).data as unknown[]
+      : [];
+  return rows.filter((item): item is PollinationsImageModel => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
+}
+
+function preferredAuditedName(model: PollinationsImageModel, preferredModel: string): string | null {
+  const canonical = modelName(model);
+  if (!canonical || !modelIsVerifiedZeroCost(model)) return null;
+  if (canonical === preferredModel || modelAliases(model).includes(preferredModel)) return preferredModel;
+  return AUDITED_ZERO_COST_MODELS.has(canonical) ? canonical : null;
 }
 
 function detectImageMime(bytes: Buffer): RasterImageResultV15['mimeType'] | null {
@@ -289,19 +320,17 @@ export async function discoverZeroCostPollinationsModelV15(
 ): Promise<string | null> {
   if (!apiKey.trim()) return null;
   const response = await timedFetch(
-    `${POLLINATIONS_ORIGIN}/image/models`,
+    `${POLLINATIONS_ORIGIN}/v1/models`,
     { method: 'GET', headers: authHeaders(apiKey), cache: 'no-store' },
     fetchImpl,
     MODEL_DISCOVERY_TIMEOUT_MS,
   );
   if (!response.ok) return null;
   const parsed = await response.json() as unknown;
-  if (!Array.isArray(parsed)) return null;
-  const zeroCostModels = parsed
-    .filter((item): item is PollinationsImageModel => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
-    .filter(modelIsVerifiedZeroCost)
-    .map(modelName)
-    .filter((name): name is string => Boolean(name) && AUDITED_ZERO_COST_MODELS.has(name));
+  const zeroCostModels = catalogRows(parsed)
+    .filter(model => model.category === 'image')
+    .map(model => preferredAuditedName(model, preferredModel))
+    .filter((name): name is string => Boolean(name));
   return zeroCostModels.includes(preferredModel) ? preferredModel : null;
 }
 

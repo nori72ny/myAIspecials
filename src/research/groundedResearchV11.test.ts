@@ -18,7 +18,7 @@ function source(overrides: Partial<OriginResearchSource>): OriginResearchSource 
 
 describe("Grounded Research V1.1 evidence engine", () => {
   it("builds bounded citations and retrieval-only confidence", () => {
-    const result = buildGroundedResearchReport([
+    const result = buildGroundedResearchReport("調査依頼", [
       source({ title: "A", url: "https://a.example/report", domain: "a.example", evidenceLevel: "page-verified", freshness: "recent" }),
       source({ title: "B", url: "https://b.example/report", domain: "b.example", evidenceLevel: "page-verified", freshness: "older" }),
       source({ title: "C", url: "https://c.example/report", domain: "c.example", freshness: "unknown" }),
@@ -30,12 +30,14 @@ describe("Grounded Research V1.1 evidence engine", () => {
     expect(result.confidence).toBe("strong");
     expect(result.confidenceScope).toBe("retrieval-evidence-only");
     expect(result.sources.map((item) => item.id)).toEqual(["S1", "S2", "S3"]);
+    expect(result.report).toContain("依頼: 調査依頼");
+    expect(result.report).toContain("## 確認できた内容");
     expect(result.report).toContain("[S1](https://a.example/report)");
     expect(result.sources.every((item) => item.score <= 95)).toBe(true);
   });
 
   it("flags only conservative structured value mismatches", () => {
-    const result = buildGroundedResearchReport([
+    const result = buildGroundedResearchReport("調査依頼", [
       source({ title: "Price A", url: "https://a.example/price", domain: "a.example", excerpt: "価格 1,000円" }),
       source({ title: "Price B", url: "https://b.example/price", domain: "b.example", excerpt: "価格 1,200円" }),
     ]);
@@ -47,11 +49,11 @@ describe("Grounded Research V1.1 evidence engine", () => {
   });
 
   it("does not invent semantic conflict when no structured mismatch exists", () => {
-    const result = buildGroundedResearchReport([
+    const result = buildGroundedResearchReport("調査依頼", [
       source({ title: "A", url: "https://a.example/a", domain: "a.example", excerpt: "The service launched this week." }),
       source({ title: "B", url: "https://b.example/b", domain: "b.example", excerpt: "The product is available now." }),
     ]);
     expect(result.conflicts).toEqual([]);
-    expect(result.report).toContain("Semantic agreement/conflict remains unassessed");
+    expect(result.report).toContain("意味上の一致までは判定していません");
   });
 });

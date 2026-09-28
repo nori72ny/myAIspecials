@@ -390,8 +390,8 @@ export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: Codin
         </button>
 
         <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-slate-500">{checkingCapability ? '実行環境を確認中…' : ready ? '実行環境を確認済み' : '現在は実行できません'}</span>
-          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '利用できます' : '利用できません'}</span>
+          <span className="text-slate-500">{checkingCapability ? '実行基盤を確認中…' : ready ? '実行基盤を確認済み' : '現在は実行できません'}</span>
+          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '認証キー入力後に実行できます' : '利用できません'}</span>
         </div>
 
         <details className="mt-2 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">

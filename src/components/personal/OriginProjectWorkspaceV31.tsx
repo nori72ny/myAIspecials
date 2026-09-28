@@ -40,7 +40,7 @@ export default function OriginProjectWorkspaceV31({
     { id: 'files', label: 'Files', available: codingEvidence.changedPaths.length > 0, detail: codingEvidence.changedPaths.length > 0 ? `${codingEvidence.changedPaths.length} changed files` : (mode === 'coding' ? '変更ファイルはまだありません' : 'Code実行証拠が必要') },
     { id: 'tasks', label: 'Tasks', available: Boolean(codingEvidence.jobId && codingEvidence.status), detail: codingEvidence.status ? `Coding job · ${codingEvidence.status}` : '実Agent jobが必要' },
     { id: 'artifacts', label: '作成物', available: artifacts.length > 0, detail: artifacts.length > 0 ? `${artifacts.length}件` : '作成物はまだありません' },
-    { id: 'sources', label: 'Sources', available: sources.length > 0, detail: sources.length > 0 ? `${sources.length} verified sources` : (mode === 'research' ? 'Research結果がまだありません' : 'Research結果が必要') },
+    { id: 'sources', label: 'Sources', available: sources.length > 0, detail: sources.length > 0 ? `${sources.length}件の取得済み出典` : (mode === 'research' ? 'Research結果がまだありません' : 'Research結果が必要') },
   ];
 
   return <section aria-label="Project Workspace" className="origin-surface border-b border-origin-border px-3 py-2 sm:px-5 sm:py-3">
@@ -107,12 +107,12 @@ export default function OriginProjectWorkspaceV31({
       {activeView === 'sources' && sources.length > 0 && <section aria-label="Project Sources" className="mt-3 origin-card border p-3">
         <div className="flex items-center justify-between gap-3">
           <h3 className="m-0 text-sm font-black">Research Sources</h3>
-          <span className="origin-muted text-xs">{sources.length} verified</span>
+          <span className="origin-muted text-xs">{sources.length}件 · 本文確認済み {sources.filter(source => source.evidenceLevel === 'page-verified').length}件</span>
         </div>
         <ul className="m-0 mt-2 space-y-2 p-0">
           {sources.map((source) => <li key={source.id} className="list-none rounded-lg border border-origin-border p-3">
             <p className="m-0 text-xs font-black">{source.title}</p>
-            <p className="origin-muted m-0 mt-1 text-xs">{source.domain} · {source.evidenceLevel} · {source.freshness}</p>
+            <p className="origin-muted m-0 mt-1 text-xs">{source.domain} · {source.evidenceLevel === 'page-verified' ? '本文確認済み' : '検索結果の要約'} · {source.freshness === 'recent' ? '最近' : source.freshness === 'older' ? '古い可能性' : '更新時期不明'}</p>
           </li>)}
         </ul>
       </section>}

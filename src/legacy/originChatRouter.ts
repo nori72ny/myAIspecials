@@ -60,7 +60,7 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
     };
   }
 
-  const grounded = buildGroundedResearchReport(safeSources);
+  const grounded = buildGroundedResearchReport(query, safeSources);
   const sources = safeSources;
   const evidenceBlocks = sources.map((source, index) => {
     const id = `S${index + 1}`;

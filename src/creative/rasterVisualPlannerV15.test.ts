@@ -78,4 +78,19 @@ describe('rasterVisualPlannerV15', () => {
     expect(plan.purpose).toBe('photograph');
     expect(plan.questions).toEqual([]);
   });
+
+  it.each([
+    '青空の下で走る柴犬の写真風画像を1枚生成してください。文字なし、正方形です。',
+    '青空の下で走る柴犬を正方形で。テキスト不要です。',
+    'Create a square photorealistic image of a Shiba Inu running under a blue sky, no text.',
+  ])('keeps explicit no-text requests without asking for copy: %s', (request) => {
+    const plan = planRasterVisualRequestV15(request);
+    expect(plan.ready).toBe(true);
+    expect(plan.questions).toEqual([]);
+    expect(plan.exactText).toEqual([]);
+    expect(plan.requiresDeterministicTypography).toBe(false);
+    expect(plan.width).toBe(plan.height);
+    expect(plan.negativePrompt).toContain('unwanted text');
+  });
+
 });

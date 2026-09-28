@@ -42,9 +42,10 @@ export function createGroundedResearchV11Router() {
 
     const result = await researchCurrentInformation(query.trim());
     if (!result.ok || result.sources.length === 0) {
+      const sourceConstraintUnmet = result.failure?.code === "SOURCE_CONSTRAINT_UNMET";
       return res.status(503).json({
         ok: false,
-        code: "RESEARCH_SOURCE_UNAVAILABLE",
+        code: sourceConstraintUnmet ? "RESEARCH_SOURCE_CONSTRAINT_UNMET" : "RESEARCH_SOURCE_UNAVAILABLE",
         failure: result.failure,
         fallback: result.fallback,
         freeOnly: true,
@@ -53,7 +54,7 @@ export function createGroundedResearchV11Router() {
       });
     }
 
-    const grounded = buildGroundedResearchReport(result.sources);
+    const grounded = buildGroundedResearchReport(query.trim(), result.sources);
     return res.status(200).json({
       ok: true,
       version: "1.1",

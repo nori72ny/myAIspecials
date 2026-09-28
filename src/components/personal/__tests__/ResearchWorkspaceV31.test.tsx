@@ -28,7 +28,7 @@ describe('ResearchWorkspaceV31', () => {
           { id: 'S2', title: 'Second source', url: 'https://example.org/b', domain: 'example.org', evidenceLevel: 'snippet', freshness: 'unknown', score: 45, scoreScope: 'retrieval-evidence-only', citation: '[S2](https://example.org/b)' },
         ],
         conflicts: [],
-        report: '# ORIGIN Grounded Research V1.1',
+        report: '## 確認できた内容\n- 営業時間を編集できます [S1](https://example.com/a)',
       }),
     }));
 
@@ -39,7 +39,10 @@ describe('ResearchWorkspaceV31', () => {
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Research summary' })).not.toBeNull());
     expect(screen.getByText('Primary source')).not.toBeNull();
     expect(screen.getByText('Second source')).not.toBeNull();
-    expect(screen.getByText('確認度: Moderate')).not.toBeNull();
+    expect(screen.getByText('取得証拠: 中')).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '確認できた内容' })).not.toBeNull();
+    expect(screen.getByRole('link', { name: 'S1' })).not.toBeNull();
+    expect(screen.getByText('本文確認済み 1件')).not.toBeNull();
     expect(screen.getAllByRole('link', { name: '原文を開く' })).toHaveLength(2);
   });
 
@@ -102,4 +105,20 @@ describe('ResearchWorkspaceV31', () => {
     expect(screen.queryByRole('link', { name: '原文を開く' })).toBeNull();
     expect(screen.getByText(/HTTPS URLとして確認できない/)).not.toBeNull();
   });
+
+  it('explains source-constraint failure without substituting unrelated sources', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ ok: false, code: 'RESEARCH_SOURCE_CONSTRAINT_UNMET' }),
+    }));
+    render(<ResearchWorkspaceV31 />);
+    fireEvent.change(screen.getByLabelText('調べたいこと'), { target: { value: 'Google公式ヘルプだけで営業時間を説明してください' } });
+    fireEvent.click(screen.getByRole('button', { name: '調査する' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('指定された公式情報源またはドメイン');
+    expect(alert.textContent).toContain('無関係な出典では補完していません');
+    expect(screen.queryByRole('region', { name: 'Research summary' })).toBeNull();
+  });
+
 });

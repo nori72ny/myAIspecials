@@ -89,6 +89,12 @@ function quotedText(input: string): string[] {
   return values.slice(0, 8);
 }
 
+function explicitlyRequestsNoText(input: string): boolean {
+  return /(?:文字|テキスト|コピー|ロゴ)\s*(?:は|を)?\s*(?:なし|無し|不要|入れない|表示しない|載せない)/i.test(input)
+    || /(?:文字|テキスト|コピー|ロゴ)[^。\n]{0,12}(?:不要|なし|無し)/i.test(input)
+    || /\b(?:no\s+text|without\s+text|text[-\s]?free|no\s+words|no\s+lettering|no\s+logo)\b/i.test(input);
+}
+
 function meaningfulSubject(input: string): boolean {
   const stripped = input
     .replace(/(?:画像|イラスト|写真|絵|ポスター|バナー|サムネ(?:イル)?|ロゴ|アイコン|壁紙|アート|キービジュアル)/gi, ' ')
@@ -114,7 +120,9 @@ function questionsFor(input: string, requestedSize?: { width?: number; height?: 
     && !/(?:9\s*[:：/]\s*16|16\s*[:：/]\s*9|4\s*[:：/]\s*5|1\s*[:：/]\s*1|2\s*[:：/]\s*3|縦長|横長|正方形|story|portrait|landscape|square|A4)/i.test(input)) {
     questions.push('主な使用先と比率はどれですか？ 例：Instagram 4:5、Story 9:16、YouTube 16:9');
   }
-  if (/(?:文字|テキスト|コピー|ロゴ|title|headline|caption)/i.test(input) && quotedText(input).length === 0) {
+  if (/(?:文字|テキスト|コピー|ロゴ|title|headline|caption)/i.test(input)
+    && !explicitlyRequestsNoText(input)
+    && quotedText(input).length === 0) {
     questions.push('画像に必ず入れる文字を、そのまま正確に教えてください。');
   }
   return questions.slice(0, 3);
@@ -190,6 +198,7 @@ export function planRasterVisualRequestV15(
   const purpose = purposeFor(originalRequest);
   const template = resolveRasterVisualTemplateV15(originalRequest, requestedSize);
   const exactText = quotedText(originalRequest);
+  const noText = explicitlyRequestsNoText(originalRequest);
   const questions = questionsFor(originalRequest, requestedSize);
   const base = {
     version: 'raster-visual-plan-v1' as const,
@@ -208,7 +217,7 @@ export function planRasterVisualRequestV15(
     lighting: lightingFor(purpose, originalRequest),
     camera: cameraFor(purpose),
     exactText,
-    requiresDeterministicTypography: exactText.length > 0 || purpose === 'infographic' || purpose === 'ui-visual' || purpose === 'poster' || purpose === 'thumbnail',
+    requiresDeterministicTypography: !noText && (exactText.length > 0 || purpose === 'infographic' || purpose === 'ui-visual' || purpose === 'poster' || purpose === 'thumbnail'),
   };
   const negatives = [
     'low quality',
@@ -228,7 +237,7 @@ export function planRasterVisualRequestV15(
     'excessive neon unless explicitly requested',
     'busy composition',
   ];
-  if (!exactText.length && purpose !== 'infographic' && purpose !== 'ui-visual') negatives.push('unwanted text', 'unwanted logo');
+  if (noText || (!exactText.length && purpose !== 'infographic' && purpose !== 'ui-visual')) negatives.push('unwanted text', 'unwanted logo');
   else negatives.push('garbled lettering', 'misspelled lettering', 'distorted typography');
   const negativePrompt = negatives.join(', ');
   return {

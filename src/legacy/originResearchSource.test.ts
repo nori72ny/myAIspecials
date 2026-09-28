@@ -103,4 +103,58 @@ describe("originResearchSource", () => {
     expect(JSON.stringify(result)).not.toContain("403");
     expect(JSON.stringify(result)).not.toContain("not-json");
   });
+
+  it("keeps an explicit Google official-help constraint and filters unrelated search results", async () => {
+    secureFetch
+      .mockResolvedValueOnce(
+        '<a class="result__a" href="https://en.wikipedia.org/wiki/The_Beatles">The Beatles</a><div class="result__snippet">English rock band.</div>' +
+        '<a class="result__a" href="https://support.google.com/business/answer/10417060">営業時間を編集する</a><div class="result__snippet">Google ビジネス プロフィールの営業時間を編集できます。</div>' +
+        '<a class="result__a" href="https://example.com/random">Random page</a><div class="result__snippet">Unrelated content.</div>',
+      )
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "Google ビジネス プロフィールの営業時間の編集方法を、Google公式ヘルプを出典として短く説明してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("DuckDuckGo");
+    expect(result.sources).toHaveLength(1);
+    expect(result.sources[0]).toMatchObject({
+      title: "営業時間を編集する",
+      domain: "support.google.com",
+      sourceType: "web-search",
+    });
+    expect(result.sources[0].url).toContain("support.google.com/business/");
+    expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).toContain("site:support.google.com");
+  });
+
+  it("fails closed instead of treating unrelated Wikipedia fallback as success for an official-source request", async () => {
+    secureFetch.mockResolvedValueOnce(
+      '<a class="result__a" href="https://en.wikipedia.org/wiki/The_Beatles">The Beatles</a><div class="result__snippet">English rock band.</div>' +
+      '<a class="result__a" href="https://www.nicovideo.jp/">Niconico</a><div class="result__snippet">Video service.</div>',
+    );
+
+    const result = await researchCurrentInformation(
+      "Google ビジネス プロフィールの営業時間の編集方法を、Google公式ヘルプを出典として短く説明してください。",
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.sources).toEqual([]);
+    expect(result.searchProvider).toBe("DuckDuckGo");
+    expect(result.failure).toEqual({ stage: "web-search", code: "SOURCE_CONSTRAINT_UNMET" });
+    expect(secureFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not guess an official domain when the requested official publisher cannot be proven", async () => {
+    const result = await researchCurrentInformation("架空サービスXの公式情報だけを出典に説明してください。");
+    expect(result).toMatchObject({
+      ok: false,
+      sources: [],
+      failure: { stage: "web-search", code: "SOURCE_CONSTRAINT_UNMET" },
+      searchProvider: "DuckDuckGo",
+    });
+    expect(secureFetch).not.toHaveBeenCalled();
+  });
+
 });

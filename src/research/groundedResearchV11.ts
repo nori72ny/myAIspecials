@@ -103,7 +103,7 @@ function detectConflicts(sources: OriginResearchSource[]): GroundedResearchConfl
   return conflicts;
 }
 
-export function buildGroundedResearchReport(sources: OriginResearchSource[]): GroundedResearchReport {
+export function buildGroundedResearchReport(query: string, sources: OriginResearchSource[]): GroundedResearchReport {
   const bounded = sources.slice(0, 8);
   const domainCounts = new Map<string, number>();
   for (const source of bounded) {
@@ -128,13 +128,20 @@ export function buildGroundedResearchReport(sources: OriginResearchSource[]): Gr
 
   const conflicts = detectConflicts(bounded);
   const confidence = confidenceFor(bounded);
+  const compactQuery = query.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 400);
+  const summaryLines = bounded.map((source, index) => {
+    const excerpt = source.excerpt.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 360);
+    return `- ${excerpt} [S${index + 1}](${source.url})`;
+  });
   const evidenceLines = bounded.map((source, index) => {
     const assessment = assessments[index];
-    return `### ${assessment.id}: ${source.title}\n${source.excerpt}\n\nSource: ${assessment.citation}\nEvidence: ${assessment.evidenceLevel}; freshness: ${assessment.freshness}; retrieval score: ${assessment.score}/100`;
+    const evidenceLabel = assessment.evidenceLevel === "page-verified" ? "本文確認済み" : "検索結果の要約";
+    const freshnessLabel = assessment.freshness === "recent" ? "最近" : assessment.freshness === "older" ? "古い可能性" : "不明";
+    return `### ${assessment.id}: ${source.title}\n${source.excerpt}\n\n出典: ${assessment.citation}\n取得状態: ${evidenceLabel} / 更新時期: ${freshnessLabel} / 取得証拠スコア: ${assessment.score}/100`;
   });
   const conflictLines = conflicts.length === 0
-    ? "No conservative structured-value mismatch was detected. Semantic agreement/conflict remains unassessed."
-    : conflicts.map((conflict) => `- ${conflict.topic}: ${conflict.values.join(" vs ")} (${conflict.sourceIds.join(", ")})`).join("\n");
+    ? "取得した証拠から、価格・バージョン・割合の明示的な不一致は検出されませんでした。意味上の一致までは判定していません。"
+    : conflicts.map((conflict) => `- ${conflict.topic}: ${conflict.values.join(" / ")} (${conflict.sourceIds.join(", ")})`).join("\n");
 
   return {
     version: "1.1",
@@ -145,6 +152,6 @@ export function buildGroundedResearchReport(sources: OriginResearchSource[]): Gr
     semanticConflictDetection: "conservative-structured-only",
     sources: assessments,
     conflicts,
-    report: `# ORIGIN Grounded Research V1.1\n\nRetrieval confidence: **${confidence}**. This score evaluates retrieval evidence only, not factual truth or publisher authority.\n\n## Evidence\n\n${evidenceLines.join("\n\n")}\n\n## Conflict review\n${conflictLines}`,
+    report: `## 確認できた内容\n\n依頼: ${compactQuery}\n\n${summaryLines.join("\n")}\n\n## 出典と取得状況\n\n${evidenceLines.join("\n\n")}\n\n## 照合メモ\n${conflictLines}\n\n※ 取得証拠の強さは、質問への最終的な正しさや媒体の権威性そのものを保証するものではありません。`,
   };
 }

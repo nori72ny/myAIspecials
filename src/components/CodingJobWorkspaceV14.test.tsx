@@ -104,6 +104,8 @@ describe('CodingJobWorkspaceV14', () => {
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('configured');
     expect(screen.getByText('dedicated coding credential')).toBeTruthy();
+    expect(screen.getByText('実行基盤を確認済み')).toBeTruthy();
+    expect(screen.getByText('認証キー入力後に実行できます')).toBeTruthy();
 
     const credential = 'operator-secret-that-is-long-enough-for-production';
     const credentialInput = screen.getByLabelText('Coding認証キー') as HTMLInputElement;
