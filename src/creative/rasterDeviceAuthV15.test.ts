@@ -68,7 +68,7 @@ describe('raster PKCE authorization', () => {
     expect(pending).toContain('__Host-origin-image-device=');
     expect(pending).toContain('HttpOnly');
     expect(pending).toContain('Secure');
-    expect(pending).toContain('SameSite=Strict');
+    expect(pending).toContain('SameSite=Lax');
     expect(pending).not.toContain(url.searchParams.get('state') ?? 'impossible');
   });
 
@@ -103,6 +103,7 @@ describe('raster PKCE authorization', () => {
     expect(callback.headers.location).toBe('https://origin.example.com/?image_connect=approved');
     const set = cookies(callback.headers).join('\n');
     expect(set).toContain('__Host-origin-image-token=');
+    expect(set).toContain('SameSite=Strict');
     expect(set).not.toContain('sk_provider_secret_token');
   });
 
