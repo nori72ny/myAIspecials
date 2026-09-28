@@ -65,8 +65,8 @@ describe('trusted exact-candidate evaluator contract', () => {
     expect(verifier).toContain('assertTrustedCandidateVerificationBaselineV15(workspace)');
     expect(guard).toContain("'6ffbdaf5d08d45f3632432fec27324d840c6dce5'");
     expect(guard).toContain("'163c0c4bbf7bf90996be52422c244235bc576c1f'");
-    expect(guard).toContain("['vite.config.ts', 'fa396109dd321106533a27070567fb77f30b6e90']");
-    expect(guard).toContain("['tsconfig.json', '166577ad1b6c79a81519689f71b0769e7f465ff3']");
+    expect(guard).toContain("['vite.config.ts', ['fa396109dd321106533a27070567fb77f30b6e90']]");
+    expect(guard).toContain("['tsconfig.json', ['166577ad1b6c79a81519689f71b0769e7f465ff3']]");
     expect(guard).toContain('assertTrustedCandidateVerificationBaselineV15(root)');
   });
 
