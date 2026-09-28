@@ -44,6 +44,7 @@ export function ImageProviderConnect({ language, onConnected, onCancel }: {
     setBusy(true);
     setNotice('');
     const timer = setTimeout(() => abort.abort(), 15_000);
+    let approvalConfirmed = connected;
 
     try {
       if (operation === 'start') {
@@ -93,12 +94,13 @@ export function ImageProviderConnect({ language, onConnected, onCancel }: {
         return;
       }
 
+      approvalConfirmed = true;
       setConnected(true);
       setSession(null);
       await verifyReadiness(abort.signal);
     } catch {
       if (controller.current !== abort) return;
-      if (operation === 'ready' && connected) {
+      if (operation === 'ready' && approvalConfirmed) {
         setNotice(en
           ? 'Connection is approved, but no verified zero-cost image model is ready. No image was generated.'
           : '接続は承認済みですが、費用0円を検証済みの画像モデルを確認できません。画像は生成していません。');
