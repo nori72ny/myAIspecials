@@ -193,6 +193,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       body: '```html:a11y-auto-lint.html\n<main style="background:#777"><p id="low-contrast" style="color:#777">Important result</p><button id="unnamed-button"><svg aria-hidden="true" viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button></main>\n```',
     }));
     await page.goto('/');
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await page.getByTestId('origin-home-request').fill('アクセシビリティ補正を確認');
     await page.getByTestId('start-request-button').click();
     await page.getByRole('button', { name: 'プレビューを表示' }).click();
