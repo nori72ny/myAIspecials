@@ -29,7 +29,7 @@ export type RasterImageRequestV15 = {
 export type RasterProviderStatusV15 = {
   configured: boolean;
   ready: boolean;
-  providerId: 'pollinations-zero-cost';
+  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
   model: string | null;
   zeroCostVerified: boolean;
   paidFallbackEnabled: false;
@@ -44,7 +44,7 @@ export type RasterImageResultV15 = {
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   sha256: string;
   model: string;
-  providerId: 'pollinations-zero-cost';
+  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
   width: number;
   height: number;
   costUsd: 0;
@@ -309,7 +309,7 @@ async function verifyScopedPollinationsKeyV15(
   const account = permissions.account;
   if (!Array.isArray(models) || models.length !== 1 || models[0] !== expectedModel) return false;
   if (!Array.isArray(account) || !account.includes('usage')) return false;
-  if (typeof parsed.pollenBudget !== 'number' || !Number.isFinite(parsed.pollenBudget) || parsed.pollenBudget !== 0) return false;
+  if (parsed.pollenBudget !== null && (typeof parsed.pollenBudget !== 'number' || !Number.isFinite(parsed.pollenBudget) || parsed.pollenBudget < 0)) return false;
   return true;
 }
 
