@@ -50,8 +50,14 @@ function isDeterministicQuantitativeRequest(message: string): boolean {
 }
 
 function isProvidedPriceDecisionRequest(message: string): boolean {
-  return /(?:価格|料金).{0,40}(?:か|or).{0,40}(?:迷|検討|比較|決め|判断|検証)|(?:迷|検討|比較|決め|判断|検証).{0,40}(?:価格|料金)/s.test(message)
-    || /\b(?:choose|decide|test|validate|compare).{0,48}(?:price|pricing)|(?:price|pricing).{0,48}(?:choose|decide|test|validate|compare)\b/is.test(message);
+  const normalized = message.toLowerCase();
+  const hasPriceTopic = message.includes("価格")
+    || message.includes("料金")
+    || normalized.includes("price")
+    || normalized.includes("pricing");
+  const hasDecisionIntent = ["迷", "検討", "比較", "決め", "判断", "検証"].some((token) => message.includes(token))
+    || ["choose", "decide", "test", "validate", "compare"].some((token) => normalized.includes(token));
+  return hasPriceTopic && hasDecisionIntent;
 }
 
 
