@@ -71,7 +71,7 @@ describe("createOriginApp provider isolation", () => {
 
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
-      code: "POLLINATIONS_KEY_NOT_CONFIGURED",
+      code: "CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED",
       freeOnly: true,
       costUsd: 0,
       paidFallbackUsed: false,
