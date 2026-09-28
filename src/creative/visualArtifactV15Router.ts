@@ -15,7 +15,7 @@ import {
   visualBrainSelfTestV15,
   visualProviderRegistryV15,
 } from './visualBrainV15.js';
-import { getRasterProviderStatusV15 } from './rasterImageProviderV15.js';
+import { rasterProviderRuntimeStatusV15 } from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 
 function sensitiveKinds(body: unknown): string[] {
@@ -46,7 +46,8 @@ export function createVisualArtifactV15Router(env: NodeJS.ProcessEnv = process.e
   router.get('/api/creative/v1.5/status', async (_req, res) => {
     const selfTest = visualArtifactSelfTestV15();
     const visualBrain = visualBrainSelfTestV15();
-    const raster = await getRasterProviderStatusV15(env);
+    const rasterRuntime = await rasterProviderRuntimeStatusV15(env);
+    const raster = rasterRuntime.textToImageStatus;
     const ready = selfTest.ready && visualBrain.ready;
     return res.status(ready ? 200 : 503).json({
       ok: true,
@@ -94,14 +95,14 @@ export function createVisualArtifactV15Router(env: NodeJS.ProcessEnv = process.e
       externalRuntimeDependencies: 0,
       externalNetworkRequests: 0,
       providerExecutions: 0,
-      rasterImageGeneration: raster.ready,
+      rasterImageGeneration: rasterRuntime.textToImageReady,
       rasterRuntime: {
-        configured: raster.configured,
-        ready: raster.ready,
-        providerId: raster.providerId,
-        model: raster.model,
-        zeroCostVerified: raster.zeroCostVerified,
-        reason: raster.reason,
+        configured: raster?.configured ?? false,
+        ready: rasterRuntime.textToImageReady,
+        providerId: raster?.providerId ?? rasterRuntime.providers[0]?.id ?? null,
+        model: raster?.model ?? null,
+        zeroCostVerified: raster?.zeroCostVerified ?? false,
+        reason: rasterRuntime.textToImageReason,
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
         visualPlanning: {
