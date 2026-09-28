@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
+import { createOriginChatRateLimiter } from '../server/originSecurity.js';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { type RasterImageRequestV15 } from './rasterImageProviderV15.js';
 import {
@@ -79,6 +80,7 @@ function filename(mime: string): string {
 
 export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
+  router.use('/api/creative/v1.5/raster/connect', createOriginChatRateLimiter(Date.now, ['GET', 'POST']));
 
   router.get('/api/creative/v1.5/raster/status', async (req, res) => {
     const runtimeEnv = providerEnvForRequest(req, env);
