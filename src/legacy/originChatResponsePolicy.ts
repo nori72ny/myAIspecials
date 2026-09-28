@@ -43,6 +43,17 @@ function isStablePricingConceptRequest(message: string): boolean {
   return /(?:価格|料金).{0,16}(?:戦略|設計|モデル|理論|弾力性|心理|概念|定義|意味)|(?:戦略|設計|モデル|理論|弾力性|心理|概念|定義|意味).{0,16}(?:価格|料金)/s.test(message)
     || /\b(?:price|pricing).{0,20}(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning)|(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning).{0,20}(?:price|pricing)\b/is.test(message);
 }
+function isDeterministicQuantitativeRequest(message: string): boolean {
+  const hasNumbers = /\d/.test(message);
+  const asksCalculation = /(?:合計|計算|求め|平均|中央値|成長率|粗利率|損益分岐|期待(?:クリック|CV)|CPA|CVR|何件)|\b(?:calculate|total|average|median|growth rate|break[- ]even|CPA|CVR)\b/i.test(message);
+  return hasNumbers && asksCalculation;
+}
+
+function isProvidedPriceDecisionRequest(message: string): boolean {
+  return /(?:価格|料金).{0,40}(?:か|or).{0,40}(?:迷|検討|比較|決め|判断|検証)|(?:迷|検討|比較|決め|判断|検証).{0,40}(?:価格|料金)/s.test(message)
+    || /\b(?:choose|decide|test|validate|compare).{0,48}(?:price|pricing)|(?:price|pricing).{0,48}(?:choose|decide|test|validate|compare)\b/is.test(message);
+}
+
 
 export function requiresOriginGroundedResearch(message: string): boolean {
   if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
@@ -58,10 +69,12 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     isTransformOnlyRequest(message)
     || isHypotheticalFreshnessFailureRequest(message)
     || isStablePricingConceptRequest(message)
+    || isDeterministicQuantitativeRequest(message)
+    || isProvidedPriceDecisionRequest(message)
   ) return false;
 
   return requiresOriginFutureReleaseInformation(message)
-    || /(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)|リアルタイム/.test(message)
+    || /(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)|リアルタイム.{0,16}(?:情報|データ|株価|相場|状況|結果|為替|レート|更新)/.test(message)
     || /(?:料金|価格)(?:は|を|が|について|って|\?|？|$)|(?:いくら|費用).{0,12}(?:ですか|教えて|知りたい|比較|確認)/.test(message)
     || /\b(?:news|pricing|prices?|weather|real[- ]time)\b/i.test(message)
     || /\b(?:latest|current|today'?s?)\b.{0,48}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|version|model)\b/i.test(message);
@@ -108,6 +121,9 @@ export function originChatSystemInstruction(
 - Before sending, silently check goal fit, completeness, internal consistency, usability, factual support, mobile readability, and unnecessary repetition.
 - Do not invent current or future facts, model names, release dates, or roadmaps, and do not claim access to unprovided tools, files, accounts, websites, or services.
 - Separate confirmed facts from assumptions, inferences, and recommendations.
+- Treat stable conceptual explanations, deterministic calculations from user-provided values, and decision frameworks based on supplied options as answerable without live web retrieval unless the user explicitly asks for current external facts. Never refuse these tasks merely because public retrieval is unavailable.
+- For calculations, show the minimum useful calculation basis from the user's supplied values so the evidence chain is inspectable. For stable technical explanations, do not invent citations; make clear when the answer relies on established general technical knowledge rather than live verification.
+- In rewriting or sales copy, never introduce case studies, competitive superiority, adoption results, benchmarks, or other factual support that the user did not provide or that was not actually verified.
 - Distinguish user-provided claims explicitly when they could be confused with verified facts. State meaningful uncertainty.
 - Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence.
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
