@@ -1096,7 +1096,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
     if (!fileList?.length) return;
-    if (imageConnectionPrompt && !resumeImage) pendingImageRequestRef.current = null;
+    if (imageConnectionPrompt) pendingImageRequestRef.current = null;
     setImageConnectionPrompt(null);
     setAttachmentError('');
     setIsSafeWaiting(false);
@@ -1133,6 +1133,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       return;
     }
 
+    if (imageConnectionPrompt && !resumeImage) pendingImageRequestRef.current = null;
+    setImageConnectionPrompt(null);
     setAttachmentError('');
     setIsSafeWaiting(false);
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
