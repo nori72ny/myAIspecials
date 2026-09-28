@@ -136,6 +136,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     });
   });
 
+  // Protected by the router-level createOriginChatRateLimiter above; CodeQL does not model this project-local limiter.
+  // codeql[js/missing-rate-limiting]
   router.get('/api/creative/v1.5/raster/connect/status', (req, res) => {
     const connected = Boolean(resolveRasterDeviceApiKeyV15(req, env) || env.POLLINATIONS_API_KEY?.trim());
     return res.status(200).json({
@@ -149,6 +151,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     });
   });
 
+  // Protected by the router-level createOriginChatRateLimiter above; CodeQL does not model this project-local limiter.
+  // codeql[js/missing-rate-limiting]
   router.post('/api/creative/v1.5/raster/connect/start', async (req, res) => {
     if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
       return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
@@ -157,6 +161,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     catch { return fail(res, 502, 'IMAGE_DEVICE_AUTH_START_FAILED'); }
   });
 
+  // Protected by the router-level createOriginChatRateLimiter above; CodeQL does not model this project-local limiter.
+  // codeql[js/missing-rate-limiting]
   router.post('/api/creative/v1.5/raster/connect/complete', async (req, res) => {
     if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
       return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
@@ -165,6 +171,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     catch { return fail(res, 502, 'IMAGE_DEVICE_AUTH_COMPLETE_FAILED'); }
   });
 
+  // Protected by the router-level createOriginChatRateLimiter above; CodeQL does not model this project-local limiter.
+  // codeql[js/missing-rate-limiting]
   router.post('/api/creative/v1.5/raster/connect/disconnect', (req, res) => {
     if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).length > 0) {
       return fail(res, 400, 'IMAGE_DEVICE_AUTH_BODY_NOT_ALLOWED');
