@@ -8,6 +8,7 @@ const APP_CLIENT_ID = 'pk_ORIGINScopeTest123';
 const env: NodeJS.ProcessEnv = {
   ORIGIN_CODING_JOB_DATA_KEY: DATA_KEY,
   ORIGIN_POLLINATIONS_CLIENT_ID: APP_CLIENT_ID,
+  APP_URL: 'https://origin.example.com',
 };
 
 function app() {
@@ -17,100 +18,69 @@ function app() {
   return instance;
 }
 
-function sealedCookie(headers: Record<string, unknown>, name: string): string {
+function cookie(headers: Record<string, unknown>, name: string): string {
   const raw = headers['set-cookie'];
   const values = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? [raw] : [];
-  const cookie = values.find((value) => value.startsWith(`${name}=`));
-  expect(cookie).toBeDefined();
-  return cookie!.split(';')[0];
+  const found = values.find(value => value.startsWith(`${name}=`));
+  expect(found).toBeDefined();
+  return found!.split(';')[0];
 }
 
-function controlledNow(initial = Date.UTC(2026, 8, 27, 9, 0, 0)) {
-  let current = initial;
-  vi.spyOn(Date, 'now').mockImplementation(() => current);
-  return { advance: (milliseconds: number) => { current += milliseconds; } };
+async function begin() {
+  const response = await request(app()).post('/api/creative/v1.5/raster/connect/start').send({});
+  expect(response.status).toBe(200);
+  const auth = new URL(response.body.authorizationUri);
+  return {
+    pending: cookie(response.headers, '__Host-origin-image-device'),
+    state: auth.searchParams.get('state')!,
+  };
 }
 
-function providerStartResponse() {
-  return new Response(JSON.stringify({
-    device_code: 'provider-device-secret',
-    user_code: 'SCOPE-01',
-    verification_uri: '/device',
-    expires_in: 600,
-    interval: 1,
-  }), { status: 200, headers: { 'content-type': 'application/json' } });
-}
-
-describe('raster device authorization scopes', () => {
+describe('raster OAuth scopes', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it.each(['profile', 'keys'])('rejects a token missing the required usage scope: %s', async (scope) => {
-    const clock = controlledNow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(providerStartResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        access_token: 'sk_provider_secret_token',
-        token_type: 'bearer',
-        expires_in: 3600,
-        scope,
-      }), { status: 200, headers: { 'content-type': 'application/json' } }));
-    vi.stubGlobal('fetch', fetchMock);
+  it.each(['profile', 'keys'])('rejects a callback token missing usage scope: %s', async (scope) => {
+    const started = await begin();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      access_token: 'sk_provider_secret_token',
+      token_type: 'bearer',
+      expires_in: 3600,
+      scope,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
 
-    const instance = app();
-    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
-    expect(start.status).toBe(200);
-    expect(start.body.scope).toBe('usage');
-    clock.advance(1_000);
+    const response = await request(app())
+      .get('/api/creative/v1.5/raster/connect/callback')
+      .set('Cookie', started.pending)
+      .query({ code: 'oauth-code', state: started.state });
 
-    const complete = await request(instance)
-      .post('/api/creative/v1.5/raster/connect/complete')
-      .set('Cookie', sealedCookie(start.headers, '__Host-origin-image-device'))
-      .send({});
-
-    expect(complete.status).toBe(502);
-    expect(complete.body).toEqual({ ok: false, code: 'IMAGE_DEVICE_TOKEN_INVALID' });
-    const setCookie = Array.isArray(complete.headers['set-cookie'])
-      ? complete.headers['set-cookie'].join('\n')
-      : String(complete.headers['set-cookie'] ?? '');
-    expect(setCookie).toContain('__Host-origin-image-device=;');
-    expect(setCookie).not.toContain('__Host-origin-image-token=');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(response.status).toBe(303);
+    expect(response.headers.location).toBe('https://origin.example.com/?image_connect=invalid');
+    const set = Array.isArray(response.headers['set-cookie'])
+      ? response.headers['set-cookie'].join('\n')
+      : String(response.headers['set-cookie'] ?? '');
+    expect(set).toContain('__Host-origin-image-device=;');
+    expect(set).not.toContain('__Host-origin-image-token=');
   });
 
-  it.each(['usage', 'profile usage', 'usage profile'])('accepts usage scope and preserves additional account scopes: %s', async (scope) => {
-    const clock = controlledNow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(providerStartResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        access_token: 'sk_provider_secret_token',
-        token_type: 'bearer',
-        expires_in: 3600,
-        scope,
-      }), { status: 200, headers: { 'content-type': 'application/json' } }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const instance = app();
-    const start = await request(instance).post('/api/creative/v1.5/raster/connect/start').send({});
-    expect(start.status).toBe(200);
-    expect(start.body.scope).toBe('usage');
-    clock.advance(1_000);
-
-    const complete = await request(instance)
-      .post('/api/creative/v1.5/raster/connect/complete')
-      .set('Cookie', sealedCookie(start.headers, '__Host-origin-image-device'))
-      .send({});
-
-    expect(complete.status).toBe(200);
-    expect(complete.body).toMatchObject({
-      ok: true,
-      connected: true,
+  it.each(['usage', 'profile usage', 'usage,profile'])('accepts a token containing usage scope: %s', async (scope) => {
+    const started = await begin();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      access_token: 'sk_provider_secret_token',
+      token_type: 'bearer',
+      expires_in: 3600,
       scope,
-      secretDelivery: 'server-only',
-    });
-    expect(sealedCookie(complete.headers, '__Host-origin-image-token')).not.toContain('sk_provider_secret_token');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+
+    const response = await request(app())
+      .get('/api/creative/v1.5/raster/connect/callback')
+      .set('Cookie', started.pending)
+      .query({ code: 'oauth-code', state: started.state });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.location).toBe('https://origin.example.com/?image_connect=approved');
+    expect(cookie(response.headers, '__Host-origin-image-token')).not.toContain('sk_provider_secret_token');
   });
 });
