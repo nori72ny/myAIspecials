@@ -191,7 +191,7 @@ export type GeneratedImageMessage = {
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   downloadName: string;
   sha256: string;
-  providerId: 'pollinations-zero-cost';
+  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
   model: string;
   generationId: string;
   visualBrainVersion: 'visual-brain-v1';
