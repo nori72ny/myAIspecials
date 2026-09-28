@@ -94,6 +94,11 @@ const server = createServer((req, res) => {
       const requestCount = boundary.used();
       process.stdout.write(JSON.stringify({ event: "trusted-answer-provider-request", requestCount }) + "\n");
       const safe = publicTrustedAnswerProviderErrorV2(error);
+      process.stdout.write(JSON.stringify({
+        event: "trusted-answer-provider-failure",
+        requestCount,
+        ...safe,
+      }) + "\n");
       res.writeHead(safe.status);
       res.end(JSON.stringify({ ok: false, ...safe, requestCount }));
     }
