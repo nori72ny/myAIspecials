@@ -2,8 +2,10 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const loadCheckpointsFromIndexedDB = vi.fn(async () => []);
-const saveCheckpointToIndexedDB = vi.fn(async () => undefined);
+const { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } = vi.hoisted(() => ({
+  loadCheckpointsFromIndexedDB: vi.fn(async () => []),
+  saveCheckpointToIndexedDB: vi.fn(async () => undefined),
+}));
 vi.mock('../agent/indexedDbCheckpointStore', () => ({
   loadCheckpointsFromIndexedDB,
   saveCheckpointToIndexedDB,
