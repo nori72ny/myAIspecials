@@ -1,23 +1,27 @@
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto';
 import type { Request, Response as ExpressResponse } from 'express';
 
 const AUTH_ORIGIN = 'https://enter.pollinations.ai';
 const CLIENT_ID_ENV = 'ORIGIN_POLLINATIONS_CLIENT_ID';
 const SHARED_SDK_CLIENT_ID = 'pk_NgBAArhUeGvSRFba';
+const DATA_KEY_ENV = 'ORIGIN_CODING_JOB_DATA_KEY';
+const APP_URL_ENV = 'APP_URL';
 const DEVICE_SCOPE = 'usage';
 const REQUIRED_DEVICE_SCOPES = ['usage'] as const;
-const DATA_KEY_ENV = 'ORIGIN_CODING_JOB_DATA_KEY';
+const AUDITED_MODEL = 'tomdacatto/sana';
+const ZERO_POLLEN_BUDGET = '0';
+const AUTH_EXPIRY_DAYS = '7';
 const PENDING_COOKIE = '__Host-origin-image-device';
 const TOKEN_COOKIE = '__Host-origin-image-token';
 const MAX_COOKIE_BYTES = 3800;
 const DEFAULT_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 type PendingStateV15 = {
-  deviceCode: string;
+  state: string;
+  codeVerifier: string;
   clientId: string;
+  redirectUri: string;
   expiresAt: number;
-  intervalSeconds: number;
-  nextPollAt: number;
 };
 
 type TokenStateV15 = {
@@ -42,8 +46,22 @@ function deviceClientId(env: NodeJS.ProcessEnv): string {
   return raw;
 }
 
+function appOrigin(env: NodeJS.ProcessEnv): string {
+  const raw = env[APP_URL_ENV]?.trim();
+  if (!raw) throw new Error('IMAGE_AUTH_APP_URL_UNAVAILABLE');
+  const url = new URL(raw);
+  if (url.protocol !== 'https:' || url.origin !== raw || url.pathname !== '/' || url.search || url.hash || url.username || url.password) {
+    throw new Error('IMAGE_AUTH_APP_URL_UNAVAILABLE');
+  }
+  return url.origin;
+}
+
+function callbackUri(env: NodeJS.ProcessEnv): string {
+  return `${appOrigin(env)}/api/creative/v1.5/raster/connect/callback`;
+}
+
 function hasRequiredDeviceScopes(scope: string): boolean {
-  const granted = new Set(scope.trim().split(/\s+/).filter(Boolean));
+  const granted = new Set(scope.trim().split(/[\s,]+/).filter(Boolean));
   return REQUIRED_DEVICE_SCOPES.every((required) => granted.has(required));
 }
 
@@ -113,8 +131,14 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 10_000): Pr
   }
 }
 
+function safeReturnUrl(env: NodeJS.ProcessEnv, status: 'approved' | 'denied' | 'invalid'): string {
+  const url = new URL(appOrigin(env));
+  url.searchParams.set('image_connect', status);
+  return url.href;
+}
+
 export function rasterDeviceAuthConfiguredV15(env: NodeJS.ProcessEnv = process.env): boolean {
-  try { dataKey(env); deviceClientId(env); return true; } catch { return false; }
+  try { dataKey(env); deviceClientId(env); callbackUri(env); return true; } catch { return false; }
 }
 
 export function resolveRasterDeviceApiKeyV15(req: Request, env: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -125,120 +149,121 @@ export function resolveRasterDeviceApiKeyV15(req: Request, env: NodeJS.ProcessEn
   return state.accessToken;
 }
 
-export async function startRasterDeviceAuthV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
+export async function startRasterDeviceAuthV15(_req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
   let clientId: string;
-  try { dataKey(env); clientId = deviceClientId(env); }
-  catch { return res.status(503).json({ ok: false, code: 'IMAGE_AUTH_CONFIGURATION_UNAVAILABLE' }); }
-  const form = new URLSearchParams({ client_id: clientId, scope: DEVICE_SCOPE });
-  const { response, body } = await fetchJson(`${AUTH_ORIGIN}/api/device/code`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    body: form.toString(),
-  });
-  const deviceCode = exactText(body.device_code, 2048);
-  const userCode = exactText(body.user_code, 64);
-  const verificationUriRaw = exactText(body.verification_uri, 2048);
-  const expiresIn = typeof body.expires_in === 'number' ? body.expires_in : Number(body.expires_in);
-  const interval = typeof body.interval === 'number' ? body.interval : Number(body.interval ?? 5);
-  if (!response.ok || !deviceCode || !userCode || !verificationUriRaw || !Number.isFinite(expiresIn) || expiresIn < 60 || expiresIn > 1800
-    || !Number.isFinite(interval) || interval < 1 || interval > 60) {
-    return res.status(502).json({ ok: false, code: 'IMAGE_DEVICE_AUTH_START_FAILED' });
+  let redirectUri: string;
+  try {
+    dataKey(env);
+    clientId = deviceClientId(env);
+    redirectUri = callbackUri(env);
+  } catch {
+    return res.status(503).json({ ok: false, code: 'IMAGE_AUTH_CONFIGURATION_UNAVAILABLE' });
   }
-  const verificationUri = new URL(verificationUriRaw, AUTH_ORIGIN);
-  if (verificationUri.origin !== AUTH_ORIGIN || verificationUri.protocol !== 'https:') {
-    return res.status(502).json({ ok: false, code: 'IMAGE_DEVICE_AUTH_URI_INVALID' });
-  }
-  const intervalSeconds = Math.ceil(interval);
-  const issuedAt = Date.now();
-  const expiresAt = issuedAt + Math.floor(expiresIn * 1000);
+
+  const state = randomBytes(32).toString('base64url');
+  const codeVerifier = randomBytes(48).toString('base64url');
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+  const expiresIn = 10 * 60;
+  const expiresAt = Date.now() + expiresIn * 1000;
   setCookie(res, PENDING_COOKIE, seal('pending', {
-    deviceCode,
+    state,
+    codeVerifier,
     clientId,
+    redirectUri,
     expiresAt,
-    intervalSeconds,
-    nextPollAt: issuedAt + intervalSeconds * 1000,
   } satisfies PendingStateV15, env), expiresIn);
+
+  const authorization = new URL('/authorize', AUTH_ORIGIN);
+  authorization.searchParams.set('response_type', 'code');
+  authorization.searchParams.set('client_id', clientId);
+  authorization.searchParams.set('redirect_uri', redirectUri);
+  authorization.searchParams.set('scope', DEVICE_SCOPE);
+  authorization.searchParams.set('models', AUDITED_MODEL);
+  authorization.searchParams.set('budget', ZERO_POLLEN_BUDGET);
+  authorization.searchParams.set('expiry', AUTH_EXPIRY_DAYS);
+  authorization.searchParams.set('state', state);
+  authorization.searchParams.set('code_challenge', codeChallenge);
+  authorization.searchParams.set('code_challenge_method', 'S256');
+
   return res.status(200).json({
     ok: true,
-    userCode,
-    verificationUri: verificationUri.href,
-    expiresIn: Math.floor(expiresIn),
-    interval: intervalSeconds,
+    authorizationUri: authorization.href,
+    expiresIn,
     scope: DEVICE_SCOPE,
+    model: AUDITED_MODEL,
+    budgetPollen: 0,
     secretDelivery: 'server-only',
   });
 }
 
-export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
+export async function completeRasterOAuthCallbackV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
   let clientId: string;
-  try { dataKey(env); clientId = deviceClientId(env); }
-  catch {
+  let expectedRedirect: string;
+  try {
+    dataKey(env);
+    clientId = deviceClientId(env);
+    expectedRedirect = callbackUri(env);
+  } catch {
     clearCookie(res, PENDING_COOKIE);
-    return res.status(503).json({ ok: false, code: 'IMAGE_AUTH_CONFIGURATION_UNAVAILABLE' });
+    return res.redirect(303, safeReturnUrl(env, 'invalid'));
   }
-  const state = open<PendingStateV15>('pending', cookies(req).get(PENDING_COOKIE), env);
-  const now = Date.now();
-  if (!state || !exactText(state.deviceCode, 2048) || state.clientId !== clientId
-    || !Number.isSafeInteger(state.expiresAt) || state.expiresAt <= now
-    || !Number.isSafeInteger(state.intervalSeconds) || state.intervalSeconds < 1
-    || !Number.isSafeInteger(state.nextPollAt) || state.nextPollAt < 1) {
+
+  const pending = open<PendingStateV15>('pending', cookies(req).get(PENDING_COOKIE), env);
+  const code = exactText(req.query.code, 4096);
+  const state = exactText(req.query.state, 256);
+  const error = exactText(req.query.error, 256);
+  if (error) {
     clearCookie(res, PENDING_COOKIE);
-    return res.status(409).json({ ok: false, code: 'IMAGE_DEVICE_AUTH_EXPIRED' });
+    return res.redirect(303, safeReturnUrl(env, 'denied'));
   }
-  if (now < state.nextPollAt) {
-    const retryAfterSeconds = Math.max(1, Math.ceil((state.nextPollAt - now) / 1000));
-    res.setHeader('Retry-After', String(retryAfterSeconds));
-    return res.status(202).json({
-      ok: false,
-      pending: true,
-      code: 'authorization_pending',
-      interval: retryAfterSeconds,
-    });
+  if (!pending || !code || !state || state !== pending.state || pending.clientId !== clientId
+    || pending.redirectUri !== expectedRedirect || !Number.isSafeInteger(pending.expiresAt) || pending.expiresAt <= Date.now()
+    || !exactText(pending.codeVerifier, 256)) {
+    clearCookie(res, PENDING_COOKIE);
+    return res.redirect(303, safeReturnUrl(env, 'invalid'));
   }
 
   const form = new URLSearchParams({
-    grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-    device_code: state.deviceCode,
+    grant_type: 'authorization_code',
+    code,
     client_id: clientId,
+    redirect_uri: expectedRedirect,
+    code_verifier: pending.codeVerifier,
   });
   const { response, body } = await fetchJson(`${AUTH_ORIGIN}/api/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: form.toString(),
   });
-  if (!response.ok) {
-    if (body.error === 'authorization_pending' || body.error === 'slow_down') {
-      // RFC 8628 section 3.5: enforce the current polling interval server-side and
-      // retain every slow_down increase for all later polls from this browser.
-      const intervalSeconds = state.intervalSeconds + (body.error === 'slow_down' ? 5 : 0);
-      const polledAt = Date.now();
-      const nextPollAt = polledAt + intervalSeconds * 1000;
-      setCookie(res, PENDING_COOKIE, seal('pending', { ...state, intervalSeconds, nextPollAt }, env),
-        Math.max(0, Math.floor((state.expiresAt - polledAt) / 1000)));
-      res.setHeader('Retry-After', String(intervalSeconds));
-      return res.status(202).json({ ok: false, pending: true, code: String(body.error), interval: intervalSeconds });
-    }
-    clearCookie(res, PENDING_COOKIE);
-    return res.status(409).json({ ok: false, code: 'IMAGE_DEVICE_AUTH_DENIED' });
-  }
 
   const accessToken = exactText(body.access_token, 8192);
   const tokenType = exactText(body.token_type, 64);
   const scope = exactText(body.scope, 512) ?? DEVICE_SCOPE;
-  const expiresIn = typeof body.expires_in === 'number' ? body.expires_in : Number(body.expires_in ?? DEFAULT_TOKEN_TTL_SECONDS);
-  if (!accessToken || !accessToken.startsWith('sk_') || tokenType?.toLowerCase() !== 'bearer'
-    || !hasRequiredDeviceScopes(scope) || !Number.isFinite(expiresIn) || expiresIn < 60) {
+  const tokenExpiresIn = typeof body.expires_in === 'number' ? body.expires_in : Number(body.expires_in ?? DEFAULT_TOKEN_TTL_SECONDS);
+  if (!response.ok || !accessToken || !accessToken.startsWith('sk_') || tokenType?.toLowerCase() !== 'bearer'
+    || !hasRequiredDeviceScopes(scope) || !Number.isFinite(tokenExpiresIn) || tokenExpiresIn < 60) {
     clearCookie(res, PENDING_COOKIE);
-    return res.status(502).json({ ok: false, code: 'IMAGE_DEVICE_TOKEN_INVALID' });
+    return res.redirect(303, safeReturnUrl(env, 'invalid'));
   }
-  const ttlSeconds = Math.min(DEFAULT_TOKEN_TTL_SECONDS, Math.floor(expiresIn));
+
+  const ttlSeconds = Math.min(DEFAULT_TOKEN_TTL_SECONDS, Math.floor(tokenExpiresIn));
   setCookie(res, TOKEN_COOKIE, seal('token', {
     accessToken,
     expiresAt: Date.now() + ttlSeconds * 1000,
     scope,
   } satisfies TokenStateV15, env), ttlSeconds);
   clearCookie(res, PENDING_COOKIE);
-  return res.status(200).json({ ok: true, connected: true, expiresIn: ttlSeconds, scope, secretDelivery: 'server-only' });
+  return res.redirect(303, safeReturnUrl(env, 'approved'));
+}
+
+export async function completeRasterDeviceAuthV15(req: Request, res: ExpressResponse, env: NodeJS.ProcessEnv = process.env) {
+  const connected = Boolean(resolveRasterDeviceApiKeyV15(req, env));
+  return res.status(connected ? 200 : 409).json({
+    ok: connected,
+    connected,
+    code: connected ? 'IMAGE_AUTH_CONNECTED' : 'IMAGE_AUTH_NOT_CONNECTED',
+    secretDelivery: 'server-only',
+  });
 }
 
 export function disconnectRasterDeviceAuthV15(_req: Request, res: ExpressResponse) {
