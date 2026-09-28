@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   actions: write
+  statuses: read
 
 jobs:
   dispatch:
@@ -14,7 +15,45 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Block repeated same-day dispatch after a free-provider 429
+        id: quota
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
+        run: |
+          set -euo pipefail
+          utc_day="$(date -u +%F)"
+          context="origin/aq-v2-free-quota/${utc_day}"
+          blocked='0'
+          page=1
+          while :; do
+            curl --fail --silent --show-error \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${REPOSITORY}/commits/${LEDGER_ANCHOR_SHA}/statuses?per_page=100&page=${page}" \
+              -o statuses.json
+            count="$(node -e "const v=require('./statuses.json');process.stdout.write(String(v.length))")"
+            found="$(CONTEXT="$context" node - <<'NODE'
+          const fs=require('node:fs');
+          const rows=JSON.parse(fs.readFileSync('statuses.json','utf8'));
+          process.stdout.write(rows.some(row=>row?.context===process.env.CONTEXT)?'1':'0');
+          NODE
+          )"
+            rm -f statuses.json
+            if [ "$found" = '1' ]; then blocked='1'; break; fi
+            [ "$count" = '100' ] || break
+            page=$((page + 1))
+            [ "$page" -le 20 ] || { echo 'AQ_V2_STATUS_LEDGER_PAGINATION_LIMIT' >&2; exit 2; }
+          done
+          echo "blocked=$blocked" >> "$GITHUB_OUTPUT"
+          if [ "$blocked" = '1' ]; then
+            echo "::warning title=AQ V2 free quota guard::A free-provider 429 has already been recorded for ${utc_day} UTC. Fresh AQ dispatch is skipped to preserve the remaining zero-cost quota."
+          fi
+
       - name: Dispatch trusted AQ V2 with frozen fresh inputs
+        if: ${{ steps.quota.outputs.blocked != '1' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
