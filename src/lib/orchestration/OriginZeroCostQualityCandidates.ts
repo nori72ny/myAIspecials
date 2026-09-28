@@ -43,7 +43,7 @@ export const ORIGIN_ZERO_COST_QUALITY_CANDIDATES: readonly OriginZeroCostQuality
     privacyEvidenceAccepted: true,
     productionAuthWithoutPaymentProven: true,
     benchmarkStatus: "current",
-    candidateFamilies: ["general-answer", "reasoning", "coding", "japanese", "research", "tool-use"],
+    candidateFamilies: ["general-answer", "reasoning", "coding", "japanese", "research", "tool-use"] as const,
     notes: "Current production route. Keep until a materially better zero-cost candidate is proven under the same privacy and runtime-cost gates.",
   }),
   Object.freeze({
@@ -58,7 +58,7 @@ export const ORIGIN_ZERO_COST_QUALITY_CANDIDATES: readonly OriginZeroCostQuality
     privacyEvidenceAccepted: false,
     productionAuthWithoutPaymentProven: true,
     benchmarkStatus: "pending",
-    candidateFamilies: ["general-answer", "reasoning", "coding", "research", "tool-use"],
+    candidateFamilies: ["general-answer", "reasoning", "coding", "research", "tool-use"] as const,
     notes: "Free router selects among changing free models. Random/dynamic routing and model-specific privacy differences prevent production promotion until exact served-route privacy and comparative quality are bounded.",
   }),
   Object.freeze({
@@ -73,7 +73,7 @@ export const ORIGIN_ZERO_COST_QUALITY_CANDIDATES: readonly OriginZeroCostQuality
     privacyEvidenceAccepted: false,
     productionAuthWithoutPaymentProven: true,
     benchmarkStatus: "pending",
-    candidateFamilies: ["general-answer", "reasoning", "coding", "tool-use"],
+    candidateFamilies: ["general-answer", "reasoning", "coding", "tool-use"] as const,
     notes: "Official Free Plan availability is useful candidate evidence, but free-plan quota is not by itself ORIGIN's required request-bound exact-$0 usage proof. Privacy qualification is also pending.",
   }),
   Object.freeze({
@@ -88,7 +88,7 @@ export const ORIGIN_ZERO_COST_QUALITY_CANDIDATES: readonly OriginZeroCostQuality
     privacyEvidenceAccepted: false,
     productionAuthWithoutPaymentProven: true,
     benchmarkStatus: "not-qualified",
-    candidateFamilies: ["general-answer", "reasoning", "coding"],
+    candidateFamilies: ["general-answer", "reasoning", "coding"] as const,
     notes: "10,000-neuron daily free allocation exists, but usage-priced models and paid-plan-only models make provider-level free status insufficient for ORIGIN's exact-$0 per-request rule.",
   }),
 ]);
