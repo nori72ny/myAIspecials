@@ -1,10 +1,12 @@
 import {
-  generateRasterImageV15,
-  getRasterProviderStatusV15,
   type RasterImageRequestV15,
   type RasterImageResultV15,
   type RasterProviderStatusV15,
 } from './rasterImageProviderV15.js';
+import {
+  generateCloudflareRasterImageV15,
+  getCloudflareRasterStatusV15,
+} from './cloudflareRasterImageProviderV15.js';
 
 export const RASTER_TASKS_V15 = ['text-to-image', 'edit', 'inpaint', 'outpaint', 'variation'] as const;
 export type RasterTaskV15 = (typeof RASTER_TASKS_V15)[number];
@@ -32,9 +34,9 @@ export type RasterProviderRuntimeV15 = {
   generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv): Promise<RasterImageResultV15>;
 };
 
-const POLLINATIONS_DESCRIPTOR: RasterProviderDescriptorV15 = {
-  id: 'pollinations-zero-cost',
-  label: 'Pollinations audited zero-cost raster runtime',
+const CLOUDFLARE_DESCRIPTOR: RasterProviderDescriptorV15 = {
+  id: 'cloudflare-workers-ai-free',
+  label: 'Cloudflare Workers AI Free raster runtime',
   capabilities: [{
     task: 'text-to-image',
     referenceImages: false,
@@ -48,9 +50,9 @@ const POLLINATIONS_DESCRIPTOR: RasterProviderDescriptorV15 = {
 };
 
 const PROVIDERS: readonly RasterProviderRuntimeV15[] = [{
-  descriptor: POLLINATIONS_DESCRIPTOR,
-  status: (env = process.env) => getRasterProviderStatusV15(env),
-  generate: (input, env = process.env) => generateRasterImageV15(input, env),
+  descriptor: CLOUDFLARE_DESCRIPTOR,
+  status: (env = process.env) => getCloudflareRasterStatusV15(env),
+  generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
 }];
 
 export type RasterProviderSelectionV15 =
