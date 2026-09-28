@@ -9,7 +9,7 @@ export const ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID = "google-ai-studio-free" 
 export const ORIGIN_GROQ_FREE_PROVIDER_ID = "groq-free" as const;
 export const ORIGIN_OPENROUTER_FREE_MODEL = ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
 export const ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL = "gemini-2.5-flash" as const;
-export const ORIGIN_GROQ_FREE_MODEL = "llama-3.3-70b-versatile" as const;
+export const ORIGIN_GROQ_FREE_MODEL = "openai/gpt-oss-120b" as const;
 
 export type OriginExecutionProviderId = typeof ORIGIN_OPENROUTER_FREE_PROVIDER_ID | typeof ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID | typeof ORIGIN_GROQ_FREE_PROVIDER_ID;
 /** Production primary route is OpenRouter. Gemini is a separately guarded secondary route only. Groq remains disabled until independently verified. */
