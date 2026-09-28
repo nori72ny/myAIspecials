@@ -9,6 +9,22 @@ const widths = [
 ] as const;
 
 async function installStableWorkspaceRoutes(page: import('@playwright/test').Page) {
+  await page.route('**/api/agent/v3/status', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      ok: true,
+      protocolVersion: 3,
+      ready: true,
+      approvalSigningConfigured: true,
+      replayProtectionConfigured: true,
+      replayProtection: 'shared-atomic',
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
+    }),
+  }));
   await page.route('**/api/coding/v1.4/status', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -88,6 +104,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       const surfaces = [
         { url: '/', heading: '今日は何をしますか？' },
         { url: '/?workspace=research', heading: '詳しく調べる' },
+        { url: '/?workspace=agent', heading: 'エージェントに任せる' },
         { url: '/?workspace=coding', heading: 'コードの変更を依頼' },
         { url: '/?workspace=creative', heading: '作りたいものを入力' },
       ];
