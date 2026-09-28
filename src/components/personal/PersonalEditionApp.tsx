@@ -12,12 +12,13 @@ import type { OriginWorkspaceModeV31 } from './OriginWorkspaceModeV31';
 const ResearchWorkspace = lazy(() => import('./ResearchWorkspaceV31'));
 const CodingJobWorkspace = lazy(() => import('./CodingWorkspaceV31'));
 const CreativeWorkspace = lazy(() => import('../CreativeWorkspaceV15'));
+const AgentWorkspace = lazy(() => import('../AgentWorkspaceView'));
 
 type MobileChatSurface = 'conversation' | 'artifact';
 
 function workspaceLocation(): OriginWorkspaceModeV31 {
   const workspace = new URLSearchParams(window.location.search).get('workspace');
-  if (workspace === 'research' || workspace === 'coding' || workspace === 'creative') return workspace;
+  if (workspace === 'agent' || workspace === 'research' || workspace === 'coding' || workspace === 'creative') return workspace;
   return 'chat';
 }
 
@@ -127,7 +128,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 py-2 sm:px-4">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
         <button type="button" aria-label={isEn ? 'Back to chat' : '会話に戻る'} onClick={() => switchWorkspace('chat')} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">← {isEn ? 'Chat' : '会話'}</button>
-        <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'research' ? (isEn ? 'Research' : '調べる') : workspace === 'coding' ? (isEn ? 'Code' : 'コード') : (isEn ? 'Create' : '作る')}</span>
+        <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'agent' ? (isEn ? 'Agent' : 'エージェント') : workspace === 'research' ? (isEn ? 'Research' : '調べる') : workspace === 'coding' ? (isEn ? 'Code' : 'コード') : (isEn ? 'Create' : '作る')}</span>
         {hasProjectEvidence
           ? <button type="button" aria-label={projectOpen ? (isEn ? 'Close details' : '詳細を閉じる') : (isEn ? 'Open details' : '詳細を開く')} aria-pressed={projectOpen} onClick={toggleProject} className={`min-h-11 rounded-xl border px-3 text-sm font-semibold ${projectOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>{isEn ? 'Details' : '詳細'}</button>
           : <span aria-hidden="true" className="min-w-11 sm:min-w-[72px]" />}
@@ -160,6 +161,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
           embedded
           onOpenSettings={onOpenSettings}
           onOpenResearch={() => switchWorkspace('research')}
+          onOpenAgent={() => switchWorkspace('agent')}
           onOpenCoding={() => switchWorkspace('coding')}
           onOpenCreative={() => switchWorkspace('creative')}
           onOpenDetails={hasProjectEvidence ? toggleProject : undefined}
@@ -189,6 +191,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
         onArtifactRevision={handleArtifactRevision}
       />}
 
+      {workspace === 'agent' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Agentを読み込んでいます…</p>}><AgentWorkspace /></Suspense></div>}
       {workspace === 'research' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace onSourcesChange={setProjectSources} /></Suspense></div>}
       {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace onProjectEvidenceChange={setCodingEvidence} /></Suspense></div>}
       {workspace === 'creative' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Createを読み込んでいます…</p>}><CreativeWorkspace /></Suspense></div>}

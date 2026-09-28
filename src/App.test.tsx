@@ -202,6 +202,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
   it('keeps advanced capabilities behind the existing composer plus button', () => {
     const onOpenResearch = vi.fn();
+    const onOpenAgent = vi.fn();
     const onOpenCoding = vi.fn();
     const onOpenCreative = vi.fn();
     const onOpenDetails = vi.fn();
@@ -209,6 +210,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App
       language="ja"
       onOpenResearch={onOpenResearch}
+      onOpenAgent={onOpenAgent}
       onOpenCoding={onOpenCoding}
       onOpenCreative={onOpenCreative}
       onOpenDetails={onOpenDetails}
@@ -223,6 +225,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '詳しく調べる' }));
     expect(onOpenResearch).toHaveBeenCalledOnce();
     expect(menu.hasAttribute('open')).toBe(false);
+
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'エージェントに任せる' }));
+    expect(onOpenAgent).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'コード' }));
