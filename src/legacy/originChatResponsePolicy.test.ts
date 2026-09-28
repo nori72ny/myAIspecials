@@ -21,6 +21,11 @@ describe("originChatResponsePolicy", () => {
     ["The only external source timed out; suppose this is a fail-closed test case.", false],
     ["価格弾力性の意味を説明してください", false],
     ["価格戦略の基本を教えて", false],
+    ["広告費12万円、CPC300円、CVR2.5%の場合、期待クリック数・期待CV数・期待CPAを計算してください。", false],
+    ["月額3万円のサービスを6か月契約し、最初の2か月が30%引きの場合、合計はいくらですか。", false],
+    ["新サービスの価格を月額5,000円か8,000円で迷っています。データがない段階でどう検証すべきか説明してください。", false],
+    ["WebSocketと通常のHTTPポーリングを「リアルタイム性」「実装複雑性」「接続維持コスト」で比較してください。", false],
+    ["リアルタイムのドル円レートを教えて", true],
     ["What does price elasticity mean?", false],
     ["Explain pricing strategy for a SaaS product", false],
     ["今日の予定を整理してください", false],
@@ -38,6 +43,9 @@ describe("originChatResponsePolicy", () => {
     ["以下のリサーチ文章を読みやすく書き換えてください", false],
     ["Summarize this research report in 200 words", false],
     ["価格戦略の基本を教えて", false],
+    ["月額3万円のサービスを6か月契約し、最初の2か月が30%引きの場合、合計はいくらですか。", false],
+    ["新サービスの価格を月額5,000円か8,000円で迷っています。データがない段階でどう検証すべきか説明してください。", false],
+    ["WebSocketと通常のHTTPポーリングを「リアルタイム性」「実装複雑性」「接続維持コスト」で比較してください。", false],
   ])("classifies automatic grounded research need for %s", (message, expected) => {
     expect(requiresOriginGroundedResearch(message)).toBe(expected);
   });
@@ -57,6 +65,9 @@ describe("originChatResponsePolicy", () => {
       "address every explicit requirement",
       "challenge its factual support and omissions as a skeptic",
       "Separate confirmed facts from assumptions, inferences, and recommendations",
+      "stable conceptual explanations, deterministic calculations from user-provided values",
+      "show the minimum useful calculation basis",
+      "never introduce case studies, competitive superiority, adoption results, benchmarks",
       "Distinguish user-provided claims explicitly",
       "Do not claim code, deployment, purchase, configuration, search, file creation",
       "Build an internal requirement brief from the conversation before finalizing",
