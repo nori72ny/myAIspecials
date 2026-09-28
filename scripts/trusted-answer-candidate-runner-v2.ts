@@ -54,7 +54,7 @@ function appendBounded(current: string, chunk: Buffer | string): string {
   return Buffer.from(next, "utf8").subarray(0, MAX_PROXY_RESPONSE_BYTES).toString("utf8");
 }
 
-async function proxyExecute(rawRequest: unknown): Promise<any> {
+async function requestViaProxy(rawRequest: unknown): Promise<any> {
   const socketPath = process.env.ORIGIN_TRUSTED_ANSWER_PROVIDER_SOCKET ?? "";
   const token = process.env.ORIGIN_TRUSTED_ANSWER_PROVIDER_TOKEN ?? "";
   if (!socketPath.startsWith("/") || !/^[a-f0-9]{64}$/.test(token)) {
@@ -131,6 +131,35 @@ async function main(): Promise<void> {
   if (typeof routerModule.createOriginChatRouter !== "function") {
     throw new Error("TRUSTED_ANSWER_CHAT_ENTRYPOINT_MISSING");
   }
+
+  // Rehydrate only known public provider errors into the candidate module's class.
+  // The chat router uses instanceof; a plain Error loses the proxy diagnostic.
+  const providerModule = await import(pathToFileURL(path.join(candidateRoot, "src/legacy/originProviderClient.ts")).href);
+  const providerCodes = new Set([
+    "PROVIDER_NOT_CONFIGURED", "PROVIDER_POLICY_VIOLATION", "PROVIDER_COST_UNVERIFIED",
+    "PROVIDER_ROUTING_UNVERIFIED", "PROVIDER_RATE_LIMITED", "PROVIDER_UNAVAILABLE",
+    "PROVIDER_TIMEOUT", "PROVIDER_INVALID_RESPONSE", "PROVIDER_REQUIRED_TOOL_MISSING",
+    "PROVIDER_REQUIRED_TOOL_AMBIGUOUS", "PROVIDER_REQUIRED_TOOL_INVALID",
+    "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID", "PROVIDER_REQUIRED_TOOL_TRUNCATED",
+    "PROVIDER_INTERNAL_ERROR",
+  ]);
+
+  const proxyExecute = async (request: unknown) => {
+      try {
+        return await requestViaProxy(request);
+      } catch (error) {
+        const failure = error as { code?: unknown; status?: unknown } | null;
+        if (failure && typeof failure.code === "string" && providerCodes.has(failure.code)
+          && typeof failure.status === "number" && Number.isInteger(failure.status)
+          && failure.status >= 400 && failure.status <= 599) {
+          throw new providerModule.OriginProviderError(
+            failure.code, failure.code, failure.status,
+            [429, 503, 504].includes(failure.status),
+          );
+        }
+        throw error;
+      }
+  };
 
   const app = express();
   app.use(express.json({ limit: "64kb" }));
