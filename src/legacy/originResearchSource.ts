@@ -80,7 +80,7 @@ const OFFICIAL_SOURCE_RULES: readonly {
 const GENERIC_LATIN_TERMS = new Set([
   "the", "and", "for", "from", "with", "about", "please", "explain", "summary", "summarize",
   "research", "source", "sources", "official", "help", "support", "latest", "recent", "current",
-  "information", "short", "brief", "using", "based", "method", "how",
+  "information", "short", "brief", "using", "based", "method", "how", "news",
 ]);
 
 const GENERIC_JAPANESE_TERMS = new Set([
@@ -222,6 +222,7 @@ function sourceMatchesIntent(source: OriginResearchSource, intent: ResearchInten
   const domainTokens = new Set(intent.requiredHostSuffixes.flatMap((suffix) => suffix.split(".").filter((part) => part.length >= 3)));
   const topicTerms = intent.terms.filter((term) => !domainTokens.has(term));
   if (topicTerms.length === 0) return intent.requiredHostSuffixes.length > 0 || intent.terms.length === 0;
+  if (intent.requiredHostSuffixes.length === 0 && topicTerms.length === 1 && topicTerms[0].length <= 4) return true;
 
   const haystack = `${source.title} ${source.excerpt} ${source.url} ${host}`.normalize("NFKC").toLowerCase();
   const matched = topicTerms.filter((term) => haystack.includes(term)).length;
