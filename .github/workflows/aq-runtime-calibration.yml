@@ -1,0 +1,44 @@
+name: AQ public runtime calibration
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/aq-runtime-calibration.yml'
+      - 'scripts/verify-aq-runtime-calibration.mjs'
+      - 'scripts/trusted-answer-candidate-runner-v2.ts'
+permissions:
+  contents: read
+concurrency:
+  group: aq-public-calibration-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  calibration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: d0c307fd3d915474730a033fc46e273cbb6a6231
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: docker pull node:22-bookworm-slim
+      - name: Verify isolated runtime using public fixtures only
+        env:
+          AQ_CALIBRATION_CANDIDATE_SHA: d0c307fd3d915474730a033fc46e273cbb6a6231
+        run: node scripts/verify-aq-runtime-calibration.mjs
+      - name: Preserve calibration evidence (not answer-quality evidence)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aq-public-runtime-calibration-${{ github.run_id }}
+          path: test-results/aq-runtime-calibration.json
+          if-no-files-found: error
+          retention-days: 30
