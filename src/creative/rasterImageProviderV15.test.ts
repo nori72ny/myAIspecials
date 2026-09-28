@@ -72,6 +72,40 @@ describe('rasterImageProviderV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts the current /v1/models id+aliases shape only when the audited alias is still exactly zero-cost', async () => {
+    const modernFree = {
+      id: 'community/tomdacatto/sana',
+      aliases: ['tomdacatto/sana'],
+      category: 'image',
+      title: 'Sana Sprint (Free)',
+      description: 'Free image model',
+      community: true,
+      pricing: { currency: 'pollen', completionImageTokens: '0' },
+      input_modalities: ['text'],
+      output_modalities: ['image'],
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(url).toBe('https://gen.pollinations.ai/v1/models');
+      return json({ object: 'list', data: [modernFree] });
+    }) as unknown as typeof fetch;
+
+    await expect(discoverZeroCostPollinationsModelV15('sk_test', 'tomdacatto/sana', fetchMock)).resolves.toBe('tomdacatto/sana');
+  });
+
+  it('fails closed when the modern live catalog no longer contains the audited model', async () => {
+    const currentPaid = {
+      id: 'community/example/current-image',
+      aliases: ['example/current-image'],
+      category: 'image',
+      community: true,
+      pricing: { currency: 'pollen', completionImageTokens: '0.02' },
+      input_modalities: ['text'],
+      output_modalities: ['image'],
+    };
+    const fetchMock = vi.fn(async () => json({ object: 'list', data: [currentPaid] })) as unknown as typeof fetch;
+    await expect(discoverZeroCostPollinationsModelV15('sk_test', 'tomdacatto/sana', fetchMock)).resolves.toBeNull();
+  });
+
   it('reports fail-closed status when no server-only provider key exists', async () => {
     const status = await getRasterProviderStatusV15({});
     expect(status).toMatchObject({
