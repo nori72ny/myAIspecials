@@ -24,6 +24,14 @@ type Stage =
   | "candidate-container"
   | "candidate-result";
 
+interface SafeProviderFailureEvidence {
+  readonly code: string;
+  readonly status: number;
+  readonly retryAfterSeconds?: number;
+  readonly upstreamStatus?: number;
+  readonly upstreamErrorType?: string;
+}
+
 interface PreflightEvidence {
   readonly schemaVersion: "origin.trusted-answer-runtime-preflight.v2";
   readonly ok: boolean;
@@ -32,6 +40,7 @@ interface PreflightEvidence {
   readonly stage: Stage;
   readonly diagnostic: string;
   readonly providerRequests: number;
+  readonly providerFailure?: SafeProviderFailureEvidence;
   readonly costUsd: 0;
   readonly networkBlocked: true;
   readonly providerCredentialWithheldFromCandidate: true;
@@ -216,6 +225,42 @@ function providerRequestCount(proxyOutput: string): number {
     }
   }
   return max;
+}
+
+function safeProviderFailureEvidence(proxyOutput: string): SafeProviderFailureEvidence | undefined {
+  let latest: SafeProviderFailureEvidence | undefined;
+  for (const line of proxyOutput.split("\n")) {
+    if (!line.includes("trusted-answer-provider-failure")) continue;
+    try {
+      const row = JSON.parse(line) as Record<string, unknown>;
+      if (
+        row.event !== "trusted-answer-provider-failure"
+        || typeof row.code !== "string"
+        || !/^PROVIDER_[A-Z0-9_:-]+$/.test(row.code)
+        || !Number.isInteger(row.status)
+        || Number(row.status) < 400
+        || Number(row.status) > 599
+      ) continue;
+
+      const value: SafeProviderFailureEvidence = {
+        code: row.code,
+        status: Number(row.status),
+      };
+      if (Number.isInteger(row.retryAfterSeconds) && Number(row.retryAfterSeconds) >= 1 && Number(row.retryAfterSeconds) <= 86_400) {
+        (value as { retryAfterSeconds?: number }).retryAfterSeconds = Number(row.retryAfterSeconds);
+      }
+      if (Number.isInteger(row.upstreamStatus) && Number(row.upstreamStatus) >= 400 && Number(row.upstreamStatus) <= 599) {
+        (value as { upstreamStatus?: number }).upstreamStatus = Number(row.upstreamStatus);
+      }
+      if (typeof row.upstreamErrorType === "string" && /^(?:rate_limit_exceeded|timeout|provider_overloaded|provider_unavailable)$/.test(row.upstreamErrorType)) {
+        (value as { upstreamErrorType?: string }).upstreamErrorType = row.upstreamErrorType;
+      }
+      latest = value;
+    } catch {
+      // ignore non-event output
+    }
+  }
+  return latest;
 }
 
 function parseRunnerEnvelope(output: string, leaseId: string): Record<string, unknown> {
@@ -428,6 +473,7 @@ async function main(): Promise<void> {
   } catch (error) {
     const diagnostic = safeErrorCode(error);
     providerRequests = Math.max(providerRequests, providerRequestCount(proxyOutput));
+    const providerFailure = safeProviderFailureEvidence(proxyOutput);
     await writeEvidence(outputPath, {
       schemaVersion: "origin.trusted-answer-runtime-preflight.v2",
       ok: false,
@@ -436,6 +482,7 @@ async function main(): Promise<void> {
       stage,
       diagnostic,
       providerRequests,
+      ...(providerFailure ? { providerFailure } : {}),
       costUsd: 0,
       networkBlocked: true,
       providerCredentialWithheldFromCandidate: true,
