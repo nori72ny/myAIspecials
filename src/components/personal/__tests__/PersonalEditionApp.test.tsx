@@ -5,6 +5,7 @@ import PersonalEditionApp from '../PersonalEditionApp';
 
 type MockAppProps = Record<string, unknown> & {
   onOpenResearch?: () => void;
+  onOpenAgent?: () => void;
   onOpenCoding?: () => void;
   onOpenCreative?: () => void;
   onOpenDetails?: () => void;
@@ -14,6 +15,7 @@ const appProps = vi.fn();
 vi.mock('../ResearchWorkspaceV31', () => ({ default: () => <section aria-label="Research Workspace">Research test workspace</section> }));
 vi.mock('../CodingWorkspaceV31', () => ({ default: () => <section aria-label="Coding Job Workspace">Coding test workspace</section> }));
 vi.mock('../../CreativeWorkspaceV15', () => ({ default: () => <section aria-label="Creative Workspace">Creative test workspace</section> }));
+vi.mock('../../AgentWorkspaceView', () => ({ default: () => <section aria-label="Agent Workspace">Agent test workspace</section> }));
 
 vi.mock('../../../App', () => ({
   default: (props: MockAppProps) => {
@@ -27,7 +29,7 @@ function latestAppProps(): MockAppProps {
   return appProps.mock.calls.at(-1)?.[0] as MockAppProps;
 }
 
-function runAppAction(name: 'onOpenResearch' | 'onOpenCoding' | 'onOpenCreative' | 'onOpenDetails') {
+function runAppAction(name: 'onOpenResearch' | 'onOpenAgent' | 'onOpenCoding' | 'onOpenCreative' | 'onOpenDetails') {
   act(() => latestAppProps()[name]?.());
 }
 
@@ -44,6 +46,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
     const props = latestAppProps();
     expect(typeof props.onOpenResearch).toBe('function');
+    expect(typeof props.onOpenAgent).toBe('function');
     expect(typeof props.onOpenCoding).toBe('function');
     expect(typeof props.onOpenCreative).toBe('function');
     expect(props.onOpenDetails).toBeUndefined();
@@ -63,6 +66,21 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
     expect(originalChat.closest('[hidden]')).toBeNull();
     expect(screen.queryByRole('region', { name: 'Research Workspace' })).toBeNull();
+  });
+
+  it('opens Agent v3 from the chat action and preserves the chat mount', async () => {
+    render(<PersonalEditionApp />);
+    const originalChat = screen.getByTestId('mock-origin-app');
+
+    runAppAction('onOpenAgent');
+    expect(await screen.findByRole('region', { name: 'Agent Workspace' })).toBeTruthy();
+    expect(window.location.search).toBe('?workspace=agent');
+    expect(originalChat.closest('[hidden]')).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('エージェント');
+
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
+    expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
+    expect(screen.queryByRole('region', { name: 'Agent Workspace' })).toBeNull();
   });
 
   it('opens Code from the chat action and preserves the chat mount', async () => {
@@ -99,6 +117,11 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('調べる');
 
+    window.history.replaceState(null, '', '/?workspace=agent');
+    fireEvent(window, new PopStateEvent('popstate'));
+    expect(await screen.findByRole('region', { name: 'Agent Workspace' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('エージェント');
+
     window.history.replaceState(null, '', '/?workspace=coding');
     fireEvent(window, new PopStateEvent('popstate'));
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
@@ -130,6 +153,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(props.resetSignal).toBe(0);
     expect(props.embedded).toBe(true);
     expect(typeof props.onOpenResearch).toBe('function');
+    expect(typeof props.onOpenAgent).toBe('function');
     expect(typeof props.onOpenCoding).toBe('function');
     expect(typeof props.onOpenCreative).toBe('function');
     expect(props.onOpenDetails).toBeUndefined();
