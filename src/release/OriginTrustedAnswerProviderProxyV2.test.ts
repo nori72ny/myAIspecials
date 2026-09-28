@@ -118,6 +118,39 @@ describe("AQ V2 trusted answer provider boundary", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("projects only bounded retry metadata from known provider failures", () => {
+    expect(publicTrustedAnswerProviderErrorV2({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+      retryAfterSeconds: 120,
+      diagnostic: {
+        upstreamStatus: 429,
+        upstreamErrorType: "rate_limit_exceeded",
+        secret: "must-not-leak",
+      },
+      message: "private upstream body",
+    })).toEqual({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+      retryAfterSeconds: 120,
+      upstreamStatus: 429,
+      upstreamErrorType: "rate_limit_exceeded",
+    });
+
+    expect(publicTrustedAnswerProviderErrorV2({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+      retryAfterSeconds: 999_999,
+      diagnostic: {
+        upstreamStatus: 200,
+        upstreamErrorType: "private-provider-detail",
+      },
+    })).toEqual({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+    });
+  });
+
   it("does not expose internal errors or accept the wrong capability token", async () => {
     const token = "a".repeat(64);
     const boundary = createTrustedAnswerProviderBoundaryV2({
