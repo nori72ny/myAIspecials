@@ -222,10 +222,13 @@ function sourceMatchesIntent(source: OriginResearchSource, intent: ResearchInten
   const domainTokens = new Set(intent.requiredHostSuffixes.flatMap((suffix) => suffix.split(".").filter((part) => part.length >= 3)));
   const topicTerms = intent.terms.filter((term) => !domainTokens.has(term));
   if (topicTerms.length === 0) return intent.requiredHostSuffixes.length > 0 || intent.terms.length === 0;
-  if (intent.requiredHostSuffixes.length === 0 && topicTerms.length === 1 && topicTerms[0].length <= 4) return true;
 
   const haystack = `${source.title} ${source.excerpt} ${source.url} ${host}`.normalize("NFKC").toLowerCase();
-  const matched = topicTerms.filter((term) => haystack.includes(term)).length;
+  const compactLatinHaystack = haystack.replace(/[^a-z0-9]/g, "");
+  const matched = topicTerms.filter((term) => {
+    if (haystack.includes(term)) return true;
+    return /^[a-z0-9]{2,5}$/.test(term) && compactLatinHaystack.includes(term);
+  }).length;
   const requiredMatches = Math.min(2, topicTerms.length);
   return matched >= requiredMatches;
 }
