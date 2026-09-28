@@ -137,6 +137,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       }) as typeof fetch;
     });
     await page.goto('/');
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await page.getByTestId('origin-home-request').fill('成果物を作成してください');
     await page.getByTestId('start-request-button').click();
     const steering = page.getByTestId('artifact-live-steering');
