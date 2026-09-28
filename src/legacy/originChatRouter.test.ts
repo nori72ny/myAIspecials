@@ -60,6 +60,22 @@ describe("createOriginChatRouter", () => {
     expect(response.body.routing.answerMode).toBe("research");
     expect(executeMock).not.toHaveBeenCalled();
   });
+  it.each([
+    "WebSocketと通常のHTTPポーリングを「リアルタイム性」「実装複雑性」「接続維持コスト」で比較してください。",
+    "月額3万円のサービスを6か月契約し、最初の2か月が30%引きの場合、合計はいくらですか。",
+    "新サービスの価格を月額5,000円か8,000円で迷っています。データがない段階でどう検証すべきか説明してください。",
+  ])("answers stable reasoning directly instead of failing closed on unavailable research: %s", async (content) => {
+    const researchMock = vi.fn().mockResolvedValue({ ok: false, sources: [], failure: { stage: "web-search", code: "NO_RESULTS" } }) as unknown as OriginResearchExecutor;
+    const response = await request(createApp(execute, undefined, undefined, undefined, researchMock))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content }] });
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe("安全な確認結果です。");
+    expect(researchMock).not.toHaveBeenCalled();
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    executeMock.mockClear();
+  });
+
   it("sends only the latest coherent context window", async () => { const response = await request(createApp(execute, undefined, undefined, { version: 1, maxMessages: 3, maxCharacters: 12_000 })).post("/api/chat").send({ messages: [{ role: "ai", content: "初期案内" }, { role: "user", content: "古い依頼" }, { role: "ai", content: "古い回答" }, { role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }] }); expect(response.status).toBe(200); const call = executeMock.mock.calls[0]?.[0]; expect(call?.messages).toEqual([{ role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }]); });
   it("keeps creation intent and task-specific clarification guidance after a short option reply", async () => {
     const response = await request(createApp(execute)).post("/api/chat").send({

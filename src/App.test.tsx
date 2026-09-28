@@ -629,6 +629,31 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('offers provider approval and resumes the original image request without duplicate history', async () => {
+    const prompt = '朝焼けの富士山の画像を作ってください';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 'POLLINATIONS_KEY_NOT_CONFIGURED' }), { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, userCode: 'ABCD-1234', verificationUri: 'https://enter.pollinations.ai/device', expiresIn: 600, interval: 1 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, connected: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ready: true, zeroCostVerified: true, freeOnly: true, paidFallbackEnabled: false }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 'PROVIDER_UNAVAILABLE', message: '画像サービスが利用できません。' }), { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: prompt } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('接続を開始')).toBeTruthy());
+    fireEvent.click(screen.getByText('接続を開始'));
+    await waitFor(() => expect(screen.getByText('ABCD-1234')).toBeTruthy());
+    await waitFor(() => expect((screen.getByText('承認を確認して再開') as HTMLButtonElement).disabled).toBe(false), { timeout: 2500 });
+    fireEvent.click(screen.getByText('承認を確認して再開'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    expect(String(fetchMock.mock.calls[4][0])).toBe('/api/generate-image');
+    expect(JSON.parse(String(fetchMock.mock.calls[4][1]?.body)).prompt).toBe(prompt);
+    expect(screen.getAllByText(prompt)).toHaveLength(1);
+    expect(screen.queryByText('承認画面を開く')).toBeNull();
+    await waitFor(() => expect(screen.getByText('画像サービスが利用できません。')).toBeTruthy());
+  });
+
   it('routes an image request to real raster generation and never falls through to text prompt generation', async () => {
     const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
     const digest = new Uint8Array(32);

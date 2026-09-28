@@ -276,7 +276,9 @@ async function verifyScopedPollinationsKeyV15(
   const permissions = parsed.permissions as Record<string, unknown>;
   const models = permissions.models;
   const account = permissions.account;
-  if (!Array.isArray(models) || models.length !== 1 || models[0] !== expectedModel) return false;
+  if (models !== undefined && models !== null) {
+    if (!Array.isArray(models) || models.some((model) => typeof model !== 'string') || !models.includes(expectedModel)) return false;
+  }
   if (!Array.isArray(account) || !account.includes('usage')) return false;
   if (parsed.pollenBudget !== null && (typeof parsed.pollenBudget !== 'number' || !Number.isFinite(parsed.pollenBudget) || parsed.pollenBudget < 0)) return false;
   return true;

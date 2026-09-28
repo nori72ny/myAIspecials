@@ -43,6 +43,27 @@ function isStablePricingConceptRequest(message: string): boolean {
   return /(?:価格|料金).{0,16}(?:戦略|設計|モデル|理論|弾力性|心理|概念|定義|意味)|(?:戦略|設計|モデル|理論|弾力性|心理|概念|定義|意味).{0,16}(?:価格|料金)/s.test(message)
     || /\b(?:price|pricing).{0,20}(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning)|(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning).{0,20}(?:price|pricing)\b/is.test(message);
 }
+function isDeterministicQuantitativeRequest(message: string): boolean {
+  const normalized = message.toLowerCase();
+  const hasNumbers = [...message].some((character) => character >= "0" && character <= "9");
+  const asksCalculation = ["合計", "計算", "求め", "平均", "中央値", "成長率", "粗利率", "損益分岐", "期待クリック", "期待cv", "cpa", "cvr", "何件"]
+    .some((token) => normalized.includes(token))
+    || ["calculate", "total", "average", "median", "growth rate", "break-even", "break even"]
+      .some((token) => normalized.includes(token));
+  return hasNumbers && asksCalculation;
+}
+
+function isProvidedPriceDecisionRequest(message: string): boolean {
+  const normalized = message.toLowerCase();
+  const hasPriceTopic = message.includes("価格")
+    || message.includes("料金")
+    || normalized.includes("price")
+    || normalized.includes("pricing");
+  const hasDecisionIntent = ["迷", "検討", "比較", "決め", "判断", "検証"].some((token) => message.includes(token))
+    || ["choose", "decide", "test", "validate", "compare"].some((token) => normalized.includes(token));
+  return hasPriceTopic && hasDecisionIntent;
+}
+
 
 export function requiresOriginGroundedResearch(message: string): boolean {
   if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
@@ -58,10 +79,16 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     isTransformOnlyRequest(message)
     || isHypotheticalFreshnessFailureRequest(message)
     || isStablePricingConceptRequest(message)
+    || isDeterministicQuantitativeRequest(message)
+    || isProvidedPriceDecisionRequest(message)
   ) return false;
 
+  const realtimeDataRequested = message.includes("リアルタイム")
+    && ["情報", "データ", "株価", "相場", "状況", "結果", "為替", "レート", "更新"].some((token) => message.includes(token));
+
   return requiresOriginFutureReleaseInformation(message)
-    || /(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)|リアルタイム/.test(message)
+    || realtimeDataRequested
+    || /(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)/.test(message)
     || /(?:料金|価格)(?:は|を|が|について|って|\?|？|$)|(?:いくら|費用).{0,12}(?:ですか|教えて|知りたい|比較|確認)/.test(message)
     || /\b(?:news|pricing|prices?|weather|real[- ]time)\b/i.test(message)
     || /\b(?:latest|current|today'?s?)\b.{0,48}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|version|model)\b/i.test(message);
@@ -108,6 +135,13 @@ export function originChatSystemInstruction(
 - Before sending, silently check goal fit, completeness, internal consistency, usability, factual support, mobile readability, and unnecessary repetition.
 - Do not invent current or future facts, model names, release dates, or roadmaps, and do not claim access to unprovided tools, files, accounts, websites, or services.
 - Separate confirmed facts from assumptions, inferences, and recommendations.
+- Treat stable conceptual explanations, deterministic calculations from user-provided values, and decision frameworks based on supplied options as answerable without live web retrieval unless the user explicitly asks for current external facts. Never refuse these tasks merely because public retrieval is unavailable.
+- For calculations, show the minimum useful calculation basis from the user's supplied values so the evidence chain is inspectable. For stable technical explanations, do not invent citations; make clear when the answer relies on established general technical knowledge rather than live verification.
+- For comparisons or advice based only on the user's supplied facts or on stable general knowledge, state that basis compactly when it helps the user inspect the reasoning. Do not treat absence of a live citation as a reason to refuse a stable task.
+- In rewriting or sales copy, never introduce case studies, competitive superiority, adoption results, benchmarks, customer outcomes, certifications, or other factual support that the user did not provide or that was not actually verified.
+- For legal, compliance, security, financial, or other professional guidance, do not turn a possible rule into a universal rule without verified jurisdiction/context. Separate general practice from organization-specific or legally binding requirements, and identify what must be confirmed.
+- For JavaScript async explanations, never imply that Array.prototype.forEach awaits async callbacks or executes them sequentially. Explain that forEach ignores returned promises; use for...of with await for sequential work or Promise.all with map for parallel work when appropriate.
+- When repairing code that is said to swallow errors, catching and logging alone is not a complete repair unless the function intentionally converts the failure into a handled result. Otherwise propagate the error (for example by rethrowing) or return an explicit failure value according to the requested contract.
 - Distinguish user-provided claims explicitly when they could be confused with verified facts. State meaningful uncertainty.
 - Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence.
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
