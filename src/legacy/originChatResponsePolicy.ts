@@ -44,8 +44,12 @@ function isStablePricingConceptRequest(message: string): boolean {
     || /\b(?:price|pricing).{0,20}(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning)|(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning).{0,20}(?:price|pricing)\b/is.test(message);
 }
 function isDeterministicQuantitativeRequest(message: string): boolean {
-  const hasNumbers = /\d/.test(message);
-  const asksCalculation = /(?:合計|計算|求め|平均|中央値|成長率|粗利率|損益分岐|期待(?:クリック|CV)|CPA|CVR|何件)|\b(?:calculate|total|average|median|growth rate|break[- ]even|CPA|CVR)\b/i.test(message);
+  const normalized = message.toLowerCase();
+  const hasNumbers = [...message].some((character) => character >= "0" && character <= "9");
+  const asksCalculation = ["合計", "計算", "求め", "平均", "中央値", "成長率", "粗利率", "損益分岐", "期待クリック", "期待cv", "cpa", "cvr", "何件"]
+    .some((token) => normalized.includes(token))
+    || ["calculate", "total", "average", "median", "growth rate", "break-even", "break even"]
+      .some((token) => normalized.includes(token));
   return hasNumbers && asksCalculation;
 }
 
@@ -79,8 +83,12 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || isProvidedPriceDecisionRequest(message)
   ) return false;
 
+  const realtimeDataRequested = message.includes("リアルタイム")
+    && ["情報", "データ", "株価", "相場", "状況", "結果", "為替", "レート", "更新"].some((token) => message.includes(token));
+
   return requiresOriginFutureReleaseInformation(message)
-    || /(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)|リアルタイム.{0,16}(?:情報|データ|株価|相場|状況|結果|為替|レート|更新)/.test(message)
+    || realtimeDataRequested
+    || /(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)/.test(message)
     || /(?:料金|価格)(?:は|を|が|について|って|\?|？|$)|(?:いくら|費用).{0,12}(?:ですか|教えて|知りたい|比較|確認)/.test(message)
     || /\b(?:news|pricing|prices?|weather|real[- ]time)\b/i.test(message)
     || /\b(?:latest|current|today'?s?)\b.{0,48}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|version|model)\b/i.test(message);
