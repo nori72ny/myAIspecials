@@ -60,7 +60,9 @@ export function createArtifactV12Router() {
       if (!artifact.verified) return res.status(422).json({ ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', artifact.mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${artifact.filename.replace(/"/g, '')}"`);
+      const fallback = artifact.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const encoded = encodeURIComponent(artifact.filename).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+      res.setHeader('Content-Disposition', `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`);
       res.setHeader('X-Origin-Artifact-Sha256', artifact.sha256);
       res.setHeader('X-Origin-Artifact-Verified', 'true');
       res.setHeader('X-Origin-Free-Only', 'true');

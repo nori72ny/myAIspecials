@@ -35,15 +35,30 @@ function makeCsv(rows: ArtifactRequest['rows'], content: string): Buffer {
 
 function pdfEscape(value: string): string { return value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/[^\x20-\x7E]/g, '?'); }
 function makePdf(title: string, content: string): Buffer {
-  const lines = [title, '', ...content.split(/\r?\n/)].slice(0, 46).map(line => pdfEscape(line.slice(0, 100)));
-  const commands = ['BT', '/F1 12 Tf', '50 790 Td', ...lines.flatMap((line, index) => index === 0 ? [`(${line}) Tj`] : ['0 -16 Td', `(${line}) Tj`]), 'ET'].join('\n');
+  // Courier has a fixed 600-unit advance: 82 columns at 10pt fit inside
+  // the 495pt A4 content width. Wrap and paginate; never discard input lines.
+  const lines = [title, '', ...content.split(/\r\n|\r|\n/)].flatMap(line => {
+    const expanded = line.replace(/\t/g, '    ');
+    return expanded.match(/.{1,82}/g) || [''];
+  });
+  const pages: string[][] = [];
+  for (let offset = 0; offset < lines.length; offset += 48) pages.push(lines.slice(offset, offset + 48));
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
-    `<< /Length ${Buffer.byteLength(commands)} >>\nstream\n${commands}\nendstream`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Type /Pages /Kids [${pages.map((_, index) => `${4 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>',
   ];
+  pages.forEach((page, index) => {
+    const commands = [
+      'BT', '/F1 10 Tf', '50 790 Td',
+      ...page.flatMap((line, lineIndex) => lineIndex === 0 ? [`(${pdfEscape(line)}) Tj`] : ['0 -15 Td', `(${pdfEscape(line)}) Tj`]),
+      'ET', 'BT', '/F1 9 Tf', '50 32 Td', `(${index + 1} / ${pages.length}) Tj`, 'ET',
+    ].join('\n');
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + index * 2} 0 R >>`,
+      `<< /Length ${Buffer.byteLength(commands)} >>\nstream\n${commands}\nendstream`,
+    );
+  });
   let body = '%PDF-1.4\n';
   const offsets: number[] = [0];
   objects.forEach((obj, index) => { offsets[index + 1] = Buffer.byteLength(body); body += `${index + 1} 0 obj\n${obj}\nendobj\n`; });
