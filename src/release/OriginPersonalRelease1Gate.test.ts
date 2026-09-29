@@ -160,7 +160,7 @@ describe("ORIGIN Personal release 1 gate", () => {
       git?: { deploymentEnabled?: Record<string, boolean> };
     };
     expect(vercelConfig.git?.deploymentEnabled).toEqual({
-      "*": false,
+      "**": false,
       main: true,
       "release-*": true,
     });
