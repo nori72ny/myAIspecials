@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import type { ConversationMessage, ConversationSession } from './App';
 import SettingsModal from './components/SettingsModal';
 import SettingsErrorBoundary from './components/SettingsErrorBoundary';
 import SplashScreen from './components/SplashScreen';
@@ -23,8 +24,6 @@ const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';
 const SESSION_STORAGE_KEY = 'origin_personal_sessions';
 
-type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string; deliveryState?: 'verified' | 'error'; image?: { url?: string; assetId: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; downloadName: string; sha256: string; providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free'; model: string; generationId: string; visualBrainVersion: 'visual-brain-v1'; planVersion: 'raster-visual-plan-v1'; planSha256: string; purpose: string; typographyOverlay: boolean; sourceCriticVersion: 'raster-structural-critic-v1'; sourceQualityScore: number; technicalCriticVersion: 'raster-technical-critic-v1'; technicalQualityScore: number; prompt?: string; width: number; height: number; relation: 'generated' | 'variation' | 'edited-from'; parentId?: string } };
-type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' | 'restore' };
 type PersistedArtifact = { id: string; type: 'code' | 'markdown' | 'mermaid' | 'html'; title: string; language: string; content: string; isComplete: boolean; revision?: number; revisions?: readonly ArtifactRevision[] };
 type StorageHealth = 'ready' | Exclude<OriginStorageWriteResult, 'saved'>;
