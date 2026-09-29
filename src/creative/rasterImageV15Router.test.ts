@@ -84,6 +84,18 @@ describe('rasterImageV15Router', () => {
         deliveryGateWired: true,
         semanticVisionJudgment: false,
       },
+      semanticVisionCritic: {
+        version: 'raster-semantic-critic-v1',
+        implemented: true,
+        provider: 'cloudflare-workers-ai-free',
+        model: '@cf/moondream/moondream3.1-9B-A2B',
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackEnabled: false,
+        secretDelivery: 'server-only',
+        deliveryGateWired: false,
+        activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
+      },
       candidateSelection: {
         version: 'raster-candidate-policy-v1',
         recommendedCandidates: 2,

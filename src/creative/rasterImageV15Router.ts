@@ -10,6 +10,7 @@ import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
+import { CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15 } from './cloudflareRasterSemanticCriticV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 
@@ -101,6 +102,27 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         deliveryGateWired: true,
         checks: ['non-empty-alpha', 'non-uniform-content', 'black-white-clipping', 'minimum-information-density'],
         semanticVisionJudgment: false,
+      },
+      semanticVisionCritic: {
+        version: 'raster-semantic-critic-v1',
+        implemented: true,
+        provider: 'cloudflare-workers-ai-free',
+        model: CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackEnabled: false,
+        secretDelivery: 'server-only',
+        deliveryGateWired: false,
+        activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
+        axes: [
+          'promptAdherence',
+          'composition',
+          'subjectIntegrity',
+          'styleExecution',
+          'textHandling',
+          'artifactControl',
+          'professionalUsefulness',
+        ],
       },
       candidateSelection: {
         ...candidatePolicyForRasterRequestV15('高品質な広告画像を作ってください', 'advertisement'),
