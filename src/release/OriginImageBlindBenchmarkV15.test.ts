@@ -1,39 +1,64 @@
 import { describe, expect, it } from 'vitest';
 import {
+  IMAGE_CHALLENGE_TAGS_V15,
   IMAGE_FAMILIES_V15,
   IMAGE_RUBRIC_AXES_V15,
   ORIGIN_IMAGE_BLIND_BENCHMARK_SCHEMA,
+  createOriginImageBlindJudgePacketsV15,
   evaluateOriginImageBlindBenchmarkV15,
   type ImageBenchmarkCaseV15,
+  type ImageRubricScoresV15,
   type OriginImageBlindBenchmarkInputV15,
 } from './OriginImageBlindBenchmarkV15';
 
 const SHA = 'a'.repeat(40);
 const EVALUATOR_SHA = 'b'.repeat(40);
 const DIGEST = 'c'.repeat(64);
+const NOW = Date.parse('2026-09-29T13:20:00Z');
 
-function scores(value = 3) {
-  return Object.fromEntries(IMAGE_RUBRIC_AXES_V15.map((axis) => [axis, value])) as Record<(typeof IMAGE_RUBRIC_AXES_V15)[number], number>;
+function scores(value: number): ImageRubricScoresV15 {
+  return Object.fromEntries(IMAGE_RUBRIC_AXES_V15.map((axis) => [axis, value])) as ImageRubricScoresV15;
 }
 
-function makeCase(index: number, family: (typeof IMAGE_FAMILIES_V15)[number], preferred: 'origin' | 'reference' | 'tie' = 'origin'): ImageBenchmarkCaseV15 {
+function technical() {
+  return {
+    signatureValid: true,
+    dimensionsValid: true,
+    structuralCriticPassed: true,
+    technicalCriticPassed: true,
+    safetyPassed: true,
+    deliveryIntegrityPassed: true,
+  };
+}
+
+function makeCase(index: number, family: (typeof IMAGE_FAMILIES_V15)[number]): ImageBenchmarkCaseV15 {
+  const tagA = IMAGE_CHALLENGE_TAGS_V15[index % IMAGE_CHALLENGE_TAGS_V15.length];
+  const tagB = IMAGE_CHALLENGE_TAGS_V15[(index + 3) % IMAGE_CHALLENGE_TAGS_V15.length];
   return {
     caseId: `img-${String(index + 1).padStart(2, '0')}`,
     family,
+    challengeTags: [tagA, tagB],
     promptSha256: DIGEST,
-    originImageSha256: DIGEST,
-    referenceSystemIds: ['ref-a', 'ref-b', 'ref-c'],
-    technical: {
-      signatureValid: true,
-      dimensionsValid: true,
-      structuralCriticPassed: true,
-      technicalCriticPassed: true,
-      safetyPassed: true,
-      deliveryIntegrityPassed: true,
-    },
+    width: 1024,
+    height: 1024,
+    requiresText: tagA === 'text' || tagB === 'text',
+    outputs: [
+      { blindKey: 'A', systemId: 'origin', role: 'origin', imageSha256: '1'.repeat(64), technical: technical() },
+      { blindKey: 'B', systemId: 'ref-a', role: 'reference', imageSha256: '2'.repeat(64), technical: technical() },
+      { blindKey: 'C', systemId: 'ref-b', role: 'reference', imageSha256: '3'.repeat(64), technical: technical() },
+      { blindKey: 'D', systemId: 'ref-c', role: 'reference', imageSha256: '4'.repeat(64), technical: technical() },
+    ],
     judges: [
-      { judgeId: 'judge-a', preferred, scores: scores(3) },
-      { judgeId: 'judge-b', preferred, scores: scores(3) },
+      {
+        judgeId: 'judge-a',
+        firstChoiceBlindKey: 'A',
+        scores: { A: scores(3.8), B: scores(3.2), C: scores(3.3), D: scores(3.4) },
+      },
+      {
+        judgeId: 'judge-b',
+        firstChoiceBlindKey: 'A',
+        scores: { A: scores(3.7), B: scores(3.3), C: scores(3.2), D: scores(3.4) },
+      },
     ],
   };
 }
@@ -48,90 +73,113 @@ function input(): OriginImageBlindBenchmarkInputV15 {
     schema: ORIGIN_IMAGE_BLIND_BENCHMARK_SCHEMA,
     candidateSha: SHA,
     evaluatorSha: EVALUATOR_SHA,
+    corpusSha256: 'd'.repeat(64),
     roundId: 'image-round-1',
-    createdAt: '2026-09-29T12:00:00Z',
+    createdAt: '2026-09-29T13:00:00Z',
+    expiresAt: '2026-10-06T13:00:00Z',
     cases,
   };
 }
 
-describe('ORIGIN image blind benchmark v1', () => {
-  it('passes a complete 24-case, 8-family, multi-reference, multi-judge round', () => {
-    const report = evaluateOriginImageBlindBenchmarkV15(input());
+describe('ORIGIN image blind benchmark v2', () => {
+  it('passes a complete 24-case blind round against the strongest per-case reference', () => {
+    const report = evaluateOriginImageBlindBenchmarkV15(input(), NOW);
     expect(report.passed).toBe(true);
     expect(report.wins).toBe(24);
     expect(report.losses).toBe(0);
-    expect(report.winRate).toBe(1);
+    expect(report.worldClassEvidence.referenceSystems).toBe(3);
+    expect(report.worldClassEvidence.independentJudges).toBe(2);
+    expect(report.worldClassEvidence.absoluteQualityPassed).toBe(true);
     expect(report.blockers).toEqual([]);
   });
 
-  it('fails closed when a family is missing', () => {
-    const base = input();
-    const candidate = { ...base, cases: base.cases.slice(0, 21) };
-    const report = evaluateOriginImageBlindBenchmarkV15(candidate);
-    expect(report.passed).toBe(false);
-    expect(report.blockers).toContain('IMAGE_BENCHMARK_REQUIRES_24_CASES');
-    expect(report.blockers.some((value) => value.includes('IMAGE_BENCHMARK_FAMILY_COUNT_INVALID'))).toBe(true);
+  it('creates judge packets without revealing ORIGIN/reference identity or system IDs', () => {
+    const packets = createOriginImageBlindJudgePacketsV15(input());
+    const serialized = JSON.stringify(packets);
+    expect(packets).toHaveLength(24);
+    expect(serialized).not.toContain('systemId');
+    expect(serialized).not.toContain('"role"');
+    expect(serialized).not.toContain('"origin"');
+    expect(serialized).not.toContain('ref-a');
   });
 
-  it('rejects technically invalid output even when judges prefer it', () => {
+  it('fails closed when challenge coverage is too narrow', () => {
+    const base = input();
+    const cases = base.cases.map((item) => ({ ...item, challengeTags: ['text' as const] }));
+    const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases }, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_CHALLENGE_COVERAGE_LT_2:hands-anatomy');
+  });
+
+  it('rejects any technically invalid compared output, including a reference output', () => {
     const base = input();
     const first = base.cases[0];
-    const candidate = {
-      ...base,
-      cases: [
-        { ...first, technical: { ...first.technical, structuralCriticPassed: false } },
-        ...base.cases.slice(1),
-      ],
+    const broken = {
+      ...first,
+      outputs: first.outputs.map((output, index) => index === 1
+        ? { ...output, technical: { ...output.technical, structuralCriticPassed: false } }
+        : output),
     };
-    const report = evaluateOriginImageBlindBenchmarkV15(candidate);
+    const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases: [broken, ...base.cases.slice(1)] }, NOW);
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('IMAGE_BENCHMARK_TECHNICAL_FAILURE:img-01');
   });
 
-  it('rejects insufficient reference systems or judges', () => {
+  it('rejects judge evidence that does not score every blinded output', () => {
     const base = input();
     const first = base.cases[0];
-    const candidate = {
-      ...base,
-      cases: [{
-        ...first,
-        referenceSystemIds: ['ref-a', 'ref-b'],
-        judges: [first.judges[0]],
-      }, ...base.cases.slice(1)],
+    const brokenJudge = {
+      ...first.judges[0],
+      scores: { A: scores(3.8), B: scores(3.2), C: scores(3.3) },
     };
-    const report = evaluateOriginImageBlindBenchmarkV15(candidate);
+    const broken = { ...first, judges: [brokenJudge, first.judges[1]] };
+    const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases: [broken, ...base.cases.slice(1)] }, NOW);
     expect(report.passed).toBe(false);
-    expect(report.blockers).toContain('IMAGE_BENCHMARK_REFERENCE_SYSTEMS_LT_3:img-01');
-    expect(report.blockers).toContain('IMAGE_BENCHMARK_INDEPENDENT_JUDGES_LT_2:img-01');
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_JUDGE_PACKET_INVALID:img-01');
   });
 
-  it('rejects a round with too many blind losses', () => {
+  it('does not pass when ORIGIN loses to the strongest reference', () => {
     const base = input();
-    const candidate = {
-      ...base,
-      cases: base.cases.map((item, index) => index < 10
-        ? { ...item, judges: item.judges.map((judge) => ({ ...judge, preferred: 'reference' as const })) }
-        : item),
-    };
-    const report = evaluateOriginImageBlindBenchmarkV15(candidate);
-    expect(report.passed).toBe(false);
-    expect(report.blockers).toContain('IMAGE_BENCHMARK_LOSS_RATE_GT_30');
-  });
-
-  it('rejects a negative rubric-axis mean even if preference votes pass', () => {
-    const base = input();
-    const candidate = {
-      ...base,
-      cases: base.cases.map((item) => ({
-        ...item,
-        judges: item.judges.map((judge) => ({
-          ...judge,
-          scores: { ...judge.scores, textHandling: 1 },
-        })),
+    const cases = base.cases.map((item) => ({
+      ...item,
+      judges: item.judges.map((judge) => ({
+        ...judge,
+        firstChoiceBlindKey: 'D',
+        scores: { ...judge.scores, A: scores(3.3), D: scores(3.8) },
       })),
-    };
-    const report = evaluateOriginImageBlindBenchmarkV15(candidate);
+    }));
+    const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases }, NOW);
     expect(report.passed).toBe(false);
-    expect(report.blockers).toContain('IMAGE_BENCHMARK_NEGATIVE_AXIS_MEAN:textHandling');
+    expect(report.losses).toBe(24);
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_WIN_RATE_LT_50');
+  });
+
+  it('requires absolute image quality even if preference votes would otherwise pass', () => {
+    const base = input();
+    const cases = base.cases.map((item) => ({
+      ...item,
+      judges: item.judges.map((judge) => ({
+        ...judge,
+        scores: {
+          A: scores(2.9),
+          B: scores(2.6),
+          C: scores(2.7),
+          D: scores(2.8),
+        },
+      })),
+    }));
+    const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases }, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_ABSOLUTE_QUALITY_NOT_PASSED');
+  });
+
+  it('requires fresh exact-round evidence with a bounded lifetime', () => {
+    const base = input();
+    const report = evaluateOriginImageBlindBenchmarkV15(
+      { ...base, createdAt: '2026-09-01T13:00:00Z', expiresAt: '2026-09-10T13:00:00Z' },
+      NOW,
+    );
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_EVIDENCE_STALE_OR_FUTURE');
   });
 });
