@@ -16,6 +16,7 @@ import { researchCurrentInformation, type OriginResearchResult } from "./originR
 import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, validateGroundedResearchSynthesis } from "../research/groundedResearchSynthesisV12.js";
 import { originChatSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
+import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
@@ -270,7 +271,23 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         },
       });
     }
-    if (isOriginCapabilityQuestion(lastUserMessage)) { const guide = createOriginCapabilityGuide(lastUserMessage); const reason = guide.language === "ja" ? "現在の公開版で利用できる機能と未接続機能を、ORIGINの製品仕様に基づいて案内しました。" : "Explained the current and unconnected capabilities from ORIGIN's product specification."; return res.json({ content: guide.content, answer: answerEnvelope(guide.content, guide.language, "not-required", reason, [], guide.limitations, guide.nextActions), routing: applicationRouting(requestId, reason) }); }
+    if (isOriginCapabilityQuestion(lastUserMessage)) {
+      let rasterTextToImageReady = false;
+      try {
+        rasterTextToImageReady = (await rasterProviderRuntimeStatusV15(env)).textToImageReady;
+      } catch {
+        rasterTextToImageReady = false;
+      }
+      const guide = createOriginCapabilityGuide(lastUserMessage, { rasterTextToImageReady });
+      const reason = guide.language === "ja"
+        ? "現在の公開版で利用できる機能と未接続機能を、実行時の画像生成ready状態を含むORIGINの製品仕様に基づいて案内しました。"
+        : "Explained current and unconnected capabilities from ORIGIN's product specification, including live raster readiness.";
+      return res.json({
+        content: guide.content,
+        answer: answerEnvelope(guide.content, guide.language, "not-required", reason, [], guide.limitations, guide.nextActions),
+        routing: applicationRouting(requestId, reason),
+      });
+    }
     const planningResult = buildOriginExecutionPlan({ goal: lastUserMessage.trim(), requiresCodeChanges: /実装|修正|コード|implement|fix/i.test(lastUserMessage), requiresFreshResearch: false, containsSecrets: false }, { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) }, originClientPolicy(body), { freeModelCatalog: options.freeModelCatalog, nowMs: catalogNow() });
     if (planningResult.ok === false) return res.status(planningResult.code === "INVALID_EXECUTION_POLICY" ? 400 : 503).json({ code: planningResult.code, message: planningResult.message, retryable: false, requestId });
     const startedAt = now();
