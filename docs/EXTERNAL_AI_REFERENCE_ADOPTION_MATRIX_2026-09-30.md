@@ -89,6 +89,8 @@ Adopted permanent controls:
 - server-only secrets;
 - fail closed on unverified plan/cost/quota;
 - no silent provider switching;
+- provider/network retry = 0 on the production path;
+- latent legacy OpenRouter / analyze defaults also normalized to one total attempt, retryCount 0, and cost cap 0 so future reactivation cannot restore the historical retry=3 / $1 defaults;
 - evidence-first status language;
 - exact main / Production SHA verification;
 - approval boundaries for high-impact external actions.
