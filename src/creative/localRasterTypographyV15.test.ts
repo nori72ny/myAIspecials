@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   RasterTypographyOverlayErrorV15,
+  planRasterTypographyOverlayMeasuredV15,
   planRasterTypographyOverlayV15,
 } from './localRasterTypographyV15';
 
@@ -31,6 +32,31 @@ describe('localRasterTypographyV15', () => {
     );
 
     expect(plan.lines.join('')).toBe('ORIGIN Personal');
+  });
+
+  it('uses measured glyph widths so rendered lines fit without horizontal compression', () => {
+    const measure = (value: string, fontSize: number) =>
+      Array.from(value).reduce((sum, char) => sum + (/^[\u0000-\u00ff]$/.test(char) ? fontSize * 0.62 : fontSize), 0);
+
+    const plan = planRasterTypographyOverlayMeasuredV15(
+      ['ORIGIN Personal 最高品質の画像生成'],
+      512,
+      768,
+      measure,
+    );
+
+    expect(plan.lines.length).toBeGreaterThan(1);
+    expect(plan.lines.every((line) => measure(line, plan.fontSize) <= plan.maxWidth)).toBe(true);
+    expect(plan.lines.join('')).toBe('ORIGIN Personal 最高品質の画像生成');
+  });
+
+  it('fails closed when browser font metrics are invalid', () => {
+    expect(() => planRasterTypographyOverlayMeasuredV15(
+      ['ORIGIN'],
+      512,
+      768,
+      () => Number.NaN,
+    )).toThrow('TYPOGRAPHY_OVERLAY_MEASURE_INVALID');
   });
 
   it('fails closed when required copy cannot fit the bounded overlay', () => {
