@@ -39,6 +39,33 @@ describe('V1.2 real artifacts', () => {
     expect(pptx.mimeType).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation');
   });
 
+  it('preserves numeric and boolean XLSX cell types instead of stringifying every value', () => {
+    const artifact = generateArtifactV12({
+      type: 'xlsx',
+      title: 'Typed data',
+      rows: [['Metric', 'Value', 'Enabled'], ['Sales', 42.5, true]],
+    });
+    const body = artifact.bytes.toString('utf8');
+    expect(body).toContain('<c r="B2"><v>42.5</v></c>');
+    expect(body).toContain('<c r="C2" t="b"><v>1</v></c>');
+    expect(body).toContain('<c r="A2" t="inlineStr"><is><t>Sales</t></is></c>');
+  });
+
+  it('fails closed rather than replacing Japanese PDF text with question marks', async () => {
+    expect(() => generateArtifactV12({ type: 'pdf', title: '日本語', content: '営業資料' })).toThrow('PDF_UNICODE_RENDERING_UNAVAILABLE');
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'pdf', title: '日本語', content: '営業資料' });
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe('PDF_UNICODE_RENDERING_UNAVAILABLE');
+    expect(response.body.freeOnly).toBe(true);
+    expect(response.body.costUsd).toBe(0);
+  });
+
+  it('rejects non-finite spreadsheet values at the API boundary', async () => {
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'xlsx', rows: [['x', 'Infinity']] });
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-artifact-verified']).toBe('true');
+  });
+
   it('passes the bounded runtime generator self-test for every format', () => {
     const selfTest = artifactSelfTestV12();
     expect(selfTest.ready).toBe(true);
