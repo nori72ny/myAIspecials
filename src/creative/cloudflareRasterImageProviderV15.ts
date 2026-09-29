@@ -6,7 +6,7 @@ import type {
 } from './rasterImageProviderV15.js';
 
 const API_ORIGIN = 'https://api.cloudflare.com';
-const MODEL = '@cf/stabilityai/stable-diffusion-xl-base-1.0';
+const MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 45_000;
 
@@ -38,10 +38,10 @@ async function timedFetch(url: string, init: RequestInit, fetchImpl: typeof fetc
   }
 }
 
-function headers(token: string): HeadersInit {
+function headers(token: string, jsonBody = true): HeadersInit {
   return {
     Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
+    ...(jsonBody ? { 'Content-Type': 'application/json' } : {}),
     Accept: 'application/json, image/png, image/jpeg, image/webp',
     'User-Agent': 'ORIGIN-Personal/1.5',
   };
@@ -207,19 +207,18 @@ export async function generateCloudflareRasterImageV15(
   const prompt = input.prompt.normalize('NFKC').trim();
   if (!prompt || prompt.length > 2048) throw new Error('INVALID_RASTER_PROMPT');
 
+  const form = new FormData();
+  const negative = input.negativePrompt?.normalize('NFKC').trim().slice(0, 1000) ?? '';
+  form.append('prompt', negative ? `${prompt}\nAvoid these visual elements when possible: ${negative}` : prompt);
+  form.append('width', String(width));
+  form.append('height', String(height));
+
   const response = await timedFetch(
     `${API_ORIGIN}/client/v4/accounts/${auth.accountId}/ai/run/${MODEL}`,
     {
       method: 'POST',
-      headers: headers(auth.apiToken),
-      body: JSON.stringify({
-        prompt,
-        ...(input.negativePrompt?.trim() ? { negative_prompt: input.negativePrompt.trim().slice(0, 1000) } : {}),
-        width,
-        height,
-        num_steps: 20,
-        guidance: 7.5,
-      }),
+      headers: headers(auth.apiToken, false),
+      body: form,
     },
     fetchImpl,
   );

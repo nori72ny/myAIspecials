@@ -234,7 +234,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['content-type']).toContain('image/png');
     expect(response.headers['x-origin-visual-verified']).toBe('true');
     expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
-    expect(response.headers['x-origin-visual-model']).toBe('@cf/stabilityai/stable-diffusion-xl-base-1.0');
+    expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-4b');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
@@ -267,10 +267,13 @@ describe('rasterImageV15Router', () => {
     const providerRequest = fetchMock.mock.calls[2]?.[1] as RequestInit;
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe(`Bearer test-${'x'.repeat(40)}`);
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0');
-    const providerBody = JSON.parse(String(providerRequest.body));
-    expect(providerBody.prompt).toContain('Create a polished production-quality image');
-    expect(providerBody).toMatchObject({ width: 768, height: 1024, num_steps: 20 });
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/ai/run/@cf/black-forest-labs/flux-2-klein-4b');
+    expect(providerRequest.body).toBeInstanceOf(FormData);
+    const providerBody = providerRequest.body as FormData;
+    expect(String(providerBody.get('prompt'))).toContain('Create a polished production-quality image');
+    expect(String(providerBody.get('width'))).toBe('768');
+    expect(String(providerBody.get('height'))).toBe('1024');
+    expect(new Headers(providerRequest.headers).get('content-type')).toBeNull();
   });
 
   it('rejects unexpected request fields instead of forwarding them upstream', async () => {

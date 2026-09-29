@@ -48,7 +48,7 @@ describe('cloudflareRasterImageProviderV15', () => {
     await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
       configured: true,
       ready: true,
-      model: '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+      model: '@cf/black-forest-labs/flux-2-klein-4b',
       zeroCostVerified: true,
       reason: null,
     });
@@ -103,7 +103,7 @@ describe('cloudflareRasterImageProviderV15', () => {
 
     expect(result).toMatchObject({
       providerId: 'cloudflare-workers-ai-free',
-      model: '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+      model: '@cf/black-forest-labs/flux-2-klein-4b',
       mimeType: 'image/png',
       width: 768,
       height: 1024,
@@ -113,7 +113,15 @@ describe('cloudflareRasterImageProviderV15', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const request = fetchMock.mock.calls[2];
-    expect(new Headers((request?.[1] as RequestInit).headers).get('authorization')).toBe(`Bearer ${TEST_TOKEN}`);
+    const init = request?.[1] as RequestInit;
+    expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${TEST_TOKEN}`);
+    expect(init.body).toBeInstanceOf(FormData);
+    const form = init.body as FormData;
+    expect(String(form.get('prompt'))).toContain('静かな湖と朝焼け');
+    expect(String(form.get('prompt'))).toContain('Avoid these visual elements when possible: text, watermark');
+    expect(String(form.get('width'))).toBe('768');
+    expect(String(form.get('height'))).toBe('1024');
+    expect(new Headers(init.headers).get('content-type')).toBeNull();
   });
 
   it('treats free-allocation exhaustion or paid-only access as fail-closed', async () => {
