@@ -63,7 +63,6 @@ const DOWNSTREAM_RESEARCH_OUTPUT_LABELS: Readonly<Record<string, { ja: string; e
 export function buildGroundedResearchOutputContract(
   requestedOutputs: readonly string[],
   language: "ja" | "en",
-  requestedOutputs: readonly string[] = [],
 ): string {
   const unique = [...new Set(requestedOutputs.filter(Boolean))];
   if (unique.length === 0) return "";
@@ -144,6 +143,7 @@ export function buildGroundedResearchSynthesisPrompt(
   sources: readonly SynthesisSource[],
   conflicts: readonly GroundedResearchConflict[],
   language: "ja" | "en",
+  requestedOutputs: readonly string[] = [],
 ): string {
   const bounded = sources.slice(0, 8);
   const evidence = bounded.map((source, index) => {
