@@ -15,7 +15,7 @@ export class TaskExecutor {
     private taskRepo: ITaskRepository,
     private agentRepo: IAgentRepository,
     private llmClient: ILLMClient,
-    maxAttempts: number = 3,
+    private maxAttempts: number = 1,
     private timeoutMs: number = 10000, // 10s default
     private missionRepo?: IMissionRepository
   ) {
@@ -73,7 +73,7 @@ export class TaskExecutor {
 
       // 2. Perform execution with AgentRuntime (FSM, prompt construction, tool execution, output verification, self-reflection check)
       const agentRuntime = new AgentRuntime(this.llmClient, {
-        maxAttempts: 3,
+        maxAttempts: this.maxAttempts,
         timeoutMs: this.timeoutMs,
         model: "gemini-3.5-flash"
       });

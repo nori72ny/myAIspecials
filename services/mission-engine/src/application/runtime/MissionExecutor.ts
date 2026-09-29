@@ -17,7 +17,7 @@ export class MissionExecutor {
     private agentRepo: IAgentRepository,
     private llmClient: ILLMClient
   ) {
-    this.taskExecutor = new TaskExecutor(taskRepo, agentRepo, llmClient, 3, 10000, missionRepo);
+    this.taskExecutor = new TaskExecutor(taskRepo, agentRepo, llmClient, 1, 10000, missionRepo);
   }
 
   public async execute(missionIdStr: string, correlationId?: string): Promise<ExecutionResult<Mission>> {

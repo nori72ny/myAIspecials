@@ -91,6 +91,7 @@ Adopted permanent controls:
 - no silent provider switching;
 - provider/network retry = 0 on the production path;
 - latent legacy OpenRouter / analyze defaults also normalized to one total attempt, retryCount 0, and cost cap 0 so future reactivation cannot restore the historical retry=3 / $1 defaults;
+- latent Mission Engine now defaults to one provider attempt, and provider/network errors fail immediately even if an explicit quality-revision budget is configured; local verification/repair loops remain separately bounded and are not treated as provider retries;
 - evidence-first status language;
 - exact main / Production SHA verification;
 - approval boundaries for high-impact external actions.

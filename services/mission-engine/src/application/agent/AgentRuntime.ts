@@ -146,21 +146,18 @@ export class AgentRuntime {
       });
 
       if (hasError) {
-        agentScratchpad.logStep(`LLM execution error: ${responseText}`);
-        currentAttempts--;
-        if (currentAttempts === 0) {
-          this.transitionTo("Failed");
-          agentScratchpad.logStep(`Execution failed after maximum attempts.`);
-          return {
-            success: false,
-            output: responseText,
-            state: "Failed",
-            attemptsUsed,
-            feedbackHistory
-          };
-        }
-        userPromptFeedback = `エラーが発生しました。再試行してください: ${responseText}`;
-        continue;
+        // Provider/network failures are fail-closed. Do not automatically resend the
+        // same task to an external LLM, even when quality-revision attempts are enabled.
+        this.transitionTo("Failed");
+        agentScratchpad.logStep(`LLM execution failed; automatic provider retry is disabled.`);
+        feedbackHistory.push("Provider/network failure: automatic retry disabled.");
+        return {
+          success: false,
+          output: responseText,
+          state: "Failed",
+          attemptsUsed,
+          feedbackHistory
+        };
       }
 
       // Validate response safety

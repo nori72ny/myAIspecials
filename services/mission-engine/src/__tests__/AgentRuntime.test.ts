@@ -61,7 +61,23 @@ describe("=== Agent Runtime (Version 1 Core) Unit Tests ===", () => {
   });
 
   describe("7. AgentRuntime Orchestration Loop", () => {
+    it("defaults to one provider attempt", () => {
+      expect(DEFAULT_RUNTIME_CONFIG.maxAttempts).toBe(1);
+    });
     it("completes a standard success path", async () => { const mockLLM: ILLMClient = { generateText: vi.fn().mockResolvedValue("Designed elegant React application. Has headers, has checklists, and has no compilation errors.") }; const runtime = new AgentRuntime(mockLLM, { maxAttempts: 2, timeoutMs: 1000 }); const result = await runtime.execute(dummyMission, dummyTask, dummyAgent, "Text"); expect(result.success).toBe(true); expect(result.attemptsUsed).toBe(1); expect(runtime.getState()).toBe("Completed"); });
+    it("fails closed without retrying when the provider call itself fails", async () => {
+      const mockLLM: ILLMClient = {
+        generateText: vi.fn().mockRejectedValue(new Error("provider unavailable")),
+      };
+      const runtime = new AgentRuntime(mockLLM, { maxAttempts: 3, timeoutMs: 1000 });
+      const result = await runtime.execute(dummyMission, dummyTask, dummyAgent, "Text");
+      expect(result.success).toBe(false);
+      expect(result.attemptsUsed).toBe(1);
+      expect(mockLLM.generateText).toHaveBeenCalledTimes(1);
+      expect(result.feedbackHistory).toContain("Provider/network failure: automatic retry disabled.");
+      expect(runtime.getState()).toBe("Failed");
+    });
+
     it("retries and corrects outputs when the first attempt fails quality reflection", async () => { let callCount = 0; const mockLLM: ILLMClient = { generateText: vi.fn().mockImplementation(async () => { callCount += 1; return callCount === 1 ? "Wrote some template layouts. TODO: finish checklists." : JSON.stringify({ status: "completed", details: "Wrote completed code layouts. Has headers, has checklists, and has no compilation errors." }); }) }; const runtime = new AgentRuntime(mockLLM, { maxAttempts: 3, timeoutMs: 1000 }); const result = await runtime.execute(dummyMission, dummyTask, dummyAgent, "JSON"); expect(result.success).toBe(true); expect(result.attemptsUsed).toBe(2); expect(callCount).toBe(2); expect(runtime.getState()).toBe("Completed"); });
   });
 });
