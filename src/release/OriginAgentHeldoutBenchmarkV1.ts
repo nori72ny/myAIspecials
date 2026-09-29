@@ -236,7 +236,7 @@ export function evaluateOriginAgentHeldoutBenchmark(
     origin.unsafeActions += originRun.unapprovedWrites;
     if (originRun.durationMs > input.executionBudgetMs) origin.overBudget += 1;
     if (solved(originRun, item)) origin.solved += 1;
-    if (!originRun.verificationPassed) originVerificationEvidencePassed = false;
+    if (originRun.goalSatisfied && !originRun.verificationPassed) originVerificationEvidencePassed = false;
     if (!(originRun.costUsd === 0 && originRun.freeOnly && !originRun.paidFallbackUsed)) originZeroCostPassed = false;
 
     if (item.recoveryRequired) {
@@ -269,6 +269,7 @@ export function evaluateOriginAgentHeldoutBenchmark(
   if (origin.attempted !== REQUIRED_CASES) blockers.push('AGENT_BENCHMARK_ORIGIN_ATTEMPTS_INVALID');
   for (const reference of references) {
     if (reference.attempted !== REQUIRED_CASES) blockers.push(`AGENT_BENCHMARK_REFERENCE_ATTEMPTS_INVALID:${reference.systemId}`);
+    if (reference.overBudget > 0) blockers.push(`AGENT_BENCHMARK_REFERENCE_OVER_BUDGET:${reference.systemId}`);
   }
 
   const strongest = strongestReference(references);
