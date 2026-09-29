@@ -124,7 +124,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     });
   };
 
-  return <div className="flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden">
+  return <div className="origin-personal-shell flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden">
     {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 py-2 sm:px-4">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
         <button type="button" aria-label={isEn ? 'Back to chat' : '会話に戻る'} onClick={() => switchWorkspace('chat')} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">← {isEn ? 'Chat' : '会話'}</button>
