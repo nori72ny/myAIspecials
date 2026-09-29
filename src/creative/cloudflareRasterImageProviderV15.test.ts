@@ -67,7 +67,8 @@ describe('cloudflareRasterImageProviderV15', () => {
   it('accepts only a non-paid Workers account state', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
-      .mockResolvedValueOnce(json([])) as unknown as typeof fetch;
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} })) as unknown as typeof fetch;
 
     await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
       configured: true,
@@ -76,7 +77,7 @@ describe('cloudflareRasterImageProviderV15', () => {
       zeroCostVerified: true,
       reason: null,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it.each(['standard','unbound'])('rejects paid-capable Workers usage model %s before generation', async (usageModel) => {
@@ -111,11 +112,40 @@ describe('cloudflareRasterImageProviderV15', () => {
     });
   });
 
+  it('requires Workers AI permission before reporting readiness', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({}, 403)) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      configured: true,
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects an invalid exact-model schema instead of claiming readiness', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {} })) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
+    });
+  });
+
   it('generates only after re-verifying the free-plan boundary immediately before inference', async () => {
     const bytes = png(768,1024);
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
       .mockResolvedValueOnce(json(bytes.toString('base64')));
 
     const result = await generateCloudflareRasterImageV15({
@@ -133,10 +163,10 @@ describe('cloudflareRasterImageProviderV15', () => {
       height: 1024,
       costUsd: 0,
       freeOnly: true,
-      externalNetworkRequests: 3,
+      externalNetworkRequests: 4,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const request = fetchMock.mock.calls[2];
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const request = fetchMock.mock.calls[3];
     const init = request?.[1] as RequestInit;
     expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${TEST_TOKEN}`);
     expect(init.body).toBeInstanceOf(FormData);
@@ -155,6 +185,7 @@ describe('cloudflareRasterImageProviderV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
       .mockResolvedValueOnce(json(bytes.toString('base64')));
 
     const result = await generateCloudflareRasterImageV15({
@@ -171,6 +202,7 @@ describe('cloudflareRasterImageProviderV15', () => {
       const fetchMock = vi.fn()
         .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
         .mockResolvedValueOnce(json([]))
+        .mockResolvedValueOnce(json({ input: {}, output: {} }))
         .mockResolvedValueOnce(json({}, status)) as unknown as typeof fetch;
 
       await expect(generateCloudflareRasterImageV15({ prompt: 'test' }, ENV, fetchMock))
