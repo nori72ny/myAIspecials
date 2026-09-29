@@ -222,6 +222,120 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
+  it("carries comparison and proposal output intent into the grounded synthesis stage", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [
+        {
+          title: "Price source one",
+          url: "https://example.com/one",
+          excerpt: "料金は100円と記載されています。",
+          sourceType: "web-search",
+          domain: "example.com",
+          rank: 1,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+        {
+          title: "Price source two",
+          url: "https://example.org/two",
+          excerpt: "料金は120円と記載されています。",
+          sourceType: "web-search",
+          domain: "example.org",
+          rank: 2,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+      ],
+    }) as unknown as OriginResearchExecutor;
+    const synthesisText = [
+      "## 比較と提案",
+      "",
+      "取得できた資料では100円と120円の差があります。[S1](https://example.com/one) [S2](https://example.org/two)",
+    ].join("\n");
+    const synthesisMock = vi.fn().mockResolvedValue({ ...defaultExecutionResult, text: synthesisText }) as unknown as OriginChatExecutor;
+
+    const response = await request(createApp(
+      execute,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      undefined,
+      undefined,
+      researchMock,
+      synthesisMock,
+    )).post("/api/chat").send({
+      messages: [{ role: "user", content: "現在の料金を比較調査して、比較表と提案書にまとめてください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      requestedOutputs: ["proposal", "comparison"],
+      supervisorMode: "research-output-contract-v1",
+      downstreamDeliverablePending: false,
+    }));
+    const synthesisRequest = (synthesisMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(synthesisRequest.systemInstruction).toContain("提案書として読める提案本文");
+    expect(synthesisRequest.systemInstruction).toContain("比較表・比較整理");
+    expect(synthesisRequest.messages[0].content).toContain("要求された成果形の契約");
+  });
+
+  it("keeps file deliverables truthful when research prepares content but does not generate the file", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [
+        {
+          title: "Price source one",
+          url: "https://example.com/one",
+          excerpt: "料金は100円と記載されています。",
+          sourceType: "web-search",
+          domain: "example.com",
+          rank: 1,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+        {
+          title: "Price source two",
+          url: "https://example.org/two",
+          excerpt: "料金は120円と記載されています。",
+          sourceType: "web-search",
+          domain: "example.org",
+          rank: 2,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+      ],
+    }) as unknown as OriginResearchExecutor;
+    const synthesisText = "スライド原稿の要点は100円と120円の比較です。[S1](https://example.com/one) [S2](https://example.org/two)";
+    const synthesisMock = vi.fn().mockResolvedValue({ ...defaultExecutionResult, text: synthesisText }) as unknown as OriginChatExecutor;
+
+    const response = await request(createApp(
+      execute,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      undefined,
+      undefined,
+      researchMock,
+      synthesisMock,
+    )).post("/api/chat").send({
+      messages: [{ role: "user", content: "現在の料金を調査してPowerPointにまとめてください" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      requestedOutputs: ["presentation"],
+      supervisorMode: "research-output-contract-v1",
+      downstreamDeliverablePending: true,
+    }));
+    expect(response.body.answer.limitations.join(" ")).toContain("実ファイル");
+    const synthesisRequest = (synthesisMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(synthesisRequest.systemInstruction).toContain("スライド/PPTX");
+    expect(synthesisRequest.systemInstruction).toContain("生成したとは絶対に表現しない");
+  });
+
   it("discards synthesized text when citation validation fails and returns the deterministic digest", async () => {
     const researchMock = vi.fn().mockResolvedValue({
       ok: true,
