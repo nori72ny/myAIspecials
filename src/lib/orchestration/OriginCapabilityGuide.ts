@@ -5,6 +5,10 @@ export interface OriginCapabilityGuide {
   nextActions: readonly string[];
 }
 
+export interface OriginCapabilityStatus {
+  rasterTextToImageReady?: boolean;
+}
+
 const CAPABILITY_QUESTION_PATTERNS = [
   /(?:あなた|ORIGIN|このAI|このサービス).{0,12}(?:何|なに).{0,8}(?:でき|可能)/i,
   /(?:何|なに).{0,8}(?:できる|できますか|してくれる)/i,
@@ -22,7 +26,14 @@ export function isOriginCapabilityQuestion(input: string): boolean {
   return CAPABILITY_QUESTION_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
-function japaneseGuide(): OriginCapabilityGuide {
+function japaneseGuide(status: OriginCapabilityStatus): OriginCapabilityGuide {
+  const rasterCapability = status.rasterTextToImageReady
+    ? "- 実画像生成：検証済みの無料画像生成経路で、プロンプトからPNG/JPEG/WebPのラスター画像を生成し、寸法・画像形式・品質ゲートを通過した画像だけを返す\n"
+    : "";
+  const rasterLimitation = status.rasterTextToImageReady
+    ? "- モデルによる画像編集（既存画像の編集・inpaint・outpaint・variation）"
+    : "- モデルによるラスター画像生成や画像編集";
+
   const content = `ORIGINは、質問に答えるだけでなく、調査・成果物生成・Web制作・Codingまでを、現在の公開版で実行できる範囲は実際に実行するAIエージェントです。
 
 現在できること
@@ -33,12 +44,12 @@ function japaneseGuide(): OriginCapabilityGuide {
 - Web公開：認証・保存基盤が利用可能な環境では、確認付きで期限付き静的サイトとして公開できる
 - Agentic Coding：ORIGIN自身の固定Coding対象に対して、認証・暗号化・永続化されたCoding jobを実行し、結果を取得できる
 - Creative：Social Card、Poster、Info Cardを検証済みSVGとして生成・保存できる
-
+${rasterCapability}
 安全上の境界
 ORIGINは、実行記録がない処理を「実行済み」と表示しません。無料経路だけを利用し、有料fallbackは行いません。外部情報、外部サービス、Coding実行などが利用できない場合は、推測で成功扱いせずfail-closedします。
 
 現在まだできないこと
-- モデルによるラスター画像生成や画像編集
+${rasterLimitation}
 - Coding結果をGitへ自動公開したり、そのまま自動Deployすること
 - MCP経由のGitHub、Google、Microsoft、Notion、Slack等の外部サービス接続
 - 未承認の外部送信や、証拠のない自動実行
@@ -49,7 +60,9 @@ ORIGINは、実行記録がない処理を「実行済み」と表示しませ�
     language: "ja",
     content,
     limitations: [
-      "モデルベースのラスター画像生成・画像編集、Coding結果のGit自動公開/自動Deploy、MCP経由の外部アプリ接続は現在の公開版では未接続です。",
+      status.rasterTextToImageReady
+        ? "モデルベースの画像編集、Coding結果のGit自動公開/自動Deploy、MCP経由の外部アプリ接続は現在の公開版では未接続です。"
+        : "モデルベースのラスター画像生成・画像編集、Coding結果のGit自動公開/自動Deploy、MCP経由の外部アプリ接続は現在の公開版では未接続です。",
       "Web調査や外部実行は無料・安全条件を満たさない場合にfail-closedし、未確認の結果を生成しません。",
     ],
     nextActions: [
@@ -58,7 +71,14 @@ ORIGINは、実行記録がない処理を「実行済み」と表示しませ�
   };
 }
 
-function englishGuide(): OriginCapabilityGuide {
+function englishGuide(status: OriginCapabilityStatus): OriginCapabilityGuide {
+  const rasterCapability = status.rasterTextToImageReady
+    ? "- Real image generation: use the verified free image route to create PNG/JPEG/WebP raster images from prompts and return only images that pass format, dimension, and quality gates\n"
+    : "";
+  const rasterLimitation = status.rasterTextToImageReady
+    ? "- Model-based image editing (edit, inpaint, outpaint, variation)"
+    : "- Model-based raster image generation or image editing";
+
   const content = `ORIGIN is an AI agent that can execute research, artifact generation, web building, and coding workflows that are connected in the current public release—not just describe them.
 
 What it can do now
@@ -69,12 +89,12 @@ What it can do now
 - Web publication: in an authenticated configured environment, publish verified static projects as expiring sites after confirmation
 - Agentic Coding: run durable authenticated coding jobs against ORIGIN's fixed server-owned coding target and retrieve persisted results
 - Creative: generate verified static SVG social cards, posters, and info cards
-
+${rasterCapability}
 Safety boundary
 ORIGIN does not claim an operation was executed without execution evidence. It remains free-only, has no paid fallback, and fails closed when a required external source or execution path cannot be verified.
 
 Not connected yet
-- Model-based raster image generation or image editing
+${rasterLimitation}
 - Automatic Git publication or automatic deployment of coding results
 - MCP connections to external services such as GitHub, Google, Microsoft, Notion, or Slack
 - Unapproved external writes or unsupported autonomous actions
@@ -85,7 +105,9 @@ You can ask naturally: “research the latest information,” “make a PDF,” 
     language: "en",
     content,
     limitations: [
-      "Model-based raster image generation/editing, automatic Git/deployment from coding jobs, and MCP-based external app connections are not connected in the current public release.",
+      status.rasterTextToImageReady
+        ? "Model-based image editing, automatic Git/deployment from coding jobs, and MCP-based external app connections are not connected in the current public release."
+        : "Model-based raster image generation/editing, automatic Git/deployment from coding jobs, and MCP-based external app connections are not connected in the current public release.",
       "External research or execution fails closed when the free and safety requirements cannot be verified.",
     ],
     nextActions: [
@@ -94,6 +116,9 @@ You can ask naturally: “research the latest information,” “make a PDF,” 
   };
 }
 
-export function createOriginCapabilityGuide(input: string): OriginCapabilityGuide {
-  return /[ぁ-んァ-ヶ一-龠]/.test(input) ? japaneseGuide() : englishGuide();
+export function createOriginCapabilityGuide(
+  input: string,
+  status: OriginCapabilityStatus = {},
+): OriginCapabilityGuide {
+  return /[ぁ-んァ-ヶ一-龠]/.test(input) ? japaneseGuide(status) : englishGuide(status);
 }
