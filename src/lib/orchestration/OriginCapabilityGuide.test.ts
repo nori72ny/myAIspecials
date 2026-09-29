@@ -44,6 +44,18 @@ describe("OriginCapabilityGuide", () => {
     expect(guide.limitations.join("\n")).toContain("自動Deploy");
   });
 
+  it("advertises real raster generation only when the live provider is ready", () => {
+    const guide = createOriginCapabilityGuide("あなたは何ができますか？", {
+      rasterTextToImageReady: true,
+    });
+
+    expect(guide.content).toContain("実画像生成");
+    expect(guide.content).toContain("PNG/JPEG/WebP");
+    expect(guide.content).not.toContain("- モデルによるラスター画像生成や画像編集");
+    expect(guide.content).toContain("モデルによる画像編集");
+    expect(guide.limitations.join("\n")).not.toContain("ラスター画像生成・画像編集");
+  });
+
   it("provides the same truthful product boundary in English", () => {
     const guide = createOriginCapabilityGuide("What can ORIGIN do?");
 

@@ -29,7 +29,8 @@
     "eval:aq-local-comparison-shard": "tsx scripts/run-aq-official-local-comparison.ts",
     "eval:aq-local-comparison-aggregate": "tsx scripts/aggregate-aq-official-local-shards.ts",
     "eval:q1-quality": "tsx scripts/evaluate-q1-product-quality-gate.ts",
-    "eval:claude-code-parity": "tsx scripts/evaluate-claude-code-parity-gate.ts"
+    "eval:claude-code-parity": "tsx scripts/evaluate-claude-code-parity-gate.ts",
+    "eval:world-class-quality": "tsx scripts/evaluate-world-class-quality-gate.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
