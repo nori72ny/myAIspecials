@@ -55,6 +55,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
       .mockResolvedValueOnce(envelope({ answer: semanticAnswer() }));
 
     const result = await critiqueCloudflareRasterSemanticV15({
@@ -72,12 +73,12 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       costUsd: 0,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
-      externalNetworkRequests: 3,
+      externalNetworkRequests: 4,
     });
     expect(result.score).toBeGreaterThanOrEqual(80);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/ai/run/@cf/moondream/moondream3.1-9B-A2B');
-    const init = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/ai/run/@cf/moondream/moondream3.1-9B-A2B');
+    const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
     const headers = new Headers(init.headers);
     expect(headers.get('authorization')).toBe(`Bearer ${ENV.CLOUDFLARE_API_TOKEN}`);
     const body = JSON.parse(String(init.body));
@@ -92,6 +93,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
       .mockResolvedValueOnce(envelope({
         answer: semanticAnswer({
           subjectIntegrity: 2.2,
@@ -118,6 +120,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
       .mockResolvedValueOnce(envelope({ answer: 'Looks good to me.' }));
 
     await expect(critiqueCloudflareRasterSemanticV15({
@@ -132,6 +135,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       const fetchMock = vi.fn()
         .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
         .mockResolvedValueOnce(envelope([]))
+        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
         .mockResolvedValueOnce(envelope({}, status));
 
       await expect(critiqueCloudflareRasterSemanticV15({

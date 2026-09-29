@@ -221,6 +221,6 @@ export async function critiqueCloudflareRasterSemanticV15(
     costUsd: 0,
     paidFallbackEnabled: false,
     secretDelivery: 'server-only',
-    externalNetworkRequests: 3,
+    externalNetworkRequests: 4,
   };
 }

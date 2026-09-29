@@ -305,6 +305,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       if (code === 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED'
         || code === 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED'
         || code === 'CLOUDFLARE_BILLING_READ_REQUIRED'
+        || code === 'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED'
+        || code === 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED'
         || code === 'CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE') {
         return fail(res, 503, code, '費用0円を事前保証できないため、画像生成を停止しました。');
       }
