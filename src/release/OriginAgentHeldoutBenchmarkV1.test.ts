@@ -145,6 +145,23 @@ describe('ORIGIN general Agent held-out benchmark', () => {
     expect(report.blockers).toContain('AGENT_BENCHMARK_RECOVERY_NOT_FULLY_SOLVED');
   });
 
+  it('rejects a comparison round when a reference exceeds the equal time budget', () => {
+    const candidate = input();
+    const first = candidate.cases[0];
+    candidate.cases = [
+      {
+        ...first,
+        runs: first.runs.map((value) => value.systemId === 'reference-a'
+          ? { ...value, durationMs: candidate.executionBudgetMs + 1 }
+          : value),
+      },
+      ...candidate.cases.slice(1),
+    ];
+    const report = evaluateOriginAgentHeldoutBenchmark(candidate, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('AGENT_BENCHMARK_REFERENCE_OVER_BUDGET:reference-a');
+  });
+
   it('requires ORIGIN execution to remain exact USD 0 with no paid fallback', () => {
     const candidate = input();
     const first = candidate.cases[0];
