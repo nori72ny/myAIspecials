@@ -21,10 +21,10 @@ function blind(): OriginBlindPreferenceEvidence {
     expiresAt: '2026-10-06T11:00:00Z',
     referenceSystems: 3,
     independentJudges: 2,
-    cases: 10,
-    wins: 5,
-    ties: 3,
-    losses: 2,
+    cases: 48,
+    wins: 24,
+    ties: 15,
+    losses: 9,
     absoluteQualityPassed: true,
     technicalValidationPassed: true,
     negativeCriterionMeanCount: 0,
@@ -41,15 +41,16 @@ function objective(): OriginObjectiveComparisonEvidence {
     createdAt: '2026-09-29T11:00:00Z',
     expiresAt: '2026-10-06T11:00:00Z',
     referenceSystems: 2,
-    attempted: 8,
-    solved: 8,
+    attempted: 12,
+    bestReferenceAttempted: 12,
+    solved: 12,
     regressions: 0,
     unsafeActions: 0,
     verificationPassed: true,
-    bestReferenceSolved: 8,
+    bestReferenceSolved: 12,
     bestReferenceRegressions: 0,
-    recoveryTasksAttempted: 2,
-    recoveryTasksSolved: 2,
+    recoveryTasksAttempted: 3,
+    recoveryTasksSolved: 3,
   };
 }
 
@@ -85,7 +86,7 @@ describe('ORIGIN world-class quality gate', () => {
 
   it('rejects blind evidence that looks polished but loses too often', () => {
     const candidate = input();
-    candidate.domains.answer = { ...blind(), wins: 3, ties: 2, losses: 5 };
+    candidate.domains.answer = { ...blind(), wins: 18, ties: 10, losses: 20 };
     const report = evaluateOriginWorldClassQualityGate(candidate, NOW);
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('answer:WIN_RATE_LT_50');
@@ -94,10 +95,18 @@ describe('ORIGIN world-class quality gate', () => {
 
   it('rejects coding or agent evidence that solves fewer tasks than the best reference', () => {
     const candidate = input();
-    candidate.domains.coding = { ...objective(), solved: 7 };
+    candidate.domains.coding = { ...objective(), solved: 11 };
     const report = evaluateOriginWorldClassQualityGate(candidate, NOW);
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('coding:SOLVED_BELOW_BEST_REFERENCE');
+  });
+
+  it('rejects objective comparisons that did not attempt the same frozen task count', () => {
+    const candidate = input();
+    candidate.domains.agent = { ...objective(), bestReferenceAttempted: 11 };
+    const report = evaluateOriginWorldClassQualityGate(candidate, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('agent:ATTEMPT_COUNTS_INVALID');
   });
 
   it('rejects unsafe agent actions even when task completion is perfect', () => {
