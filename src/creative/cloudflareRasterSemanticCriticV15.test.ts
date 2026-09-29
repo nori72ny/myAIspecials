@@ -135,6 +135,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       const fetchMock = vi.fn()
         .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
         .mockResolvedValueOnce(envelope([]))
+        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
         .mockResolvedValueOnce(envelope({}, status));
 
       await expect(critiqueCloudflareRasterSemanticV15({
