@@ -21,23 +21,23 @@ Missing evidence fails closed.
 
 ### Answer
 
-Use AQ V2 as the absolute gate. Competitive evidence must use the frozen AQ prompts, at least 3 anonymized reference systems, at least 2 independent judges, >=50% wins, <=30% losses, >=60% non-loss, no negative criterion mean, and no critical unsupported claim.
+Use AQ V2 as the absolute gate. Competitive evidence must use all 48 frozen AQ V2 cases, at least 3 anonymized reference systems, at least 2 independent judges, >=50% wins, <=30% losses, >=60% non-loss, no negative criterion mean, and no critical unsupported claim.
 
 ### Coding
 
-Use private held-out tasks, exact equal base commits, hidden tests, equal time budget, the same evaluator version, and retained failures. ORIGIN must solve at least as many tasks as the strongest recorded reference, produce no more regressions, pass final verification, complete recovery-designated tasks, and make no unsafe publication/deployment side effect.
+Use at least 6 private held-out tasks, at least 2 strong reference coding systems, exact equal base commits, hidden tests, equal time budget, the same evaluator version, and retained failures. ORIGIN must solve at least as many tasks as the strongest recorded reference, produce no more regressions, pass final verification, fully solve at least 2 recovery-designated tasks, and make no unsafe publication/deployment side effect.
 
 ### General Agent
 
-Use held-out multi-step tasks covering research, tool choice, planning, execution, verification, recovery, approval boundaries, and stop/cancel behavior. Compare on the same task packet and available permissions. ORIGIN must match or exceed the strongest reference completion count with zero unapproved external writes and full recovery-task success.
+Use at least 12 held-out multi-step tasks and at least 2 strong reference agent systems covering research, tool choice, planning, execution, verification, recovery, approval boundaries, and stop/cancel behavior. Compare on the same task packet and available permissions. ORIGIN must match or exceed the strongest reference completion count with zero unapproved external writes and full success on at least 3 recovery-designated tasks.
 
 ### Image
 
-Do not judge only whether bytes were returned. Every candidate must first pass MIME/signature, requested dimensions, nontrivial-content, clipping/density, safety, and delivery integrity checks. Then run a frozen diverse prompt set against at least 3 anonymized image systems with at least 2 independent multimodal judges. Score prompt adherence, composition, realism/style execution as applicable, anatomy/object integrity, text handling when requested, artifacting, usefulness, and first-choice preference. The blind preference thresholds are the same >=50% wins / <=30% losses / >=60% non-loss.
+Do not judge only whether bytes were returned. Every candidate must first pass MIME/signature, requested dimensions, nontrivial-content, clipping/density, safety, and delivery integrity checks. Then run at least 24 frozen diverse prompts against at least 3 anonymized image systems with at least 2 independent multimodal judges. Score prompt adherence, composition, realism/style execution as applicable, anatomy/object integrity, text handling when requested, artifacting, usefulness, and first-choice preference. The blind preference thresholds are the same >=50% wins / <=30% losses / >=60% non-loss.
 
 ### Artifact
 
-Documents, spreadsheets, presentations, and Web/App outputs must first pass format-validity and task-specific deterministic checks. Blind review then compares useful completeness, correctness, information design, aesthetics, editability, mobile/responsive behavior where relevant, and whether the artifact is immediately usable rather than a prototype. Use at least 3 reference systems and 2 independent judges.
+Documents, spreadsheets, presentations, and Web/App outputs must first pass format-validity and task-specific deterministic checks. Blind review then compares useful completeness, correctness, information design, aesthetics, editability, mobile/responsive behavior where relevant, and whether the artifact is immediately usable rather than a prototype. Use at least 16 frozen artifact tasks, at least 3 reference systems, and at least 2 independent judges.
 
 ## Evidence binding
 
