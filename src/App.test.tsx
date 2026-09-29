@@ -679,7 +679,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const originalCreateObjectURL = URL.createObjectURL;
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:origin-generated-image') });
 
-    render(<App language="ja" />);
+    const onMessagesChange = vi.fn();
+    render(<App language="ja" onMessagesChange={onMessagesChange} />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '夕焼けの海の画像を作ってください' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
@@ -689,6 +690,11 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByText(/stable-diffusion-xl-base-1\.0/)).toBeTruthy();
     expect(screen.getByText(/photograph/)).toBeTruthy();
     expect(screen.getByText(/1024×1024/)).toBeTruthy();
+    await waitFor(() => {
+      const emitted = onMessagesChange.mock.calls.flatMap((call) => call[0] as ConversationMessage[]);
+      const generated = emitted.find((message) => message.image?.sha256 === sha);
+      expect(generated?.image?.providerId).toBe('cloudflare-workers-ai-free');
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body).toMatchObject({ prompt: '夕焼けの海の画像を作ってください', width: 1024, height: 1024 });

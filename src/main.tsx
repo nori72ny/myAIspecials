@@ -81,7 +81,9 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
         && Number.isInteger(sourceImage.technicalQualityScore)
         && sourceImage.technicalQualityScore >= 0
         && sourceImage.technicalQualityScore <= 100;
-      if (validMime && validAsset && sourceImage.providerId === 'pollinations-zero-cost'
+      const validProvider = sourceImage.providerId === 'pollinations-zero-cost'
+        || sourceImage.providerId === 'cloudflare-workers-ai-free';
+      if (validMime && validAsset && validProvider
         && typeof sourceImage.model === 'string' && sourceImage.model.length > 0 && sourceImage.model.length <= 180
         && typeof sourceImage.downloadName === 'string' && /^[^\\/\u0000-\u001f\u007f]{1,180}\.(?:png|jpe?g|webp)$/i.test(sourceImage.downloadName)
         && validGeneration && validDimensions && validRelation && validParent && validPrompt && validVisualProvenance) {
@@ -90,7 +92,7 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
           mimeType: sourceImage.mimeType!,
           downloadName: sourceImage.downloadName!,
           sha256: sourceImage.sha256!.toLowerCase(),
-          providerId: 'pollinations-zero-cost',
+          providerId: sourceImage.providerId!,
           model: sourceImage.model!,
           generationId: sourceImage.generationId!,
           visualBrainVersion: 'visual-brain-v1',

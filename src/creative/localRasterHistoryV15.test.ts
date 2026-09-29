@@ -19,8 +19,8 @@ function entry(overrides: Partial<RasterAssetEntryV15> = {}): RasterAssetEntryV1
     prompt: '夕焼けの海',
     mimeType: 'image/png',
     downloadName: 'origin-image.png',
-    providerId: 'pollinations-zero-cost',
-    model: 'tomdacatto/sana',
+    providerId: 'cloudflare-workers-ai-free',
+    model: '@cf/stabilityai/stable-diffusion-xl-base-1.0',
     generationId: `raster-${'b'.repeat(24)}`,
     visualBrainVersion: 'visual-brain-v1',
     planVersion: 'raster-visual-plan-v1',
@@ -42,6 +42,10 @@ function entry(overrides: Partial<RasterAssetEntryV15> = {}): RasterAssetEntryV1
 describe('localRasterHistoryV15', () => {
   it('accepts only bounded raster asset graph records', () => {
     expect(isRasterAssetEntryShapeV15(entry())).toBe(true);
+    expect(isRasterAssetEntryShapeV15(entry({
+      providerId: 'pollinations-zero-cost',
+      model: 'tomdacatto/sana',
+    }))).toBe(true);
     expect(isRasterAssetEntryShapeV15(entry({ downloadName: '../escape.png' }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ sha256: 'bad' }))).toBe(false);
     expect(isRasterAssetEntryShapeV15(entry({ providerId: 'other' as never }))).toBe(false);

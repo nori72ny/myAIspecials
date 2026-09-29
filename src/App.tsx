@@ -190,7 +190,7 @@ export type GeneratedImageMessage = {
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   downloadName: string;
   sha256: string;
-  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
+  providerId: 'cloudflare-workers-ai-free' | 'cloudflare-workers-ai-free';
   model: string;
   generationId: string;
   visualBrainVersion: 'visual-brain-v1';
@@ -1318,7 +1318,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           prompt: imageRequestText,
           mimeType: mimeType as GeneratedImageMessage['mimeType'],
           downloadName: baseDownloadName,
-          providerId: 'pollinations-zero-cost',
+          providerId: 'cloudflare-workers-ai-free',
           model,
           generationId,
           visualBrainVersion: 'visual-brain-v1',
@@ -1345,7 +1345,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             prompt: imageRequestText,
             mimeType: finalMimeType,
             downloadName: finalDownloadName,
-            providerId: 'pollinations-zero-cost',
+            providerId: 'cloudflare-workers-ai-free',
             model,
             generationId,
             visualBrainVersion: 'visual-brain-v1',
@@ -1374,7 +1374,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           mimeType: finalMimeType,
           downloadName: finalDownloadName,
           sha256: finalAssetId,
-          providerId: 'pollinations-zero-cost',
+          providerId: 'cloudflare-workers-ai-free',
           model,
           generationId,
           visualBrainVersion: 'visual-brain-v1',
