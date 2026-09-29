@@ -154,4 +154,16 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(lighthouseConfig.ci?.assert?.assertions?.["categories:accessibility"]).toEqual(["error", { minScore: 0.9 }]);
     expect(lighthouseConfig.ci?.assert?.assertions?.["categories:best-practices"]).toEqual(["error", { minScore: 0.9 }]);
   });
+
+  it("reserves automatic Vercel deployments for main and explicit release candidates", () => {
+    const vercelConfig = JSON.parse(readRepositoryFile("vercel.json")) as {
+      git?: { deploymentEnabled?: Record<string, boolean> };
+    };
+    expect(vercelConfig.git?.deploymentEnabled).toEqual({
+      "*": false,
+      main: true,
+      "release-*": true,
+    });
+  });
+
 });
