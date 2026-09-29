@@ -65,8 +65,8 @@ describe('ORIGIN image blind benchmark v1', () => {
   });
 
   it('fails closed when a family is missing', () => {
-    const candidate = input();
-    candidate.cases = candidate.cases.slice(0, 21);
+    const base = input();
+    const candidate = { ...base, cases: base.cases.slice(0, 21) };
     const report = evaluateOriginImageBlindBenchmarkV15(candidate);
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('IMAGE_BENCHMARK_REQUIRES_24_CASES');
@@ -74,25 +74,31 @@ describe('ORIGIN image blind benchmark v1', () => {
   });
 
   it('rejects technically invalid output even when judges prefer it', () => {
-    const candidate = input();
-    const first = candidate.cases[0];
-    candidate.cases = [
-      { ...first, technical: { ...first.technical, structuralCriticPassed: false } },
-      ...candidate.cases.slice(1),
-    ];
+    const base = input();
+    const first = base.cases[0];
+    const candidate = {
+      ...base,
+      cases: [
+        { ...first, technical: { ...first.technical, structuralCriticPassed: false } },
+        ...base.cases.slice(1),
+      ],
+    };
     const report = evaluateOriginImageBlindBenchmarkV15(candidate);
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('IMAGE_BENCHMARK_TECHNICAL_FAILURE:img-01');
   });
 
   it('rejects insufficient reference systems or judges', () => {
-    const candidate = input();
-    const first = candidate.cases[0];
-    candidate.cases = [{
-      ...first,
-      referenceSystemIds: ['ref-a', 'ref-b'],
-      judges: [first.judges[0]],
-    }, ...candidate.cases.slice(1)];
+    const base = input();
+    const first = base.cases[0];
+    const candidate = {
+      ...base,
+      cases: [{
+        ...first,
+        referenceSystemIds: ['ref-a', 'ref-b'],
+        judges: [first.judges[0]],
+      }, ...base.cases.slice(1)],
+    };
     const report = evaluateOriginImageBlindBenchmarkV15(candidate);
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('IMAGE_BENCHMARK_REFERENCE_SYSTEMS_LT_3:img-01');
@@ -100,24 +106,30 @@ describe('ORIGIN image blind benchmark v1', () => {
   });
 
   it('rejects a round with too many blind losses', () => {
-    const candidate = input();
-    candidate.cases = candidate.cases.map((item, index) => index < 10
-      ? { ...item, judges: item.judges.map((judge) => ({ ...judge, preferred: 'reference' as const })) }
-      : item);
+    const base = input();
+    const candidate = {
+      ...base,
+      cases: base.cases.map((item, index) => index < 10
+        ? { ...item, judges: item.judges.map((judge) => ({ ...judge, preferred: 'reference' as const })) }
+        : item),
+    };
     const report = evaluateOriginImageBlindBenchmarkV15(candidate);
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('IMAGE_BENCHMARK_LOSS_RATE_GT_30');
   });
 
   it('rejects a negative rubric-axis mean even if preference votes pass', () => {
-    const candidate = input();
-    candidate.cases = candidate.cases.map((item) => ({
-      ...item,
-      judges: item.judges.map((judge) => ({
-        ...judge,
-        scores: { ...judge.scores, textHandling: 1 },
+    const base = input();
+    const candidate = {
+      ...base,
+      cases: base.cases.map((item) => ({
+        ...item,
+        judges: item.judges.map((judge) => ({
+          ...judge,
+          scores: { ...judge.scores, textHandling: 1 },
+        })),
       })),
-    }));
+    };
     const report = evaluateOriginImageBlindBenchmarkV15(candidate);
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('IMAGE_BENCHMARK_NEGATIVE_AXIS_MEAN:textHandling');
