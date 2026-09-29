@@ -7,7 +7,8 @@ export interface RuntimeConfig {
 }
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
-  maxAttempts: 3,
+  // Safe default: one provider attempt. Quality-revision loops must be explicitly opted into and must never retry provider/network failures.
+  maxAttempts: 1,
   timeoutMs: 30000,
   temperature: 0.7,
   maxTokens: 2048,
