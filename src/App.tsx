@@ -1,5 +1,6 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
+import { Menu, Plus, Settings } from 'lucide-react';
 import OriginAnswerMarkdown from './components/personal/OriginAnswerMarkdown';
 import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
@@ -706,14 +707,14 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; artifa
   }, [artifacts, storedArtifacts]);
   const results = useMemo(() => searchOriginLocalSnapshot(deferredQuery, searchableSessions, searchableArtifacts), [deferredQuery, searchableArtifacts, searchableSessions]);
   return <>
-    <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[15px] font-semibold sm:w-auto sm:min-w-11 sm:px-3 sm:text-[13px]"><span aria-hidden="true">☰</span><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
+    <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[15px] font-semibold sm:w-auto sm:min-w-11 sm:px-3 sm:text-[13px]"><Menu aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
     {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と作成物履歴" className="origin-surface absolute right-4 top-20 z-40 w-[min(94vw,460px)] p-4 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h2 className="m-0 text-base font-bold">これまでの会話と作成物</h2><p className="origin-muted m-0 mt-1 text-[13px]">この端末に保存した内容から探せます。</p></div></div><div className="mt-3"><LegacyKnowledgeMap sessions={sessions} onRestoreSession={onRestoreSession} /></div><label className="mt-4 block text-[13px] font-semibold" htmlFor="origin-history-search">検索語</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="キーワードで検索" className="origin-input mt-1 min-h-11 w-full rounded-[10px] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid max-h-72 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{result.kind === 'session' ? '会話' : '作成物'} · {result.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <p className="origin-muted mt-3 text-[13px]">会話や作成物の言葉を入力して探せます。</p>}</section>}
   </>;
 };
 
 const KnowledgeMap: React.FC<{ sessions: readonly ConversationSession[]; onRestoreSession?: (session: ConversationSession) => void }> = ({ sessions, onRestoreSession }) => <HistoryDrawer sessions={sessions} onRestoreSession={onRestoreSession} />;
 
-const ArtifactVisualDiffInspector: React.FC<{ diff: ArtifactVisualDiff }> = ({ diff }) => <section data-testid="artifact-visual-diff" aria-label="作成物の変更箇所" className="origin-surface-muted h-full overflow-auto rounded-2xl p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="m-0 text-base font-bold">最新と1つ前の版の変更</h3><p className="origin-muted m-0 mt-1 text-[13px]">端末内に保存した作成物の版だけを比較しています。</p></div><div className="flex gap-2 text-[13px] font-mono"><span className="rounded-[10px] bg-emerald-500/15 px-2 py-1 text-emerald-600 dark:text-emerald-300">+ {diff.added}</span><span className="p-3 my-2 bg-red-950/80 border border-red-500/50 rounded-lg text-red-200 text-sm font-mono shadow-lg relative z-50 block w-full">− {diff.removed}</span></div></div><p data-testid="artifact-visual-diff-summary" className="origin-muted mt-3 text-[13px]">HTML要素 {diff.htmlChanges}件・CSS/スタイル {diff.cssChanges}件の変更</p>{diff.lines.length ? <pre className="m-0 mt-3 whitespace-pre-wrap break-words rounded-2xl bg-black/10 p-3 font-mono text-[13px] leading-6">{diff.lines.map((line, index) => <span key={`${line.kind}-${index}`} className={line.kind === 'added' ? 'block rounded-[10px] bg-emerald-500/15 px-2 text-emerald-600 dark:text-emerald-300' : 'block rounded-[10px] bg-red-500/15 px-2 text-red-600 dark:text-red-300'}>{line.kind === 'added' ? '+ ' : '− '}{line.value}</span>)}</pre> : <p className="origin-muted mt-5 text-base">構造・スタイル上の変更はありません。</p>}</section>;
+const ArtifactVisualDiffInspector: React.FC<{ diff: ArtifactVisualDiff }> = ({ diff }) => <section data-testid="artifact-visual-diff" aria-label="作成物の変更箇所" className="origin-surface-muted h-full overflow-auto rounded-2xl p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="m-0 text-base font-bold">最新と1つ前の版の変更</h3><p className="origin-muted m-0 mt-1 text-[13px]">端末内に保存した作成物の版だけを比較しています。</p></div><div className="flex gap-2 text-[13px] font-mono"><span className="rounded-[10px] bg-emerald-500/15 px-2 py-1 text-emerald-600 dark:text-emerald-300">+ {diff.added}</span><span data-testid="artifact-diff-removed-count" className="rounded-[10px] bg-red-500/15 px-2 py-1 text-red-600 dark:text-red-300">− {diff.removed}</span></div></div><p data-testid="artifact-visual-diff-summary" className="origin-muted mt-3 text-[13px]">HTML要素 {diff.htmlChanges}件・CSS/スタイル {diff.cssChanges}件の変更</p>{diff.lines.length ? <pre className="m-0 mt-3 whitespace-pre-wrap break-words rounded-2xl bg-black/10 p-3 font-mono text-[13px] leading-6">{diff.lines.map((line, index) => <span key={`${line.kind}-${index}`} className={line.kind === 'added' ? 'block rounded-[10px] bg-emerald-500/15 px-2 text-emerald-600 dark:text-emerald-300' : 'block rounded-[10px] bg-red-500/15 px-2 text-red-600 dark:text-red-300'}>{line.kind === 'added' ? '+ ' : '− '}{line.value}</span>)}</pre> : <p className="origin-muted mt-5 text-base">構造・スタイル上の変更はありません。</p>}</section>;
 
 const ResponseVerificationBadge: React.FC<{ language: OriginLanguage }> = ({ language }) => <details data-testid="response-verification-details" className="origin-verification mt-0.5 w-full">
   <summary className="origin-muted inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 px-1 text-[13px] font-medium">
@@ -1318,7 +1319,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           prompt: imageRequestText,
           mimeType: mimeType as GeneratedImageMessage['mimeType'],
           downloadName: baseDownloadName,
-          providerId: 'pollinations-zero-cost',
+          providerId: 'cloudflare-workers-ai-free',
           model,
           generationId,
           visualBrainVersion: 'visual-brain-v1',
@@ -1345,7 +1346,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             prompt: imageRequestText,
             mimeType: finalMimeType,
             downloadName: finalDownloadName,
-            providerId: 'pollinations-zero-cost',
+            providerId: 'cloudflare-workers-ai-free',
             model,
             generationId,
             visualBrainVersion: 'visual-brain-v1',
@@ -1374,7 +1375,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           mimeType: finalMimeType,
           downloadName: finalDownloadName,
           sha256: finalAssetId,
-          providerId: 'pollinations-zero-cost',
+          providerId: 'cloudflare-workers-ai-free',
           model,
           generationId,
           visualBrainVersion: 'visual-brain-v1',
@@ -1523,8 +1524,29 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   };
 
   const hasExtendedActions = Boolean(onOpenResearch || onOpenAgent || onOpenCoding || onOpenCreative || onOpenDetails);
+  const composerMenuRef = useRef<HTMLDetailsElement>(null);
   const closeComposerMenu = (target: HTMLElement) => target.closest('details')?.removeAttribute('open');
-  const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} /><div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><textarea ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" />{hasExtendedActions ? <details data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
+  useEffect(() => {
+    const dismissOnOutsidePointer = (event: PointerEvent) => {
+      const menu = composerMenuRef.current;
+      const target = event.target;
+      if (!menu?.open || !(target instanceof Node) || menu.contains(target)) return;
+      menu.removeAttribute('open');
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      const menu = composerMenuRef.current;
+      if (event.key !== 'Escape' || !menu?.open) return;
+      menu.removeAttribute('open');
+      menu.querySelector<HTMLElement>('summary')?.focus();
+    };
+    document.addEventListener('pointerdown', dismissOnOutsidePointer);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOnOutsidePointer);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, []);
+  const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} /><div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><textarea ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" />{hasExtendedActions ? <details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
   <summary data-testid="origin-add-menu-toggle" aria-label={language === 'ja' ? '追加メニュー' : 'Add menu'} className="inline-flex h-11 min-h-11 w-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full text-2xl leading-none transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">＋</summary>
   <div role="menu" aria-label={language === 'ja' ? '追加機能' : 'Additional tools'} className="origin-add-menu__panel origin-surface absolute bottom-14 right-0 z-50 grid min-w-40 gap-0.5 rounded-xl border border-[var(--border-default)] p-1.5 shadow-xl">
     <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); fileInputRef.current?.click(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? 'ファイルを添付' : 'Attach file'}</button>
@@ -1539,7 +1561,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   <div className="flex items-center gap-2">
     
   <div className="flex items-center gap-2">
-    <div className="flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-glow)]" aria-hidden="true" /><span className="text-base font-extrabold tracking-tight">ORIGIN</span></div><div className="flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2"><KnowledgeMap sessions={sessions} onRestoreSession={onRestoreSession} /><button type="button" onClick={onOpenSettings} aria-label={t.openSettings} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold sm:w-auto sm:px-3"><span aria-hidden="true">⚙️</span><span className="hidden sm:ml-1.5 sm:inline">{t.settings}</span></button>{messages.length > 0 && <button type="button" onClick={resetConversation} aria-label={t.newConversationLabel} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold min-[380px]:w-auto min-[380px]:px-2 sm:px-3"><span aria-hidden="true">＋</span><span className="hidden min-[380px]:ml-1 min-[380px]:inline">{t.newConversation}</span></button>}</div>
+    <div className="flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-glow)]" aria-hidden="true" /><span className="text-base font-extrabold tracking-tight">ORIGIN</span></div><div className="flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2"><KnowledgeMap sessions={sessions} onRestoreSession={onRestoreSession} /><button type="button" onClick={onOpenSettings} aria-label={t.openSettings} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold sm:w-auto sm:px-3"><Settings aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">{t.settings}</span></button>{messages.length > 0 && <button type="button" onClick={resetConversation} aria-label={t.newConversationLabel} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold min-[380px]:w-auto min-[380px]:px-2 sm:px-3"><Plus aria-hidden="true" size={18} strokeWidth={2.1} /><span className="hidden min-[380px]:ml-1 min-[380px]:inline">{t.newConversation}</span></button>}</div>
   </div>
 
   </div>

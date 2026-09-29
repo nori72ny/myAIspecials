@@ -28,7 +28,7 @@ function japaneseGuide(): OriginCapabilityGuide {
 現在できること
 - 会話・分析：相談、比較、意思決定支援、文章、営業台本、メール、SNS投稿、企画を作成
 - Grounded Research：無料の公開Web情報を検索し、取得できた根拠に基づいて調査結果をまとめる
-- 実ファイル生成：Markdown、CSV、PDF、DOCX、XLSX、PPTXを生成し、検証済みダウンロードとして返す
+- 実ファイル生成：Markdown、CSV、PDF、DOCX、XLSX、PPTXを生成し、検証済みダウンロードとして返す。PDFは現時点では英数字中心の内容のみ対応し、日本語など非ASCII文字は文字化けを防ぐため安全停止する
 - Web / App Builder：Landing Page、Dashboard、Web Appの静的プロジェクトZIPを生成・検証する
 - Web公開：認証・保存基盤が利用可能な環境では、確認付きで期限付き静的サイトとして公開できる
 - Agentic Coding：ORIGIN自身の固定Coding対象に対して、認証・暗号化・永続化されたCoding jobを実行し、結果を取得できる
@@ -64,7 +64,7 @@ function englishGuide(): OriginCapabilityGuide {
 What it can do now
 - Conversation and analysis: planning, comparison, decision support, writing, sales scripts, email, social content, and product thinking
 - Grounded Research: search free public-web sources and summarize only retrieved evidence
-- Real artifact generation: create verified Markdown, CSV, PDF, DOCX, XLSX, and PPTX downloads
+- Real artifact generation: create verified Markdown, CSV, PDF, DOCX, XLSX, and PPTX downloads. PDF is currently limited to ASCII text until a verified embedded-Unicode renderer is available; unsupported text fails closed
 - Web / App Builder: generate and verify static Landing Page, Dashboard, and Web App project ZIPs
 - Web publication: in an authenticated configured environment, publish verified static projects as expiring sites after confirmation
 - Agentic Coding: run durable authenticated coding jobs against ORIGIN's fixed server-owned coding target and retrieve persisted results

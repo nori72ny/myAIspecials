@@ -3,20 +3,35 @@ import { useEffect, useState } from 'react';
 export interface SplashScreenProps {
   durationMs?: number;
   visible?: boolean;
+  oncePerSession?: boolean;
 }
 
-export default function SplashScreen({ durationMs = 600, visible = true }: SplashScreenProps) {
-  const [mounted, setMounted] = useState(visible);
+const SESSION_KEY = 'origin_personal_splash_seen_v1';
+
+function shouldShowSplash(visible: boolean, oncePerSession: boolean): boolean {
+  if (!visible) return false;
+  if (!oncePerSession) return true;
+  try {
+    if (window.sessionStorage.getItem(SESSION_KEY) === '1') return false;
+    window.sessionStorage.setItem(SESSION_KEY, '1');
+  } catch {
+    // Storage can be unavailable in privacy-restricted environments; showing the splash is safe.
+  }
+  return true;
+}
+
+export default function SplashScreen({ durationMs = 600, visible = true, oncePerSession = false }: SplashScreenProps) {
+  const [mounted, setMounted] = useState(() => shouldShowSplash(visible, oncePerSession));
 
   useEffect(() => {
     if (!visible) {
       setMounted(false);
       return;
     }
-    setMounted(true);
+    if (!mounted) return;
     const timer = window.setTimeout(() => setMounted(false), Math.max(0, durationMs));
     return () => window.clearTimeout(timer);
-  }, [durationMs, visible]);
+  }, [durationMs, mounted, visible]);
 
   if (!mounted) return null;
 

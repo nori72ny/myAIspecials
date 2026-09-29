@@ -7,12 +7,13 @@ describe('ORIGIN top experience regression boundary', () => {
   const main = readFileSync(resolve(root, 'main.tsx'), 'utf8');
   const topUi = readFileSync(resolve(root, 'origin-top-ui.css'), 'utf8');
 
-  it('locks out the legacy destructive ancestor handler and keeps the settings trigger guarded', () => {
+  it('locks out destructive header behavior and uses the direct React settings action', () => {
     expect(app).not.toContain('window.location.href = "/"');
     expect(app).not.toContain('sessionStorage.clear()');
-    expect(main).toContain("document.addEventListener('click', handleSettingsTrigger, true)");
-    expect(main).toContain('event.stopPropagation()');
-    expect(main).toContain('setIsSettingsOpen(true)');
+    expect(app).toContain('onClick={onOpenSettings}');
+    expect(main).toContain('onOpenSettings={() => setIsSettingsOpen(true)}');
+    expect(main).not.toContain("document.addEventListener('click', handleSettingsTrigger, true)");
+    expect(main).not.toContain('event.stopPropagation()');
   });
 
   it('removes the legacy composer border treatment and preserves a borderless input surface', () => {
@@ -21,9 +22,12 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('border: 0 !important;');
   });
 
-  it('defines a larger flagship ORIGIN mark and responsive typography', () => {
-    expect(topUi).toContain('[data-testid="origin-core-logo"]');
-    expect(topUi).toContain('width: 104px !important;');
-    expect(topUi).toContain('font-size: clamp(2rem, 4.2vw, 3.15rem) !important;');
+  it('locks the current input-first visual hierarchy instead of the superseded oversized mark', () => {
+    expect(topUi).toContain('ORIGIN coherence pass — 2026-09-29');
+    expect(topUi).toContain('min-height: 60px !important;');
+    expect(topUi).toContain('width: 76px !important;');
+    expect(topUi).toContain('width: 58px !important;');
+    expect(topUi).toContain('min-height: 92px !important;');
+    expect(topUi).toContain('font-size: 16px !important;');
   });
 });

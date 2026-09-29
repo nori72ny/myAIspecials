@@ -114,6 +114,14 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         await expect(page.getByRole('heading', { name: surface.heading })).toBeVisible({ timeout: 15_000 });
         await assertSurfaceContract(page, viewport.width);
 
+        if (viewport.width <= 390) {
+          const visibleFormControl = page.locator('textarea:visible, input:visible, select:visible').first();
+          if (await visibleFormControl.count()) {
+            const fontSize = await visibleFormControl.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+            expect(fontSize).toBeGreaterThanOrEqual(16);
+          }
+        }
+
         const main = page.locator('main').first();
         if (await main.count()) {
           const typography = await main.evaluate((element) => {
@@ -152,12 +160,25 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       expect(menuBox).not.toBeNull();
       expect(menuBox!.x).toBeGreaterThanOrEqual(-1);
       expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(viewport.width + 1);
+      if (viewport.width <= 390) expect(menuBox!.height).toBeLessThanOrEqual(322);
       for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '作る']) {
         const item = page.getByRole('menuitem', { name: label, exact: true });
         await expect(item).toBeVisible();
         expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       }
       await add.click();
+      await expect(menu).toBeHidden();
+
+      await add.click();
+      await expect(menu).toBeVisible();
+      await page.locator('main').click({ position: { x: 4, y: 4 } });
+      await expect(menu).toBeHidden();
+
+      await add.click();
+      await expect(menu).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(menu).toBeHidden();
+      await expect(add).toBeFocused();
 
       await page.getByRole('button', { name: '設定を開く', exact: true }).click();
       const settings = page.getByRole('dialog', { name: /設定|Settings/i });

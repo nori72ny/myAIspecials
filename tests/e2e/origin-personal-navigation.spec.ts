@@ -361,6 +361,30 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(attempts).toBe(1);
   });
 
+  test('opening settings never clears or reloads an active conversation', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/chat', route => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '設定を開いても残る回答です。',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('設定操作の回帰テスト');
+    await page.getByTestId('start-request-button').click();
+    const answer = page.getByText('設定を開いても残る回答です。', { exact: true });
+    await expect(answer).toBeVisible();
+
+    const beforeUrl = page.url();
+    await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: /設定|Settings/i })).toBeVisible();
+    await expect(answer).toBeVisible();
+    expect(page.url()).toBe(beforeUrl);
+
+    await page.getByRole('button', { name: '設定を閉じる', exact: true }).click();
+    await expect(answer).toBeVisible();
+    await expect(page.getByRole('button', { name: '新規対話を開始' })).toBeVisible();
+  });
+
   test('keeps the pristine mobile header minimal and reveals New conversation only after use', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
     await page.route('**/api/chat', route => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '確認しました。' }));

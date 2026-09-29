@@ -146,3 +146,166 @@
     grid-template-columns: repeat(4, minmax(44px, 1fr));
   }
 }
+
+
+/* ORIGIN coherence pass — 2026-09-29
+   Keep the product quiet, input-first, touch-safe, and visually consistent across tools. */
+.origin-personal-shell {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.origin-header {
+  min-height: 60px !important;
+  padding-inline: clamp(10px, 2.5vw, 20px) !important;
+}
+.origin-header .origin-secondary-button {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 12px !important;
+}
+.origin-header .origin-secondary-button:hover:not(:disabled),
+.origin-header .origin-secondary-button:focus-visible {
+  background: var(--bg-surface-muted) !important;
+  transform: none !important;
+}
+.origin-composer {
+  min-height: 92px !important;
+  border-radius: 24px !important;
+  padding: 8px !important;
+  box-shadow: 0 12px 34px color-mix(in oklch, var(--shadow-color) 54%, transparent), inset 0 1px 0 color-mix(in oklch, white 58%, transparent) !important;
+}
+.origin-composer:focus-within {
+  box-shadow: 0 14px 40px color-mix(in oklch, var(--shadow-color) 62%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 62%, transparent) !important;
+}
+.origin-composer textarea {
+  min-height: 76px !important;
+  padding: 11px 12px !important;
+  font-size: 16px !important;
+  line-height: 1.6 !important;
+}
+[data-testid="origin-core-logo"] {
+  width: 76px !important;
+  height: 76px !important;
+  margin-bottom: 14px !important;
+}
+[data-testid="origin-core-logo"] .origin-logo-core {
+  width: 58px !important;
+  height: 58px !important;
+  border-radius: 18px !important;
+  font-size: 32px !important;
+  box-shadow: 0 12px 30px color-mix(in oklch, var(--shadow-color) 58%, transparent), inset 0 1px 0 color-mix(in oklch, white 56%, transparent) !important;
+}
+[data-testid="origin-core-logo"] .origin-logo-glow {
+  inset: -4px !important;
+  filter: blur(14px) !important;
+  opacity: .68;
+}
+.origin-add-menu__panel {
+  width: min(20rem, calc(100vw - 2rem));
+}
+.origin-personal-shell > section[aria-label="Workspace tool header"] {
+  min-height: 58px;
+  background: color-mix(in oklch, var(--bg-primary) 88%, transparent) !important;
+  border-color: var(--border-default) !important;
+  backdrop-filter: blur(14px);
+}
+.origin-personal-shell :is(
+  [aria-label="Research Workspace"],
+  [aria-label="Agent Workspace"],
+  [aria-label="Coding Job Workspace"],
+  [aria-label="Creative workspace"]
+) {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+.origin-personal-shell .origin-workspace {
+  border: 1px solid var(--border-default) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 6px 20px color-mix(in oklch, var(--shadow-color) 28%, transparent);
+}
+@media (max-width: 639px) {
+  .origin-header {
+    min-height: 58px !important;
+    padding-inline: 10px !important;
+  }
+  .origin-header > div,
+  .origin-header > div > div {
+    gap: 4px !important;
+  }
+  .origin-header .origin-secondary-button {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    padding-inline: 0 !important;
+  }
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
+    padding-top: 20px !important;
+    padding-inline: 0 !important;
+  }
+  [data-testid="origin-core-logo"] {
+    width: 64px !important;
+    height: 64px !important;
+    margin-bottom: 10px !important;
+  }
+  [data-testid="origin-core-logo"] .origin-logo-core {
+    width: 50px !important;
+    height: 50px !important;
+    border-radius: 16px !important;
+    font-size: 28px !important;
+  }
+  .origin-composer {
+    min-height: 92px !important;
+    border-radius: 22px !important;
+    padding: 7px !important;
+  }
+  .origin-composer textarea {
+    min-height: 78px !important;
+    padding: 12px 10px !important;
+    font-size: 16px !important;
+    line-height: 1.55 !important;
+  }
+  .origin-add-menu[open]::before {
+    background: rgba(15, 23, 42, 0.12) !important;
+    backdrop-filter: blur(1px) !important;
+  }
+  .origin-add-menu__panel {
+    left: max(16px, calc((100vw - 360px) / 2)) !important;
+    right: max(16px, calc((100vw - 360px) / 2)) !important;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;
+    width: auto !important;
+    max-height: min(46dvh, 320px) !important;
+    padding: 6px !important;
+    border-radius: 16px !important;
+    gap: 2px !important;
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18) !important;
+  }
+  .origin-add-menu__panel > button {
+    min-height: 44px !important;
+    border-radius: 10px !important;
+    padding: 9px 12px !important;
+    font-size: 14px !important;
+  }
+  [data-testid="history-drawer"] {
+    position: fixed !important;
+    top: 70px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    max-height: calc(100dvh - 92px) !important;
+    overflow-y: auto !important;
+    border-radius: 16px !important;
+  }
+  .origin-personal-shell :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    font-size: 16px !important;
+  }
+  .origin-personal-shell :is(
+    [aria-label="Research Workspace"],
+    [aria-label="Agent Workspace"],
+    [aria-label="Coding Job Workspace"],
+    [aria-label="Creative workspace"]
+  ) {
+    padding: 12px !important;
+  }
+}

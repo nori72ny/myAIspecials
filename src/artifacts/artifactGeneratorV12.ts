@@ -35,15 +35,30 @@ function makeCsv(rows: ArtifactRequest['rows'], content: string): Buffer {
 
 function pdfEscape(value: string): string { return value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/[^\x20-\x7E]/g, '?'); }
 function makePdf(title: string, content: string): Buffer {
-  const lines = [title, '', ...content.split(/\r?\n/)].slice(0, 46).map(line => pdfEscape(line.slice(0, 100)));
-  const commands = ['BT', '/F1 12 Tf', '50 790 Td', ...lines.flatMap((line, index) => index === 0 ? [`(${line}) Tj`] : ['0 -16 Td', `(${line}) Tj`]), 'ET'].join('\n');
+  // Courier has a fixed 600-unit advance: 82 columns at 10pt fit inside
+  // the 495pt A4 content width. Wrap and paginate; never discard input lines.
+  const lines = [title, '', ...content.split(/\r\n|\r|\n/)].flatMap(line => {
+    const expanded = line.replace(/\t/g, '    ');
+    return expanded.match(/.{1,82}/g) || [''];
+  });
+  const pages: string[][] = [];
+  for (let offset = 0; offset < lines.length; offset += 48) pages.push(lines.slice(offset, offset + 48));
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
-    `<< /Length ${Buffer.byteLength(commands)} >>\nstream\n${commands}\nendstream`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Type /Pages /Kids [${pages.map((_, index) => `${4 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>',
   ];
+  pages.forEach((page, index) => {
+    const commands = [
+      'BT', '/F1 10 Tf', '50 790 Td',
+      ...page.flatMap((line, lineIndex) => lineIndex === 0 ? [`(${pdfEscape(line)}) Tj`] : ['0 -15 Td', `(${pdfEscape(line)}) Tj`]),
+      'ET', 'BT', '/F1 9 Tf', '50 32 Td', `(${index + 1} / ${pages.length}) Tj`, 'ET',
+    ].join('\n');
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + index * 2} 0 R >>`,
+      `<< /Length ${Buffer.byteLength(commands)} >>\nstream\n${commands}\nendstream`,
+    );
+  });
   let body = '%PDF-1.4\n';
   const offsets: number[] = [0];
   objects.forEach((obj, index) => { offsets[index + 1] = Buffer.byteLength(body); body += `${index + 1} 0 obj\n${obj}\nendobj\n`; });
@@ -54,12 +69,33 @@ function makePdf(title: string, content: string): Buffer {
   return Buffer.from(body, 'binary');
 }
 
+function docxParagraph(text: string, style?: "Title" | "Heading1" | "Heading2"): string {
+  const styleXml = style ? `<w:pPr><w:pStyle w:val="${style}"/></w:pPr>` : '<w:pPr><w:spacing w:after="120" w:line="300" w:lineRule="auto"/></w:pPr>';
+  return `<w:p>${styleXml}<w:r><w:t xml:space="preserve">${xml(text)}</w:t></w:r></w:p>`;
+}
+
 function makeDocx(title: string, content: string): Buffer {
-  const paragraphs = [title, ...content.split(/\r?\n/)].map(text => `<w:p><w:r><w:t xml:space="preserve">${xml(text)}</w:t></w:r></w:p>`).join('');
+  const body = [
+    docxParagraph(title, 'Title'),
+    ...content.split(/\r?\n/).map((line) => {
+      const heading2 = line.match(/^##\s+(.+)/);
+      if (heading2) return docxParagraph(heading2[1], 'Heading2');
+      const heading1 = line.match(/^#\s+(.+)/);
+      if (heading1) return docxParagraph(heading1[1], 'Heading1');
+      return docxParagraph(line);
+    }),
+  ].join('');
+  const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>';
+  const rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>';
+  const documentRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
+  const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/><w:lang w:val="ja-JP" w:eastAsia="ja-JP"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="300" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:spacing w:after="360"/></w:pPr><w:rPr><w:b/><w:sz w:val="38"/><w:szCs w:val="38"/><w:color w:val="17324D"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:spacing w:before="280" w:after="140"/></w:pPr><w:rPr><w:b/><w:sz w:val="30"/><w:szCs w:val="30"/><w:color w:val="0F6CBD"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:spacing w:before="220" w:after="100"/></w:pPr><w:rPr><w:b/><w:sz w:val="26"/><w:szCs w:val="26"/><w:color w:val="334155"/></w:rPr></w:style></w:styles>';
+  const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1276" w:bottom="1134" w:left="1276"/></w:sectPr></w:body></w:document>`;
   return zipStore([
-    { name: '[Content_Types].xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>') },
-    { name: '_rels/.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>') },
-    { name: 'word/document.xml', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraphs}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`) },
+    { name: '[Content_Types].xml', data: Buffer.from(contentTypes) },
+    { name: '_rels/.rels', data: Buffer.from(rootRels) },
+    { name: 'word/document.xml', data: Buffer.from(document) },
+    { name: 'word/_rels/document.xml.rels', data: Buffer.from(documentRels) },
+    { name: 'word/styles.xml', data: Buffer.from(styles) },
   ]);
 }
 
@@ -68,15 +104,37 @@ function columnName(index: number): string {
   while (value > 0) { const rem = (value - 1) % 26; out = String.fromCharCode(65 + rem) + out; value = Math.floor((value - 1) / 26); }
   return out;
 }
+function xlsxCellXml(value: string | number | boolean | null, ref: string, styleId = 0): string {
+  const style = styleId > 0 ? ` s="${styleId}"` : '';
+  if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"${style}><v>${value}</v></c>`;
+  if (typeof value === 'boolean') return `<c r="${ref}" t="b"${style}><v>${value ? 1 : 0}</v></c>`;
+  return `<c r="${ref}" t="inlineStr"${style}><is><t xml:space="preserve">${xml(value ?? '')}</t></is></c>`;
+}
+function spreadsheetVisualWidth(value: unknown): number {
+  return [...String(value ?? '')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0);
+}
 function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
   const table = rows?.length ? rows : content.split(/\r?\n/).filter(Boolean).map(line => [line]);
-  const rowXml = table.map((row, r) => `<row r="${r + 1}">${row.map((value, c) => `<c r="${columnName(c)}${r + 1}" t="inlineStr"><is><t>${xml(value)}</t></is></c>`).join('')}</row>`).join('');
+  const columnCount = Math.max(1, ...table.map(row => row.length));
+  const widths = Array.from({ length: columnCount }, (_, column) => {
+    const max = Math.max(8, ...table.map(row => spreadsheetVisualWidth(row[column])));
+    return Math.min(42, Math.max(10, max + 3));
+  });
+  const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('');
+  const rowXml = table.map((row, r) => {
+    const styleId = r === 0 ? 1 : (r % 2 === 0 ? 2 : 0);
+    return `<row r="${r + 1}" ht="${r === 0 ? 24 : 21}" customHeight="1">${row.map((value, col) => xlsxCellXml(value, `${columnName(col)}${r + 1}`, styleId)).join('')}</row>`;
+  }).join('');
+  const lastColumn = columnName(columnCount - 1);
+  const filter = table.length > 1 ? `<autoFilter ref="A1:${lastColumn}${table.length}"/>` : '';
+  const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><color theme="1"/><name val="Aptos"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Aptos"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0F6CBD"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF4F7FB"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF0A4F8A"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
   return zipStore([
-    { name: '[Content_Types].xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>') },
+    { name: '[Content_Types].xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>') },
     { name: '_rels/.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') },
-    { name: 'xl/workbook.xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>') },
-    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>') },
-    { name: 'xl/worksheets/sheet1.xml', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rowXml}</sheetData></worksheet>`) },
+    { name: 'xl/workbook.xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="ORIGIN" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>') },
+    { name: 'xl/styles.xml', data: Buffer.from(styles) },
+    { name: 'xl/worksheets/sheet1.xml', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${rowXml}</sheetData>${filter}</worksheet>`) },
   ]);
 }
 
@@ -86,8 +144,19 @@ const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationsh
 const PKG_REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 
 function pptTextBox(id: number, name: string, text: string, x: number, y: number, cx: number, cy: number, title = false): string {
-  const paragraphs = (text.split(/\r?\n/).slice(0, title ? 1 : 28).length ? text.split(/\r?\n/).slice(0, title ? 1 : 28) : ['']).map(line => `<a:p><a:r><a:rPr lang="ja-JP" sz="${title ? 2800 : 1800}"${title ? ' b="1"' : ''}/><a:t>${xml(line.slice(0, title ? 160 : 500))}</a:t></a:r><a:endParaRPr lang="ja-JP"/></a:p>`).join('');
-  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${xml(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr wrap="square"/><a:lstStyle/>${paragraphs}</p:txBody></p:sp>`;
+  const lines = text.split(/\r?\n/).slice(0, title ? 1 : 20);
+  const safeLines = lines.length ? lines : [''];
+  const size = title ? 3200 : 1800;
+  const color = title ? '17324D' : '334155';
+  const paragraphs = safeLines.map((line) => {
+    const normalized = title ? line : line.replace(/^\s*[-•]\s*/, '• ');
+    return `<a:p><a:pPr><a:spcAft><a:spcPts val="${title ? 0 : 700}"/></a:spcAft></a:pPr><a:r><a:rPr lang="ja-JP" sz="${size}"${title ? ' b="1"' : ''}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${xml(normalized.slice(0, title ? 120 : 420))}</a:t></a:r><a:endParaRPr lang="ja-JP" sz="${size}"/></a:p>`;
+  }).join('');
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${xml(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr wrap="square" lIns="0" rIns="0" tIns="0" bIns="0"/><a:lstStyle/>${paragraphs}</p:txBody></p:sp>`;
+}
+function pptRect(id: number, name: string, x: number, y: number, cx: number, cy: number, fill: string, line?: string): string {
+  const lineXml = line ? `<a:ln w="12700"><a:solidFill><a:srgbClr val="${line}"/></a:solidFill></a:ln>` : '<a:ln><a:noFill/></a:ln>';
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${xml(name)}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>${lineXml}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>`;
 }
 
 function makePptx(title: string, content: string, requestedSlides: ArtifactRequest['slides']): Buffer {
@@ -120,7 +189,7 @@ function makePptx(title: string, content: string, requestedSlides: ArtifactReque
     { name: 'docProps/app.xml', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>ORIGIN</Application><Slides>${slides.length}</Slides></Properties>`) },
   ];
   slides.forEach((slide, index) => {
-    const slideXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="${DRAW_NS}" xmlns:r="${REL_NS}" xmlns:p="${PPT_NS}"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${pptTextBox(2, 'Title', slide.title, 685800, 457200, 10820400, 914400, true)}${pptTextBox(3, 'Content', slide.content, 685800, 1600200, 10820400, 4572000)}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+    const slideXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="${DRAW_NS}" xmlns:r="${REL_NS}" xmlns:p="${PPT_NS}"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${pptRect(2, 'Background', 0, 0, 12192000, 6858000, 'F7FAFC')}${pptRect(3, 'Accent', 0, 0, 152400, 6858000, '0F6CBD')}${pptTextBox(4, 'Title', slide.title, 762000, 520000, 10400000, 900000, true)}${pptRect(5, 'ContentCard', 762000, 1550000, 10300000, 4300000, 'FFFFFF', 'E2E8F0')}${pptTextBox(6, 'Content', slide.content, 1120000, 1900000, 9600000, 3600000)}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
     const slideRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PKG_REL_NS}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`;
     entries.push({ name: `ppt/slides/slide${index + 1}.xml`, data: Buffer.from(slideXml) });
     entries.push({ name: `ppt/slides/_rels/slide${index + 1}.xml.rels`, data: Buffer.from(slideRels) });
@@ -129,13 +198,19 @@ function makePptx(title: string, content: string, requestedSlides: ArtifactReque
 }
 
 export function generateArtifactV12(input: ArtifactRequest): GeneratedArtifact {
+  if (input.rows?.some(row => row.some(value => typeof value === 'number' && !Number.isFinite(value)))) {
+    throw new Error('INVALID_ARTIFACT_ROWS');
+  }
   const title = String(input.title || 'ORIGIN Artifact').slice(0, 200);
   const content = String(input.content || '').slice(0, 120000);
   const stem = safeName(input.title, 'origin-artifact');
   let bytes: Buffer, ext: string, mimeType: string;
   if (input.type === 'markdown') { bytes = Buffer.from(`# ${title}\n\n${content}\n`, 'utf8'); ext = 'md'; mimeType = 'text/markdown; charset=utf-8'; }
   else if (input.type === 'csv') { bytes = makeCsv(input.rows, content); ext = 'csv'; mimeType = 'text/csv; charset=utf-8'; }
-  else if (input.type === 'pdf') { bytes = makePdf(title, content); ext = 'pdf'; mimeType = 'application/pdf'; }
+  else if (input.type === 'pdf') {
+    if (/[^\x09\x0A\x0D\x20-\x7E]/.test(`${title}\n${content}`)) throw new Error('PDF_UNICODE_RENDERING_UNAVAILABLE');
+    bytes = makePdf(title, content); ext = 'pdf'; mimeType = 'application/pdf';
+  }
   else if (input.type === 'docx') { bytes = makeDocx(title, content); ext = 'docx'; mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; }
   else if (input.type === 'xlsx') { bytes = makeXlsx(input.rows, content); ext = 'xlsx'; mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; }
   else if (input.type === 'pptx') { bytes = makePptx(title, content, input.slides); ext = 'pptx'; mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'; }

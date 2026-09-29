@@ -4,7 +4,10 @@ import { artifactSelfTestV12, generateArtifactV12, type ArtifactRequest, type Ar
 
 const TYPES: readonly ArtifactType[] = ['markdown', 'csv', 'pdf', 'docx', 'xlsx', 'pptx'];
 const isType = (value: unknown): value is ArtifactType => typeof value === 'string' && TYPES.includes(value as ArtifactType);
-const isCell = (value: unknown): value is string | number | boolean | null => value === null || ['string', 'number', 'boolean'].includes(typeof value);
+const isCell = (value: unknown): value is string | number | boolean | null => value === null
+  || typeof value === 'string'
+  || typeof value === 'boolean'
+  || (typeof value === 'number' && Number.isFinite(value));
 
 export function createArtifactV12Router() {
   const router = Router();
@@ -18,6 +21,7 @@ export function createArtifactV12Router() {
       capability: 'real-artifact-generation',
       formats: TYPES,
       generatorSelfTest: selfTest.formats,
+      formatLimitations: { pdf: 'ASCII text only until a verified embedded-Unicode renderer is available; unsupported text fails closed.' },
       delivery: 'verified-download',
       persistence: 'client-save-only',
       freeOnly: true,
@@ -56,13 +60,25 @@ export function createArtifactV12Router() {
       if (!artifact.verified) return res.status(422).json({ ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', artifact.mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${artifact.filename.replace(/"/g, '')}"`);
+      const fallback = artifact.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const encoded = encodeURIComponent(artifact.filename).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+      res.setHeader('Content-Disposition', `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`);
       res.setHeader('X-Origin-Artifact-Sha256', artifact.sha256);
       res.setHeader('X-Origin-Artifact-Verified', 'true');
       res.setHeader('X-Origin-Free-Only', 'true');
       res.setHeader('X-Origin-Cost-Usd', '0');
       return res.status(200).send(artifact.bytes);
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === 'PDF_UNICODE_RENDERING_UNAVAILABLE') {
+        return res.status(422).json({
+          ok: false,
+          code: 'PDF_UNICODE_RENDERING_UNAVAILABLE',
+          message: 'ORIGIN stopped instead of generating a PDF that could corrupt non-ASCII text.',
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+        });
+      }
       return res.status(422).json({ ok: false, code: 'ARTIFACT_GENERATION_FAILED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     }
   });

@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import type { ConversationMessage, ConversationSession } from './App';
 import SettingsModal from './components/SettingsModal';
 import SettingsErrorBoundary from './components/SettingsErrorBoundary';
 import SplashScreen from './components/SplashScreen';
@@ -23,8 +24,6 @@ const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';
 const SESSION_STORAGE_KEY = 'origin_personal_sessions';
 
-type ConversationMessage = { id: string; role: 'user' | 'assistant'; content: string; deliveryState?: 'verified' | 'error'; image?: { url?: string; assetId: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; downloadName: string; sha256: string; providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free'; model: string; generationId: string; visualBrainVersion: 'visual-brain-v1'; planVersion: 'raster-visual-plan-v1'; planSha256: string; purpose: string; typographyOverlay: boolean; sourceCriticVersion: 'raster-structural-critic-v1'; sourceQualityScore: number; technicalCriticVersion: 'raster-technical-critic-v1'; technicalQualityScore: number; prompt?: string; width: number; height: number; relation: 'generated' | 'variation' | 'edited-from'; parentId?: string } };
-type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' | 'restore' };
 type PersistedArtifact = { id: string; type: 'code' | 'markdown' | 'mermaid' | 'html'; title: string; language: string; content: string; isComplete: boolean; revision?: number; revisions?: readonly ArtifactRevision[] };
 type StorageHealth = 'ready' | Exclude<OriginStorageWriteResult, 'saved'>;
@@ -81,7 +80,9 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
         && Number.isInteger(sourceImage.technicalQualityScore)
         && sourceImage.technicalQualityScore >= 0
         && sourceImage.technicalQualityScore <= 100;
-      if (validMime && validAsset && sourceImage.providerId === 'pollinations-zero-cost'
+      const validProvider = sourceImage.providerId === 'pollinations-zero-cost'
+        || sourceImage.providerId === 'cloudflare-workers-ai-free';
+      if (validMime && validAsset && validProvider
         && typeof sourceImage.model === 'string' && sourceImage.model.length > 0 && sourceImage.model.length <= 180
         && typeof sourceImage.downloadName === 'string' && /^[^\\/\u0000-\u001f\u007f]{1,180}\.(?:png|jpe?g|webp)$/i.test(sourceImage.downloadName)
         && validGeneration && validDimensions && validRelation && validParent && validPrompt && validVisualProvenance) {
@@ -90,7 +91,7 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
           mimeType: sourceImage.mimeType!,
           downloadName: sourceImage.downloadName!,
           sha256: sourceImage.sha256!.toLowerCase(),
-          providerId: 'pollinations-zero-cost',
+          providerId: sourceImage.providerId!,
           model: sourceImage.model!,
           generationId: sourceImage.generationId!,
           visualBrainVersion: 'visual-brain-v1',
@@ -188,24 +189,6 @@ function PersonalReleaseRoot() {
   useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { if (!dirtyDuringHydration.current.messages) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } } if (!dirtyDuringHydration.current.sessions) setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
   useEffect(() => { if (!isHydrated || storageReadFailed) return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
 
-  /* The legacy App header contains an accidental ancestor click handler that clears local state and reloads /.
-     Capture the settings trigger before React's delegated click handler so Settings is deterministic on touch and desktop. */
-  useEffect(() => {
-    const handleSettingsTrigger = (event: MouseEvent) => {
-      const target = event.target instanceof Element ? event.target.closest('button') : null;
-      if (!target) return;
-      const label = target.getAttribute('aria-label') ?? '';
-      const text = target.textContent?.trim() ?? '';
-      if (label !== t.openSettings && !text.includes(t.settings)) return;
-      if (!target.closest('.origin-header')) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setIsSettingsOpen(true);
-    };
-    document.addEventListener('click', handleSettingsTrigger, true);
-    return () => document.removeEventListener('click', handleSettingsTrigger, true);
-  }, [t.openSettings, t.settings]);
-
   const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション'; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };
   const exportHistory = () => { const payload = JSON.stringify({ version: HISTORY_EXPORT_VERSION, exportedAt: new Date().toISOString(), messages: persistableConversationMessages(messages) }, null, 2); const anchor = document.createElement('a'); const url = URL.createObjectURL(new Blob([payload], { type: 'application/json;charset=utf-8' })); anchor.href = url; anchor.download = `origin-personal-history-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); };
   const importHistory = async (file: File) => { if (file.size > 1_500_000) throw new Error(t.historyImportFailed); try { dirtyDuringHydration.current.messages = true; setMessages(parseImportedHistory(JSON.parse(await file.text()))); } catch { throw new Error(t.historyImportFailed); } };
@@ -213,7 +196,7 @@ function PersonalReleaseRoot() {
 
   return <>
     <FocusModeController />
-    <SplashScreen />
+    <SplashScreen durationMs={420} oncePerSession />
     <UniversalMasterEnginePanel onContextReady={(context) => { setKnowledgeContext(context); window.dispatchEvent(new CustomEvent('origin:knowledge-context', { detail: { context } })); }} />
     {knowledgeContext && <p role="status" className="sr-only">ナレッジグラフからチャット文脈を選択しました。</p>}
     <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => { const next = session.messages.map((message) => ({ ...message })); dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onMessagesChange={(next) => { dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onArtifactsChange={(next) => { dirtyDuringHydration.current.artifacts = true; setArtifacts(next); }} resetSignal={resetSignal} />

@@ -28,7 +28,7 @@ vi.mock('./creative/rasterTechnicalCriticV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -119,6 +119,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       within(document.querySelector('.origin-composer') as HTMLElement).getByRole('button', { name: 'ファイルを添付' }),
       screen.getByTestId('start-request-button'),
     ];
+
+    const historyControl = screen.getByTestId('history-drawer-toggle');
+    const settingsControl = screen.getByRole('button', { name: '設定を開く' });
+    expect(historyControl.querySelector('svg.lucide-menu')).toBeTruthy();
+    expect(settingsControl.querySelector('svg.lucide-settings')).toBeTruthy();
+    expect(historyControl.textContent).not.toContain('☰');
+    expect(settingsControl.textContent).not.toContain('⚙');
 
     for (const control of controls) {
       expect(control.className).toMatch(/\b(?:min-h-11|h-11)\b/);
@@ -437,6 +444,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('artifact-visual-diff-toggle'));
     expect(screen.getByTestId('artifact-visual-diff-summary').textContent).toContain('HTML要素');
     expect(screen.getByTestId('artifact-visual-diff').textContent).toContain('New');
+    const removedBadge = screen.getByTestId('artifact-diff-removed-count');
+    expect(removedBadge.className).toContain('bg-red-500/15');
+    expect(removedBadge.className).not.toContain('w-full');
+    expect(removedBadge.className).not.toContain('shadow-lg');
     fireEvent.click(screen.getByTestId('artifact-action-details'));
     fireEvent.click(screen.getByTestId('artifact-restore-previous'));
     expect(revisions).toHaveLength(1);
@@ -587,7 +598,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'X-Origin-Visual-Verified': 'true',
           'X-Origin-Visual-Sha256': sha,
           'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
-          'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+          'X-Origin-Visual-Model': '@cf/black-forest-labs/flux-2-klein-4b',
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
           'X-Origin-Visual-Brain': 'visual-brain-v1',
           'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
@@ -650,7 +661,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'X-Origin-Visual-Verified': 'true',
           'X-Origin-Visual-Sha256': sha,
           'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
-          'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+          'X-Origin-Visual-Model': '@cf/black-forest-labs/flux-2-klein-4b',
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
           'X-Origin-Visual-Brain': 'visual-brain-v1',
           'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
@@ -679,16 +690,22 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const originalCreateObjectURL = URL.createObjectURL;
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:origin-generated-image') });
 
-    render(<App language="ja" />);
+    const onMessagesChange = vi.fn();
+    render(<App language="ja" onMessagesChange={onMessagesChange} />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '夕焼けの海の画像を作ってください' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
     await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
     expect(screen.getByText('画像を生成し、実ファイルを検証しました。')).toBeTruthy();
     expect(screen.getByRole('link', { name: '画像を保存' }).getAttribute('download')).toBe('origin-image.png');
-    expect(screen.getByText(/stable-diffusion-xl-base-1\.0/)).toBeTruthy();
+    expect(screen.getByText(/flux-2-klein-4b/)).toBeTruthy();
     expect(screen.getByText(/photograph/)).toBeTruthy();
     expect(screen.getByText(/1024×1024/)).toBeTruthy();
+    await waitFor(() => {
+      const emitted = onMessagesChange.mock.calls.flatMap((call) => call[0] as ConversationMessage[]);
+      const generated = emitted.find((message) => message.image?.sha256 === sha);
+      expect(generated?.image?.providerId).toBe('cloudflare-workers-ai-free');
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body).toMatchObject({ prompt: '夕焼けの海の画像を作ってください', width: 1024, height: 1024 });
@@ -722,7 +739,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
         'X-Origin-Visual-Verified': 'true',
         'X-Origin-Visual-Sha256': sha,
         'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
-        'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+        'X-Origin-Visual-Model': '@cf/black-forest-labs/flux-2-klein-4b',
         'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
         'X-Origin-Visual-Brain': 'visual-brain-v1',
         'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
@@ -821,7 +838,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'X-Origin-Visual-Verified': 'true',
           'X-Origin-Visual-Sha256': sha,
           'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
-          'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+          'X-Origin-Visual-Model': '@cf/black-forest-labs/flux-2-klein-4b',
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
           'X-Origin-Visual-Brain': 'visual-brain-v1',
           'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
@@ -869,7 +886,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
         'X-Origin-Visual-Verified': 'true',
         'X-Origin-Visual-Sha256': sha,
         'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
-        'X-Origin-Visual-Model': '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+        'X-Origin-Visual-Model': '@cf/black-forest-labs/flux-2-klein-4b',
         'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
         'X-Origin-Visual-Brain': 'visual-brain-v1',
         'X-Origin-Visual-Plan': 'raster-visual-plan-v1',

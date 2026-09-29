@@ -12,6 +12,16 @@ function app() {
 }
 
 describe('V1.2 real artifacts', () => {
+  it.each(['markdown', 'csv', 'docx', 'xlsx', 'pptx'] as const)('delivers %s with a Japanese download filename', async (type) => {
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type, title: '営業資料', content: '売上の確認' });
+    expect(response.status).toBe(200);
+    const disposition = response.headers['content-disposition'];
+    expect(disposition).toMatch(/^[\x20-\x7e]+$/);
+    const encoded = disposition.split("filename*=UTF-8''")[1];
+    expect(decodeURIComponent(encoded)).toBe(`営業資料.${type === 'markdown' ? 'md' : type}`);
+    expect(response.headers['x-origin-artifact-verified']).toBe('true');
+  });
+
   it('generates verified markdown, csv, pdf, docx, xlsx and pptx bytes', () => {
     const inputs = [
       { type: 'markdown' as const, title: 'Report', content: 'Hello' },
@@ -37,6 +47,111 @@ describe('V1.2 real artifacts', () => {
     expect(pptx.bytes.includes(Buffer.from('ppt/presentation.xml'))).toBe(true);
     expect(pptx.bytes.includes(Buffer.from('ppt/slides/slide2.xml'))).toBe(true);
     expect(pptx.mimeType).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation');
+  });
+
+  it('preserves Japanese text in DOCX, XLSX, and PPTX package content', () => {
+    const docx = generateArtifactV12({ type: 'docx', title: '日本語資料', content: '売上レポート\n前年比を確認' });
+    expect(docx.bytes.includes(Buffer.from('売上レポート', 'utf8'))).toBe(true);
+
+    const xlsx = generateArtifactV12({ type: 'xlsx', title: '売上表', rows: [['商品', '数量'], ['商品A', 10]] });
+    expect(xlsx.bytes.includes(Buffer.from('商品A', 'utf8'))).toBe(true);
+    expect(xlsx.bytes.includes(Buffer.from('<c r="B2"><v>10</v></c>'))).toBe(true);
+
+    const pptx = generateArtifactV12({
+      type: 'pptx',
+      title: '営業提案',
+      slides: [{ title: '結論', content: '売上向上の施策です。' }],
+    });
+    expect(pptx.bytes.includes(Buffer.from('結論', 'utf8'))).toBe(true);
+    expect(pptx.bytes.includes(Buffer.from('売上向上の施策です。', 'utf8'))).toBe(true);
+  });
+
+  it('adds professional default styling to DOCX, XLSX, and PPTX artifacts', () => {
+    const docx = generateArtifactV12({
+      type: 'docx',
+      title: '営業提案',
+      content: '# 課題\n本文\n## 次のアクション\n実行内容',
+    });
+    const docxBody = docx.bytes.toString('utf8');
+    expect(docxBody).toContain('word/styles.xml');
+    expect(docxBody).toContain('w:styleId="Title"');
+    expect(docxBody).toContain('w:styleId="Heading1"');
+    expect(docxBody).toContain('w:styleId="Heading2"');
+
+    const xlsx = generateArtifactV12({
+      type: 'xlsx',
+      title: '売上管理',
+      rows: [['商品', '売上', '達成'], ['A', 120000, true], ['B', 95000, false]],
+    });
+    const xlsxBody = xlsx.bytes.toString('utf8');
+    expect(xlsxBody).toContain('xl/styles.xml');
+    expect(xlsxBody).toContain('state="frozen"');
+    expect(xlsxBody).toContain('<autoFilter ref="A1:C3"/>');
+    expect(xlsxBody).toContain('fgColor rgb="FF0F6CBD"');
+
+    const pptx = generateArtifactV12({
+      type: 'pptx',
+      title: '経営会議',
+      slides: [{ title: '結論', content: '- 売上を伸ばす\n- 継続率を改善する' }],
+    });
+    const pptxBody = pptx.bytes.toString('utf8');
+    expect(pptxBody).toContain('name="Background"');
+    expect(pptxBody).toContain('name="Accent"');
+    expect(pptxBody).toContain('name="ContentCard"');
+    expect(pptxBody).toContain('0F6CBD');
+    expect(pptxBody).toContain('• 売上を伸ばす');
+  });
+
+  it('preserves numeric and boolean XLSX cell types instead of stringifying every value', () => {
+    const artifact = generateArtifactV12({
+      type: 'xlsx',
+      title: 'Typed data',
+      rows: [['Metric', 'Value', 'Enabled'], ['Sales', 42.5, true]],
+    });
+    const body = artifact.bytes.toString('utf8');
+    expect(body).toContain('<c r="B2"><v>42.5</v></c>');
+    expect(body).toContain('<c r="C2" t="b"><v>1</v></c>');
+    expect(body).toContain('<c r="A2" t="inlineStr"><is><t xml:space="preserve">Sales</t></is></c>');
+  });
+
+  it('fails closed rather than replacing Japanese PDF text with question marks', async () => {
+    expect(() => generateArtifactV12({ type: 'pdf', title: '日本語', content: '営業資料' })).toThrow('PDF_UNICODE_RENDERING_UNAVAILABLE');
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'pdf', title: '日本語', content: '営業資料' });
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe('PDF_UNICODE_RENDERING_UNAVAILABLE');
+    expect(response.body.freeOnly).toBe(true);
+    expect(response.body.costUsd).toBe(0);
+  });
+
+  it('wraps and paginates PDF text without losing long lines or the end of the document', () => {
+    const content = ['W'.repeat(210), ...Array.from({ length: 110 }, (_, i) => `Record ${i + 1}`), 'FINAL RECORD'].join('\n');
+    const body = generateArtifactV12({ type: 'pdf', title: 'Report', content }).bytes.toString('ascii');
+    expect(body).toContain('/Count 3');
+    expect(body).toContain('(FINAL RECORD) Tj');
+    const streams = [...body.matchAll(/stream\n([\s\S]*?)\nendstream/g)];
+    const textLines = streams.flatMap(([, stream]) => {
+      const text = stream.split('\nET')[0]; // Exclude page-number footer.
+      return [...text.matchAll(/\(([^()]*)\) Tj/g)].map(match => match[1]);
+    });
+    expect(textLines.every(line => line.length <= 82)).toBe(true);
+    expect(textLines.join('')).toBe(`Report${content.replaceAll('\n', '')}`);
+    const offsets = body.split('xref\n')[1].split('\n').slice(2, -1);
+    offsets.forEach((entry, index) => {
+      if (!/^\d{10} 00000 n/.test(entry)) return;
+      expect(body.slice(Number(entry.slice(0, 10)))).toMatch(new RegExp(`^${index + 1} 0 obj`));
+    });
+  });
+
+  it('preserves printable PDF escapes and normalizes tabs and CR line breaks', () => {
+    const body = generateArtifactV12({ type: 'pdf', content: 'a\tb\rc(d)\\e' }).bytes.toString('ascii');
+    expect(body).toContain('(a    b) Tj');
+    expect(body).toContain('(c\\(d\\)\\\\e) Tj');
+    expect(body).not.toContain('?');
+  });
+
+  it('rejects non-finite spreadsheet values before artifact bytes are produced', () => {
+    expect(() => generateArtifactV12({ type: 'xlsx', rows: [['x', Number.POSITIVE_INFINITY]] })).toThrow('INVALID_ARTIFACT_ROWS');
+    expect(() => generateArtifactV12({ type: 'xlsx', rows: [['x', Number.NaN]] })).toThrow('INVALID_ARTIFACT_ROWS');
   });
 
   it('passes the bounded runtime generator self-test for every format', () => {
