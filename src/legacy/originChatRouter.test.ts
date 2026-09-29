@@ -266,7 +266,7 @@ describe("createOriginChatRouter", () => {
       researchMock,
       synthesisMock,
     )).post("/api/chat").send({
-      messages: [{ role: "user", content: "現在の料金を比較調査して提案書にまとめてください" }],
+      messages: [{ role: "user", content: "現在の料金を比較調査して、比較表と提案書にまとめてください" }],
     });
 
     expect(response.status).toBe(200);
