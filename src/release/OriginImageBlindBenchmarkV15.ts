@@ -55,6 +55,8 @@ export type ImageBenchmarkOutputV15 = {
   blindKey: string;
   systemId: string;
   role: 'origin' | 'reference';
+  executionStatus: 'completed' | 'blocked' | 'failed' | 'quota-limited';
+  durationMs: number;
   imageSha256: string;
   technical: ImageTechnicalEvidenceV15;
 };
@@ -82,6 +84,9 @@ export type OriginImageBlindBenchmarkInputV15 = {
   candidateSha: string;
   evaluatorSha: string;
   corpusSha256: string;
+  originSystemId: string;
+  referenceSystemIds: readonly string[];
+  executionBudgetMs: number;
   roundId: string;
   createdAt: string;
   expiresAt: string;
@@ -243,6 +248,12 @@ export function evaluateOriginImageBlindBenchmarkV15(
     || !FULL_SHA.test(input.candidateSha)
     || !FULL_SHA.test(input.evaluatorSha)
     || !DIGEST.test(input.corpusSha256)
+    || !input.originSystemId.trim()
+    || unique(input.referenceSystemIds.filter(Boolean)).length !== REQUIRED_REFERENCES
+    || input.referenceSystemIds.includes(input.originSystemId)
+    || !Number.isInteger(input.executionBudgetMs)
+    || input.executionBudgetMs < 1_000
+    || input.executionBudgetMs > 300_000
     || !input.roundId.trim()
     || !Number.isFinite(createdAtMs)
     || !Number.isFinite(expiresAtMs)
@@ -305,19 +316,36 @@ export function evaluateOriginImageBlindBenchmarkV15(
     const systemIds = item.outputs.map((output) => output.systemId);
     const originOutputs = item.outputs.filter((output) => output.role === 'origin');
     const references = item.outputs.filter((output) => output.role === 'reference');
+    const expectedReferences = [...input.referenceSystemIds].sort();
+    const actualReferences = references.map((output) => output.systemId).sort();
     if (
       item.outputs.length !== REQUIRED_REFERENCES + 1
       || originOutputs.length !== 1
+      || originOutputs[0]?.systemId !== input.originSystemId
       || references.length !== REQUIRED_REFERENCES
+      || actualReferences.some((systemId, index) => systemId !== expectedReferences[index])
       || unique(blindKeys).length !== item.outputs.length
       || unique(systemIds).length !== item.outputs.length
-      || item.outputs.some((output) => !output.blindKey.trim() || !output.systemId.trim() || !DIGEST.test(output.imageSha256))
+      || item.outputs.some((output) =>
+        !output.blindKey.trim()
+        || !output.systemId.trim()
+        || !DIGEST.test(output.imageSha256)
+        || !Number.isInteger(output.durationMs)
+        || output.durationMs < 0
+      )
     ) {
       blockers.push(`IMAGE_BENCHMARK_OUTPUT_SET_INVALID:${item.caseId}`);
       continue;
     }
 
     for (const reference of references) allReferenceSystems.add(reference.systemId);
+    for (const output of item.outputs) {
+      if (output.executionStatus !== 'completed') blockers.push(`IMAGE_BENCHMARK_EXECUTION_NOT_COMPLETED:${item.caseId}:${output.blindKey}`);
+      if (output.durationMs > input.executionBudgetMs) blockers.push(`IMAGE_BENCHMARK_EXECUTION_BUDGET_EXCEEDED:${item.caseId}:${output.blindKey}`);
+    }
+    if (item.outputs.some((output) => output.executionStatus !== 'completed' || output.durationMs > input.executionBudgetMs)) {
+      continue;
+    }
     if (item.outputs.some((output) => !technicalPassed(output.technical))) {
       technicalFailures += 1;
       blockers.push(`IMAGE_BENCHMARK_TECHNICAL_FAILURE:${item.caseId}`);
