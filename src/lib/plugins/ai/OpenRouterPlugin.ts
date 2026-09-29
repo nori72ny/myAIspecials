@@ -88,12 +88,13 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
       return this.getFallbackMockResponse(prompt, modelId);
     }
 
-    const maxRetries = options?.maxRetries ?? 3;
+    // Legacy plugin safety: one provider attempt, zero automatic retries.
+    const maxAttempts = 1;
     const initialDelayMs = options?.initialDelayMs ?? 1000;
     const timeoutMs = options?.timeout ?? 30000;
 
     let attempt = 0;
-    while (attempt < maxRetries) {
+    while (attempt < maxAttempts) {
       attempt++;
 
       const controller = new AbortController();
@@ -110,7 +111,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
       }
 
       try {
-        Logger.info(`[OpenRouterPlugin] Executing generation request. Model: ${modelId}, Attempt: ${attempt}/${maxRetries}`);
+        Logger.info(`[OpenRouterPlugin] Executing generation request. Model: ${modelId}, Attempt: ${attempt}/${maxAttempts}`);
 
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
@@ -140,7 +141,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
           if (status === 429) {
             Logger.warn(`[OpenRouterPlugin] Rate-limited (429) on attempt ${attempt}. Request ID: ${requestId}`);
-            if (attempt < maxRetries) {
+            if (attempt < maxAttempts) {
               await this.delay(initialDelayMs * Math.pow(2, attempt));
               continue;
             }
@@ -149,7 +150,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
           if (status >= 500) {
             Logger.warn(`[OpenRouterPlugin] Server Error (${status}) on attempt ${attempt}. Request ID: ${requestId}`);
-            if (attempt < maxRetries) {
+            if (attempt < maxAttempts) {
               await this.delay(initialDelayMs * Math.pow(2, attempt));
               continue;
             }
@@ -206,7 +207,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
         Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}: ${error.message}`, error);
 
-        if (attempt < maxRetries) {
+        if (attempt < maxAttempts) {
           await this.delay(initialDelayMs * Math.pow(2, attempt));
           continue;
         }
