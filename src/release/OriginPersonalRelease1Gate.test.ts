@@ -53,6 +53,8 @@ describe("ORIGIN Personal release 1 gate", () => {
     const streaming = readRepositoryFile("src/legacy/originStreamingChatRouter.ts");
     const server = readRepositoryFile("src/server/createOriginApp.ts");
     const entrypoint = readRepositoryFile("src/main.tsx");
+    const legacyPlugin = readRepositoryFile("src/lib/plugins/ai/OpenRouterPlugin.ts");
+    const legacyAppState = readRepositoryFile("src/hooks/useAppState.ts");
 
     for (const source of [chat, streaming]) {
       expect(source).not.toContain("executeWithRetry");
@@ -64,6 +66,16 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(server).not.toContain("OpenRouterPlugin");
     expect(server).not.toContain("initMissionEngine");
     expect(entrypoint).not.toContain("useAppState");
+
+    // Historical audit finding: latent legacy code must also remain zero-retry/zero-cost
+    // so a future reactivation cannot silently restore the old retry=3 / cost-cap=$1 defaults.
+    expect(legacyPlugin).toContain("const maxAttempts = 1");
+    expect(legacyPlugin).not.toContain("maxRetries ?? 3");
+    expect(legacyAppState).toContain("maxCostCap: 0");
+    expect(legacyAppState).toContain("retryCount: 0");
+    expect(legacyAppState).toContain("const maxAttempts = 1");
+    expect(legacyAppState).not.toContain("retryCount: 3");
+    expect(legacyAppState).not.toContain("settings.retryCount || 3");
   });
 
   it("locks provider egress to one request and keeps upstream diagnostics metadata-only", () => {

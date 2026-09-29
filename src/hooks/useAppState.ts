@@ -156,8 +156,8 @@ export function useAppState() {
       developerMode: false,
       uiMode: "normal",
       selectedTheme: "dark",
-      maxCostCap: 1.00,
-      retryCount: 3,
+      maxCostCap: 0,
+      retryCount: 0,
       timeoutSeconds: 45
     };
     const stored = SafeStorage.get<Settings>("acos_settings", (data) => typeof data === "object" && data !== null);
@@ -166,8 +166,8 @@ export function useAppState() {
       if (stored.developerMode === undefined) stored.developerMode = false;
       if (!stored.uiMode) stored.uiMode = "normal";
       if (!stored.selectedTheme) stored.selectedTheme = "dark";
-      if (stored.maxCostCap === undefined) stored.maxCostCap = 1.00;
-      if (stored.retryCount === undefined) stored.retryCount = 3;
+      if (stored.maxCostCap === undefined) stored.maxCostCap = 0;
+      if (stored.retryCount === undefined) stored.retryCount = 0;
       if (stored.timeoutSeconds === undefined) stored.timeoutSeconds = 45;
       return stored;
     }
@@ -266,7 +266,8 @@ export function useAppState() {
     let fetchErrorMsg = "";
     let fetchRawErr: any = null;
 
-    const maxRetries = settings.retryCount || 3;
+    // Legacy /api/analyze client remains single-attempt even if stale settings contain a retry value.
+    const maxAttempts = 1;
     const timeoutSeconds = settings.timeoutSeconds || 30;
 
     const fetchWithTimeoutAndRetry = async (attempt: number = 1): Promise<Response> => {
@@ -288,7 +289,7 @@ export function useAppState() {
       } catch (fetchErr: any) {
         clearTimeout(timeoutId);
         const isTimeout = fetchErr.name === "AbortError";
-        const isLastAttempt = attempt >= maxRetries;
+        const isLastAttempt = attempt >= maxAttempts;
         
         ProductionLogger.warn(`API call attempt ${attempt} failed. timeoutSeconds: ${timeoutSeconds}. Error:`, fetchErr);
         
