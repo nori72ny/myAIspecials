@@ -39,6 +39,23 @@ describe('V1.2 real artifacts', () => {
     expect(pptx.mimeType).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation');
   });
 
+  it('preserves Japanese text in DOCX, XLSX, and PPTX package content', () => {
+    const docx = generateArtifactV12({ type: 'docx', title: '日本語資料', content: '売上レポート\n前年比を確認' });
+    expect(docx.bytes.includes(Buffer.from('売上レポート', 'utf8'))).toBe(true);
+
+    const xlsx = generateArtifactV12({ type: 'xlsx', title: '売上表', rows: [['商品', '数量'], ['商品A', 10]] });
+    expect(xlsx.bytes.includes(Buffer.from('商品A', 'utf8'))).toBe(true);
+    expect(xlsx.bytes.includes(Buffer.from('<c r="B2"><v>10</v></c>'))).toBe(true);
+
+    const pptx = generateArtifactV12({
+      type: 'pptx',
+      title: '営業提案',
+      slides: [{ title: '結論', content: '売上向上の施策です。' }],
+    });
+    expect(pptx.bytes.includes(Buffer.from('結論', 'utf8'))).toBe(true);
+    expect(pptx.bytes.includes(Buffer.from('売上向上の施策です。', 'utf8'))).toBe(true);
+  });
+
   it('preserves numeric and boolean XLSX cell types instead of stringifying every value', () => {
     const artifact = generateArtifactV12({
       type: 'xlsx',
@@ -60,10 +77,9 @@ describe('V1.2 real artifacts', () => {
     expect(response.body.costUsd).toBe(0);
   });
 
-  it('rejects non-finite spreadsheet values at the API boundary', async () => {
-    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'xlsx', rows: [['x', 'Infinity']] });
-    expect(response.status).toBe(200);
-    expect(response.headers['x-origin-artifact-verified']).toBe('true');
+  it('rejects non-finite spreadsheet values before artifact bytes are produced', () => {
+    expect(() => generateArtifactV12({ type: 'xlsx', rows: [['x', Number.POSITIVE_INFINITY]] })).toThrow('INVALID_ARTIFACT_ROWS');
+    expect(() => generateArtifactV12({ type: 'xlsx', rows: [['x', Number.NaN]] })).toThrow('INVALID_ARTIFACT_ROWS');
   });
 
   it('passes the bounded runtime generator self-test for every format', () => {
