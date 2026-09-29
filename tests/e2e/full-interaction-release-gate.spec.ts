@@ -158,6 +158,18 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       }
       await add.click();
+      await expect(menu).toBeHidden();
+
+      await add.click();
+      await expect(menu).toBeVisible();
+      await page.locator('main').click({ position: { x: 4, y: 4 } });
+      await expect(menu).toBeHidden();
+
+      await add.click();
+      await expect(menu).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(menu).toBeHidden();
+      await expect(add).toBeFocused();
 
       await page.getByRole('button', { name: '設定を開く', exact: true }).click();
       const settings = page.getByRole('dialog', { name: /設定|Settings/i });
