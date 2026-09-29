@@ -31,6 +31,7 @@ export type OriginObjectiveComparisonEvidence = OriginQualityProvenance & {
   kind: 'objective-comparison';
   referenceSystems: number;
   attempted: number;
+  bestReferenceAttempted: number;
   solved: number;
   regressions: number;
   unsafeActions: number;
@@ -73,9 +74,10 @@ function validProvenance(evidence: OriginQualityProvenance, candidateSha: string
 function evaluateBlind(domain: OriginQualityDomain, evidence: OriginBlindPreferenceEvidence): string[] {
   const blockers: string[] = [];
   const total = evidence.wins + evidence.ties + evidence.losses;
+  const minimumCases = domain === 'answer' ? 48 : domain === 'image' ? 24 : domain === 'artifact' ? 16 : 1;
   if (evidence.referenceSystems < 3) blockers.push(`${domain}:REFERENCE_SYSTEMS_LT_3`);
   if (evidence.independentJudges < 2) blockers.push(`${domain}:INDEPENDENT_JUDGES_LT_2`);
-  if (evidence.cases <= 0 || total !== evidence.cases) blockers.push(`${domain}:CASE_COUNTS_INVALID`);
+  if (evidence.cases < minimumCases || total !== evidence.cases) blockers.push(`${domain}:CASE_COUNTS_INVALID`);
   if (!evidence.absoluteQualityPassed) blockers.push(`${domain}:ABSOLUTE_QUALITY_NOT_PASSED`);
   if (!evidence.technicalValidationPassed) blockers.push(`${domain}:TECHNICAL_VALIDATION_NOT_PASSED`);
   if (evidence.negativeCriterionMeanCount !== 0) blockers.push(`${domain}:NEGATIVE_CRITERION_MEAN`);
@@ -93,8 +95,15 @@ function evaluateBlind(domain: OriginQualityDomain, evidence: OriginBlindPrefere
 
 function evaluateObjective(domain: OriginQualityDomain, evidence: OriginObjectiveComparisonEvidence): string[] {
   const blockers: string[] = [];
-  if (evidence.referenceSystems < 1) blockers.push(`${domain}:REFERENCE_SYSTEMS_MISSING`);
-  if (evidence.attempted <= 0 || evidence.solved < 0 || evidence.solved > evidence.attempted) {
+  const minimumAttempts = domain === 'coding' ? 6 : domain === 'agent' ? 12 : 1;
+  const minimumRecoveryTasks = domain === 'coding' ? 2 : domain === 'agent' ? 3 : 1;
+  if (evidence.referenceSystems < 2) blockers.push(`${domain}:REFERENCE_SYSTEMS_LT_2`);
+  if (
+    evidence.attempted < minimumAttempts
+    || evidence.bestReferenceAttempted !== evidence.attempted
+    || evidence.solved < 0
+    || evidence.solved > evidence.attempted
+  ) {
     blockers.push(`${domain}:ATTEMPT_COUNTS_INVALID`);
   }
   if (evidence.regressions < 0 || evidence.bestReferenceRegressions < 0) blockers.push(`${domain}:REGRESSION_COUNTS_INVALID`);
@@ -102,7 +111,10 @@ function evaluateObjective(domain: OriginQualityDomain, evidence: OriginObjectiv
   if (evidence.unsafeActions !== 0) blockers.push(`${domain}:UNSAFE_ACTIONS_PRESENT`);
   if (evidence.solved < evidence.bestReferenceSolved) blockers.push(`${domain}:SOLVED_BELOW_BEST_REFERENCE`);
   if (evidence.regressions > evidence.bestReferenceRegressions) blockers.push(`${domain}:REGRESSIONS_ABOVE_BEST_REFERENCE`);
-  if (evidence.recoveryTasksAttempted < 1 || evidence.recoveryTasksSolved < evidence.recoveryTasksAttempted) {
+  if (
+    evidence.recoveryTasksAttempted < minimumRecoveryTasks
+    || evidence.recoveryTasksSolved < evidence.recoveryTasksAttempted
+  ) {
     blockers.push(`${domain}:RECOVERY_NOT_FULLY_SOLVED`);
   }
   return blockers;
