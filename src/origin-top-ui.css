@@ -170,7 +170,7 @@
   transform: none !important;
 }
 .origin-composer {
-  min-height: 70px !important;
+  min-height: 92px !important;
   border-radius: 24px !important;
   padding: 8px !important;
   box-shadow: 0 12px 34px color-mix(in oklch, var(--shadow-color) 54%, transparent), inset 0 1px 0 color-mix(in oklch, white 58%, transparent) !important;
@@ -179,7 +179,7 @@
   box-shadow: 0 14px 40px color-mix(in oklch, var(--shadow-color) 62%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 62%, transparent) !important;
 }
 .origin-composer textarea {
-  min-height: 60px !important;
+  min-height: 76px !important;
   padding: 11px 12px !important;
   font-size: 16px !important;
   line-height: 1.6 !important;
