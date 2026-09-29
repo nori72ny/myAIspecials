@@ -1,0 +1,145 @@
+name: PR741 held-out V15 one-shot trigger
+
+on:
+  push:
+    branches: [fix/mobile-add-menu-dismiss-20260929]
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: write
+  statuses: read
+
+jobs:
+  preflight-and-dispatch:
+    if: ${{ contains(github.event.head_commit.message, '[heldout-v15-run-741]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Verify exact PR head before any provider call
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error             -H 'Accept: application/vnd.github+json'             -H "Authorization: Bearer ${GH_TOKEN}"             -H 'X-GitHub-Api-Version: 2026-03-10'             "https://api.github.com/repos/${REPOSITORY}/pulls/741" -o pr.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const pr=JSON.parse(fs.readFileSync('pr.json','utf8'));
+          const fail=(code)=>{console.error(code);process.exit(2)};
+          if(pr?.state!=='open') fail('PR741_NOT_OPEN');
+          if(pr?.draft!==true) fail('PR741_NOT_DRAFT');
+          if(pr?.base?.ref!=='main') fail('PR741_BASE_INVALID');
+          if(pr?.head?.repo?.full_name!==process.env.REPOSITORY) fail('PR741_FORK_BLOCKED');
+          if(pr?.head?.sha!==process.env.CANDIDATE_SHA) fail('PR741_HEAD_SHA_MISMATCH');
+          NODE
+          rm -f pr.json
+
+      - name: Refuse dispatch if held-out source ledger already shows use
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          LEDGER_ANCHOR_SHA: 01f7db0c0d48ab3ba533148e99e1847203e13f4c
+        run: |
+          set -euo pipefail
+          page=1
+          while :; do
+            curl --fail --silent --show-error               -H 'Accept: application/vnd.github+json'               -H "Authorization: Bearer ${GH_TOKEN}"               -H 'X-GitHub-Api-Version: 2026-03-10'               "https://api.github.com/repos/${REPOSITORY}/commits/${LEDGER_ANCHOR_SHA}/statuses?per_page=100&page=${page}"               -o statuses.json
+            count="$(node -e "const v=require('./statuses.json');process.stdout.write(String(v.length))")"
+            used="$(node - <<'NODE'
+          const fs=require('node:fs');
+          const rows=JSON.parse(fs.readFileSync('statuses.json','utf8'));
+          process.stdout.write(rows.some(row=>String(row?.context||'').startsWith('origin/heldout-source/'))?'1':'0');
+          NODE
+          )"
+            rm -f statuses.json
+            if [ "$used" = '1' ]; then
+              echo 'HELDOUT_SOURCE_LEDGER_ALREADY_USED' >&2
+              exit 2
+            fi
+            [ "$count" = '100' ] || break
+            page=$((page + 1))
+            [ "$page" -le 20 ] || { echo 'HELDOUT_LEDGER_PAGINATION_LIMIT' >&2; exit 2; }
+          done
+
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify only the free-provider credential is present
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          test -z "${GEMINI_API_KEY:-}"
+
+      - name: Prepare isolated runtime image
+        run: docker pull node:22-bookworm-slim
+
+      - name: Re-run public calibration on this exact candidate
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ORIGIN_CANDIDATE_SHA: ${{ github.sha }}
+          ORIGIN_AQ_V2_CANDIDATE_CHECKOUT: ${{ github.workspace }}
+          ORIGIN_AQ_V2_PREFLIGHT_RESULT_PATH: ${{ github.workspace }}/test-results/pr741-heldout-provider-preflight.json
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/preflight-trusted-answer-runtime-v2.ts
+
+      - name: Preserve sanitized pre-dispatch evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr741-heldout-provider-preflight-${{ github.sha }}
+          path: test-results/pr741-heldout-provider-preflight.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Revalidate exact PR head immediately before dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error             -H 'Accept: application/vnd.github+json'             -H "Authorization: Bearer ${GH_TOKEN}"             -H 'X-GitHub-Api-Version: 2026-03-10'             "https://api.github.com/repos/${REPOSITORY}/pulls/741" -o pr.json
+          CANDIDATE_SHA="$CANDIDATE_SHA" node <<'NODE'
+          const fs=require('node:fs');
+          const pr=JSON.parse(fs.readFileSync('pr.json','utf8'));
+          if(pr?.state!=='open' || pr?.head?.sha!==process.env.CANDIDATE_SHA) process.exit(2);
+          NODE
+          rm -f pr.json
+
+      - name: Dispatch trusted sealed held-out V15 exactly once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          CANDIDATE_SHA="$CANDIDATE_SHA" node <<'NODE' > payload.json
+          process.stdout.write(JSON.stringify({
+            ref:'main',
+            inputs:{
+              candidate_sha:process.env.CANDIDATE_SHA,
+              pr_number:'741'
+            }
+          }));
+          NODE
+          curl --fail --silent --show-error             -X POST             -H 'Accept: application/vnd.github+json'             -H "Authorization: Bearer ${GH_TOKEN}"             -H 'Content-Type: application/json'             -H 'X-GitHub-Api-Version: 2026-03-10'             "https://api.github.com/repos/${REPOSITORY}/actions/workflows/trusted-candidate-heldout-v15.yml/dispatches"             --data-binary @payload.json
+          rm -f payload.json
