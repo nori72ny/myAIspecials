@@ -55,14 +55,14 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
-      .mockResolvedValueOnce(envelope({ answer: semanticAnswer() })) as unknown as typeof fetch;
+      .mockResolvedValueOnce(envelope({ answer: semanticAnswer() }));
 
     const result = await critiqueCloudflareRasterSemanticV15({
       originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
       exactText: [],
       bytes: png(),
       mimeType: 'image/png',
-    }, ENV, fetchMock);
+    }, ENV, fetchMock as unknown as typeof fetch);
 
     expect(result).toMatchObject({
       version: 'raster-semantic-critic-v1',
@@ -98,13 +98,13 @@ describe('cloudflareRasterSemanticCriticV15', () => {
           professionalUsefulness: 2.5,
           criticalIssues: ['watch-face geometry is visibly distorted'],
         }),
-      })) as unknown as typeof fetch;
+      }));
 
     const result = await critiqueCloudflareRasterSemanticV15({
       originalRequest: '腕時計の商品広告',
       bytes: png(),
       mimeType: 'image/png',
-    }, ENV, fetchMock);
+    }, ENV, fetchMock as unknown as typeof fetch);
 
     expect(result.passed).toBe(false);
     expect(result.issues).toEqual(expect.arrayContaining([
@@ -118,13 +118,13 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
-      .mockResolvedValueOnce(envelope({ answer: 'Looks good to me.' })) as unknown as typeof fetch;
+      .mockResolvedValueOnce(envelope({ answer: 'Looks good to me.' }));
 
     await expect(critiqueCloudflareRasterSemanticV15({
       originalRequest: '静かな湖の写真',
       bytes: png(),
       mimeType: 'image/png',
-    }, ENV, fetchMock)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   });
 
   it('treats paid-only access or exhausted free allocation as unavailable', async () => {
@@ -132,13 +132,13 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       const fetchMock = vi.fn()
         .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
         .mockResolvedValueOnce(envelope([]))
-        .mockResolvedValueOnce(envelope({}, status)) as unknown as typeof fetch;
+        .mockResolvedValueOnce(envelope({}, status));
 
       await expect(critiqueCloudflareRasterSemanticV15({
         originalRequest: '静かな湖の写真',
         bytes: png(),
         mimeType: 'image/png',
-      }, ENV, fetchMock)).rejects.toThrow('CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE');
+      }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE');
     }
   });
 });
