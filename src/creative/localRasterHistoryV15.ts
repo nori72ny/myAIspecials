@@ -17,7 +17,7 @@ export type RasterAssetEntryV15 = {
   prompt: string;
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   downloadName: string;
-  providerId: 'pollinations-zero-cost';
+  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
   model: string;
   generationId: string;
   visualBrainVersion: 'visual-brain-v1';
