@@ -1,0 +1,62 @@
+name: PR741 free-provider readiness preflight
+
+on:
+  push:
+    branches: [fix/mobile-add-menu-dismiss-20260929]
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    if: ${{ contains(github.event.head_commit.message, '[provider-readiness-741]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify trusted-run secret is present
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          test -z "${GEMINI_API_KEY:-}"
+
+      - name: Prepare isolated runtime image
+        run: docker pull node:22-bookworm-slim
+
+      - name: Run public calibration without touching sealed corpus
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ORIGIN_CANDIDATE_SHA: ${{ github.sha }}
+          ORIGIN_AQ_V2_CANDIDATE_CHECKOUT: ${{ github.workspace }}
+          ORIGIN_AQ_V2_PREFLIGHT_RESULT_PATH: ${{ github.workspace }}/test-results/pr741-provider-readiness.json
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/preflight-trusted-answer-runtime-v2.ts
+
+      - name: Preserve sanitized readiness evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr741-provider-readiness-${{ github.sha }}
+          path: test-results/pr741-provider-readiness.json
+          retention-days: 30
+          if-no-files-found: warn
