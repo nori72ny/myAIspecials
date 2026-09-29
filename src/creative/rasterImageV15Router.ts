@@ -10,9 +10,13 @@ import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
-import { CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15 } from './cloudflareRasterSemanticCriticV15.js';
+import { CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15, critiqueCloudflareRasterSemanticV15 } from './cloudflareRasterSemanticCriticV15.js';
 
 const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
+
+function semanticDeliveryGateEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env.ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE?.trim().toLowerCase() === 'true';
+}
 
 function sensitiveKinds(body: unknown): string[] {
   let serialized = '';
@@ -112,7 +116,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         costUsd: 0,
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
-        deliveryGateWired: false,
+        deliveryGateWired: true,
+        enabled: semanticDeliveryGateEnabled(env),
         activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
         axes: [
           'promptAdherence',
@@ -229,6 +234,28 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           secretDelivery: 'server-only',
         });
       }
+
+      const semanticGateEnabled = semanticDeliveryGateEnabled(env);
+      const semanticCritic = semanticGateEnabled
+        ? await critiqueCloudflareRasterSemanticV15({
+            originalRequest: input.prompt,
+            exactText: plan.exactText,
+            bytes: result.bytes,
+            mimeType: result.mimeType,
+          }, env)
+        : null;
+      if (semanticCritic && !semanticCritic.passed) {
+        return res.status(502).json({
+          ok: false,
+          code: 'RASTER_SEMANTIC_CRITIC_REJECTED',
+          message: '生成画像が意味・構図・主体整合性の品質基準を満たさないため、画像を返しませんでした。',
+          semanticCritic,
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+          secretDelivery: 'server-only',
+        });
+      }
       const planSha256 = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', result.mimeType);
@@ -245,6 +272,12 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Typography-Zone', plan.typographyZone);
       res.setHeader('X-Origin-Visual-Critic', critic.version);
       res.setHeader('X-Origin-Visual-Quality-Score', String(critic.score));
+      res.setHeader('X-Origin-Visual-Semantic-Gate', semanticGateEnabled ? 'enabled' : 'disabled');
+      if (semanticCritic) {
+        res.setHeader('X-Origin-Visual-Semantic-Verified', 'true');
+        res.setHeader('X-Origin-Visual-Semantic-Critic', semanticCritic.version);
+        res.setHeader('X-Origin-Visual-Semantic-Score', String(semanticCritic.score));
+      }
       res.setHeader('X-Origin-Visual-Actual-Width', String(critic.actualWidth));
       res.setHeader('X-Origin-Visual-Actual-Height', String(critic.actualHeight));
       const candidatePolicy = candidatePolicyForRasterRequestV15(input.prompt, plan.purpose);
@@ -261,7 +294,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Cost-Usd', '0');
       res.setHeader('X-Origin-Paid-Fallback', 'false');
       res.setHeader('X-Origin-External-Network', 'true');
-      res.setHeader('X-Origin-External-Network-Requests', String(result.externalNetworkRequests));
+      res.setHeader('X-Origin-External-Network-Requests', String(result.externalNetworkRequests + (semanticCritic?.externalNetworkRequests ?? 0)));
       res.setHeader('X-Origin-Secret-Delivery', 'server-only');
       return res.status(200).send(result.bytes);
     } catch (error) {
@@ -274,6 +307,10 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         || code === 'CLOUDFLARE_BILLING_READ_REQUIRED'
         || code === 'CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE') {
         return fail(res, 503, code, '費用0円を事前保証できないため、画像生成を停止しました。');
+      }
+      if (code === 'RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID'
+        || code.startsWith('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_')) {
+        return fail(res, 502, code, '意味品質の検証を完了できなかったため、生成画像を返しませんでした。');
       }
       if (code === 'POLLINATIONS_KEY_NOT_CONFIGURED'
         || code === 'NO_VERIFIED_ZERO_COST_RASTER_MODEL'
