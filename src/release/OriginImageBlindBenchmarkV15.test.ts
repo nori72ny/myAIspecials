@@ -43,10 +43,10 @@ function makeCase(index: number, family: (typeof IMAGE_FAMILIES_V15)[number]): I
     height: 1024,
     requiresText: tagA === 'text' || tagB === 'text',
     outputs: [
-      { blindKey: 'A', systemId: 'origin', role: 'origin', imageSha256: '1'.repeat(64), technical: technical() },
-      { blindKey: 'B', systemId: 'ref-a', role: 'reference', imageSha256: '2'.repeat(64), technical: technical() },
-      { blindKey: 'C', systemId: 'ref-b', role: 'reference', imageSha256: '3'.repeat(64), technical: technical() },
-      { blindKey: 'D', systemId: 'ref-c', role: 'reference', imageSha256: '4'.repeat(64), technical: technical() },
+      { blindKey: 'A', systemId: 'origin-v1', role: 'origin', executionStatus: 'completed', durationMs: 25_000, imageSha256: '1'.repeat(64), technical: technical() },
+      { blindKey: 'B', systemId: 'ref-a', role: 'reference', executionStatus: 'completed', durationMs: 25_000, imageSha256: '2'.repeat(64), technical: technical() },
+      { blindKey: 'C', systemId: 'ref-b', role: 'reference', executionStatus: 'completed', durationMs: 25_000, imageSha256: '3'.repeat(64), technical: technical() },
+      { blindKey: 'D', systemId: 'ref-c', role: 'reference', executionStatus: 'completed', durationMs: 25_000, imageSha256: '4'.repeat(64), technical: technical() },
     ],
     judges: [
       {
@@ -74,6 +74,9 @@ function input(): OriginImageBlindBenchmarkInputV15 {
     candidateSha: SHA,
     evaluatorSha: EVALUATOR_SHA,
     corpusSha256: 'd'.repeat(64),
+    originSystemId: 'origin-v1',
+    referenceSystemIds: ['ref-a', 'ref-b', 'ref-c'],
+    executionBudgetMs: 60_000,
     roundId: 'image-round-1',
     createdAt: '2026-09-29T13:00:00Z',
     expiresAt: '2026-10-06T13:00:00Z',
@@ -109,6 +112,33 @@ describe('ORIGIN image blind benchmark v2', () => {
     const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases }, NOW);
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('IMAGE_BENCHMARK_CHALLENGE_COVERAGE_LT_2:hands-anatomy');
+  });
+
+  it('requires the same three reference systems for every case', () => {
+    const base = input();
+    const first = base.cases[0];
+    const broken = {
+      ...first,
+      outputs: first.outputs.map((output, index) => index === 1 ? { ...output, systemId: 'ref-other' } : output),
+    };
+    const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases: [broken, ...base.cases.slice(1)] }, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_OUTPUT_SET_INVALID:img-01');
+  });
+
+  it('retains blocked and over-budget executions as benchmark blockers', () => {
+    const base = input();
+    const first = base.cases[0];
+    const blocked = {
+      ...first,
+      outputs: first.outputs.map((output, index) => index === 0
+        ? { ...output, executionStatus: 'quota-limited' as const, durationMs: 70_000 }
+        : output),
+    };
+    const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases: [blocked, ...base.cases.slice(1)] }, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_EXECUTION_NOT_COMPLETED:img-01:A');
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_EXECUTION_BUDGET_EXCEEDED:img-01:A');
   });
 
   it('rejects any technically invalid compared output, including a reference output', () => {
