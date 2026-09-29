@@ -9,6 +9,7 @@ const API_ORIGIN = 'https://api.cloudflare.com';
 const MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 45_000;
+const MODEL_SCHEMA_TIMEOUT_MS = 10_000;
 
 type CloudflareEnvelope = {
   success?: unknown;
@@ -107,7 +108,30 @@ async function verifyWorkersFreePlan(
     }
   }
 
-  return { ok: true, requests: 2, reason: null };
+  const schema = await timedFetch(
+    `${API_ORIGIN}/client/v4/accounts/${accountId}/ai/models/schema?model=${encodeURIComponent(MODEL)}`,
+    { method: 'GET', headers: headers(apiToken) },
+    fetchImpl,
+    MODEL_SCHEMA_TIMEOUT_MS,
+  );
+  if (!schema.ok) {
+    return {
+      ok: false,
+      requests: 3,
+      reason: [401, 403].includes(schema.status)
+        ? 'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED'
+        : 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
+    };
+  }
+  const schemaBody = await schema.json().catch(() => null) as CloudflareEnvelope | null;
+  const schemaResult = schemaBody?.result && typeof schemaBody.result === 'object' && !Array.isArray(schemaBody.result)
+    ? schemaBody.result as Record<string, unknown>
+    : null;
+  if (schemaBody?.success !== true || !schemaResult?.input || !schemaResult?.output) {
+    return { ok: false, requests: 3, reason: 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED' };
+  }
+
+  return { ok: true, requests: 3, reason: null };
 }
 
 function imageMime(bytes: Buffer): RasterImageResultV15['mimeType'] | null {
