@@ -59,7 +59,8 @@ const WIKI_ORIGINS = {
 } as const;
 
 const SEARCH_ORIGINS = {
-  duckduckgo: "https://html.duckduckgo.com/html/",
+  duckduckgoHtml: "https://html.duckduckgo.com/html/",
+  duckduckgoLite: "https://lite.duckduckgo.com/lite/",
 } as const;
 
 const OFFICIAL_SOURCE_RULES: readonly {
@@ -111,7 +112,7 @@ function decodeHtml(value: string): string {
 function safeResultUrl(rawHref: string): string | null {
   const decoded = decodeHtml(rawHref).trim();
   try {
-    const parsed = new URL(decoded, SEARCH_ORIGINS.duckduckgo);
+    const parsed = new URL(decoded, SEARCH_ORIGINS.duckduckgoHtml);
     if (parsed.hostname === "duckduckgo.com" && parsed.pathname === "/l/") {
       const target = parsed.searchParams.get("uddg");
       if (target) {
@@ -144,17 +145,28 @@ function classifyFailure(error: unknown): OriginResearchFailureCode {
   return "NETWORK_FAILURE";
 }
 
+function htmlAttribute(attributes: string, name: string): string | null {
+  const escapedName = name.replace(/[^a-z0-9_-]/gi, "");
+  if (!escapedName) return null;
+  return attributes.match(new RegExp(`\\b${escapedName}\\s*=\\s*["']([^"']+)["']`, "i"))?.[1] ?? null;
+}
+
 function parseDuckDuckGoResults(html: string, retrievedAt: string, limit = 6): OriginResearchSource[] {
   const sources: OriginResearchSource[] = [];
-  const resultPattern = /<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  const resultPattern = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   let match: RegExpExecArray | null;
   while ((match = resultPattern.exec(html)) && sources.length < limit) {
-    const url = safeResultUrl(match[1]);
+    const attributes = match[1] ?? "";
+    const className = htmlAttribute(attributes, "class") ?? "";
+    if (!/(?:^|\s)(?:result__a|result-link)(?:\s|$)/i.test(className)) continue;
+    const rawHref = htmlAttribute(attributes, "href");
+    if (!rawHref) continue;
+    const url = safeResultUrl(rawHref);
     const title = cleanExcerpt(match[2]);
     if (!url || !title) continue;
     const start = match.index + match[0].length;
     const tail = html.slice(start, start + 6000);
-    const snippetMatch = tail.match(/class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+    const snippetMatch = tail.match(/class=["'][^"']*(?:result__snippet|result-snippet)[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
     const excerpt = cleanExcerpt(snippetMatch?.[1] ?? "");
     if (!excerpt) continue;
     const domain = new URL(url).hostname.replace(/^www\./i, "");
@@ -238,26 +250,38 @@ function filterRelevantSources(sources: OriginResearchSource[], intent: Research
 }
 
 async function searchWeb(intent: ResearchIntent, retrievedAt: string): Promise<OriginResearchResult> {
-  const endpoint = `${SEARCH_ORIGINS.duckduckgo}?q=${encodeURIComponent(intent.searchQuery)}&kl=${languageForQuery(intent.searchQuery) === "ja" ? "jp-jp" : "us-en"}&num=6`;
-  try {
-    const html = await secureFetch(endpoint);
-    const parsed = parseDuckDuckGoResults(html, retrievedAt, 6);
-    const sources = filterRelevantSources(parsed, intent);
-    if (sources.length === 0) {
-      return {
-        ok: false,
-        sources: [],
-        failure: {
-          stage: "web-search",
-          code: intent.requiredHostSuffixes.length > 0 ? "SOURCE_CONSTRAINT_UNMET" : "IRRELEVANT_RESULTS",
-        },
-        searchProvider: "DuckDuckGo",
-      };
+  const locale = languageForQuery(intent.searchQuery) === "ja" ? "jp-jp" : "us-en";
+  const query = encodeURIComponent(intent.searchQuery);
+  const endpoints = [
+    `${SEARCH_ORIGINS.duckduckgoHtml}?q=${query}&kl=${locale}&num=6`,
+    `${SEARCH_ORIGINS.duckduckgoLite}?q=${query}&kl=${locale}`,
+  ];
+  let firstTransportFailure: OriginResearchFailureCode | null = null;
+  let receivedSearchResponse = false;
+
+  for (const endpoint of endpoints) {
+    try {
+      const html = await secureFetch(endpoint);
+      receivedSearchResponse = true;
+      const parsed = parseDuckDuckGoResults(html, retrievedAt, 6);
+      const sources = filterRelevantSources(parsed, intent);
+      if (sources.length > 0) return { ok: true, sources, searchProvider: "DuckDuckGo" };
+    } catch (error) {
+      firstTransportFailure ??= classifyFailure(error);
     }
-    return { ok: true, sources, searchProvider: "DuckDuckGo" };
-  } catch (error) {
-    return { ok: false, sources: [], failure: { stage: "web-search", code: classifyFailure(error) }, searchProvider: "DuckDuckGo" };
   }
+
+  return {
+    ok: false,
+    sources: [],
+    failure: {
+      stage: "web-search",
+      code: receivedSearchResponse
+        ? (intent.requiredHostSuffixes.length > 0 ? "SOURCE_CONSTRAINT_UNMET" : "IRRELEVANT_RESULTS")
+        : (firstTransportFailure ?? "NO_RESULTS"),
+    },
+    searchProvider: "DuckDuckGo",
+  };
 }
 
 export async function retrieveResearchPages(sources: OriginResearchSource[]): Promise<OriginResearchSource[]> {

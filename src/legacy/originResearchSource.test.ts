@@ -78,6 +78,7 @@ describe("originResearchSource", () => {
 
   it("fails closed when the source cannot be reached", async () => {
     secureFetch.mockRejectedValueOnce(new Error("network blocked"));
+    secureFetch.mockRejectedValueOnce(new Error("network blocked"));
     secureFetch.mockRejectedValueOnce(new Error("Secure fetch request timed out."));
     const result = await researchCurrentInformation("latest AI news");
     expect(result.ok).toBe(false);
@@ -90,6 +91,7 @@ describe("originResearchSource", () => {
   });
 
   it("classifies invalid fallback responses without returning parser details", async () => {
+    secureFetch.mockRejectedValueOnce(new Error("Fetch error: HTTP status 403"));
     secureFetch.mockRejectedValueOnce(new Error("Fetch error: HTTP status 403"));
     secureFetch.mockResolvedValueOnce("not-json");
     const result = await researchCurrentInformation("latest AI news");
@@ -129,11 +131,11 @@ describe("originResearchSource", () => {
     expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).toContain("site:support.google.com");
   });
 
-  it("fails closed instead of treating unrelated Wikipedia fallback as success for an official-source request", async () => {
-    secureFetch.mockResolvedValueOnce(
+  it("retries the keyless DuckDuckGo lite surface before failing an official-source constraint", async () => {
+    const unrelated =
       '<a class="result__a" href="https://en.wikipedia.org/wiki/The_Beatles">The Beatles</a><div class="result__snippet">English rock band.</div>' +
-      '<a class="result__a" href="https://www.nicovideo.jp/">Niconico</a><div class="result__snippet">Video service.</div>',
-    );
+      '<a class="result__a" href="https://www.nicovideo.jp/">Niconico</a><div class="result__snippet">Video service.</div>';
+    secureFetch.mockResolvedValueOnce(unrelated).mockResolvedValueOnce(unrelated);
 
     const result = await researchCurrentInformation(
       "Google ビジネス プロフィールの営業時間の編集方法を、Google公式ヘルプを出典として短く説明してください。",
@@ -143,7 +145,32 @@ describe("originResearchSource", () => {
     expect(result.sources).toEqual([]);
     expect(result.searchProvider).toBe("DuckDuckGo");
     expect(result.failure).toEqual({ stage: "web-search", code: "SOURCE_CONSTRAINT_UNMET" });
-    expect(secureFetch).toHaveBeenCalledTimes(1);
+    expect(secureFetch).toHaveBeenCalledTimes(2);
+    expect(String(secureFetch.mock.calls[1][0])).toContain("https://lite.duckduckgo.com/lite/");
+  });
+
+  it("recovers an official Google Help result from DuckDuckGo lite when the HTML surface misses it", async () => {
+    secureFetch
+      .mockResolvedValueOnce('<a class="result__a" href="https://example.com/random">Random</a><div class="result__snippet">Unrelated.</div>')
+      .mockResolvedValueOnce(
+        '<a rel="nofollow" href="https://support.google.com/business/answer/10417060" class="result-link">営業時間を編集する</a>' +
+        '<td class="result-snippet">Google ビジネス プロフィールの営業時間を編集できます。</td>',
+      )
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "Google ビジネス プロフィールの営業時間の編集方法を、Google公式ヘルプを出典として短く説明してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("DuckDuckGo");
+    expect(result.sources).toHaveLength(1);
+    expect(result.sources[0]).toMatchObject({
+      title: "営業時間を編集する",
+      domain: "support.google.com",
+      sourceType: "web-search",
+    });
+    expect(String(secureFetch.mock.calls[1][0])).toContain("https://lite.duckduckgo.com/lite/");
   });
 
   it("does not guess an official domain when the requested official publisher cannot be proven", async () => {
