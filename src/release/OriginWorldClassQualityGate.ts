@@ -125,13 +125,13 @@ export function evaluateOriginWorldClassQualityGate(
   nowMs = Date.now(),
 ): OriginWorldClassQualityReport {
   const blockers: string[] = [];
-  const domainPassed = {
+  const domainPassed: Record<OriginQualityDomain, boolean> = {
     answer: false,
     coding: false,
     agent: false,
     image: false,
     artifact: false,
-  } satisfies Record<OriginQualityDomain, boolean>;
+  };
 
   if (input.schema !== ORIGIN_WORLD_CLASS_QUALITY_SCHEMA || !FULL_SHA.test(input.candidateSha)) {
     return {
