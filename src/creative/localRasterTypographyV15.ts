@@ -55,6 +55,87 @@ function wrapByUnits(value: string, maxUnits: number): string[] {
   return lines;
 }
 
+export type RasterTypographyMeasureV15 = (value: string, fontSize: number) => number;
+
+function wrapByMeasuredWidth(
+  value: string,
+  maxWidth: number,
+  fontSize: number,
+  measure: RasterTypographyMeasureV15,
+): string[] {
+  const lines: string[] = [];
+  let current = '';
+
+  for (const char of Array.from(value)) {
+    const next = current + char;
+    const width = measure(next, fontSize);
+    if (!Number.isFinite(width) || width < 0) {
+      throw new RasterTypographyOverlayErrorV15('TYPOGRAPHY_OVERLAY_MEASURE_INVALID');
+    }
+    if (current && width > maxWidth) {
+      lines.push(current);
+      current = char;
+      const singleWidth = measure(current, fontSize);
+      if (!Number.isFinite(singleWidth) || singleWidth <= 0 || singleWidth > maxWidth) {
+        throw new RasterTypographyOverlayErrorV15('TYPOGRAPHY_OVERLAY_GLYPH_TOO_WIDE');
+      }
+    } else {
+      current = next;
+    }
+  }
+
+  if (current) lines.push(current);
+  return lines;
+}
+
+export function planRasterTypographyOverlayMeasuredV15(
+  exactText: readonly string[],
+  width: number,
+  height: number,
+  measure: RasterTypographyMeasureV15,
+): RasterTypographyOverlayPlanV15 {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 256 || height < 256 || width > 1536 || height > 1536) {
+    throw new RasterTypographyOverlayErrorV15('TYPOGRAPHY_OVERLAY_DIMENSIONS_INVALID');
+  }
+
+  const normalized = normalizeExactText(exactText);
+  if (!normalized.length) throw new RasterTypographyOverlayErrorV15('TYPOGRAPHY_OVERLAY_TEXT_REQUIRED');
+
+  const safeMargin = Math.max(24, Math.round(Math.min(width, height) * 0.055));
+  const maxWidth = width - safeMargin * 2;
+  let fontSize = Math.max(MIN_FONT_SIZE, Math.round(Math.min(width, height) * 0.055));
+
+  while (fontSize >= MIN_FONT_SIZE) {
+    const lines = normalized.flatMap((value) => wrapByMeasuredWidth(value, maxWidth, fontSize, measure));
+    const lineHeight = Math.round(fontSize * 1.25);
+    const panelHeight = safeMargin * 2 + lineHeight * lines.length;
+    const measuredWidths = lines.map((line) => measure(line, fontSize));
+    if (measuredWidths.some((lineWidth) => !Number.isFinite(lineWidth) || lineWidth <= 0)) {
+      throw new RasterTypographyOverlayErrorV15('TYPOGRAPHY_OVERLAY_MEASURE_INVALID');
+    }
+    if (
+      lines.length <= 8
+      && panelHeight <= Math.round(height * 0.42)
+      && measuredWidths.every((lineWidth) => lineWidth <= maxWidth)
+    ) {
+      return {
+        version: 'raster-typography-overlay-v1',
+        width,
+        height,
+        safeMargin,
+        panelHeight,
+        maxWidth,
+        fontSize,
+        lineHeight,
+        lines,
+      };
+    }
+    fontSize -= 2;
+  }
+
+  throw new RasterTypographyOverlayErrorV15('TYPOGRAPHY_OVERLAY_OVERFLOW');
+}
+
 export function planRasterTypographyOverlayV15(
   exactText: readonly string[],
   width: number,
@@ -128,7 +209,6 @@ export async function composeRasterTypographyOverlayV15(
     throw new RasterTypographyOverlayErrorV15('TYPOGRAPHY_OVERLAY_SOURCE_INVALID');
   }
 
-  const plan = planRasterTypographyOverlayV15(exactText, width, height);
   const url = URL.createObjectURL(sourceBlob);
   try {
     const image = await loadImage(url);
@@ -137,6 +217,18 @@ export async function composeRasterTypographyOverlayV15(
     canvas.height = height;
     const context = canvas.getContext('2d');
     if (!context) throw new RasterTypographyOverlayErrorV15('TYPOGRAPHY_OVERLAY_CANVAS_UNAVAILABLE');
+
+    const fontFor = (fontSize: number) =>
+      `700 ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    const plan = planRasterTypographyOverlayMeasuredV15(
+      exactText,
+      width,
+      height,
+      (value, fontSize) => {
+        context.font = fontFor(fontSize);
+        return context.measureText(value).width;
+      },
+    );
 
     context.drawImage(image, 0, 0, width, height);
 
@@ -148,7 +240,7 @@ export async function composeRasterTypographyOverlayV15(
     context.fillStyle = gradient;
     context.fillRect(0, top, width, plan.panelHeight);
 
-    context.font = `700 ${plan.fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    context.font = fontFor(plan.fontSize);
     context.textBaseline = 'top';
     context.fillStyle = '#ffffff';
     context.shadowColor = 'rgba(0,0,0,0.45)';
@@ -156,7 +248,11 @@ export async function composeRasterTypographyOverlayV15(
 
     let y = top + plan.safeMargin;
     for (const line of plan.lines) {
-      context.fillText(line, plan.safeMargin, y, plan.maxWidth);
+      const measuredWidth = context.measureText(line).width;
+      if (!Number.isFinite(measuredWidth) || measuredWidth <= 0 || measuredWidth > plan.maxWidth) {
+        throw new RasterTypographyOverlayErrorV15('TYPOGRAPHY_OVERLAY_RENDER_BOUNDS_INVALID');
+      }
+      context.fillText(line, plan.safeMargin, y);
       y += plan.lineHeight;
     }
 
