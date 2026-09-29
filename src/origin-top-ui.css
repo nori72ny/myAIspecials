@@ -242,7 +242,7 @@
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
     padding-top: 20px !important;
-    padding-inline: 14px !important;
+    padding-inline: 0 !important;
   }
   [data-testid="origin-core-logo"] {
     width: 64px !important;
@@ -256,13 +256,13 @@
     font-size: 28px !important;
   }
   .origin-composer {
-    min-height: 66px !important;
+    min-height: 92px !important;
     border-radius: 22px !important;
     padding: 7px !important;
   }
   .origin-composer textarea {
-    min-height: 56px !important;
-    padding: 10px !important;
+    min-height: 78px !important;
+    padding: 12px 10px !important;
     font-size: 16px !important;
     line-height: 1.55 !important;
   }
