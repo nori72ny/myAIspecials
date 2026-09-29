@@ -32,7 +32,8 @@
     "eval:claude-code-parity": "tsx scripts/evaluate-claude-code-parity-gate.ts",
     "eval:world-class-quality": "tsx scripts/evaluate-world-class-quality-gate.ts",
     "eval:image-blind-quality": "tsx scripts/evaluate-image-blind-quality-v15.ts",
-    "eval:heldout-agent": "tsx scripts/evaluate-general-agent-heldout-v2.ts"
+    "eval:heldout-agent": "tsx scripts/evaluate-general-agent-heldout-v2.ts",
+    "eval:artifact-blind-quality": "tsx scripts/evaluate-artifact-blind-quality-v1.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
