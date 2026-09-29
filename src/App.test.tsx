@@ -437,6 +437,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('artifact-visual-diff-toggle'));
     expect(screen.getByTestId('artifact-visual-diff-summary').textContent).toContain('HTML要素');
     expect(screen.getByTestId('artifact-visual-diff').textContent).toContain('New');
+    const removedBadge = screen.getByTestId('artifact-diff-removed-count');
+    expect(removedBadge.className).toContain('bg-red-500/15');
+    expect(removedBadge.className).not.toContain('w-full');
+    expect(removedBadge.className).not.toContain('shadow-lg');
     fireEvent.click(screen.getByTestId('artifact-action-details'));
     fireEvent.click(screen.getByTestId('artifact-restore-previous'));
     expect(revisions).toHaveLength(1);
