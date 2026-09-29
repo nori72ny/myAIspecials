@@ -26,6 +26,30 @@ function png(width: number, height: number) {
   return bytes;
 }
 
+function jpeg(width: number, height: number) {
+  const bytes = Buffer.alloc(64, 0);
+  bytes[0] = 0xff; bytes[1] = 0xd8;
+  bytes[2] = 0xff; bytes[3] = 0xc0;
+  bytes.writeUInt16BE(17, 4);
+  bytes[6] = 8;
+  bytes.writeUInt16BE(height, 7);
+  bytes.writeUInt16BE(width, 9);
+  bytes[62] = 0xff; bytes[63] = 0xd9;
+  return bytes;
+}
+
+function webp(width: number, height: number) {
+  const bytes = Buffer.alloc(64, 0);
+  Buffer.from('RIFF','ascii').copy(bytes,0);
+  bytes.writeUInt32LE(56,4);
+  Buffer.from('WEBP','ascii').copy(bytes,8);
+  Buffer.from('VP8X','ascii').copy(bytes,12);
+  bytes.writeUInt32LE(10,16);
+  bytes.writeUIntLE(width - 1,24,3);
+  bytes.writeUIntLE(height - 1,27,3);
+  return bytes;
+}
+
 describe('cloudflareRasterImageProviderV15', () => {
   it('fails closed without server-only Cloudflare credentials', async () => {
     await expect(getCloudflareRasterStatusV15({})).resolves.toMatchObject({
@@ -122,6 +146,24 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(String(form.get('width'))).toBe('768');
     expect(String(form.get('height'))).toBe('1024');
     expect(new Headers(init.headers).get('content-type')).toBeNull();
+  });
+
+  it.each([
+    ['image/jpeg', jpeg(768, 1024)],
+    ['image/webp', webp(768, 1024)],
+  ] as const)('accepts verified %s dimensions instead of assuming PNG-only output', async (mimeType, bytes) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json(bytes.toString('base64')));
+
+    const result = await generateCloudflareRasterImageV15({
+      prompt: 'format compatibility check',
+      width: 768,
+      height: 1024,
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result).toMatchObject({ mimeType, width: 768, height: 1024, costUsd: 0, freeOnly: true });
   });
 
   it('treats free-allocation exhaustion or paid-only access as fail-closed', async () => {

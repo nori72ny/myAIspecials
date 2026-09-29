@@ -122,6 +122,46 @@ function dimensions(bytes: Buffer, mime: RasterImageResultV15['mimeType']): { wi
     const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20);
     return width > 0 && height > 0 ? { width, height } : null;
   }
+  if (mime === 'image/jpeg') {
+    const sofMarkers = new Set([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf]);
+    let offset = 2;
+    while (offset + 8 < bytes.length) {
+      if (bytes[offset] !== 0xff) { offset += 1; continue; }
+      while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+      if (offset >= bytes.length) break;
+      const marker = bytes[offset++];
+      if (marker === 0xd8 || marker === 0xd9 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+      if (offset + 2 > bytes.length) break;
+      const length = bytes.readUInt16BE(offset);
+      if (length < 2 || offset + length > bytes.length) break;
+      if (sofMarkers.has(marker) && length >= 7) {
+        const height = bytes.readUInt16BE(offset + 3);
+        const width = bytes.readUInt16BE(offset + 5);
+        return width > 0 && height > 0 ? { width, height } : null;
+      }
+      offset += length;
+    }
+    return null;
+  }
+  if (mime === 'image/webp' && bytes.length >= 30) {
+    const chunk = bytes.subarray(12, 16).toString('ascii');
+    if (chunk === 'VP8X') {
+      const width = 1 + bytes.readUIntLE(24, 3);
+      const height = 1 + bytes.readUIntLE(27, 3);
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    if (chunk === 'VP8 ' && bytes.length >= 30 && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+      const width = bytes.readUInt16LE(26) & 0x3fff;
+      const height = bytes.readUInt16LE(28) & 0x3fff;
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    if (chunk === 'VP8L' && bytes.length >= 25 && bytes[20] === 0x2f) {
+      const b1 = bytes[21], b2 = bytes[22], b3 = bytes[23], b4 = bytes[24];
+      const width = 1 + b1 + ((b2 & 0x3f) << 8);
+      const height = 1 + ((b2 >> 6) & 0x03) + (b3 << 2) + ((b4 & 0x0f) << 10);
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+  }
   return null;
 }
 
