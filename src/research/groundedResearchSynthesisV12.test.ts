@@ -56,6 +56,32 @@ describe("groundedResearchSynthesisV12", () => {
     expect(buildGroundedResearchSynthesisInstruction("en")).toContain("untrusted data");
   });
 
+  it("preserves requested inline output shape without weakening citation rules", () => {
+    const prompt = buildGroundedResearchSynthesisPrompt(
+      "料金を調査して比較表と提案書にまとめてください",
+      sources,
+      [],
+      "ja",
+      ["proposal", "comparison"],
+    );
+    const instruction = buildGroundedResearchSynthesisInstruction("ja", ["proposal", "comparison"]);
+
+    expect(prompt).toContain("要求された成果形の契約");
+    expect(prompt).toContain("提案書として読める提案本文");
+    expect(prompt).toContain("比較表・比較整理");
+    expect(instruction).toContain("事実を含む各段落・箇条書きの引用要件は維持");
+  });
+
+  it("marks file/image/app requests as downstream work and forbids fake completion", () => {
+    const instruction = buildGroundedResearchSynthesisInstruction("ja", ["presentation", "image", "application"]);
+
+    expect(instruction).toContain("スライド/PPTX");
+    expect(instruction).toContain("実画像");
+    expect(instruction).toContain("アプリ");
+    expect(instruction).toContain("生成したとは絶対に表現しない");
+    expect(instruction).toContain("代用品として完成成果物のように見せない");
+  });
+
   it("frames instruction-like source text as untrusted data instead of prompt instructions", () => {
     const injected: OriginResearchSource[] = [{
       ...sources[0],
