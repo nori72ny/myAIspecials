@@ -51,6 +51,40 @@ function successfulFetchMock() {
     .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')));
 }
 
+function semanticFetchMock(passed = true) {
+  const png = pngBytes(768, 1024);
+  const answer = passed
+    ? {
+        promptAdherence: 4,
+        composition: 4,
+        subjectIntegrity: 4,
+        styleExecution: 3.5,
+        textHandling: 4,
+        artifactControl: 4,
+        professionalUsefulness: 4,
+        criticalIssues: [],
+        summary: 'Professional and faithful.',
+      }
+    : {
+        promptAdherence: 2,
+        composition: 3,
+        subjectIntegrity: 2,
+        styleExecution: 3,
+        textHandling: 3,
+        artifactControl: 3,
+        professionalUsefulness: 2,
+        criticalIssues: ['Requested subject is materially wrong.'],
+        summary: 'Not faithful enough for delivery.',
+      };
+  return vi.fn()
+    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+    .mockResolvedValueOnce(cfEnvelope([]))
+    .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')))
+    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+    .mockResolvedValueOnce(cfEnvelope([]))
+    .mockResolvedValueOnce(cfEnvelope({ answer: JSON.stringify(answer) }));
+}
+
 describe('rasterImageV15Router', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -93,7 +127,8 @@ describe('rasterImageV15Router', () => {
         costUsd: 0,
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
-        deliveryGateWired: false,
+        deliveryGateWired: true,
+        enabled: false,
         activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
       },
       candidateSelection: {
@@ -286,6 +321,53 @@ describe('rasterImageV15Router', () => {
     expect(String(providerBody.get('width'))).toBe('768');
     expect(String(providerBody.get('height'))).toBe('1024');
     expect(new Headers(providerRequest.headers).get('content-type')).toBeNull();
+  });
+
+  it('runs the semantic delivery gate only when explicitly enabled and returns only a passing image', async () => {
+    const fetchMock = semanticFetchMock(true);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      ...CF_ENV,
+      ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE: 'true',
+    }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-semantic-gate']).toBe('enabled');
+    expect(response.headers['x-origin-visual-semantic-verified']).toBe('true');
+    expect(response.headers['x-origin-visual-semantic-critic']).toBe('raster-semantic-critic-v1');
+    expect(Number(response.headers['x-origin-visual-semantic-score'])).toBeGreaterThanOrEqual(79);
+    expect(response.headers['x-origin-external-network-requests']).toBe('6');
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it('withholds a structurally valid image when the enabled semantic critic rejects it', async () => {
+    const fetchMock = semanticFetchMock(false);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      ...CF_ENV,
+      ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE: 'true',
+    }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(502);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'RASTER_SEMANTIC_CRITIC_REJECTED',
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      secretDelivery: 'server-only',
+      semanticCritic: {
+        passed: false,
+        version: 'raster-semantic-critic-v1',
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it('rejects unexpected request fields instead of forwarding them upstream', async () => {
