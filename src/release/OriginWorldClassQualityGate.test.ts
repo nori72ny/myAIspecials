@@ -123,7 +123,7 @@ describe('ORIGIN world-class quality gate', () => {
     let report = evaluateOriginWorldClassQualityGate(candidate, NOW);
     expect(report.blockers).toContain('artifact:CANDIDATE_SHA_MISMATCH');
 
-    candidate.domains.artifact = { ...blind(), expiresAt: '2026-09-28T11:00:00Z' };
+    candidate.domains.artifact = { ...blind(), expiresAt: '2026-09-29T11:20:00Z' };
     report = evaluateOriginWorldClassQualityGate(candidate, NOW);
     expect(report.blockers).toContain('artifact:EVIDENCE_STALE_OR_FUTURE');
   });
