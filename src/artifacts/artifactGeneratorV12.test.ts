@@ -101,7 +101,7 @@ describe('V1.2 real artifacts', () => {
     const body = artifact.bytes.toString('utf8');
     expect(body).toContain('<c r="B2"><v>42.5</v></c>');
     expect(body).toContain('<c r="C2" t="b"><v>1</v></c>');
-    expect(body).toContain('<c r="A2" t="inlineStr"><is><t>Sales</t></is></c>');
+    expect(body).toContain('<c r="A2" t="inlineStr"><is><t xml:space="preserve">Sales</t></is></c>');
   });
 
   it('fails closed rather than replacing Japanese PDF text with question marks', async () => {
