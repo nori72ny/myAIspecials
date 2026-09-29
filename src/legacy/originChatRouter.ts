@@ -152,6 +152,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     if (isOriginWeatherRequest(lastUserMessage)) { const isEnglish = /[a-zA-Z]/.test(lastUserMessage); if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) { const content = isEnglish ? "Which location would you like to know the weather for?" : "どの地域の天気をお調べしますか？"; const reason = "地域確認のため外部AIを呼びませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason), routing: applicationRouting(requestId, reason) }); } const content = isEnglish ? "Currently, no service is connected to retrieve the latest weather information." : "現在、最新の天気情報を取得するサービスが接続されていません。"; const reason = "最新データ取得サービスが未接続のため推測を実行しませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: applicationRouting(requestId, reason, "not-run") }); }
     const sensitiveKinds = detectSensitiveConversation(messages); if (sensitiveKinds.length > 0) return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", messageKey: "errors.sensitiveInputBlocked", message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。", retryable: false, requestId, sensitiveKinds });
     const contextResult = minimizeOriginContext(messages, contextPolicy); if (contextResult.ok === false) return res.status(contextResult.code === "LATEST_MESSAGE_TOO_LARGE" ? 413 : 500).json({ code: contextResult.code, message: contextResult.message, retryable: false, requestId });
+    const intentInput = originIntentInputFromContext(contextResult.window.messages);
+    const researchIntent = groundedResearchRequired ? classifyOriginRequestIntent(intentInput, "research") : null;
+    const researchRequestedOutputs = researchIntent?.requestedOutputs ?? [];
+    const researchNeedsDownstreamDeliverable = researchRequestedOutputs.some((output) => ["presentation", "document", "spreadsheet", "chart", "image", "application", "website", "dashboard"].includes(output));
     if (groundedResearchRequired) {
       let researchResult: OriginResearchResult;
       try {
@@ -182,9 +186,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   grounded.sources,
                   grounded.conflictDetails,
                   grounded.language,
+                  researchRequestedOutputs,
                 ),
               }],
-              systemInstruction: buildGroundedResearchSynthesisInstruction(grounded.language),
+              systemInstruction: buildGroundedResearchSynthesisInstruction(grounded.language, researchRequestedOutputs),
             });
             assertOriginZeroCostExecutionResult(synthesisResult, synthesisPlan.plan.modelId);
             const citationValidation = validateGroundedResearchSynthesis(synthesisResult.text, grounded.sources);
@@ -201,6 +206,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 limitations.push(grounded.language === "en"
                   ? "Retrieved sources contain structured-value differences that require human review."
                   : "取得ソース間に構造化値の差異があり、人による確認が必要です。");
+              }
+              if (researchNeedsDownstreamDeliverable) {
+                limitations.push(grounded.language === "en"
+                  ? "This research-synthesis stage prepared grounded source content, but it did not itself generate the requested downstream file, image, app, website, or chart."
+                  : "このResearch統合ステージでは根拠付き原稿・構成までを準備できますが、要求された後段の実ファイル・実画像・アプリ・Webサイト・チャート自体はまだ生成していません。");
               }
               return res.json({
                 content: synthesisResult.text,
@@ -232,6 +242,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   providerRouting: synthesisResult.routingEvidence,
                   usage: synthesisResult.usage,
                   providerAttempts: 1,
+                  requestedOutputs: researchRequestedOutputs,
+                  supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
+                  downstreamDeliverablePending: researchNeedsDownstreamDeliverable,
                 },
               });
             }
@@ -256,9 +269,14 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         : grounded.language === "en"
           ? `${grounded.reason} AI synthesis was not adopted; the deterministic evidence digest is shown instead.`
           : `${grounded.reason} AI統合は採用せず、安全な証拠ダイジェストを表示しています。`;
+      const digestLimitations = researchNeedsDownstreamDeliverable
+        ? [...grounded.limitations, grounded.language === "en"
+          ? "The requested downstream deliverable was not generated because the bounded synthesis stage was unavailable; only retrieved evidence is shown."
+          : "要求された後段成果物は、範囲限定の統合ステージを利用できなかったため生成しておらず、取得済み証拠だけを表示しています。"]
+        : grounded.limitations;
       return res.json({
         content: grounded.content,
-        answer: answerEnvelope(grounded.content, grounded.language, "not-run", digestReason, grounded.evidence, grounded.limitations, grounded.nextActions),
+        answer: answerEnvelope(grounded.content, grounded.language, "not-run", digestReason, grounded.evidence, digestLimitations, grounded.nextActions),
         routing: {
           ...applicationRouting(requestId, digestReason, "not-run"),
           answerMode: "research",
@@ -268,6 +286,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           conflictCount: grounded.conflicts,
           synthesisStatus,
           ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
+          requestedOutputs: researchRequestedOutputs,
+          supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
+          downstreamDeliverablePending: researchNeedsDownstreamDeliverable,
         },
       });
     }
@@ -292,7 +313,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     if (planningResult.ok === false) return res.status(planningResult.code === "INVALID_EXECUTION_POLICY" ? 400 : 503).json({ code: planningResult.code, message: planningResult.message, retryable: false, requestId });
     const startedAt = now();
     try {
-      const intentInput = originIntentInputFromContext(contextResult.window.messages); const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required });
+      const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required });
       const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) };
       const result = await execute(providerRequest); assertOriginZeroCostExecutionResult(result, planningResult.plan.modelId);
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
