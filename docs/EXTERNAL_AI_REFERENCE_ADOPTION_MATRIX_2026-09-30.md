@@ -16,7 +16,7 @@ Evidence rule: an idea is considered adopted only when the current repository co
 | Provider-agnostic router | Adopted | raster provider registry and explicit capability descriptors | add providers only when exact USD 0 is verified |
 | Change / Preserve map | Adopted foundation | Visual Brain changePreserve contract | becomes production-critical when edit/inpaint is activated |
 | Visual Memory / Asset Graph | Adopted foundation | IndexedDB raster history, SHA-256 identity, parent lineage | multi-turn editing/variation remains gated |
-| Deterministic typography | Adopted foundation | exact-text extraction + typography-safe planning/local overlay path | verify Japanese OCR/text placement in live raster workflow |
+| Deterministic typography | Adopted + strengthened | exact-text extraction + local overlay + measured glyph-width wrapping + no horizontal text compression + overflow fail-closed | verify Japanese OCR/text placement in live raster workflow |
 | Structural Critic | Adopted | image signature/dimensions/payload checks | retained as hard pre-gate |
 | Technical pixel Critic | Adopted | entropy/edge/clipping/information-density checks | retained as hard pre-gate |
 | Semantic Vision Critic | Adopted candidate and Production code | Cloudflare Moondream semantic critic, 7 quality axes | delivery gate remains disabled until real free-plan effectiveness/quota evidence |
