@@ -134,6 +134,9 @@ function makePptx(title: string, content: string, requestedSlides: ArtifactReque
 }
 
 export function generateArtifactV12(input: ArtifactRequest): GeneratedArtifact {
+  if (input.rows?.some(row => row.some(value => typeof value === 'number' && !Number.isFinite(value)))) {
+    throw new Error('INVALID_ARTIFACT_ROWS');
+  }
   const title = String(input.title || 'ORIGIN Artifact').slice(0, 200);
   const content = String(input.content || '').slice(0, 120000);
   const stem = safeName(input.title, 'origin-artifact');
