@@ -133,6 +133,31 @@ describe("originResearchSource", () => {
     expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).toContain("site:support.google.com");
   });
 
+  it("promotes a current Google official-help page to verified evidence when the original page is retrievable", async () => {
+    secureFetch
+      .mockResolvedValueOnce(
+        '<a class="result__a" href="https://support.google.com/business/answer/15300403?hl=ja">営業時間を編集する</a>' +
+        '<div class="result__snippet">Google ビジネス プロフィールの営業時間を編集できます。</div>',
+      )
+      .mockResolvedValueOnce(
+        '<main><h1>営業時間を編集する</h1><p>ビジネスの営業時間は Google マップと Google 検索のビジネス プロフィールで設定、編集できます。</p>' +
+        '<p>プロフィールを編集し、営業時間を選択して保存します。</p></main>',
+      );
+
+    const result = await researchCurrentInformation(
+      "Google ビジネス プロフィールの営業時間の編集方法を、Google公式ヘルプを出典として短く説明してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.sources).toHaveLength(1);
+    expect(result.sources[0]).toMatchObject({
+      url: "https://support.google.com/business/answer/15300403?hl=ja",
+      domain: "support.google.com",
+      evidenceLevel: "page-verified",
+    });
+    expect(result.sources[0].excerpt).toContain("営業時間は Google マップと Google 検索");
+  });
+
   it("retries the keyless DuckDuckGo lite surface before failing an official-source constraint", async () => {
     const unrelated =
       '<a class="result__a" href="https://en.wikipedia.org/wiki/The_Beatles">The Beatles</a><div class="result__snippet">English rock band.</div>' +

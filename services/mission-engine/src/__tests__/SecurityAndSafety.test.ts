@@ -21,8 +21,8 @@ describe("=== Version 1.1 Safety and Hardening Policies ===", () => {
   });
 
   describe("2. URL Scheme & Domain Whitelisting", () => {
-    it("matches whitelisted domains and subdomains", () => { expect(isWhitelistedDomain("wikipedia.org")).toBe(true); expect(isWhitelistedDomain("en.wikipedia.org")).toBe(true); expect(isWhitelistedDomain("api.github.com")).toBe(true); expect(isWhitelistedDomain("raw.githubusercontent.com")).toBe(true); expect(isWhitelistedDomain("httpbin.org")).toBe(true); });
-    it("rejects non-whitelisted domains", () => { expect(isWhitelistedDomain("malicious-domain.com")).toBe(false); expect(isWhitelistedDomain("attacker.org")).toBe(false); expect(isWhitelistedDomain("google.com")).toBe(false); });
+    it("matches whitelisted domains and subdomains", () => { expect(isWhitelistedDomain("wikipedia.org")).toBe(true); expect(isWhitelistedDomain("en.wikipedia.org")).toBe(true); expect(isWhitelistedDomain("support.google.com")).toBe(true); expect(isWhitelistedDomain("api.github.com")).toBe(true); expect(isWhitelistedDomain("raw.githubusercontent.com")).toBe(true); expect(isWhitelistedDomain("httpbin.org")).toBe(true); });
+    it("rejects non-whitelisted domains", () => { expect(isWhitelistedDomain("malicious-domain.com")).toBe(false); expect(isWhitelistedDomain("attacker.org")).toBe(false); expect(isWhitelistedDomain("google.com")).toBe(false); expect(isWhitelistedDomain("support.google.com.attacker.com")).toBe(false); });
     it("fails secureFetch for bad scheme or non-whitelisted domain", async () => { await expect(secureFetch("ftp://wikipedia.org")).rejects.toThrow("Only HTTP and HTTPS"); await expect(secureFetch("http://localhost/api")).rejects.toThrow("Localhost domain is prohibited"); await expect(secureFetch("https://attacker.com/payload")).rejects.toThrow("not whitelisted"); });
   });
 

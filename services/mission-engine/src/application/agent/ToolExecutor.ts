@@ -43,7 +43,7 @@ export function areSafeLookupAddresses(addresses: ReadonlyArray<{ address: strin
 }
 
 export function isWhitelistedDomain(hostname: string): boolean {
-  const whitelist = ["wikipedia.org", "duckduckgo.com", "api.github.com", "raw.githubusercontent.com", "httpbin.org", "api.stackexchange.com", "api.coindesk.com"];
+  const whitelist = ["wikipedia.org", "duckduckgo.com", "support.google.com", "api.github.com", "raw.githubusercontent.com", "httpbin.org", "api.stackexchange.com", "api.coindesk.com"];
   const lower = hostname.toLowerCase();
   return whitelist.some((domain) => lower === domain || lower.endsWith(`.${domain}`));
 }
