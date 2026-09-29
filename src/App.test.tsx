@@ -120,6 +120,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       screen.getByTestId('start-request-button'),
     ];
 
+    const historyControl = screen.getByTestId('history-drawer-toggle');
+    const settingsControl = screen.getByRole('button', { name: '設定を開く' });
+    expect(historyControl.querySelector('svg.lucide-menu')).toBeTruthy();
+    expect(settingsControl.querySelector('svg.lucide-settings')).toBeTruthy();
+    expect(historyControl.textContent).not.toContain('☰');
+    expect(settingsControl.textContent).not.toContain('⚙');
+
     for (const control of controls) {
       expect(control.className).toMatch(/\b(?:min-h-11|h-11)\b/);
       expect(control.className).toMatch(/\b(?:min-w-11|w-11)\b/);
