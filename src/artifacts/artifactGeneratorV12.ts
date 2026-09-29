@@ -68,9 +68,14 @@ function columnName(index: number): string {
   while (value > 0) { const rem = (value - 1) % 26; out = String.fromCharCode(65 + rem) + out; value = Math.floor((value - 1) / 26); }
   return out;
 }
+function xlsxCellXml(value: string | number | boolean | null, ref: string): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"><v>${value}</v></c>`;
+  if (typeof value === 'boolean') return `<c r="${ref}" t="b"><v>${value ? 1 : 0}</v></c>`;
+  return `<c r="${ref}" t="inlineStr"><is><t>${xml(value ?? '')}</t></is></c>`;
+}
 function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
   const table = rows?.length ? rows : content.split(/\r?\n/).filter(Boolean).map(line => [line]);
-  const rowXml = table.map((row, r) => `<row r="${r + 1}">${row.map((value, c) => `<c r="${columnName(c)}${r + 1}" t="inlineStr"><is><t>${xml(value)}</t></is></c>`).join('')}</row>`).join('');
+  const rowXml = table.map((row, r) => `<row r="${r + 1}">${row.map((value, c) => xlsxCellXml(value, `${columnName(c)}${r + 1}`)).join('')}</row>`).join('');
   return zipStore([
     { name: '[Content_Types].xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>') },
     { name: '_rels/.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') },
@@ -135,7 +140,10 @@ export function generateArtifactV12(input: ArtifactRequest): GeneratedArtifact {
   let bytes: Buffer, ext: string, mimeType: string;
   if (input.type === 'markdown') { bytes = Buffer.from(`# ${title}\n\n${content}\n`, 'utf8'); ext = 'md'; mimeType = 'text/markdown; charset=utf-8'; }
   else if (input.type === 'csv') { bytes = makeCsv(input.rows, content); ext = 'csv'; mimeType = 'text/csv; charset=utf-8'; }
-  else if (input.type === 'pdf') { bytes = makePdf(title, content); ext = 'pdf'; mimeType = 'application/pdf'; }
+  else if (input.type === 'pdf') {
+    if (/[^\x09\x0A\x0D\x20-\x7E]/.test(`${title}\n${content}`)) throw new Error('PDF_UNICODE_RENDERING_UNAVAILABLE');
+    bytes = makePdf(title, content); ext = 'pdf'; mimeType = 'application/pdf';
+  }
   else if (input.type === 'docx') { bytes = makeDocx(title, content); ext = 'docx'; mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; }
   else if (input.type === 'xlsx') { bytes = makeXlsx(input.rows, content); ext = 'xlsx'; mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; }
   else if (input.type === 'pptx') { bytes = makePptx(title, content, input.slides); ext = 'pptx'; mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'; }
