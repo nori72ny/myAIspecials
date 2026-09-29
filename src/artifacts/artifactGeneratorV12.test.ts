@@ -56,6 +56,42 @@ describe('V1.2 real artifacts', () => {
     expect(pptx.bytes.includes(Buffer.from('売上向上の施策です。', 'utf8'))).toBe(true);
   });
 
+  it('adds professional default styling to DOCX, XLSX, and PPTX artifacts', () => {
+    const docx = generateArtifactV12({
+      type: 'docx',
+      title: '営業提案',
+      content: '# 課題\n本文\n## 次のアクション\n実行内容',
+    });
+    const docxBody = docx.bytes.toString('utf8');
+    expect(docxBody).toContain('word/styles.xml');
+    expect(docxBody).toContain('w:styleId="Title"');
+    expect(docxBody).toContain('w:styleId="Heading1"');
+    expect(docxBody).toContain('w:styleId="Heading2"');
+
+    const xlsx = generateArtifactV12({
+      type: 'xlsx',
+      title: '売上管理',
+      rows: [['商品', '売上', '達成'], ['A', 120000, true], ['B', 95000, false]],
+    });
+    const xlsxBody = xlsx.bytes.toString('utf8');
+    expect(xlsxBody).toContain('xl/styles.xml');
+    expect(xlsxBody).toContain('state="frozen"');
+    expect(xlsxBody).toContain('<autoFilter ref="A1:C3"/>');
+    expect(xlsxBody).toContain('fgColor rgb="FF0F6CBD"');
+
+    const pptx = generateArtifactV12({
+      type: 'pptx',
+      title: '経営会議',
+      slides: [{ title: '結論', content: '- 売上を伸ばす\n- 継続率を改善する' }],
+    });
+    const pptxBody = pptx.bytes.toString('utf8');
+    expect(pptxBody).toContain('name="Background"');
+    expect(pptxBody).toContain('name="Accent"');
+    expect(pptxBody).toContain('name="ContentCard"');
+    expect(pptxBody).toContain('0F6CBD');
+    expect(pptxBody).toContain('• 売上を伸ばす');
+  });
+
   it('preserves numeric and boolean XLSX cell types instead of stringifying every value', () => {
     const artifact = generateArtifactV12({
       type: 'xlsx',
