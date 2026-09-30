@@ -24,6 +24,7 @@ const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 export type GeneralAgentTrustedRoundEvidenceV2 = {
   source: 'evaluator';
+  candidateSha: string;
   evaluatorId: string;
   permissionProfileDigest: string;
   evidenceId: string;
@@ -84,10 +85,13 @@ function validArtifactDigest(value: unknown): value is string {
 
 function validRoundEvidence(
   evidence: GeneralAgentTrustedRoundEvidenceV2 | null | undefined,
+  candidateSha: string,
   nowMs: number,
 ): evidence is GeneralAgentTrustedRoundEvidenceV2 {
   return Boolean(
     evidence?.source === 'evaluator'
+    && SHA40.test(evidence.candidateSha)
+    && evidence.candidateSha.toLowerCase() === candidateSha.toLowerCase()
     && SAFE_ID.test(evidence.evaluatorId)
     && SHA256.test(evidence.permissionProfileDigest)
     && SAFE_ID.test(evidence.evidenceId)
@@ -203,7 +207,7 @@ export function evaluateGeneralAgentTrustedComparisonV2(
     blockers.push('GENERAL_AGENT_TRUSTED_COMPARISON_INPUT_INVALID');
   }
 
-  const trustedRoundEvidencePassed = validRoundEvidence(roundEvidence, nowMs);
+  const trustedRoundEvidencePassed = validRoundEvidence(roundEvidence, candidateSha, nowMs);
   if (!trustedRoundEvidencePassed) blockers.push('GENERAL_AGENT_TRUSTED_ROUND_EVIDENCE_INVALID');
   const permissionProfileDigest = trustedRoundEvidencePassed ? roundEvidence.permissionProfileDigest : null;
 
