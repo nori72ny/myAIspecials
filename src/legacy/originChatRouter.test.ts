@@ -281,7 +281,7 @@ describe("createOriginChatRouter", () => {
     expect(synthesisRequest.messages[0].content).toContain("要求された成果形の契約");
   });
 
-  it("keeps file deliverables truthful when research prepares content but does not generate the file", async () => {
+  it("executes Research → verified PPTX in one request and preserves JSON even when streaming was requested", async () => {
     const researchMock = vi.fn().mockResolvedValue({
       ok: true,
       searchProvider: "DuckDuckGo",
@@ -310,7 +310,94 @@ describe("createOriginChatRouter", () => {
         },
       ],
     }) as unknown as OriginResearchExecutor;
-    const synthesisText = "スライド原稿の要点は100円と120円の比較です。[S1](https://example.com/one) [S2](https://example.org/two)";
+    const synthesisText = [
+      "## 結論",
+      "料金は100円と120円です。[S1](https://example.com/one) [S2](https://example.org/two)",
+      "",
+      "## 比較",
+      "- Aは100円です。[S1](https://example.com/one)",
+      "- Bは120円です。[S2](https://example.org/two)",
+    ].join("\n");
+    const synthesisMock = vi.fn().mockResolvedValue({ ...defaultExecutionResult, text: synthesisText }) as unknown as OriginChatExecutor;
+
+    const response = await request(createApp(
+      execute,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      undefined,
+      undefined,
+      researchMock,
+      synthesisMock,
+    )).post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({
+        messages: [{ role: "user", content: "現在の料金を調査してPowerPointにまとめてください" }],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("application/json");
+    expect(response.body.content).toBe(synthesisText);
+    expect(response.body.artifact).toEqual(expect.objectContaining({
+      version: "origin.research-artifact-supervisor.v1",
+      output: "presentation",
+      format: "pptx",
+      verified: true,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      provenance: expect.objectContaining({
+        derivedFrom: "grounded-research-synthesis",
+        citationValidated: true,
+        sourceCount: 2,
+      }),
+    }));
+    expect(response.body.artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
+    const bytes = Buffer.from(response.body.artifact.bytesBase64, "base64");
+    expect(bytes.readUInt32LE(0)).toBe(0x04034b50);
+    expect(bytes.includes(Buffer.from("ppt/presentation.xml"))).toBe(true);
+    expect(response.body.routing).toEqual(expect.objectContaining({
+      requestedOutputs: ["presentation"],
+      supervisorMode: "research-artifact-v1",
+      downstreamDeliverablePending: false,
+      artifactVerified: true,
+      artifactFormat: "pptx",
+      artifactSha256: response.body.artifact.sha256,
+    }));
+    expect(response.body.answer.limitations.join(" ")).not.toContain("まだ生成");
+    const synthesisRequest = (synthesisMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(synthesisRequest.systemInstruction).toContain("スライド/PPTX");
+    expect(synthesisRequest.systemInstruction).toContain("## 見出し");
+  });
+
+  it("returns verified research as a partial result when XLSX structure cannot be verified", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "DuckDuckGo",
+      sources: [
+        {
+          title: "Price source one",
+          url: "https://example.com/one",
+          excerpt: "料金は100円と記載されています。",
+          sourceType: "web-search",
+          domain: "example.com",
+          rank: 1,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+        {
+          title: "Price source two",
+          url: "https://example.org/two",
+          excerpt: "料金は120円と記載されています。",
+          sourceType: "web-search",
+          domain: "example.org",
+          rank: 2,
+          evidenceLevel: "page-verified",
+          retrievedAt: "2026-09-24T06:00:00.000Z",
+          freshness: "recent",
+        },
+      ],
+    }) as unknown as OriginResearchExecutor;
+    const synthesisText = "Aは100円です。[S1](https://example.com/one) Bは120円です。[S2](https://example.org/two)";
     const synthesisMock = vi.fn().mockResolvedValue({ ...defaultExecutionResult, text: synthesisText }) as unknown as OriginChatExecutor;
 
     const response = await request(createApp(
@@ -321,19 +408,19 @@ describe("createOriginChatRouter", () => {
       researchMock,
       synthesisMock,
     )).post("/api/chat").send({
-      messages: [{ role: "user", content: "現在の料金を調査してPowerPointにまとめてください" }],
+      messages: [{ role: "user", content: "現在の料金を調査してExcelにまとめてください" }],
     });
 
     expect(response.status).toBe(200);
+    expect(response.body.artifact).toBeUndefined();
+    expect(response.body.content).toBe(synthesisText);
     expect(response.body.routing).toEqual(expect.objectContaining({
-      requestedOutputs: ["presentation"],
+      requestedOutputs: ["spreadsheet"],
       supervisorMode: "research-output-contract-v1",
       downstreamDeliverablePending: true,
+      artifactFailureCode: "RESEARCH_ARTIFACT_TABLE_REQUIRED",
     }));
-    expect(response.body.answer.limitations.join(" ")).toContain("実ファイル");
-    const synthesisRequest = (synthesisMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(synthesisRequest.systemInstruction).toContain("スライド/PPTX");
-    expect(synthesisRequest.systemInstruction).toContain("生成したとは絶対に表現しない");
+    expect(response.body.answer.limitations.join(" ")).toContain("完成・検証を確認できなかった");
   });
 
   it("discards synthesized text when citation validation fails and returns the deterministic digest", async () => {
