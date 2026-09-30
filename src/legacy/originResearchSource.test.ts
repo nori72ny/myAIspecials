@@ -34,7 +34,7 @@ describe("originResearchSource", () => {
     const result = await researchCurrentInformation("AIO");
     expect(result.ok).toBe(true);
     expect(result.searchProvider).toBe("DuckDuckGo");
-    expect(result.sources[0]).toMatchObject({ title: "AI optimization", url: "https://example.com/ai-optimization", sourceType: "web-search", domain: "example.com", rank: 1, evidenceLevel: "snippet", freshness: "unknown", retrievedAt: expect.any(String) });
+    expect(result.sources[0]).toMatchObject({ title: "AI optimization", url: "https://example.com/ai-optimization", sourceType: "web-search", sourceAuthority: "unclassified", domain: "example.com", rank: 1, evidenceLevel: "snippet", freshness: "unknown", retrievedAt: expect.any(String) });
     expect(secureFetch.mock.calls[0][0]).toContain("https://html.duckduckgo.com/html/?q=AIO");
     expect(secureFetch.mock.calls[0][0]).toContain("kl=us-en");
   });
@@ -61,6 +61,7 @@ describe("originResearchSource", () => {
     expect(result.searchProvider).toBe("Wikipedia");
     expect(result.sources[0]).toMatchObject({
       evidenceLevel: "snippet",
+      sourceAuthority: "secondary-reference",
       revisionTimestamp: "2026-09-06T00:00:00Z",
       retrievedAt: "2026-09-08T00:00:00.000Z",
       freshness: "recent",
@@ -128,6 +129,7 @@ describe("originResearchSource", () => {
       title: "営業時間を編集する",
       domain: "support.google.com",
       sourceType: "web-search",
+      sourceAuthority: "official-domain-match",
     });
     expect(result.sources[0].url).toContain("support.google.com/business/");
     expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).toContain("site:support.google.com");
