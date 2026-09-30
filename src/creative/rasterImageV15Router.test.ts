@@ -16,6 +16,18 @@ function cfEnvelope(result: unknown, status = 200): Response {
   });
 }
 
+function cfFailure(status: number, code: number): Response {
+  return new Response(JSON.stringify({
+    success: false,
+    result: null,
+    errors: [{ code, message: 'upstream failure' }],
+    messages: [],
+  }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 function app(env: NodeJS.ProcessEnv = {}) {
   const instance = express();
   instance.use(express.json({ limit: '64kb' }));
@@ -414,6 +426,36 @@ describe('rasterImageV15Router', () => {
     expect(String(providerBody.get('width'))).toBe('768');
     expect(String(providerBody.get('height'))).toBe('1024');
     expect(new Headers(providerRequest.headers).get('content-type')).toBeNull();
+  });
+
+  it.each([
+    [3036, 429, 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED', false, '無料枠を使い切った'],
+    [3040, 503, 'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE', true, '一時的に混雑'],
+    [5035, 503, 'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN', false, '有料プランが必要'],
+  ] as const)('returns truthful safe API semantics for Cloudflare code %s', async (internalCode, expectedStatus, expectedCode, retryable, messagePart) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(cfFailure(internalCode === 5035 ? 403 : 429, internalCode));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(expectedStatus);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: expectedCode,
+      retryable,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      secretDelivery: 'server-only',
+    });
+    expect(response.body.message).toContain(messagePart);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('runs the semantic delivery gate only when explicitly enabled and returns only a passing image', async () => {
