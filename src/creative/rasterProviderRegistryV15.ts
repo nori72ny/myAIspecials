@@ -37,12 +37,20 @@ export type RasterProviderRuntimeV15 = {
 const CLOUDFLARE_DESCRIPTOR: RasterProviderDescriptorV15 = {
   id: 'cloudflare-workers-ai-free',
   label: 'Cloudflare Workers AI Free raster runtime',
-  capabilities: [{
-    task: 'text-to-image',
-    referenceImages: false,
-    identityPreservation: false,
-    deterministicTextOverlay: false,
-  }],
+  capabilities: [
+    {
+      task: 'text-to-image',
+      referenceImages: false,
+      identityPreservation: false,
+      deterministicTextOverlay: false,
+    },
+    {
+      task: 'edit',
+      referenceImages: true,
+      identityPreservation: false,
+      deterministicTextOverlay: false,
+    },
+  ],
   zeroCostRequired: true,
   paidFallback: false,
   secretDelivery: 'server-only',
