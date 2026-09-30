@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   });
 
   try {
-    await pool.query("begin");
+    await pool.query("begin isolation level serializable");
     const duplicate = await pool.query<{
       corpus_id: string;
       corpus_digest: string;
