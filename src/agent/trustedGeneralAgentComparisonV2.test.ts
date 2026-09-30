@@ -124,6 +124,7 @@ function input() {
     tasks,
     roundEvidence: {
       source: 'evaluator' as const,
+      candidateSha: SHA,
       evaluatorId: 'independent-agent-evaluator-v1',
       permissionProfileDigest: PERMISSION_DIGEST,
       evidenceId: 'agent-round-evidence:2026-10-01',
@@ -151,6 +152,17 @@ describe('trusted General Agent multi-reference comparison', () => {
     expect(report.comparison?.strongestReference?.solved).toBe(12);
     expect(report.buildErrors).toEqual([]);
     expect(report.blockers).toEqual([]);
+  });
+
+  it('fails when the evaluator round belongs to a different candidate SHA', () => {
+    const value = input();
+    const report = evaluateGeneralAgentTrustedComparisonV2({
+      ...value,
+      roundEvidence: { ...value.roundEvidence, candidateSha: 'f'.repeat(40) },
+    }, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.trustedRoundEvidencePassed).toBe(false);
+    expect(report.blockers).toContain('GENERAL_AGENT_TRUSTED_ROUND_EVIDENCE_INVALID');
   });
 
   it('fails when a reference uses a different permission profile', () => {
