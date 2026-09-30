@@ -53,7 +53,8 @@ const SUPPORTED_OUTPUTS = new Set<OriginSupervisorArtifactKindV2>([
   'presentation',
   'spreadsheet',
 ]);
-const MAX_INLINE_ARTIFACT_BYTES = 1_500_000;
+const MAX_INLINE_ARTIFACT_BYTES = 1_250_000;
+const MAX_INLINE_ARTIFACT_BUNDLE_BYTES = 1_500_000;
 
 function safeTitle(value: string): string {
   const normalized = value.normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -187,6 +188,7 @@ export function generateOriginSupervisorArtifactsV2(
   const richOutputs: OriginAnswerRichOutput[] = [];
   const completedOutputs: string[] = [];
   const pendingOutputs: string[] = [];
+  let totalArtifactBytes = 0;
 
   for (const output of requestedFileOutputs) {
     if (!SUPPORTED_OUTPUTS.has(output as OriginSupervisorArtifactKindV2)) {
@@ -202,6 +204,10 @@ export function generateOriginSupervisorArtifactsV2(
     if (generated.bytes.length > MAX_INLINE_ARTIFACT_BYTES) {
       throw new Error('SUPERVISOR_ARTIFACT_TOO_LARGE');
     }
+    if (totalArtifactBytes + generated.bytes.length > MAX_INLINE_ARTIFACT_BUNDLE_BYTES) {
+      throw new Error('SUPERVISOR_ARTIFACT_BUNDLE_TOO_LARGE');
+    }
+    totalArtifactBytes += generated.bytes.length;
     const sha256 = createHash('sha256').update(generated.bytes).digest('hex');
     if (sha256 !== generated.sha256) throw new Error('SUPERVISOR_ARTIFACT_DIGEST_MISMATCH');
 
