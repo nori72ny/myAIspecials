@@ -170,6 +170,48 @@ export function buildTrustedGeneralAgentRunV2(
   const evaluatorCost = events.filter(event => event.source === 'evaluator' && event.kind === 'cost-attestation');
   if (evaluatorCost.length !== 1) blockers.push('TRUSTED_COST_ATTESTATION_COUNT_INVALID');
 
+  // Monotonic timestamps alone do not prove a valid execution lifecycle.
+  // Only evaluator observations establish prerequisites; participant activity
+  // still counts when detecting execution after the evaluator closed the run.
+  let terminalObserved = false;
+  let attemptSeq = 0;
+  let executionEvidenceSeq = 0;
+  let verificationSeq = 0;
+  let recoveryObservedSeq = 0;
+  for (const event of events) {
+    if (terminalObserved && [
+      'plan-produced', 'tool-choice-valid', 'execution-attempted',
+      'execution-evidence', 'recovery-observed', 'recovery-succeeded',
+    ].includes(event.kind)) blockers.push('TRUSTED_ACTIVITY_AFTER_TERMINAL');
+    if (event.source !== 'evaluator') continue;
+    if (event.kind === 'terminal') {
+      terminalObserved = true;
+      if (event.terminalStatus === 'completed' && attemptSeq && !verificationSeq) {
+        blockers.push('TRUSTED_EVENT_CAUSAL_ORDER_INVALID');
+      }
+    }
+    if (event.kind === 'execution-attempted') {
+      attemptSeq = event.seq;
+      executionEvidenceSeq = 0;
+      verificationSeq = 0;
+    }
+    if (event.kind === 'execution-evidence') {
+      if (!attemptSeq) blockers.push('TRUSTED_EVENT_CAUSAL_ORDER_INVALID');
+      executionEvidenceSeq = event.seq;
+    }
+    if (event.kind === 'verification-passed') {
+      if (!executionEvidenceSeq) blockers.push('TRUSTED_EVENT_CAUSAL_ORDER_INVALID');
+      verificationSeq = event.seq;
+    }
+    if (event.kind === 'recovery-observed') recoveryObservedSeq = event.seq;
+    if (event.kind === 'recovery-succeeded') {
+      if (!recoveryObservedSeq || attemptSeq <= recoveryObservedSeq
+        || executionEvidenceSeq <= attemptSeq || verificationSeq <= executionEvidenceSeq) {
+        blockers.push('TRUSTED_EVENT_CAUSAL_ORDER_INVALID');
+      }
+    }
+  }
+
   if (blockers.length > 0) return { ok: false, blockers: [...new Set(blockers)] };
 
   const terminalStatus = evaluatorTerminals[0]?.terminalStatus as GeneralAgentTerminalV2;

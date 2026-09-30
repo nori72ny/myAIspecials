@@ -59,6 +59,64 @@ function positiveEvents(source: 'evaluator' | 'origin' = 'evaluator'): GeneralAg
 }
 
 describe('trusted General Agent held-out evidence v2', () => {
+  const ordered = (events: GeneralAgentTrustedEventV2[]) => events.map((event, index) => ({
+    ...event, seq: index + 1, atMs: 1_100 + index * 100,
+  }));
+  const terminal: GeneralAgentTrustedEventV2 = {
+    seq: 10, atMs: 2_000, source: 'evaluator', kind: 'terminal', terminalStatus: 'completed',
+  };
+  const cost: GeneralAgentTrustedEventV2 = {
+    seq: 11, atMs: 2_100, source: 'evaluator', kind: 'cost-attestation', costUsd: 0, paidFallbackUsed: false,
+  };
+
+  it('rejects verification before execution despite monotonically increasing timestamps', () => {
+    const events = positiveEvents();
+    const verification = events.splice(7, 1)[0]!;
+    events.unshift(verification);
+    const built = buildTrustedGeneralAgentRunV2(completedTask(), evidence(ordered([...events, terminal, cost])));
+    expect(built).toMatchObject({ ok: false, blockers: expect.arrayContaining(['TRUSTED_EVENT_CAUSAL_ORDER_INVALID']) });
+  });
+
+  it.each(['evaluator', 'origin'] as const)('rejects %s execution after a cancelled terminal', source => {
+    const task = { ...completedTask(), expectedTerminalStatus: 'cancelled' as const };
+    const built = buildTrustedGeneralAgentRunV2(task, evidence(ordered([
+      ...positiveEvents(), { ...terminal, terminalStatus: 'cancelled' },
+      { ...terminal, source, kind: 'execution-attempted' }, cost,
+    ])));
+    expect(built).toMatchObject({ ok: false, blockers: expect.arrayContaining(['TRUSTED_ACTIVITY_AFTER_TERMINAL']) });
+  });
+
+  it('rejects recovery success without a new attempt after the observed failure', () => {
+    const built = buildTrustedGeneralAgentRunV2(completedTask(), evidence(ordered([
+      ...positiveEvents(), { ...terminal, kind: 'recovery-observed' },
+      { ...terminal, kind: 'recovery-succeeded' }, terminal, cost,
+    ])));
+    expect(built).toMatchObject({ ok: false, blockers: expect.arrayContaining(['TRUSTED_EVENT_CAUSAL_ORDER_INVALID']) });
+  });
+
+  it('accepts an observed recovery attempt and post-terminal cost accounting', () => {
+    const built = buildTrustedGeneralAgentRunV2(completedTask(), evidence(ordered([
+      ...positiveEvents(), { ...terminal, kind: 'recovery-observed' },
+      { ...terminal, kind: 'execution-attempted' }, { ...terminal, kind: 'execution-evidence' },
+      { ...terminal, kind: 'verification-passed' }, { ...terminal, kind: 'recovery-succeeded' }, terminal, cost,
+    ])));
+    expect(built.ok).toBe(true);
+  });
+
+  it('rejects execution evidence without an evaluator-observed attempt', () => {
+    const events = positiveEvents().map(event => event.kind === 'execution-attempted'
+      ? { ...event, source: 'origin' as const } : event);
+    const built = buildTrustedGeneralAgentRunV2(completedTask(), evidence(ordered([...events, terminal, cost])));
+    expect(built).toMatchObject({ ok: false, blockers: expect.arrayContaining(['TRUSTED_EVENT_CAUSAL_ORDER_INVALID']) });
+  });
+
+  it('does not reuse earlier verification to complete a later unverified attempt', () => {
+    const built = buildTrustedGeneralAgentRunV2(completedTask(), evidence(ordered([
+      ...positiveEvents(), { ...terminal, kind: 'execution-attempted' }, terminal, cost,
+    ])));
+    expect(built).toMatchObject({ ok: false, blockers: expect.arrayContaining(['TRUSTED_EVENT_CAUSAL_ORDER_INVALID']) });
+  });
+
   it('builds a solved run only from evaluator-observed positive evidence', () => {
     const t = completedTask();
     const built = buildTrustedGeneralAgentRunV2(t, evidence([
