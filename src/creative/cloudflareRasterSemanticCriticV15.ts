@@ -1,4 +1,5 @@
 import { getCloudflareRasterStatusV15 } from './cloudflareRasterImageProviderV15.js';
+import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
 import type { RasterImageResultV15 } from './rasterImageProviderV15.js';
 
 const API_ORIGIN = 'https://api.cloudflare.com';
@@ -173,8 +174,8 @@ export async function critiqueCloudflareRasterSemanticV15(
   );
 
   if (!response.ok) {
-    if ([402, 403, 429].includes(response.status)) throw new Error('CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE');
-    throw new Error(`CLOUDFLARE_SEMANTIC_CRITIC_HTTP_${response.status}`);
+    const failure = await classifyCloudflareWorkersAiFailureV15(response, 'CLOUDFLARE_SEMANTIC_CRITIC_HTTP');
+    throw new Error(failure.code);
   }
 
   const body = await response.json().catch(() => null) as CloudflareEnvelope | null;

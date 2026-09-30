@@ -4,6 +4,7 @@ import type {
   RasterImageResultV15,
   RasterProviderStatusV15,
 } from './rasterImageProviderV15.js';
+import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
 
 const API_ORIGIN = 'https://api.cloudflare.com';
 const MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
@@ -118,12 +119,15 @@ async function verifyWorkersFreePlan(
     MODEL_SCHEMA_TIMEOUT_MS,
   );
   if (!schema.ok) {
+    const failure = await classifyCloudflareWorkersAiFailureV15(schema);
     return {
       ok: false,
       requests: 3,
-      reason: [401, 403].includes(schema.status)
-        ? 'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED'
-        : 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
+      reason: failure.code === 'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN'
+        ? failure.code
+        : ['CLOUDFLARE_WORKERS_AI_AUTH_REQUIRED', 'CLOUDFLARE_WORKERS_AI_ACCESS_DENIED'].includes(failure.code)
+          ? 'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED'
+          : 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
     };
   }
   const schemaBody = await schema.json().catch(() => null) as CloudflareEnvelope | null;
@@ -330,8 +334,8 @@ export async function generateCloudflareRasterImageV15(
   );
 
   if (!response.ok) {
-    if ([402, 403, 429].includes(response.status)) throw new Error('CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE');
-    throw new Error(`CLOUDFLARE_IMAGE_HTTP_${response.status}`);
+    const failure = await classifyCloudflareWorkersAiFailureV15(response, 'CLOUDFLARE_IMAGE_HTTP');
+    throw new Error(failure.code);
   }
 
   let bytes: Buffer;

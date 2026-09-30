@@ -21,6 +21,18 @@ function envelope(result: unknown, status = 200) {
   });
 }
 
+function failure(status: number, code: number) {
+  return new Response(JSON.stringify({
+    success: false,
+    result: null,
+    errors: [{ code, message: 'upstream failure' }],
+    messages: [],
+  }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 function png() {
   const bytes = Buffer.alloc(96);
   Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]).copy(bytes,0);
@@ -130,19 +142,21 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   });
 
-  it('treats paid-only access or exhausted free allocation as unavailable', async () => {
-    for (const status of [402, 403, 429]) {
-      const fetchMock = vi.fn()
-        .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
-        .mockResolvedValueOnce(envelope([]))
-        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-        .mockResolvedValueOnce(envelope({}, status));
+  it.each([
+    [429, 3036, 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED'],
+    [429, 3040, 'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE'],
+    [403, 5035, 'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN'],
+  ] as const)('preserves semantic-critic Cloudflare failure semantics for HTTP %s / code %s', async (status, internalCode, expectedCode) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(failure(status, internalCode));
 
-      await expect(critiqueCloudflareRasterSemanticV15({
-        originalRequest: '静かな湖の写真',
-        bytes: png(),
-        mimeType: 'image/png',
-      }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE');
-    }
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow(expectedCode);
   });
 });
