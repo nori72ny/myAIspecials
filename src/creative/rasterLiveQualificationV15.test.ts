@@ -91,7 +91,6 @@ describe('rasterLiveQualificationV15', () => {
   it('qualifies real generation and reference editing only after repeated Free checks and both semantic gates pass', async () => {
     const generated = png(384, 384, 1);
     const edited = png(384, 384, 2);
-    const replayed = png(384, 384, 1);
     const fetchMock = vi.fn();
 
     readyProof(fetchMock); // initial status
@@ -100,9 +99,6 @@ describe('rasterLiveQualificationV15', () => {
     fetchMock.mockResolvedValueOnce(envelope(generated.toString('base64')));
     readyProof(fetchMock); // generation semantic proof
     fetchMock.mockResolvedValueOnce(envelope({ answer: semanticAnswer('Generation is coherent and commercially usable.') }));
-
-    readyProof(fetchMock); // replay used as edit reference
-    fetchMock.mockResolvedValueOnce(envelope(replayed.toString('base64')));
 
     readyProof(fetchMock); // edit phase provider proof
     fetchMock.mockResolvedValueOnce(envelope(edited.toString('base64')));
@@ -146,6 +142,6 @@ describe('rasterLiveQualificationV15', () => {
     expect(JSON.stringify(result)).not.toContain(ENV.CLOUDFLARE_API_TOKEN);
     expect(JSON.stringify(result)).not.toContain(ENV.CLOUDFLARE_ACCOUNT_ID);
     expect(JSON.stringify(result)).not.toContain(generated.toString('base64'));
-    expect(fetchMock).toHaveBeenCalledTimes(23);
+    expect(fetchMock).toHaveBeenCalledTimes(19);
   });
 });
