@@ -183,6 +183,12 @@ export function validateGeneralAgentPrivateCorpusV2(
     if (task.recoveryRequired && !['code_interpreter', 'document_generator'].includes(task.expectedTool)) {
       blockers.push(`${task.id}:PRIVATE_TASK_RECOVERY_TOOL_UNSUPPORTED`);
     }
+    if (task.capabilities.includes('research') && task.expectedTool !== 'web_search_grounding') {
+      blockers.push(`${task.id}:PRIVATE_TASK_RESEARCH_TOOL_MISMATCH`);
+    }
+    if (task.expectedTool === 'web_search_grounding' && !task.capabilities.includes('research')) {
+      blockers.push(`${task.id}:PRIVATE_TASK_RESEARCH_CAPABILITY_MISSING`);
+    }
     if (task.capabilities.some(capability =>
       !(GENERAL_AGENT_CAPABILITIES_V2 as readonly string[]).includes(capability))) {
       blockers.push(`${task.id}:PRIVATE_TASK_CAPABILITY_INVALID`);
