@@ -82,14 +82,16 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (typeof runId !== 'string' || !runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
     if (typeof planToken !== 'string') return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_REQUIRED' });
     if (!isToolName(toolName)) return res.status(400).json({ ok: false, code: 'INVALID_TOOL' });
-    const plan = verifyPlanCapability(planToken, env);
+    // Bind validation and issuance to one instant at the expiry boundary.
+    const approvalNow = Date.now();
+    const plan = verifyPlanCapability(planToken, env, approvalNow);
     if (!plan || plan.runId !== runId) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_INVALID' });
     if (!isToolName(plan.plannedTool) || plan.plannedTool !== toolName) {
       return res.status(403).json({ ok: false, code: 'AGENT_PLAN_TOOL_MISMATCH' });
     }
     if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
     const operation: AgentApprovalOperation = { action: 'execute', runId, toolName, params: params ?? {} };
-    const capability = issueApprovalCapability(runId, approvalDigest(operation), env);
+    const capability = issueApprovalCapability(runId, approvalDigest(operation), env, approvalNow);
     return res.status(201).json({
       ok: true,
       protocolVersion: 3,
