@@ -84,7 +84,7 @@ function hasEvaluatorEvent(
   return events.some(event => event.source === 'evaluator' && event.kind === kind);
 }
 
-function validIdentityString(value: string): boolean {
+function validIdentityString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 160;
 }
 
@@ -94,64 +94,80 @@ export function buildTrustedGeneralAgentRunV2(
 ): GeneralAgentTrustedEvidenceBuildV2 {
   const blockers = [...validateGeneralAgentTaskV2(task)];
 
-  if (evidence.version !== GENERAL_AGENT_TRUSTED_EVIDENCE_VERSION_V2) blockers.push('TRUSTED_EVIDENCE_VERSION_INVALID');
+  const evidenceTaskId = typeof evidence?.taskId === 'string' ? evidence.taskId : '';
+  const evidenceTaskDigest = typeof evidence?.taskDigest === 'string' ? evidence.taskDigest : '';
+  const evidenceCandidateSha = typeof evidence?.candidateSha === 'string' ? evidence.candidateSha : '';
+
+  if (evidence?.version !== GENERAL_AGENT_TRUSTED_EVIDENCE_VERSION_V2) blockers.push('TRUSTED_EVIDENCE_VERSION_INVALID');
   if (
-    evidence.taskId !== task.id
-    || evidence.taskDigest.toLowerCase() !== task.taskDigest.toLowerCase()
-    || evidence.candidateSha.toLowerCase() !== task.candidateSha.toLowerCase()
+    evidenceTaskId !== task.id
+    || evidenceTaskDigest.toLowerCase() !== task.taskDigest.toLowerCase()
+    || evidenceCandidateSha.toLowerCase() !== task.candidateSha.toLowerCase()
   ) {
     blockers.push('TRUSTED_EVIDENCE_IDENTITY_MISMATCH');
   }
 
-  if (![evidence.participant, evidence.provider, evidence.model].every(validIdentityString)) {
+  if (![evidence?.participant, evidence?.provider, evidence?.model].every(validIdentityString)) {
     blockers.push('TRUSTED_EVIDENCE_PARTICIPANT_INVALID');
   }
 
-  if (
-    !Number.isInteger(evidence.startedAtMs)
-    || !Number.isInteger(evidence.finishedAtMs)
-    || evidence.startedAtMs < 0
-    || evidence.finishedAtMs < evidence.startedAtMs
-  ) {
-    blockers.push('TRUSTED_EVIDENCE_TIME_WINDOW_INVALID');
-  }
+  const validTimeWindow = Number.isInteger(evidence?.startedAtMs)
+    && Number.isInteger(evidence?.finishedAtMs)
+    && evidence.startedAtMs >= 0
+    && evidence.finishedAtMs >= evidence.startedAtMs;
+  if (!validTimeWindow) blockers.push('TRUSTED_EVIDENCE_TIME_WINDOW_INVALID');
 
-  const durationMs = evidence.finishedAtMs - evidence.startedAtMs;
-  if (Number.isFinite(durationMs) && durationMs > task.timeBudgetMs) {
-    blockers.push('TRUSTED_EVIDENCE_TIME_BUDGET_EXCEEDED');
-  }
+  const startedAtMs = validTimeWindow ? evidence.startedAtMs : 0;
+  const finishedAtMs = validTimeWindow ? evidence.finishedAtMs : startedAtMs;
+  const durationMs = finishedAtMs - startedAtMs;
+  if (validTimeWindow && durationMs > task.timeBudgetMs) blockers.push('TRUSTED_EVIDENCE_TIME_BUDGET_EXCEEDED');
 
-  let previousSeq = 0;
-  let previousAt = evidence.startedAtMs;
-  for (const event of evidence.events) {
-    if (!Number.isInteger(event.seq) || event.seq <= previousSeq) blockers.push('TRUSTED_EVENT_SEQUENCE_INVALID');
-    if (!Number.isInteger(event.atMs) || event.atMs < evidence.startedAtMs || event.atMs > evidence.finishedAtMs || event.atMs < previousAt) {
-      blockers.push('TRUSTED_EVENT_TIME_INVALID');
-    }
-    if (!['evaluator', 'origin'].includes(event.source)) blockers.push('TRUSTED_EVENT_SOURCE_INVALID');
-    if (!isTrustedKind(event.kind)) blockers.push('TRUSTED_EVENT_KIND_INVALID');
-    if (event.kind === 'capability-exercised' && !isCapability(event.capability)) blockers.push('TRUSTED_EVENT_CAPABILITY_INVALID');
-    if (event.kind === 'terminal' && !TERMINAL_STATUSES.has(event.terminalStatus as GeneralAgentTerminalV2)) {
-      blockers.push('TRUSTED_EVENT_TERMINAL_INVALID');
-    }
-    if (event.kind === 'cost-attestation') {
-      if (
-        event.source !== 'evaluator'
-        || !Number.isFinite(event.costUsd)
-        || (event.costUsd ?? -1) < 0
-        || typeof event.paidFallbackUsed !== 'boolean'
-      ) {
-        blockers.push('TRUSTED_COST_ATTESTATION_INVALID');
+  const events: GeneralAgentTrustedEventV2[] = [];
+  if (!Array.isArray(evidence?.events)) {
+    blockers.push('TRUSTED_EVIDENCE_EVENTS_INVALID');
+  } else {
+    let previousSeq = 0;
+    let previousAt = startedAtMs;
+
+    for (const rawEvent of evidence.events as readonly unknown[]) {
+      if (!rawEvent || typeof rawEvent !== 'object') {
+        blockers.push('TRUSTED_EVENT_INVALID');
+        continue;
       }
+
+      const event = rawEvent as GeneralAgentTrustedEventV2;
+      events.push(event);
+
+      if (!Number.isInteger(event.seq) || event.seq <= previousSeq) blockers.push('TRUSTED_EVENT_SEQUENCE_INVALID');
+      if (!Number.isInteger(event.atMs) || event.atMs < startedAtMs || event.atMs > finishedAtMs || event.atMs < previousAt) {
+        blockers.push('TRUSTED_EVENT_TIME_INVALID');
+      }
+      if (!['evaluator', 'origin'].includes(event.source)) blockers.push('TRUSTED_EVENT_SOURCE_INVALID');
+      if (!isTrustedKind(event.kind)) blockers.push('TRUSTED_EVENT_KIND_INVALID');
+      if (event.kind === 'capability-exercised' && !isCapability(event.capability)) blockers.push('TRUSTED_EVENT_CAPABILITY_INVALID');
+      if (event.kind === 'terminal' && !TERMINAL_STATUSES.has(event.terminalStatus as GeneralAgentTerminalV2)) {
+        blockers.push('TRUSTED_EVENT_TERMINAL_INVALID');
+      }
+      if (event.kind === 'cost-attestation') {
+        if (
+          event.source !== 'evaluator'
+          || !Number.isFinite(event.costUsd)
+          || (event.costUsd ?? -1) < 0
+          || typeof event.paidFallbackUsed !== 'boolean'
+        ) {
+          blockers.push('TRUSTED_COST_ATTESTATION_INVALID');
+        }
+      }
+
+      if (Number.isInteger(event.seq)) previousSeq = event.seq;
+      if (Number.isInteger(event.atMs)) previousAt = event.atMs;
     }
-    previousSeq = event.seq;
-    previousAt = event.atMs;
   }
 
-  const evaluatorTerminals = evidence.events.filter(event => event.source === 'evaluator' && event.kind === 'terminal');
+  const evaluatorTerminals = events.filter(event => event.source === 'evaluator' && event.kind === 'terminal');
   if (evaluatorTerminals.length !== 1) blockers.push('TRUSTED_TERMINAL_ATTESTATION_COUNT_INVALID');
 
-  const evaluatorCost = evidence.events.filter(event => event.source === 'evaluator' && event.kind === 'cost-attestation');
+  const evaluatorCost = events.filter(event => event.source === 'evaluator' && event.kind === 'cost-attestation');
   if (evaluatorCost.length !== 1) blockers.push('TRUSTED_COST_ATTESTATION_COUNT_INVALID');
 
   if (blockers.length > 0) return { ok: false, blockers: [...new Set(blockers)] };
@@ -159,7 +175,7 @@ export function buildTrustedGeneralAgentRunV2(
   const terminalStatus = evaluatorTerminals[0]?.terminalStatus as GeneralAgentTerminalV2;
   const cost = evaluatorCost[0];
   const capabilitiesExercised = [...new Set(
-    evidence.events
+    events
       .filter(event => event.source === 'evaluator' && event.kind === 'capability-exercised' && isCapability(event.capability))
       .map(event => event.capability as GeneralAgentCapabilityV2),
   )];
@@ -178,18 +194,18 @@ export function buildTrustedGeneralAgentRunV2(
       costUsd: cost?.costUsd as number,
       paidFallbackUsed: cost?.paidFallbackUsed as boolean,
       terminalStatus,
-      planProduced: hasEvaluatorEvent(evidence.events, 'plan-produced'),
-      toolChoiceValid: hasEvaluatorEvent(evidence.events, 'tool-choice-valid'),
-      executionAttempted: hasEvaluatorEvent(evidence.events, 'execution-attempted'),
-      executionEvidencePresent: hasEvaluatorEvent(evidence.events, 'execution-evidence'),
-      verificationPassed: hasEvaluatorEvent(evidence.events, 'verification-passed'),
-      recoveryObserved: hasEvaluatorEvent(evidence.events, 'recovery-observed'),
-      recoverySucceeded: hasEvaluatorEvent(evidence.events, 'recovery-succeeded'),
-      approvalBoundaryRespected: hasEvaluatorEvent(evidence.events, 'approval-boundary-respected'),
-      stopCancelRespected: hasEvaluatorEvent(evidence.events, 'stop-cancel-respected'),
-      unapprovedExternalWrites: evidence.events.filter(event => event.kind === 'unapproved-external-write').length,
-      falseCompletionClaims: evidence.events.filter(event => event.kind === 'false-completion-claim').length,
-      regressionDetected: evidence.events.some(event => event.kind === 'regression-detected'),
+      planProduced: hasEvaluatorEvent(events, 'plan-produced'),
+      toolChoiceValid: hasEvaluatorEvent(events, 'tool-choice-valid'),
+      executionAttempted: hasEvaluatorEvent(events, 'execution-attempted'),
+      executionEvidencePresent: hasEvaluatorEvent(events, 'execution-evidence'),
+      verificationPassed: hasEvaluatorEvent(events, 'verification-passed'),
+      recoveryObserved: hasEvaluatorEvent(events, 'recovery-observed'),
+      recoverySucceeded: hasEvaluatorEvent(events, 'recovery-succeeded'),
+      approvalBoundaryRespected: hasEvaluatorEvent(events, 'approval-boundary-respected'),
+      stopCancelRespected: hasEvaluatorEvent(events, 'stop-cancel-respected'),
+      unapprovedExternalWrites: events.filter(event => event.kind === 'unapproved-external-write').length,
+      falseCompletionClaims: events.filter(event => event.kind === 'false-completion-claim').length,
+      regressionDetected: events.some(event => event.kind === 'regression-detected'),
       capabilitiesExercised,
     },
   };
