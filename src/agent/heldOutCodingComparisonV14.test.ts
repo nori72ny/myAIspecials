@@ -125,6 +125,7 @@ describe('held-out coding comparison v1.4', () => {
   it('fails when ORIGIN solves fewer tasks than the strongest reference', () => {
     const value = input();
     const candidateRuns = [...value.candidateRuns];
+    candidateRuns[4] = runFor(value.tasks[4], { terminalStatus: 'failed' });
     candidateRuns[5] = runFor(value.tasks[5], { terminalStatus: 'failed' });
     const report = evaluateHeldOutCodingComparisonV14({ ...value, candidateRuns });
     expect(report.passed).toBe(false);
