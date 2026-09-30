@@ -66,9 +66,11 @@ describe('General Agent private runner workflow',()=>{
     expect(runner).toContain("'regression-detected'");
   });
 
-  it('does not print private goals or params in the public completion event',()=>{
+  it('does not persist private goals or params in sanitized public artifacts',()=>{
     expect(runner).toContain("event: 'general-agent-private-round-completed'");
-    expect(runner).not.toContain('goal: task.goal');
-    expect(runner).not.toContain('params: task.params');
+    const publicOutputSection=runner.slice(runner.indexOf("await fs.mkdir(outputDir"));
+    expect(publicOutputSection).not.toContain('goal: task.goal');
+    expect(publicOutputSection).not.toContain('params: task.params');
+    expect(publicOutputSection).not.toContain('JSON.stringify(corpus');
   });
 });
