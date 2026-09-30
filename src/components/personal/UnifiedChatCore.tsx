@@ -58,6 +58,7 @@ type ChatArtifactPayload = {
   encoding: 'base64';
   data: string;
   verified: true;
+  verification: readonly string[];
   freeOnly: true;
   costUsd: 0;
   paidFallbackUsed: false;
@@ -231,6 +232,38 @@ function parseOriginAnswerEnvelope(value: unknown): OriginAnswerEnvelope | undef
   return parsed.ok ? parsed.value : undefined;
 }
 
+const ARTIFACT_FORMAT_RULES = {
+  docx: {
+    kind: 'document',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    packageMarker: 'word/document.xml',
+  },
+  pptx: {
+    kind: 'presentation',
+    mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    packageMarker: 'ppt/presentation.xml',
+  },
+  xlsx: {
+    kind: 'spreadsheet',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    packageMarker: 'xl/workbook.xml',
+  },
+} as const;
+
+function decodeArtifactPackage(artifact: Pick<ChatArtifactPayload, 'artifactType' | 'byteLength' | 'data'>): Uint8Array | null {
+  let binary = '';
+  try {
+    binary = globalThis.atob(artifact.data);
+  } catch {
+    return null;
+  }
+  if (binary.length !== artifact.byteLength || binary.length < 4) return null;
+  if (binary.charCodeAt(0) !== 0x50 || binary.charCodeAt(1) !== 0x4b || binary.charCodeAt(2) !== 0x03 || binary.charCodeAt(3) !== 0x04) return null;
+  const rule = ARTIFACT_FORMAT_RULES[artifact.artifactType];
+  if (!binary.includes(rule.packageMarker)) return null;
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
 function parseOriginArtifacts(value: unknown): ChatArtifactPayload[] | undefined {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 3) return undefined;
@@ -239,17 +272,18 @@ function parseOriginArtifacts(value: unknown): ChatArtifactPayload[] | undefined
   for (const item of value) {
     if (!item || typeof item !== 'object') return undefined;
     const artifact = item as Partial<ChatArtifactPayload>;
+    if (artifact.artifactType !== 'docx' && artifact.artifactType !== 'pptx' && artifact.artifactType !== 'xlsx') return undefined;
+    const rule = ARTIFACT_FORMAT_RULES[artifact.artifactType];
     if (
       typeof artifact.id !== 'string'
       || !/^artifact-(?:docx|pptx|xlsx)-[a-f0-9]{20}$/.test(artifact.id)
-      || (artifact.kind !== 'document' && artifact.kind !== 'presentation' && artifact.kind !== 'spreadsheet')
-      || (artifact.artifactType !== 'docx' && artifact.artifactType !== 'pptx' && artifact.artifactType !== 'xlsx')
+      || artifact.kind !== rule.kind
       || typeof artifact.filename !== 'string'
       || artifact.filename.length === 0
       || artifact.filename.length > 240
       || /[\\/\0]/.test(artifact.filename)
-      || typeof artifact.mimeType !== 'string'
-      || artifact.mimeType.length === 0
+      || !artifact.filename.toLowerCase().endsWith('.' + artifact.artifactType)
+      || artifact.mimeType !== rule.mimeType
       || typeof artifact.sha256 !== 'string'
       || !/^[a-f0-9]{64}$/.test(artifact.sha256)
       || !Number.isInteger(artifact.byteLength)
@@ -260,14 +294,16 @@ function parseOriginArtifacts(value: unknown): ChatArtifactPayload[] | undefined
       || artifact.data.length === 0
       || artifact.data.length > 2_100_000
       || !/^[A-Za-z0-9+/]*={0,2}$/.test(artifact.data)
-      || (artifact.kind === 'document' && artifact.artifactType !== 'docx')
-      || (artifact.kind === 'presentation' && artifact.artifactType !== 'pptx')
-      || (artifact.kind === 'spreadsheet' && artifact.artifactType !== 'xlsx')
       || artifact.verified !== true
+      || !Array.isArray(artifact.verification)
+      || artifact.verification.length === 0
+      || artifact.verification.length > 20
+      || !artifact.verification.every((entry) => typeof entry === 'string' && entry.length > 0 && entry.length <= 240)
       || artifact.freeOnly !== true
       || artifact.costUsd !== 0
       || artifact.paidFallbackUsed !== false
     ) return undefined;
+    if (!decodeArtifactPackage(artifact as ChatArtifactPayload)) return undefined;
     parsed.push(artifact as ChatArtifactPayload);
   }
 
@@ -927,9 +963,8 @@ export default function UnifiedChat({
 
   const downloadArtifact = async (artifact: ChatArtifactPayload) => {
     try {
-      const binary = window.atob(artifact.data);
-      if (binary.length !== artifact.byteLength) throw new Error('ARTIFACT_LENGTH_MISMATCH');
-      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const bytes = decodeArtifactPackage(artifact);
+      if (!bytes) throw new Error('ARTIFACT_PACKAGE_INVALID');
       const digestBuffer = await window.crypto.subtle.digest('SHA-256', bytes);
       const digest = Array.from(new Uint8Array(digestBuffer))
         .map((value) => value.toString(16).padStart(2, '0'))
