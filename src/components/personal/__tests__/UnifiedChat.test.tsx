@@ -341,10 +341,11 @@ describe('UnifiedChat', () => {
           filename: '競合比較.pptx',
           mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
           sha256: '8dcc7e601606217f3b754766511182a916b17e9a26a94c9d887104eba92e9bb2',
-          byteLength: 4,
+          byteLength: 24,
           encoding: 'base64',
-          data: 'UEsDBA==',
+          data: 'UEsDBHBwdC9wcmVzZW50YXRpb24ueG1s',
           verified: true,
+          verification: ['PPTX package marker verified'],
           freeOnly: true,
           costUsd: 0,
           paidFallbackUsed: false,
@@ -371,9 +372,135 @@ describe('UnifiedChat', () => {
     await waitFor(() => {
       const stored = window.localStorage.getItem('origin_chat_sessions_v1') ?? '';
       expect(stored).toContain('比較結果をPowerPointにまとめました。');
-      expect(stored).not.toContain('UEsDBA==');
+      expect(stored).not.toContain('UEsDBHBwdC9wcmVzZW50YXRpb24ueG1s');
       expect(stored).not.toContain('artifact-pptx-8dcc7e601606217f3b75');
     });
+  });
+
+  it('withholds a Supervisor artifact when its MIME type does not match the Office format', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '表示してはいけない成果物です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '表示してはいけない成果物です。',
+          answer: '表示してはいけない成果物です。',
+          evidence: [],
+          verification: {
+            status: 'not-run',
+            independentReviewPerformed: false,
+            summary: '成果物検証です。',
+          },
+          limitations: [],
+          nextActions: [],
+          richOutputs: [{
+            kind: 'presentation',
+            label: 'tampered.pptx',
+            artifactId: 'artifact-pptx-aaaaaaaaaaaaaaaaaaaa',
+          }],
+        },
+        artifacts: [{
+          id: 'artifact-pptx-aaaaaaaaaaaaaaaaaaaa',
+          kind: 'presentation',
+          artifactType: 'pptx',
+          filename: 'tampered.pptx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          sha256: 'a'.repeat(64),
+          byteLength: 24,
+          encoding: 'base64',
+          data: 'UEsDBHBwdC9wcmVzZW50YXRpb24ueG1s',
+          verified: true,
+          verification: ['PPTX package marker verified'],
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+        }],
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: 'Grounded Researchから成果物を生成しました。',
+          timeMs: 100,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-run',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('調査してPowerPointにまとめてください');
+
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByTestId('answer-rich-outputs')).toBeNull();
+    expect(screen.queryByText('表示してはいけない成果物です。')).toBeNull();
+  });
+
+  it('withholds a Supervisor artifact when the declared Office package marker is missing', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '表示してはいけない成果物です。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '表示してはいけない成果物です。',
+          answer: '表示してはいけない成果物です。',
+          evidence: [],
+          verification: {
+            status: 'not-run',
+            independentReviewPerformed: false,
+            summary: '成果物検証です。',
+          },
+          limitations: [],
+          nextActions: [],
+          richOutputs: [{
+            kind: 'presentation',
+            label: 'tampered.pptx',
+            artifactId: 'artifact-pptx-bbbbbbbbbbbbbbbbbbbb',
+          }],
+        },
+        artifacts: [{
+          id: 'artifact-pptx-bbbbbbbbbbbbbbbbbbbb',
+          kind: 'presentation',
+          artifactType: 'pptx',
+          filename: 'tampered.pptx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          sha256: 'b'.repeat(64),
+          byteLength: 14,
+          encoding: 'base64',
+          data: 'UEsDBG5vdC1hLXBwdHg=',
+          verified: true,
+          verification: ['Untrusted upstream claim'],
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+        }],
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: 'Grounded Researchから成果物を生成しました。',
+          timeMs: 100,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-run',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('調査してPowerPointにまとめてください');
+
+    await expectNonRetryableError(
+      '回答の確認記録を検証できませんでした',
+      'ANSWER_INTEGRITY_UNVERIFIED',
+      '回答の構造または確認記録を検証できなかったため、内容を表示しません。',
+    );
+    expect(screen.queryByTestId('answer-rich-outputs')).toBeNull();
+    expect(screen.queryByText('表示してはいけない成果物です。')).toBeNull();
   });
 
   it('labels provider-supplied evidence as not checked', async () => {
