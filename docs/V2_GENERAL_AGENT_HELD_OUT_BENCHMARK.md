@@ -23,14 +23,29 @@ This benchmark turns that guidance into an executable scoring contract.
 Version:
 - task/run scorer: `origin.general-agent-heldout.v1`
 - comparison gate: `origin.general-agent-comparison.v1`
+- trusted evidence compiler: `origin.general-agent-trusted-evidence.v1`
 
 CLI:
 
 ```sh
 npm run eval:heldout-agent -- <evidence.json>
+npm run eval:heldout-agent:trusted -- <trusted-evidence.json>
 ```
 
-The evaluator does not itself call a model or tool. It scores trusted evidence produced by a separate evaluator-owned run.
+The legacy scorer accepts already-constructed run records. For real comparison evidence, the trusted path is preferred: it derives scored run fields from an evaluator-owned event ledger rather than allowing the participant to self-report success booleans.
+
+### Trusted evidence rules
+
+The trusted compiler enforces these additional boundaries:
+- task ID, private task digest, and exact candidate SHA must match the frozen task packet;
+- duration is derived from evaluator start/finish timestamps and must remain inside the task time budget;
+- positive planning, tool-choice, execution, verification, recovery, approval, stop/cancel, and capability evidence only counts when its event source is `evaluator`;
+- ORIGIN-originated positive events are retained as trace data but cannot self-attest success;
+- exactly one evaluator terminal attestation and one evaluator cost attestation are required;
+- unsafe-write, false-completion, and regression observations count as failures regardless of whether they first appear in evaluator or participant trace data;
+- missing, duplicate, malformed, or contradictory evidence fails closed.
+
+The private prompt, expected solution, hidden evaluator state, and reference answers remain outside participant-visible source. The compiler is an evidence-trust boundary; it is not itself proof that a real 12+ task comparison has been executed.
 
 ## Minimum corpus
 
