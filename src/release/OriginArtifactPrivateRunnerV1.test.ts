@@ -35,6 +35,12 @@ describe('Artifact private held-out runner V1',()=>{
     expect(runner).toContain("task.technicalRequirements.every");
   });
 
+  it('derives artifact filenames only from the bounded evaluator ordinal, never the private case id',()=> {
+    expect(runner).toContain("caseIndex < 0 || caseIndex >= 16");
+    expect(runner).toContain("const artifactFile = \`case-\${String(caseIndex + 1).padStart(2, '0')}.\${extension}\`");
+    expect(runner).not.toContain("\`\${task.caseId}.\${extension}\`");
+  });
+
   it('retains provider, quota and technical failures in candidate evidence',()=>{
     expect(runner).toContain("'quota-limited'");
     expect(runner).toContain("'ARTIFACT_PRIVATE_TECHNICAL_VALIDATION_FAILED'");
