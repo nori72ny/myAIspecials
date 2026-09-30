@@ -222,7 +222,15 @@ describe('trusted General Agent multi-reference comparison', () => {
     const references = [...value.references];
     const runs = [...references[0].runs];
     runs[0] = { ...runs[0], taskDigest: 'f'.repeat(64) };
-    references[0] = { ...references[0], runs };
+    references[0] = {
+      ...references[0],
+      runs,
+      artifactDigest: digestGeneralAgentTrustedReferenceArtifactV2({
+        participant: references[0].participant,
+        permissionProfileDigest: references[0].permissionProfileDigest,
+        runs,
+      }),
+    };
     const report = evaluateGeneralAgentTrustedComparisonV2({ ...value, references }, NOW);
     expect(report.passed).toBe(false);
     expect(report.trustedReferenceEvidencePassed).toBe(false);
@@ -255,9 +263,20 @@ describe('trusted General Agent multi-reference comparison', () => {
     const candidateEvidence = [...value.candidateEvidence];
     candidateEvidence[10] = evidenceFor(value.tasks[10], 'ORIGIN', 'failed');
     candidateEvidence[11] = evidenceFor(value.tasks[11], 'ORIGIN', 'failed');
+    const roundEvidence = {
+      ...value.roundEvidence,
+      artifactDigest: digestGeneralAgentTrustedRoundArtifactV2({
+        candidateSha: value.candidateSha,
+        evaluatorId: value.roundEvidence.evaluatorId,
+        permissionProfileDigest: value.roundEvidence.permissionProfileDigest,
+        tasks: value.tasks,
+        candidateEvidence,
+      }),
+    };
     const report = evaluateGeneralAgentTrustedComparisonV2({
       ...value,
       candidateEvidence,
+      roundEvidence,
     }, NOW);
     expect(report.passed).toBe(false);
     expect(report.candidateEvidencePassed).toBe(true);
