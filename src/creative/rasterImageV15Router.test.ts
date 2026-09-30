@@ -349,8 +349,6 @@ describe('rasterImageV15Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-task']).toBe('edit');
     expect(response.headers['x-origin-visual-reference-count']).toBe('1');
-    expect(response.headers['x-origin-visual-task']).toBe('generate');
-    expect(response.headers['x-origin-visual-reference-count']).toBe('0');
     expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
@@ -373,6 +371,8 @@ describe('rasterImageV15Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('image/png');
     expect(response.headers['x-origin-visual-verified']).toBe('true');
+    expect(response.headers['x-origin-visual-task']).toBe('generate');
+    expect(response.headers['x-origin-visual-reference-count']).toBe('0');
     expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
     expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-4b');
     expect(response.headers['x-origin-free-only']).toBe('true');
