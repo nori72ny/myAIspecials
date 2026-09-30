@@ -4,6 +4,7 @@ import type { OriginAnswerVisualQualificationV2 } from "./OriginAnswerVisualEvid
 import type { OriginAnswerExperienceQualificationV2 } from "./OriginAnswerExperienceV2.js";
 import type { OriginBlindPreferenceReportV2 } from "./OriginAnswerBlindPreferenceV2.js";
 import type { OriginTrustedAnswerQualityQualificationV2 } from "./OriginTrustedAnswerQualityV2.js";
+import type { OriginTrustedBlindPreferenceQualificationV2 } from "./OriginTrustedBlindPreferenceV2.js";
 
 export interface OriginAnswerWorldClassGateInputV2 {
   readonly candidateSha: string;
@@ -11,6 +12,8 @@ export interface OriginAnswerWorldClassGateInputV2 {
   readonly blindPreference: OriginBlindPreferenceReportV2 | null;
   /** Exact-answer external scoring bound to the trusted 48-case execution. */
   readonly trustedAnswerQuality?: OriginTrustedAnswerQualityQualificationV2 | null;
+  /** Blind comparison evidence bound to the same exact 48 answers, references and judges. */
+  readonly trustedBlindPreference?: OriginTrustedBlindPreferenceQualificationV2 | null;
   readonly visual: OriginAnswerVisualQualificationV2 | null;
   readonly trustedExecution: OriginAnswerTrustedExecutionQualificationV2 | null;
   readonly binding: OriginAnswerEvaluationBindingQualificationV2 | null;
@@ -23,6 +26,7 @@ export interface OriginAnswerWorldClassGateReportV2 {
   readonly candidateSha: string;
   readonly answerExperiencePassed: boolean;
   readonly competitiveEvidencePassed: boolean;
+  readonly trustedCompetitiveEvidencePassed: boolean;
   readonly exactAnswerScoringPassed: boolean;
   readonly visualEvidencePassed: boolean;
   readonly trustedExecutionPassed: boolean;
@@ -43,6 +47,10 @@ export function evaluateOriginAnswerWorldClassGateV2(
 
   const competitiveEvidencePassed = input.blindPreference?.competitiveEvidencePassed === true;
   if (!competitiveEvidencePassed) blockers.push("AQ_V2_COMPETITIVE_EVIDENCE_NOT_PROVEN");
+
+  const trustedCompetitiveEvidencePassed = input.trustedBlindPreference?.passed === true
+    && input.trustedBlindPreference.competitiveEvidencePassed === true;
+  if (!trustedCompetitiveEvidencePassed) blockers.push("AQ_V2_TRUSTED_COMPETITIVE_EVIDENCE_NOT_PROVEN");
 
   const exactAnswerScoringPassed = input.trustedAnswerQuality?.passed === true;
   if (!exactAnswerScoringPassed) blockers.push("AQ_V2_EXACT_ANSWER_SCORING_NOT_PROVEN");
@@ -65,6 +73,7 @@ export function evaluateOriginAnswerWorldClassGateV2(
     candidateSha: input.candidateSha,
     answerExperiencePassed,
     competitiveEvidencePassed,
+    trustedCompetitiveEvidencePassed,
     exactAnswerScoringPassed,
     visualEvidencePassed,
     trustedExecutionPassed,
@@ -72,6 +81,7 @@ export function evaluateOriginAnswerWorldClassGateV2(
     liveEvidencePassed,
     worldClassCandidate: answerExperiencePassed
       && competitiveEvidencePassed
+      && trustedCompetitiveEvidencePassed
       && exactAnswerScoringPassed
       && visualEvidencePassed
       && trustedExecutionPassed
