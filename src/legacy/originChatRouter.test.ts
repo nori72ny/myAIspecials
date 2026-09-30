@@ -342,6 +342,19 @@ describe("createOriginChatRouter", () => {
         artifactId: expect.stringMatching(/^artifact-pptx-/),
       }),
     ]);
+    expect(response.body.supervisor).toEqual(expect.objectContaining({
+      version: "origin.supervisor.v2",
+      status: "completed",
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      automaticProviderRetries: 0,
+      steps: [
+        expect.objectContaining({ id: "research", status: "completed", evidenceCount: 2 }),
+        expect.objectContaining({ id: "synthesis", status: "completed", citationValidated: true, providerAttempts: 1 }),
+        expect.objectContaining({ id: "artifact", status: "completed", artifactCount: 1, completedOutputs: ["presentation"], pendingOutputs: [] }),
+      ],
+    }));
     expect(response.body.artifacts).toHaveLength(1);
     expect(response.body.artifacts[0]).toEqual(expect.objectContaining({
       artifactType: "pptx",
@@ -452,6 +465,16 @@ describe("createOriginChatRouter", () => {
       synthesisFailureCode: "PROVIDER_RATE_LIMITED",
       freeOnly: true,
       cost: 0,
+    }));
+    expect(response.body.supervisor).toEqual(expect.objectContaining({
+      version: "origin.supervisor.v2",
+      status: "not-required",
+      automaticProviderRetries: 0,
+      steps: [
+        expect.objectContaining({ id: "research", status: "completed", evidenceCount: 1 }),
+        expect.objectContaining({ id: "synthesis", status: "blocked", failureCode: "PROVIDER_RATE_LIMITED", providerAttempts: 1 }),
+        expect.objectContaining({ id: "artifact", status: "not-required", artifactCount: 0 }),
+      ],
     }));
     expect(synthesisMock).toHaveBeenCalledTimes(1);
     expect(executeMock).not.toHaveBeenCalled();
