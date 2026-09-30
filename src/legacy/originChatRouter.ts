@@ -294,15 +294,19 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     }
     if (isOriginCapabilityQuestion(lastUserMessage)) {
       let rasterTextToImageReady = false;
+      let rasterImageEditingReady = false;
       try {
-        rasterTextToImageReady = (await rasterProviderRuntimeStatusV15(env)).textToImageReady;
+        const rasterRuntime = await rasterProviderRuntimeStatusV15(env);
+        rasterTextToImageReady = rasterRuntime.textToImageReady;
+        rasterImageEditingReady = rasterRuntime.editingReady;
       } catch {
         rasterTextToImageReady = false;
+        rasterImageEditingReady = false;
       }
-      const guide = createOriginCapabilityGuide(lastUserMessage, { rasterTextToImageReady });
+      const guide = createOriginCapabilityGuide(lastUserMessage, { rasterTextToImageReady, rasterImageEditingReady });
       const reason = guide.language === "ja"
-        ? "現在の公開版で利用できる機能と未接続機能を、実行時の画像生成ready状態を含むORIGINの製品仕様に基づいて案内しました。"
-        : "Explained current and unconnected capabilities from ORIGIN's product specification, including live raster readiness.";
+        ? "現在の公開版で利用できる機能と未接続機能を、実行時の画像生成・画像編集ready状態を含むORIGINの製品仕様に基づいて案内しました。"
+        : "Explained current and unconnected capabilities from ORIGIN's product specification, including live raster generation/edit readiness.";
       return res.json({
         content: guide.content,
         answer: answerEnvelope(guide.content, guide.language, "not-required", reason, [], guide.limitations, guide.nextActions),
