@@ -37,6 +37,12 @@ const INLINE_TEXT_OUTPUTS = new Set([
   "research-result",
 ]);
 
+const SUPPORTED_ARTIFACT_OUTPUTS = new Set([
+  "presentation",
+  "document",
+  "spreadsheet",
+]);
+
 const ARTIFACT_CAPABILITY: Readonly<Record<string, string>> = {
   presentation: "presentation-artifact-runtime",
   document: "document-artifact-runtime",
@@ -59,12 +65,21 @@ function createOutputStep(output: string, index: number): OriginAgentWorkStep {
   }
 
   const capability = ARTIFACT_CAPABILITY[output] ?? `output-service:${output}`;
+  if (SUPPORTED_ARTIFACT_OUTPUTS.has(output)) {
+    return {
+      id: `create-${index + 1}`,
+      kind: "create-output",
+      requiredCapability: capability,
+      availability: "available",
+      reason: `${output}はV1.2の検証済み実ファイル生成経路へ接続できます。`,
+    };
+  }
   return {
     id: `create-${index + 1}`,
     kind: "create-output",
     requiredCapability: capability,
     availability: "partial",
-    reason: `${output}の内容設計はできますが、実ファイルまたは実行可能作成物の生成経路は未接続です。`,
+    reason: `${output}の内容設計はできますが、このSupervisor経路では実作成物の生成まで接続していません。`,
   };
 }
 
@@ -92,8 +107,8 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
       id: "gather-information",
       kind: "gather-information",
       requiredCapability: "live-research",
-      availability: "unavailable",
-      reason: "最新情報を取得・検証する検索経路は現在のリリースに接続されていません。",
+      availability: "available",
+      reason: "Grounded Research V1.1の無料公開Web検索・証拠収集経路へ接続します。",
     });
   }
 
@@ -115,9 +130,9 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
     id: "verify-output",
     kind: "verify-output",
     requiredCapability: "quality-review",
-    availability: intent.requiredCapabilities.includes("research") ? "partial" : "available",
+    availability: "available",
     reason: intent.requiredCapabilities.includes("research")
-      ? "指示適合と内部整合性は確認できますが、外部事実の確認は検索経路の接続状況に従います。"
+      ? "取得済み証拠との引用整合、作成物の機械検証、指示適合を確認します。独立した別AIレビューとは区別します。"
       : "回答または作成物の指示適合と内部整合性を確認します。",
   });
 
@@ -126,10 +141,11 @@ export function buildOriginAgentWorkPlan(intent: OriginRequestIntent): OriginAge
       id: "deliver-result",
       kind: "deliver-result",
       requiredCapability: "result-presentation",
-      availability: intent.requestedOutputs.every((output) => INLINE_TEXT_OUTPUTS.has(output))
+      availability: intent.requestedOutputs.every((output) =>
+        INLINE_TEXT_OUTPUTS.has(output) || SUPPORTED_ARTIFACT_OUTPUTS.has(output))
         ? "available"
         : "partial",
-      reason: "利用可能な内容は回答内で提示し、未生成のファイルや作成物を完成済みとは表示しません。",
+      reason: "テキストまたは検証済みV1.2成果物として実際に生成できたものだけを提示し、未生成物を完成済みとは表示しません。",
     });
   }
 
