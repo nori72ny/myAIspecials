@@ -88,7 +88,7 @@ The workflow uploads:
 - `public-tasks.json`: case IDs, family/tags, prompt digest, expected format, task digest;
 - `candidate-evidence.json`: candidate output digests, technical evidence, duration, status, safe provider/model identity, failure code;
 - `candidate-summary.json`: attempted/completed/technical-pass counts and run blockers;
-- `candidate-artifacts/`: exact generated candidate files under opaque case IDs.
+- `candidate-artifacts/`: exact generated candidate files under bounded opaque ordinal names (`case-01`, `case-02`, ...); the ordered `public-tasks.json` list provides the case mapping without using evaluator-controlled text as a filesystem path.
 
 It does not upload the sealed corpus, prompt text, or required-content oracle.
 
