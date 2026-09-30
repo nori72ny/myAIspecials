@@ -178,6 +178,60 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(new Headers(init.headers).get('content-type')).toBeNull();
   });
 
+  it('sends bounded reference images as indexed multipart inputs for editing', async () => {
+    const output = png(768, 1024);
+    const reference = png(320, 240);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      .mockResolvedValueOnce(json(output.toString('base64')));
+
+    const result = await generateCloudflareRasterImageV15({
+      prompt: '画像0の腕時計を残し、背景だけを夜の高級ホテルに変更してください',
+      width: 768,
+      height: 1024,
+      referenceImages: [{
+        bytes: reference,
+        mimeType: 'image/png',
+        width: 320,
+        height: 240,
+      }],
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result).toMatchObject({
+      providerId: 'cloudflare-workers-ai-free',
+      width: 768,
+      height: 1024,
+      costUsd: 0,
+      freeOnly: true,
+      externalNetworkRequests: 4,
+    });
+    const form = fetchMock.mock.calls[3]?.[1]?.body as FormData;
+    expect(String(form.get('prompt'))).toContain('Reference images are attached in index order starting at image 0.');
+    expect(String(form.get('prompt'))).toContain('Preserve subjects');
+    expect(form.get('input_image_0')).toBeInstanceOf(Blob);
+    const blob = form.get('input_image_0') as Blob;
+    expect(blob.type).toBe('image/png');
+    expect(blob.size).toBe(reference.length);
+  });
+
+  it('rejects out-of-bounds reference images before any external Cloudflare request', async () => {
+    const reference = png(512, 320);
+    const fetchMock = vi.fn();
+
+    await expect(generateCloudflareRasterImageV15({
+      prompt: '背景だけ変更してください',
+      referenceImages: [{
+        bytes: reference,
+        mimeType: 'image/png',
+        width: 512,
+        height: 320,
+      }],
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('REFERENCE_IMAGE_DIMENSION_OUT_OF_BOUNDS');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['image/jpeg', jpeg(768, 1024)],
     ['image/webp', webp(768, 1024)],

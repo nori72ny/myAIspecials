@@ -43,6 +43,10 @@ function imageJson(bytes: Uint8Array): Response {
   return json({ data: [{ b64_json: Buffer.from(bytes).toString('base64'), media_type: 'image/png' }] });
 }
 
+function referenceDataUrl(width = 320, height = 240): string {
+  return `data:image/png;base64,${Buffer.from(pngBytes(width, height)).toString('base64')}`;
+}
+
 function successfulFetchMock() {
   const png = pngBytes(768, 1024);
   return vi.fn()
@@ -110,6 +114,15 @@ describe('rasterImageV15Router', () => {
       registryVersion: 'raster-provider-registry-v1',
       supportedTasks: [],
       modelBasedImageEditing: false,
+      referenceImagePolicy: {
+        transport: 'data-url-only',
+        remoteUrlsAllowed: false,
+        maxImages: 4,
+        maxBytesPerImage: 786432,
+        maxTotalBytes: 2097152,
+        maxDimensionExclusive: 512,
+        mimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+      },
       rasterCritic: {
         version: 'raster-structural-critic-v1',
         failClosed: true,
@@ -272,6 +285,81 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects reference images on the text-generation route instead of silently switching tasks', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/generate')
+      .send({
+        prompt: '背景を変更してください',
+        referenceImages: [referenceDataUrl()],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('INVALID_RASTER_REQUEST_FIELD');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects remote reference URLs before any provider request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/edit')
+      .send({
+        prompt: '背景だけ変更してください',
+        referenceImages: ['https://example.com/private.png'],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('REFERENCE_IMAGE_INVALID');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects Cloudflare-incompatible reference dimensions before any provider request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/edit')
+      .send({
+        prompt: '背景だけ変更してください',
+        referenceImages: [referenceDataUrl(512, 320)],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('REFERENCE_IMAGE_DIMENSION_OUT_OF_BOUNDS');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('routes a validated reference edit through the same verified Free provider', async () => {
+    const fetchMock = successfulFetchMock();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/edit')
+      .send({
+        prompt: '画像0の被写体は保ち、背景だけを夜の高級ホテルに変更してください',
+        width: 768,
+        height: 1024,
+        referenceImages: [referenceDataUrl()],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-task']).toBe('edit');
+    expect(response.headers['x-origin-visual-reference-count']).toBe('1');
+    expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
+    expect(response.headers['x-origin-free-only']).toBe('true');
+    expect(response.headers['x-origin-cost-usd']).toBe('0');
+    expect(response.headers['x-origin-paid-fallback']).toBe('false');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    const form = fetchMock.mock.calls[3]?.[1]?.body as FormData;
+    expect(form.get('input_image_0')).toBeInstanceOf(Blob);
+    expect(String(form.get('prompt'))).toContain('Preserve subjects');
+  });
+
   it('returns verified raster bytes and zero-cost evidence through the production-compatible route', async () => {
     const fetchMock = successfulFetchMock();
     vi.stubGlobal('fetch', fetchMock);
@@ -283,6 +371,8 @@ describe('rasterImageV15Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('image/png');
     expect(response.headers['x-origin-visual-verified']).toBe('true');
+    expect(response.headers['x-origin-visual-task']).toBe('generate');
+    expect(response.headers['x-origin-visual-reference-count']).toBe('0');
     expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
     expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-4b');
     expect(response.headers['x-origin-free-only']).toBe('true');

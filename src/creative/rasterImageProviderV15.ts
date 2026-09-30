@@ -18,12 +18,20 @@ export type RasterImageSizeV15 = {
   height: number;
 };
 
+export type RasterReferenceImageV15 = {
+  bytes: Buffer;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  width: number;
+  height: number;
+};
+
 export type RasterImageRequestV15 = {
   prompt: string;
   negativePrompt?: string;
   width?: number;
   height?: number;
   model?: string;
+  referenceImages?: readonly RasterReferenceImageV15[];
 };
 
 export type RasterProviderStatusV15 = {
