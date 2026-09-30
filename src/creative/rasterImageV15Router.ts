@@ -1,26 +1,41 @@
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
-import { type RasterImageRequestV15 } from './rasterImageProviderV15.js';
+import { type RasterImageRequestV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
 import {
   rasterProviderRuntimeStatusV15,
   resolveRasterProviderV15,
 } from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
-import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
+import { critiqueRasterStructureV15, readRasterDimensionsV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
 import { CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15, critiqueCloudflareRasterSemanticV15 } from './cloudflareRasterSemanticCriticV15.js';
 
-const MAX_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
+const BASE_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
+const EDIT_BODY_KEYS = new Set([...BASE_BODY_KEYS, 'referenceImages']);
+const MAX_REFERENCE_IMAGES = 4;
+const MAX_REFERENCE_IMAGE_BYTES = 768 * 1024;
+const MAX_TOTAL_REFERENCE_BYTES = 2 * 1024 * 1024;
+const MAX_REFERENCE_DIMENSION_EXCLUSIVE = 512;
 
 function semanticDeliveryGateEnabled(env: NodeJS.ProcessEnv): boolean {
   return env.ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE?.trim().toLowerCase() === 'true';
 }
 
 function sensitiveKinds(body: unknown): string[] {
+  let safeBody = body;
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    const record = body as Record<string, unknown>;
+    safeBody = {
+      ...record,
+      ...(record.referenceImages !== undefined
+        ? { referenceImages: Array.isArray(record.referenceImages) ? `[${record.referenceImages.length} reference image(s)]` : '[invalid reference images]' }
+        : {}),
+    };
+  }
   let serialized = '';
-  try { serialized = JSON.stringify(body ?? {}); } catch { return ['unserializable_input']; }
+  try { serialized = JSON.stringify(safeBody ?? {}); } catch { return ['unserializable_input']; }
   return detectSensitiveConversation([{ role: 'user', content: serialized }]);
 }
 
@@ -37,10 +52,36 @@ function fail(res: Response, status: number, code: string, message?: string) {
   });
 }
 
-function parseBody(body: unknown): RasterImageRequestV15 {
+function parseReferenceImages(value: unknown): RasterReferenceImageV15[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_REFERENCE_IMAGES) {
+    throw new Error('REFERENCE_IMAGE_COUNT_OUT_OF_BOUNDS');
+  }
+  let totalBytes = 0;
+  return value.map((item) => {
+    if (typeof item !== 'string') throw new Error('REFERENCE_IMAGE_INVALID');
+    const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(item);
+    if (!match || match[2].length % 4 !== 0) throw new Error('REFERENCE_IMAGE_INVALID');
+    const mimeType = match[1] as RasterReferenceImageV15['mimeType'];
+    const bytes = Buffer.from(match[2], 'base64');
+    if (bytes.length < 64 || bytes.length > MAX_REFERENCE_IMAGE_BYTES) {
+      throw new Error('REFERENCE_IMAGE_SIZE_OUT_OF_BOUNDS');
+    }
+    totalBytes += bytes.length;
+    if (totalBytes > MAX_TOTAL_REFERENCE_BYTES) throw new Error('REFERENCE_IMAGE_TOTAL_SIZE_OUT_OF_BOUNDS');
+    const dimensions = readRasterDimensionsV15(bytes, mimeType);
+    if (!dimensions) throw new Error('REFERENCE_IMAGE_SIGNATURE_MISMATCH');
+    if (dimensions.width >= MAX_REFERENCE_DIMENSION_EXCLUSIVE || dimensions.height >= MAX_REFERENCE_DIMENSION_EXCLUSIVE) {
+      throw new Error('REFERENCE_IMAGE_DIMENSION_OUT_OF_BOUNDS');
+    }
+    return { bytes, mimeType, width: dimensions.width, height: dimensions.height };
+  });
+}
+
+function parseBody(body: unknown, mode: 'generate' | 'edit' = 'generate'): RasterImageRequestV15 {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('INVALID_RASTER_REQUEST');
   const record = body as Record<string, unknown>;
-  if (Object.keys(record).some((key) => !MAX_BODY_KEYS.has(key))) throw new Error('INVALID_RASTER_REQUEST_FIELD');
+  const allowedKeys = mode === 'edit' ? EDIT_BODY_KEYS : BASE_BODY_KEYS;
+  if (Object.keys(record).some((key) => !allowedKeys.has(key))) throw new Error('INVALID_RASTER_REQUEST_FIELD');
   if (typeof record.prompt !== 'string' || !record.prompt.trim()) throw new Error('INVALID_RASTER_PROMPT');
   if (record.negativePrompt !== undefined && typeof record.negativePrompt !== 'string') throw new Error('INVALID_RASTER_NEGATIVE_PROMPT');
   if (record.model !== undefined && typeof record.model !== 'string') throw new Error('INVALID_RASTER_MODEL');
@@ -55,12 +96,14 @@ function parseBody(body: unknown): RasterImageRequestV15 {
     }
   }
   if ((record.width === undefined) !== (record.height === undefined)) throw new Error('INVALID_RASTER_DIMENSION_PAIR');
+  const referenceImages = mode === 'edit' ? parseReferenceImages(record.referenceImages) : undefined;
   return {
     prompt: record.prompt,
     negativePrompt: record.negativePrompt as string | undefined,
     width: record.width as number | undefined,
     height: record.height as number | undefined,
     model: record.model as string | undefined,
+    referenceImages,
   };
 }
 
@@ -145,6 +188,15 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         })),
       },
       modelBasedImageEditing: runtime.editingReady,
+      referenceImagePolicy: {
+        transport: 'data-url-only',
+        remoteUrlsAllowed: false,
+        maxImages: MAX_REFERENCE_IMAGES,
+        maxBytesPerImage: MAX_REFERENCE_IMAGE_BYTES,
+        maxTotalBytes: MAX_TOTAL_REFERENCE_BYTES,
+        maxDimensionExclusive: MAX_REFERENCE_DIMENSION_EXCLUSIVE,
+        mimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+      },
     });
   });
 
@@ -170,7 +222,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     }
   });
 
-  const handler = async (req: Request, res: Response) => {
+  const handler = (mode: 'generate' | 'edit') => async (req: Request, res: Response) => {
     const kinds = sensitiveKinds(req.body);
     if (kinds.length > 0) {
       return fail(res, 422, 'SENSITIVE_INPUT_BLOCKED', '機密・個人情報の可能性があるため、外部画像プロバイダへ送信しませんでした。');
@@ -178,7 +230,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
 
     let input: RasterImageRequestV15;
     try {
-      input = parseBody(req.body);
+      input = parseBody(req.body, mode);
     } catch (error) {
       return fail(res, 400, error instanceof Error ? error.message : 'INVALID_RASTER_REQUEST');
     }
@@ -206,7 +258,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           secretDelivery: 'server-only',
         });
       }
-      const provider = resolveRasterProviderV15('text-to-image');
+      const providerTask = mode === 'edit' ? 'edit' : 'text-to-image';
+      const provider = resolveRasterProviderV15(providerTask);
       if (!provider) {
         return fail(res, 503, 'NO_PROVIDER_SUPPORTS_TASK', '画像生成に対応する検証済みプロバイダがありません。');
       }
@@ -286,6 +339,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Candidates-Recommended', String(candidatePolicy.recommendedCandidates));
       res.setHeader('X-Origin-Visual-Candidates-Active', String(candidatePolicy.activeCandidates));
       res.setHeader('X-Origin-Visual-Best-Of-N', candidatePolicy.bestOfNEnabled ? 'true' : 'false');
+      res.setHeader('X-Origin-Visual-Task', mode);
+      res.setHeader('X-Origin-Visual-Reference-Count', String(input.referenceImages?.length ?? 0));
       res.setHeader('X-Origin-Visual-Provider', result.providerId);
       res.setHeader('X-Origin-Visual-Model', result.model);
       res.setHeader('X-Origin-Visual-Width', String(result.width));
@@ -324,8 +379,9 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     }
   };
 
-  router.post('/api/creative/v1.5/raster/generate', handler);
-  router.post('/api/generate-image', handler);
+  router.post('/api/creative/v1.5/raster/generate', handler('generate'));
+  router.post('/api/creative/v1.5/raster/edit', handler('edit'));
+  router.post('/api/generate-image', handler('generate'));
 
   return router;
 }
