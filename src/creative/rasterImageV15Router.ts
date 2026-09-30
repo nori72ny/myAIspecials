@@ -39,12 +39,18 @@ function sensitiveKinds(body: unknown): string[] {
   return detectSensitiveConversation([{ role: 'user', content: serialized }]);
 }
 
-function fail(res: Response, status: number, code: string, message?: string) {
+function fail(
+  res: Response,
+  status: number,
+  code: string,
+  message?: string,
+  retryable = status >= 500,
+) {
   return res.status(status).json({
     ok: false,
     code,
     message: message ?? code,
-    retryable: status >= 500,
+    retryable,
     freeOnly: true,
     costUsd: 0,
     paidFallbackUsed: false,
@@ -360,13 +366,28 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       if (code === 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED') {
         return fail(res, 503, code, '無料画像生成のCloudflare Workers AI接続がまだ構成されていません。');
       }
-      if (code === 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED'
-        || code === 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED'
+      if (code === 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED') {
+        return fail(res, 429, code, '本日のCloudflare Workers AI無料枠を使い切ったため、画像生成を停止しました。無料枠のリセット後に再度利用できます。', false);
+      }
+      if (code === 'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE') {
+        return fail(res, 503, code, 'Cloudflare Workers AIが一時的に混雑しているため、画像生成を停止しました。少し時間を空けて再試行できます。', true);
+      }
+      if (code === 'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN'
+        || code === 'CLOUDFLARE_PAID_PATH_BLOCKED'
+        || code === 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED') {
+        return fail(res, 503, code, '有料プランが必要な経路はORIGINの0円条件に反するため、画像生成を停止しました。', false);
+      }
+      if (code === 'CLOUDFLARE_WORKERS_AI_AUTH_REQUIRED'
+        || code === 'CLOUDFLARE_WORKERS_AI_ACCESS_DENIED'
         || code === 'CLOUDFLARE_BILLING_READ_REQUIRED'
-        || code === 'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED'
+        || code === 'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED') {
+        return fail(res, 503, code, 'Cloudflare Workers AIの認証または権限を安全に確認できないため、画像生成を停止しました。', false);
+      }
+      if (code === 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED'
         || code === 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED'
-        || code === 'CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE') {
-        return fail(res, 503, code, '費用0円を事前保証できないため、画像生成を停止しました。');
+        || code === 'CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE'
+        || code === 'CLOUDFLARE_FREE_OR_CAPACITY_UNAVAILABLE') {
+        return fail(res, 503, code, '費用0円を事前保証できないため、画像生成を停止しました。', false);
       }
       if (code === 'RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID'
         || code.startsWith('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_')) {
