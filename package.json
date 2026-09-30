@@ -45,7 +45,9 @@
     "eval:world-class-quality:trusted": "tsx scripts/evaluate-trusted-world-class-quality-gate-v2.ts",
     "ingest:trusted-answer-corpus-v2": "tsx scripts/ingest-trusted-answer-corpus-v2.ts",
     "eval:heldout-agent:private": "tsx scripts/run-general-agent-private-v2.ts",
-    "eval:heldout-agent:trusted-pack": "tsx scripts/assemble-general-agent-trusted-comparison-v2.ts"
+    "eval:heldout-agent:trusted-pack": "tsx scripts/assemble-general-agent-trusted-comparison-v2.ts",
+    "inspect:artifact-private-corpus": "tsx scripts/inspect-artifact-private-corpus-v1.ts",
+    "eval:artifact-private": "tsx scripts/run-artifact-private-heldout-v1.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
