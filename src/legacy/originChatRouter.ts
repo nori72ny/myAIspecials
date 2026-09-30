@@ -238,6 +238,36 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               return res.json({
                 content: synthesisResult.text,
                 artifacts: supervisorArtifacts.artifacts,
+                supervisor: {
+                  version: ORIGIN_SUPERVISOR_VERSION_V2,
+                  status: supervisorArtifacts.status,
+                  freeOnly: true,
+                  costUsd: 0,
+                  paidFallbackUsed: false,
+                  automaticProviderRetries: 0,
+                  steps: [
+                    {
+                      id: "research",
+                      status: "completed",
+                      evidenceCount: grounded.sourceCount,
+                      provider: grounded.provider,
+                    },
+                    {
+                      id: "synthesis",
+                      status: "completed",
+                      citationValidated: true,
+                      providerAttempts: 1,
+                    },
+                    {
+                      id: "artifact",
+                      status: supervisorArtifacts.status,
+                      artifactCount: supervisorArtifacts.artifacts.length,
+                      completedOutputs: supervisorArtifacts.completedOutputs,
+                      pendingOutputs: supervisorArtifacts.pendingOutputs,
+                      ...(artifactFailureCode ? { failureCode: artifactFailureCode } : {}),
+                    },
+                  ],
+                },
                 answer: answerEnvelope(
                   synthesisResult.text,
                   grounded.language,
@@ -313,6 +343,35 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         : grounded.limitations;
       return res.json({
         content: grounded.content,
+        supervisor: {
+          version: ORIGIN_SUPERVISOR_VERSION_V2,
+          status: researchRequestedOutputs.length > 0 ? "partial" : "not-required",
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+          automaticProviderRetries: 0,
+          steps: [
+            {
+              id: "research",
+              status: grounded.sourceCount > 0 ? "completed" : "blocked",
+              evidenceCount: grounded.sourceCount,
+              provider: grounded.provider,
+            },
+            {
+              id: "synthesis",
+              status: synthesisStatus === "not-run" ? "not-required" : "blocked",
+              ...(synthesisFailureCode ? { failureCode: synthesisFailureCode } : {}),
+              providerAttempts: synthesisStatus === "provider-failed" ? 1 : 0,
+            },
+            {
+              id: "artifact",
+              status: researchNeedsDownstreamDeliverable ? "not-run" : "not-required",
+              artifactCount: 0,
+              completedOutputs: [],
+              pendingOutputs: researchNeedsDownstreamDeliverable ? researchRequestedOutputs : [],
+            },
+          ],
+        },
         answer: answerEnvelope(grounded.content, grounded.language, "not-run", digestReason, grounded.evidence, digestLimitations, grounded.nextActions),
         routing: {
           ...applicationRouting(requestId, digestReason, "not-run"),
