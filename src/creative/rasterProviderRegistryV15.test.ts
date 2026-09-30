@@ -24,17 +24,29 @@ describe('rasterProviderRegistryV15', () => {
         referenceImages: false,
         identityPreservation: false,
       }),
+      expect.objectContaining({
+        task: 'edit',
+        referenceImages: true,
+        identityPreservation: false,
+      }),
     ]);
   });
 
-  it('resolves the current text-to-image implementation without claiming unsupported editing capabilities', () => {
+  it('resolves text generation and bounded reference editing without overclaiming other edit modes', () => {
     expect(resolveRasterProviderV15('text-to-image')?.descriptor.id).toBe('cloudflare-workers-ai-free');
-    expect(resolveRasterProviderV15('edit')).toBeNull();
+    expect(resolveRasterProviderV15('edit')?.descriptor.id).toBe('cloudflare-workers-ai-free');
     expect(resolveRasterProviderV15('inpaint')).toBeNull();
   });
 
-  it('fails closed for editing until a separately verified provider supports it', async () => {
-    for (const task of ['edit', 'inpaint', 'outpaint', 'variation'] as const) {
+  it('keeps reference editing fail-closed until the same verified Free provider is ready', async () => {
+    const edit = await selectRasterProviderV15('edit', {});
+    expect(edit).toMatchObject({
+      ready: false,
+      task: 'edit',
+      provider: null,
+      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
+    });
+    for (const task of ['inpaint', 'outpaint', 'variation'] as const) {
       const selection = await selectRasterProviderV15(task, {});
       expect(selection).toMatchObject({
         ready: false,
