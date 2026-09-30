@@ -90,6 +90,49 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     });
   });
 
+  router.post('/api/agent/v3/cancel', (req, res) => {
+    if (!authenticateAgentRequest(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
+    const { runId, planToken } = req.body ?? {};
+    if (typeof runId !== 'string' || !runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    if (typeof planToken !== 'string') return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_REQUIRED' });
+    const plan = verifyPlanCapability(planToken, env);
+    if (!plan || plan.runId !== runId) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_INVALID' });
+    if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
+
+    void (async () => {
+      try {
+        const consumed = await consumptionStore.consume(runId, plan.exp);
+        if (!consumed) {
+          if (!res.headersSent) return res.status(409).json({
+            ok: false,
+            code: 'AGENT_RUN_ALREADY_CONSUMED',
+            protocolVersion: 3,
+            runId,
+          });
+          return;
+        }
+        if (!res.headersSent) return res.status(200).json({
+          ok: true,
+          protocolVersion: 3,
+          runId,
+          status: 'cancelled',
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+          cancellation: 'shared-atomic',
+        });
+      } catch {
+        if (!res.headersSent) return res.status(503).json({
+          ok: false,
+          code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE',
+          protocolVersion: 3,
+          runId,
+        });
+      }
+    })();
+    return undefined;
+  });
+
   router.post('/api/agent/v3/execute', (req, res) => {
     const { runId, toolName, params, approvalToken } = req.body ?? {};
     if (!authenticateAgentRequest(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
