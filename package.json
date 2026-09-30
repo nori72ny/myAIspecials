@@ -37,7 +37,8 @@
     "eval:artifact-blind-quality": "tsx scripts/evaluate-artifact-blind-quality-v1.ts",
     "qualify:raster-live": "tsx scripts/qualify-raster-live-v15.ts",
     "eval:heldout-coding:comparison": "tsx scripts/evaluate-held-out-coding-comparison-v14.ts",
-    "eval:trusted-answer-quality-v2": "tsx scripts/qualify-trusted-answer-quality-v2.ts"
+    "eval:trusted-answer-quality-v2": "tsx scripts/qualify-trusted-answer-quality-v2.ts",
+    "eval:trusted-answer-blind-v2": "tsx scripts/qualify-trusted-answer-blind-preference-v2.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
