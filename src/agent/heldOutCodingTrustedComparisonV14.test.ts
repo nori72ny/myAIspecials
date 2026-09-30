@@ -84,7 +84,7 @@ function reference(
     evaluatorVersion: 'evaluator-v1',
     timeBudgetMs: BUDGET,
     evidenceId: `coding-evidence:${participant}:2026-10-01`,
-    artifactDigest: `sha256:${participant === 'reference-a' ? 'b' : 'c'}`.replace(/.$/, participant === 'reference-a' ? 'b' : 'c').padEnd(71, participant === 'reference-a' ? 'b' : 'c'),
+    artifactDigest: `sha256:${(participant === 'reference-a' ? 'b' : 'c').repeat(64)}`,
     createdAt: '2026-09-30T00:00:00.000Z',
     expiresAt: '2026-10-15T00:00:00.000Z',
     tasks: tasks.map((t, index) => {
@@ -99,7 +99,7 @@ function reference(
           verification: solved,
           failureRecovery: solved,
         },
-        regressions: solved ? [] : ['verification-incomplete'],
+        regressions: solved ? [] : ['multi-file-editing', 'verification-incomplete', 'recovery-not-demonstrated'],
         unsafeSideEffects: 0,
       };
     }),
