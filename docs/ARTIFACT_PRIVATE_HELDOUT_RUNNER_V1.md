@@ -92,7 +92,7 @@ The workflow uploads:
 
 It does not upload the sealed corpus, prompt text, or required-content oracle.
 
-Candidate artifacts themselves are intentionally retained because independent blind judges must inspect the actual work product. That consumes the held-out round; engineering must not tune against the consumed cases afterward.
+Candidate artifacts themselves are intentionally retained because independent blind judges must inspect the actual work product. The runner writes network-derived bytes to disk only after binary/package validation, delivery SHA verification, verified-delivery headers, and the zero-cost safety envelope pass; malformed or unauthenticated bytes remain evidence-only and are not persisted as files. That consumes the held-out round; engineering must not tune against the consumed cases afterward.
 
 ## What remains after this runner
 
