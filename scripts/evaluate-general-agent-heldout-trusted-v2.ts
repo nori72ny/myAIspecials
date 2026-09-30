@@ -27,7 +27,22 @@ if (!inputPath) {
 }
 
 const packet = JSON.parse(await readFile(inputPath, 'utf8')) as Packet;
-if (!packet || !Array.isArray(packet.tasks) || !Array.isArray(packet.evidence) || !Array.isArray(packet.references)) {
+const topLevelValid = Boolean(
+  packet
+  && typeof packet.candidateSha === 'string'
+  && Array.isArray(packet.tasks)
+  && Array.isArray(packet.evidence)
+  && Array.isArray(packet.references)
+  && packet.tasks.every(task => task && typeof task === 'object'
+    && typeof task.id === 'string'
+    && typeof task.taskDigest === 'string'
+    && typeof task.candidateSha === 'string'
+    && Array.isArray(task.capabilities))
+  && packet.references.every(reference => reference && typeof reference === 'object'
+    && typeof reference.participant === 'string'),
+);
+
+if (!topLevelValid) {
   console.error('GENERAL_AGENT_TRUSTED_EVIDENCE_INVALID');
   process.exit(2);
 }
@@ -36,6 +51,10 @@ const evidenceByTask = new Map<string, GeneralAgentTrustedEvidenceV2>();
 const buildErrors: Array<{ taskId: string; blockers: readonly string[] }> = [];
 
 for (const item of packet.evidence) {
+  if (!item || typeof item !== 'object' || typeof item.taskId !== 'string' || item.taskId.trim().length === 0) {
+    buildErrors.push({ taskId: 'malformed-evidence', blockers: ['TRUSTED_EVIDENCE_ITEM_INVALID'] });
+    continue;
+  }
   if (evidenceByTask.has(item.taskId)) {
     buildErrors.push({ taskId: item.taskId, blockers: ['TRUSTED_EVIDENCE_DUPLICATE_TASK'] });
     continue;
