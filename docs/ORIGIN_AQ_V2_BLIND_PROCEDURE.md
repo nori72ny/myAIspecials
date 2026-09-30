@@ -56,3 +56,35 @@ The code enforces:
 - no scoring criterion with negative mean preference.
 
 Passing this gate means "competitive evidence passed", not "universally best AI".
+
+
+## Trusted evidence binding
+
+The statistical blind-preference report is not sufficient by itself for a world-class claim.
+
+A qualifying round must also pass the trusted blind-evidence qualifier:
+
+```sh
+npm run eval:trusted-answer-blind-v2 -- \
+  <trusted-execution.json> \
+  <trusted-blind-bundle.json> \
+  [output.json]
+```
+
+The trusted bundle binds the comparison to the same exact AQ V2 round by requiring:
+
+- the exact candidate SHA;
+- the sealed corpus digest;
+- the round ID;
+- the trusted 48-answer result digest;
+- the frozen rubric digest;
+- exactly 48 candidate answer digests from the trusted run;
+- at least three controlled-external reference systems, each with one exact answer digest for every case;
+- at least two controlled-external judges that attest they were blind to answer source identity;
+- valid bounded evidence lifetimes and artifact digests for every reference and judge;
+- every vote bound to the exact candidate answer digest and exact reference answer digest through a deterministic pair digest;
+- the complete 48 × reference × judge vote matrix required by the statistical gate.
+
+The final Answer World-Class gate now requires both the competitive statistics and this trusted evidence qualification. A manually edited win/loss table, a result from another candidate SHA, an expired judge record, or a vote attached to a different answer digest fails closed.
+
+This mechanism protects evaluator integrity. It does not create real external evidence by itself: a fresh sealed round still has to collect actual outputs from the reference systems and actual blind votes from the independent judges.
