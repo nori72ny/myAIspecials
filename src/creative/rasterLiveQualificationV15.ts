@@ -100,7 +100,7 @@ async function runPhase(
   env: NodeJS.ProcessEnv,
   fetchImpl: typeof fetch,
   now: () => number,
-): Promise<RasterLivePhaseEvidenceV15> {
+): Promise<{ evidence: RasterLivePhaseEvidenceV15; result: RasterImageResultV15 }> {
   const started = now();
   const result = await generateCloudflareRasterImageV15(input, env, fetchImpl);
   const structural = critiqueRasterStructureV15(result.bytes, result.mimeType, result.width, result.height);
@@ -114,16 +114,19 @@ async function runPhase(
   if (!semantic.passed) throw new Error('RASTER_LIVE_SEMANTIC_CRITIC_REJECTED');
 
   return {
-    sha256: result.sha256,
-    mimeType: result.mimeType,
-    providerId: result.providerId,
-    model: result.model,
-    width: result.width,
-    height: result.height,
-    durationMs: Math.max(0, now() - started),
-    providerReportedExternalNetworkRequests: result.externalNetworkRequests + semantic.externalNetworkRequests,
-    structural,
-    semantic,
+    result,
+    evidence: {
+      sha256: result.sha256,
+      mimeType: result.mimeType,
+      providerId: result.providerId,
+      model: result.model,
+      width: result.width,
+      height: result.height,
+      durationMs: Math.max(0, now() - started),
+      providerReportedExternalNetworkRequests: result.externalNetworkRequests + semantic.externalNetworkRequests,
+      structural,
+      semantic,
+    },
   };
 }
 
@@ -186,36 +189,27 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
   let generation: RasterLivePhaseEvidenceV15 | null = null;
   let edit: RasterLivePhaseEvidenceV15 | null = null;
   try {
-    generation = await runPhase({
+    const generated = await runPhase({
       prompt: GENERATION_PROMPT,
       negativePrompt: 'text, lettering, logo, watermark, duplicate mug, extra objects',
       width: 384,
       height: 384,
     }, GENERATION_PROMPT, env, fetchImpl, now);
+    generation = generated.evidence;
 
-    const generatedBytes = await generateCloudflareRasterImageV15({
-      prompt: GENERATION_PROMPT,
-      negativePrompt: 'text, lettering, logo, watermark, duplicate mug, extra objects',
-      width: 384,
-      height: 384,
-    }, env, fetchImpl);
-
-    if (generatedBytes.sha256 !== generation.sha256) {
-      throw new Error('RASTER_LIVE_REFERENCE_REPLAY_MISMATCH');
-    }
-
-    edit = await runPhase({
+    const edited = await runPhase({
       prompt: EDIT_PROMPT,
       negativePrompt: 'text, lettering, logo, watermark, extra objects, changed mug shape, changed mug color',
       width: 384,
       height: 384,
       referenceImages: [{
-        bytes: generatedBytes.bytes,
-        mimeType: generatedBytes.mimeType,
-        width: generatedBytes.width,
-        height: generatedBytes.height,
+        bytes: generated.result.bytes,
+        mimeType: generated.result.mimeType,
+        width: generated.result.width,
+        height: generated.result.height,
       }],
     }, EDIT_PROMPT, env, fetchImpl, now);
+    edit = edited.evidence;
 
     if (edit.sha256 === generation.sha256) throw new Error('RASTER_LIVE_EDIT_DID_NOT_CHANGE_OUTPUT');
 
