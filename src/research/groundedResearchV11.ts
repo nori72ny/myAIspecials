@@ -9,6 +9,7 @@ export type GroundedSourceAssessment = {
   domain: string;
   evidenceLevel: OriginResearchSource["evidenceLevel"];
   freshness: OriginResearchSource["freshness"];
+  sourceAuthority: NonNullable<OriginResearchSource["sourceAuthority"]>;
   score: number;
   scoreScope: "retrieval-evidence-only";
   citation: string;
@@ -120,6 +121,7 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
       domain,
       evidenceLevel: source.evidenceLevel,
       freshness: source.freshness,
+      sourceAuthority: source.sourceAuthority ?? (source.sourceType === "encyclopedia" ? "secondary-reference" : "unclassified"),
       score: scoreSource(source, domainCounts.get(domain) ?? 1),
       scoreScope: "retrieval-evidence-only",
       citation: `[S${index + 1}](${source.url})`,
@@ -137,7 +139,12 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
     const assessment = assessments[index];
     const evidenceLabel = assessment.evidenceLevel === "page-verified" ? "本文確認済み" : "検索結果の要約";
     const freshnessLabel = assessment.freshness === "recent" ? "最近" : assessment.freshness === "older" ? "古い可能性" : "不明";
-    return `### ${assessment.id}: ${source.title}\n${source.excerpt}\n\n出典: ${assessment.citation}\n取得状態: ${evidenceLabel} / 更新時期: ${freshnessLabel} / 取得証拠スコア: ${assessment.score}/100`;
+    const authorityLabel = assessment.sourceAuthority === "official-domain-match"
+      ? "公式ドメイン一致（ユーザー指定条件）"
+      : assessment.sourceAuthority === "secondary-reference"
+        ? "二次参照（百科事典）"
+        : "権威性未分類";
+    return `### ${assessment.id}: ${source.title}\n${source.excerpt}\n\n出典: ${assessment.citation}\n取得状態: ${evidenceLabel} / 更新時期: ${freshnessLabel} / 出典区分: ${authorityLabel} / 取得証拠スコア: ${assessment.score}/100`;
   });
   const conflictLines = conflicts.length === 0
     ? "取得した証拠から、価格・バージョン・割合の明示的な不一致は検出されませんでした。意味上の一致までは判定していません。"
@@ -152,6 +159,6 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
     semanticConflictDetection: "conservative-structured-only",
     sources: assessments,
     conflicts,
-    report: `## 確認できた内容\n\n依頼: ${compactQuery}\n\n${summaryLines.join("\n")}\n\n## 出典と取得状況\n\n${evidenceLines.join("\n\n")}\n\n## 照合メモ\n${conflictLines}\n\n※ 取得証拠の強さは、質問への最終的な正しさや媒体の権威性そのものを保証するものではありません。`,
+    report: `## 確認できた内容\n\n依頼: ${compactQuery}\n\n${summaryLines.join("\n")}\n\n## 出典と取得状況\n\n${evidenceLines.join("\n\n")}\n\n## 照合メモ\n${conflictLines}\n\n※ 「公式ドメイン一致」は、ユーザーが明示した公式ソース条件とホスト名が一致したことだけを示します。内容の真偽や媒体の権威性そのものを独立検証した意味ではありません。取得証拠の強さも、質問への最終的な正しさを保証しません。`,
   };
 }

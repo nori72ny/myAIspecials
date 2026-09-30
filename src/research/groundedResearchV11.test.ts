@@ -34,6 +34,20 @@ describe("Grounded Research V1.1 evidence engine", () => {
     expect(result.report).toContain("## 確認できた内容");
     expect(result.report).toContain("[S1](https://a.example/report)");
     expect(result.sources.every((item) => item.score <= 95)).toBe(true);
+    expect(result.sources.every((item) => item.sourceAuthority === "unclassified")).toBe(true);
+    expect(result.report).toContain("出典区分: 権威性未分類");
+  });
+
+  it("surfaces deterministic official and secondary-reference authority classes without upgrading them to truth claims", () => {
+    const result = buildGroundedResearchReport("公式情報と参考情報を比較", [
+      source({ title: "Official", url: "https://support.google.com/example", domain: "support.google.com", sourceAuthority: "official-domain-match" }),
+      source({ title: "Reference", url: "https://ja.wikipedia.org/wiki/Test", domain: "ja.wikipedia.org", sourceType: "encyclopedia", sourceAuthority: "secondary-reference" }),
+    ]);
+
+    expect(result.sources.map((item) => item.sourceAuthority)).toEqual(["official-domain-match", "secondary-reference"]);
+    expect(result.report).toContain("公式ドメイン一致（ユーザー指定条件）");
+    expect(result.report).toContain("二次参照（百科事典）");
+    expect(result.report).toContain("内容の真偽や媒体の権威性そのものを独立検証した意味ではありません");
   });
 
   it("flags only conservative structured value mismatches", () => {
