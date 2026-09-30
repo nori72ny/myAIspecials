@@ -368,7 +368,8 @@ describe("createOriginChatRouter", () => {
     expect(Buffer.from(response.body.artifacts[0].data, "base64").includes(Buffer.from("ppt/presentation.xml"))).toBe(true);
     const synthesisRequest = (synthesisMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
     expect(synthesisRequest.systemInstruction).toContain("スライド/PPTX");
-    expect(synthesisRequest.systemInstruction).toContain("生成したとは絶対に表現しない");
+    expect(synthesisRequest.systemInstruction).toContain("## 見出し");
+    expect(synthesisRequest.systemInstruction).toContain("実ファイルを生成済みとは表現しない");
   });
 
   it("discards synthesized text when citation validation fails and returns the deterministic digest", async () => {

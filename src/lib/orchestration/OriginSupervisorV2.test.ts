@@ -46,6 +46,26 @@ describe('OriginSupervisorV2 research deliverables', () => {
     expect(Buffer.from(pptx!.data, 'base64').includes(Buffer.from('ppt/slides/slide1.xml'))).toBe(true);
   });
 
+  it('keeps spreadsheet pending instead of fabricating a low-quality fallback when no table exists', () => {
+    const result = generateOriginSupervisorArtifactsV2(
+      ['document', 'spreadsheet'],
+      '料金調査',
+      [
+        '# 調査結果',
+        '',
+        '料金は100円です。[S1](https://example.com/one)',
+        '',
+        '別資料では120円です。[S2](https://example.org/two)',
+      ].join('\n'),
+    );
+
+    expect(result.status).toBe('partial');
+    expect(result.completedOutputs).toEqual(['document']);
+    expect(result.pendingOutputs).toEqual(['spreadsheet']);
+    expect(result.artifacts).toHaveLength(1);
+    expect(result.artifacts[0]?.artifactType).toBe('docx');
+  });
+
   it('returns a truthful partial result for unsupported downstream outputs', () => {
     const result = generateOriginSupervisorArtifactsV2(
       ['document', 'image', 'website'],

@@ -72,14 +72,34 @@ describe("groundedResearchSynthesisV12", () => {
     expect(instruction).toContain("事実を含む各段落・箇条書きの引用要件は維持");
   });
 
-  it("marks file/image/app requests as downstream work and forbids fake completion", () => {
-    const instruction = buildGroundedResearchSynthesisInstruction("ja", ["presentation", "image", "application"]);
+  it("shapes supported Office deliverables for the downstream Supervisor without weakening fake-completion rules", () => {
+    const instruction = buildGroundedResearchSynthesisInstruction(
+      "ja",
+      ["presentation", "document", "spreadsheet", "image", "application"],
+    );
 
     expect(instruction).toContain("スライド/PPTX");
+    expect(instruction).toContain("簡潔な ## 見出し");
+    expect(instruction).toContain("文書/DOCX");
+    expect(instruction).toContain("Markdown見出し");
+    expect(instruction).toContain("表計算/XLSX");
+    expect(instruction).toContain("Markdown表");
     expect(instruction).toContain("実画像");
     expect(instruction).toContain("アプリ");
     expect(instruction).toContain("生成したとは絶対に表現しない");
     expect(instruction).toContain("代用品として完成成果物のように見せない");
+  });
+
+  it("gives equivalent artifact-ready structure guidance in English", () => {
+    const instruction = buildGroundedResearchSynthesisInstruction(
+      "en",
+      ["presentation", "document", "spreadsheet"],
+    );
+
+    expect(instruction).toContain("concise ## section headings");
+    expect(instruction).toContain("clean Markdown headings");
+    expect(instruction).toContain("explicit Markdown table");
+    expect(instruction).toContain("downstream local artifact Supervisor");
   });
 
   it("frames instruction-like source text as untrusted data instead of prompt instructions", () => {
