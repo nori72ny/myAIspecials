@@ -60,9 +60,12 @@ function parseReferenceImages(value: unknown): RasterReferenceImageV15[] {
   return value.map((item) => {
     if (typeof item !== 'string') throw new Error('REFERENCE_IMAGE_INVALID');
     const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(item);
-    if (!match || match[2].length % 4 !== 0) throw new Error('REFERENCE_IMAGE_INVALID');
-    const mimeType = match[1] as RasterReferenceImageV15['mimeType'];
-    const bytes = Buffer.from(match[2], 'base64');
+    if (!match) throw new Error('REFERENCE_IMAGE_INVALID');
+    const declaredMime = match[1];
+    const encoded = match[2];
+    if (!declaredMime || !encoded || encoded.length % 4 !== 0) throw new Error('REFERENCE_IMAGE_INVALID');
+    const mimeType = declaredMime as RasterReferenceImageV15['mimeType'];
+    const bytes = Buffer.from(encoded, 'base64');
     if (bytes.length < 64 || bytes.length > MAX_REFERENCE_IMAGE_BYTES) {
       throw new Error('REFERENCE_IMAGE_SIZE_OUT_OF_BOUNDS');
     }
