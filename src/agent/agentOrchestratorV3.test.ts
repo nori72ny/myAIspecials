@@ -1,6 +1,6 @@
 import express from 'express';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createAgentOrchestratorV3Router, type AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 import { approvalDigest } from './agentApproval.js';
 import { issueApprovalCapability, issuePlanCapability } from './agentV3Capability.js';
@@ -132,6 +132,49 @@ describe('agent orchestrator v3', () => {
     expect(unavailable.status).toBe(503);
     expect(unavailable.body.code).toBe('AGENT_REPLAY_PROTECTION_UNAVAILABLE');
   });
+
+  it.each(['before-approval', 'after-approval'] as const)(
+    'retains cancellation beyond plan expiry when cancelled %s', async cancelTiming => {
+      let now = 1_800_000_000_000;
+      const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+      try {
+        const reservations = new Map<string, number>();
+        const store: AgentRunConsumptionStore = { consume: async (runId, expiresAt) => {
+          if ((reservations.get(runId) ?? 0) > now) return false;
+          reservations.set(runId, expiresAt);
+          return true;
+        } };
+        const first = appFor(env, store);
+        const second = appFor(env, store);
+        const planned = await request(first).post('/api/agent/v3/plan').send({ goal: '営業提案書を作成して' });
+        expect(planned.status).toBe(201);
+        const { runId, planToken } = planned.body;
+        const cancelPlanned = () => request(first).post('/api/agent/v3/cancel')
+          .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+          .send({ runId, planToken });
+        if (cancelTiming === 'before-approval') expect((await cancelPlanned()).status).toBe(200);
+
+        // An approval legitimately issued just before plan expiry remains valid
+        // for another two minutes. The shared store models real TTL expiration.
+        now = Date.parse(planned.body.expiresAt) - 1_000;
+        const approved = await request(second).post('/api/agent/v3/approval')
+          .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+          .send({ runId, planToken, toolName: operation.toolName, params: operation.params });
+        expect(approved.status).toBe(201);
+        if (cancelTiming === 'after-approval') expect((await cancelPlanned()).status).toBe(200);
+
+        now = Date.parse(planned.body.expiresAt) + 1_000;
+        expect(Date.parse(approved.body.expiresAt)).toBeGreaterThan(now);
+        const executed = await request(second).post('/api/agent/v3/execute')
+          .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+          .send({ ...operation, runId, approvalToken: approved.body.approvalToken });
+        expect(executed.status).toBe(409);
+        expect(executed.body.code).toBe('AGENT_RUN_ALREADY_CONSUMED');
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
 
   it('fails cancellation closed when the shared store errors without leaking storage details', async () => {
     const response = await cancel(appFor(env, {

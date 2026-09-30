@@ -9,7 +9,7 @@ import { createAgentTaskGraph } from './agentTaskGraph.js';
 import { executeNextTask } from './taskGraphExecutor.js';
 import { AgentRunSession } from './agentRunContract.js';
 import { approvalDigest, authenticateAgentRequest, type AgentApprovalOperation } from './agentApproval.js';
-import { issueApprovalCapability, issuePlanCapability, v3CapabilityConfigured, verifyApprovalCapability, verifyPlanCapability } from './agentV3Capability.js';
+import { issueApprovalCapability, issuePlanCapability, latestApprovalExpiryForPlan, v3CapabilityConfigured, verifyApprovalCapability, verifyPlanCapability } from './agentV3Capability.js';
 import { selectAgentToolV3 } from './agentToolPlannerV3.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
@@ -111,7 +111,9 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
 
     void (async () => {
       try {
-        const consumed = await consumptionStore.consume(runId, plan.exp);
+        // A last-moment approval can outlive its plan. Keep the cancellation
+        // tombstone until every approval that plan could issue has expired.
+        const consumed = await consumptionStore.consume(runId, latestApprovalExpiryForPlan(plan.exp));
         if (!consumed) {
           if (!res.headersSent) return res.status(409).json({
             ok: false,
