@@ -32,7 +32,7 @@ function japaneseGuide(status: OriginCapabilityStatus): OriginCapabilityGuide {
     ? "- 実画像生成：検証済みの無料画像生成経路で、プロンプトからPNG/JPEG/WebPのラスター画像を生成し、寸法・画像形式・品質ゲートを通過した画像だけを返す\n"
     : "";
   const rasterEditingCapability = status.rasterImageEditingReady
-    ? "- 実画像編集：検証済みの元画像をローカル参照として使い、既存画像の別案・編集を無料のモデルベース経路で実行し、品質ゲートを通過した画像だけを返す\\n"
+    ? "- 実画像編集：検証済みの元画像をローカル参照として使い、既存画像の別案・編集を無料のモデルベース経路で実行し、品質ゲートを通過した画像だけを返す\n"
     : "";
   const rasterLimitations = [
     ...(!status.rasterTextToImageReady ? ["モデルによるラスター画像生成"] : []),
@@ -79,7 +79,7 @@ function englishGuide(status: OriginCapabilityStatus): OriginCapabilityGuide {
     ? "- Real image generation: use the verified free image route to create PNG/JPEG/WebP raster images from prompts and return only images that pass format, dimension, and quality gates\n"
     : "";
   const rasterEditingCapability = status.rasterImageEditingReady
-    ? "- Real image editing: use a verified local source image as the bounded reference for free model-based variations/edits and return only images that pass quality gates\\n"
+    ? "- Real image editing: use a verified local source image as the bounded reference for free model-based variations/edits and return only images that pass quality gates\n"
     : "";
   const rasterLimitations = [
     ...(!status.rasterTextToImageReady ? ["Model-based raster image generation"] : []),
