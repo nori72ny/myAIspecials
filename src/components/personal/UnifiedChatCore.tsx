@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Download,
   History,
   Plus,
   RefreshCw,
@@ -46,6 +47,22 @@ type RoutingMetadata = {
   verificationLevel?: 'basic' | 'evidence-required' | 'independent-review-required';
 };
 
+type ChatArtifactPayload = {
+  id: string;
+  kind: 'document' | 'presentation' | 'spreadsheet';
+  artifactType: 'docx' | 'pptx' | 'xlsx';
+  filename: string;
+  mimeType: string;
+  sha256: string;
+  byteLength: number;
+  encoding: 'base64';
+  data: string;
+  verified: true;
+  freeOnly: true;
+  costUsd: 0;
+  paidFallbackUsed: false;
+};
+
 type Message = {
   id: string;
   role: 'user' | 'ai';
@@ -53,6 +70,7 @@ type Message = {
   kind?: 'conversation' | 'intro';
   answer?: OriginAnswerEnvelope;
   routing?: RoutingMetadata;
+  artifacts?: ChatArtifactPayload[];
   error?: {
     code: string;
     messageKey: string;
@@ -211,6 +229,57 @@ function parseOriginAnswerEnvelope(value: unknown): OriginAnswerEnvelope | undef
     richOutputs: candidate.richOutputs,
   });
   return parsed.ok ? parsed.value : undefined;
+}
+
+function parseOriginArtifacts(value: unknown): ChatArtifactPayload[] | undefined {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 3) return undefined;
+
+  const parsed: ChatArtifactPayload[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return undefined;
+    const artifact = item as Partial<ChatArtifactPayload>;
+    if (
+      typeof artifact.id !== 'string'
+      || !/^artifact-(?:docx|pptx|xlsx)-[a-f0-9]{20}$/.test(artifact.id)
+      || (artifact.kind !== 'document' && artifact.kind !== 'presentation' && artifact.kind !== 'spreadsheet')
+      || (artifact.artifactType !== 'docx' && artifact.artifactType !== 'pptx' && artifact.artifactType !== 'xlsx')
+      || typeof artifact.filename !== 'string'
+      || artifact.filename.length === 0
+      || artifact.filename.length > 240
+      || /[\\/\0]/.test(artifact.filename)
+      || typeof artifact.mimeType !== 'string'
+      || artifact.mimeType.length === 0
+      || typeof artifact.sha256 !== 'string'
+      || !/^[a-f0-9]{64}$/.test(artifact.sha256)
+      || !Number.isInteger(artifact.byteLength)
+      || (artifact.byteLength ?? 0) <= 0
+      || (artifact.byteLength ?? 0) > 1_500_000
+      || artifact.encoding !== 'base64'
+      || typeof artifact.data !== 'string'
+      || artifact.data.length === 0
+      || artifact.data.length > 2_100_000
+      || !/^[A-Za-z0-9+/]*={0,2}$/.test(artifact.data)
+      || artifact.verified !== true
+      || artifact.freeOnly !== true
+      || artifact.costUsd !== 0
+      || artifact.paidFallbackUsed !== false
+    ) return undefined;
+    parsed.push(artifact as ChatArtifactPayload);
+  }
+
+  return parsed;
+}
+
+function messagesForStorage(messages: Message[]): Message[] {
+  return messages.map((message) => {
+    if (!message.artifacts?.length) return message;
+    return {
+      ...message,
+      artifacts: undefined,
+      answer: message.answer ? { ...message.answer, richOutputs: [] } : undefined,
+    };
+  });
 }
 
 function shouldShowSeparateConclusion(answer: OriginAnswerEnvelope): boolean {
@@ -652,9 +721,13 @@ export default function UnifiedChat({
       const parsedAnswer = answerWasProvided
         ? parseOriginAnswerEnvelope(data.answer)
         : undefined;
+      const parsedArtifacts = parseOriginArtifacts(data.artifacts);
+      const artifactEnvelopeInvalid = parsedArtifacts === undefined
+        || Boolean(parsedAnswer?.richOutputs.some((output) =>
+          !parsedArtifacts.some((artifact) => artifact.id === output.artifactId)));
       if (
         answerWasProvided
-        && (!parsedAnswer || !verificationMatchesRouting(parsedAnswer, data.routing))
+        && (!parsedAnswer || !verificationMatchesRouting(parsedAnswer, data.routing) || artifactEnvelopeInvalid)
       ) {
         throw {
           code: 'ANSWER_INTEGRITY_UNVERIFIED',
@@ -671,6 +744,7 @@ export default function UnifiedChat({
         content: data.content,
         answer: parsedAnswer,
         routing: data.routing,
+        artifacts: parsedArtifacts && parsedArtifacts.length > 0 ? parsedArtifacts : undefined,
       };
       setMessages((previous) => [...previous, aiMessage]);
       setCompletionAnnouncement(answerCompletionAnnouncement(aiMessage.answer, isEn));
@@ -848,6 +922,36 @@ export default function UnifiedChat({
     await processSend(validMessages);
   };
 
+  const downloadArtifact = async (artifact: ChatArtifactPayload) => {
+    try {
+      const binary = window.atob(artifact.data);
+      if (binary.length !== artifact.byteLength) throw new Error('ARTIFACT_LENGTH_MISMATCH');
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const digestBuffer = await window.crypto.subtle.digest('SHA-256', bytes);
+      const digest = Array.from(new Uint8Array(digestBuffer))
+        .map((value) => value.toString(16).padStart(2, '0'))
+        .join('');
+      if (digest !== artifact.sha256) throw new Error('ARTIFACT_DIGEST_MISMATCH');
+
+      const url = window.URL.createObjectURL(new Blob([bytes], { type: artifact.mimeType }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = artifact.filename;
+      anchor.rel = 'noopener';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+      setCompletionAnnouncement(isEn
+        ? `${artifact.filename} was verified and prepared for download.`
+        : `${artifact.filename}を検証してダウンロード準備しました。`);
+    } catch {
+      setCompletionAnnouncement(isEn
+        ? 'The artifact was not downloaded because its integrity could not be verified.'
+        : '成果物の整合性を確認できなかったため、ダウンロードを停止しました。');
+    }
+  };
+
   const copyAnswer = async (message: Message) => {
     const text = message.answer?.answer ?? message.content;
     try {
@@ -889,7 +993,7 @@ export default function UnifiedChat({
       const updated: ChatSession = {
         id: activeSessionId,
         title: sessionTitle(messages, isEn),
-        messages,
+        messages: messagesForStorage(messages),
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
@@ -1217,6 +1321,34 @@ export default function UnifiedChat({
                             <p className="text-sm text-slate-700 dark:text-neutral-300">
                               {message.answer.verification.summary}
                             </p>
+                          </section>
+                        )}
+
+                        {message.answer.richOutputs.length > 0 && (
+                          <section data-testid="answer-rich-outputs">
+                            <h3 className="mb-2 text-[13px] font-semibold text-origin-muted dark:text-origin-muted">
+                              {isEn ? 'Created files' : '作成したファイル'}
+                            </h3>
+                            <div className="flex flex-col gap-2">
+                              {message.answer.richOutputs.map((output) => {
+                                const artifact = message.artifacts?.find((item) => item.id === output.artifactId);
+                                return (
+                                  <button
+                                    key={output.artifactId}
+                                    type="button"
+                                    disabled={!artifact}
+                                    onClick={() => artifact && void downloadArtifact(artifact)}
+                                    className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-origin-border bg-origin-surface px-3 py-2.5 text-left text-sm text-origin-ink transition hover:border-origin-brand hover:bg-origin-brand-soft disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    <Download className="h-4 w-4 shrink-0 text-origin-brand" aria-hidden="true" />
+                                    <span className="min-w-0 flex-1 truncate">{output.label}</span>
+                                    <span className="text-[12px] font-medium uppercase text-origin-muted">
+                                      {artifact?.artifactType ?? output.kind}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </section>
                         )}
 
