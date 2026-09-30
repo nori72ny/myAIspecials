@@ -539,6 +539,15 @@ export const isDirectImageGenerationRequest = (input: string): boolean => {
   return false;
 };
 
+export const isDirectCodingWorkspaceRequest = (input: string): boolean => {
+  const normalized = input.normalize('NFKC').trim();
+  if (!normalized) return false;
+  const action = /(?:修正して|直して|変更して|追加して|削除して|更新して|置き換えて|実装して|リファクタ(?:して)?|fix\b|implement\b|modify\b|change\b|refactor\b|update\b|replace\b)/i;
+  const codingTarget = /(?:コード|実装|バグ|不具合|エラー|API|関数|コンポーネント|画面|フォーム|UI|テスト|型|typecheck|lint|build|ビルド|ファイル|リポジトリ|repository|repo\b|code\b|bug\b|error\b|function\b|component\b|form\b|test\b)/i;
+  const explanationOnly = /^(?:.*?)(?:説明して|解説して|教えて|レビューだけ|意味は|とは|what is|how does|explain|review only)\s*[。.!！]?$/i;
+  return action.test(normalized) && codingTarget.test(normalized) && !explanationOnly.test(normalized);
+};
+
 const isImageClarificationCancellation = (input: string): boolean =>
   /^(?:やめ(?:る|ます)?|キャンセル|画像(?:生成)?はやめ|別の話|cancel|stop|never mind)\b/i.test(input.trim());
 
@@ -1051,7 +1060,7 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   </aside>;
 };
 
-export type OriginPersonalAppProps = { onOpenSettings?: () => void; onOpenResearch?: () => void; onOpenAgent?: () => void; onOpenCoding?: () => void; onOpenCreative?: () => void; onOpenDetails?: () => void; messages?: ConversationMessage[]; sessions?: readonly ConversationSession[]; artifacts?: readonly ArtifactBlock[]; onArchiveSession?: (messages: readonly ConversationMessage[]) => void; onRestoreSession?: (session: ConversationSession) => void; onMessagesChange?: (messages: ConversationMessage[]) => void; onArtifactsChange?: (artifacts: ArtifactBlock[]) => void; resetSignal?: number; language?: OriginLanguage; designTheme?: OriginDesignTheme; embedded?: boolean };
+export type OriginPersonalAppProps = { onOpenSettings?: () => void; onOpenResearch?: () => void; onOpenAgent?: () => void; onOpenCoding?: (goal?: string) => void; onOpenCreative?: () => void; onOpenDetails?: () => void; messages?: ConversationMessage[]; sessions?: readonly ConversationSession[]; artifacts?: readonly ArtifactBlock[]; onArchiveSession?: (messages: readonly ConversationMessage[]) => void; onRestoreSession?: (session: ConversationSession) => void; onMessagesChange?: (messages: ConversationMessage[]) => void; onArtifactsChange?: (artifacts: ArtifactBlock[]) => void; resetSignal?: number; language?: OriginLanguage; designTheme?: OriginDesignTheme; embedded?: boolean };
 export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenResearch, onOpenAgent, onOpenCoding, onOpenCreative, onOpenDetails, messages: controlledMessages, sessions = [], artifacts: controlledArtifacts, onArchiveSession, onRestoreSession, onMessagesChange, onArtifactsChange, resetSignal = 0, language = 'ja', designTheme = 'minimal', embedded = false }) => {
   const t = getTranslations(language);
   const [uncontrolledMessages, setUncontrolledMessages] = useState<ConversationMessage[]>([]);
@@ -1152,6 +1161,29 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         ? 'Nothing was transmitted or added to history. Remove personal, financial, medical, or credential values. Image attachments remain local because this version cannot verify that they contain no private information.'
         : '入力内容は送信せず、履歴にも追加していません。個人・金融・医療・認証情報を削除してください。画像は個人情報が含まれないことを検証できないため、この版では端末外へ送信しません。');
       setIsSafeWaiting(true);
+      return;
+    }
+
+    if (
+      !interruptCurrent
+      && attachments.length === 0
+      && onOpenCoding
+      && isDirectCodingWorkspaceRequest(text.trim())
+    ) {
+      const codingGoal = text.trim();
+      const handoffMessage = language === 'en'
+        ? 'I moved this request to the Coding workspace. Repository changes start only after dedicated Coding authorization; this path does not publish to Git or deploy.'
+        : 'この依頼をCodingワークスペースへ引き継ぎました。リポジトリ変更は専用Coding認証後に開始し、この経路ではGit公開・デプロイを行いません。';
+      updateMessages((current) => [
+        ...current,
+        { id: `u-${Date.now()}`, role: 'user', content: codingGoal },
+        { id: `a-${Date.now()}`, role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
+      ]);
+      setInputText('');
+      setAttachments([]);
+      setAttachmentError('');
+      setIsSafeWaiting(false);
+      onOpenCoding(codingGoal);
       return;
     }
 

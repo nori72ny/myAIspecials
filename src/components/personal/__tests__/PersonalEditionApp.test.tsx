@@ -6,14 +6,14 @@ import PersonalEditionApp from '../PersonalEditionApp';
 type MockAppProps = Record<string, unknown> & {
   onOpenResearch?: () => void;
   onOpenAgent?: () => void;
-  onOpenCoding?: () => void;
+  onOpenCoding?: (goal?: string) => void;
   onOpenCreative?: () => void;
   onOpenDetails?: () => void;
 };
 
 const appProps = vi.fn();
 vi.mock('../ResearchWorkspaceV31', () => ({ default: () => <section aria-label="Research Workspace">Research test workspace</section> }));
-vi.mock('../CodingWorkspaceV31', () => ({ default: () => <section aria-label="Coding Job Workspace">Coding test workspace</section> }));
+vi.mock('../CodingWorkspaceV31', () => ({ default: ({ initialGoal }: { initialGoal?: string }) => <section aria-label="Coding Job Workspace">Coding test workspace{initialGoal ? `: ${initialGoal}` : ''}</section> }));
 vi.mock('../../CreativeWorkspaceV15', () => ({ default: () => <section aria-label="Creative Workspace">Creative test workspace</section> }));
 vi.mock('../../AgentWorkspaceView', () => ({ default: () => <section aria-label="Agent Workspace">Agent test workspace</section> }));
 
@@ -95,6 +95,17 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
     expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
+  });
+
+  it('carries an explicit chat coding goal into the Coding workspace without starting execution', async () => {
+    render(<PersonalEditionApp />);
+    const goal = 'ログイン画面の入力チェックを修正して';
+
+    act(() => latestAppProps().onOpenCoding?.(goal));
+
+    const coding = await screen.findByRole('region', { name: 'Coding Job Workspace' });
+    expect(coding.textContent).toContain(goal);
+    expect(window.location.search).toBe('?workspace=coding');
   });
 
   it('opens Create from the chat action and preserves the chat mount', async () => {

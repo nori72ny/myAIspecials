@@ -174,10 +174,10 @@ export type CodingProjectEvidence = {
   verificationChecks: readonly { kind: 'typecheck' | 'lint' | 'test' | 'build'; ok: boolean; exitCode: number | null; timedOut: boolean; attempt: number }[];
 };
 
-type CodingJobWorkspaceV14Props = { onProjectEvidenceChange?: (evidence: CodingProjectEvidence) => void };
+type CodingJobWorkspaceV14Props = { initialGoal?: string; onProjectEvidenceChange?: (evidence: CodingProjectEvidence) => void };
 
-export default function CodingJobWorkspaceV14({ onProjectEvidenceChange }: CodingJobWorkspaceV14Props) {
-  const [goal, setGoal] = useState('');
+export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceChange }: CodingJobWorkspaceV14Props) {
+  const [goal, setGoal] = useState(() => initialGoal?.trim().slice(0, 4000) ?? '');
   const [existingJobId, setExistingJobId] = useState('');
   const [capability, setCapability] = useState<CapabilityResponse | null>(null);
   const [job, setJob] = useState<CodingJobRecord | null>(null);
