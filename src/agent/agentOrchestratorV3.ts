@@ -51,7 +51,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const goal = req.body?.goal;
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_GOAL' });
     const selected = selectAgentToolV3(goal.trim());
-    if (!selected.ok) {
+    if ('code' in selected) {
       return res.status(422).json({ ok: false, code: selected.code, protocolVersion: 3 });
     }
     const run = new AgentRunSession();
