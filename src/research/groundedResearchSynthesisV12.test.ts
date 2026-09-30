@@ -17,6 +17,7 @@ const sources: OriginResearchSource[] = [
     evidenceLevel: "page-verified",
     retrievedAt: "2026-09-24T08:00:00.000Z",
     freshness: "recent",
+    sourceAuthority: "official-domain-match",
   },
   {
     title: "Source two",
@@ -28,6 +29,7 @@ const sources: OriginResearchSource[] = [
     evidenceLevel: "snippet",
     retrievedAt: "2026-09-24T08:00:00.000Z",
     freshness: "unknown",
+    sourceAuthority: "secondary-reference",
   },
 ];
 
@@ -50,10 +52,14 @@ describe("groundedResearchSynthesisV12", () => {
     expect(prompt).toContain("[S1](https://example.com/one)");
     expect(prompt).toContain("[S2](https://example.org/two)");
     expect(prompt).toContain("price: 100円 / 120円 (S1, S2)");
+    expect(prompt).toContain('sourceAuthority_json: "official-domain-match"');
+    expect(prompt).toContain('sourceAuthority_json: "secondary-reference"');
     expect(buildGroundedResearchSynthesisInstruction("ja")).toContain("記憶由来の事実を追加しない");
     expect(buildGroundedResearchSynthesisInstruction("ja")).toContain("信頼できないデータ");
     expect(buildGroundedResearchSynthesisInstruction("en")).toContain("Use only the evidence packet");
     expect(buildGroundedResearchSynthesisInstruction("en")).toContain("untrusted data");
+    expect(buildGroundedResearchSynthesisInstruction("en")).toContain("official-domain-match");
+    expect(buildGroundedResearchSynthesisInstruction("ja")).toContain("一次情報へ格上げしない");
   });
 
   it("preserves requested inline output shape without weakening citation rules", () => {
