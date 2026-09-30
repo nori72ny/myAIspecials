@@ -1,0 +1,53 @@
+name: V1.5 Production Raster Qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact main SHA expected in canonical Production
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-production-raster-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: production
+    env:
+      ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Bind qualification to exact main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Run one-shot canonical Production raster qualification
+        run: node scripts/verify-production-raster-e2e-v15.mjs
+
+      - name: Upload public qualification evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-production-raster-e2e
+          path: test-results/origin-production-raster-e2e.json
+          if-no-files-found: ignore
+          retention-days: 14
