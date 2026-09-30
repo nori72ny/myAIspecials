@@ -15,7 +15,7 @@ export type GroundedResearchSynthesisValidation =
 
 type SynthesisSource = Pick<
   OriginResearchSource,
-  "title" | "url" | "excerpt" | "domain" | "evidenceLevel" | "freshness" | "sourceAuthority"
+  "title" | "url" | "excerpt" | "domain" | "evidenceLevel" | "freshness" | "sourceType" | "sourceAuthority"
 >;
 
 const CITATION_PATTERN = /\[S(\d+)\]\((https:\/\/[^)\s]+)\)/g;
