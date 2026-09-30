@@ -50,7 +50,7 @@ describe("AQ V2 private corpus ingest contract", () => {
 
   it("validates the sealed corpus before opening a database transaction", () => {
     const prepare = script.indexOf("prepareOriginAnswerExperienceSealedCorpusV2(corpus)");
-    const begin = script.indexOf('await pool.query("begin")');
+    const begin = script.indexOf('await pool.query("begin isolation level serializable")');
     const insert = script.indexOf("insert into origin_eval_private.aq_v2_sealed_corpora");
     expect(prepare).toBeGreaterThan(0);
     expect(begin).toBeGreaterThan(prepare);
