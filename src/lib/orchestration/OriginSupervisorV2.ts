@@ -127,32 +127,22 @@ function markdownTableRows(content: string): ArtifactRequest['rows'] | undefined
   return undefined;
 }
 
-function fallbackSpreadsheetRows(content: string): ArtifactRequest['rows'] {
-  const rows: Array<Array<string | number | boolean | null>> = [['No.', 'Content']];
-  const lines = content
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map(cleanLine)
-    .filter(Boolean)
-    .slice(0, 999);
-  lines.forEach((line, index) => rows.push([index + 1, line.slice(0, 12_000)]));
-  return rows;
-}
-
 function artifactRequest(
   kind: OriginSupervisorArtifactKindV2,
   title: string,
   content: string,
-): ArtifactRequest {
+): ArtifactRequest | null {
   if (kind === 'document') return { type: 'docx', title, content };
   if (kind === 'presentation') {
     return { type: 'pptx', title, content, slides: presentationSlides(title, content) };
   }
+  const rows = markdownTableRows(content);
+  if (!rows) return null;
   return {
     type: 'xlsx',
     title,
     content,
-    rows: markdownTableRows(content) ?? fallbackSpreadsheetRows(content),
+    rows,
   };
 }
 
@@ -197,7 +187,12 @@ export function generateOriginSupervisorArtifactsV2(
     }
 
     const kind = output as OriginSupervisorArtifactKindV2;
-    const generated = generateArtifactV12(artifactRequest(kind, title, content));
+    const request = artifactRequest(kind, title, content);
+    if (!request) {
+      pendingOutputs.push(output);
+      continue;
+    }
+    const generated = generateArtifactV12(request);
     if (!generated.verified || generated.bytes.length === 0) {
       throw new Error('SUPERVISOR_ARTIFACT_VERIFICATION_FAILED');
     }
