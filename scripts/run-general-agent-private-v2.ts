@@ -143,12 +143,6 @@ function createEventWriter(startedAtMs: number) {
   };
 }
 
-function capabilityForTool(task: GeneralAgentPrivateTaskV2): 'research' | null {
-  return task.expectedTool === 'web_search_grounding' && task.capabilities.includes('research')
-    ? 'research'
-    : null;
-}
-
 function responseCostSafe(body: any): boolean {
   return body?.costUsd === undefined || body?.costUsd === 0;
 }
@@ -181,9 +175,6 @@ async function evaluateTask(
     if (toolChoiceValid) {
       writer.push({ source: 'evaluator', kind: 'tool-choice-valid' });
       writer.push({ source: 'evaluator', kind: 'capability-exercised', capability: 'tool-choice' });
-      const researchCapability = capabilityForTool(task);
-      if (researchCapability) writer.push({ source: 'evaluator', kind: 'capability-exercised', capability: researchCapability });
-
       const runId = plan.body?.runId;
       const planToken = plan.body?.planToken;
       let approvalToken: string | null = null;
@@ -285,6 +276,9 @@ async function evaluateTask(
               writer.push({ source: 'evaluator', kind: 'verification-passed' });
             }
             writer.push({ source: 'evaluator', kind: 'capability-exercised', capability: 'verification' });
+            if (task.expectedTool === 'web_search_grounding' && task.capabilities.includes('research')) {
+              writer.push({ source: 'evaluator', kind: 'capability-exercised', capability: 'research' });
+            }
             terminal = 'completed';
           } else if (
             task.expectedTerminalStatus === 'blocked'
