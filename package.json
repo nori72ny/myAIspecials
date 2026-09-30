@@ -39,7 +39,8 @@
     "eval:heldout-coding:comparison": "tsx scripts/evaluate-held-out-coding-comparison-v14.ts",
     "eval:trusted-answer-quality-v2": "tsx scripts/qualify-trusted-answer-quality-v2.ts",
     "eval:trusted-answer-blind-v2": "tsx scripts/qualify-trusted-answer-blind-preference-v2.ts",
-    "eval:heldout-coding:trusted-comparison": "tsx scripts/evaluate-held-out-coding-trusted-comparison-v14.ts"
+    "eval:heldout-coding:trusted-comparison": "tsx scripts/evaluate-held-out-coding-trusted-comparison-v14.ts",
+    "eval:heldout-agent:trusted-comparison": "tsx scripts/evaluate-general-agent-trusted-comparison-v2.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
