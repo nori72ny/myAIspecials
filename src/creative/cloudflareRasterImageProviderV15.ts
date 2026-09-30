@@ -266,9 +266,6 @@ export async function generateCloudflareRasterImageV15(
   const auth = credentials(env);
   if (!auth) throw new Error('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
 
-  const proof = await verifyWorkersFreePlan(auth.accountId, auth.apiToken, fetchImpl);
-  if (!proof.ok) throw new Error(proof.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
-
   const width = typeof input.width === 'number' ? input.width : 1024;
   const height = typeof input.height === 'number' ? input.height : 1024;
   const prompt = input.prompt.normalize('NFKC').trim();
@@ -291,6 +288,9 @@ export async function generateCloudflareRasterImageV15(
       throw new Error('REFERENCE_IMAGE_DIMENSION_OUT_OF_BOUNDS');
     }
   }
+
+  const proof = await verifyWorkersFreePlan(auth.accountId, auth.apiToken, fetchImpl);
+  if (!proof.ok) throw new Error(proof.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
 
   const form = new FormData();
   const negative = input.negativePrompt?.normalize('NFKC').trim().slice(0, 1000) ?? '';
