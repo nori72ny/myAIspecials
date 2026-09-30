@@ -152,7 +152,7 @@ function evidenceByTask(
       continue;
     }
     const built = buildTrustedGeneralAgentRunV2(task, row);
-    if (!built.ok) {
+    if ("blockers" in built) {
       errors.push({ participant, taskId: task.id, blockers: built.blockers });
       continue;
     }
