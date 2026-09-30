@@ -92,6 +92,11 @@ export function verifyPlanCapability(token: string, env: NodeJS.ProcessEnv, now 
   return verify(token, 'plan', env, now);
 }
 
+/** An approval may be issued until the last instant of a valid plan. */
+export function latestApprovalExpiryForPlan(planExpiresAt: number): number {
+  return planExpiresAt + APPROVAL_TTL_MS;
+}
+
 export function issueApprovalCapability(runId: string, operationDigest: string, env: NodeJS.ProcessEnv, now = Date.now()): { token: string; expiresAt: number } {
   return { token: issue('approval', runId, operationDigest, APPROVAL_TTL_MS, env, now), expiresAt: now + APPROVAL_TTL_MS };
 }
