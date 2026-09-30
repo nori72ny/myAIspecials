@@ -43,9 +43,11 @@ describe('Artifact private held-out workflow V1',()=>{
     expect(workflow).not.toContain('sealed-corpus.json');
   });
 
-  it('does not retry provider output to cherry-pick a favorable sample',()=>{
-    expect(workflow).not.toContain('rerun');
-    expect(workflow).not.toContain('retry');
+  it('does not structurally retry provider output or fan out samples',()=>{
+    expect(workflow).not.toContain('for attempt in');
+    expect(workflow).not.toContain('strategy:');
     expect(workflow).not.toContain('matrix:');
+    expect(workflow).not.toContain('continue-on-error: true');
+    expect(workflow.match(/npm run eval:artifact-private/g)).toHaveLength(1);
   });
 });
