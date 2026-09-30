@@ -50,7 +50,7 @@ describe("OriginServiceRegistry", () => {
     ]));
   });
 
-  it("does not assign unconnected search or website runtimes", () => {
+  it("assigns verified research while keeping the unconnected website runtime partial", () => {
     const plan = buildOriginAgentWorkPlan(
       classifyOriginRequestIntent(
         "市場を調査してホームページを完成まで制作してください",
@@ -59,7 +59,14 @@ describe("OriginServiceRegistry", () => {
     );
     const resolved = resolveOriginAgentWorkPlan(plan);
 
-    expect(resolved.unavailableCapabilities).toContain("live-research");
+    expect(resolved.unavailableCapabilities).not.toContain("live-research");
+    expect(resolved.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        requiredCapability: "live-research",
+        serviceId: "origin-grounded-research",
+        status: "assigned",
+      }),
+    ]));
     expect(resolved.assignments).toEqual(expect.arrayContaining([
       expect.objectContaining({
         requiredCapability: "website-workspace-runtime",
@@ -69,6 +76,29 @@ describe("OriginServiceRegistry", () => {
     expect(originServiceAssignmentInstruction(resolved)).toContain(
       "not proof of completed execution",
     );
+  });
+
+  it("assigns verified file artifact runtimes without a paid fallback", () => {
+    const plan = buildOriginAgentWorkPlan(
+      classifyOriginRequestIntent(
+        "競合を調査してPowerPointとExcelにまとめてください",
+        "research",
+      ),
+    );
+    const resolved = resolveOriginAgentWorkPlan(plan);
+
+    expect(resolved.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        requiredCapability: "presentation-artifact-runtime",
+        serviceId: "origin-artifact-runtime",
+        status: "assigned",
+      }),
+      expect.objectContaining({
+        requiredCapability: "spreadsheet-artifact-runtime",
+        serviceId: "origin-artifact-runtime",
+        status: "assigned",
+      }),
+    ]));
   });
 
   it("rejects a paid or automatic fallback service", () => {

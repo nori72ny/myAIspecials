@@ -68,6 +68,40 @@ export const ORIGIN_TEXT_RUNTIME_SERVICE: OriginServiceRegistration = {
   },
 };
 
+export const ORIGIN_RESEARCH_RUNTIME_SERVICE: OriginServiceRegistration = {
+  id: "origin-grounded-research",
+  label: "ORIGIN Grounded Research",
+  adapterId: "grounded-research-v1-1",
+  capabilities: ["live-research"],
+  available: true,
+  freeOnly: true,
+  maxEstimatedCostUsd: 0,
+  automaticFallback: false,
+  qualityEvidence: {
+    testIds: ["origin-research-router", "origin-chat-grounded-research"],
+    validatedAt: "2026-09-30",
+  },
+};
+
+export const ORIGIN_ARTIFACT_RUNTIME_SERVICE: OriginServiceRegistration = {
+  id: "origin-artifact-runtime",
+  label: "ORIGIN Artifact Runtime",
+  adapterId: "artifact-v1-2",
+  capabilities: [
+    "document-artifact-runtime",
+    "presentation-artifact-runtime",
+    "spreadsheet-artifact-runtime",
+  ],
+  available: true,
+  freeOnly: true,
+  maxEstimatedCostUsd: 0,
+  automaticFallback: false,
+  qualityEvidence: {
+    testIds: ["artifact-generator-v1-2", "origin-supervisor-v2"],
+    validatedAt: "2026-09-30",
+  },
+};
+
 function validateService(registration: OriginServiceRegistration): OriginServiceRegistrationResult {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(registration.id)) {
     return { ok: false, code: "INVALID_SERVICE_ID" };
@@ -108,7 +142,11 @@ function validateService(registration: OriginServiceRegistration): OriginService
 export class OriginServiceRegistry {
   private readonly services = new Map<string, OriginServiceRegistration>();
 
-  constructor(initial: readonly OriginServiceRegistration[] = [ORIGIN_TEXT_RUNTIME_SERVICE]) {
+  constructor(initial: readonly OriginServiceRegistration[] = [
+    ORIGIN_TEXT_RUNTIME_SERVICE,
+    ORIGIN_RESEARCH_RUNTIME_SERVICE,
+    ORIGIN_ARTIFACT_RUNTIME_SERVICE,
+  ]) {
     for (const registration of initial) {
       const result = this.register(registration);
       if (result.ok === false) throw new Error(result.code);

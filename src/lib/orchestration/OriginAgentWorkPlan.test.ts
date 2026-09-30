@@ -42,7 +42,7 @@ describe("OriginAgentWorkPlan", () => {
     expect(plan.steps.find((step) => step.kind === "deliver-result")?.availability).toBe("available");
   });
 
-  it("marks real slide generation as partial while preserving content design", () => {
+  it("routes real slide generation through the verified artifact runtime", () => {
     const plan = buildOriginAgentWorkPlan(
       classifyOriginRequestIntent("提案スライドを作成してください", "documentation"),
     );
@@ -55,13 +55,13 @@ describe("OriginAgentWorkPlan", () => {
       expect.objectContaining({
         kind: "create-output",
         requiredCapability: "presentation-artifact-runtime",
-        availability: "partial",
+        availability: "available",
       }),
     ]));
-    expect(plan.canCompleteInCurrentRelease).toBe(false);
+    expect(plan.canCompleteInCurrentRelease).toBe(true);
   });
 
-  it("does not present live research or website creation as executed", () => {
+  it("routes live research but keeps unconnected website creation partial", () => {
     const intent = classifyOriginRequestIntent(
       "市場を調査してホームページを完成まで制作してください",
       "research",
@@ -70,10 +70,18 @@ describe("OriginAgentWorkPlan", () => {
     const instruction = originAgentWorkPlanInstruction(plan);
 
     expect(plan.mode).toBe("agent-workflow");
-    expect(plan.incompleteCapabilities).toEqual(expect.arrayContaining([
-      "live-research",
-      "website-workspace-runtime",
+    expect(plan.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        requiredCapability: "live-research",
+        availability: "available",
+      }),
+      expect.objectContaining({
+        requiredCapability: "website-workspace-runtime",
+        availability: "partial",
+      }),
     ]));
+    expect(plan.incompleteCapabilities).toContain("website-workspace-runtime");
+    expect(plan.incompleteCapabilities).not.toContain("live-research");
     expect(instruction).toContain("not proof that any step ran");
     expect(instruction).toContain("Never present an uncreated file");
   });

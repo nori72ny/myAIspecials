@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import { createOriginAnswerEnvelope, type OriginAnswerEnvelope, type OriginAnswerEvidenceItem, type OriginAnswerVerificationStatus } from "../lib/orchestration/OriginAnswerEnvelope.js";
+import { createOriginAnswerEnvelope, type OriginAnswerEnvelope, type OriginAnswerEvidenceItem, type OriginAnswerRichOutput, type OriginAnswerVerificationStatus } from "../lib/orchestration/OriginAnswerEnvelope.js";
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
@@ -11,6 +11,7 @@ import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orche
 import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
+import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { executeOriginProvider, assertOriginZeroCostExecutionResult, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
 import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
@@ -109,7 +110,7 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
   };
 }
 function firstAnswerBlock(content: string): string { const firstBlock = content.split(/\n\s*\n|\n/).map((part) => part.trim()).find(Boolean) ?? content.trim(); const withoutHeading = firstBlock.replace(/^#{1,6}\s+/, "").trim(); if (withoutHeading.length <= 500) return withoutHeading; const candidate = withoutHeading.slice(0, 500); const sentenceEnd = Math.max(candidate.lastIndexOf("。") + 1, candidate.lastIndexOf("！") + 1, candidate.lastIndexOf("？") + 1, candidate.lastIndexOf(". ") + 1); return sentenceEnd >= 40 ? candidate.slice(0, sentenceEnd).trim() : `${candidate.slice(0, 499).trimEnd()}…`; }
-function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions }); if (result.ok === false) throw new Error(result.code); return result.value; }
+function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = [], richOutputs: readonly OriginAnswerRichOutput[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions, richOutputs }); if (result.ok === false) throw new Error(result.code); return result.value; }
 
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
   const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProvider(request, env)); const research = options.research ?? ((query: string) => researchCurrentInformation(query)); const researchSynthesis = options.researchSynthesis === null ? null : options.researchSynthesis ?? execute;
@@ -207,14 +208,76 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   ? "Retrieved sources contain structured-value differences that require human review."
                   : "取得ソース間に構造化値の差異があり、人による確認が必要です。");
               }
-              if (researchNeedsDownstreamDeliverable) {
+              let supervisorArtifacts = generateOriginSupervisorArtifactsV2([], lastUserMessage, synthesisResult.text);
+              let artifactFailureCode: string | undefined;
+              try {
+                supervisorArtifacts = generateOriginSupervisorArtifactsV2(
+                  researchRequestedOutputs,
+                  lastUserMessage,
+                  synthesisResult.text,
+                );
+              } catch (error) {
+                artifactFailureCode = error instanceof Error && /^SUPERVISOR_[A-Z0-9_]+$/.test(error.message)
+                  ? error.message
+                  : "SUPERVISOR_ARTIFACT_GENERATION_FAILED";
+                supervisorArtifacts = {
+                  version: ORIGIN_SUPERVISOR_VERSION_V2,
+                  status: "partial",
+                  artifacts: [],
+                  richOutputs: [],
+                  completedOutputs: [],
+                  pendingOutputs: researchRequestedOutputs.filter((output) =>
+                    ["presentation", "document", "spreadsheet", "chart", "image", "application", "website", "dashboard"].includes(output)),
+                };
+              }
+              if (supervisorArtifacts.pendingOutputs.length > 0 || artifactFailureCode) {
                 limitations.push(grounded.language === "en"
-                  ? "This research-synthesis stage prepared grounded source content, but it did not itself generate the requested downstream file, image, app, website, or chart."
-                  : "このResearch統合ステージでは根拠付き原稿・構成までを準備できますが、要求された後段の実ファイル・実画像・アプリ・Webサイト・チャート自体はまだ生成していません。");
+                  ? `Some requested downstream outputs were not generated: ${supervisorArtifacts.pendingOutputs.join(", ") || "artifact generation blocked"}.`
+                  : `一部の後段成果物は生成していません：${supervisorArtifacts.pendingOutputs.join("、") || "成果物生成を安全停止"}。`);
               }
               return res.json({
                 content: synthesisResult.text,
-                answer: answerEnvelope(synthesisResult.text, grounded.language, "not-run", verificationReason, grounded.evidence, limitations, grounded.nextActions),
+                artifacts: supervisorArtifacts.artifacts,
+                supervisor: {
+                  version: ORIGIN_SUPERVISOR_VERSION_V2,
+                  status: supervisorArtifacts.status,
+                  freeOnly: true,
+                  costUsd: 0,
+                  paidFallbackUsed: false,
+                  automaticProviderRetries: 0,
+                  steps: [
+                    {
+                      id: "research",
+                      status: "completed",
+                      evidenceCount: grounded.sourceCount,
+                      provider: grounded.provider,
+                    },
+                    {
+                      id: "synthesis",
+                      status: "completed",
+                      citationValidated: true,
+                      providerAttempts: 1,
+                    },
+                    {
+                      id: "artifact",
+                      status: supervisorArtifacts.status,
+                      artifactCount: supervisorArtifacts.artifacts.length,
+                      completedOutputs: supervisorArtifacts.completedOutputs,
+                      pendingOutputs: supervisorArtifacts.pendingOutputs,
+                      ...(artifactFailureCode ? { failureCode: artifactFailureCode } : {}),
+                    },
+                  ],
+                },
+                answer: answerEnvelope(
+                  synthesisResult.text,
+                  grounded.language,
+                  "not-run",
+                  verificationReason,
+                  grounded.evidence,
+                  limitations,
+                  grounded.nextActions,
+                  supervisorArtifacts.richOutputs,
+                ),
                 routing: {
                   model: synthesisPlan.plan.providerLabel,
                   reason: grounded.language === "en"
@@ -243,8 +306,12 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   usage: synthesisResult.usage,
                   providerAttempts: 1,
                   requestedOutputs: researchRequestedOutputs,
-                  supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
-                  downstreamDeliverablePending: researchNeedsDownstreamDeliverable,
+                  supervisorMode: researchRequestedOutputs.length > 0 ? ORIGIN_SUPERVISOR_VERSION_V2 : "research-only",
+                  supervisorStatus: supervisorArtifacts.status,
+                  generatedOutputs: supervisorArtifacts.completedOutputs,
+                  pendingOutputs: supervisorArtifacts.pendingOutputs,
+                  ...(artifactFailureCode ? { artifactFailureCode } : {}),
+                  downstreamDeliverablePending: supervisorArtifacts.pendingOutputs.length > 0 || Boolean(artifactFailureCode),
                 },
               });
             }
@@ -276,6 +343,35 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         : grounded.limitations;
       return res.json({
         content: grounded.content,
+        supervisor: {
+          version: ORIGIN_SUPERVISOR_VERSION_V2,
+          status: researchRequestedOutputs.length > 0 ? "partial" : "not-required",
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+          automaticProviderRetries: 0,
+          steps: [
+            {
+              id: "research",
+              status: grounded.sourceCount > 0 ? "completed" : "blocked",
+              evidenceCount: grounded.sourceCount,
+              provider: grounded.provider,
+            },
+            {
+              id: "synthesis",
+              status: synthesisStatus === "not-run" ? "not-required" : "blocked",
+              ...(synthesisFailureCode ? { failureCode: synthesisFailureCode } : {}),
+              providerAttempts: synthesisStatus === "provider-failed" ? 1 : 0,
+            },
+            {
+              id: "artifact",
+              status: researchNeedsDownstreamDeliverable ? "not-run" : "not-required",
+              artifactCount: 0,
+              completedOutputs: [],
+              pendingOutputs: researchNeedsDownstreamDeliverable ? researchRequestedOutputs : [],
+            },
+          ],
+        },
         answer: answerEnvelope(grounded.content, grounded.language, "not-run", digestReason, grounded.evidence, digestLimitations, grounded.nextActions),
         routing: {
           ...applicationRouting(requestId, digestReason, "not-run"),

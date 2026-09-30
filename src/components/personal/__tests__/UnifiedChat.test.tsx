@@ -310,6 +310,72 @@ describe('UnifiedChat', () => {
     expect(screen.queryByText('従来互換の回答です。')).toBeNull();
   });
 
+  it('shows verified Supervisor artifacts as downloads without persisting binary payloads', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '比較結果をPowerPointにまとめました。',
+        answer: {
+          schemaVersion: 'origin.answer.v1',
+          language: 'ja',
+          conclusion: '比較結果をPowerPointにまとめました。',
+          answer: '比較結果をPowerPointにまとめました。',
+          evidence: [],
+          verification: {
+            status: 'not-run',
+            independentReviewPerformed: false,
+            summary: '成果物のパッケージ整合性を機械検証しました。',
+          },
+          limitations: [],
+          nextActions: [],
+          richOutputs: [{
+            kind: 'presentation',
+            label: '競合比較.pptx',
+            artifactId: 'artifact-pptx-8dcc7e601606217f3b75',
+          }],
+        },
+        artifacts: [{
+          id: 'artifact-pptx-8dcc7e601606217f3b75',
+          kind: 'presentation',
+          artifactType: 'pptx',
+          filename: '競合比較.pptx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          sha256: '8dcc7e601606217f3b754766511182a916b17e9a26a94c9d887104eba92e9bb2',
+          byteLength: 4,
+          encoding: 'base64',
+          data: 'UEsDBA==',
+          verified: true,
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+        }],
+        routing: {
+          model: 'ORIGIN 無料AI',
+          reason: 'Grounded Researchから検証済み成果物を生成しました。',
+          timeMs: 100,
+          actualCostUsd: 0,
+          freeOnly: true,
+          verificationStatus: 'not-run',
+        },
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('競合を調査してPowerPointにまとめてください');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('answer-rich-outputs')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /競合比較\.pptx/i })).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      const stored = window.localStorage.getItem('origin_chat_sessions_v1') ?? '';
+      expect(stored).toContain('比較結果をPowerPointにまとめました。');
+      expect(stored).not.toContain('UEsDBA==');
+      expect(stored).not.toContain('artifact-pptx-8dcc7e601606217f3b75');
+    });
+  });
+
   it('labels provider-supplied evidence as not checked', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,

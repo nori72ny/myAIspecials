@@ -272,7 +272,10 @@ describe("createOriginChatRouter", () => {
     expect(response.status).toBe(200);
     expect(response.body.routing).toEqual(expect.objectContaining({
       requestedOutputs: ["proposal", "comparison"],
-      supervisorMode: "research-output-contract-v1",
+      supervisorMode: "origin.supervisor.v2",
+      supervisorStatus: "not-required",
+      generatedOutputs: [],
+      pendingOutputs: [],
       downstreamDeliverablePending: false,
     }));
     const synthesisRequest = (synthesisMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
@@ -281,7 +284,7 @@ describe("createOriginChatRouter", () => {
     expect(synthesisRequest.messages[0].content).toContain("要求された成果形の契約");
   });
 
-  it("keeps file deliverables truthful when research prepares content but does not generate the file", async () => {
+  it("runs the Supervisor through research synthesis into a verified PowerPoint artifact", async () => {
     const researchMock = vi.fn().mockResolvedValue({
       ok: true,
       searchProvider: "DuckDuckGo",
@@ -327,10 +330,42 @@ describe("createOriginChatRouter", () => {
     expect(response.status).toBe(200);
     expect(response.body.routing).toEqual(expect.objectContaining({
       requestedOutputs: ["presentation"],
-      supervisorMode: "research-output-contract-v1",
-      downstreamDeliverablePending: true,
+      supervisorMode: "origin.supervisor.v2",
+      supervisorStatus: "completed",
+      generatedOutputs: ["presentation"],
+      pendingOutputs: [],
+      downstreamDeliverablePending: false,
     }));
-    expect(response.body.answer.limitations.join(" ")).toContain("実ファイル");
+    expect(response.body.answer.richOutputs).toEqual([
+      expect.objectContaining({
+        kind: "presentation",
+        artifactId: expect.stringMatching(/^artifact-pptx-/),
+      }),
+    ]);
+    expect(response.body.supervisor).toEqual(expect.objectContaining({
+      version: "origin.supervisor.v2",
+      status: "completed",
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      automaticProviderRetries: 0,
+      steps: [
+        expect.objectContaining({ id: "research", status: "completed", evidenceCount: 2 }),
+        expect.objectContaining({ id: "synthesis", status: "completed", citationValidated: true, providerAttempts: 1 }),
+        expect.objectContaining({ id: "artifact", status: "completed", artifactCount: 1, completedOutputs: ["presentation"], pendingOutputs: [] }),
+      ],
+    }));
+    expect(response.body.artifacts).toHaveLength(1);
+    expect(response.body.artifacts[0]).toEqual(expect.objectContaining({
+      artifactType: "pptx",
+      verified: true,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      encoding: "base64",
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }));
+    expect(Buffer.from(response.body.artifacts[0].data, "base64").includes(Buffer.from("ppt/presentation.xml"))).toBe(true);
     const synthesisRequest = (synthesisMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
     expect(synthesisRequest.systemInstruction).toContain("スライド/PPTX");
     expect(synthesisRequest.systemInstruction).toContain("生成したとは絶対に表現しない");
@@ -430,6 +465,16 @@ describe("createOriginChatRouter", () => {
       synthesisFailureCode: "PROVIDER_RATE_LIMITED",
       freeOnly: true,
       cost: 0,
+    }));
+    expect(response.body.supervisor).toEqual(expect.objectContaining({
+      version: "origin.supervisor.v2",
+      status: "not-required",
+      automaticProviderRetries: 0,
+      steps: [
+        expect.objectContaining({ id: "research", status: "completed", evidenceCount: 1 }),
+        expect.objectContaining({ id: "synthesis", status: "blocked", failureCode: "PROVIDER_RATE_LIMITED", providerAttempts: 1 }),
+        expect.objectContaining({ id: "artifact", status: "not-required", artifactCount: 0 }),
+      ],
     }));
     expect(synthesisMock).toHaveBeenCalledTimes(1);
     expect(executeMock).not.toHaveBeenCalled();
