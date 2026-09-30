@@ -197,8 +197,17 @@ export function validateGeneralAgentPrivateCorpusV2(
       typeof value !== 'string' || !value || value.startsWith('/') || value.includes('..') || value.length > 240)) {
       blockers.push(`${task.id}:PRIVATE_TASK_ALLOWED_PATHS_INVALID`);
     }
+    if (task.expectedTool === 'file_writer' && allowedPaths.length === 0) {
+      blockers.push(`${task.id}:PRIVATE_TASK_WRITE_ALLOWLIST_MISSING`);
+    }
+    if (task.expectedTool !== 'file_writer' && allowedPaths.length !== 0) {
+      blockers.push(`${task.id}:PRIVATE_TASK_WRITE_ALLOWLIST_UNEXPECTED`);
+    }
     if (!['none', 'test', 'typecheck', 'lint', 'build'].includes(task.regressionCheck ?? 'none')) {
       blockers.push(`${task.id}:PRIVATE_TASK_REGRESSION_CHECK_INVALID`);
+    }
+    if (task.expectedTool === 'file_writer' && (task.regressionCheck ?? 'none') === 'none') {
+      blockers.push(`${task.id}:PRIVATE_TASK_WRITE_REGRESSION_CHECK_MISSING`);
     }
   }
 
