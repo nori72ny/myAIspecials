@@ -42,7 +42,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -574,6 +574,30 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(isDirectImageGenerationRequest('夕焼けの海の画像を作ってください')).toBe(true);
     expect(isDirectImageGenerationRequest('Create a cinematic image of Tokyo at night')).toBe(true);
     expect(isDirectImageGenerationRequest('画像生成AIの仕組みを教えてください')).toBe(false);
+  });
+
+  it('routes only explicit repository-style coding execution requests to Coding', () => {
+    expect(isDirectCodingWorkspaceRequest('ログイン画面の入力チェックを修正し、関連テストも追加して')).toBe(true);
+    expect(isDirectCodingWorkspaceRequest('APIのエラー処理を実装して')).toBe(true);
+    expect(isDirectCodingWorkspaceRequest('このコードの意味を説明して')).toBe(false);
+    expect(isDirectCodingWorkspaceRequest('営業メールを修正して')).toBe(false);
+  });
+
+  it('hands an explicit code-change request to Coding without calling AI or mutating a repository', async () => {
+    const fetchMock = vi.fn();
+    const onOpenCoding = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" onOpenCoding={onOpenCoding} />);
+
+    const goal = 'ログイン画面の入力チェックを修正し、関連テストも追加して';
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: goal } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(onOpenCoding).toHaveBeenCalledWith(goal));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/Codingワークスペースへ引き継ぎました/)).toBeTruthy();
+    expect(screen.getByText(goal)).toBeTruthy();
+    vi.unstubAllGlobals();
   });
 
   it('maps standard and exact image sizes consistently with the visual template engine', () => {
