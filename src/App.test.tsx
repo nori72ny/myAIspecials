@@ -27,6 +27,20 @@ vi.mock('./creative/rasterTechnicalCriticV15', async (importOriginal) => {
     })),
   };
 });
+
+vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./creative/rasterReferenceEditClientV15')>();
+  return {
+    ...actual,
+    prepareRasterReferenceDataUrlV15: vi.fn(async () => ({
+      dataUrl: 'data:image/webp;base64,QUJDRA==',
+      mimeType: 'image/webp' as const,
+      width: 511,
+      height: 511,
+      bytes: 4,
+    })),
+  };
+});
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
@@ -724,14 +738,14 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(second.length).toBeLessThanOrEqual(2_000);
   });
 
-  it('creates a lineage-aware alternative variation from an existing generated image', async () => {
+  it('routes a lineage-aware alternative through bounded reference-image editing', async () => {
     const bytes1 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
     const bytes2 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6, 7, 8]);
     const digest1 = new Uint8Array(32); digest1.fill(0xab);
     const digest2 = new Uint8Array(32); digest2.fill(0xcd);
     const sha1 = Array.from(digest1).map((byte) => byte.toString(16).padStart(2, '0')).join('');
     const sha2 = Array.from(digest2).map((byte) => byte.toString(16).padStart(2, '0')).join('');
-    const responseFor = (bytes: Uint8Array, sha: string) => new Response(bytes, {
+    const responseFor = (bytes: Uint8Array, sha: string, task: 'generate' | 'edit' = 'generate') => new Response(bytes, {
       status: 200,
       headers: {
         'Content-Type': 'image/png',
@@ -759,11 +773,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
         'X-Origin-Cost-Usd': '0',
         'X-Origin-Paid-Fallback': 'false',
         'X-Origin-Secret-Delivery': 'server-only',
+        'X-Origin-Visual-Task': task,
+        'X-Origin-Visual-Reference-Count': task === 'edit' ? '1' : '0',
       },
     });
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(responseFor(bytes1, sha1))
-      .mockResolvedValueOnce(responseFor(bytes2, sha2));
+      .mockResolvedValueOnce(responseFor(bytes1, sha1, 'generate'))
+      .mockResolvedValueOnce(responseFor(bytes2, sha2, 'edit'));
     vi.stubGlobal('fetch', fetchMock);
     const originalCrypto = globalThis.crypto;
     Object.defineProperty(globalThis, 'crypto', {
@@ -789,9 +805,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: '別案を作る' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/generate-image');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe('/api/creative/v1.5/raster/edit');
     const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(secondBody.prompt).toContain('夕焼けの海の画像を作ってください');
     expect(secondBody.prompt).toContain('Create a clearly distinct alternative variation');
+    expect(secondBody).toMatchObject({ width: 1024, height: 1024 });
+    expect(secondBody.referenceImages).toEqual(['data:image/webp;base64,QUJDRA==']);
     const latestMessages = onMessagesChange.mock.calls.at(-1)?.[0] as Array<{ image?: { relation?: string; parentId?: string; prompt?: string } }>;
     const latestImage = [...latestMessages].reverse().find((message) => message.image)?.image;
     expect(latestImage).toMatchObject({ relation: 'variation', parentId: sha1 });

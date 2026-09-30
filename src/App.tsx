@@ -9,6 +9,7 @@ import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHi
 import { composeRasterTypographyOverlayV15 } from './creative/localRasterTypographyV15';
 import { planRasterVisualRequestV15 } from './creative/rasterVisualPlannerV15';
 import { inspectRasterBlobV15 } from './creative/rasterTechnicalCriticV15';
+import { prepareRasterReferenceDataUrlV15 } from './creative/rasterReferenceEditClientV15';
 
 export interface ArtifactBlock {
   id: string;
@@ -568,14 +569,34 @@ const rasterFilenameFromDisposition = (value: string | null, mimeType: string): 
   return match?.[1] || fallback;
 };
 
-async function fetchOriginRasterImage(prompt: string, signal: AbortSignal): Promise<Response> {
-  const size = rasterSizeForRequest(prompt);
-  return fetch('/api/generate-image', {
+type OriginRasterFetchOptions = {
+  referenceImageDataUrl?: string;
+  width?: number;
+  height?: number;
+};
+
+async function fetchOriginRasterImage(
+  prompt: string,
+  signal: AbortSignal,
+  options: OriginRasterFetchOptions = {},
+): Promise<Response> {
+  const explicitSize = Number.isInteger(options.width) && Number.isInteger(options.height)
+    && Number(options.width) >= 256 && Number(options.width) <= 1536
+    && Number(options.height) >= 256 && Number(options.height) <= 1536
+    ? { width: Number(options.width), height: Number(options.height) }
+    : null;
+  const size = explicitSize ?? rasterSizeForRequest(prompt);
+  const isEdit = Boolean(options.referenceImageDataUrl);
+  return fetch(isEdit ? '/api/creative/v1.5/raster/edit' : '/api/generate-image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'image/png,image/jpeg,image/webp' },
     signal,
     credentials: 'same-origin',
-    body: JSON.stringify({ prompt, ...size }),
+    body: JSON.stringify({
+      prompt,
+      ...size,
+      ...(options.referenceImageDataUrl ? { referenceImages: [options.referenceImageDataUrl] } : {}),
+    }),
   });
 }
 
@@ -1049,11 +1070,15 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const abortRef = useRef<AbortController | null>(null);
   const rasterObjectUrls = useRef(new Set<string>());
   const rasterHydratingIds = useRef(new Set<string>());
+  const rasterSessionBlobs = useRef(new Map<string, Blob>());
   const pendingImageRequestRef = useRef<{
     prompt: string;
     questions: readonly string[];
     relation?: 'generated' | 'variation';
     parentId?: string;
+    referenceAssetId?: string;
+    width?: number;
+    height?: number;
   } | null>(null);
   const observedResetSignal = useRef(resetSignal);
   const messages = controlledMessages ?? uncontrolledMessages;
@@ -1090,7 +1115,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
@@ -1174,7 +1199,34 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           : text.trim();
         const requestedRelation = pendingImageRequest?.relation ?? 'generated';
         const requestedParentId = pendingImageRequest?.parentId;
-        const response = await fetchOriginRasterImage(imageRequestText, controller.signal);
+        const referenceAssetId = pendingImageRequest?.referenceAssetId;
+        let referenceImageDataUrl: string | undefined;
+        if (referenceAssetId) {
+          let referenceBlob = rasterSessionBlobs.current.get(referenceAssetId);
+          if (!referenceBlob) {
+            const storedReference = await loadRasterAssetV15(referenceAssetId);
+            if (storedReference.status === 'ready'
+              && storedReference.entry
+              && storedReference.entry.providerId === 'cloudflare-workers-ai-free') {
+              referenceBlob = storedReference.entry.blob;
+              rasterSessionBlobs.current.set(referenceAssetId, referenceBlob);
+            }
+          }
+          if (!referenceBlob) {
+            pendingImageRequestRef.current = null;
+            appendFailure(language === 'en'
+              ? 'The verified source image is no longer available locally, so ORIGIN did not create an unrelated replacement.'
+              : '検証済みの元画像を端末内から取得できなかったため、元画像と無関係な代替生成は行いませんでした。');
+            return;
+          }
+          const preparedReference = await prepareRasterReferenceDataUrlV15(referenceBlob);
+          referenceImageDataUrl = preparedReference.dataUrl;
+        }
+        const response = await fetchOriginRasterImage(imageRequestText, controller.signal, {
+          referenceImageDataUrl,
+          width: pendingImageRequest?.width,
+          height: pendingImageRequest?.height,
+        });
         if (!response.ok) {
           const failure = await response.json().catch(() => null) as { code?: string; message?: string; questions?: unknown } | null;
           if (response.status === 409 && failure?.code === 'IMAGE_REQUIREMENTS_INCOMPLETE' && Array.isArray(failure.questions)) {
@@ -1187,6 +1239,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
                 questions,
                 relation: requestedRelation,
                 parentId: requestedParentId,
+                referenceAssetId: pendingImageRequest?.referenceAssetId,
+                width: pendingImageRequest?.width,
+                height: pendingImageRequest?.height,
               };
               updateMessages((current) => [...current, {
                 id: `a-${Date.now()}`,
@@ -1227,6 +1282,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const freeOnly = response.headers.get('x-origin-free-only');
         const paidFallback = response.headers.get('x-origin-paid-fallback');
         const secretDelivery = response.headers.get('x-origin-secret-delivery');
+        const providerTask = response.headers.get('x-origin-visual-task');
+        const referenceCount = response.headers.get('x-origin-visual-reference-count');
+        const expectsReferenceEdit = Boolean(referenceAssetId);
         if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)
           || !/^[a-f0-9]{64}$/i.test(sha256)
           || providerId !== 'cloudflare-workers-ai-free'
@@ -1246,7 +1304,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           || cost !== '0'
           || freeOnly !== 'true'
           || paidFallback !== 'false'
-          || secretDelivery !== 'server-only') {
+          || secretDelivery !== 'server-only'
+          || (expectsReferenceEdit && (providerTask !== 'edit' || referenceCount !== '1'))
+          || (!expectsReferenceEdit && providerTask !== null && providerTask !== 'generate')) {
           await response.body?.cancel();
           throw new Error('unverified-raster-response');
         }
@@ -1365,6 +1425,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             blob: finalBlob,
           });
           if (composedHistoryStatus === 'failed') throw new Error('raster-composite-history-integrity-failed');
+        }
+
+        rasterSessionBlobs.current.set(baseAssetId, blob);
+        rasterSessionBlobs.current.set(finalAssetId, finalBlob);
+        while (rasterSessionBlobs.current.size > 12) {
+          const oldest = rasterSessionBlobs.current.keys().next().value;
+          if (typeof oldest !== 'string') break;
+          rasterSessionBlobs.current.delete(oldest);
         }
 
         const imageUrl = URL.createObjectURL(finalBlob);
@@ -1519,6 +1587,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       questions: [],
       relation: 'variation',
       parentId: image.assetId,
+      referenceAssetId: image.typographyOverlay && image.parentId ? image.parentId : image.assetId,
+      width: image.width,
+      height: image.height,
     };
     await handleSend(language === 'en' ? 'Create another variation of this image.' : 'この画像の別案を作ってください。');
   };
