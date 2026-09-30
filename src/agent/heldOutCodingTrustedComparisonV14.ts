@@ -198,7 +198,9 @@ export function evaluateHeldOutCodingTrustedComparisonV14(
   }
 
   const summaries: HeldOutCodingReferenceSummaryV14[] = [];
-  let trustedReferenceEvidencePassed = references.length >= 2;
+  let trustedReferenceEvidencePassed = references.length >= 2
+    && new Set(participantIds).size === references.length
+    && participantIds.every(Boolean);
 
   for (const reference of references) {
     if (!validReferenceEnvelope(reference, candidateSha, evaluatorVersion, commonBudget, nowMs)) {
