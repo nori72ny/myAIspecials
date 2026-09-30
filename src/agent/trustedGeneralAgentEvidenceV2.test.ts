@@ -99,7 +99,7 @@ describe('trusted General Agent held-out evidence v2', () => {
     ]));
 
     expect(built.ok).toBe(false);
-    if (built.ok) return;
+    if (!("blockers" in built)) return;
     expect(built.blockers).toContain('TRUSTED_COST_ATTESTATION_COUNT_INVALID');
   });
 
@@ -114,7 +114,7 @@ describe('trusted General Agent held-out evidence v2', () => {
     expect(() => buildTrustedGeneralAgentRunV2(t, malformed)).not.toThrow();
     const built = buildTrustedGeneralAgentRunV2(t, malformed);
     expect(built.ok).toBe(false);
-    if (built.ok) return;
+    if (!("blockers" in built)) return;
     expect(built.blockers).toContain('TRUSTED_EVIDENCE_IDENTITY_MISMATCH');
     expect(built.blockers).toContain('TRUSTED_EVIDENCE_EVENTS_INVALID');
   });
