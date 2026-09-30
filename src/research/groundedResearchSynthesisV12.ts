@@ -134,7 +134,7 @@ export function buildGroundedResearchOutputContract(
     ] : []),
     ...(unsupportedDownstream.length ? [
       `- 次の後段成果物はこのステージでは生成しません: ${unsupportedDownstream.join("、")}。`,
-      "- 必要なら根拠付き原稿・制作ブリーフまで準備して構いませんが、生成済みとは表現しないでください。",
+      "- 必要なら根拠付き原稿・制作ブリーフまで準備して構いませんが、このResearch統合ステージで実画像・アプリ・Webサイト・チャートを生成したとは絶対に表現しないでください。",
       "- プロンプト、SVG、HTML、文章説明などを代用品として完成成果物のように見せないでください。",
     ] : []),
   ].join("\n");
