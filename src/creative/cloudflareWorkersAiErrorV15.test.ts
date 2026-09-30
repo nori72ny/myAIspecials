@@ -44,7 +44,7 @@ describe('cloudflareWorkersAiErrorV15', () => {
       code: 'CLOUDFLARE_PAID_PATH_BLOCKED',
       retryable: false,
     });
-    await expect(classifyCloudflareWorkersAiFailureV15(response(500), 'unexpected')).resolves.toMatchObject({
+    await expect(classifyCloudflareWorkersAiFailureV15(response(500))).resolves.toMatchObject({
       code: 'CLOUDFLARE_WORKERS_AI_HTTP_500',
       retryable: true,
     });
