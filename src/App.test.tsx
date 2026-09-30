@@ -42,7 +42,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -738,13 +738,24 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(second.length).toBeLessThanOrEqual(2_000);
   });
 
-  it('routes a lineage-aware alternative through bounded reference-image editing', async () => {
+  it('builds a preserve-by-default guided edit contract from the original visual request', () => {
+    const prompt = buildRasterGuidedEditPrompt('青い陶器のマグカップを正方形の商品写真で作ってください');
+    expect(prompt).toContain('青い陶器のマグカップ');
+    expect(prompt).toContain('Edit the verified source image');
+    expect(prompt).toContain('Preserve the original subject identity');
+    expect(prompt).toContain('does not explicitly ask to change');
+  });
+
+  it('routes both variation and guided edits through bounded reference-image editing', async () => {
     const bytes1 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
     const bytes2 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6, 7, 8]);
+    const bytes3 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 10, 11, 12]);
     const digest1 = new Uint8Array(32); digest1.fill(0xab);
     const digest2 = new Uint8Array(32); digest2.fill(0xcd);
+    const digest3 = new Uint8Array(32); digest3.fill(0xde);
     const sha1 = Array.from(digest1).map((byte) => byte.toString(16).padStart(2, '0')).join('');
     const sha2 = Array.from(digest2).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const sha3 = Array.from(digest3).map((byte) => byte.toString(16).padStart(2, '0')).join('');
     const responseFor = (bytes: Uint8Array, sha: string, task: 'generate' | 'edit' = 'generate') => new Response(bytes, {
       status: 200,
       headers: {
@@ -779,21 +790,24 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(responseFor(bytes1, sha1, 'generate'))
-      .mockResolvedValueOnce(responseFor(bytes2, sha2, 'edit'));
+      .mockResolvedValueOnce(responseFor(bytes2, sha2, 'edit'))
+      .mockResolvedValueOnce(responseFor(bytes3, sha3, 'edit'));
     vi.stubGlobal('fetch', fetchMock);
     const originalCrypto = globalThis.crypto;
     Object.defineProperty(globalThis, 'crypto', {
       configurable: true,
       value: { subtle: { digest: vi.fn()
         .mockResolvedValueOnce(digest1.buffer)
-        .mockResolvedValueOnce(digest2.buffer) } },
+        .mockResolvedValueOnce(digest2.buffer)
+        .mockResolvedValueOnce(digest3.buffer) } },
     });
     const originalCreateObjectURL = URL.createObjectURL;
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       value: vi.fn()
         .mockReturnValueOnce('blob:origin-generated-image')
-        .mockReturnValueOnce('blob:origin-variation-image'),
+        .mockReturnValueOnce('blob:origin-variation-image')
+        .mockReturnValueOnce('blob:origin-guided-edit-image'),
     });
     const onMessagesChange = vi.fn();
 
@@ -816,6 +830,27 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const latestImage = [...latestMessages].reverse().find((message) => message.image)?.image;
     expect(latestImage).toMatchObject({ relation: 'variation', parentId: sha1 });
     expect(latestImage?.prompt).toContain('Create a clearly distinct alternative variation');
+
+    const editButtons = screen.getAllByRole('button', { name: '画像を編集' });
+    fireEvent.click(editButtons.at(-1)!);
+    expect(screen.getByTestId('image-edit-mode').textContent).toContain(sha2.slice(0, 12));
+    expect((screen.getByTestId('origin-chat-request') as HTMLTextAreaElement).placeholder).toContain('背景だけ');
+
+    fireEvent.change(screen.getByTestId('origin-chat-request'), { target: { value: '背景だけを深いネイビーに変更して' } });
+    fireEvent.click(screen.getByTestId('send-request-button'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    expect(String(fetchMock.mock.calls[2]?.[0])).toBe('/api/creative/v1.5/raster/edit');
+    const thirdBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(thirdBody.prompt).toContain('夕焼けの海の画像を作ってください');
+    expect(thirdBody.prompt).toContain('Edit the verified source image');
+    expect(thirdBody.prompt).toContain('追加条件: 背景だけを深いネイビーに変更して');
+    expect(thirdBody.referenceImages).toEqual(['data:image/webp;base64,QUJDRA==']);
+    const afterGuidedEdit = onMessagesChange.mock.calls.at(-1)?.[0] as Array<{ image?: { relation?: string; parentId?: string; prompt?: string } }>;
+    const guidedImage = [...afterGuidedEdit].reverse().find((message) => message.image)?.image;
+    expect(guidedImage).toMatchObject({ relation: 'edited-from', parentId: sha2 });
+    expect(guidedImage?.prompt).toContain('背景だけを深いネイビーに変更して');
+    expect(screen.queryByTestId('image-edit-mode')).toBeNull();
 
     if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
     else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
