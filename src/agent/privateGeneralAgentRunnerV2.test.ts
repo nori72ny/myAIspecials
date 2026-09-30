@@ -42,6 +42,14 @@ describe('General Agent private runner workflow',()=>{
     expect(runner).toContain("scoreGeneralAgentHeldOutRunV2");
   });
 
+  it('does not award research capability from tool selection alone',()=>{
+    const completedIndex=runner.indexOf("execution.status === 200");
+    const researchCreditIndex=runner.indexOf("capability: 'research'");
+    expect(completedIndex).toBeGreaterThan(0);
+    expect(researchCreditIndex).toBeGreaterThan(completedIndex);
+    expect(runner).not.toContain('capabilityForTool');
+  });
+
   it('tests approval and cancellation boundaries through rejected HTTP operations',()=>{
     expect(runner).toContain("'invalid-evaluator-probe'");
     expect(runner).toContain("'AGENT_AUTHENTICATED_APPROVAL_REQUIRED'");
