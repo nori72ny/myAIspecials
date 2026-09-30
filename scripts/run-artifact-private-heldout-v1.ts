@@ -561,7 +561,21 @@ async function evaluateCase(
     throw new Error('ARTIFACT_PRIVATE_CASE_INDEX_INVALID');
   }
   const artifactFile = `case-${String(caseIndex + 1).padStart(2, '0')}.${extension}`;
-  await fs.writeFile(path.join(outputDir, artifactFile), bytes, { mode: 0o600 });
+  const networkWriteSafe = signaturePassed
+    && structurePassed
+    && bytes.length > 0
+    && headerSha === actualSha
+    && verifiedHeader === 'true'
+    && policy.ok
+    && freeHeader === 'true'
+    && costHeader === '0'
+    && (isWeb ? paidHeader === 'false' : true);
+  if (networkWriteSafe) {
+    // Intentional benchmark evidence capture from the in-process loopback runtime after
+    // binary/package, integrity, verification-header, and zero-cost delivery validation.
+    // codeql[js/http-to-file-access]
+    await fs.writeFile(path.join(outputDir, artifactFile), bytes, { mode: 0o600 });
+  }
 
   return {
     caseId: task.caseId,
