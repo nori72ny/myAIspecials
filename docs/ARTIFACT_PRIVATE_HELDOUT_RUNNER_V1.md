@@ -88,11 +88,11 @@ The workflow uploads:
 - `public-tasks.json`: case IDs, family/tags, prompt digest, expected format, task digest;
 - `candidate-evidence.json`: candidate output digests, technical evidence, duration, status, safe provider/model identity, failure code;
 - `candidate-summary.json`: attempted/completed/technical-pass counts and run blockers;
-- `candidate-artifacts/`: exact generated candidate files under opaque case IDs.
+- `candidate-artifacts/`: exact generated candidate files under bounded opaque ordinal names (`case-01`, `case-02`, ...); the ordered `public-tasks.json` list provides the case mapping without using evaluator-controlled text as a filesystem path.
 
 It does not upload the sealed corpus, prompt text, or required-content oracle.
 
-Candidate artifacts themselves are intentionally retained because independent blind judges must inspect the actual work product. That consumes the held-out round; engineering must not tune against the consumed cases afterward.
+Candidate artifacts themselves are intentionally retained because independent blind judges must inspect the actual work product. The runner writes network-derived bytes to disk only after binary/package validation, delivery SHA verification, verified-delivery headers, and the zero-cost safety envelope pass; malformed or unauthenticated bytes remain evidence-only and are not persisted as files. That consumes the held-out round; engineering must not tune against the consumed cases afterward.
 
 ## What remains after this runner
 

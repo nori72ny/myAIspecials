@@ -370,6 +370,7 @@ function emptyTechnical(): ArtifactTechnicalEvidenceV1 {
 async function evaluateCase(
   baseUrl: string,
   task: ArtifactPrivateTaskV1,
+  caseIndex: number,
   executionBudgetMs: number,
   outputDir: string,
 ): Promise<CandidateCaseEvidence> {
@@ -556,7 +557,25 @@ async function evaluateCase(
     : task.expectedFormat === 'markdown'
       ? 'md'
       : task.expectedFormat;
-  await fs.writeFile(path.join(outputDir, `${task.caseId}.${extension}`), bytes, { mode: 0o600 });
+  if (!Number.isInteger(caseIndex) || caseIndex < 0 || caseIndex >= 16) {
+    throw new Error('ARTIFACT_PRIVATE_CASE_INDEX_INVALID');
+  }
+  const artifactFile = `case-${String(caseIndex + 1).padStart(2, '0')}.${extension}`;
+  const networkWriteSafe = signaturePassed
+    && structurePassed
+    && bytes.length > 0
+    && headerSha === actualSha
+    && verifiedHeader === 'true'
+    && policy.ok
+    && freeHeader === 'true'
+    && costHeader === '0'
+    && (isWeb ? paidHeader === 'false' : true);
+  if (networkWriteSafe) {
+    // Intentional benchmark evidence capture from the in-process loopback runtime after
+    // binary/package, integrity, verification-header, and zero-cost delivery validation.
+    // codeql[js/http-to-file-access]
+    await fs.writeFile(path.join(outputDir, artifactFile), bytes, { mode: 0o600 });
+  }
 
   return {
     caseId: task.caseId,
@@ -630,8 +649,8 @@ async function main(): Promise<void> {
     const baseUrl = `http://127.0.0.1:${address.port}`;
     await fs.mkdir(artifactsDir, { recursive: true });
 
-    for (const task of corpus.tasks) {
-      const item = await evaluateCase(baseUrl, task, corpus.executionBudgetMs, artifactsDir);
+    for (const [caseIndex, task] of corpus.tasks.entries()) {
+      const item = await evaluateCase(baseUrl, task, caseIndex, corpus.executionBudgetMs, artifactsDir);
       cases.push(item);
       if (item.output.durationMs > corpus.executionBudgetMs) {
         runBlockers.push(`ARTIFACT_PRIVATE_EXECUTION_BUDGET_EXCEEDED:${item.caseId}`);
