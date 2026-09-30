@@ -175,12 +175,15 @@ export function evaluateHeldOutCodingTrustedComparisonV14(
 ): HeldOutCodingTrustedComparisonReportV14 {
   const blockers: string[] = [];
   const candidateSha = typeof input?.candidateSha === 'string' ? input.candidateSha.toLowerCase() : '';
-  const commonBudget = input.tasks?.[0]?.timeBudgetMs ?? 0;
+  const evaluatorVersion = typeof input?.evaluatorVersion === 'string' ? input.evaluatorVersion : '';
+  const tasks = Array.isArray(input?.tasks) ? input.tasks : [];
+  const candidateRuns = Array.isArray(input?.candidateRuns) ? input.candidateRuns : [];
+  const commonBudget = tasks[0]?.timeBudgetMs ?? 0;
 
   if (
     input?.version !== HELD_OUT_CODING_TRUSTED_COMPARISON_VERSION_V14
     || !SHA40.test(candidateSha)
-    || !SAFE_ID.test(input.evaluatorVersion)
+    || !SAFE_ID.test(evaluatorVersion)
   ) {
     blockers.push('CODING_TRUSTED_COMPARISON_INPUT_INVALID');
   }
@@ -198,11 +201,11 @@ export function evaluateHeldOutCodingTrustedComparisonV14(
   let trustedReferenceEvidencePassed = references.length >= 2;
 
   for (const reference of references) {
-    if (!validReferenceEnvelope(reference, candidateSha, input.evaluatorVersion, commonBudget, nowMs)) {
+    if (!validReferenceEnvelope(reference, candidateSha, evaluatorVersion, commonBudget, nowMs)) {
       trustedReferenceEvidencePassed = false;
       continue;
     }
-    const summary = deriveReferenceSummary(reference, input.tasks);
+    const summary = deriveReferenceSummary(reference, tasks);
     if (!summary) {
       trustedReferenceEvidencePassed = false;
       continue;
@@ -218,9 +221,9 @@ export function evaluateHeldOutCodingTrustedComparisonV14(
     comparison = evaluateHeldOutCodingComparisonV14({
       version: HELD_OUT_CODING_COMPARISON_VERSION_V14,
       candidateSha: input.candidateSha,
-      evaluatorVersion: input.evaluatorVersion,
-      tasks: input.tasks,
-      candidateRuns: input.candidateRuns,
+      evaluatorVersion,
+      tasks,
+      candidateRuns,
       references: summaries,
     });
     blockers.push(...comparison.blockers);
