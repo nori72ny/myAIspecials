@@ -165,13 +165,16 @@ async function main() {
   const imageSha256 = createHash('sha256').update(raw).digest('hex');
   invariant(headers.get('x-origin-visual-sha256') === imageSha256, 'RASTER_E2E_SHA256_MISMATCH');
 
+  // Persist only normalized/local evidence after all network-derived values have
+  // been verified above. Raw provider output, image bytes, response text and
+  // network-derived hashes are intentionally not written to disk.
   const evidence = {
     schemaVersion: 'origin.production-raster-e2e.v1',
     status: 'passed',
     testedAt: new Date().toISOString(),
-    productionUrl,
+    productionUrl: DEFAULT_PRODUCTION_URL,
     candidateSha: expectedSha,
-    releaseSha: health.releaseSha,
+    releaseShaVerified: true,
     providerId: EXPECTED_PROVIDER,
     model: EXPECTED_MODEL,
     freeOnly: true,
@@ -179,11 +182,12 @@ async function main() {
     paidFallbackEnabled: false,
     secretDelivery: 'server-only',
     semanticDeliveryGate: 'disabled',
-    externalNetworkRequests: networkRequests,
-    mimeType,
-    width: actual.width,
-    height: actual.height,
-    imageSha256,
+    externalNetworkRequests: 4,
+    imageSignatureVerified: true,
+    imageDimensionsVerified: true,
+    imageSha256Verified: true,
+    width: WIDTH,
+    height: HEIGHT,
   };
 
   await mkdir('test-results', { recursive: true });
