@@ -12,6 +12,8 @@ import {
 } from './trustedGeneralAgentEvidenceV2.js';
 import {
   GENERAL_AGENT_TRUSTED_COMPARISON_VERSION_V2,
+  digestGeneralAgentTrustedReferenceArtifactV2,
+  digestGeneralAgentTrustedRoundArtifactV2,
   evaluateGeneralAgentTrustedComparisonV2,
   type GeneralAgentTrustedReferenceEvidenceV2,
 } from './trustedGeneralAgentComparisonV2.js';
@@ -103,21 +105,28 @@ function reference(
   tasks: readonly GeneralAgentHeldOutTaskV2[],
 ): GeneralAgentTrustedReferenceEvidenceV2 {
   const marker = participant === 'reference-a' ? 'b' : 'c';
+  const runs = tasks.map(t => evidenceFor(t, participant));
   return {
     source: 'controlled-external',
     independentFromCandidate: true,
     participant,
     permissionProfileDigest: PERMISSION_DIGEST,
     evidenceId: `agent-evidence:${participant}:2026-10-01`,
-    artifactDigest: `sha256:${marker.repeat(64)}`,
+    artifactDigest: digestGeneralAgentTrustedReferenceArtifactV2({
+      participant,
+      permissionProfileDigest: PERMISSION_DIGEST,
+      runs,
+    }),
     createdAt: '2026-09-30T00:00:00.000Z',
     expiresAt: '2026-10-15T00:00:00.000Z',
-    runs: tasks.map(t => evidenceFor(t, participant)),
+    runs,
   };
 }
 
 function input() {
   const tasks = Array.from({ length: 12 }, (_, index) => task(index));
+  const candidateEvidence = tasks.map(t => evidenceFor(t, 'ORIGIN'));
+  const evaluatorId = 'independent-agent-evaluator-v1';
   return {
     version: GENERAL_AGENT_TRUSTED_COMPARISON_VERSION_V2,
     candidateSha: SHA,
@@ -125,14 +134,20 @@ function input() {
     roundEvidence: {
       source: 'evaluator' as const,
       candidateSha: SHA,
-      evaluatorId: 'independent-agent-evaluator-v1',
+      evaluatorId,
       permissionProfileDigest: PERMISSION_DIGEST,
       evidenceId: 'agent-round-evidence:2026-10-01',
-      artifactDigest: `sha256:${'d'.repeat(64)}`,
+      artifactDigest: digestGeneralAgentTrustedRoundArtifactV2({
+        candidateSha: SHA,
+        evaluatorId,
+        permissionProfileDigest: PERMISSION_DIGEST,
+        tasks,
+        candidateEvidence,
+      }),
       createdAt: '2026-09-30T00:00:00.000Z',
       expiresAt: '2026-10-15T00:00:00.000Z',
     },
-    candidateEvidence: tasks.map(t => evidenceFor(t, 'ORIGIN')),
+    candidateEvidence,
     references: [
       reference('reference-a', tasks),
       reference('reference-b', tasks),
@@ -173,6 +188,33 @@ describe('trusted General Agent multi-reference comparison', () => {
     expect(report.passed).toBe(false);
     expect(report.trustedReferenceEvidencePassed).toBe(false);
     expect(report.blockers).toContain('GENERAL_AGENT_TRUSTED_REFERENCE_EVIDENCE_INVALID');
+  });
+
+  it('fails when a reference artifact digest does not match its run contents', () => {
+    const value = input();
+    const references = [...value.references];
+    references[0] = {
+      ...references[0],
+      artifactDigest: `sha256:${'9'.repeat(64)}`,
+    };
+    const report = evaluateGeneralAgentTrustedComparisonV2({ ...value, references }, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.trustedReferenceEvidencePassed).toBe(false);
+    expect(report.blockers).toContain('GENERAL_AGENT_TRUSTED_REFERENCE_EVIDENCE_INVALID');
+  });
+
+  it('fails when the round artifact digest does not bind the exact candidate evidence', () => {
+    const value = input();
+    const report = evaluateGeneralAgentTrustedComparisonV2({
+      ...value,
+      roundEvidence: {
+        ...value.roundEvidence,
+        artifactDigest: `sha256:${'8'.repeat(64)}`,
+      },
+    }, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.trustedRoundEvidencePassed).toBe(false);
+    expect(report.blockers).toContain('GENERAL_AGENT_TRUSTED_ROUND_EVIDENCE_INVALID');
   });
 
   it('fails when a reference task digest is substituted', () => {
