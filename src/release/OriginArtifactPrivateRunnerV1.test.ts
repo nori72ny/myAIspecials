@@ -41,6 +41,16 @@ describe('Artifact private held-out runner V1',()=>{
     expect(runner).not.toContain("\`\${task.caseId}.\${extension}\`");
   });
 
+  it('writes network-derived artifact bytes only after safe envelope validation',()=> {
+    expect(runner).toContain('const networkWriteSafe = signaturePassed');
+    expect(runner).toContain("headerSha === actualSha");
+    expect(runner).toContain("verifiedHeader === 'true'");
+    expect(runner).toContain("freeHeader === 'true'");
+    expect(runner).toContain("costHeader === '0'");
+    expect(runner).toContain('// codeql[js/http-to-file-access]');
+    expect(runner).toContain('if (networkWriteSafe) {');
+  });
+
   it('retains provider, quota and technical failures in candidate evidence',()=>{
     expect(runner).toContain("'quota-limited'");
     expect(runner).toContain("'ARTIFACT_PRIVATE_TECHNICAL_VALIDATION_FAILED'");
