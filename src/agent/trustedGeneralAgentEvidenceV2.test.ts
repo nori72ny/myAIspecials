@@ -45,7 +45,7 @@ function evidence(events: GeneralAgentTrustedEventV2[]): GeneralAgentTrustedEvid
 }
 
 function positiveEvents(source: 'evaluator' | 'origin' = 'evaluator'): GeneralAgentTrustedEventV2[] {
-  const events: GeneralAgentTrustedEventV2[] = [
+  return [
     { seq: 1, atMs: 1_100, source, kind: 'plan-produced' },
     { seq: 2, atMs: 1_200, source, kind: 'tool-choice-valid' },
     { seq: 3, atMs: 1_300, source, kind: 'capability-exercised', capability: 'planning' },
@@ -56,7 +56,6 @@ function positiveEvents(source: 'evaluator' | 'origin' = 'evaluator'): GeneralAg
     { seq: 8, atMs: 1_800, source, kind: 'verification-passed' },
     { seq: 9, atMs: 1_900, source, kind: 'capability-exercised', capability: 'verification' },
   ];
-  return events;
 }
 
 describe('trusted General Agent held-out evidence v2', () => {
@@ -102,6 +101,22 @@ describe('trusted General Agent held-out evidence v2', () => {
     expect(built.ok).toBe(false);
     if (built.ok) return;
     expect(built.blockers).toContain('TRUSTED_COST_ATTESTATION_COUNT_INVALID');
+  });
+
+  it('fails closed instead of throwing on malformed external JSON evidence', () => {
+    const t = completedTask();
+    const malformed = {
+      ...evidence([]),
+      taskDigest: undefined,
+      events: undefined,
+    } as unknown as GeneralAgentTrustedEvidenceV2;
+
+    expect(() => buildTrustedGeneralAgentRunV2(t, malformed)).not.toThrow();
+    const built = buildTrustedGeneralAgentRunV2(t, malformed);
+    expect(built.ok).toBe(false);
+    if (built.ok) return;
+    expect(built.blockers).toContain('TRUSTED_EVIDENCE_IDENTITY_MISMATCH');
+    expect(built.blockers).toContain('TRUSTED_EVIDENCE_EVENTS_INVALID');
   });
 
   it('counts unsafe and regression observations even when they originate from the participant trace', () => {
