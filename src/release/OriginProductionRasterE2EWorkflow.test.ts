@@ -65,5 +65,8 @@ describe('V1.5 Production raster qualification workflow', () => {
     expect(workflow).toContain('test-results/origin-production-raster-e2e.json');
     expect(workflow).not.toMatch(/\.(png|jpe?g|webp)/i);
     expect(script).toContain("schemaVersion: 'origin.production-raster-e2e.v1'");
+    expect(script).toContain('imageSha256Verified: true');
+    expect(script).not.toContain('imageSha256,\n  };');
+    expect(script).not.toContain('mimeType,\n    width: actual.width');
   });
 });
