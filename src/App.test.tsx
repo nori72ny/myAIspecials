@@ -570,6 +570,29 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('recognizes explicit repository code-change requests without hijacking code questions', () => {
+    expect(isDirectCodingWorkspaceRequest('ログイン画面のバグを修正して、関連テストも追加して')).toBe(true);
+    expect(isDirectCodingWorkspaceRequest('このAPI実装を直して')).toBe(true);
+    expect(isDirectCodingWorkspaceRequest('このコードの意味を説明して')).toBe(false);
+    expect(isDirectCodingWorkspaceRequest('ReactのuseEffectとは何ですか？')).toBe(false);
+  });
+
+  it('hands explicit code changes to Coding without calling the chat provider', async () => {
+    const fetchMock = vi.fn();
+    const onOpenCoding = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" onOpenCoding={onOpenCoding} />);
+
+    const goal = 'ログイン画面のバグを修正して、関連テストも追加して';
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: goal } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(onOpenCoding).toHaveBeenCalledWith(goal));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/Codingワークスペースへ引き継ぎました/)).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
   it('recognizes explicit image creation requests without hijacking image-related questions', () => {
     expect(isDirectImageGenerationRequest('夕焼けの海の画像を作ってください')).toBe(true);
     expect(isDirectImageGenerationRequest('Create a cinematic image of Tokyo at night')).toBe(true);
