@@ -11,6 +11,7 @@ import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orche
 import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
+import { buildResearchArtifactSupervisorV1 } from "../lib/orchestration/researchArtifactSupervisorV1.js";
 import { executeOriginProvider, assertOriginZeroCostExecutionResult, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
 import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
@@ -121,6 +122,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         if (res.statusCode >= 200 && res.statusCode < 400 && payload && typeof payload === "object") {
           const record = payload as Record<string, unknown>;
           const answerEnvelope = record.answer && typeof record.answer === "object" ? record.answer as Record<string, unknown> : null;
+          if ("artifact" in record) return originalJson(payload);
           const content = typeof record.content === "string" ? record.content : answerEnvelope && typeof answerEnvelope.answer === "string" ? answerEnvelope.answer : "";
           if (content) {
             res.status(res.statusCode);
@@ -155,7 +157,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const intentInput = originIntentInputFromContext(contextResult.window.messages);
     const researchIntent = groundedResearchRequired ? classifyOriginRequestIntent(intentInput, "research") : null;
     const researchRequestedOutputs = researchIntent?.requestedOutputs ?? [];
-    const researchNeedsDownstreamDeliverable = researchRequestedOutputs.some((output) => ["presentation", "document", "spreadsheet", "chart", "image", "application", "website", "dashboard"].includes(output));
+    const researchArtifactOutputs = researchRequestedOutputs.filter((output) => ["presentation", "document", "spreadsheet"].includes(output));
+    const researchUnsupportedDownstreamOutputs = researchRequestedOutputs.filter((output) => ["chart", "image", "application", "website", "dashboard"].includes(output));
+    const researchNeedsDownstreamDeliverable = researchArtifactOutputs.length > 0 || researchUnsupportedDownstreamOutputs.length > 0;
     if (groundedResearchRequired) {
       let researchResult: OriginResearchResult;
       try {
@@ -207,19 +211,37 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   ? "Retrieved sources contain structured-value differences that require human review."
                   : "取得ソース間に構造化値の差異があり、人による確認が必要です。");
               }
-              if (researchNeedsDownstreamDeliverable) {
+              const artifactResult = researchArtifactOutputs.length > 0
+                ? buildResearchArtifactSupervisorV1({
+                  query: lastUserMessage,
+                  synthesis: synthesisResult.text,
+                  requestedOutputs: researchRequestedOutputs,
+                  language: grounded.language,
+                  sourceCount: grounded.sourceCount,
+                })
+                : null;
+              const artifact = artifactResult?.ok === true ? artifactResult.artifact : undefined;
+              const artifactFailureCode = artifactResult && artifactResult.ok === false ? artifactResult.code : undefined;
+              const downstreamDeliverablePending = researchUnsupportedDownstreamOutputs.length > 0
+                || (researchArtifactOutputs.length > 0 && !artifact);
+              if (downstreamDeliverablePending) {
                 limitations.push(grounded.language === "en"
-                  ? "This research-synthesis stage prepared grounded source content, but it did not itself generate the requested downstream file, image, app, website, or chart."
-                  : "このResearch統合ステージでは根拠付き原稿・構成までを準備できますが、要求された後段の実ファイル・実画像・アプリ・Webサイト・チャート自体はまだ生成していません。");
+                  ? "At least one requested downstream deliverable could not be verified as a completed file/output, so ORIGIN is returning the verified research result and any successfully verified file only."
+                  : "要求された後段成果物のうち少なくとも1つは完成・検証を確認できなかったため、検証済みの調査結果と、生成・検証に成功した実ファイルだけを返しています。");
               }
               return res.json({
                 content: synthesisResult.text,
                 answer: answerEnvelope(synthesisResult.text, grounded.language, "not-run", verificationReason, grounded.evidence, limitations, grounded.nextActions),
+                ...(artifact ? { artifact } : {}),
                 routing: {
                   model: synthesisPlan.plan.providerLabel,
-                  reason: grounded.language === "en"
-                    ? "Synthesized retrieved public evidence with one verified zero-cost model execution."
-                    : "取得済み公開証拠を、検証済み$0モデル1回だけで統合しました。",
+                  reason: artifact
+                    ? (grounded.language === "en"
+                      ? "Synthesized retrieved public evidence with one verified zero-cost model execution, then generated and verified the requested local file."
+                      : "取得済み公開証拠を検証済み$0モデル1回で統合し、その結果から要求された実ファイルをローカル生成・検証しました。")
+                    : (grounded.language === "en"
+                      ? "Synthesized retrieved public evidence with one verified zero-cost model execution."
+                      : "取得済み公開証拠を、検証済み$0モデル1回だけで統合しました。"),
                   score: null,
                   timeMs: Math.max(0, now() - synthesisStartedAt),
                   cost: synthesisResult.actualCostUsd,
@@ -243,8 +265,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   usage: synthesisResult.usage,
                   providerAttempts: 1,
                   requestedOutputs: researchRequestedOutputs,
-                  supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
-                  downstreamDeliverablePending: researchNeedsDownstreamDeliverable,
+                  supervisorMode: artifact ? "research-artifact-v1" : researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
+                  downstreamDeliverablePending,
+                  ...(artifact ? { artifactVerified: true, artifactFormat: artifact.format, artifactSha256: artifact.sha256 } : {}),
+                  ...(artifactFailureCode ? { artifactFailureCode } : {}),
                 },
               });
             }
