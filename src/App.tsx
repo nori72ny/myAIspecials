@@ -1335,6 +1335,13 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
         const actualSha = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
         if (actualSha !== sha256.toLowerCase()) throw new Error('raster-sha-mismatch');
+        if (referenceAssetId && actualSha === referenceAssetId.toLowerCase()) {
+          pendingImageRequestRef.current = null;
+          appendFailure(language === 'en'
+            ? 'The image model returned the unchanged source image, so ORIGIN withheld it instead of claiming the edit succeeded.'
+            : '画像モデルが元画像と同一の結果を返したため、編集成功とは扱わず表示を停止しました。もう一度編集してください。');
+          return;
+        }
 
         const baseTechnicalQuality = await inspectRasterBlobV15(blob);
         if (!baseTechnicalQuality.passed) {
