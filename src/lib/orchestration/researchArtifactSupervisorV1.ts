@@ -1,4 +1,4 @@
-import { generateArtifactV12, type ArtifactRequest, type ArtifactType } from '../artifacts/artifactGeneratorV12.js';
+import { generateArtifactV12, type ArtifactRequest, type ArtifactType } from '../../artifacts/artifactGeneratorV12.js';
 
 export const RESEARCH_ARTIFACT_SUPERVISOR_VERSION_V1 = 'origin.research-artifact-supervisor.v1' as const;
 export const RESEARCH_ARTIFACT_OUTPUTS_V1 = ['presentation', 'document', 'spreadsheet'] as const;
