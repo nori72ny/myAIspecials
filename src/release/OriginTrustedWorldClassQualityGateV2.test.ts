@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -31,6 +32,21 @@ function malformedRawInput(): OriginTrustedWorldClassQualityInputV2 {
 }
 
 describe('trusted cross-domain world-class gate v2', () => {
+  it('keeps the canonical npm world-class command on the trusted V2 evaluator', () => {
+    const pkg = JSON.parse(
+      readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+    ) as { scripts?: Record<string, string> };
+    expect(pkg.scripts?.['eval:world-class-quality']).toBe(
+      'tsx scripts/evaluate-trusted-world-class-quality-gate-v2.ts',
+    );
+    expect(pkg.scripts?.['eval:world-class-quality:trusted']).toBe(
+      'tsx scripts/evaluate-trusted-world-class-quality-gate-v2.ts',
+    );
+    expect(pkg.scripts?.['eval:world-class-quality:legacy']).toBe(
+      'tsx scripts/evaluate-world-class-quality-gate.ts',
+    );
+  });
+
   it('rejects the old aggregate-only packet shape', () => {
     const legacy = {
       schema: 'origin.world-class-quality-gate.v1',
