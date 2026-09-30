@@ -15,7 +15,7 @@ export type RasterReferencePreparedV15 = {
 export function rasterReferenceTargetSizeV15(
   width: number,
   height: number,
-  maxDimension = RASTER_REFERENCE_MAX_DIMENSION_V15,
+  maxDimension: number = RASTER_REFERENCE_MAX_DIMENSION_V15,
 ): { width: number; height: number } {
   if (!Number.isFinite(width) || !Number.isFinite(height)
     || width <= 0 || height <= 0
