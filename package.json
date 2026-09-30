@@ -42,7 +42,8 @@
     "eval:heldout-coding:trusted-comparison": "tsx scripts/evaluate-held-out-coding-trusted-comparison-v14.ts",
     "eval:heldout-agent:trusted-comparison": "tsx scripts/evaluate-general-agent-trusted-comparison-v2.ts",
     "eval:world-class-quality:legacy": "tsx scripts/evaluate-world-class-quality-gate.ts",
-    "eval:world-class-quality:trusted": "tsx scripts/evaluate-trusted-world-class-quality-gate-v2.ts"
+    "eval:world-class-quality:trusted": "tsx scripts/evaluate-trusted-world-class-quality-gate-v2.ts",
+    "ingest:trusted-answer-corpus-v2": "tsx scripts/ingest-trusted-answer-corpus-v2.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

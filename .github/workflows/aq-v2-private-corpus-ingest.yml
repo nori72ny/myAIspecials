@@ -1,0 +1,70 @@
+name: AQ V2 private corpus ingest
+
+on:
+  workflow_dispatch:
+    inputs:
+      corpus_id:
+        description: Fresh evaluator-owned corpus id embedded in the sealed secret
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-aq-v2-private-corpus-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout trusted evaluator from main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install trusted evaluator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify private ingest secret boundary
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          ORIGIN_AQ_V2_FRESH_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_FRESH_CORPUS_GZIP_B64 }}
+          CORPUS_ID: ${{ inputs.corpus_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$POSTGRES_URL"
+          test -n "$ORIGIN_AQ_V2_FRESH_CORPUS_GZIP_B64"
+          node <<'NODE'
+          const value=process.env.CORPUS_ID||'';
+          if(!/^[A-Za-z0-9][A-Za-z0-9._-]{2,119}$/.test(value)) process.exit(2);
+          NODE
+
+      - name: Ingest sealed corpus into private trusted store
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          ORIGIN_AQ_V2_FRESH_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_AQ_V2_FRESH_CORPUS_GZIP_B64 }}
+          ORIGIN_AQ_V2_INGEST_CORPUS_ID: ${{ inputs.corpus_id }}
+          ORIGIN_AQ_V2_INGEST_PUBLIC_CHECK_PATH: ${{ github.workspace }}/test-results/aq-v2-ingest-public-check.json
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/ingest-trusted-answer-corpus-v2.ts
+
+      - name: Preserve sanitized corpus identity only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aq-v2-private-corpus-ingest-${{ github.run_id }}
+          path: test-results/aq-v2-ingest-public-check.json
+          retention-days: 90
+          if-no-files-found: error
