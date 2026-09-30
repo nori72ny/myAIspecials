@@ -54,12 +54,14 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   const [projectView, setProjectView] = useState<OriginProjectViewV31>('overview');
   const [projectSources, setProjectSources] = useState<readonly ResearchSource[]>([]);
   const [codingEvidence, setCodingEvidence] = useState<CodingProjectEvidence>({ jobId: null, status: null, changedPaths: [], verificationChecks: [] });
+  const [codingInitialGoal, setCodingInitialGoal] = useState('');
   const [mobileSurface, setMobileSurface] = useState<MobileChatSurface>('conversation');
   const isEn = settings?.language === 'en';
 
   useEffect(() => {
     const sync = () => {
       setWorkspace(workspaceLocation());
+      setCodingInitialGoal('');
       setProjectOpen(false);
       setProjectView('overview');
       setMobileSurface('conversation');
@@ -77,6 +79,11 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     setProjectView('overview');
     setMobileSurface('conversation');
     setWorkspace(next);
+  };
+
+  const openCodingWorkspace = (goal?: string) => {
+    setCodingInitialGoal(goal?.trim().slice(0, 4000) ?? '');
+    switchWorkspace('coding');
   };
 
   const [artifacts, setArtifacts] = useState<ArtifactBlock[]>(() => [...(parentArtifacts ?? [])]);
@@ -162,7 +169,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
           onOpenSettings={onOpenSettings}
           onOpenResearch={() => switchWorkspace('research')}
           onOpenAgent={() => switchWorkspace('agent')}
-          onOpenCoding={() => switchWorkspace('coding')}
+          onOpenCoding={openCodingWorkspace}
           onOpenCreative={() => switchWorkspace('creative')}
           onOpenDetails={hasProjectEvidence ? toggleProject : undefined}
           messages={messages}
@@ -193,7 +200,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
 
       {workspace === 'agent' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Agentを読み込んでいます…</p>}><AgentWorkspace /></Suspense></div>}
       {workspace === 'research' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Researchを読み込んでいます…</p>}><ResearchWorkspace onSourcesChange={setProjectSources} /></Suspense></div>}
-      {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace onProjectEvidenceChange={setCodingEvidence} /></Suspense></div>}
+      {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} onProjectEvidenceChange={setCodingEvidence} /></Suspense></div>}
       {workspace === 'creative' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Createを読み込んでいます…</p>}><CreativeWorkspace /></Suspense></div>}
     </div>
   </div>;
