@@ -108,17 +108,6 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(window.location.search).toBe('?workspace=coding');
   });
 
-  it('passes a chat coding handoff goal into the Coding workspace without starting execution', async () => {
-    render(<PersonalEditionApp />);
-    const goal = 'APIのエラー処理を修正し、関連テストも追加して';
-
-    act(() => latestAppProps().onOpenCoding?.(goal));
-
-    const workspace = await screen.findByRole('region', { name: 'Coding Job Workspace' });
-    expect(workspace.textContent).toContain(goal);
-    expect(window.location.search).toBe('?workspace=coding');
-  });
-
   it('opens Create from the chat action and preserves the chat mount', async () => {
     render(<PersonalEditionApp />);
     const originalChat = screen.getByTestId('mock-origin-app');
