@@ -6,6 +6,7 @@ export interface OriginResearchSource {
   excerpt: string;
   revisionTimestamp?: string;
   sourceType?: "web-search" | "encyclopedia";
+  sourceAuthority?: "official-domain-match" | "secondary-reference" | "unclassified";
   domain?: string;
   rank?: number;
   evidenceLevel: "snippet" | "page-verified";
@@ -245,8 +246,20 @@ function sourceMatchesIntent(source: OriginResearchSource, intent: ResearchInten
   return matched >= requiredMatches;
 }
 
+function sourceAuthorityFor(source: OriginResearchSource, intent: ResearchIntent): NonNullable<OriginResearchSource["sourceAuthority"]> {
+  if (
+    intent.officialRequested
+    && intent.requiredHostSuffixes.length > 0
+    && intent.requiredHostSuffixes.some((suffix) => hostMatchesSuffix(sourceHost(source), suffix))
+  ) return "official-domain-match";
+  if (source.sourceType === "encyclopedia") return "secondary-reference";
+  return "unclassified";
+}
+
 function filterRelevantSources(sources: OriginResearchSource[], intent: ResearchIntent): OriginResearchSource[] {
-  return sources.filter((source) => sourceMatchesIntent(source, intent));
+  return sources
+    .filter((source) => sourceMatchesIntent(source, intent))
+    .map((source) => ({ ...source, sourceAuthority: sourceAuthorityFor(source, intent) }));
 }
 
 async function searchWeb(intent: ResearchIntent, retrievedAt: string): Promise<OriginResearchResult> {
@@ -339,10 +352,10 @@ export async function researchCurrentInformation(query: string, now = new Date()
           : `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
         const excerpt = cleanExcerpt(page.excerpt) || cleanExcerpt(page.description);
         if (!excerpt) continue;
-        sources.push({ title, url, excerpt, revisionTimestamp: metadata.latest?.timestamp, sourceType: "encyclopedia", domain: new URL(url).hostname, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: freshnessOf(metadata.latest?.timestamp, retrievedAt) });
+        sources.push({ title, url, excerpt, revisionTimestamp: metadata.latest?.timestamp, sourceType: "encyclopedia", sourceAuthority: "secondary-reference", domain: new URL(url).hostname, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: freshnessOf(metadata.latest?.timestamp, retrievedAt) });
       } catch {
         const excerpt = cleanExcerpt(page.excerpt) || cleanExcerpt(page.description);
-        if (excerpt) sources.push({ title, url: `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`, excerpt, sourceType: "encyclopedia", domain: new URL(origin).hostname, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: "unknown" });
+        if (excerpt) sources.push({ title, url: `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`, excerpt, sourceType: "encyclopedia", sourceAuthority: "secondary-reference", domain: new URL(origin).hostname, rank: sources.length + 1, evidenceLevel: "snippet", retrievedAt, freshness: "unknown" });
       }
     }
 
