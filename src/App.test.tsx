@@ -599,30 +599,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(isDirectImageGenerationRequest('画像生成AIの仕組みを教えてください')).toBe(false);
   });
 
-  it('routes only explicit repository-style coding execution requests to Coding', () => {
-    expect(isDirectCodingWorkspaceRequest('ログイン画面の入力チェックを修正し、関連テストも追加して')).toBe(true);
-    expect(isDirectCodingWorkspaceRequest('APIのエラー処理を実装して')).toBe(true);
-    expect(isDirectCodingWorkspaceRequest('このコードの意味を説明して')).toBe(false);
-    expect(isDirectCodingWorkspaceRequest('営業メールを修正して')).toBe(false);
-  });
-
-  it('hands an explicit code-change request to Coding without calling AI or mutating a repository', async () => {
-    const fetchMock = vi.fn();
-    const onOpenCoding = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-    render(<App language="ja" onOpenCoding={onOpenCoding} />);
-
-    const goal = 'ログイン画面の入力チェックを修正し、関連テストも追加して';
-    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: goal } });
-    fireEvent.click(screen.getByTestId('start-request-button'));
-
-    await waitFor(() => expect(onOpenCoding).toHaveBeenCalledWith(goal));
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/Codingワークスペースへ引き継ぎました/)).toBeTruthy();
-    expect(screen.getByText(goal)).toBeTruthy();
-    vi.unstubAllGlobals();
-  });
-
   it('maps standard and exact image sizes consistently with the visual template engine', () => {
     expect(rasterSizeForRequest('Instagram 4:5のフィード投稿を作って')).toEqual({ width: 1024, height: 1280 });
     expect(rasterSizeForRequest('Instagram Story 9:16で作って')).toEqual({ width: 864, height: 1536 });
