@@ -42,6 +42,7 @@ export type OriginArtifactPrivateCorpusV1 = {
   corpusId: string;
   candidateSha: string;
   executionBudgetMs: number;
+  syntheticEvaluationOnly: true;
   tasks: readonly ArtifactPrivateTaskV1[];
 };
 
@@ -109,6 +110,7 @@ export function validateArtifactPrivateCorpusV1(
   if (!Number.isInteger(corpus?.executionBudgetMs) || corpus.executionBudgetMs < 10_000 || corpus.executionBudgetMs > 10 * 60_000) {
     blockers.push('ARTIFACT_PRIVATE_CORPUS_EXECUTION_BUDGET_INVALID');
   }
+  if (corpus?.syntheticEvaluationOnly !== true) blockers.push('ARTIFACT_PRIVATE_CORPUS_SYNTHETIC_ONLY_REQUIRED');
 
   const tasks = Array.isArray(corpus?.tasks) ? corpus.tasks : [];
   if (tasks.length !== 16) blockers.push('ARTIFACT_PRIVATE_CORPUS_REQUIRES_16_TASKS');
