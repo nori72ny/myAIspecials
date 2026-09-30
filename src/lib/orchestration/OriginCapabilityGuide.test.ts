@@ -53,7 +53,9 @@ describe("OriginCapabilityGuide", () => {
     expect(generationOnly.content).toContain("実画像生成");
     expect(generationOnly.content).toContain("PNG/JPEG/WebP");
     expect(generationOnly.content).not.toContain("実画像編集");
-    expect(generationOnly.content).toContain("モデルによる画像編集");
+    expect(generationOnly.content).toContain("モデルによる参照画像編集");
+    expect(generationOnly.content).toContain("inpaint");
+    expect(generationOnly.content).toContain("outpaint");
 
     const generationAndEditing = createOriginCapabilityGuide("あなたは何ができますか？", {
       rasterTextToImageReady: true,
@@ -62,9 +64,12 @@ describe("OriginCapabilityGuide", () => {
 
     expect(generationAndEditing.content).toContain("実画像生成");
     expect(generationAndEditing.content).toContain("実画像編集");
+    expect(generationAndEditing.content).toContain("別案作成と指示ベース編集");
     expect(generationAndEditing.content).not.toContain("- モデルによるラスター画像生成");
-    expect(generationAndEditing.content).not.toContain("- モデルによる画像編集");
-    expect(generationAndEditing.limitations.join("\n")).not.toContain("モデルによる画像編集");
+    expect(generationAndEditing.content).not.toContain("- モデルによる参照画像編集");
+    expect(generationAndEditing.content).toContain("inpaint");
+    expect(generationAndEditing.content).toContain("outpaint");
+    expect(generationAndEditing.limitations.join("\n")).toContain("inpaint");
   });
 
   it("provides the same truthful product boundary in English", () => {
@@ -79,8 +84,11 @@ describe("OriginCapabilityGuide", () => {
     expect(guide.content).toContain("Agentic Coding");
     expect(guide.content).toContain("Real image generation");
     expect(guide.content).toContain("Real image editing");
+    expect(guide.content).toContain("instruction-guided edits");
+    expect(guide.content).toContain("Mask-directed inpainting");
+    expect(guide.content).toContain("canvas-expansion outpainting");
     expect(guide.content).toContain("MCP connections");
     expect(guide.content).toContain("fails closed");
-    expect(guide.content).not.toContain("- Model-based image editing");
+    expect(guide.content).not.toContain("- Reference-image editing");
   });
 });
