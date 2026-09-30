@@ -92,9 +92,24 @@ export function resolveRasterProviderV15(task: RasterTaskV15): RasterProviderRun
   return PROVIDERS.find(provider => provider.descriptor.capabilities.some(capability => capability.task === task)) ?? null;
 }
 
-export async function selectRasterProviderV15(
+type RasterProviderStatusCacheV15 = Map<RasterProviderRuntimeV15, Promise<RasterProviderStatusV15>>;
+
+function cachedProviderStatusV15(
+  provider: RasterProviderRuntimeV15,
+  env: NodeJS.ProcessEnv,
+  cache: RasterProviderStatusCacheV15,
+): Promise<RasterProviderStatusV15> {
+  const existing = cache.get(provider);
+  if (existing) return existing;
+  const pending = provider.status(env);
+  cache.set(provider, pending);
+  return pending;
+}
+
+async function selectRasterProviderWithCacheV15(
   task: RasterTaskV15,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv,
+  cache: RasterProviderStatusCacheV15,
 ): Promise<RasterProviderSelectionV15> {
   const statuses: {
     providerId: string;
@@ -119,7 +134,7 @@ export async function selectRasterProviderV15(
       continue;
     }
 
-    const status = await provider.status(env);
+    const status = await cachedProviderStatusV15(provider, env, cache);
     const safe = status.ready
       && status.zeroCostVerified
       && status.paidFallbackEnabled === false
@@ -147,8 +162,18 @@ export async function selectRasterProviderV15(
   };
 }
 
+export async function selectRasterProviderV15(
+  task: RasterTaskV15,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<RasterProviderSelectionV15> {
+  return selectRasterProviderWithCacheV15(task, env, new Map());
+}
+
 export async function rasterProviderRuntimeStatusV15(env: NodeJS.ProcessEnv = process.env) {
-  const selections = await Promise.all(RASTER_TASKS_V15.map(task => selectRasterProviderV15(task, env)));
+  const statusCache: RasterProviderStatusCacheV15 = new Map();
+  const selections = await Promise.all(
+    RASTER_TASKS_V15.map(task => selectRasterProviderWithCacheV15(task, env, statusCache)),
+  );
   const supportedTasks = selections.filter(result => result.ready).map(result => result.task);
   const textSelection = selections.find(result => result.task === 'text-to-image');
   let textToImageStatus: RasterProviderStatusV15 | null = null;
