@@ -1166,6 +1166,138 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 });
 
+
+describe('Research → verified file delivery', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('re-verifies a Research Supervisor PPTX in the browser before exposing Save file', async () => {
+    const bytes = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x4f, 0x52, 0x49, 0x47, 0x49, 0x4e]);
+    const digest = new Uint8Array(32);
+    digest.fill(0x2a);
+    const sha256 = Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const model = 'inclusionai/ling-3.0-flash-sante:free';
+    const artifact = {
+      version: 'origin.research-artifact-supervisor.v1',
+      output: 'presentation',
+      format: 'pptx',
+      filename: 'market-research.pptx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      bytesBase64: btoa(String.fromCharCode(...bytes)),
+      bytes: bytes.length,
+      sha256,
+      verified: true,
+      verification: ['ZIP container signature present', 'PPTX package verified'],
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      provenance: {
+        derivedFrom: 'grounded-research-synthesis',
+        citationValidated: true,
+        sourceCount: 2,
+      },
+    };
+    const payload = {
+      content: '## 結論\n\n調査結果をPPTXにまとめました。',
+      artifact,
+      routing: {
+        model: 'ORIGIN 無料AI',
+        modelId: model,
+        freeOnly: true,
+        cost: 0,
+        actualCostUsd: 0,
+        estimatedCostUsd: 0,
+        usage: { costUsd: 0 },
+        providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false },
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })));
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { ...originalCrypto, subtle: { digest: vi.fn(async () => digest.buffer) } },
+    });
+
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '市場を調査してPowerPointにまとめてください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByTestId('origin-generated-file')).toBeTruthy());
+    const save = screen.getByTestId('origin-generated-file-save') as HTMLAnchorElement;
+    expect(save.textContent).toBe('ファイルを保存');
+    expect(save.getAttribute('download')).toBe('market-research.pptx');
+    expect(save.getAttribute('href')).toContain('data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,');
+    expect(screen.getByText(/PPTX · 1 KB · 2 sources · SHA-256/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '結論', level: 2 })).toBeTruthy();
+
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+  });
+
+  it('withholds a Research Supervisor file when browser-side SHA-256 verification disagrees', async () => {
+    const bytes = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x4f, 0x52, 0x49, 0x47, 0x49, 0x4e]);
+    const digest = new Uint8Array(32);
+    digest.fill(0x2a);
+    const model = 'inclusionai/ling-3.0-flash-sante:free';
+    const payload = {
+      content: '表示してはいけない成果物です。',
+      artifact: {
+        version: 'origin.research-artifact-supervisor.v1',
+        output: 'document',
+        format: 'docx',
+        filename: 'research.docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        bytesBase64: btoa(String.fromCharCode(...bytes)),
+        bytes: bytes.length,
+        sha256: 'b'.repeat(64),
+        verified: true,
+        verification: ['ZIP container signature present'],
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+        provenance: {
+          derivedFrom: 'grounded-research-synthesis',
+          citationValidated: true,
+          sourceCount: 2,
+        },
+      },
+      routing: {
+        model: 'ORIGIN 無料AI',
+        modelId: model,
+        freeOnly: true,
+        cost: 0,
+        actualCostUsd: 0,
+        estimatedCostUsd: 0,
+        usage: { costUsd: 0 },
+        providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false },
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })));
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { ...originalCrypto, subtle: { digest: vi.fn(async () => digest.buffer) } },
+    });
+
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '調査してWordにまとめてください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state')).toBeTruthy());
+    expect(screen.queryByTestId('origin-generated-file')).toBeNull();
+    expect(screen.queryByText('表示してはいけない成果物です。')).toBeNull();
+
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+  });
+});
+
 describe('code examples remain in conversation context', () => {
   it('preserves ordinary code and surrounding explanation without opening an artifact', () => {
     const content = '説明\n\n```ts\nconst value = 0;\n```\n\n次の手順';
