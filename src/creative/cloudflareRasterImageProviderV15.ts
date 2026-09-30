@@ -23,6 +23,7 @@ type CloudflareEnvelope = {
 
 type Subscription = {
   state?: unknown;
+  price?: unknown;
   rate_plan?: unknown;
 };
 
@@ -107,7 +108,11 @@ async function verifyWorkersFreePlan(
     if (!row || typeof row !== 'object' || !activeSubscription(row)) continue;
     const text = workerPlanText(row);
     if (!text.includes('worker')) continue;
-    if (!text.includes('free')) {
+    const numericPrice = typeof row.price === 'number' && Number.isFinite(row.price) ? row.price : null;
+    if (numericPrice !== null && numericPrice > 0) {
+      return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
+    }
+    if (text.includes('paid') || !text.includes('free')) {
       return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
     }
   }

@@ -113,6 +113,32 @@ describe('cloudflareRasterImageProviderV15', () => {
     });
   });
 
+  it('rejects any active Workers subscription with a positive billed price even when its label contains free', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([{ state: 'Paid', price: 5, rate_plan: { id: 'free', public_name: 'Workers Free + Paid', sets: ['workers'] } }])) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects an explicit paid Workers label even if another field also contains free', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([{ state: 'Provisioned', price: 0, rate_plan: { id: 'free', public_name: 'Workers Paid', sets: ['workers-free'] } }])) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('requires Billing Read evidence rather than assuming Free when subscription proof is unavailable', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
