@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   GENERAL_AGENT_COMPARISON_VERSION_V2,
   GENERAL_AGENT_HELD_OUT_VERSION_V2,
@@ -83,12 +84,54 @@ function validArtifactDigest(value: unknown): value is string {
   return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value);
 }
 
+
+function stable(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object).sort().map(key => `${JSON.stringify(key)}:${stable(object[key])}`).join(',')}}`;
+}
+
+function sha256Artifact(value: unknown): string {
+  return `sha256:${createHash('sha256').update(stable(value), 'utf8').digest('hex')}`;
+}
+
+export function digestGeneralAgentTrustedRoundArtifactV2(input: {
+  candidateSha: string;
+  evaluatorId: string;
+  permissionProfileDigest: string;
+  tasks: readonly GeneralAgentHeldOutTaskV2[];
+  candidateEvidence: readonly GeneralAgentTrustedEvidenceV2[];
+}): string {
+  return sha256Artifact({
+    candidateSha: input.candidateSha.toLowerCase(),
+    evaluatorId: input.evaluatorId,
+    permissionProfileDigest: input.permissionProfileDigest,
+    tasks: input.tasks,
+    candidateEvidence: input.candidateEvidence,
+  });
+}
+
+export function digestGeneralAgentTrustedReferenceArtifactV2(input: {
+  participant: string;
+  permissionProfileDigest: string;
+  runs: readonly GeneralAgentTrustedEvidenceV2[];
+}): string {
+  return sha256Artifact({
+    participant: input.participant,
+    permissionProfileDigest: input.permissionProfileDigest,
+    runs: input.runs,
+  });
+}
+
 function validRoundEvidence(
   evidence: GeneralAgentTrustedRoundEvidenceV2 | null | undefined,
   candidateSha: string,
+  tasks: readonly GeneralAgentHeldOutTaskV2[],
+  candidateEvidence: readonly GeneralAgentTrustedEvidenceV2[],
   nowMs: number,
 ): evidence is GeneralAgentTrustedRoundEvidenceV2 {
-  return Boolean(
+  if (!(
     evidence?.source === 'evaluator'
     && SHA40.test(evidence.candidateSha)
     && evidence.candidateSha.toLowerCase() === candidateSha.toLowerCase()
@@ -97,7 +140,15 @@ function validRoundEvidence(
     && SAFE_ID.test(evidence.evidenceId)
     && validArtifactDigest(evidence.artifactDigest)
     && validWindow(evidence.createdAt, evidence.expiresAt, nowMs)
-  );
+  )) return false;
+
+  return evidence.artifactDigest === digestGeneralAgentTrustedRoundArtifactV2({
+    candidateSha,
+    evaluatorId: evidence.evaluatorId,
+    permissionProfileDigest: evidence.permissionProfileDigest,
+    tasks,
+    candidateEvidence,
+  });
 }
 
 function validReferenceEnvelope(
@@ -105,7 +156,7 @@ function validReferenceEnvelope(
   permissionProfileDigest: string,
   nowMs: number,
 ): boolean {
-  return Boolean(
+  if (!(
     reference?.source === 'controlled-external'
     && reference.independentFromCandidate === true
     && SAFE_ID.test(reference.participant)
@@ -115,7 +166,13 @@ function validReferenceEnvelope(
     && validArtifactDigest(reference.artifactDigest)
     && validWindow(reference.createdAt, reference.expiresAt, nowMs)
     && Array.isArray(reference.runs)
-  );
+  )) return false;
+
+  return reference.artifactDigest === digestGeneralAgentTrustedReferenceArtifactV2({
+    participant: reference.participant,
+    permissionProfileDigest: reference.permissionProfileDigest,
+    runs: reference.runs,
+  });
 }
 
 function evidenceByTask(
@@ -199,6 +256,7 @@ export function evaluateGeneralAgentTrustedComparisonV2(
   const candidateSha = typeof input?.candidateSha === 'string' ? input.candidateSha.toLowerCase() : '';
   const tasks = Array.isArray(input?.tasks) ? input.tasks : [];
   const roundEvidence = input?.roundEvidence;
+  const candidateEvidence = Array.isArray(input?.candidateEvidence) ? input.candidateEvidence : [];
 
   if (
     input?.version !== GENERAL_AGENT_TRUSTED_COMPARISON_VERSION_V2
@@ -207,11 +265,16 @@ export function evaluateGeneralAgentTrustedComparisonV2(
     blockers.push('GENERAL_AGENT_TRUSTED_COMPARISON_INPUT_INVALID');
   }
 
-  const trustedRoundEvidencePassed = validRoundEvidence(roundEvidence, candidateSha, nowMs);
+  const trustedRoundEvidencePassed = validRoundEvidence(
+    roundEvidence,
+    candidateSha,
+    tasks,
+    candidateEvidence,
+    nowMs,
+  );
   if (!trustedRoundEvidencePassed) blockers.push('GENERAL_AGENT_TRUSTED_ROUND_EVIDENCE_INVALID');
   const permissionProfileDigest = trustedRoundEvidencePassed ? roundEvidence.permissionProfileDigest : null;
 
-  const candidateEvidence = Array.isArray(input?.candidateEvidence) ? input.candidateEvidence : [];
   const candidateBuilt = evidenceByTask(candidateEvidence, tasks, 'ORIGIN');
   buildErrors.push(...candidateBuilt.errors);
   const candidateEvidencePassed = candidateBuilt.complete;
