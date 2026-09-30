@@ -1,0 +1,87 @@
+name: General Agent private held-out V2
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact current main SHA to evaluate
+        required: true
+        type: string
+      corpus_id:
+        description: Evaluator-owned private corpus id embedded in the sealed secret
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-general-agent-private-v2
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact main candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify exact candidate identity
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CORPUS_ID: ${{ inputs.corpus_id }}
+          PRIVATE_CORPUS: ${{ secrets.ORIGIN_GENERAL_AGENT_PRIVATE_CORPUS_GZIP_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_CORPUS"
+          node <<'NODE'
+          const sha=process.env.CANDIDATE_SHA||'';
+          const corpus=process.env.CORPUS_ID||'';
+          if(!/^[a-f0-9]{40}$/.test(sha)) process.exit(2);
+          if(sha!==process.env.GITHUB_SHA) process.exit(3);
+          if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,159}$/.test(corpus)) process.exit(4);
+          NODE
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install evaluator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run sealed private Agent V3 round
+        env:
+          ORIGIN_GENERAL_AGENT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ORIGIN_GENERAL_AGENT_CORPUS_ID: ${{ inputs.corpus_id }}
+          ORIGIN_GENERAL_AGENT_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_GENERAL_AGENT_PRIVATE_CORPUS_GZIP_B64 }}
+          ORIGIN_GENERAL_AGENT_OUTPUT_DIR: ${{ github.workspace }}/test-results/general-agent-private
+        run: |
+          set -euo pipefail
+          npm run eval:heldout-agent:private
+
+      - name: Verify no private corpus material escaped
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f test-results/general-agent-private/public-tasks.json
+          test -f test-results/general-agent-private/candidate-trusted-evidence.json
+          test -f test-results/general-agent-private/candidate-score-summary.json
+          test -z "$(find test-results/general-agent-private -type f ! -name 'public-tasks.json' ! -name 'candidate-trusted-evidence.json' ! -name 'candidate-score-summary.json' -print)"
+
+      - name: Upload sanitized evaluator evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: general-agent-private-v2-${{ github.run_id }}
+          path: test-results/general-agent-private/
+          retention-days: 90
+          if-no-files-found: error
