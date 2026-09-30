@@ -17,6 +17,18 @@ function json(result: unknown, status = 200) {
   });
 }
 
+function failure(status: number, code: number) {
+  return new Response(JSON.stringify({
+    success: false,
+    result: null,
+    errors: [{ code, message: 'upstream failure' }],
+    messages: [],
+  }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 function png(width: number, height: number) {
   const bytes = Buffer.alloc(64);
   Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]).copy(bytes,0);
@@ -125,6 +137,19 @@ describe('cloudflareRasterImageProviderV15', () => {
       reason: 'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED',
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports when the exact image model itself requires a paid plan', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(failure(403, 5035)) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN',
+    });
   });
 
   it('rejects an invalid exact-model schema instead of claiming readiness', async () => {
@@ -251,16 +276,29 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(result).toMatchObject({ mimeType, width: 768, height: 1024, costUsd: 0, freeOnly: true });
   });
 
-  it('treats free-allocation exhaustion or paid-only access as fail-closed', async () => {
-    for (const status of [402,403,429]) {
-      const fetchMock = vi.fn()
-        .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
-        .mockResolvedValueOnce(json([]))
-        .mockResolvedValueOnce(json({ input: {}, output: {} }))
-        .mockResolvedValueOnce(json({}, status)) as unknown as typeof fetch;
+  it.each([
+    [429, 3036, 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED'],
+    [429, 3040, 'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE'],
+    [403, 5035, 'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN'],
+  ] as const)('preserves Cloudflare failure semantics for HTTP %s / code %s', async (status, internalCode, expectedCode) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      .mockResolvedValueOnce(failure(status, internalCode)) as unknown as typeof fetch;
 
-      await expect(generateCloudflareRasterImageV15({ prompt: 'test' }, ENV, fetchMock))
-        .rejects.toThrow('CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE');
-    }
+    await expect(generateCloudflareRasterImageV15({ prompt: 'test' }, ENV, fetchMock))
+      .rejects.toThrow(expectedCode);
+  });
+
+  it('keeps an ambiguous 429 failure fail-closed instead of assuming it is transient capacity', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      .mockResolvedValueOnce(json({}, 429)) as unknown as typeof fetch;
+
+    await expect(generateCloudflareRasterImageV15({ prompt: 'test' }, ENV, fetchMock))
+      .rejects.toThrow('CLOUDFLARE_FREE_OR_CAPACITY_UNAVAILABLE');
   });
 });
