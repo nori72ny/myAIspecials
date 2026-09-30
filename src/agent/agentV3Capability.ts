@@ -12,6 +12,7 @@ type CapabilityPayload = {
   kind: CapabilityKind;
   runId: string;
   digest: string;
+  plannedTool?: string;
   iat: number;
   exp: number;
 };
@@ -26,10 +27,26 @@ function sign(encodedPayload: string, key: Buffer): string {
   return createHmac('sha256', key).update(encodedPayload).digest('base64url');
 }
 
-function issue(kind: CapabilityKind, runId: string, digest: string, ttlMs: number, env: NodeJS.ProcessEnv, now: number): string {
+function issue(
+  kind: CapabilityKind,
+  runId: string,
+  digest: string,
+  ttlMs: number,
+  env: NodeJS.ProcessEnv,
+  now: number,
+  plannedTool?: string,
+): string {
   const key = secret(env);
   if (!key) throw new Error('AGENT_APPROVAL_NOT_CONFIGURED');
-  const payload: CapabilityPayload = { v: 3, kind, runId, digest, iat: now, exp: now + ttlMs };
+  const payload: CapabilityPayload = {
+    v: 3,
+    kind,
+    runId,
+    digest,
+    ...(kind === 'plan' && plannedTool ? { plannedTool } : {}),
+    iat: now,
+    exp: now + ttlMs,
+  };
   const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
   return `${encoded}.${sign(encoded, key)}`;
 }
@@ -49,6 +66,7 @@ function verify(token: string, expectedKind: CapabilityKind, env: NodeJS.Process
     if (parsed.v !== 3 || parsed.kind !== expectedKind) return null;
     if (typeof parsed.runId !== 'string' || !parsed.runId.startsWith('run-')) return null;
     if (typeof parsed.digest !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.digest)) return null;
+    if (parsed.plannedTool !== undefined && (typeof parsed.plannedTool !== 'string' || !/^[a-z][a-z0-9_]{2,63}$/.test(parsed.plannedTool))) return null;
     if (typeof parsed.iat !== 'number' || typeof parsed.exp !== 'number' || parsed.exp <= now || parsed.iat > now + 30_000) return null;
     return parsed as CapabilityPayload;
   } catch {
@@ -60,8 +78,14 @@ export function v3CapabilityConfigured(env: NodeJS.ProcessEnv): boolean {
   return secret(env) !== null;
 }
 
-export function issuePlanCapability(runId: string, goalDigest: string, env: NodeJS.ProcessEnv, now = Date.now()): { token: string; expiresAt: number } {
-  return { token: issue('plan', runId, goalDigest, PLAN_TTL_MS, env, now), expiresAt: now + PLAN_TTL_MS };
+export function issuePlanCapability(
+  runId: string,
+  goalDigest: string,
+  env: NodeJS.ProcessEnv,
+  now = Date.now(),
+  plannedTool?: string,
+): { token: string; expiresAt: number } {
+  return { token: issue('plan', runId, goalDigest, PLAN_TTL_MS, env, now, plannedTool), expiresAt: now + PLAN_TTL_MS };
 }
 
 export function verifyPlanCapability(token: string, env: NodeJS.ProcessEnv, now = Date.now()): CapabilityPayload | null {

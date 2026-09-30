@@ -10,6 +10,7 @@ import { executeNextTask } from './taskGraphExecutor.js';
 import { AgentRunSession } from './agentRunContract.js';
 import { approvalDigest, authenticateAgentRequest, type AgentApprovalOperation } from './agentApproval.js';
 import { issueApprovalCapability, issuePlanCapability, v3CapabilityConfigured, verifyApprovalCapability, verifyPlanCapability } from './agentV3Capability.js';
+import { selectAgentToolV3 } from './agentToolPlannerV3.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
 const isToolName = (value: unknown): value is ToolName => typeof value === 'string' && TOOL_NAMES.includes(value as ToolName);
@@ -49,10 +50,14 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     const goal = req.body?.goal;
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_GOAL' });
+    const selected = selectAgentToolV3(goal.trim());
+    if ('code' in selected) {
+      return res.status(422).json({ ok: false, code: selected.code, protocolVersion: 3 });
+    }
     const run = new AgentRunSession();
     run.transition('planning');
     run.transition('awaiting_approval');
-    const capability = issuePlanCapability(run.runId, digestGoal(goal.trim()), env);
+    const capability = issuePlanCapability(run.runId, digestGoal(goal.trim()), env, Date.now(), selected.toolName);
     return res.status(201).json({
       ok: true,
       protocolVersion: 3,
@@ -64,6 +69,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       costUsd: 0,
       paidFallbackUsed: false,
       persistence: 'stateless-server-signed',
+      selectedTool: selected.toolName,
+      toolChoice: { source: 'deterministic-local', reasonCode: selected.reasonCode },
       plan: PLAN_TITLES.map((title, index) => ({ id: `task-${index + 1}`, title })),
     });
   });
@@ -77,6 +84,9 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!isToolName(toolName)) return res.status(400).json({ ok: false, code: 'INVALID_TOOL' });
     const plan = verifyPlanCapability(planToken, env);
     if (!plan || plan.runId !== runId) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_INVALID' });
+    if (!isToolName(plan.plannedTool) || plan.plannedTool !== toolName) {
+      return res.status(403).json({ ok: false, code: 'AGENT_PLAN_TOOL_MISMATCH' });
+    }
     if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
     const operation: AgentApprovalOperation = { action: 'execute', runId, toolName, params: params ?? {} };
     const capability = issueApprovalCapability(runId, approvalDigest(operation), env);

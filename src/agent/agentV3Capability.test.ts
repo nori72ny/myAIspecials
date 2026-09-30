@@ -8,9 +8,15 @@ const digestB = 'b'.repeat(64);
 
 describe('v3 signed capabilities', () => {
   it('verifies across independent requests without shared memory', () => {
-    const issued = issuePlanCapability('run-abcdefgh', digestA, env, 1_000);
+    const issued = issuePlanCapability('run-abcdefgh', digestA, env, 1_000, 'document_generator');
     const verified = verifyPlanCapability(issued.token, env, 2_000);
-    expect(verified).toMatchObject({ v: 3, kind: 'plan', runId: 'run-abcdefgh', digest: digestA });
+    expect(verified).toMatchObject({
+      v: 3,
+      kind: 'plan',
+      runId: 'run-abcdefgh',
+      digest: digestA,
+      plannedTool: 'document_generator',
+    });
   });
 
   it('rejects tampering, another secret, and expiry', () => {

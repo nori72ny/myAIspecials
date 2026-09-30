@@ -142,14 +142,60 @@ describe('agent orchestrator v3', () => {
     expect(JSON.stringify(response.body)).not.toContain('private cancellation storage details');
   });
 
-  it('creates a bounded zero-cost stateless plan without returning the raw goal', async () => {
-    const goal = '顧客情報を含む安全な計画';
+  it('creates a bounded zero-cost stateless plan with a deterministic signed tool choice', async () => {
+    const goal = '営業提案書を作成して';
     const response = await request(appFor()).post('/api/agent/v3/plan').send({ goal });
     expect(response.status).toBe(201);
-    expect(response.body).toMatchObject({ ok: true, protocolVersion: 3, status: 'awaiting_approval', freeOnly: true, costUsd: 0, paidFallbackUsed: false, persistence: 'stateless-server-signed' });
+    expect(response.body).toMatchObject({
+      ok: true,
+      protocolVersion: 3,
+      status: 'awaiting_approval',
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      persistence: 'stateless-server-signed',
+      selectedTool: 'document_generator',
+      toolChoice: { source: 'deterministic-local', reasonCode: 'document-request' },
+    });
     expect(response.body.runId).toMatch(/^run-/);
     expect(response.body.planToken).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     expect(JSON.stringify(response.body)).not.toContain(goal);
+  });
+
+  it('fails closed when one goal requires multiple tools instead of pretending one tool can finish it', async () => {
+    const response = await request(appFor()).post('/api/agent/v3/plan')
+      .send({ goal: '最新市場を調べて、その結果から提案書を作って' });
+    expect(response.status).toBe(422);
+    expect(response.body).toEqual({ ok: false, code: 'AGENT_MULTI_TOOL_PLAN_REQUIRED', protocolVersion: 3 });
+  });
+
+  it('cryptographically binds approval to the tool selected by the plan', async () => {
+    const store: AgentRunConsumptionStore = { consume: async () => true };
+    const app = appFor(env, store);
+    const planned = await request(app).post('/api/agent/v3/plan').send({ goal: '営業提案書を作成して' });
+    expect(planned.status).toBe(201);
+
+    const mismatch = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({
+        runId: planned.body.runId,
+        planToken: planned.body.planToken,
+        toolName: 'code_interpreter',
+        params: { code: 'const value = 1' },
+      });
+    expect(mismatch.status).toBe(403);
+    expect(mismatch.body.code).toBe('AGENT_PLAN_TOOL_MISMATCH');
+
+    const approved = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({
+        runId: planned.body.runId,
+        planToken: planned.body.planToken,
+        toolName: 'document_generator',
+        params: { content: 'Harmless audit document' },
+      });
+    expect(approved.status).toBe(201);
+    expect(approved.body.scope).toBe('exact-operation');
   });
 
   it('fails closed when the signing secret is unavailable', async () => {
