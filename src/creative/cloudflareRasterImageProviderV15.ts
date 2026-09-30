@@ -10,6 +10,9 @@ const MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 45_000;
 const MODEL_SCHEMA_TIMEOUT_MS = 10_000;
+const MAX_REFERENCE_IMAGES = 4;
+const MAX_REFERENCE_IMAGE_BYTES = 768 * 1024;
+const MAX_REFERENCE_DIMENSION_EXCLUSIVE = 512;
 
 type CloudflareEnvelope = {
   success?: unknown;
@@ -271,11 +274,50 @@ export async function generateCloudflareRasterImageV15(
   const prompt = input.prompt.normalize('NFKC').trim();
   if (!prompt || prompt.length > 2048) throw new Error('INVALID_RASTER_PROMPT');
 
+  const references = input.referenceImages ?? [];
+  if (references.length > MAX_REFERENCE_IMAGES) throw new Error('REFERENCE_IMAGE_COUNT_OUT_OF_BOUNDS');
+  for (const reference of references) {
+    if (!Buffer.isBuffer(reference.bytes) || reference.bytes.length < 64 || reference.bytes.length > MAX_REFERENCE_IMAGE_BYTES) {
+      throw new Error('REFERENCE_IMAGE_SIZE_OUT_OF_BOUNDS');
+    }
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(reference.mimeType)) {
+      throw new Error('REFERENCE_IMAGE_TYPE_UNSUPPORTED');
+    }
+    const actual = dimensions(reference.bytes, reference.mimeType);
+    if (!actual || actual.width !== reference.width || actual.height !== reference.height) {
+      throw new Error('REFERENCE_IMAGE_SIGNATURE_MISMATCH');
+    }
+    if (actual.width >= MAX_REFERENCE_DIMENSION_EXCLUSIVE || actual.height >= MAX_REFERENCE_DIMENSION_EXCLUSIVE) {
+      throw new Error('REFERENCE_IMAGE_DIMENSION_OUT_OF_BOUNDS');
+    }
+  }
+
   const form = new FormData();
   const negative = input.negativePrompt?.normalize('NFKC').trim().slice(0, 1000) ?? '';
-  form.append('prompt', negative ? `${prompt}\nAvoid these visual elements when possible: ${negative}` : prompt);
+  const editInstruction = references.length
+    ? [
+        'Reference images are attached in index order starting at image 0.',
+        'Treat them as authoritative visual context.',
+        'Preserve subjects, identity cues, composition details, and other visual elements that the user did not ask to change.',
+        'Apply only the requested transformation unless the prompt explicitly asks for a broader redesign.',
+      ].join(' ')
+    : '';
+  const compiledPrompt = [
+    editInstruction,
+    prompt,
+    negative ? `Avoid these visual elements when possible: ${negative}` : '',
+  ].filter(Boolean).join('\n');
+  form.append('prompt', compiledPrompt);
   form.append('width', String(width));
   form.append('height', String(height));
+  references.forEach((reference, index) => {
+    const extension = reference.mimeType === 'image/png' ? 'png' : reference.mimeType === 'image/webp' ? 'webp' : 'jpg';
+    form.append(
+      `input_image_${index}`,
+      new Blob([Uint8Array.from(reference.bytes)], { type: reference.mimeType }),
+      `reference-${index}.${extension}`,
+    );
+  });
 
   const response = await timedFetch(
     `${API_ORIGIN}/client/v4/accounts/${auth.accountId}/ai/run/${MODEL}`,
