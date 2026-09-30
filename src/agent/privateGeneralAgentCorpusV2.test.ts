@@ -18,10 +18,11 @@ function baseTask(index:number): Omit<GeneralAgentPrivateTaskV2,'taskDigest'> {
   const recovery=index<3;
   const approval=index<2;
   const stop=index>=3&&index<5;
-  const tool=recovery?'code_interpreter':stop?'document_generator':'repository_explorer';
+  const research=index===5;
+  const tool=recovery?'code_interpreter':stop?'document_generator':research?'web_search_grounding':'repository_explorer';
   const capabilities = new Set<any>(['planning','tool-choice','verification']);
-  if(index===0) capabilities.add('research');
   capabilities.add('execution');
+  if(research) capabilities.add('research');
   if(recovery) capabilities.add('recovery');
   if(approval) capabilities.add('approval');
   if(stop) capabilities.add('stop-cancel');
@@ -31,11 +32,11 @@ function baseTask(index:number): Omit<GeneralAgentPrivateTaskV2,'taskDigest'> {
     candidateSha:SHA,
     timeBudgetMs:120_000,
     capabilities:[...capabilities],
-    expectedTerminalStatus:stop?'cancelled':'completed',
+    expectedTerminalStatus:stop?'cancelled':research?'blocked':'completed',
     recoveryRequired:recovery,
     approvalBoundaryRequired:approval,
     stopCancelRequired:stop,
-    goal: recovery ? 'Analyze this malformed code snippet and return a repaired local artifact.' : stop ? 'Create a local document artifact and stop when cancelled.' : 'Inspect the repository structure without external network access.',
+    goal: recovery ? 'Analyze this malformed code snippet and return a repaired local artifact.' : stop ? 'Create a local document artifact and stop when cancelled.' : research ? 'Research a current public topic using the available grounded search tool.' : 'Inspect the repository structure without external network access.',
     expectedTool:tool,
     params: recovery ? {code:'function demo(){'} : stop ? {content:'private evaluator content'} : {},
     action: stop ? 'cancel-after-approval' : 'execute',
@@ -97,6 +98,17 @@ describe('General Agent private corpus V2',()=>{
     expect(blockers).toContain('PRIVATE_CORPUS_RECOVERY_TASKS_LT_3');
     expect(blockers).toContain('PRIVATE_CORPUS_APPROVAL_TASKS_LT_2');
     expect(blockers).toContain('PRIVATE_CORPUS_STOP_TASKS_LT_2');
+  });
+
+  it('does not allow research capability to be credited through a non-research tool',()=>{
+    const value=corpus();
+    const original=value.tasks[6];
+    const nextBase={...original,capabilities:[...original.capabilities,'research' as const],expectedTool:'repository_explorer' as const};
+    const {taskDigest:_digest,...without}=nextBase;
+    const tasks=[...value.tasks];
+    tasks[6]={...nextBase,taskDigest:digestGeneralAgentPrivateTaskV2(without)};
+    expect(validateGeneralAgentPrivateCorpusV2({...value,tasks}))
+      .toContain('agent-private-07:PRIVATE_TASK_RESEARCH_TOOL_MISMATCH');
   });
 
   it('requires file writes to declare exact allowed paths and a regression check',()=>{
