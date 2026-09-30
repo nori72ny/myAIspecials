@@ -89,7 +89,7 @@ const candidateScores = packet.tasks.map(task => {
   }
 
   const built = buildTrustedGeneralAgentRunV2(task, raw);
-  if (!built.ok) {
+  if ("blockers" in built) {
     buildErrors.push({ taskId: task.id, blockers: built.blockers });
     return missingScore(task, 'TRUSTED_EVIDENCE_BUILD_FAILED');
   }
