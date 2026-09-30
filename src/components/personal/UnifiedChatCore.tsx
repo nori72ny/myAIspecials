@@ -260,6 +260,9 @@ function parseOriginArtifacts(value: unknown): ChatArtifactPayload[] | undefined
       || artifact.data.length === 0
       || artifact.data.length > 2_100_000
       || !/^[A-Za-z0-9+/]*={0,2}$/.test(artifact.data)
+      || (artifact.kind === 'document' && artifact.artifactType !== 'docx')
+      || (artifact.kind === 'presentation' && artifact.artifactType !== 'pptx')
+      || (artifact.kind === 'spreadsheet' && artifact.artifactType !== 'xlsx')
       || artifact.verified !== true
       || artifact.freeOnly !== true
       || artifact.costUsd !== 0
