@@ -97,6 +97,17 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
   });
 
+  it('carries an explicit chat coding goal into the Coding workspace without starting execution', async () => {
+    render(<PersonalEditionApp />);
+    const goal = 'ログイン画面の入力チェックを修正して';
+
+    act(() => latestAppProps().onOpenCoding?.(goal));
+
+    const coding = await screen.findByRole('region', { name: 'Coding Job Workspace' });
+    expect(coding.textContent).toContain(goal);
+    expect(window.location.search).toBe('?workspace=coding');
+  });
+
   it('passes a chat coding handoff goal into the Coding workspace without starting execution', async () => {
     render(<PersonalEditionApp />);
     const goal = 'APIのエラー処理を修正し、関連テストも追加して';
