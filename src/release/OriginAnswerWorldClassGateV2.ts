@@ -3,11 +3,14 @@ import type { OriginAnswerTrustedExecutionQualificationV2 } from "./OriginAnswer
 import type { OriginAnswerVisualQualificationV2 } from "./OriginAnswerVisualEvidenceV2.js";
 import type { OriginAnswerExperienceQualificationV2 } from "./OriginAnswerExperienceV2.js";
 import type { OriginBlindPreferenceReportV2 } from "./OriginAnswerBlindPreferenceV2.js";
+import type { OriginTrustedAnswerQualityQualificationV2 } from "./OriginTrustedAnswerQualityV2.js";
 
 export interface OriginAnswerWorldClassGateInputV2 {
   readonly candidateSha: string;
   readonly answerExperience: OriginAnswerExperienceQualificationV2 | null;
   readonly blindPreference: OriginBlindPreferenceReportV2 | null;
+  /** Exact-answer external scoring bound to the trusted 48-case execution. */
+  readonly trustedAnswerQuality?: OriginTrustedAnswerQualityQualificationV2 | null;
   readonly visual: OriginAnswerVisualQualificationV2 | null;
   readonly trustedExecution: OriginAnswerTrustedExecutionQualificationV2 | null;
   readonly binding: OriginAnswerEvaluationBindingQualificationV2 | null;
@@ -20,6 +23,7 @@ export interface OriginAnswerWorldClassGateReportV2 {
   readonly candidateSha: string;
   readonly answerExperiencePassed: boolean;
   readonly competitiveEvidencePassed: boolean;
+  readonly exactAnswerScoringPassed: boolean;
   readonly visualEvidencePassed: boolean;
   readonly trustedExecutionPassed: boolean;
   readonly bindingPassed: boolean;
@@ -40,6 +44,9 @@ export function evaluateOriginAnswerWorldClassGateV2(
   const competitiveEvidencePassed = input.blindPreference?.competitiveEvidencePassed === true;
   if (!competitiveEvidencePassed) blockers.push("AQ_V2_COMPETITIVE_EVIDENCE_NOT_PROVEN");
 
+  const exactAnswerScoringPassed = input.trustedAnswerQuality?.passed === true;
+  if (!exactAnswerScoringPassed) blockers.push("AQ_V2_EXACT_ANSWER_SCORING_NOT_PROVEN");
+
   const visualEvidencePassed = input.visual?.passed === true;
   if (!visualEvidencePassed) blockers.push("AQ_V2_VISUAL_EVIDENCE_NOT_PROVEN");
 
@@ -58,11 +65,18 @@ export function evaluateOriginAnswerWorldClassGateV2(
     candidateSha: input.candidateSha,
     answerExperiencePassed,
     competitiveEvidencePassed,
+    exactAnswerScoringPassed,
     visualEvidencePassed,
     trustedExecutionPassed,
     bindingPassed,
     liveEvidencePassed,
-    worldClassCandidate: answerExperiencePassed && competitiveEvidencePassed && visualEvidencePassed && trustedExecutionPassed && bindingPassed && liveEvidencePassed,
+    worldClassCandidate: answerExperiencePassed
+      && competitiveEvidencePassed
+      && exactAnswerScoringPassed
+      && visualEvidencePassed
+      && trustedExecutionPassed
+      && bindingPassed
+      && liveEvidencePassed,
     blockers: Object.freeze(blockers),
   });
 }
