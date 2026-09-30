@@ -1,0 +1,142 @@
+name: General Agent trusted external comparison V2
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact current main SHA evaluated by the candidate runner
+        required: true
+        type: string
+      candidate_run_id:
+        description: Successful General Agent private held-out V2 GitHub Actions run id for this exact SHA
+        required: true
+        type: string
+      corpus_id:
+        description: Exact evaluator-owned corpus id used by the candidate run
+        required: true
+        type: string
+      evaluator_id:
+        description: Independent evaluator identity
+        required: true
+        type: string
+      round_id:
+        description: Frozen General Agent comparison round id
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: origin-general-agent-trusted-external-comparison-v2
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact current main evaluator
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate exact comparison inputs and secret boundary
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CORPUS_ID: ${{ inputs.corpus_id }}
+          EVALUATOR_ID: ${{ inputs.evaluator_id }}
+          ROUND_ID: ${{ inputs.round_id }}
+          REFERENCE_PACK: ${{ secrets.ORIGIN_GENERAL_AGENT_REFERENCE_PACK_GZIP_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$REFERENCE_PACK"
+          node <<'NODE'
+          const safe=/^[A-Za-z0-9][A-Za-z0-9._:/-]{2,159}$/;
+          const sha=process.env.CANDIDATE_SHA||'';
+          const run=process.env.CANDIDATE_RUN_ID||'';
+          if(!/^[a-f0-9]{40}$/.test(sha)) process.exit(2);
+          if(sha!==process.env.GITHUB_SHA) process.exit(3);
+          if(!/^[1-9][0-9]{5,19}$/.test(run)) process.exit(4);
+          for(const key of ['CORPUS_ID','EVALUATOR_ID','ROUND_ID']) {
+            if(!safe.test(process.env[key]||'')) process.exit(5);
+          }
+          NODE
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install evaluator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify candidate run provenance and download exact sanitized artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/general-agent-candidate
+          curl --fail --silent --show-error             -H 'Accept: application/vnd.github+json'             -H "Authorization: Bearer ${GH_TOKEN}"             -H 'X-GitHub-Api-Version: 2026-03-10'             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}"             -o candidate-run.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const run=JSON.parse(fs.readFileSync('candidate-run.json','utf8'));
+          const fail=code=>{console.error(code);process.exit(2);};
+          if(String(run?.id)!==process.env.CANDIDATE_RUN_ID) fail('GENERAL_AGENT_CANDIDATE_RUN_ID_MISMATCH');
+          if(run?.head_sha!==process.env.CANDIDATE_SHA) fail('GENERAL_AGENT_CANDIDATE_RUN_SHA_MISMATCH');
+          if(run?.head_branch!=='main') fail('GENERAL_AGENT_CANDIDATE_RUN_BRANCH_INVALID');
+          if(run?.event!=='workflow_dispatch') fail('GENERAL_AGENT_CANDIDATE_RUN_EVENT_INVALID');
+          if(run?.conclusion!=='success') fail('GENERAL_AGENT_CANDIDATE_RUN_NOT_SUCCESS');
+          if(run?.path!=='.github/workflows/general-agent-private-heldout-v2.yml') {
+            fail('GENERAL_AGENT_CANDIDATE_RUN_WORKFLOW_INVALID');
+          }
+          NODE
+          curl --fail --silent --show-error             -H 'Accept: application/vnd.github+json'             -H "Authorization: Bearer ${GH_TOKEN}"             -H 'X-GitHub-Api-Version: 2026-03-10'             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}/artifacts?per_page=100"             -o candidate-artifacts.json
+          CANDIDATE_RUN_ID="$CANDIDATE_RUN_ID" node <<'NODE' > candidate-artifact-id.txt
+          const fs=require('node:fs');
+          const body=JSON.parse(fs.readFileSync('candidate-artifacts.json','utf8'));
+          const expected='general-agent-private-v2-'+process.env.CANDIDATE_RUN_ID;
+          const rows=(body?.artifacts||[]).filter(row=>row?.name===expected && row?.expired===false);
+          if(rows.length!==1 || !Number.isInteger(rows[0]?.id)) process.exit(2);
+          process.stdout.write(String(rows[0].id));
+          NODE
+          artifact_id="$(cat candidate-artifact-id.txt)"
+          curl --fail --silent --show-error --location             -H 'Accept: application/vnd.github+json'             -H "Authorization: Bearer ${GH_TOKEN}"             -H 'X-GitHub-Api-Version: 2026-03-10'             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip"             -o candidate-artifact.zip
+          unzip -q candidate-artifact.zip -d test-results/general-agent-candidate
+          test -f test-results/general-agent-candidate/public-tasks.json
+          test -f test-results/general-agent-candidate/candidate-trusted-evidence.json
+          test -f test-results/general-agent-candidate/candidate-score-summary.json
+          rm -f candidate-run.json candidate-artifacts.json candidate-artifact-id.txt candidate-artifact.zip
+
+      - name: Assemble and evaluate controlled external comparison
+        env:
+          ORIGIN_GENERAL_AGENT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ORIGIN_GENERAL_AGENT_CANDIDATE_ARTIFACT_DIR: ${{ github.workspace }}/test-results/general-agent-candidate
+          ORIGIN_GENERAL_AGENT_CORPUS_ID: ${{ inputs.corpus_id }}
+          ORIGIN_GENERAL_AGENT_EVALUATOR_ID: ${{ inputs.evaluator_id }}
+          ORIGIN_GENERAL_AGENT_ROUND_ID: ${{ inputs.round_id }}
+          ORIGIN_GENERAL_AGENT_REFERENCE_PACK_GZIP_B64: ${{ secrets.ORIGIN_GENERAL_AGENT_REFERENCE_PACK_GZIP_B64 }}
+          ORIGIN_GENERAL_AGENT_COMPARISON_OUTPUT_DIR: ${{ github.workspace }}/test-results/general-agent-trusted-comparison
+        run: |
+          set -euo pipefail
+          npm run eval:heldout-agent:trusted-pack
+
+      - name: Upload sanitized trusted comparison evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: general-agent-trusted-comparison-v2-${{ github.run_id }}
+          path: test-results/general-agent-trusted-comparison/
+          retention-days: 90
+          if-no-files-found: warn
