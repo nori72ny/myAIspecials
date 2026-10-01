@@ -420,6 +420,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(headerWidth.scroll).toBeLessThanOrEqual(headerWidth.client);
 
     await history.click();
+    await expect(page.getByTestId('history-search-input')).toBeVisible();
+    await expect(page.getByTestId('knowledge-map-toggle')).toBeHidden();
+    await page.getByText('その他の表示').click();
     await expect(page.getByTestId('knowledge-map-toggle')).toBeVisible();
   });
 });
