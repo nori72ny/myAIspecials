@@ -67,5 +67,12 @@ ORIGIN must feel visually quiet, precise, fast, and trustworthy while keeping ad
 - Prove recovery with a zero-net-file-diff comparison against the last verified head before resuming visual work.
 - Do not weaken tests merely to accommodate an unintended broad edit.
 
+## Current audit sequence
+1. Keep the verified quiet-elevation implementation as the baseline.
+2. Revisit assistant-answer surface de-boxing only through a full-file-safe or tiny blob/tree patch with diff-size verification before branch movement.
+3. Inspect the resulting conversation at 390px, 360px, 320px and desktop widths.
+4. Audit settings/history/dialog plus empty/loading/error/free-unavailable surfaces.
+5. Run Production-equivalent functional/visual audit before marking the visual PR ready.
+
 ## Evidence policy
 A visual change is not complete because CSS exists. It requires exact-head CI plus responsive interaction evidence. Production is not changed from this branch.
