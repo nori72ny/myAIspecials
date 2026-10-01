@@ -147,7 +147,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('artifact-live-steering-submit').click();
     await expect(steering).toBeHidden();
     const workspace = page.getByTestId('artifact-workspace');
-    await workspace.getByRole('button', { name: 'コードを表示' }).click();
+    await page.getByTestId('artifact-action-details').click();
+    await page.getByTestId('artifact-show-code').click();
     await expect(workspace).toContainText('Navy final');
     const state = await page.evaluate(() => {
       const current = window as Window & { originSteeringRequests?: Array<{ model: string; messages: Array<{ content: string }> }>; originSteeringAborted?: boolean };
