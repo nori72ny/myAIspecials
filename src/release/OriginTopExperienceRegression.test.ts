@@ -39,8 +39,8 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(functionalUi).toContain('min-height: 44px !important;');
     expect(functionalUi).not.toContain('background: rgba(15, 23, 42, 0.18);');
     expect(functionalUi).not.toContain('box-shadow: 0 24px 70px');
-    expect(topUi).toContain('background: rgba(15, 23, 42, 0.10) !important;');
-    expect(topUi).toContain('box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14) !important;');
+    expect(topUi).toContain('background: rgba(15, 23, 42, 0.08) !important;');
+    expect(topUi).toContain('box-shadow: 0 8px 22px rgba(15, 23, 42, 0.11) !important;');
     expect(topUi).not.toContain('left: max(16px, calc((100vw - 360px) / 2)) !important;');
     expect(topUi).not.toContain('max-height: min(46dvh, 320px) !important;');
   });
@@ -90,7 +90,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('.origin-composer {');
     expect(topUi).toContain('min-height: 92px !important;');
-    expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary)) !important;');
+    expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;');
     expect(topUi).toContain('color: var(--text-primary) !important;');
     expect(topUi).toContain('.origin-composer__action.is-ready');
     expect(topUi).toContain('background: var(--accent-primary);');
@@ -103,18 +103,18 @@ describe('ORIGIN top experience regression boundary', () => {
   });
 
   it('keeps Release 2 elevation quiet without weakening hierarchy or focus', () => {
-    expect(topUi).toContain('box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
-    expect(topUi).toContain('box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 42%, transparent), 0 0 0 3px');
-    expect(topUi).toContain('filter: blur(10px) !important;');
-    expect(topUi).toContain('opacity: .44;');
+    expect(topUi).toContain('box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
+    expect(topUi).toContain('box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px');
+    expect(topUi).toContain('filter: blur(8px) !important;');
+    expect(topUi).toContain('opacity: .30;');
+    expect(topUi).not.toContain('0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
+    expect(topUi).not.toContain('0 8px 24px color-mix(in oklch, var(--shadow-color) 42%, transparent)');
     expect(topUi).not.toContain('0 12px 34px color-mix(in oklch, var(--shadow-color) 54%, transparent)');
-    expect(topUi).not.toContain('0 14px 40px color-mix(in oklch, var(--shadow-color) 62%, transparent)');
-    expect(topUi).not.toContain('0 12px 30px color-mix(in oklch, var(--shadow-color) 58%, transparent)');
-    expect(ultraOptics).toContain('filter: blur(34px);');
-    expect(ultraOptics).toContain('0 10px 28px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
-    expect(ultraOptics).toContain('backdrop-filter: blur(16px);');
-    expect(ultraOptics).not.toContain('filter: blur(48px);');
-    expect(ultraOptics).not.toContain('0 20px 60px var(--shadow-color)');
+    expect(ultraOptics).toContain('filter: blur(24px);');
+    expect(ultraOptics).toContain('0 4px 14px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
+    expect(ultraOptics).not.toContain('backdrop-filter: blur(16px);');
+    expect(ultraOptics).not.toContain('filter: blur(34px);');
+    expect(ultraOptics).not.toContain('0 10px 28px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
     expect(ultraOptics).not.toContain('backdrop-filter: blur(24px);');
   });
 
@@ -122,7 +122,8 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('[data-testid="settings-modal"],');
     expect(topUi).toContain('[data-testid="history-drawer"] {');
     expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 98%, var(--bg-primary)) !important;');
-    expect(topUi).toContain('box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 30%, transparent) !important;');
+    expect(topUi).toContain('box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 24%, transparent) !important;');
+    expect(topUi).not.toContain('box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 30%, transparent) !important;');
     expect(topUi).not.toContain('box-shadow: 0 24px 70px');
   });
 
