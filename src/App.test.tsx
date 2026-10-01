@@ -195,6 +195,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(codeButton);
     expect(screen.queryByTitle('プレビュー')).toBeNull();
     expect(screen.getByText('<main><button>Ready</button></main>')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('artifact-action-details'));
+    const previewButton = screen.getByTestId('artifact-show-preview');
+    expect(previewButton.textContent).toContain('プレビューに戻る');
+    fireEvent.click(previewButton);
+    expect(screen.getByTitle('プレビュー')).toBeTruthy();
   });
 
   it('renders Markdown artifacts as finished content before source text', () => {
