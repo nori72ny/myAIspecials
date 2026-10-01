@@ -73,6 +73,8 @@ Workflow: `.github/workflows/general-agent-private-heldout-v2.yml`
 
 It is manual-only and main-only. `candidate_sha` must equal `github.sha` and the checked-out HEAD exactly.
 
+Before any Agent task executes, the workflow validates the sealed corpus, computes its SHA-256 digest without publishing private task content, checks for a prior `origin-general-agent-private-started-<corpusDigest>` artifact, and uploads an immutable start marker. If that corpus digest has already started, the candidate round is skipped. This prevents repeated candidate execution and best-run cherry-picking within the benchmark evidence-retention window.
+
 ## Next comparison step
 
 The independent evaluator gives the same public task identities, time budgets and permission-profile digest to at least two strong reference agents, captures their trusted task evidence, and runs:
