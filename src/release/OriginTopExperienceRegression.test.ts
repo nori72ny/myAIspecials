@@ -118,6 +118,14 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(ultraOptics).not.toContain('backdrop-filter: blur(24px);');
   });
 
+  it('keeps settings and history surfaces calm instead of inheriting oversized elevation', () => {
+    expect(topUi).toContain('[data-testid="settings-modal"],');
+    expect(topUi).toContain('[data-testid="history-drawer"] {');
+    expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 98%, var(--bg-primary)) !important;');
+    expect(topUi).toContain('box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 30%, transparent) !important;');
+    expect(topUi).not.toContain('box-shadow: 0 24px 70px');
+  });
+
   it('locks the current input-first visual hierarchy instead of the superseded oversized mark', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('min-height: 60px !important;');
