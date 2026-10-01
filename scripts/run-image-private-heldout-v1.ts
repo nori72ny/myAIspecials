@@ -10,6 +10,7 @@ import { chromium, type Browser } from 'playwright';
 import { createRasterImageV15Router } from '../src/creative/rasterImageV15Router.js';
 import { critiqueRasterStructureV15, readRasterDimensionsV15 } from '../src/creative/rasterImageCriticV15.js';
 import { scoreRasterPixelsV15 } from '../src/creative/rasterTechnicalCriticV15.js';
+import { critiqueCloudflareRasterSemanticV15 } from '../src/creative/cloudflareRasterSemanticCriticV15.js';
 import type { ImageBenchmarkOutputV15, ImageTechnicalEvidenceV15 } from '../src/release/OriginImageBlindBenchmarkV15.js';
 import {
   validateImagePrivateCorpusV1,
@@ -30,6 +31,14 @@ type CandidateCaseEvidence={
   failureCode:string|null;
   providerId:string|null;
   modelId:string|null;
+  semantic:{
+    passed:boolean;
+    safetyPassed:boolean;
+    safetyIssues:readonly string[];
+    score:number;
+    issues:readonly string[];
+    model:string;
+  }|null;
 };
 
 const EMPTY_SHA256=createHash('sha256').update(Buffer.alloc(0)).digest('hex');
@@ -133,7 +142,7 @@ async function evaluateCase(
       caseId:task.caseId,family:task.family,challengeTags:task.challengeTags,promptSha256:task.promptSha256,
       width:task.width,height:task.height,requiresText:task.requiresText,taskDigest:task.taskDigest,
       output:{blindKey:'ORIGIN',systemId:'origin-raster-v15',role:'origin',executionStatus:'failed',durationMs:Date.now()-started,imageSha256:EMPTY_SHA256,technical:emptyTechnical()},
-      failureCode:'IMAGE_PRIVATE_FETCH_FAILED',providerId:null,modelId:null,
+      failureCode:'IMAGE_PRIVATE_FETCH_FAILED',providerId:null,modelId:null,semantic:null,
     };
   }
 
@@ -144,7 +153,7 @@ async function evaluateCase(
       caseId:task.caseId,family:task.family,challengeTags:task.challengeTags,promptSha256:task.promptSha256,
       width:task.width,height:task.height,requiresText:task.requiresText,taskDigest:task.taskDigest,
       output:{blindKey:'ORIGIN',systemId:'origin-raster-v15',role:'origin',executionStatus:classifyFailure(response.status,code),durationMs:Date.now()-started,imageSha256:EMPTY_SHA256,technical:emptyTechnical()},
-      failureCode:code,providerId:null,modelId:null,
+      failureCode:code,providerId:null,modelId:null,semantic:null,
     };
   }
 
@@ -175,12 +184,37 @@ async function evaluateCase(
     && providerId==='cloudflare-workers-ai-free'
     && modelId
   );
+  let semantic:CandidateCaseEvidence['semantic']=null;
+  let semanticFailureCode:string|null=null;
+  if(typedMime){
+    try{
+      const result=await critiqueCloudflareRasterSemanticV15({
+        originalRequest:task.prompt,
+        bytes,
+        mimeType:typedMime,
+      },process.env);
+      semantic={
+        passed:result.passed,
+        safetyPassed:result.safetyPassed,
+        safetyIssues:[...result.safetyIssues],
+        score:result.score,
+        issues:[...result.issues],
+        model:result.model,
+      };
+    }catch(error){
+      semanticFailureCode=safeCode(
+        error instanceof Error?error.message:null,
+        'IMAGE_PRIVATE_SEMANTIC_CRITIC_FAILED',
+      );
+    }
+  }
+
   const technical:ImageTechnicalEvidenceV15={
     signatureValid:Boolean(typedMime&&dimensions),
     dimensionsValid:Boolean(dimensions&&dimensions.width===task.width&&dimensions.height===task.height),
     structuralCriticPassed:Boolean(structural.passed),
     technicalCriticPassed:technicalPassed,
-    safetyPassed:true,
+    safetyPassed:semantic?.safetyPassed===true,
     deliveryIntegrityPassed,
   };
 
@@ -190,8 +224,8 @@ async function evaluateCase(
     caseId:task.caseId,family:task.family,challengeTags:task.challengeTags,promptSha256:task.promptSha256,
     width:task.width,height:task.height,requiresText:task.requiresText,taskDigest:task.taskDigest,
     output:{blindKey:'ORIGIN',systemId:'origin-raster-v15',role:'origin',executionStatus:'completed',durationMs:Date.now()-started,imageSha256:actualSha,technical},
-    failureCode:passed?null:'IMAGE_PRIVATE_TECHNICAL_VALIDATION_FAILED',
-    providerId,modelId,
+    failureCode:passed?null:(semanticFailureCode??(semantic?.safetyPassed===false?'IMAGE_PRIVATE_OUTPUT_SAFETY_FAILED':'IMAGE_PRIVATE_TECHNICAL_VALIDATION_FAILED')),
+    providerId,modelId,semantic,
   };
 }
 
