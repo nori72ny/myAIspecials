@@ -6,6 +6,7 @@ describe('ORIGIN top experience regression boundary', () => {
   const app = readFileSync(resolve(root, 'App.tsx'), 'utf8');
   const main = readFileSync(resolve(root, 'main.tsx'), 'utf8');
   const indexCss = readFileSync(resolve(root, 'index.css'), 'utf8');
+  const auditCss = readFileSync(resolve(root, 'audit-2026-priority.css'), 'utf8');
   const functionalUi = readFileSync(resolve(root, 'origin-functional-ui.css'), 'utf8');
   const topUi = readFileSync(resolve(root, 'origin-top-ui.css'), 'utf8');
   const ultraOptics = readFileSync(resolve(root, 'ultra-optics.css'), 'utf8');
@@ -50,6 +51,16 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(ultraOptics).toContain('Release 2 typography/accessibility ownership');
     expect(ultraOptics).not.toContain('font-size: 14px;');
     expect(ultraOptics).not.toContain(':where(input, textarea, select):focus');
+  });
+
+  it('keeps dark theme state colors under the canonical token layer', () => {
+    expect(auditCss).toContain('Release 2 compatibility shim');
+    expect(auditCss).not.toContain('--accent-hover:');
+    expect(auditCss).not.toContain('--accent-soft:');
+    expect(auditCss).not.toContain('.origin-primary-button');
+    expect(indexCss).toContain('--accent-primary: oklch(0.81 0.10 225);');
+    expect(indexCss).toContain('--accent-hover: oklch(0.87 0.09 225);');
+    expect(indexCss).toContain('--accent-border: oklch(0.42 0.06 235);');
   });
 
   it('locks the canonical Release 2 composer instead of the superseded flagship treatment', () => {
