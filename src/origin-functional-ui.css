@@ -1,5 +1,31 @@
 /* Functional responsive rules preserved from the pre-Release-2 shell. */
 /* Keep interaction geometry, viewport containment and artifact controls usable across breakpoints. */
+.origin-composer {
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+  align-items: flex-end;
+  gap: 8px;
+}
+.origin-composer__input {
+  min-height: 48px;
+  max-height: 176px;
+  flex: 1 1 auto;
+  resize: none;
+}
+.origin-composer__action {
+  display: inline-flex;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+}
 .origin-add-menu__panel {
   max-height: min(420px, calc(100dvh - 120px));
   overflow-y: auto;
@@ -26,6 +52,9 @@
 .artifact-workspace__actions [role="group"] { max-width: 100%; }
 
 @media (max-width: 639px) {
+  .origin-composer {
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
   .origin-add-menu[open]::before {
     content: "";
     position: fixed;

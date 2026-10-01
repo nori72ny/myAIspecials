@@ -22,6 +22,8 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(functionalUi).toContain('Functional responsive rules preserved from the pre-Release-2 shell');
     expect(functionalUi).toContain('.artifact-workspace__header');
     expect(functionalUi).toContain('.artifact-workspace__actions');
+    expect(functionalUi).toContain('.origin-composer__action');
+    expect(functionalUi).toContain('min-width: 44px;');
     expect(functionalUi).toContain('minmax(44px, 1fr)');
     expect(topUi).not.toContain('.artifact-workspace__header');
     expect(topUi).not.toContain('.artifact-workspace__actions > [role="group"]');
@@ -31,8 +33,14 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('.origin-composer {');
     expect(topUi).toContain('min-height: 92px !important;');
-    expect(topUi).toContain('.origin-composer textarea {');
+    expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary)) !important;');
+    expect(topUi).toContain('color: var(--text-primary) !important;');
+    expect(topUi).toContain('.origin-composer__action.is-ready');
+    expect(topUi).toContain('background: var(--accent-primary);');
+    expect(topUi).toContain('color: var(--text-on-accent);');
     expect(topUi).toContain('font-size: 16px !important;');
+    expect(topUi).not.toContain('background: rgba(24, 24, 27, 0.85)');
+    expect(topUi).not.toContain('color: #f4f4f5');
     expect(topUi).not.toContain('border-radius: 28px !important;');
     expect(topUi).not.toContain('box-shadow: 0 18px 50px color-mix');
   });
