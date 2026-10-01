@@ -36,13 +36,13 @@
   padding: 8px !important;
   background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary)) !important;
   color: var(--text-primary) !important;
-  box-shadow: 0 12px 34px color-mix(in oklch, var(--shadow-color) 54%, transparent), inset 0 1px 0 color-mix(in oklch, white 58%, transparent) !important;
-  backdrop-filter: blur(12px) saturate(105%);
+  box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent), inset 0 1px 0 color-mix(in oklch, white 52%, transparent) !important;
+  backdrop-filter: blur(10px) saturate(103%);
 }
 .origin-composer:focus-within,
 .origin-composer.is-focused {
   border-color: var(--accent-border) !important;
-  box-shadow: 0 14px 40px color-mix(in oklch, var(--shadow-color) 62%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 62%, transparent) !important;
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 42%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 56%, transparent) !important;
 }
 .origin-composer textarea,
 .origin-composer__input {
@@ -93,12 +93,12 @@
   height: 58px !important;
   border-radius: 18px !important;
   font-size: 32px !important;
-  box-shadow: 0 12px 30px color-mix(in oklch, var(--shadow-color) 58%, transparent), inset 0 1px 0 color-mix(in oklch, white 56%, transparent) !important;
+  box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent), inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
 }
 [data-testid="origin-core-logo"] .origin-logo-glow {
-  inset: -4px !important;
-  filter: blur(14px) !important;
-  opacity: .68;
+  inset: -3px !important;
+  filter: blur(10px) !important;
+  opacity: .44;
 }
 .origin-add-menu__panel {
   width: min(20rem, calc(100vw - 2rem));
@@ -107,7 +107,7 @@
   min-height: 58px;
   background: color-mix(in oklch, var(--bg-primary) 88%, transparent) !important;
   border-color: var(--border-default) !important;
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(12px);
 }
 .origin-personal-shell :is(
   [aria-label="Research Workspace"],
@@ -121,7 +121,7 @@
 .origin-personal-shell .origin-workspace {
   border: 1px solid var(--border-default) !important;
   border-radius: 16px !important;
-  box-shadow: 0 6px 20px color-mix(in oklch, var(--shadow-color) 28%, transparent);
+  box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 22%, transparent);
 }
 @media (max-width: 639px) {
   .origin-header {
@@ -167,14 +167,14 @@
     line-height: 1.55 !important;
   }
   .origin-add-menu[open]::before {
-    background: rgba(15, 23, 42, 0.12) !important;
+    background: rgba(15, 23, 42, 0.10) !important;
     backdrop-filter: blur(1px) !important;
   }
   .origin-add-menu__panel {
     padding: 6px !important;
     border-radius: 16px !important;
     gap: 2px !important;
-    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18) !important;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14) !important;
   }
   .origin-add-menu__panel > button {
     border-radius: 10px !important;
