@@ -44,17 +44,6 @@
   color: var(--text-primary) !important;
 }
 
-.origin-ultra-panel,
-.origin-glass-control {
-  position: relative;
-  background: color-mix(in oklch, var(--bg-surface) 88%, transparent);
-  border: 1px solid var(--border-default);
-  border-top-color: var(--border-strong);
-  backdrop-filter: blur(24px) saturate(105%);
-  -webkit-backdrop-filter: blur(24px) saturate(105%);
-  box-shadow: inset 0 1px 0 color-mix(in oklch, white 55%, transparent), 0 20px 60px var(--shadow-color);
-}
-
 .origin-chat .markdown-body,
 .origin-chat .markdown-body p,
 .origin-chat .markdown-body li {
@@ -69,13 +58,6 @@
   box-shadow: none !important;
   border-radius: 0 !important;
   padding: 0 !important;
-}
-
-.origin-chat > div:last-child > div > div {
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  background: color-mix(in oklch, var(--bg-surface) 92%, transparent);
-  border-color: var(--border-default);
 }
 
 .origin-ultra-splash {
@@ -275,7 +257,7 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--text-primary) 12%, transparent), transparent);
   animation: origin-skeleton-shimmer 1.4s linear infinite;
 }
 @keyframes origin-skeleton-shimmer { to { transform: translateX(100%); } }
@@ -285,7 +267,7 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   place-items: center;
   min-height: 180px;
   padding: 28px;
-  border: 1px dashed var(--glass-border);
+  border: 1px dashed var(--border-default);
   border-radius: 18px;
   background: color-mix(in oklch, var(--bg-surface) 72%, transparent);
   text-align: center;
@@ -303,7 +285,7 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   top: 28px;
   bottom: 28px;
   width: 1px;
-  background: linear-gradient(var(--accent-primary-v2), transparent);
+  background: linear-gradient(var(--accent-primary), transparent);
   opacity: .35;
 }
 .origin-dag__node {
@@ -315,7 +297,7 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   align-items: center;
   min-height: 64px;
   padding: 10px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-default);
   border-radius: 14px;
   background: color-mix(in oklch, var(--bg-surface) 90%, transparent);
 }
@@ -325,8 +307,8 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: rgba(99,102,241,.12);
-  color: #818cf8;
+  background: color-mix(in oklch, var(--accent-primary) 12%, var(--bg-surface));
+  color: var(--accent-primary);
   font-size: 12px;
   font-weight: 800;
 }

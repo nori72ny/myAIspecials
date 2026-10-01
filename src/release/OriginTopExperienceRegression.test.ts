@@ -7,6 +7,7 @@ describe('ORIGIN top experience regression boundary', () => {
   const main = readFileSync(resolve(root, 'main.tsx'), 'utf8');
   const functionalUi = readFileSync(resolve(root, 'origin-functional-ui.css'), 'utf8');
   const topUi = readFileSync(resolve(root, 'origin-top-ui.css'), 'utf8');
+  const ultraOptics = readFileSync(resolve(root, 'ultra-optics.css'), 'utf8');
 
   it('locks out destructive header behavior and uses the direct React settings action', () => {
     expect(app).not.toContain('window.location.href = "/"');
@@ -54,5 +55,16 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('font-size: 16px !important;');
     expect(topUi).not.toContain('ORIGIN Top Experience — 2026 flagship surface');
     expect(topUi).not.toContain('width: 104px !important;');
+  });
+
+  it('keeps retired glass shell tokens out of standalone Release 2 primitives', () => {
+    expect(ultraOptics).not.toContain('.origin-ultra-panel,');
+    expect(ultraOptics).not.toContain('.origin-glass-control {');
+    expect(ultraOptics).not.toContain('.origin-chat > div:last-child > div > div {');
+    expect(ultraOptics).not.toContain('var(--glass-border)');
+    expect(ultraOptics).not.toContain('var(--accent-primary-v2)');
+    expect(ultraOptics).toContain('border: 1px dashed var(--border-default);');
+    expect(ultraOptics).toContain('background: linear-gradient(var(--accent-primary), transparent);');
+    expect(ultraOptics).toContain('color: var(--accent-primary);');
   });
 });
