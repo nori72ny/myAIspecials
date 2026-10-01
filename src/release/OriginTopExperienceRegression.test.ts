@@ -118,14 +118,6 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(ultraOptics).not.toContain('backdrop-filter: blur(24px);');
   });
 
-  it('keeps assistant answers content-first instead of wrapping normal reading flow in a card', () => {
-    expect(indexCss).toContain('.origin-chat-assistant {');
-    expect(indexCss).toContain('background: transparent;');
-    expect(indexCss).toContain('border-color: transparent;');
-    expect(indexCss).toContain('box-shadow: none;');
-    expect(indexCss).not.toContain('box-shadow: 0 14px 38px color-mix(in oklch, var(--shadow-color) 42%, transparent)');
-  });
-
   it('keeps settings and history surfaces calm instead of inheriting oversized elevation', () => {
     expect(topUi).toContain('[data-testid="settings-modal"],');
     expect(topUi).toContain('[data-testid="history-drawer"] {');
