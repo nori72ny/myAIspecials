@@ -30,7 +30,7 @@ describe('Image private held-out runner V1',()=>{
 
   it('runs the real raster router and validates bytes with structural and pixel critics',()=>{
     expect(runner).toContain('createRasterImageV15Router');
-    expect(runner).toContain("'/api/creative/v1.5/raster/generate'");
+    expect(runner).toContain('/api/creative/v1.5/raster/generate');
     expect(runner).toContain('critiqueRasterStructureV15');
     expect(runner).toContain('scoreRasterPixelsV15');
     expect(runner).toContain('chromium.launch');
