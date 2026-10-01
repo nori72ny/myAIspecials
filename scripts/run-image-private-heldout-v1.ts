@@ -42,6 +42,7 @@ type CandidateCaseEvidence={
 };
 
 const EMPTY_SHA256=createHash('sha256').update(Buffer.alloc(0)).digest('hex');
+const MAX_PERSISTED_IMAGE_BYTES=12*1024*1024;
 
 function requiredEnv(name:string):string{
   const value=process.env[name]?.trim();
@@ -120,6 +121,7 @@ async function evaluateCase(
   baseUrl:string,
   browser:Browser,
   task:ImagePrivateTaskV1,
+  caseIndex:number,
   budgetMs:number,
   outputDir:string,
 ):Promise<CandidateCaseEvidence>{
@@ -218,8 +220,33 @@ async function evaluateCase(
     deliveryIntegrityPassed,
   };
 
-  await fs.writeFile(path.join(outputDir,`${task.caseId}.${extension(mime)}`),bytes,{mode:0o600});
   const passed=Object.values(technical).every(Boolean);
+  if(!Number.isInteger(caseIndex)||caseIndex<0||caseIndex>=24){
+    throw new Error('IMAGE_PRIVATE_CASE_INDEX_INVALID');
+  }
+  const artifactFile=`case-${String(caseIndex+1).padStart(2,'0')}.${extension(typedMime??'')}`;
+  const networkWriteSafe=passed
+    && typedMime!==null
+    && bytes.length>0
+    && bytes.length<=MAX_PERSISTED_IMAGE_BYTES
+    && dimensions?.width===task.width
+    && dimensions?.height===task.height
+    && structural.passed===true
+    && technicalPassed===true
+    && semantic?.safetyPassed===true
+    && deliveryIntegrityPassed
+    && response.headers.get('x-origin-visual-sha256')===actualSha
+    && response.headers.get('x-origin-free-only')==='true'
+    && response.headers.get('x-origin-cost-usd')==='0'
+    && response.headers.get('x-origin-paid-fallback')==='false'
+    && response.headers.get('x-origin-secret-delivery')==='server-only';
+  if(networkWriteSafe){
+    // Intentional benchmark evidence capture from the in-process loopback runtime only
+    // after MIME/signature, exact dimensions, structural/pixel/safety checks, integrity
+    // headers, provider identity, and exact-zero-cost delivery have all passed.
+    // codeql[js/http-to-file-access]
+    await fs.writeFile(path.join(outputDir,artifactFile),bytes,{mode:0o600});
+  }
   return {
     caseId:task.caseId,family:task.family,challengeTags:task.challengeTags,promptSha256:task.promptSha256,
     width:task.width,height:task.height,requiresText:task.requiresText,taskDigest:task.taskDigest,
@@ -279,8 +306,8 @@ async function main():Promise<void>{
     }
 
     await fs.mkdir(imagesDir,{recursive:true});
-    for(const task of corpus.tasks){
-      const item=await evaluateCase(baseUrl,browser,task,corpus.executionBudgetMs,imagesDir);
+    for(const [caseIndex,task] of corpus.tasks.entries()){
+      const item=await evaluateCase(baseUrl,browser,task,caseIndex,corpus.executionBudgetMs,imagesDir);
       cases.push(item);
       if(item.output.durationMs>corpus.executionBudgetMs) runBlockers.push(`IMAGE_PRIVATE_EXECUTION_BUDGET_EXCEEDED:${item.caseId}`);
     }
