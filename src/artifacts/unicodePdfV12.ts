@@ -16,6 +16,8 @@ const TITLE_LINE_HEIGHT = 23;
 const BODY_LINE_HEIGHT = 15;
 const MAX_FONT_BYTES = 2_500_000;
 
+export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v1' as const;
+
 type PdfFonts = {
   japanese: PDFFont;
   latin: PDFFont;
