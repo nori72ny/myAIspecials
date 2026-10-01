@@ -186,14 +186,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
 
     const preview = screen.getByTitle('プレビュー');
-    const previewButton = screen.getByRole('button', { name: 'プレビューを表示' });
-    const codeButton = screen.getByRole('button', { name: 'コードを表示' });
     expect(preview).toBeTruthy();
-    expect(previewButton.getAttribute('aria-pressed')).toBe('true');
-    expect(codeButton.getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByRole('button', { name: 'コードを表示' })).toBeNull();
+    fireEvent.click(screen.getByTestId('artifact-action-details'));
+    const codeButton = screen.getByTestId('artifact-show-code');
+    expect(codeButton.textContent).toContain('コードを見る');
 
     fireEvent.click(codeButton);
-    expect(codeButton.getAttribute('aria-pressed')).toBe('true');
     expect(screen.queryByTitle('プレビュー')).toBeNull();
     expect(screen.getByText('<main><button>Ready</button></main>')).toBeTruthy();
   });
@@ -213,11 +212,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('artifact-markdown-preview')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'レポート', level: 1 })).toBeTruthy();
     expect(screen.getByRole('list').textContent).toContain('結論A');
-    expect(screen.getByRole('button', { name: 'プレビューを表示' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'コードを表示' })).toBeNull();
     expect(screen.queryByTestId('responsive-viewport-bar')).toBeNull();
     expect(screen.queryByText('# レポート')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'コードを表示' }));
+    fireEvent.click(screen.getByTestId('artifact-action-details'));
+    fireEvent.click(screen.getByTestId('artifact-show-code'));
     expect(screen.getByText(/# レポート/)).toBeTruthy();
   });
 
