@@ -121,6 +121,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     await page.getByRole("button", { name: "新規対話を開始" }).click();
     await page.getByTestId("origin-home-request").waitFor({ state: "visible", timeout: 10_000 });
     await page.getByTestId("history-drawer-toggle").click();
+    await page.getByText("その他の表示").click();
     await page.getByTestId("knowledge-map-toggle").click();
     await page.waitForFunction(() => {
       const raw = document.querySelector('[data-testid="knowledge-map-node-count"]')?.textContent ?? "0";
