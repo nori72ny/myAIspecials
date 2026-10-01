@@ -17,7 +17,7 @@ Start by re-reading current main SHA, PR #802, PR #803, PR #804, and canonical P
 - Current main: `7a0fa6b30d70ef8829de8bfa37faade3a8bbe8d3`.
 - Canonical Production `/api/health`: HTTP 200; `releaseSha` = current main; `costUsd=0`; `freeOnly=true`; `paidFallbackEnabled=false`; `secretDelivery=server-only`; `cache-control=no-store`. No Production sync is required.
 - PR #802: head `39678dbf105be6c1b472c068284df5dbd15e0d9f`. Open, mergeable, Ready for Review, not merged. OpenSSF, CodeQL, ACOS and Production Release CI/CD are green; Node 22/24 unit+E2E, Lighthouse, Production-browser release gates and three-browser artifact isolation are green. The stale legacy `コードを表示` E2E was replaced with the verified `詳細 -> コードを見る -> 詳細 -> プレビューに戻る` round trip.
-- PR #803: branch `uiux/visual-design-system-v1`. Draft. Previous exact head `31fa5d9584d25e919eb39bfe03d3905596a87d48` failed because two unit regression assertions still required visual CSS intentionally removed by this PR. Functional responsive rules are preserved but still co-located with visual rules; separation remains required. `ultra-optics.css` also contains legacy UI 2.0 visual rules that overlap the canonical shell and must be retired carefully rather than deleted wholesale.
+- PR #803: branch `uiux/visual-design-system-v1`. Draft. Visual work is verified incrementally; use the newest continuation update below rather than this historical paragraph for current SHA/status.
 - PR #804: head `818fdb0db509c7deb4275b75d7cb5d1f1d9966eb`. Open/draft; OpenSSF, CodeQL, ACOS and Production Release CI/CD are green.
 - Main and Production were intentionally not changed by #802/#803 work in this checkpoint.
 
@@ -33,24 +33,12 @@ $0, freeOnly, paid fallback disabled, server-only secrets, fail-closed. No paid 
 ## Production sync rule
 If current main and canonical releaseSha already match and health/safety/CI are good, change nothing. If mismatch is caused by free-tier deployment limitations, do not pay, repeatedly retry or mutate source. Only use an already-approved free exact-main synchronization path when all conditions are satisfied.
 
-## Next safe work
-1. Make #803 regression tests assert the canonical Release 2 visual contract, not deleted legacy strings.
-2. Let exact-head CI run naturally; do not spam manual retries.
-3. Once green, separate Functional responsive/a11y rules from Visual rules in the CSS layer while preserving current mobile/artifact behavior.
-4. Continue visual-system cleanup, especially remaining legacy overlap in `ultra-optics.css`, in bounded commits with exact-head evidence.
-
 ## Night continuation update — 2026-10-02
 - Re-verified current main remains `7a0fa6b30d70ef8829de8bfa37faade3a8bbe8d3` at this checkpoint.
 - PR #802 exact head `39678dbf105be6c1b472c068284df5dbd15e0d9f`: open/ready/clean; OpenSSF, ACOS, CodeQL and Production Release CI/CD green.
 - PR #803 prior exact head `6e61500e84281fb69d9b43dba8b840d42167333b`: all four top-level workflows green; Node 22/24 and Chromium/Firefox/WebKit artifact-isolation jobs green. Continued bounded cleanup removed residual legacy composer ownership from ultra-optics.css and repaired the legacy-section comment boundary. New branch head is `2c5376b344876660bb3c773f7484b488b64107ad`; require its natural exact-head CI before further structural cleanup.
 - PR #804 exact head `818fdb0db509c7deb4275b75d7cb5d1f1d9966eb`: open/draft/clean; all four top-level workflows green.
 - Main/Production were not changed in this continuation step.
-
-### Next safe work
-1. Verify exact-head CI for #803 `2c5376b...`; diagnose logs rather than retry-spam if red.
-2. If green, continue bounded ownership cleanup only where canonical index.css/origin-top-ui.css already owns the visual behavior; preserve mobile/touch/a11y and standalone skeleton/zero-state/DAG primitives.
-3. Re-run/inspect visual-accessibility and responsive evidence before marking #803 ready.
-4. Keep #802 frozen unless new evidence requires repair; do not merge PRs merely because CI is green.
 
 ## Morning continuation update — 2026-10-02
 - Current `main` was re-read from GitHub primary evidence and remains `7a0fa6b30d70ef8829de8bfa37faade3a8bbe8d3`.
@@ -61,10 +49,12 @@ If current main and canonical releaseSha already match and health/safety/CI are 
 - Successful Playwright evidence from that exact head was inspected at 320, 390, 768, 834, 844, 1280 and 1440px viewport captures. The home surface is calm and input-first; the quiet elevation change preserved responsive containment and artifact behavior.
 - Visual audit identified one remaining candidate: normal assistant answers still read more like a white card than a continuous reading surface on 390px. A follow-up experiment was started, but a diff-size guard caught an unintended broad `index.css` replacement before acceptance. The experiment and its temporary regression assertion were then fully restored using the exact pre-experiment blobs.
 - Repair head `9b8845afdbd7e87d38ad8415d635c94ad05749a5` is three commits ahead of `345cef3d...` but has **zero net file differences** versus that verified all-green head. This preserves the known-good code while documenting the safety recovery.
+- Visual design spec now includes an explicit bounded-change guard: unexpectedly broad CSS diffs must be restored to the exact known-good blob and proven zero-net-diff before new work resumes.
+- Current branch head after documentation updates is `92791d79c9419987a759c3de8206f284e7d995aa` before this checkpoint commit. Code content remains the verified quiet-elevation implementation; subsequent changes are documentation only.
 - No provider, billing, environment-variable, model-routing, authentication/secret, permission, security-boundary, `main`, or Production changes were made.
 
 ### Current safe next work
-1. Let the checkpoint/document-only head run naturally; never force-rerun.
+1. Let the documentation-only exact head run naturally; never force-rerun.
 2. Revisit the assistant-answer card reduction only with a full-file-safe patch path or a tiny tree/blob patch; enforce a diff-size guard before moving the branch.
 3. After that, inspect new 390/360/320 and desktop screenshots, then audit settings/history/dialog and empty/loading/error states.
 4. Complete Production-equivalent functional/visual audit before considering #803 Ready for Review or Release 2 integration.
