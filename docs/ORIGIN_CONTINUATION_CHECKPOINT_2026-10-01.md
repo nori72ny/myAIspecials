@@ -38,3 +38,17 @@ If current main and canonical releaseSha already match and health/safety/CI are 
 2. Let exact-head CI run naturally; do not spam manual retries.
 3. Once green, separate Functional responsive/a11y rules from Visual rules in the CSS layer while preserving current mobile/artifact behavior.
 4. Continue visual-system cleanup, especially remaining legacy overlap in `ultra-optics.css`, in bounded commits with exact-head evidence.
+
+
+## Night continuation update — 2026-10-02
+- Re-verified current main remains `7a0fa6b30d70ef8829de8bfa37faade3a8bbe8d3` at this checkpoint.
+- PR #802 exact head `39678dbf105be6c1b472c068284df5dbd15e0d9f`: open/ready/clean; OpenSSF, ACOS, CodeQL and Production Release CI/CD green.
+- PR #803 prior exact head `6e61500e84281fb69d9b43dba8b840d42167333b`: all four top-level workflows green; Node 22/24 and Chromium/Firefox/WebKit artifact-isolation jobs green. Continued bounded cleanup removed residual legacy composer ownership from ultra-optics.css and repaired the legacy-section comment boundary. New branch head is `2c5376b344876660bb3c773f7484b488b64107ad`; require its natural exact-head CI before further structural cleanup.
+- PR #804 exact head `818fdb0db509c7deb4275b75d7cb5d1f1d9966eb`: open/draft/clean; all four top-level workflows green.
+- Main/Production were not changed in this continuation step.
+
+### Next safe work
+1. Verify exact-head CI for #803 `2c5376b...`; diagnose logs rather than retry-spam if red.
+2. If green, continue bounded ownership cleanup only where canonical index.css/origin-top-ui.css already owns the visual behavior; preserve mobile/touch/a11y and standalone skeleton/zero-state/DAG primitives.
+3. Re-run/inspect visual-accessibility and responsive evidence before marking #803 ready.
+4. Keep #802 frozen unless new evidence requires repair; do not merge PRs merely because CI is green.
