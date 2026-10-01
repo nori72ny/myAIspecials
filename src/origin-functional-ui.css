@@ -60,28 +60,20 @@
     position: fixed;
     inset: 0;
     z-index: 40;
-    background: rgba(15, 23, 42, 0.18);
-    backdrop-filter: blur(2px);
     pointer-events: none;
   }
   .origin-add-menu__panel {
     position: fixed !important;
-    left: 12px !important;
-    right: 12px !important;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 76px) !important;
+    left: max(16px, calc((100vw - 360px) / 2)) !important;
+    right: max(16px, calc((100vw - 360px) / 2)) !important;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;
     width: auto !important;
     min-width: 0 !important;
-    max-height: min(52dvh, 390px);
-    padding: 10px !important;
-    border-radius: 20px !important;
-    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24) !important;
+    max-height: min(46dvh, 320px) !important;
   }
   .origin-add-menu__panel > button {
     width: 100%;
-    min-height: 48px !important;
-    border-radius: 12px !important;
-    padding-inline: 14px !important;
-    font-size: 15px !important;
+    min-height: 44px !important;
   }
   .artifact-workspace__header {
     gap: 8px;

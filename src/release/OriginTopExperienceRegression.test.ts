@@ -31,6 +31,19 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('.artifact-workspace__actions > [role="group"]');
   });
 
+  it('keeps mobile add-menu geometry functional and its appearance visual', () => {
+    expect(functionalUi).toContain('left: max(16px, calc((100vw - 360px) / 2)) !important;');
+    expect(functionalUi).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;');
+    expect(functionalUi).toContain('max-height: min(46dvh, 320px) !important;');
+    expect(functionalUi).toContain('min-height: 44px !important;');
+    expect(functionalUi).not.toContain('background: rgba(15, 23, 42, 0.18);');
+    expect(functionalUi).not.toContain('box-shadow: 0 24px 70px');
+    expect(topUi).toContain('background: rgba(15, 23, 42, 0.12) !important;');
+    expect(topUi).toContain('box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18) !important;');
+    expect(topUi).not.toContain('left: max(16px, calc((100vw - 360px) / 2)) !important;');
+    expect(topUi).not.toContain('max-height: min(46dvh, 320px) !important;');
+  });
+
   it('keeps global typography and focus-visible ownership in the canonical base layer', () => {
     expect(indexCss).toContain('font-size: 16px;');
     expect(indexCss).toContain(':focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }');
