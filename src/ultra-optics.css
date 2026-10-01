@@ -288,7 +288,7 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   .origin-danger-button { min-height: 44px; min-width: 44px; }
 }
 
-/* ================================================================
+/* ================================================================ */
 /* Legacy UI 2.0 shell/composer visuals were retired in Release 2.
    Canonical shell, typography, buttons, composer, theme surfaces and responsive
    behavior now live in index.css + origin-top-ui.css. Keep only standalone
