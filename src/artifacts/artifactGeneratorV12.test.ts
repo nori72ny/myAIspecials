@@ -143,6 +143,14 @@ describe('V1.2 real artifacts', () => {
     expect(response.body.subarray(0, 5).toString('ascii')).toBe('%PDF-');
   });
 
+  it('fails closed when a glyph is outside the bundled Japanese/Latin font coverage', async () => {
+    await expect(generateArtifactV12Async({
+      type: 'pdf',
+      title: 'Unsupported glyph',
+      content: 'Color emoji is intentionally not substituted: 😀',
+    })).rejects.toThrow('PDF_UNICODE_GLYPH_UNSUPPORTED');
+  });
+
   it('wraps and paginates PDF text without losing long lines or the end of the document', () => {
     const content = ['W'.repeat(210), ...Array.from({ length: 110 }, (_, i) => `Record ${i + 1}`), 'FINAL RECORD'].join('\n');
     const body = generateArtifactV12({ type: 'pdf', title: 'Report', content }).bytes.toString('ascii');
@@ -185,6 +193,8 @@ describe('V1.2 real artifacts', () => {
     expect(status.status).toBe(200);
     expect(status.body).toMatchObject({ ready: true, version: '1.2', freeOnly: true, costUsd: 0, paidFallbackEnabled: false, persistence: 'client-save-only' });
     expect(status.body.formats).toContain('pptx');
+    expect(status.body.formatLimitations.pdf).toContain('Embedded Noto Sans JP');
+    expect(status.body.formatLimitations.pdf).toContain('unsupported glyphs fail closed');
     expect(status.body.generatorSelfTest.pptx).toBe(true);
 
     const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'pptx', title: 'Audit', slides: [{ title: 'Audit', content: 'Harmless public content.' }] });
