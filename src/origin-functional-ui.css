@@ -143,3 +143,11 @@
     grid-template-columns: repeat(4, minmax(44px, 1fr));
   }
 }
+
+@media (max-width: 640px) {
+  .origin-chat [role="log"] { padding-inline: 12px; }
+  .origin-chat > div:last-child > div {
+    width: calc(100% - 16px) !important;
+    margin-bottom: max(4px, env(safe-area-inset-bottom));
+  }
+}
