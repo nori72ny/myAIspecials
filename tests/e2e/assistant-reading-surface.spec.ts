@@ -68,7 +68,9 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
 
     await page.getByRole('button', { name: '設定を開く', exact: true }).click();
     const settings = page.getByRole('dialog', { name: /設定|Settings/i });
+    const settingsPanel = page.getByTestId('settings-modal');
     await expect(settings).toBeVisible();
+    await expect(settingsPanel).toHaveCSS('opacity', '1');
     await page.screenshot({ path: testInfo.outputPath('surface-settings-mobile-390.png'), fullPage: true });
     await page.getByRole('button', { name: '設定を閉じる' }).click();
     await expect(settings).toBeHidden();
@@ -76,7 +78,22 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await page.getByTestId('history-drawer-toggle').click();
     const history = page.getByTestId('history-drawer');
     await expect(history).toBeVisible();
+    const historyBox = await history.boundingBox();
+    expect(historyBox).not.toBeNull();
+    expect(historyBox!.x).toBeGreaterThanOrEqual(0);
+    expect(historyBox!.y).toBeGreaterThanOrEqual(0);
+    expect(historyBox!.x + historyBox!.width).toBeLessThanOrEqual(390);
+    expect(historyBox!.y + Math.min(historyBox!.height, 1)).toBeLessThanOrEqual(844);
+    const historyOnTop = await history.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const x = Math.min(window.innerWidth - 1, Math.max(0, rect.left + rect.width / 2));
+      const y = Math.min(window.innerHeight - 1, Math.max(0, rect.top + Math.min(rect.height / 2, 120)));
+      const hit = document.elementFromPoint(x, y);
+      return Boolean(hit && (hit === element || element.contains(hit)));
+    });
     await page.screenshot({ path: testInfo.outputPath('surface-history-mobile-390.png'), fullPage: true });
+    await history.screenshot({ path: testInfo.outputPath('surface-history-panel-mobile-390.png') });
+    expect(historyOnTop).toBe(true);
   });
 
   test('captures the thinking state without changing the normal answer surface', async ({ page }, testInfo) => {
