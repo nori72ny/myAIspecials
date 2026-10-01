@@ -16,6 +16,7 @@
   background: color-mix(in oklch, var(--bg-primary) 92%, transparent) !important;
   border-color: var(--border-default) !important;
   box-shadow: none !important;
+  overflow: visible !important;
   backdrop-filter: blur(10px) saturate(103%);
 }
 .origin-header .origin-secondary-button {
