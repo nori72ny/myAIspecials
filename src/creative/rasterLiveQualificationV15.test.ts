@@ -38,6 +38,8 @@ function semanticAnswer(summary: string) {
     textHandling: 3.8,
     artifactControl: 3.8,
     professionalUsefulness: 3.7,
+    safetyPassed: true,
+    safetyIssues: [],
     criticalIssues: [],
     summary,
   });
