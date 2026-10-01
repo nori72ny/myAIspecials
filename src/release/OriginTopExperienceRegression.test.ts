@@ -59,6 +59,15 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('overflow-y: auto !important;');
   });
 
+  it('keeps mobile chat containment in functional CSS instead of the visual primitive layer', () => {
+    expect(functionalUi).toContain('.origin-chat [role="log"] { padding-inline: 12px; }');
+    expect(functionalUi).toContain('width: calc(100% - 16px) !important;');
+    expect(functionalUi).toContain('margin-bottom: max(4px, env(safe-area-inset-bottom));');
+    expect(ultraOptics).not.toContain('.origin-chat [role="log"] { padding-inline: 12px; }');
+    expect(ultraOptics).not.toContain('width: calc(100% - 16px) !important;');
+    expect(ultraOptics).not.toContain('margin-bottom: max(4px, env(safe-area-inset-bottom));');
+  });
+
   it('keeps global typography and focus-visible ownership in the canonical base layer', () => {
     expect(indexCss).toContain('font-size: 16px;');
     expect(indexCss).toContain(':focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }');
