@@ -155,6 +155,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     }
 
     fireEvent.click(screen.getByTestId('history-drawer-toggle'));
+    expect(screen.getByTestId('history-search-input').getAttribute('placeholder')).toBe('履歴を検索');
+    expect(screen.getByTestId('history-drawer-close').className).toContain('min-h-11');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('history-drawer')).toBeNull();
+    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
+    fireEvent.click(screen.getByText('その他の表示'));
     const knowledgeMap = screen.getByTestId('knowledge-map-toggle');
     expect(knowledgeMap.className).toContain('min-h-11');
     expect(knowledgeMap.className).toContain('min-w-11');
