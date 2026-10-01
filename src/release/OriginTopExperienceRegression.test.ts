@@ -45,6 +45,20 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('max-height: min(46dvh, 320px) !important;');
   });
 
+  it('keeps mobile history containment functional and its appearance visual', () => {
+    expect(functionalUi).toContain('[data-testid="history-drawer"]');
+    expect(functionalUi).toContain('position: fixed !important;');
+    expect(functionalUi).toContain('top: 70px !important;');
+    expect(functionalUi).toContain('max-height: calc(100dvh - 92px) !important;');
+    expect(functionalUi).toContain('overflow-y: auto !important;');
+    expect(functionalUi).not.toContain('border-radius: 16px !important;');
+    expect(topUi).toContain('[data-testid="history-drawer"]');
+    expect(topUi).toContain('border-radius: 16px !important;');
+    expect(topUi).not.toContain('top: 70px !important;');
+    expect(topUi).not.toContain('max-height: calc(100dvh - 92px) !important;');
+    expect(topUi).not.toContain('overflow-y: auto !important;');
+  });
+
   it('keeps global typography and focus-visible ownership in the canonical base layer', () => {
     expect(indexCss).toContain('font-size: 16px;');
     expect(indexCss).toContain(':focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }');

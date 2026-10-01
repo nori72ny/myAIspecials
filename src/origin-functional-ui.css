@@ -75,6 +75,15 @@
     width: 100%;
     min-height: 44px !important;
   }
+  [data-testid="history-drawer"] {
+    position: fixed !important;
+    top: 70px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    max-height: calc(100dvh - 92px) !important;
+    overflow-y: auto !important;
+  }
   .artifact-workspace__header {
     gap: 8px;
     padding-top: 10px !important;

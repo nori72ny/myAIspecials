@@ -182,13 +182,6 @@
     font-size: 14px !important;
   }
   [data-testid="history-drawer"] {
-    position: fixed !important;
-    top: 70px !important;
-    left: 12px !important;
-    right: 12px !important;
-    width: auto !important;
-    max-height: calc(100dvh - 92px) !important;
-    overflow-y: auto !important;
     border-radius: 16px !important;
   }
   .origin-personal-shell :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
