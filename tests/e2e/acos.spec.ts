@@ -68,8 +68,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       expect(bounds!.width).toBeGreaterThanOrEqual(44);
     }
     await page.getByTestId('artifact-action-details').click();
-
-    await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
     await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
     expect((await preview.getAttribute('sandbox'))?.split(/\s+/)).toEqual(['allow-scripts']);
@@ -166,7 +164,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('テーマ同期を確認');
     await page.getByTestId('start-request-button').click();
-    await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = page.getByTestId('artifact-workspace').getByTitle('プレビュー');
     const sandbox = preview.contentFrame();
     await expect(sandbox.locator('html')).toHaveAttribute('data-origin-design-theme', 'minimal');
@@ -198,7 +195,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
     await page.getByTestId('origin-home-request').fill('アクセシビリティ補正を確認');
     await page.getByTestId('start-request-button').click();
-    await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = page.getByTestId('artifact-workspace').getByTitle('プレビュー');
     const sandbox = preview.contentFrame();
     await expect(sandbox.locator('html')).toHaveAttribute('data-origin-a11y-checked', 'true');
@@ -235,7 +231,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       await workspace.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => undefined);
     }
     await expect(workspace).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
     await expect(preview).toBeVisible();
     await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
@@ -265,7 +260,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.evaluate(() => localStorage.setItem('origin-parent-secret', 'parent-only'));
     await page.getByTestId('origin-home-request').fill('保存できる習慣トラッカーを作成');
     await page.getByTestId('start-request-button').click();
-    await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = page.getByTestId('artifact-workspace').getByTitle('プレビュー');
     await expect(preview).toHaveAttribute('sandbox', 'allow-scripts');
     const sandbox = preview.contentFrame();
@@ -434,7 +428,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('artifact-action-share')).toBeVisible();
     await expect(page.getByTestId('artifact-action-share')).toContainText('共有');
     await page.getByTestId('artifact-action-details').click();
-    await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
     await expect(preview).toBeVisible();
     await expect(preview).toHaveAttribute('data-origin-loaded', 'true');
@@ -465,7 +458,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('start-request-button').click();
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
     const sandbox = preview.contentFrame();
     await expect(sandbox.locator('body')).toBeVisible();
@@ -506,7 +498,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('start-request-button').click();
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: 'プレビューを表示' }).click();
     await page.getByTestId('artifact-action-edit').click();
     await expect(page.getByTestId('artifact-action-edit')).toHaveAttribute('aria-pressed', 'true');
     const preview = workspace.getByTitle('プレビュー');
@@ -594,7 +585,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('start-request-button').click();
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: 'プレビューを表示' }).click();
     const preview = workspace.getByTitle('プレビュー');
     const sandbox = preview.contentFrame();
     await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Updated visual text' }], timestamp: Date.now() }, '*'));
