@@ -37,6 +37,13 @@ describe('Image private held-out runner V1',()=>{
     expect(runner).toContain("response.headers.get('x-origin-visual-sha256')===actualSha");
   });
 
+  it('derives output safety from the semantic vision critic instead of hard-coding success',()=>{
+    expect(runner).toContain('critiqueCloudflareRasterSemanticV15');
+    expect(runner).toContain('safetyPassed:semantic?.safetyPassed===true');
+    expect(runner).not.toContain('safetyPassed:true');
+    expect(runner).toContain("'IMAGE_PRIVATE_OUTPUT_SAFETY_FAILED'");
+  });
+
   it('retains quota/provider/technical failures instead of retrying favorable samples',()=>{
     expect(runner).toContain("'quota-limited'");
     expect(runner).toContain("'IMAGE_PRIVATE_TECHNICAL_VALIDATION_FAILED'");
