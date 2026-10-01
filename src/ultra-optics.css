@@ -67,8 +67,8 @@
 .origin-ultra-splash__aurora {
   position: absolute;
   inset: -20%;
-  background: radial-gradient(circle at 50% 45%, color-mix(in oklch, var(--accent-primary) 5%, transparent), transparent 28%);
-  filter: blur(34px);
+  background: radial-gradient(circle at 50% 45%, color-mix(in oklch, var(--accent-primary) 3%, transparent), transparent 28%);
+  filter: blur(24px);
 }
 
 .origin-ultra-splash__content {
@@ -89,18 +89,16 @@
   place-items: center;
   border: 1px solid var(--border-default);
   border-radius: 24px;
-  background: linear-gradient(145deg, color-mix(in oklch, var(--bg-surface) 94%, transparent), color-mix(in oklch, var(--bg-surface-muted) 72%, transparent));
-  box-shadow: inset 0 1px 0 color-mix(in oklch, white 58%, transparent), 0 10px 28px color-mix(in oklch, var(--shadow-color) 36%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary));
+  box-shadow: inset 0 1px 0 color-mix(in oklch, white 52%, transparent), 0 4px 14px color-mix(in oklch, var(--shadow-color) 24%, transparent);
 }
 
 .origin-ultra-logo__halo {
   position: absolute;
-  inset: -16px;
+  inset: -14px;
   border-radius: 32px;
-  background: radial-gradient(circle, color-mix(in oklch, var(--accent-primary) 5%, transparent), transparent 62%);
-  filter: blur(10px);
+  background: radial-gradient(circle, color-mix(in oklch, var(--accent-primary) 3%, transparent), transparent 62%);
+  filter: blur(8px);
 }
 
 .origin-ultra-logo__core {
@@ -116,9 +114,9 @@
   font-size: 32px;
   font-weight: 650;
   letter-spacing: -0.08em;
-  background: linear-gradient(145deg, color-mix(in oklch, var(--bg-surface) 96%, transparent), color-mix(in oklch, var(--bg-surface-muted) 78%, transparent));
+  background: color-mix(in oklch, var(--bg-surface) 98%, var(--bg-primary));
   border: 1px solid var(--border-default);
-  box-shadow: inset 0 1px 0 color-mix(in oklch, white 62%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, white 56%, transparent);
 }
 
 .origin-ultra-logo__edge {
