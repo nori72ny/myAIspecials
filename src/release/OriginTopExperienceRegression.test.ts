@@ -5,6 +5,7 @@ describe('ORIGIN top experience regression boundary', () => {
   const root = resolve(process.cwd(), 'src');
   const app = readFileSync(resolve(root, 'App.tsx'), 'utf8');
   const main = readFileSync(resolve(root, 'main.tsx'), 'utf8');
+  const functionalUi = readFileSync(resolve(root, 'origin-functional-ui.css'), 'utf8');
   const topUi = readFileSync(resolve(root, 'origin-top-ui.css'), 'utf8');
 
   it('locks out destructive header behavior and uses the direct React settings action', () => {
@@ -14,6 +15,16 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(main).toContain('onOpenSettings={() => setIsSettingsOpen(true)}');
     expect(main).not.toContain("document.addEventListener('click', handleSettingsTrigger, true)");
     expect(main).not.toContain('event.stopPropagation()');
+  });
+
+  it('separates preserved responsive interaction contracts from the canonical visual shell', () => {
+    expect(topUi).toMatch(/^@import '\.\/origin-functional-ui\.css';/);
+    expect(functionalUi).toContain('Functional responsive rules preserved from the pre-Release-2 shell');
+    expect(functionalUi).toContain('.artifact-workspace__header');
+    expect(functionalUi).toContain('.artifact-workspace__actions');
+    expect(functionalUi).toContain('minmax(44px, 1fr)');
+    expect(topUi).not.toContain('.artifact-workspace__header');
+    expect(topUi).not.toContain('.artifact-workspace__actions > [role="group"]');
   });
 
   it('locks the canonical Release 2 composer instead of the superseded flagship treatment', () => {

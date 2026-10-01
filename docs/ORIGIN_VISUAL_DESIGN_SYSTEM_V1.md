@@ -13,6 +13,12 @@ ORIGIN must feel visually quiet, precise, fast, and trustworthy while keeping ad
 - Mobile must preserve hierarchy without horizontal overflow or keyboard/composer collisions.
 - Focus-visible, Escape, backdrop close, reduced motion, and contrast remain first-class.
 
+## CSS layer ownership
+- `origin-functional-ui.css` owns preserved responsive interaction geometry, viewport containment, artifact-control layout and other behavior-sensitive contracts.
+- `origin-top-ui.css` is the canonical Release 2 visual shell and loads the functional layer before visual overrides.
+- `ultra-optics.css` remains a legacy visual layer under audit. Its overlapping component styling must be retired only in bounded, evidence-backed changes.
+- Functional rules must not be deleted merely because an older visual treatment is removed.
+
 ## Token hierarchy
 1. Canvas / surface / elevated surface
 2. Primary / secondary / placeholder text
