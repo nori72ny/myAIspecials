@@ -266,7 +266,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
   it('grants normal previews only script execution and never modal or same-origin privileges', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
 
     const permissions = (screen.getByTitle('プレビュー') as HTMLIFrameElement)
       .getAttribute('sandbox')
@@ -294,7 +293,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   it('synchronizes allowlisted semantic theme tokens without replacing the opaque-origin iframe', async () => {
     document.documentElement.style.setProperty('--accent-primary', 'oklch(0.62 0.15 235)');
     const { rerender } = render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" designTheme="minimal" onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
     fireEvent.load(frame);
@@ -311,7 +309,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   it('injects the accessibility auto-linter before untrusted artifact markup and keeps it network isolated', () => {
     const inaccessibleArtifact = { ...artifact, content: '<main style="background:#777"><p id="low-contrast" style="color:#777">Low contrast</p><button id="unnamed"><svg aria-hidden="true"></svg></button></main>' };
     render(<ArtifactWorkspace artifact={inaccessibleArtifact} isOpen language="en" onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Show preview' }));
     const source = (screen.getByTitle('Preview') as HTMLIFrameElement).getAttribute('data-origin-srcdoc')!;
     expect(source.indexOf('data-origin-a11y-linter="true"')).toBeLessThan(source.indexOf('id="low-contrast"'));
     expect(source).toContain('data-origin-a11y-contrast-fixes');
@@ -324,7 +321,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
   it('isolates a sandbox runtime error and restores the last known good revision', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
     act(() => window.dispatchEvent(new MessageEvent('message', { origin: 'null', source: frame.contentWindow, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'ready', timestamp: Date.now() } })));
     act(() => window.dispatchEvent(new MessageEvent('message', { origin: 'null', source: frame.contentWindow, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'broken widget' } })));
@@ -337,7 +333,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   it('provides complete, isolated Storage semantics while removing artifact-authored scripts', () => {
     const isolatedArtifact = { ...artifact, content: '<script>localStorage.setItem("artifact", "ready")</script><main>Storage ready</main>' };
     render(<ArtifactWorkspace artifact={isolatedArtifact} isOpen language="ja" onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
     const match = frame.getAttribute('data-origin-srcdoc')!.match(/<script data-origin-storage-polyfill="true">([\s\S]*?)<\/script>/);
     expect(match).not.toBeNull();
@@ -379,7 +374,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
   it('rejects forged cross-window messages and never confirms last-known-good from iframe load alone', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
     fireEvent.load(frame);
     act(() => window.dispatchEvent(new MessageEvent('message', { source: window, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'forged error', timestamp: Date.now() } })));
@@ -391,7 +385,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   it('stores an approved Direct Touch text delta as an immutable new revision', () => {
     const revisions: ArtifactBlock[] = [];
     render(<ArtifactWorkspace artifact={{ ...artifact, content: '<main><p>Ready</p></main>' }} isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => revisions.push(next)} />);
-    fireEvent.click(screen.getByRole('button', { name: 'プレビューを表示' }));
     fireEvent.click(screen.getByTestId('artifact-action-edit'));
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
     expect(frame.getAttribute('data-origin-srcdoc')!).toContain('data-origin-direct-touch-root');
