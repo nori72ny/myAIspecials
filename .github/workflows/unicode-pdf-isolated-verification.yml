@@ -1,0 +1,72 @@
+name: Unicode PDF isolated verification
+
+on:
+  push:
+    branches:
+      - quality/unicode-pdf-v1
+    paths:
+      - src/artifacts/**
+      - scripts/verify-unicode-pdf-v12.ts
+      - package.json
+      - package-lock.json
+      - .github/workflows/unicode-pdf-isolated-verification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install repository dependencies
+        run: npm ci --ignore-scripts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Artifact unit tests
+        run: npx vitest run src/artifacts/artifactGeneratorV12.test.ts
+      - name: Build production bundle
+        run: npm run build
+      - name: Install PDF inspection utilities
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Generate representative Japanese PDF
+        run: npx tsx scripts/verify-unicode-pdf-v12.ts
+      - name: Extract and validate Unicode text
+        run: |
+          set -euo pipefail
+          pdf="test-results/unicode-pdf/unicode-japanese-v12.pdf"
+          pdftotext -layout "$pdf" test-results/unicode-pdf/extracted.txt
+          grep -F "日本語PDF検証" test-results/unicode-pdf/extracted.txt
+          grep -F "営業資料：前年比を確認します。" test-results/unicode-pdf/extracted.txt
+          grep -F "最終行：ここまで欠損なく表示されること。" test-results/unicode-pdf/extracted.txt
+          pages="$(pdfinfo "$pdf" | awk '/^Pages:/ {print $2}')"
+          test -n "$pages"
+          test "$pages" -ge 2
+      - name: Render first and last page to PNG
+        run: |
+          set -euo pipefail
+          pdf="test-results/unicode-pdf/unicode-japanese-v12.pdf"
+          pages="$(pdfinfo "$pdf" | awk '/^Pages:/ {print $2}')"
+          pdftoppm -f 1 -singlefile -png -r 120 "$pdf" test-results/unicode-pdf/page-first
+          pdftoppm -f "$pages" -singlefile -png -r 120 "$pdf" test-results/unicode-pdf/page-last
+          test "$(stat -c%s test-results/unicode-pdf/page-first.png)" -gt 10000
+          test "$(stat -c%s test-results/unicode-pdf/page-last.png)" -gt 10000
+      - name: Upload Unicode PDF evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: unicode-pdf-v12-evidence
+          path: |
+            test-results/unicode-pdf/unicode-japanese-v12.pdf
+            test-results/unicode-pdf/extracted.txt
+            test-results/unicode-pdf/page-first.png
+            test-results/unicode-pdf/page-last.png
+          if-no-files-found: error
+          retention-days: 7
