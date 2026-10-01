@@ -83,6 +83,11 @@
 .origin-composer__action:disabled {
   opacity: .55;
 }
+.origin-chat-assistant {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
 [data-testid="origin-core-logo"] {
   width: 76px !important;
   height: 76px !important;
