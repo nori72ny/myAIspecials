@@ -51,4 +51,72 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
       await page.screenshot({ path: testInfo.outputPath(`assistant-reading-${viewport.name}.png`), fullPage: true });
     });
   }
+
+  test('captures the quiet home, settings, and history surfaces on mobile-390', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await expect(page.getByTestId('origin-home-request')).toBeVisible({ timeout: 15_000 });
+    await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
+
+    await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+    const settings = page.getByRole('dialog', { name: /設定|Settings/i });
+    await expect(settings).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('surface-settings-mobile-390.png'), fullPage: true });
+    await page.getByRole('button', { name: '設定を閉じる' }).click();
+    await expect(settings).toBeHidden();
+
+    await page.getByTestId('history-drawer-toggle').click();
+    const history = page.getByTestId('history-drawer');
+    await expect(history).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('surface-history-mobile-390.png'), fullPage: true });
+  });
+
+  test('captures the thinking state without changing the normal answer surface', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/chat', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '処理が完了しました。' });
+    });
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('思考中の状態を確認');
+    await page.getByTestId('start-request-button').click();
+    const thinking = page.getByTestId('origin-thinking');
+    await expect(thinking).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('surface-thinking-mobile-390.png'), fullPage: true });
+    await expect(thinking).toBeHidden({ timeout: 15_000 });
+    await expect(page.locator('.origin-chat-assistant').last()).toContainText('処理が完了しました。');
+  });
+
+  test('captures the fail-closed zero-cost waiting state without leaking paid content', async ({ page }, testInfo) => {
+    const model = 'inclusionai/ling-3.0-flash-sante:free';
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        content: 'NEVER DISPLAY THIS PAID RESPONSE',
+        model,
+        usage: { costUsd: 1 },
+        routing: {
+          model: model,
+          modelId: model,
+          freeOnly: true,
+          cost: 0,
+          actualCostUsd: 1,
+          estimatedCostUsd: 0,
+          billingTier: 'free',
+          usage: { costUsd: 1 },
+          providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false },
+        },
+      }),
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('無料条件の安全待機表示を確認');
+    await page.getByTestId('start-request-button').click();
+    const safeWaiting = page.getByTestId('origin-safe-waiting-state');
+    await expect(safeWaiting).toContainText('$0.00');
+    await expect(page.getByText('NEVER DISPLAY THIS PAID RESPONSE')).toHaveCount(0);
+    await expect(page.getByTestId('origin-thinking')).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('surface-safe-waiting-mobile-390.png'), fullPage: true });
+  });
 });
