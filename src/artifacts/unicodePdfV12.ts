@@ -18,9 +18,14 @@ const MAX_FONT_BYTES = 2_500_000;
 
 export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v1' as const;
 
+type PdfFontFace = {
+  font: PDFFont;
+  codePoints: ReadonlySet<number>;
+};
+
 type PdfFonts = {
-  japanese: PDFFont;
-  latin: PDFFont;
+  japanese: PdfFontFace;
+  latin: PdfFontFace;
 };
 
 function fontFile(name: 'japanese' | 'latin'): Uint8Array {
@@ -42,7 +47,13 @@ function isLatinCharacter(char: string): boolean {
 }
 
 function fontFor(char: string, fonts: PdfFonts): PDFFont {
-  return isLatinCharacter(char) ? fonts.latin : fonts.japanese;
+  const codePoint = char.codePointAt(0);
+  if (codePoint === undefined) return fonts.latin.font;
+  const preferred = isLatinCharacter(char) ? fonts.latin : fonts.japanese;
+  const alternate = preferred === fonts.latin ? fonts.japanese : fonts.latin;
+  if (preferred.codePoints.has(codePoint)) return preferred.font;
+  if (alternate.codePoints.has(codePoint)) return alternate.font;
+  throw new Error('PDF_UNICODE_GLYPH_UNSUPPORTED');
 }
 
 function textWidth(text: string, size: number, fonts: PdfFonts): number {
@@ -121,12 +132,12 @@ function pageWithHeader(pdfDoc: PDFDocument): PDFPage {
 
 function drawFooter(page: PDFPage, pageNumber: number, fonts: PdfFonts): void {
   const label = String(pageNumber);
-  const width = fonts.latin.widthOfTextAtSize(label, FOOTER_SIZE);
+  const width = fonts.latin.font.widthOfTextAtSize(label, FOOTER_SIZE);
   page.drawText(label, {
     x: (A4_WIDTH - width) / 2,
     y: 28,
     size: FOOTER_SIZE,
-    font: fonts.latin,
+    font: fonts.latin.font,
     color: rgb(0.45, 0.49, 0.55),
   });
 }
@@ -137,11 +148,23 @@ export async function makeUnicodePdfV12(titleInput: string, contentInput: string
     pdfDoc.registerFontkit(fontkit);
 
     const [japaneseBytes, latinBytes] = [fontFile('japanese'), fontFile('latin')];
-    const [japanese, latin] = await Promise.all([
+    const fontkitApi = fontkit as unknown as {
+      create(data: Uint8Array): { characterSet?: number[] };
+    };
+    const japaneseSource = fontkitApi.create(japaneseBytes);
+    const latinSource = fontkitApi.create(latinBytes);
+    if (!Array.isArray(japaneseSource.characterSet) || !Array.isArray(latinSource.characterSet)) {
+      throw new Error('PDF_UNICODE_FONT_CHARACTER_SET_UNAVAILABLE');
+    }
+
+    const [japaneseFont, latinFont] = await Promise.all([
       pdfDoc.embedFont(japaneseBytes, { subset: true }),
       pdfDoc.embedFont(latinBytes, { subset: true }),
     ]);
-    const fonts: PdfFonts = { japanese, latin };
+    const fonts: PdfFonts = {
+      japanese: { font: japaneseFont, codePoints: new Set(japaneseSource.characterSet) },
+      latin: { font: latinFont, codePoints: new Set(latinSource.characterSet) },
+    };
 
     const title = titleInput.normalize('NFC').replace(/[\r\n\t]+/g, ' ').trim() || 'ORIGIN Artifact';
     const content = contentInput.normalize('NFC').replace(/\r\n|\r/g, '\n');
@@ -186,10 +209,6 @@ export async function makeUnicodePdfV12(titleInput: string, contentInput: string
     return buffer;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('PDF_UNICODE_')) throw error;
-    if (process.env.ORIGIN_PDF_DIAGNOSTIC === 'true') {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new Error(`PDF_UNICODE_RENDERING_UNAVAILABLE:${reason.slice(0, 240)}`);
-    }
     throw new Error('PDF_UNICODE_RENDERING_UNAVAILABLE');
   }
 }
