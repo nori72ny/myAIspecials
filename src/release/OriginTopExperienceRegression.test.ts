@@ -16,18 +16,24 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(main).not.toContain('event.stopPropagation()');
   });
 
-  it('removes the legacy composer border treatment and preserves a borderless input surface', () => {
-    expect(topUi).toContain('.origin-composer { border: 0 !important;');
+  it('locks the canonical Release 2 composer instead of the superseded flagship treatment', () => {
+    expect(topUi).toContain('ORIGIN canonical shell — Release 2');
+    expect(topUi).toContain('.origin-composer {');
+    expect(topUi).toContain('min-height: 92px !important;');
     expect(topUi).toContain('.origin-composer textarea {');
-    expect(topUi).toContain('border: 0 !important;');
+    expect(topUi).toContain('font-size: 16px !important;');
+    expect(topUi).not.toContain('border-radius: 28px !important;');
+    expect(topUi).not.toContain('box-shadow: 0 18px 50px color-mix');
   });
 
   it('locks the current input-first visual hierarchy instead of the superseded oversized mark', () => {
-    expect(topUi).toContain('ORIGIN coherence pass — 2026-09-29');
+    expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('min-height: 60px !important;');
     expect(topUi).toContain('width: 76px !important;');
     expect(topUi).toContain('width: 58px !important;');
     expect(topUi).toContain('min-height: 92px !important;');
     expect(topUi).toContain('font-size: 16px !important;');
+    expect(topUi).not.toContain('ORIGIN Top Experience — 2026 flagship surface');
+    expect(topUi).not.toContain('width: 104px !important;');
   });
 });
