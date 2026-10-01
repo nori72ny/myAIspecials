@@ -5,6 +5,7 @@ describe('ORIGIN top experience regression boundary', () => {
   const root = resolve(process.cwd(), 'src');
   const app = readFileSync(resolve(root, 'App.tsx'), 'utf8');
   const main = readFileSync(resolve(root, 'main.tsx'), 'utf8');
+  const indexCss = readFileSync(resolve(root, 'index.css'), 'utf8');
   const functionalUi = readFileSync(resolve(root, 'origin-functional-ui.css'), 'utf8');
   const topUi = readFileSync(resolve(root, 'origin-top-ui.css'), 'utf8');
   const ultraOptics = readFileSync(resolve(root, 'ultra-optics.css'), 'utf8');
@@ -28,6 +29,14 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(functionalUi).toContain('minmax(44px, 1fr)');
     expect(topUi).not.toContain('.artifact-workspace__header');
     expect(topUi).not.toContain('.artifact-workspace__actions > [role="group"]');
+  });
+
+  it('keeps global typography and focus-visible ownership in the canonical base layer', () => {
+    expect(indexCss).toContain('font-size: 16px;');
+    expect(indexCss).toContain(':focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }');
+    expect(ultraOptics).toContain('Release 2 typography/accessibility ownership');
+    expect(ultraOptics).not.toContain('font-size: 14px;');
+    expect(ultraOptics).not.toContain(':where(input, textarea, select):focus');
   });
 
   it('locks the canonical Release 2 composer instead of the superseded flagship treatment', () => {

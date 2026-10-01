@@ -14,20 +14,11 @@
 @layer base {
   body {
     font-family: "Geist", "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
-    font-size: 14px;
-    line-height: 1.75;
-    letter-spacing: -0.012em;
-  }
-
-  :where(input, textarea, select):focus,
-  :where(input, textarea, select):focus-within,
-  :where(input, textarea, select):focus-visible {
-    outline: none;
-    border-color: var(--accent-primary) !important;
-    box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent-primary) 28%, transparent) !important;
   }
 }
 
+/* Release 2 typography/accessibility ownership:
+   global font size, line-height, letter-spacing and focus-visible treatment live in index.css. */
 .prose-jp,
 .markdown-body {
   letter-spacing: 0;
