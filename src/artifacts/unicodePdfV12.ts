@@ -23,7 +23,7 @@ type PdfFonts = {
   latin: PDFFont;
 };
 
-function fontFile(name: 'japanese' | 'latin'): Buffer {
+function fontFile(name: 'japanese' | 'latin'): Uint8Array {
   const projectRequire = createRequire(resolve(process.cwd(), 'package.json'));
   const cssPath = projectRequire.resolve('@fontsource/noto-sans-jp/400.css');
   const path = join(dirname(cssPath), 'files', `noto-sans-jp-${name}-400-normal.woff2`);
@@ -31,7 +31,7 @@ function fontFile(name: 'japanese' | 'latin'): Buffer {
   if (bytes.length < 1_000 || bytes.length > MAX_FONT_BYTES) {
     throw new Error('PDF_UNICODE_FONT_INVALID');
   }
-  return bytes;
+  return Uint8Array.from(bytes);
 }
 
 function isLatinCharacter(char: string): boolean {
