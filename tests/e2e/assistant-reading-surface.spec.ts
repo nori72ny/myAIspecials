@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const viewports = [
   { name: 'mobile-320', width: 320, height: 568 },
@@ -7,10 +7,15 @@ const viewports = [
   { name: 'desktop-1440', width: 1440, height: 900 },
 ] as const;
 
+async function waitForVisualSurface(page: Page) {
+  await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
+}
+
 test.describe('ORIGIN continuous assistant reading surface', () => {
   for (const viewport of viewports) {
     test(`keeps assistant answers unboxed on ${viewport.name}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.route('**/api/chat', async (route) => route.fulfill({
         status: 200,
         contentType: 'text/plain; charset=utf-8',
@@ -18,6 +23,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
       }));
 
       await page.goto('/');
+      await waitForVisualSurface(page);
       await page.getByTestId('origin-home-request').fill('通常回答の読みやすさを確認');
       await page.getByTestId('start-request-button').click();
 
@@ -54,8 +60,10 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
 
   test('captures the quiet home, settings, and history surfaces on mobile-390', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     await expect(page.getByTestId('origin-home-request')).toBeVisible({ timeout: 15_000 });
+    await waitForVisualSurface(page);
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
 
     await page.getByRole('button', { name: '設定を開く', exact: true }).click();
@@ -73,11 +81,13 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
 
   test('captures the thinking state without changing the normal answer surface', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.route('**/api/chat', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 700));
       await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '処理が完了しました。' });
     });
     await page.goto('/');
+    await waitForVisualSurface(page);
     await page.getByTestId('origin-home-request').fill('思考中の状態を確認');
     await page.getByTestId('start-request-button').click();
     const thinking = page.getByTestId('origin-thinking');
@@ -90,6 +100,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
   test('captures the fail-closed zero-cost waiting state without leaking paid content', async ({ page }, testInfo) => {
     const model = 'inclusionai/ling-3.0-flash-sante:free';
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -111,6 +122,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
       }),
     }));
     await page.goto('/');
+    await waitForVisualSurface(page);
     await page.getByTestId('origin-home-request').fill('無料条件の安全待機表示を確認');
     await page.getByTestId('start-request-button').click();
     const safeWaiting = page.getByTestId('origin-safe-waiting-state');
