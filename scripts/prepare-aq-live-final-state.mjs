@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
+import { githubJson } from "./aq-final-state-github-json.mjs";
 
 const exec = promisify(execFile);
 const SHA40 = /^[a-f0-9]{40}$/;
@@ -18,16 +19,6 @@ function headers(token) {
     Authorization: `Bearer ${token}`,
     "X-GitHub-Api-Version": "2022-11-28",
   };
-}
-
-async function githubJson(url, token) {
-  const response = await fetch(url, {
-    headers: headers(token),
-    redirect: "error",
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`AQ_FINAL_STATE_GITHUB_HTTP_${response.status}`);
-  return response.json();
 }
 
 async function githubBytes(url, token) {
