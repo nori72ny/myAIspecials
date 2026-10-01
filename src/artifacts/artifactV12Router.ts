@@ -21,7 +21,7 @@ export function createArtifactV12Router() {
       capability: 'real-artifact-generation',
       formats: TYPES,
       generatorSelfTest: selfTest.formats,
-      formatLimitations: { pdf: 'ASCII text only until a verified embedded-Unicode renderer is available; unsupported text fails closed.' },
+      formatLimitations: { pdf: 'Embedded Noto Sans JP Japanese/Latin renderer with width-aware wrapping; unsupported glyphs fail closed.' },
       delivery: 'verified-download',
       persistence: 'client-save-only',
       freeOnly: true,
