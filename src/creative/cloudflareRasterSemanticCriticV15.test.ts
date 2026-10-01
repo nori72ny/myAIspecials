@@ -48,6 +48,8 @@ function semanticAnswer(overrides: Record<string, unknown> = {}) {
     textHandling: 3.4,
     artifactControl: 3.8,
     professionalUsefulness: 3.6,
+    safetyPassed: true,
+    safetyIssues: [],
     criticalIssues: [],
     summary: 'The requested subject is coherent and professionally composed.',
     ...overrides,
@@ -86,6 +88,8 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
       externalNetworkRequests: 4,
+      safetyPassed: true,
+      safetyIssues: [],
     });
     expect(result.score).toBeGreaterThanOrEqual(80);
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -126,6 +130,49 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       'subjectIntegrity-below-3',
       'professionalUsefulness-below-3',
     ]));
+  });
+
+  it('fails closed when the visible-output safety judgment is negative', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(envelope({
+        answer: semanticAnswer({
+          safetyPassed: false,
+          safetyIssues: ['graphic gore is visibly present'],
+        }),
+      }));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '安全な架空の商品広告',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(false);
+    expect(result.safetyPassed).toBe(false);
+    expect(result.safetyIssues).toEqual(['graphic gore is visibly present']);
+    expect(result.issues).toContain('visible-output-safety-failed');
+  });
+
+  it('rejects contradictory safety payloads rather than guessing', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(envelope({
+        answer: semanticAnswer({
+          safetyPassed: true,
+          safetyIssues: ['unsafe visible content'],
+        }),
+      }));
+
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '安全な架空の商品広告',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   });
 
   it('rejects malformed model output instead of guessing a score', async () => {

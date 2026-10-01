@@ -79,6 +79,8 @@ function semanticFetchMock(passed = true) {
         textHandling: 4,
         artifactControl: 4,
         professionalUsefulness: 4,
+        safetyPassed: true,
+        safetyIssues: [],
         criticalIssues: [],
         summary: 'Professional and faithful.',
       }
@@ -90,6 +92,8 @@ function semanticFetchMock(passed = true) {
         textHandling: 3,
         artifactControl: 3,
         professionalUsefulness: 2,
+        safetyPassed: true,
+        safetyIssues: [],
         criticalIssues: ['Requested subject is materially wrong.'],
         summary: 'Not faithful enough for delivery.',
       };

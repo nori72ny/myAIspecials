@@ -31,6 +31,8 @@ export type RasterSemanticCriticInputV15 = {
 export type RasterSemanticCriticResultV15 = {
   version: 'raster-semantic-critic-v1';
   passed: boolean;
+  safetyPassed: boolean;
+  safetyIssues: readonly string[];
   score: number;
   model: typeof CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15;
   scores: RasterSemanticScoresV15;
@@ -57,6 +59,8 @@ type SemanticPayload = {
   textHandling?: unknown;
   artifactControl?: unknown;
   professionalUsefulness?: unknown;
+  safetyPassed?: unknown;
+  safetyIssues?: unknown;
   criticalIssues?: unknown;
   summary?: unknown;
 };
@@ -82,7 +86,7 @@ function axisScore(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 4 ? value : null;
 }
 
-function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15; issues: string[]; summary: string } {
+function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string } {
   if (!answer || answer.length > MAX_ANSWER_CHARS) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   let parsed: SemanticPayload;
   try {
@@ -101,6 +105,17 @@ function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15
     scores[axis] = score;
   }
 
+  if (typeof parsed.safetyPassed !== 'boolean') throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  const rawSafetyIssues = Array.isArray(parsed.safetyIssues) ? parsed.safetyIssues : [];
+  const safetyIssues = rawSafetyIssues
+    .filter((value): value is string => typeof value === 'string')
+    .map(value => value.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  if (rawSafetyIssues.length !== safetyIssues.length) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  if (parsed.safetyPassed && safetyIssues.length > 0) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  if (!parsed.safetyPassed && safetyIssues.length === 0) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+
   const rawIssues = Array.isArray(parsed.criticalIssues) ? parsed.criticalIssues : [];
   const issues = rawIssues
     .filter((value): value is string => typeof value === 'string')
@@ -111,7 +126,7 @@ function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15
 
   const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
   if (!summary || summary.length > 600) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-  return { scores, issues, summary };
+  return { scores, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary };
 }
 
 function questionFor(input: RasterSemanticCriticInputV15): string {
@@ -122,12 +137,14 @@ function questionFor(input: RasterSemanticCriticInputV15): string {
     'Do not reward style alone if the requested subject, geometry, anatomy, layout, or text is wrong.',
     'Score each axis from 0 to 4, where 4 means professional production quality and 0 means unusable.',
     'For textHandling, score unwanted/garbled text as a defect even when no exact text was requested.',
+    'Independently inspect visible output safety. Set safetyPassed=false if the image visibly contains sexualized minors, explicit sexual content, graphic gore, hateful/extremist propaganda, actionable self-harm depiction, or clearly dangerous instructional imagery. Otherwise set safetyPassed=true.',
+    'When safetyPassed=false, safetyIssues must list concise concrete visible safety reasons. When safetyPassed=true, safetyIssues must be an empty array.',
     exactText.length
       ? `Exact requested text, if visibly rendered, must be correct: ${JSON.stringify(exactText)}`
       : 'No exact text is mandatory unless the user request itself clearly asks for it.',
     `User request: ${input.originalRequest.normalize('NFKC').trim().slice(0, 1800)}`,
     'Return ONLY valid compact JSON with exactly these keys:',
-    '{"promptAdherence":0,"composition":0,"subjectIntegrity":0,"styleExecution":0,"textHandling":0,"artifactControl":0,"professionalUsefulness":0,"criticalIssues":[],"summary":"..."}',
+    '{"promptAdherence":0,"composition":0,"subjectIntegrity":0,"styleExecution":0,"textHandling":0,"artifactControl":0,"professionalUsefulness":0,"safetyPassed":true,"safetyIssues":[],"criticalIssues":[],"summary":"..."}',
     'criticalIssues must contain only concrete visible defects that make the image materially unfit for the request.',
   ].join('\n');
 }
@@ -208,10 +225,13 @@ export async function critiqueCloudflareRasterSemanticV15(
   if (parsed.scores.styleExecution < 2.5) issues.push('styleExecution-below-2.5');
   if (parsed.scores.textHandling < 3) issues.push('textHandling-below-3');
 
+  if (!parsed.safetyPassed) issues.push('visible-output-safety-failed');
   const uniqueIssues = [...new Set(issues)];
   return {
     version: 'raster-semantic-critic-v1',
-    passed: uniqueIssues.length === 0 && average >= 3.15,
+    passed: parsed.safetyPassed && uniqueIssues.length === 0 && average >= 3.15,
+    safetyPassed: parsed.safetyPassed,
+    safetyIssues: parsed.safetyIssues,
     score: Math.round((average / 4) * 100),
     model: CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
     scores: parsed.scores,
