@@ -362,15 +362,11 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
 }
 
 @media (max-width: 640px) {
-  .origin-composer { bottom: max(10px, env(safe-area-inset-bottom)); width: 100%; max-width: none; }
-  .origin-composer__input { font-size: 16px; }
   .origin-chat > div:last-child > div { width: calc(100% - 16px) !important; margin-bottom: max(4px, env(safe-area-inset-bottom)); }
   .origin-dag__node { grid-template-columns: 36px minmax(0,1fr); }
   .origin-dag__node > :last-child { grid-column: 2; justify-self: start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .origin-composer,
-  .origin-composer__action { transition: none; }
   .origin-skeleton::after { animation: none; }
 }
