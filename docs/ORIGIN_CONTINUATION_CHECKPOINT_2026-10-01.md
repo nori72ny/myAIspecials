@@ -39,7 +39,6 @@ If current main and canonical releaseSha already match and health/safety/CI are 
 3. Once green, separate Functional responsive/a11y rules from Visual rules in the CSS layer while preserving current mobile/artifact behavior.
 4. Continue visual-system cleanup, especially remaining legacy overlap in `ultra-optics.css`, in bounded commits with exact-head evidence.
 
-
 ## Night continuation update — 2026-10-02
 - Re-verified current main remains `7a0fa6b30d70ef8829de8bfa37faade3a8bbe8d3` at this checkpoint.
 - PR #802 exact head `39678dbf105be6c1b472c068284df5dbd15e0d9f`: open/ready/clean; OpenSSF, ACOS, CodeQL and Production Release CI/CD green.
@@ -52,3 +51,20 @@ If current main and canonical releaseSha already match and health/safety/CI are 
 2. If green, continue bounded ownership cleanup only where canonical index.css/origin-top-ui.css already owns the visual behavior; preserve mobile/touch/a11y and standalone skeleton/zero-state/DAG primitives.
 3. Re-run/inspect visual-accessibility and responsive evidence before marking #803 ready.
 4. Keep #802 frozen unless new evidence requires repair; do not merge PRs merely because CI is green.
+
+## Morning continuation update — 2026-10-02
+- Current `main` was re-read from GitHub primary evidence and remains `7a0fa6b30d70ef8829de8bfa37faade3a8bbe8d3`.
+- Production was not changed. The latest known canonical Production remains the matching READY `main` release and no synchronization action is warranted.
+- PR #802 remains frozen at verified exact head `39678dbf105be6c1b472c068284df5dbd15e0d9f`, Ready for Review and unmerged.
+- PR #804 remains the frontier-evaluation workstream; measured-vs-unmeasured truthfulness rules remain unchanged.
+- PR #803 completed a bounded quiet-elevation pass for splash/logo/composer/settings/history/workspace surfaces. Exact code head `345cef3d0c2d1176b1d6dcc9b3b7c3a2429c38b1` passed ACOS, CodeQL, OpenSSF, Production Release CI/CD, Node 22/24 build+unit+E2E, Node 22 Production-browser release gate, Node 22/24 Lighthouse, and Chromium/Firefox/WebKit artifact isolation.
+- Successful Playwright evidence from that exact head was inspected at 320, 390, 768, 834, 844, 1280 and 1440px viewport captures. The home surface is calm and input-first; the quiet elevation change preserved responsive containment and artifact behavior.
+- Visual audit identified one remaining candidate: normal assistant answers still read more like a white card than a continuous reading surface on 390px. A follow-up experiment was started, but a diff-size guard caught an unintended broad `index.css` replacement before acceptance. The experiment and its temporary regression assertion were then fully restored using the exact pre-experiment blobs.
+- Repair head `9b8845afdbd7e87d38ad8415d635c94ad05749a5` is three commits ahead of `345cef3d...` but has **zero net file differences** versus that verified all-green head. This preserves the known-good code while documenting the safety recovery.
+- No provider, billing, environment-variable, model-routing, authentication/secret, permission, security-boundary, `main`, or Production changes were made.
+
+### Current safe next work
+1. Let the checkpoint/document-only head run naturally; never force-rerun.
+2. Revisit the assistant-answer card reduction only with a full-file-safe patch path or a tiny tree/blob patch; enforce a diff-size guard before moving the branch.
+3. After that, inspect new 390/360/320 and desktop screenshots, then audit settings/history/dialog and empty/loading/error states.
+4. Complete Production-equivalent functional/visual audit before considering #803 Ready for Review or Release 2 integration.
