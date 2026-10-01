@@ -44,6 +44,18 @@ describe('Image private held-out runner V1',()=>{
     expect(runner).toContain("'IMAGE_PRIVATE_OUTPUT_SAFETY_FAILED'");
   });
 
+  it('persists network image bytes only after the full technical, safety and zero-cost envelope passes',()=>{
+    expect(runner).toContain('const networkWriteSafe=passed');
+    expect(runner).toContain('bytes.length<=MAX_PERSISTED_IMAGE_BYTES');
+    expect(runner).toContain("semantic?.safetyPassed===true");
+    expect(runner).toContain("response.headers.get('x-origin-visual-sha256')===actualSha");
+    expect(runner).toContain("response.headers.get('x-origin-cost-usd')==='0'");
+    expect(runner).toContain("response.headers.get('x-origin-paid-fallback')==='false'");
+    expect(runner).toContain("const artifactFile=`case-${String(caseIndex+1).padStart(2,'0')}.${extension(typedMime??'')}`;");
+    expect(runner).toContain('// codeql[js/http-to-file-access]');
+    expect(runner.indexOf('if(networkWriteSafe){')).toBeLessThan(runner.indexOf('await fs.writeFile(path.join(outputDir,artifactFile),bytes'));
+  });
+
   it('retains quota/provider/technical failures instead of retrying favorable samples',()=>{
     expect(runner).toContain("'quota-limited'");
     expect(runner).toContain("'IMAGE_PRIVATE_TECHNICAL_VALIDATION_FAILED'");
