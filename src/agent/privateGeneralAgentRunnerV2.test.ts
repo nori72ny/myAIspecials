@@ -24,6 +24,17 @@ describe('General Agent private runner workflow',()=>{
     expect(workflow).not.toContain('task_json:');
   });
 
+  it('uses a one-shot corpus marker before private execution',()=>{
+    expect(workflow).toContain('actions: read');
+    expect(workflow).toContain('Inspect sealed corpus identity');
+    expect(workflow).toContain('inspect-general-agent-private-corpus-v2.ts');
+    expect(workflow).toContain('origin-general-agent-private-started-${CORPUS_DIGEST}');
+    expect(workflow).toContain('Preserve one-shot marker before private candidate execution');
+    expect(workflow.indexOf('Preserve one-shot marker before private candidate execution'))
+      .toBeLessThan(workflow.indexOf('Run sealed private Agent V3 round'));
+    expect(workflow).toContain("if: steps.one_shot.outputs.can_start == 'true'");
+  });
+
   it('uploads only public tasks, trusted event evidence and score summary',()=>{
     expect(workflow).toContain('public-tasks.json');
     expect(workflow).toContain('candidate-trusted-evidence.json');

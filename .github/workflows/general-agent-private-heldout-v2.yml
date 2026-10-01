@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: origin-general-agent-private-v2
@@ -59,7 +60,83 @@ jobs:
       - name: Install evaluator dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      - name: Inspect sealed corpus identity
+        id: metadata
+        env:
+          ORIGIN_GENERAL_AGENT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ORIGIN_GENERAL_AGENT_CORPUS_ID: ${{ inputs.corpus_id }}
+          ORIGIN_GENERAL_AGENT_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_GENERAL_AGENT_PRIVATE_CORPUS_GZIP_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="$(node --import tsx scripts/inspect-general-agent-private-corpus-v2.ts)"
+          METADATA="$metadata" node <<'NODE' >> "$GITHUB_OUTPUT"
+          const value=JSON.parse(process.env.METADATA||'{}');
+          if(value.candidateSha!==process.env.GITHUB_SHA) process.exit(2);
+          if(value.corpusId!==process.env.ORIGIN_GENERAL_AGENT_CORPUS_ID) process.exit(3);
+          if(!Number.isInteger(value.taskCount) || value.taskCount < 12 || value.taskCount > 24) process.exit(4);
+          if(!/^[a-f0-9]{64}$/.test(String(value.corpusDigest||''))) process.exit(5);
+          console.log(`corpus_digest=${value.corpusDigest}`);
+          NODE
+
+      - name: Check one-shot start marker
+        id: one_shot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORPUS_DIGEST: ${{ steps.metadata.outputs.corpus_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="origin-general-agent-private-started-${CORPUS_DIGEST}"
+          curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${marker}&per_page=100" \
+            -o prior-artifacts.json
+          count="$(node -e "const v=require('./prior-artifacts.json'); process.stdout.write(String(v.total_count||0))")"
+          rm -f prior-artifacts.json
+          if [ "$count" != '0' ]; then
+            echo "can_start=false" >> "$GITHUB_OUTPUT"
+            echo "This sealed General Agent corpus has already started and cannot be reused."
+            exit 0
+          fi
+          echo "can_start=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create immutable one-shot start marker
+        if: steps.one_shot.outputs.can_start == 'true'
+        env:
+          CORPUS_ID: ${{ inputs.corpus_id }}
+          CORPUS_DIGEST: ${{ steps.metadata.outputs.corpus_digest }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          node <<'NODE'
+          const fs=require('node:fs');
+          fs.writeFileSync('test-results/general-agent-private-started.json',JSON.stringify({
+            schemaVersion:'origin.general-agent-private-start-marker.v1',
+            corpusId:process.env.CORPUS_ID,
+            corpusDigest:process.env.CORPUS_DIGEST,
+            candidateSha:process.env.CANDIDATE_SHA,
+            workflowSha:process.env.GITHUB_SHA,
+            workflowRunId:process.env.GITHUB_RUN_ID,
+            started:true,
+          },null,2)+'\n');
+          NODE
+
+      - name: Preserve one-shot marker before private candidate execution
+        if: steps.one_shot.outputs.can_start == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-general-agent-private-started-${{ steps.metadata.outputs.corpus_digest }}
+          path: test-results/general-agent-private-started.json
+          retention-days: 90
+          if-no-files-found: error
+
       - name: Run sealed private Agent V3 round
+        if: steps.one_shot.outputs.can_start == 'true'
         env:
           ORIGIN_GENERAL_AGENT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           ORIGIN_GENERAL_AGENT_CORPUS_ID: ${{ inputs.corpus_id }}
@@ -70,6 +147,7 @@ jobs:
           npm run eval:heldout-agent:private
 
       - name: Verify no private corpus material escaped
+        if: steps.one_shot.outputs.can_start == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -79,6 +157,7 @@ jobs:
           test -z "$(find test-results/general-agent-private -type f ! -name 'public-tasks.json' ! -name 'candidate-trusted-evidence.json' ! -name 'candidate-score-summary.json' -print)"
 
       - name: Upload sanitized evaluator evidence
+        if: steps.one_shot.outputs.can_start == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: general-agent-private-v2-${{ github.run_id }}
