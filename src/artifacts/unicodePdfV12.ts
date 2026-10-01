@@ -186,6 +186,10 @@ export async function makeUnicodePdfV12(titleInput: string, contentInput: string
     return buffer;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('PDF_UNICODE_')) throw error;
+    if (process.env.ORIGIN_PDF_DIAGNOSTIC === 'true') {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`PDF_UNICODE_RENDERING_UNAVAILABLE:${reason.slice(0, 240)}`);
+    }
     throw new Error('PDF_UNICODE_RENDERING_UNAVAILABLE');
   }
 }
