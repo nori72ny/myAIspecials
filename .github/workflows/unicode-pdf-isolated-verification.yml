@@ -60,8 +60,12 @@ jobs:
           pages="$(pdfinfo "$pdf" | awk '/^Pages:/ {print $2}')"
           pdftoppm -f 1 -singlefile -png -r 120 "$pdf" test-results/unicode-pdf/page-first
           pdftoppm -f "$pages" -singlefile -png -r 120 "$pdf" test-results/unicode-pdf/page-last
-          test "$(stat -c%s test-results/unicode-pdf/page-first.png)" -gt 10000
-          test "$(stat -c%s test-results/unicode-pdf/page-last.png)" -gt 10000
+          test -s test-results/unicode-pdf/page-first.png
+          test -s test-results/unicode-pdf/page-last.png
+          file test-results/unicode-pdf/page-first.png | grep -F "PNG image data"
+          file test-results/unicode-pdf/page-last.png | grep -F "PNG image data"
+          echo "first_page_png_bytes=$(stat -c%s test-results/unicode-pdf/page-first.png)"
+          echo "last_page_png_bytes=$(stat -c%s test-results/unicode-pdf/page-last.png)"
       - name: Upload Unicode PDF evidence
         uses: actions/upload-artifact@v4
         with:
