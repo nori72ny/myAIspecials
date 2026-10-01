@@ -18,7 +18,7 @@ The one-shot marker is created only after live qualification passes. Missing cre
 ## Candidate execution
 Each frozen prompt is sent exactly once to the real local `/api/creative/v1.5/raster/generate` route.
 
-The runner stores the exact returned candidate image bytes under opaque case IDs and records:
+The runner stores exact returned candidate image bytes only after the full technical/safety/zero-cost delivery envelope passes. Persisted filenames are evaluator-independent bounded ordinals (`case-01` … `case-24`). Failed or technically invalid outputs remain in the evidence/denominator, but their network bytes are not written to disk. It records:
 - SHA-256;
 - dimensions;
 - provider/model identity;
@@ -37,7 +37,7 @@ Chromium decodes each returned PNG/JPEG/WebP, downsamples it to a bounded evalua
 ## Sanitized artifacts
 The workflow uploads only:
 - public task metadata and prompt/task digests;
-- candidate image files;
+- candidate image files only for outputs that passed MIME/signature, exact dimensions, structural/pixel, safety, integrity, provider and exact-$0 delivery checks;
 - candidate technical evidence;
 - candidate summary.
 
