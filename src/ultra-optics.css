@@ -223,7 +223,6 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
 @media (max-width: 640px) {
   .prose-jp,
   .markdown-body { font-size: 15px; line-height: 1.78; }
-  .origin-chat [role="log"] { padding-inline: 12px; }
   .origin-ultra-logo { width: 68px; height: 68px; border-radius: 20px; }
   .origin-ultra-logo__core { width: 44px; height: 44px; border-radius: 14px; font-size: 27px; }
 }
@@ -305,7 +304,6 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
 }
 
 @media (max-width: 640px) {
-  .origin-chat > div:last-child > div { width: calc(100% - 16px) !important; margin-bottom: max(4px, env(safe-area-inset-bottom)); }
   .origin-dag__node { grid-template-columns: 36px minmax(0,1fr); }
   .origin-dag__node > :last-child { grid-column: 2; justify-self: start; }
 }
