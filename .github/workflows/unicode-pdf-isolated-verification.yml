@@ -1,12 +1,11 @@
 name: Unicode PDF isolated verification
 
 on:
-  push:
-    branches:
-      - quality/unicode-pdf-v1
+  pull_request:
     paths:
       - src/artifacts/**
       - scripts/verify-unicode-pdf-v12.ts
+      - scripts/verify-node-production-runtime.mjs
       - package.json
       - package-lock.json
       - .github/workflows/unicode-pdf-isolated-verification.yml
@@ -33,6 +32,8 @@ jobs:
         run: npx vitest run src/artifacts/artifactGeneratorV12.test.ts
       - name: Build production bundle
         run: npm run build
+      - name: Smoke Unicode PDF through built Node server
+        run: node scripts/verify-node-production-runtime.mjs
       - name: Install PDF inspection utilities
         run: |
           sudo apt-get update -qq
