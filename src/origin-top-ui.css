@@ -16,7 +16,7 @@
   background: color-mix(in oklch, var(--bg-primary) 92%, transparent) !important;
   border-color: var(--border-default) !important;
   box-shadow: none !important;
-  backdrop-filter: blur(12px) saturate(105%);
+  backdrop-filter: blur(10px) saturate(103%);
 }
 .origin-header .origin-secondary-button {
   border-color: transparent !important;
@@ -34,15 +34,15 @@
   border: 1px solid var(--border-default) !important;
   border-radius: 24px !important;
   padding: 8px !important;
-  background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary)) !important;
+  background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;
   color: var(--text-primary) !important;
-  box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent), inset 0 1px 0 color-mix(in oklch, white 52%, transparent) !important;
-  backdrop-filter: blur(10px) saturate(103%);
+  box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent), inset 0 1px 0 color-mix(in oklch, white 46%, transparent) !important;
+  backdrop-filter: blur(8px) saturate(102%);
 }
 .origin-composer:focus-within,
 .origin-composer.is-focused {
   border-color: var(--accent-border) !important;
-  box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 42%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 56%, transparent) !important;
+  box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
 }
 .origin-composer textarea,
 .origin-composer__input {
@@ -93,12 +93,12 @@
   height: 58px !important;
   border-radius: 18px !important;
   font-size: 32px !important;
-  box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent), inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
+  box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 26%, transparent), inset 0 1px 0 color-mix(in oklch, white 46%, transparent) !important;
 }
 [data-testid="origin-core-logo"] .origin-logo-glow {
-  inset: -3px !important;
-  filter: blur(10px) !important;
-  opacity: .44;
+  inset: -2px !important;
+  filter: blur(8px) !important;
+  opacity: .30;
 }
 .origin-add-menu__panel {
   width: min(20rem, calc(100vw - 2rem));
@@ -107,13 +107,13 @@
 [data-testid="history-drawer"] {
   border-color: var(--border-default) !important;
   background: color-mix(in oklch, var(--bg-surface) 98%, var(--bg-primary)) !important;
-  box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 30%, transparent) !important;
+  box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 24%, transparent) !important;
 }
 .origin-personal-shell > section[aria-label="Workspace tool header"] {
   min-height: 58px;
-  background: color-mix(in oklch, var(--bg-primary) 88%, transparent) !important;
+  background: color-mix(in oklch, var(--bg-primary) 90%, transparent) !important;
   border-color: var(--border-default) !important;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(10px);
 }
 .origin-personal-shell :is(
   [aria-label="Research Workspace"],
@@ -127,7 +127,7 @@
 .origin-personal-shell .origin-workspace {
   border: 1px solid var(--border-default) !important;
   border-radius: 16px !important;
-  box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 22%, transparent);
+  box-shadow: 0 3px 10px color-mix(in oklch, var(--shadow-color) 18%, transparent);
 }
 @media (max-width: 639px) {
   .origin-header {
@@ -173,14 +173,14 @@
     line-height: 1.55 !important;
   }
   .origin-add-menu[open]::before {
-    background: rgba(15, 23, 42, 0.10) !important;
+    background: rgba(15, 23, 42, 0.08) !important;
     backdrop-filter: blur(1px) !important;
   }
   .origin-add-menu__panel {
     padding: 6px !important;
     border-radius: 16px !important;
     gap: 2px !important;
-    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14) !important;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.11) !important;
   }
   .origin-add-menu__panel > button {
     border-radius: 10px !important;
