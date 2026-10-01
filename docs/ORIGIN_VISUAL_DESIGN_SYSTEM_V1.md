@@ -16,6 +16,7 @@ ORIGIN must feel visually quiet, precise, fast, and trustworthy while keeping ad
 ## CSS layer ownership
 - `origin-functional-ui.css` owns preserved responsive interaction geometry, viewport containment, artifact-control layout and other behavior-sensitive contracts.
 - `origin-top-ui.css` is the canonical Release 2 visual shell and loads the functional layer before visual overrides.
+- `index.css` owns canonical base tokens, global typography/focus treatment, and shared semantic primitives.
 - `ultra-optics.css` remains a legacy visual layer under audit. Its overlapping component styling must be retired only in bounded, evidence-backed changes.
 - Functional rules must not be deleted merely because an older visual treatment is removed.
 
@@ -54,6 +55,17 @@ ORIGIN must feel visually quiet, precise, fast, and trustworthy while keeping ad
 - Artifact preview is understandable without learning developer terminology.
 - Keyboard-only navigation and visible focus are preserved.
 - Lighthouse and existing E2E visual/interaction gates remain green.
+
+## Responsive visual evidence
+- A successful CSS build is not visual proof. Inspect representative mobile, tablet and desktop screenshots after bounded visual changes.
+- Prefer removing unnecessary elevation, glow and surface boxing over adding decorative hierarchy.
+- Normal assistant answers should trend toward a continuous reading surface; errors, user turns, artifacts and actionable status surfaces may remain visually bounded when that distinction improves comprehension.
+
+## Bounded-change guard
+- Before accepting a supposedly small CSS edit, inspect per-file diff size.
+- If a bounded edit unexpectedly replaces a large section or whole file, do not normalize the broad diff. Restore the exact known-good blob first.
+- Prove recovery with a zero-net-file-diff comparison against the last verified head before resuming visual work.
+- Do not weaken tests merely to accommodate an unintended broad edit.
 
 ## Evidence policy
 A visual change is not complete because CSS exists. It requires exact-head CI plus responsive interaction evidence. Production is not changed from this branch.
