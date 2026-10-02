@@ -16,6 +16,11 @@ const worldClassDoc = readFileSync(
   'utf8',
 );
 
+const currentMainTrigger = readFileSync(
+  new URL('../../.github/workflows/aq-v2-current-main-trigger.yml', import.meta.url),
+  'utf8',
+);
+
 describe('frontier evaluation contract', () => {
   it('keeps the trusted raw-evidence V2 gate canonical', () => {
     expect(packageJson.scripts?.['eval:world-class-quality']).toBe(
@@ -57,5 +62,19 @@ describe('frontier evaluation contract', () => {
     );
     expect(frontierDoc).toContain('legacy aggregate evaluator is diagnostics-only');
     expect(worldClassDoc).toContain('legacy command remains available for diagnostics only');
+  });
+
+  it('dispatches AQ V2 only for an explicitly confirmed exact current-main candidate', () => {
+    expect(currentMainTrigger).toContain("github.ref == 'refs/heads/main'");
+    expect(currentMainTrigger).toContain('candidate_sha:process.env.CANDIDATE_SHA');
+    expect(currentMainTrigger).toContain("pr_number:'0'");
+    expect(currentMainTrigger).toContain("confirmation!=='RUN_FRESH_CURRENT_MAIN'");
+    expect(currentMainTrigger).toContain('corpus_digest:process.env.CORPUS_DIGEST');
+    expect(currentMainTrigger).toContain('origin/aq-v2-corpus/${CORPUS_DIGEST}');
+    expect(currentMainTrigger).toContain("steps.corpus.outputs.reserved != '1'");
+    expect(currentMainTrigger).toContain('origin/aq-v2-free-quota/${utc_day}');
+    expect(currentMainTrigger).not.toContain('PR 698');
+    expect(currentMainTrigger).not.toContain('cb5a6a6e3ef44973da1e40bb253b6b6bf26779e0');
+    expect(currentMainTrigger).not.toContain('origin-aq-v2-independent-2026-09-28-fresh-3');
   });
 });
