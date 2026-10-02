@@ -5,6 +5,7 @@ import { E2E_RELEASE_SHA } from './release-fixture';
 
 const VIEWPORTS = [
   { name: 'mobile-320', width: 320, height: 568 },
+  { name: 'mobile-360', width: 360, height: 800 },
   { name: 'mobile-390', width: 390, height: 844 },
   { name: 'tablet-portrait', width: 834, height: 1112 },
   { name: 'large-phone-landscape', width: 844, height: 390 },
@@ -14,6 +15,10 @@ const VIEWPORTS = [
 
 async function expectNoHorizontalOverflow(page: import('@playwright/test').Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+}
+
+async function expectSplashComplete(page: import('@playwright/test').Page) {
+  await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
 }
 
 for (const viewport of VIEWPORTS) {
@@ -26,6 +31,7 @@ for (const viewport of VIEWPORTS) {
     await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     await expect(page.getByTestId(/^starter-/)).toHaveCount(0);
+    await expectSplashComplete(page);
     await expectNoHorizontalOverflow(page);
 
     await testInfo.attach(`personal-2-home-${viewport.name}`, {
@@ -45,12 +51,12 @@ test('Personal 2.0 opens a renderable artifact workspace without overflow', asyn
     });
   });
   await page.goto('/');
+  await expectSplashComplete(page);
   await page.getByTestId('origin-home-request').fill('レポートを作成したい');
   await page.getByTestId('start-request-button').click();
 
   const workspace = page.getByTestId('artifact-workspace');
   await expect(workspace).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('button', { name: 'プレビューを表示' }).click();
   await expect(workspace.getByTitle('プレビュー')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
@@ -63,6 +69,7 @@ test('Personal 2.0 opens a renderable artifact workspace without overflow', asyn
 test('Personal 2.0 preserves the release settings dialog and SHA control', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
+  await expectSplashComplete(page);
   await page.getByRole('button', { name: '設定を開く' }).click();
 
   const dialog = page.getByRole('dialog', { name: /設定|Settings/i });

@@ -1,162 +1,24 @@
-/* ORIGIN Top Experience — 2026 flagship surface */
-.origin-header {
-  min-height: 72px !important;
-  padding-inline: clamp(14px, 3vw, 28px) !important;
-  border-bottom: 0 !important;
-  background: color-mix(in oklch, var(--bg-primary) 82%, transparent) !important;
-  box-shadow: none !important;
-}
-.origin-header > div { gap: 14px !important; }
-.origin-header > div > div:first-child { gap: 10px !important; }
-.origin-header .origin-secondary-button { transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease !important; }
-.origin-header .origin-secondary-button:hover:not(:disabled) { transform: translateY(-1px); }
-.origin-composer { border: 0 !important; border-radius: 28px !important; padding: 10px !important; background: color-mix(in oklch, var(--bg-surface) 94%, transparent) !important; box-shadow: 0 18px 50px color-mix(in oklch, var(--shadow-color) 72%, transparent), inset 0 1px 0 color-mix(in oklch, white 70%, transparent) !important; }
-.origin-composer:focus-within { border: 0 !important; box-shadow: 0 22px 60px color-mix(in oklch, var(--shadow-color) 80%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 12%, transparent), inset 0 1px 0 color-mix(in oklch, white 72%, transparent) !important; }
-.origin-composer textarea { min-height: 76px !important; padding: 15px 16px !important; font-size: 17px !important; line-height: 1.7 !important; letter-spacing: -0.01em !important; border: 0 !important; box-shadow: none !important; }
-.origin-composer textarea:focus, .origin-composer textarea:focus-visible { border: 0 !important; outline: 0 !important; box-shadow: none !important; }
-.origin-composer > button { margin-bottom: 4px; }
-[data-testid="origin-core-logo"] { width: 104px !important; height: 104px !important; margin-bottom: 20px !important; }
-[data-testid="origin-core-logo"] .origin-logo-core { width: 76px !important; height: 76px !important; border-radius: 24px !important; font-size: 42px !important; box-shadow: 0 20px 50px color-mix(in oklch, var(--shadow-color) 85%, transparent), inset 0 1px 0 color-mix(in oklch, white 70%, transparent) !important; }
-[data-testid="origin-core-logo"] .origin-logo-glow { inset: -8px !important; filter: blur(18px) !important; opacity: .9; }
-.origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 { padding: 0 !important; }
-.origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child { max-width: 900px !important; padding-inline: clamp(18px, 4vw, 32px) !important; }
-.origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child h1 { font-size: clamp(2rem, 4.2vw, 3.15rem) !important; line-height: 1.15 !important; letter-spacing: -0.045em !important; }
-.origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > p { max-width: 640px !important; font-size: 16px !important; line-height: 1.75 !important; }
-@media (max-width: 640px) {
-  .origin-header { min-height: 64px !important; }
-  [data-testid="origin-core-logo"] { width: 88px !important; height: 88px !important; margin-bottom: 16px !important; }
-  [data-testid="origin-core-logo"] .origin-logo-core { width: 64px !important; height: 64px !important; border-radius: 20px !important; font-size: 36px !important; }
-  .origin-composer { border-radius: 24px !important; }
-  .origin-composer textarea { min-height: 72px !important; font-size: 16px !important; }
-}
-@media (prefers-reduced-motion: reduce) { .origin-header .origin-secondary-button { transition: none !important; } }
+@import './origin-functional-ui.css';
 
-
-/* Mobile refinement: keep advanced actions and artifact controls inside the viewport. */
-.origin-add-menu__panel {
-  max-height: min(420px, calc(100dvh - 120px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.artifact-workspace__header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-}
-.artifact-workspace__title { min-width: 0; }
-.artifact-workspace__controls,
-.artifact-workspace__view-controls,
-.artifact-workspace__actions {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.artifact-workspace__controls { justify-content: space-between; }
-.artifact-workspace__actions { margin-left: auto; }
-.artifact-workspace__view-controls [role="group"],
-.artifact-workspace__actions [role="group"] { max-width: 100%; }
-
-@media (max-width: 639px) {
-  .origin-add-menu[open]::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    background: rgba(15, 23, 42, 0.18);
-    backdrop-filter: blur(2px);
-    pointer-events: none;
-  }
-  .origin-add-menu__panel {
-    position: fixed !important;
-    left: 12px !important;
-    right: 12px !important;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 76px) !important;
-    width: auto !important;
-    min-width: 0 !important;
-    max-height: min(52dvh, 390px);
-    padding: 10px !important;
-    border-radius: 20px !important;
-    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24) !important;
-  }
-  .origin-add-menu__panel > button {
-    width: 100%;
-    min-height: 48px !important;
-    border-radius: 12px !important;
-    padding-inline: 14px !important;
-    font-size: 15px !important;
-  }
-  .artifact-workspace__header {
-    gap: 8px;
-    padding-top: 10px !important;
-    padding-bottom: 10px !important;
-  }
-  .artifact-workspace__title { width: 100%; }
-  .artifact-workspace__controls { width: 100%; align-items: stretch; }
-  .artifact-workspace__view-controls {
-    width: 100%;
-    display: grid;
-    grid-template-columns: minmax(0, .9fr) minmax(0, 1.35fr);
-    align-items: stretch;
-  }
-  .artifact-workspace__view-controls > [role="group"] {
-    width: 100%;
-    display: grid !important;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
-    gap: 4px;
-  }
-  .artifact-workspace__view-controls button {
-    min-width: 0 !important;
-    padding-inline: 8px !important;
-    white-space: nowrap;
-  }
-  .artifact-workspace__actions {
-    width: 100%;
-    margin-left: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px;
-  }
-  .artifact-workspace__actions > [role="group"] {
-    width: 100%;
-    display: grid !important;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
-  }
-  .artifact-workspace__actions > [role="group"] button {
-    min-width: 0 !important;
-    padding-inline: 6px !important;
-    white-space: nowrap;
-  }
-  .artifact-workspace__actions > [role="group"] button[data-testid="artifact-action-details"] {
-    font-size: 0 !important;
-  }
-  .artifact-workspace__actions > [role="group"] button[data-testid="artifact-action-details"]::after {
-    content: "•••";
-    font-size: 17px;
-    letter-spacing: 2px;
-  }
-  [data-testid="artifact-workspace"] .origin-code-panel { padding: 12px !important; }
-}
-@media (max-width: 380px) {
-  .artifact-workspace__view-controls { grid-template-columns: 1fr; }
-  .artifact-workspace__actions > [role="group"] {
-    grid-template-columns: repeat(4, minmax(44px, 1fr));
-  }
-}
-
-
-/* ORIGIN coherence pass — 2026-09-29
-   Keep the product quiet, input-first, touch-safe, and visually consistent across tools. */
+/* ORIGIN canonical shell — Release 2
+   Visual source of truth for the primary ORIGIN shell. Preserved responsive interaction contracts load above. */
 .origin-personal-shell {
   background: var(--bg-primary);
   color: var(--text-primary);
 }
+.origin-personal-shell .origin-app {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
 .origin-header {
   min-height: 60px !important;
   padding-inline: clamp(10px, 2.5vw, 20px) !important;
+  background: color-mix(in oklch, var(--bg-primary) 92%, transparent) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  z-index: 50;
+  backdrop-filter: blur(10px) saturate(103%);
 }
 .origin-header .origin-secondary-button {
   border-color: transparent !important;
@@ -171,18 +33,62 @@
 }
 .origin-composer {
   min-height: 92px !important;
+  border: 1px solid var(--border-default) !important;
   border-radius: 24px !important;
   padding: 8px !important;
-  box-shadow: 0 12px 34px color-mix(in oklch, var(--shadow-color) 54%, transparent), inset 0 1px 0 color-mix(in oklch, white 58%, transparent) !important;
+  background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent), inset 0 1px 0 color-mix(in oklch, white 46%, transparent) !important;
+  backdrop-filter: blur(8px) saturate(102%);
 }
-.origin-composer:focus-within {
-  box-shadow: 0 14px 40px color-mix(in oklch, var(--shadow-color) 62%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 62%, transparent) !important;
+.origin-composer:focus-within,
+.origin-composer.is-focused {
+  border-color: var(--accent-border) !important;
+  box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
 }
-.origin-composer textarea {
+.origin-composer textarea,
+.origin-composer__input {
   min-height: 76px !important;
   padding: 11px 12px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
   font-size: 16px !important;
   line-height: 1.6 !important;
+}
+.origin-composer textarea::placeholder,
+.origin-composer__input::placeholder {
+  color: var(--text-placeholder, var(--text-secondary)) !important;
+  opacity: 1;
+}
+.origin-composer__action {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--bg-surface-muted);
+  color: var(--text-secondary);
+  box-shadow: none;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.origin-composer__action.is-ready {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+.origin-composer__action.is-ready:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.origin-composer__action.is-generating {
+  border-color: color-mix(in oklch, var(--danger) 42%, var(--border-default));
+  background: color-mix(in oklch, var(--danger) 14%, var(--bg-surface));
+  color: var(--danger);
+}
+.origin-composer__action:disabled {
+  opacity: .55;
+}
+.origin-chat-assistant {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
 }
 [data-testid="origin-core-logo"] {
   width: 76px !important;
@@ -194,21 +100,27 @@
   height: 58px !important;
   border-radius: 18px !important;
   font-size: 32px !important;
-  box-shadow: 0 12px 30px color-mix(in oklch, var(--shadow-color) 58%, transparent), inset 0 1px 0 color-mix(in oklch, white 56%, transparent) !important;
+  box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 26%, transparent), inset 0 1px 0 color-mix(in oklch, white 46%, transparent) !important;
 }
 [data-testid="origin-core-logo"] .origin-logo-glow {
-  inset: -4px !important;
-  filter: blur(14px) !important;
-  opacity: .68;
+  inset: -2px !important;
+  filter: blur(8px) !important;
+  opacity: .30;
 }
 .origin-add-menu__panel {
   width: min(20rem, calc(100vw - 2rem));
 }
+[data-testid="settings-modal"],
+[data-testid="history-drawer"] {
+  border-color: var(--border-default) !important;
+  background: color-mix(in oklch, var(--bg-surface) 98%, var(--bg-primary)) !important;
+  box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 24%, transparent) !important;
+}
 .origin-personal-shell > section[aria-label="Workspace tool header"] {
   min-height: 58px;
-  background: color-mix(in oklch, var(--bg-primary) 88%, transparent) !important;
+  background: color-mix(in oklch, var(--bg-primary) 90%, transparent) !important;
   border-color: var(--border-default) !important;
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(10px);
 }
 .origin-personal-shell :is(
   [aria-label="Research Workspace"],
@@ -222,7 +134,7 @@
 .origin-personal-shell .origin-workspace {
   border: 1px solid var(--border-default) !important;
   border-radius: 16px !important;
-  box-shadow: 0 6px 20px color-mix(in oklch, var(--shadow-color) 28%, transparent);
+  box-shadow: 0 3px 10px color-mix(in oklch, var(--shadow-color) 18%, transparent);
 }
 @media (max-width: 639px) {
   .origin-header {
@@ -260,41 +172,29 @@
     border-radius: 22px !important;
     padding: 7px !important;
   }
-  .origin-composer textarea {
+  .origin-composer textarea,
+  .origin-composer__input {
     min-height: 78px !important;
     padding: 12px 10px !important;
     font-size: 16px !important;
     line-height: 1.55 !important;
   }
   .origin-add-menu[open]::before {
-    background: rgba(15, 23, 42, 0.12) !important;
+    background: rgba(15, 23, 42, 0.08) !important;
     backdrop-filter: blur(1px) !important;
   }
   .origin-add-menu__panel {
-    left: max(16px, calc((100vw - 360px) / 2)) !important;
-    right: max(16px, calc((100vw - 360px) / 2)) !important;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;
-    width: auto !important;
-    max-height: min(46dvh, 320px) !important;
     padding: 6px !important;
     border-radius: 16px !important;
     gap: 2px !important;
-    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18) !important;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.11) !important;
   }
   .origin-add-menu__panel > button {
-    min-height: 44px !important;
     border-radius: 10px !important;
     padding: 9px 12px !important;
     font-size: 14px !important;
   }
   [data-testid="history-drawer"] {
-    position: fixed !important;
-    top: 70px !important;
-    left: 12px !important;
-    right: 12px !important;
-    width: auto !important;
-    max-height: calc(100dvh - 92px) !important;
-    overflow-y: auto !important;
     border-radius: 16px !important;
   }
   .origin-personal-shell :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {

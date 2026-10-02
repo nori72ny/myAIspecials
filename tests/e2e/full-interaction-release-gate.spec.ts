@@ -368,8 +368,12 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await expect(page.getByTestId('artifact-action-export-menu')).toBeVisible();
     await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('artifact-details-menu')).toBeHidden();
-    await page.getByRole('button', { name: 'コードを表示' }).click();
+    await page.getByTestId('artifact-action-details').click();
+    await page.getByTestId('artifact-show-code').click();
+    await expect(page.getByText('<main><h1>簡単 ToDo</h1><input aria-label="タスクを入力" placeholder="タスクを入力"><button type="button">追加</button></main>')).toBeVisible();
+    await page.getByTestId('artifact-action-edit').click();
     await page.getByRole('button', { name: 'プレビューを表示' }).click();
+    await page.getByTestId('artifact-action-edit').click();
     await page.getByTestId('artifact-action-details').click();
     await expect(page.getByTestId('artifact-details-menu')).toBeVisible();
 
