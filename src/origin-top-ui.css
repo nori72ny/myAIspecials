@@ -17,6 +17,7 @@
   border-color: var(--border-default) !important;
   box-shadow: none !important;
   overflow: visible !important;
+  z-index: 50;
   backdrop-filter: blur(10px) saturate(103%);
 }
 .origin-header .origin-secondary-button {
