@@ -982,6 +982,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const session: ConversationSession = { id: 'session-1', title: 'Previous planning session', createdAt: 1, messages: [{ id: 'm-1', role: 'user', content: 'Plan the project' }] };
     render(<App sessions={[session]} onRestoreSession={restore} language="ja" />);
     fireEvent.click(screen.getByTestId('history-drawer-toggle'));
+    expect(screen.getByTestId('history-search-input').getAttribute('placeholder')).toBe('履歴を検索');
+    expect(screen.getByTestId('history-drawer-close').className).toContain('min-h-11');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('history-drawer')).toBeNull();
+    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
+    fireEvent.click(screen.getByText('その他の表示'));
     fireEvent.click(screen.getByTestId('knowledge-map-toggle'));
     expect(screen.getByTestId('knowledge-map-node-count').textContent).toBe('1');
     fireEvent.click(screen.getByTestId('knowledge-map-session-0'));
