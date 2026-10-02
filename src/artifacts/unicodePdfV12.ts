@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
@@ -15,48 +15,108 @@ const FOOTER_SIZE = 8;
 const TITLE_LINE_HEIGHT = 23;
 const BODY_LINE_HEIGHT = 15;
 const MAX_FONT_BYTES = 2_500_000;
+const MAX_REQUIRED_FONT_FILES = 128;
+const MAX_TOTAL_FONT_BYTES = 12_000_000;
 
-export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v2' as const;
+export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v3' as const;
 
-type PdfFontFace = {
-  font: PDFFont;
-  codePoints: ReadonlySet<number>;
+type UnicodeRange = readonly [start: number, end: number];
+type FontCatalogEntry = {
+  filename: string;
+  ranges: readonly UnicodeRange[];
 };
-
 type PdfFonts = {
-  japanese: PdfFontFace;
-  latin: PdfFontFace;
+  byCodePoint: ReadonlyMap<number, PDFFont>;
 };
 
-function fontFile(name: 'japanese' | 'latin'): Uint8Array {
-  const projectRequire = createRequire(resolve(process.cwd(), 'package.json'));
-  const cssPath = projectRequire.resolve('@fontsource/noto-sans-jp/400.css');
-  // pdf-lib has longstanding interoperability issues when WOFF2 data is embedded
-  // directly into PDFs. Fontsource ships the same faces as WOFF, which fontkit can
-  // embed as a visible TrueType/CID font across Poppler/Acrobat-compatible readers.
-  const path = join(dirname(cssPath), 'files', `noto-sans-jp-${name}-400-normal.woff`);
-  const bytes = readFileSync(path);
-  if (bytes.length < 1_000 || bytes.length > MAX_FONT_BYTES) {
-    throw new Error('PDF_UNICODE_FONT_INVALID');
+function parseUnicodeRangeToken(token: string): UnicodeRange {
+  const raw = token.trim().replace(/^U\+/i, '').toUpperCase();
+  if (!raw || !/^[0-9A-F?-]+$/.test(raw)) throw new Error('PDF_UNICODE_FONT_CSS_INVALID');
+  if (raw.includes('?')) {
+    if (raw.includes('-')) throw new Error('PDF_UNICODE_FONT_CSS_INVALID');
+    return [Number.parseInt(raw.replace(/\?/g, '0'), 16), Number.parseInt(raw.replace(/\?/g, 'F'), 16)];
   }
-  return Uint8Array.from(bytes);
+  const [startRaw, endRaw] = raw.split('-', 2);
+  const start = Number.parseInt(startRaw, 16);
+  const end = endRaw ? Number.parseInt(endRaw, 16) : start;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > 0x10ffff) {
+    throw new Error('PDF_UNICODE_FONT_CSS_INVALID');
+  }
+  return [start, end];
 }
 
-function isLatinCharacter(char: string): boolean {
-  const code = char.codePointAt(0) ?? 0;
-  return code <= 0x024f
-    || (code >= 0x2000 && code <= 0x206f)
-    || (code >= 0x20a0 && code <= 0x20cf);
+function fontCatalog(): { root: string; entries: readonly FontCatalogEntry[] } {
+  const projectRequire = createRequire(resolve(process.cwd(), 'package.json'));
+  const cssPath = projectRequire.resolve('@fontsource/noto-sans-jp/400.css');
+  const css = readFileSync(cssPath, 'utf8');
+  const entries: FontCatalogEntry[] = [];
+  const blockPattern = /@font-face\s*\{([\s\S]*?)\}/gi;
+  for (const match of css.matchAll(blockPattern)) {
+    const block = match[1] ?? '';
+    const woffMatch = block.match(/url\((?:['"])?\.\/files\/([^)'"\s]+\.woff)(?:['"])?\)\s*format\((?:['"])woff(?:['"])\)/i);
+    const rangeMatch = block.match(/unicode-range\s*:\s*([^;]+);/i);
+    if (!woffMatch || !rangeMatch) continue;
+    const filename = basename(woffMatch[1]);
+    if (!/^noto-sans-jp-[a-z0-9-]+-400-normal\.woff$/i.test(filename)) {
+      throw new Error('PDF_UNICODE_FONT_PATH_INVALID');
+    }
+    const ranges = rangeMatch[1].split(',').map(parseUnicodeRangeToken);
+    if (!ranges.length) throw new Error('PDF_UNICODE_FONT_CSS_INVALID');
+    entries.push({ filename, ranges });
+  }
+  if (!entries.length || entries.length > MAX_REQUIRED_FONT_FILES) throw new Error('PDF_UNICODE_FONT_CATALOG_INVALID');
+  return { root: join(dirname(cssPath), 'files'), entries };
+}
+
+function entrySupports(entry: FontCatalogEntry, codePoint: number): boolean {
+  return entry.ranges.some(([start, end]) => codePoint >= start && codePoint <= end);
+}
+
+async function loadFontsForText(pdfDoc: PDFDocument, text: string): Promise<PdfFonts> {
+  const { root, entries } = fontCatalog();
+  const requiredByFile = new Map<string, Set<number>>();
+  const uniqueCodePoints = new Set(Array.from(text).map((char) => char.codePointAt(0)).filter((value): value is number => value !== undefined));
+
+  for (const codePoint of uniqueCodePoints) {
+    const entry = entries.find((candidate) => entrySupports(candidate, codePoint));
+    if (!entry) throw new Error('PDF_UNICODE_GLYPH_UNSUPPORTED');
+    const group = requiredByFile.get(entry.filename) ?? new Set<number>();
+    group.add(codePoint);
+    requiredByFile.set(entry.filename, group);
+  }
+  if (!requiredByFile.size || requiredByFile.size > MAX_REQUIRED_FONT_FILES) throw new Error('PDF_UNICODE_FONT_CATALOG_INVALID');
+
+  const fontkitApi = fontkit as unknown as {
+    create(data: Uint8Array): { characterSet?: number[] };
+  };
+  const byCodePoint = new Map<number, PDFFont>();
+  let totalBytes = 0;
+
+  for (const [filename, requiredCodePoints] of requiredByFile) {
+    const bytes = readFileSync(join(root, filename));
+    totalBytes += bytes.length;
+    if (bytes.length < 1_000 || bytes.length > MAX_FONT_BYTES || totalBytes > MAX_TOTAL_FONT_BYTES) {
+      throw new Error('PDF_UNICODE_FONT_INVALID');
+    }
+    const fontBytes = Uint8Array.from(bytes);
+    const source = fontkitApi.create(fontBytes);
+    if (!Array.isArray(source.characterSet)) throw new Error('PDF_UNICODE_FONT_CHARACTER_SET_UNAVAILABLE');
+    const supported = new Set(source.characterSet);
+    for (const codePoint of requiredCodePoints) {
+      if (!supported.has(codePoint)) throw new Error('PDF_UNICODE_FONT_COVERAGE_MISMATCH');
+    }
+    const embedded = await pdfDoc.embedFont(fontBytes, { subset: true });
+    for (const codePoint of requiredCodePoints) byCodePoint.set(codePoint, embedded);
+  }
+
+  return { byCodePoint };
 }
 
 function fontFor(char: string, fonts: PdfFonts): PDFFont {
   const codePoint = char.codePointAt(0);
-  if (codePoint === undefined) return fonts.latin.font;
-  const preferred = isLatinCharacter(char) ? fonts.latin : fonts.japanese;
-  const alternate = preferred === fonts.latin ? fonts.japanese : fonts.latin;
-  if (preferred.codePoints.has(codePoint)) return preferred.font;
-  if (alternate.codePoints.has(codePoint)) return alternate.font;
-  throw new Error('PDF_UNICODE_GLYPH_UNSUPPORTED');
+  const font = codePoint === undefined ? undefined : fonts.byCodePoint.get(codePoint);
+  if (!font) throw new Error('PDF_UNICODE_GLYPH_UNSUPPORTED');
+  return font;
 }
 
 function textWidth(text: string, size: number, fonts: PdfFonts): number {
@@ -102,7 +162,7 @@ function drawMixedText(
   const chars = Array.from(text);
   let cursor = x;
   let run = '';
-  let runFont = fontFor(chars[0] ?? '', fonts);
+  let runFont = fontFor(chars[0], fonts);
 
   const flush = () => {
     if (!run) return;
@@ -135,14 +195,21 @@ function pageWithHeader(pdfDoc: PDFDocument): PDFPage {
 
 function drawFooter(page: PDFPage, pageNumber: number, fonts: PdfFonts): void {
   const label = String(pageNumber);
-  const width = fonts.latin.font.widthOfTextAtSize(label, FOOTER_SIZE);
-  page.drawText(label, {
-    x: (A4_WIDTH - width) / 2,
-    y: 28,
-    size: FOOTER_SIZE,
-    font: fonts.latin.font,
-    color: rgb(0.45, 0.49, 0.55),
-  });
+  const font = fontFor(label[0], fonts);
+  const width = Array.from(label).reduce((sum, char) => sum + fontFor(char, fonts).widthOfTextAtSize(char, FOOTER_SIZE), 0);
+  let cursor = (A4_WIDTH - width) / 2;
+  for (const char of Array.from(label)) {
+    const nextFont = fontFor(char, fonts);
+    page.drawText(char, {
+      x: cursor,
+      y: 28,
+      size: FOOTER_SIZE,
+      font: nextFont,
+      color: rgb(0.45, 0.49, 0.55),
+    });
+    cursor += nextFont.widthOfTextAtSize(char, FOOTER_SIZE);
+  }
+  void font;
 }
 
 export async function makeUnicodePdfV12(titleInput: string, contentInput: string): Promise<Buffer> {
@@ -150,27 +217,9 @@ export async function makeUnicodePdfV12(titleInput: string, contentInput: string
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(fontkit);
 
-    const [japaneseBytes, latinBytes] = [fontFile('japanese'), fontFile('latin')];
-    const fontkitApi = fontkit as unknown as {
-      create(data: Uint8Array): { characterSet?: number[] };
-    };
-    const japaneseSource = fontkitApi.create(japaneseBytes);
-    const latinSource = fontkitApi.create(latinBytes);
-    if (!Array.isArray(japaneseSource.characterSet) || !Array.isArray(latinSource.characterSet)) {
-      throw new Error('PDF_UNICODE_FONT_CHARACTER_SET_UNAVAILABLE');
-    }
-
-    const [japaneseFont, latinFont] = await Promise.all([
-      pdfDoc.embedFont(japaneseBytes, { subset: true }),
-      pdfDoc.embedFont(latinBytes, { subset: true }),
-    ]);
-    const fonts: PdfFonts = {
-      japanese: { font: japaneseFont, codePoints: new Set(japaneseSource.characterSet) },
-      latin: { font: latinFont, codePoints: new Set(latinSource.characterSet) },
-    };
-
     const title = titleInput.normalize('NFC').replace(/[\r\n\t]+/g, ' ').trim() || 'ORIGIN Artifact';
     const content = contentInput.normalize('NFC').replace(/\r\n|\r/g, '\n');
+    const fonts = await loadFontsForText(pdfDoc, `${title}\n${content}\n0123456789`);
     const maxWidth = A4_WIDTH - MARGIN_X * 2;
     const titleLines = wrapLine(title, maxWidth, TITLE_SIZE, fonts);
     const bodyLines = content.split('\n').flatMap(line => wrapLine(line, maxWidth, BODY_SIZE, fonts));
