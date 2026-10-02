@@ -39,6 +39,24 @@ The cross-domain command is:
 npm run eval:world-class-quality -- <trusted-raw-evidence.json>
 ```
 
+## Fresh current-main dispatch path
+
+The reusable trusted launch path is `.github/workflows/aq-v2-current-main-trigger.yml`.
+
+It is intentionally manual-only and must be dispatched from `main`. It does not accept a caller-supplied candidate SHA: the candidate is bound automatically to the exact `main` SHA of the dispatch and is forwarded to `trusted-answer-quality-v2.yml` with `pr_number=0`.
+
+A launch requires all of the following:
+
+- a fresh independently prepared sealed 48-case corpus already ingested into the trusted private store;
+- its exact `corpus_id` and sha256 `corpus_digest`;
+- a new frozen `round_id`;
+- explicit `RUN_FRESH_CURRENT_MAIN` confirmation;
+- no same-day free-provider 429 block in the trusted quota ledger.
+
+The dispatcher does not create, inspect, regenerate, or reuse a corpus. The trusted runner still performs exact-SHA revalidation, private-store retrieval, one-shot reservation, secret-boundary checks, free-only provider checks, and preserved failure accounting before or during execution.
+
+Do not reuse the historical PR #698 candidate, round, or corpus identifiers for a new current-main qualification. If no fresh independent corpus exists, do not dispatch; status remains `NOT MEASURED`.
+
 ## Historical evidence interpretation
 
 Earlier trusted AQ rounds are engineering evidence, not current-SHA qualification.
