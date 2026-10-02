@@ -1,7 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { artifactSelfTestV12, generateArtifactV12 } from './artifactGeneratorV12.js';
+import { artifactSelfTestV12, generateArtifactV12, generateArtifactV12Async } from './artifactGeneratorV12.js';
 import { createArtifactV12Router } from './artifactV12Router.js';
 
 function app() {
@@ -114,13 +114,41 @@ describe('V1.2 real artifacts', () => {
     expect(body).toContain('<c r="A2" t="inlineStr"><is><t xml:space="preserve">Sales</t></is></c>');
   });
 
-  it('fails closed rather than replacing Japanese PDF text with question marks', async () => {
+  it('keeps the legacy sync PDF path fail-closed while the async route renders Japanese safely', async () => {
     expect(() => generateArtifactV12({ type: 'pdf', title: '日本語', content: '営業資料' })).toThrow('PDF_UNICODE_RENDERING_UNAVAILABLE');
-    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'pdf', title: '日本語', content: '営業資料' });
-    expect(response.status).toBe(422);
-    expect(response.body.code).toBe('PDF_UNICODE_RENDERING_UNAVAILABLE');
-    expect(response.body.freeOnly).toBe(true);
-    expect(response.body.costUsd).toBe(0);
+
+    const generated = await generateArtifactV12Async({
+      type: 'pdf',
+      title: '日本語',
+      content: '営業資料\n前年比を確認 ABC 123',
+    });
+    expect(generated.verified).toBe(true);
+    expect(generated.verification).toContain('embedded-unicode-font');
+    expect(generated.verification).toContain('unicode-width-aware-layout');
+    expect(generated.bytes.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    expect(generated.bytes.length).toBeGreaterThan(1000);
+
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({
+      type: 'pdf',
+      title: '日本語',
+      content: '営業資料\n前年比を確認 ABC 123',
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('application/pdf');
+    expect(response.headers['x-origin-artifact-verified']).toBe('true');
+    expect(response.headers['x-origin-free-only']).toBe('true');
+    expect(response.headers['x-origin-cost-usd']).toBe('0');
+    const encoded = response.headers['content-disposition'].split("filename*=UTF-8''")[1];
+    expect(decodeURIComponent(encoded)).toBe('日本語.pdf');
+    expect(response.body.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+  });
+
+  it('fails closed when a glyph is outside the bundled Japanese/Latin font coverage', async () => {
+    await expect(generateArtifactV12Async({
+      type: 'pdf',
+      title: 'Unsupported glyph',
+      content: 'Color emoji is intentionally not substituted: 😀',
+    })).rejects.toThrow('PDF_UNICODE_GLYPH_UNSUPPORTED');
   });
 
   it('wraps and paginates PDF text without losing long lines or the end of the document', () => {
@@ -165,6 +193,8 @@ describe('V1.2 real artifacts', () => {
     expect(status.status).toBe(200);
     expect(status.body).toMatchObject({ ready: true, version: '1.2', freeOnly: true, costUsd: 0, paidFallbackEnabled: false, persistence: 'client-save-only' });
     expect(status.body.formats).toContain('pptx');
+    expect(status.body.formatLimitations.pdf).toContain('Embedded Noto Sans JP');
+    expect(status.body.formatLimitations.pdf).toContain('unsupported glyphs fail closed');
     expect(status.body.generatorSelfTest.pptx).toBe(true);
 
     const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'pptx', title: 'Audit', slides: [{ title: 'Audit', content: 'Harmless public content.' }] });

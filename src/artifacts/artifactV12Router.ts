@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
-import { artifactSelfTestV12, generateArtifactV12, type ArtifactRequest, type ArtifactType } from './artifactGeneratorV12.js';
+import { artifactSelfTestV12, generateArtifactV12Async, type ArtifactRequest, type ArtifactType } from './artifactGeneratorV12.js';
 
 const TYPES: readonly ArtifactType[] = ['markdown', 'csv', 'pdf', 'docx', 'xlsx', 'pptx'];
 const isType = (value: unknown): value is ArtifactType => typeof value === 'string' && TYPES.includes(value as ArtifactType);
@@ -21,7 +21,7 @@ export function createArtifactV12Router() {
       capability: 'real-artifact-generation',
       formats: TYPES,
       generatorSelfTest: selfTest.formats,
-      formatLimitations: { pdf: 'ASCII text only until a verified embedded-Unicode renderer is available; unsupported text fails closed.' },
+      formatLimitations: { pdf: 'Embedded Noto Sans JP Japanese/Latin renderer with width-aware wrapping; unsupported glyphs fail closed.' },
       delivery: 'verified-download',
       persistence: 'client-save-only',
       freeOnly: true,
@@ -31,7 +31,7 @@ export function createArtifactV12Router() {
     });
   });
 
-  router.post('/api/artifacts/v1.2/generate', (req, res) => {
+  router.post('/api/artifacts/v1.2/generate', async (req, res) => {
     const body = (req.body ?? {}) as Partial<ArtifactRequest>;
     if (!isType(body.type)) return res.status(400).json({ ok: false, code: 'INVALID_ARTIFACT_TYPE' });
     if (body.title !== undefined && (typeof body.title !== 'string' || body.title.length > 200)) return res.status(400).json({ ok: false, code: 'INVALID_ARTIFACT_TITLE' });
@@ -56,7 +56,7 @@ export function createArtifactV12Router() {
     });
 
     try {
-      const artifact = generateArtifactV12(body as ArtifactRequest);
+      const artifact = await generateArtifactV12Async(body as ArtifactRequest);
       if (!artifact.verified) return res.status(422).json({ ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', artifact.mimeType);
