@@ -73,7 +73,6 @@ async function verifyBrowser(name, browserType) {
       await workspace.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => undefined);
     }
     await workspace.waitFor({ state: 'visible', timeout: 20_000 });
-    await page.getByRole('button', { name: /プレビューを表示|Show preview/ }).click();
     const preview = workspace.getByTitle(/プレビュー|Preview/);
     await preview.waitFor({ state: 'visible' });
     assert.equal(await preview.getAttribute('sandbox'), 'allow-scripts', `${name}: iframe sandbox changed`);

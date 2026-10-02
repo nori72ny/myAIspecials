@@ -230,12 +230,15 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(artifactInputMetrics.fontSize).toBeGreaterThanOrEqual(16);
     const workspaceBox = await workspace.boundingBox();
     expect(workspaceBox?.width).toBeLessThanOrEqual(390);
-    await expect(page.getByRole('button', { name: 'プレビューを表示' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('button', { name: 'コードを表示' })).toHaveAttribute('aria-pressed', 'false');
     await expect(workspace.getByText('<main><h1>完成画面</h1><input aria-label="成果物入力" placeholder="入力してください"><button>実行</button></main>', { exact: true })).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'コードを表示' }).click();
+    await page.getByTestId('artifact-action-details').click();
+    await page.getByTestId('artifact-show-code').click();
     await expect(workspace.getByText('<main><h1>完成画面</h1><input aria-label="成果物入力" placeholder="入力してください"><button>実行</button></main>', { exact: true })).toBeVisible();
+
+    await page.getByTestId('artifact-action-details').click();
+    await page.getByTestId('artifact-show-preview').click();
+    await expect(workspace.getByTitle('プレビュー')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
