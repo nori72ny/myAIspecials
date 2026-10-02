@@ -16,7 +16,7 @@ const TITLE_LINE_HEIGHT = 23;
 const BODY_LINE_HEIGHT = 15;
 const MAX_FONT_BYTES = 2_500_000;
 
-export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v1' as const;
+export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v2' as const;
 
 type PdfFontFace = {
   font: PDFFont;
@@ -31,7 +31,10 @@ type PdfFonts = {
 function fontFile(name: 'japanese' | 'latin'): Uint8Array {
   const projectRequire = createRequire(resolve(process.cwd(), 'package.json'));
   const cssPath = projectRequire.resolve('@fontsource/noto-sans-jp/400.css');
-  const path = join(dirname(cssPath), 'files', `noto-sans-jp-${name}-400-normal.woff2`);
+  // pdf-lib has longstanding interoperability issues when WOFF2 data is embedded
+  // directly into PDFs. Fontsource ships the same faces as WOFF, which fontkit can
+  // embed as a visible TrueType/CID font across Poppler/Acrobat-compatible readers.
+  const path = join(dirname(cssPath), 'files', `noto-sans-jp-${name}-400-normal.woff`);
   const bytes = readFileSync(path);
   if (bytes.length < 1_000 || bytes.length > MAX_FONT_BYTES) {
     throw new Error('PDF_UNICODE_FONT_INVALID');
