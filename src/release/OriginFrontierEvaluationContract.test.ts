@@ -70,6 +70,8 @@ describe('frontier evaluation contract', () => {
     expect(currentMainTrigger).toContain("pr_number:'0'");
     expect(currentMainTrigger).toContain("confirmation!=='RUN_FRESH_CURRENT_MAIN'");
     expect(currentMainTrigger).toContain('corpus_digest:process.env.CORPUS_DIGEST');
+    expect(currentMainTrigger).toContain('origin/aq-v2-corpus/${CORPUS_DIGEST}');
+    expect(currentMainTrigger).toContain("steps.corpus.outputs.reserved != '1'");
     expect(currentMainTrigger).toContain('origin/aq-v2-free-quota/${utc_day}');
     expect(currentMainTrigger).not.toContain('PR 698');
     expect(currentMainTrigger).not.toContain('cb5a6a6e3ef44973da1e40bb253b6b6bf26779e0');
