@@ -18,12 +18,16 @@ const MAX_FONT_BYTES = 2_500_000;
 const MAX_REQUIRED_FONT_FILES = 128;
 const MAX_TOTAL_FONT_BYTES = 12_000_000;
 
-export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v3' as const;
+export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v4' as const;
 
 type UnicodeRange = readonly [start: number, end: number];
 type FontCatalogEntry = {
   filename: string;
   ranges: readonly UnicodeRange[];
+};
+type LoadedFontSource = {
+  bytes: Uint8Array;
+  supported: ReadonlySet<number>;
 };
 type PdfFonts = {
   byCodePoint: ReadonlyMap<number, PDFFont>;
@@ -74,41 +78,58 @@ function entrySupports(entry: FontCatalogEntry, codePoint: number): boolean {
 
 async function loadFontsForText(pdfDoc: PDFDocument, text: string): Promise<PdfFonts> {
   const { root, entries } = fontCatalog();
-  const requiredByFile = new Map<string, Set<number>>();
-  const uniqueCodePoints = new Set(Array.from(text).map((char) => char.codePointAt(0)).filter((value): value is number => value !== undefined));
-
-  for (const codePoint of uniqueCodePoints) {
-    const entry = entries.find((candidate) => entrySupports(candidate, codePoint));
-    if (!entry) throw new Error('PDF_UNICODE_GLYPH_UNSUPPORTED');
-    const group = requiredByFile.get(entry.filename) ?? new Set<number>();
-    group.add(codePoint);
-    requiredByFile.set(entry.filename, group);
-  }
-  if (!requiredByFile.size || requiredByFile.size > MAX_REQUIRED_FONT_FILES) throw new Error('PDF_UNICODE_FONT_CATALOG_INVALID');
-
   const fontkitApi = fontkit as unknown as {
     create(data: Uint8Array): { characterSet?: number[] };
   };
-  const byCodePoint = new Map<number, PDFFont>();
+  const sourceCache = new Map<string, LoadedFontSource>();
+  const selectedFileByCodePoint = new Map<number, string>();
   let totalBytes = 0;
 
-  for (const [filename, requiredCodePoints] of requiredByFile) {
-    const bytes = readFileSync(join(root, filename));
-    totalBytes += bytes.length;
-    if (bytes.length < 1_000 || bytes.length > MAX_FONT_BYTES || totalBytes > MAX_TOTAL_FONT_BYTES) {
+  const loadSource = (filename: string): LoadedFontSource => {
+    const cached = sourceCache.get(filename);
+    if (cached) return cached;
+    const raw = readFileSync(join(root, filename));
+    totalBytes += raw.length;
+    if (raw.length < 1_000 || raw.length > MAX_FONT_BYTES || totalBytes > MAX_TOTAL_FONT_BYTES) {
       throw new Error('PDF_UNICODE_FONT_INVALID');
     }
-    const fontBytes = Uint8Array.from(bytes);
-    const source = fontkitApi.create(fontBytes);
+    const bytes = Uint8Array.from(raw);
+    const source = fontkitApi.create(bytes);
     if (!Array.isArray(source.characterSet)) throw new Error('PDF_UNICODE_FONT_CHARACTER_SET_UNAVAILABLE');
-    const supported = new Set(source.characterSet);
-    for (const codePoint of requiredCodePoints) {
-      if (!supported.has(codePoint)) throw new Error('PDF_UNICODE_FONT_COVERAGE_MISMATCH');
-    }
-    const embedded = await pdfDoc.embedFont(fontBytes, { subset: true });
-    for (const codePoint of requiredCodePoints) byCodePoint.set(codePoint, embedded);
+    const loaded = { bytes, supported: new Set(source.characterSet) } satisfies LoadedFontSource;
+    sourceCache.set(filename, loaded);
+    return loaded;
+  };
+
+  const uniqueCodePoints = new Set(
+    Array.from(text)
+      .map((char) => char.codePointAt(0))
+      .filter((value): value is number => value !== undefined),
+  );
+
+  for (const codePoint of uniqueCodePoints) {
+    const candidates = entries.filter((candidate) => entrySupports(candidate, codePoint));
+    if (!candidates.length) throw new Error('PDF_UNICODE_GLYPH_UNSUPPORTED');
+    const selected = candidates.find((candidate) => loadSource(candidate.filename).supported.has(codePoint));
+    if (!selected) throw new Error('PDF_UNICODE_FONT_COVERAGE_MISMATCH');
+    selectedFileByCodePoint.set(codePoint, selected.filename);
   }
 
+  const selectedFiles = new Set(selectedFileByCodePoint.values());
+  if (!selectedFiles.size || selectedFiles.size > MAX_REQUIRED_FONT_FILES) throw new Error('PDF_UNICODE_FONT_CATALOG_INVALID');
+
+  const embeddedByFile = new Map<string, PDFFont>();
+  for (const filename of selectedFiles) {
+    const source = loadSource(filename);
+    embeddedByFile.set(filename, await pdfDoc.embedFont(source.bytes, { subset: true }));
+  }
+
+  const byCodePoint = new Map<number, PDFFont>();
+  for (const [codePoint, filename] of selectedFileByCodePoint) {
+    const embedded = embeddedByFile.get(filename);
+    if (!embedded) throw new Error('PDF_UNICODE_FONT_COVERAGE_MISMATCH');
+    byCodePoint.set(codePoint, embedded);
+  }
   return { byCodePoint };
 }
 
@@ -195,7 +216,6 @@ function pageWithHeader(pdfDoc: PDFDocument): PDFPage {
 
 function drawFooter(page: PDFPage, pageNumber: number, fonts: PdfFonts): void {
   const label = String(pageNumber);
-  const font = fontFor(label[0], fonts);
   const width = Array.from(label).reduce((sum, char) => sum + fontFor(char, fonts).widthOfTextAtSize(char, FOOTER_SIZE), 0);
   let cursor = (A4_WIDTH - width) / 2;
   for (const char of Array.from(label)) {
@@ -209,7 +229,6 @@ function drawFooter(page: PDFPage, pageNumber: number, fonts: PdfFonts): void {
     });
     cursor += nextFont.widthOfTextAtSize(char, FOOTER_SIZE);
   }
-  void font;
 }
 
 export async function makeUnicodePdfV12(titleInput: string, contentInput: string): Promise<Buffer> {
