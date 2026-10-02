@@ -58,3 +58,8 @@ If current main and canonical releaseSha already match and health/safety/CI are 
 2. Revisit the assistant-answer card reduction only with a full-file-safe patch path or a tiny tree/blob patch; enforce a diff-size guard before moving the branch.
 3. After that, inspect new 390/360/320 and desktop screenshots, then audit settings/history/dialog and empty/loading/error states.
 4. Complete Production-equivalent functional/visual audit before considering #803 Ready for Review or Release 2 integration.
+
+
+## 2026-10-02 Release 2 visual lane blocker
+
+PR #803 exact head 01b14fd0cb558704b20c306d7b40e361bf490457: ACOS, CodeQL and OpenSSF succeeded. Production Release CI/CD failed only in Node 22 production-browser verification because the saved-session control knowledge-map-session-0 was covered by the fixed header during a pointer click. The intended narrow test fix is to bring that control into view, focus it, and activate it through its keyboard contract before waiting for restored content. A repository write attempt was blocked by the execution safety layer, so no forced workaround was used. Resume by applying that narrow verification-script fix, then validate the new exact head before any merge or production change. main and Production were not changed in this run.
