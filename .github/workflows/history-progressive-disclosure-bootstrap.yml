@@ -1,0 +1,80 @@
+name: History progressive disclosure bootstrap
+
+on:
+  push:
+    branches: [uiux/history-progressive-disclosure-current-main]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: ${{ contains(github.event.head_commit.message, '[history-bootstrap]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: uiux/history-progressive-disclosure-current-main
+          fetch-depth: 0
+      - name: Apply bounded current-main migration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, got {count}')
+              return text.replace(old, new, 1)
+
+          app_path = Path('src/App.tsx')
+          app = app_path.read_text()
+          start = app.index('const HistoryDrawer:')
+          end = app.index('\nconst KnowledgeMap:', start)
+          segment = app[start:end]
+          cleanup = "  useEffect(() => () => { if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current); }, []);\n"
+          escape_effect = cleanup + "  useEffect(() => {\n    if (!isOpen) return;\n    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setIsOpen(false); };\n    window.addEventListener('keydown', onKeyDown);\n    return () => window.removeEventListener('keydown', onKeyDown);\n  }, [isOpen]);\n"
+          segment = replace_once(segment, cleanup, escape_effect, 'HistoryDrawer Escape effect')
+          drawer = "    {isOpen && <section data-testid=\"history-drawer\" aria-label=\"端末内の会話と作成物履歴\" className=\"origin-surface absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4\"><div className=\"flex items-start justify-between gap-3\"><div className=\"min-w-0\"><h2 className=\"m-0 text-base font-semibold\">履歴</h2><p className=\"origin-muted m-0 mt-1 text-[13px]\">会話や作成物をすぐ探せます。</p></div><button type=\"button\" data-testid=\"history-drawer-close\" aria-label=\"履歴を閉じる\" onClick={() => setIsOpen(false)} className=\"origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-[10px] p-0 text-lg\">×</button></div><label className=\"sr-only\" htmlFor=\"origin-history-search\">履歴を検索</label><input id=\"origin-history-search\" data-testid=\"history-search-input\" value={query} onChange={(event) => setQuery(event.target.value)} placeholder=\"履歴を検索\" autoFocus className=\"origin-input mt-3 min-h-11 w-full rounded-[10px] border bg-transparent px-3 text-base\" />{deferredQuery.trim() ? <div data-testid=\"history-search-results\" role=\"status\" aria-live=\"polite\" className=\"mt-3 grid max-h-72 gap-2 overflow-auto\">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type=\"button\" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className=\"origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left\"><span className=\"block truncate text-[13px] font-bold\">{result.kind === 'session' ? '会話' : '作成物'} · {result.title}</span><span className=\"origin-muted mt-1 block line-clamp-2 text-[13px]\">{result.detail}</span></button>) : <p className=\"origin-muted m-0 py-4 text-center text-base\">一致する履歴はありません。</p>}</div> : <p className=\"origin-muted mt-3 text-[13px]\">キーワードを入力すると、この端末の履歴を検索します。</p>}<details className=\"mt-2\"><summary className=\"origin-muted inline-flex min-h-11 cursor-pointer list-none items-center px-1 text-[13px] font-medium\">その他の表示</summary><div className=\"pt-1\"><LegacyKnowledgeMap sessions={sessions} onRestoreSession={(session) => { onRestoreSession?.(session); setIsOpen(false); }} /></div></details></section>}"
+          segment, count = re.subn(r'    \{isOpen && <section data-testid="history-drawer".*</section>\}', drawer, segment, count=1)
+          if count != 1:
+              raise SystemExit(f'HistoryDrawer surface: expected exactly one match, got {count}')
+          app_path.write_text(app[:start] + segment + app[end:])
+
+          test_path = Path('src/App.test.tsx')
+          test = test_path.read_text()
+          old = "    fireEvent.click(screen.getByTestId('history-drawer-toggle'));\n    fireEvent.click(screen.getByTestId('knowledge-map-toggle'));"
+          new = "    fireEvent.click(screen.getByTestId('history-drawer-toggle'));\n    expect(screen.getByTestId('history-search-input').getAttribute('placeholder')).toBe('履歴を検索');\n    expect(screen.getByTestId('history-drawer-close').className).toContain('min-h-11');\n    fireEvent.keyDown(window, { key: 'Escape' });\n    expect(screen.queryByTestId('history-drawer')).toBeNull();\n    fireEvent.click(screen.getByTestId('history-drawer-toggle'));\n    fireEvent.click(screen.getByText('その他の表示'));\n    fireEvent.click(screen.getByTestId('knowledge-map-toggle'));"
+          test_path.write_text(replace_once(test, old, new, 'App history test'))
+
+          verifier_path = Path('scripts/verify-production-browser.mjs')
+          verifier = verifier_path.read_text()
+          old = '    await page.getByTestId("history-drawer-toggle").click();\n    await page.getByTestId("knowledge-map-toggle").click();'
+          new = '    await page.getByTestId("history-drawer-toggle").click();\n    await page.getByText("その他の表示").click();\n    await page.getByTestId("knowledge-map-toggle").click();'
+          verifier_path.write_text(replace_once(verifier, old, new, 'production browser history path'))
+
+          acos_path = Path('tests/e2e/acos.spec.ts')
+          acos = acos_path.read_text()
+          old = "    await page.getByTestId('history-drawer-toggle').click();\n    await page.getByTestId('knowledge-map-toggle').click();"
+          new = "    await page.getByTestId('history-drawer-toggle').click();\n    await page.getByText('その他の表示').click();\n    await page.getByTestId('knowledge-map-toggle').click();"
+          acos_path.write_text(replace_once(acos, old, new, 'ACOS history path'))
+
+          nav_path = Path('tests/e2e/origin-personal-navigation.spec.ts')
+          nav = nav_path.read_text()
+          old = "    await history.click();\n    await expect(page.getByTestId('knowledge-map-toggle')).toBeVisible();"
+          new = "    await history.click();\n    await expect(page.getByTestId('history-search-input')).toBeVisible();\n    await expect(page.getByTestId('knowledge-map-toggle')).toBeHidden();\n    await page.getByText('その他の表示').click();\n    await expect(page.getByTestId('knowledge-map-toggle')).toBeVisible();"
+          nav_path.write_text(replace_once(nav, old, new, 'responsive history progressive disclosure'))
+          PY
+
+          rm .github/workflows/history-progressive-disclosure-bootstrap.yml
+          git diff --check
+          git diff -- src/App.tsx src/App.test.tsx scripts/verify-production-browser.mjs tests/e2e/acos.spec.ts tests/e2e/origin-personal-navigation.spec.ts
+      - name: Commit migrated UI and tests
+        run: |
+          git config user.name "ORIGIN Release Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/App.tsx src/App.test.tsx scripts/verify-production-browser.mjs tests/e2e/acos.spec.ts tests/e2e/origin-personal-navigation.spec.ts .github/workflows/history-progressive-disclosure-bootstrap.yml
+          git commit -m "uiux(history): migrate progressive disclosure onto current main"
+          git push origin HEAD:uiux/history-progressive-disclosure-current-main
