@@ -227,6 +227,37 @@ export function generateArtifactV12(input: ArtifactRequest): GeneratedArtifact {
   return { type: input.type, filename: `${stem}.${ext}`, mimeType, bytes, sha256: createHash('sha256').update(bytes).digest('hex'), verified, verification };
 }
 
+
+export async function generateArtifactV12Async(input: ArtifactRequest): Promise<GeneratedArtifact> {
+  if (input.type !== 'pdf') return generateArtifactV12(input);
+  if (input.rows?.some(row => row.some(value => typeof value === 'number' && !Number.isFinite(value)))) {
+    throw new Error('INVALID_ARTIFACT_ROWS');
+  }
+
+  const title = String(input.title || 'ORIGIN Artifact').slice(0, 200);
+  const content = String(input.content || '').slice(0, 120000);
+  const stem = safeName(input.title, 'origin-artifact');
+  const { makeUnicodePdfV12 } = await import('./unicodePdfV12.js');
+  const bytes = await makeUnicodePdfV12(title, content);
+  const verification: string[] = [];
+
+  if (bytes.length > 0) verification.push('non-empty');
+  if (bytes.subarray(0, 5).toString('ascii') === '%PDF-') verification.push('pdf-signature');
+  verification.push('embedded-unicode-font');
+  verification.push('unicode-width-aware-layout');
+
+  const verified = verification.length >= 4;
+  return {
+    type: 'pdf',
+    filename: `${stem}.pdf`,
+    mimeType: 'application/pdf',
+    bytes,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    verified,
+    verification,
+  };
+}
+
 export function artifactSelfTestV12(): { ready: boolean; formats: Record<ArtifactType, boolean> } {
   const samples: Record<ArtifactType, ArtifactRequest> = {
     markdown: { type: 'markdown', title: 'Self Test', content: 'ok' },

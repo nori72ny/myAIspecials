@@ -1,0 +1,128 @@
+name: Unicode PDF isolated verification
+
+on:
+  pull_request:
+    paths:
+      - src/artifacts/**
+      - scripts/verify-unicode-pdf-v12.ts
+      - scripts/verify-node-production-runtime.mjs
+      - package.json
+      - package-lock.json
+      - .github/workflows/unicode-pdf-isolated-verification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install repository dependencies
+        run: npm ci --ignore-scripts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Artifact unit tests
+        run: npx vitest run src/artifacts/artifactGeneratorV12.test.ts
+      - name: Build production bundle
+        run: npm run build
+      - name: Smoke Unicode PDF through built Node server
+        run: node scripts/verify-node-production-runtime.mjs
+      - name: Install PDF inspection utilities
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Generate representative Japanese PDF
+        run: npx tsx scripts/verify-unicode-pdf-v12.ts
+      - name: Extract and validate Unicode text
+        run: |
+          set -euo pipefail
+          pdf="test-results/unicode-pdf/unicode-japanese-v12.pdf"
+          pdftotext -layout "$pdf" test-results/unicode-pdf/extracted.txt
+          grep -F "日本語PDF検証" test-results/unicode-pdf/extracted.txt
+          grep -F "営業資料：前年比を確認します。" test-results/unicode-pdf/extracted.txt
+          grep -F "最終行：ここまで欠損なく表示されること。" test-results/unicode-pdf/extracted.txt
+          pages="$(pdfinfo "$pdf" | awk '/^Pages:/ {print $2}')"
+          test -n "$pages"
+          test "$pages" -ge 2
+      - name: Render and validate visible page content
+        run: |
+          set -euo pipefail
+          pdf="test-results/unicode-pdf/unicode-japanese-v12.pdf"
+          pages="$(pdfinfo "$pdf" | awk '/^Pages:/ {print $2}')"
+          pdftoppm -f 1 -singlefile -png -r 120 "$pdf" test-results/unicode-pdf/page-first
+          pdftoppm -f "$pages" -singlefile -png -r 120 "$pdf" test-results/unicode-pdf/page-last
+          pdftoppm -f 1 -singlefile -r 120 "$pdf" test-results/unicode-pdf/page-first-visual
+          pdftoppm -f "$pages" -singlefile -r 120 "$pdf" test-results/unicode-pdf/page-last-visual
+          test -s test-results/unicode-pdf/page-first.png
+          test -s test-results/unicode-pdf/page-last.png
+          file test-results/unicode-pdf/page-first.png | grep -F "PNG image data"
+          file test-results/unicode-pdf/page-last.png | grep -F "PNG image data"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def read_ppm(path: str):
+              data = Path(path).read_bytes()
+              pos = 0
+              tokens = []
+              while len(tokens) < 4:
+                  while pos < len(data) and chr(data[pos]).isspace():
+                      pos += 1
+                  if pos < len(data) and data[pos] == 35:
+                      while pos < len(data) and data[pos] not in (10, 13):
+                          pos += 1
+                      continue
+                  start = pos
+                  while pos < len(data) and not chr(data[pos]).isspace():
+                      pos += 1
+                  tokens.append(data[start:pos].decode('ascii'))
+              magic, width, height, maximum = tokens
+              if magic != 'P6' or int(maximum) != 255:
+                  raise SystemExit(f'{path}: unexpected PPM header {tokens}')
+              while pos < len(data) and chr(data[pos]).isspace():
+                  pos += 1
+              return int(width), int(height), data[pos:]
+
+          for path in (
+              'test-results/unicode-pdf/page-first-visual.ppm',
+              'test-results/unicode-pdf/page-last-visual.ppm',
+          ):
+              width, height, pixels = read_ppm(path)
+              expected = width * height * 3
+              if len(pixels) != expected:
+                  raise SystemExit(f'{path}: truncated raster {len(pixels)} != {expected}')
+              dark = []
+              for index in range(0, len(pixels), 3):
+                  if min(pixels[index:index + 3]) < 220:
+                      pixel = index // 3
+                      dark.append((pixel % width, pixel // width))
+              if len(dark) < 1000:
+                  raise SystemExit(f'{path}: visually blank page; only {len(dark)} non-white pixels')
+              xs = [point[0] for point in dark]
+              ys = [point[1] for point in dark]
+              bbox_width = max(xs) - min(xs) + 1
+              bbox_height = max(ys) - min(ys) + 1
+              if bbox_width < 100 or bbox_height < 80:
+                  raise SystemExit(f'{path}: visible content bounding box too small: {bbox_width}x{bbox_height}')
+              print(f'{path}: visible dark pixels={len(dark)}, bbox={bbox_width}x{bbox_height}')
+          PY
+          rm -f test-results/unicode-pdf/page-first-visual.ppm test-results/unicode-pdf/page-last-visual.ppm
+          echo "first_page_png_bytes=$(stat -c%s test-results/unicode-pdf/page-first.png)"
+          echo "last_page_png_bytes=$(stat -c%s test-results/unicode-pdf/page-last.png)"
+      - name: Upload Unicode PDF evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: unicode-pdf-v12-evidence
+          path: |
+            test-results/unicode-pdf/unicode-japanese-v12.pdf
+            test-results/unicode-pdf/extracted.txt
+            test-results/unicode-pdf/page-first.png
+            test-results/unicode-pdf/page-last.png
+          if-no-files-found: error
+          retention-days: 7

@@ -44,6 +44,24 @@ try {
   assert.match(pageResponse.headers.get("content-type") ?? "", /text\/html/i);
   assert.match(await pageResponse.text(), /<!doctype|<html/i);
 
+  const unicodePdfResponse = await fetch(`${baseUrl}/api/artifacts/v1.2/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "pdf",
+      title: "日本語PDF検証",
+      content: "営業資料：前年比を確認します。 ABC 123",
+    }),
+  });
+  assert.equal(unicodePdfResponse.status, 200);
+  assert.match(unicodePdfResponse.headers.get("content-type") ?? "", /application\/pdf/i);
+  assert.equal(unicodePdfResponse.headers.get("x-origin-artifact-verified"), "true");
+  assert.equal(unicodePdfResponse.headers.get("x-origin-free-only"), "true");
+  assert.equal(unicodePdfResponse.headers.get("x-origin-cost-usd"), "0");
+  const unicodePdfBytes = Buffer.from(await unicodePdfResponse.arrayBuffer());
+  assert.equal(unicodePdfBytes.subarray(0, 5).toString("ascii"), "%PDF-");
+  assert.ok(unicodePdfBytes.length > 1000);
+
   console.log("Node production runtime smoke test passed.");
 } finally {
   server.kill("SIGTERM");
