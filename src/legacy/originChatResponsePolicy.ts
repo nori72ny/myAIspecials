@@ -44,6 +44,16 @@ function isStablePricingConceptRequest(message: string): boolean {
     || /\b(?:price|pricing).{0,20}(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning)|(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning).{0,20}(?:price|pricing)\b/is.test(message);
 }
 
+function isSuppliedPriceArithmeticRequest(message: string): boolean {
+  // Only exempt explicit arithmetic with supplied amounts and percentages.
+  // Live rates/prices and external verification still require evidence.
+  if (/(?:最新|今日|現在|リアルタイム|時点|為替|税率|相場|株価|検索|調査|調べ|出典|一次情報|公開情報)|\b(?:latest|current|today|live|real[- ]time|exchange|tax|market|search|research|sources?|look\s+up)\b/i.test(message)) return false;
+  const suppliedAmount = /(?:[0-9][0-9,.]*\s*(?:円|ドル|ユーロ|USD|JPY|EUR)|[$€£]\s*[0-9][0-9,.]*)/i.test(message);
+  const suppliedPercentage = /[0-9]+(?:\.[0-9]+)?\s*(?:[%％]|パーセント|percent\b)/i.test(message);
+  const calculation = /計算|計算式|\b(?:calculate|compute|arithmetic)\b/i.test(message);
+  return suppliedAmount && suppliedPercentage && calculation;
+}
+
 export function requiresOriginGroundedResearch(message: string): boolean {
   if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
 
@@ -58,6 +68,7 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     isTransformOnlyRequest(message)
     || isHypotheticalFreshnessFailureRequest(message)
     || isStablePricingConceptRequest(message)
+    || isSuppliedPriceArithmeticRequest(message)
   ) return false;
 
   return requiresOriginFutureReleaseInformation(message)
