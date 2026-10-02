@@ -1,45 +1,80 @@
 # AQ V2 current status
 
-Target release candidate for future scoring:
-- PR #608
-- exact current head: `ef8825f1b8f9580c37c6a7e286072f3e7caa0abb`
+Status: evaluator infrastructure is implemented; current exact-main answer quality is `NOT MEASURED` until a fresh trusted round is completed for that exact SHA.
 
-Evaluator infrastructure:
-- PR #611
-- AQ V2 adds absolute answer-experience scoring, sealed corpus handling, anonymized blind packets, fixed rubric, exact-SHA visual evidence and trusted-execution evidence.
-- AQ V2 infrastructure itself does **not** claim the #608 answer quality is world-class.
+## Canonical candidate rule
 
-Current known blockers before any "world-class candidate" label:
-1. Sealed 48-case corpus has not been executed against #608.
-2. Exact-SHA AQ V2 scored observations do not yet exist.
-3. Blind comparison against >=3 reference systems and >=2 independent judges has not yet been run.
-4. AQ V2 native visual evidence package has not yet been produced under the new gate.
-5. Trusted execution evidence has not yet been produced for the AQ V2 sealed run.
-6. Live provider execution must prove USD 0.
+AQ V2 no longer treats an old feature PR as the permanent candidate.
 
-## Safe execution dependency
+For a main-mode qualification, the candidate SHA must equal the exact `main` revision dispatched to the trusted workflow and must be revalidated immediately before provider execution. A result from a different SHA is historical evidence only and cannot be inherited by a newer release.
 
-Do not run the sealed AQ V2 corpus through an untrusted candidate process with unrestricted host network/credential access.
+## Evaluator infrastructure now available
 
-AQ V2 execution should reuse the trusted-evaluator architecture established in PR #609:
-- exact same-repository open PR head binding;
-- trusted host owns the sealed corpus and provider credential;
+The canonical repository includes:
+
+- sealed/private 48-case corpus handling;
+- exact-current-main or exact open-PR candidate binding;
+- trusted-host ownership of corpus material and provider credentials;
+- one-shot reservation / corpus-reuse protection;
+- answer-digest binding for all 48 cases;
+- independent absolute AQ V2 scoring bound to the exact answers;
+- controlled-external blind comparison binding;
+- at least 3 reference systems and at least 2 source-blind judges for comparative qualification;
+- exact candidate/corpus/round/rubric/result digest binding;
+- visual/readability evidence requirements;
+- bounded sanitized diagnostics;
+- USD 0 / free-only / no-paid-fallback verification;
+- canonical cross-domain raw-evidence gate V2.
+
+Canonical answer commands:
+
+```sh
+npm run eval:trusted-answer-quality-v2 -- <trusted-execution.json> <independent-score-bundle.json> [output.json]
+npm run eval:trusted-answer-blind-v2 -- <trusted-execution.json> <trusted-blind-bundle.json> [output.json]
+```
+
+The cross-domain command is:
+
+```sh
+npm run eval:world-class-quality -- <trusted-raw-evidence.json>
+```
+
+## Historical evidence interpretation
+
+Earlier trusted AQ rounds are engineering evidence, not current-SHA qualification.
+
+A prior fresh round against PR #698 completed trusted execution but did not meet the content-quality bar. Recorded weaknesses included Truth and Evidence Usability deficits, family-floor failures, and stable/non-live tasks that were incorrectly refused through research fail-closed routing.
+
+Subsequent product changes added regression coverage and routing/answer-contract hardening for those failure modes. Those repairs must be evaluated on a fresh independent round; the earlier failed corpus/result cannot be relabeled as a pass and cannot be reused to claim current quality.
+
+## Current blockers before any answer-quality comparative claim
+
+For the exact current main SHA, all of the following are still required unless already produced for that same SHA in a fresh trusted round:
+
+1. independently prepared unused sealed 48-case corpus identity;
+2. trusted exact-main execution of all 48 cases;
+3. exact-answer independent AQ V2 score bundle;
+4. source-blind comparison against at least 3 controlled external references and at least 2 independent judges;
+5. required AQ V2 viewport/readability evidence;
+6. trusted execution/provenance evidence;
+7. verified USD 0, free-only, no-paid-fallback provider evidence;
+8. final trusted V2 cross-domain packet if making an overall frontier/world-class claim.
+
+If any prerequisite is missing, exhausted, belongs to another SHA, or cannot be verified, the status remains `NOT MEASURED` rather than inferred PASS.
+
+## Safe execution boundary
+
+Do not run sealed AQ V2 material through an untrusted candidate process with unrestricted host network or credential access.
+
+The trusted evaluator must retain these properties:
+
+- trusted host owns sealed corpus and provider credential;
 - candidate receives only the prompt required for the current case, never the full corpus;
-- provider credential remains outside candidate;
-- candidate external network is blocked except trusted local proxy capabilities;
+- provider credential remains outside candidate control;
+- candidate network access remains restricted to the declared trusted proxy/runtime capabilities;
 - sanitized logs/artifacts only;
-- exact request budget;
-- fail closed on leakage or unverifiable cost.
+- exact request/retry budget;
+- reservation marker before private execution where required;
+- fail closed on leakage, answer substitution, corpus reuse, unverifiable cost, or candidate-SHA mismatch.
 
-## 2026-09-23 trusted evaluator release status
-
-- PR #612 merged to `main`; trusted AQ V2 execution boundary is now on the canonical branch.
-- PR #613 merged to `main`; required corpus/provider secrets are checked before the globally one-shot corpus reservation is consumed.
-- The one-shot runner was exercised against PR #608 using exact candidate SHA `ef8825f1b8f9580c37c6a7e286072f3e7caa0abb`.
-- `OPENROUTER_API_KEY` is configured.
-- `ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64` is **not configured**.
-- The runner therefore stopped before corpus inspection/reservation/provider execution. The hidden corpus has not been consumed.
-- No alternative/generated corpus is substituted, because doing so after seeing the candidate would weaken the held-out claim.
-- Trusted live execution remains blocked only on registration of the independently prepared sealed AQ V2 corpus secret.
-
-Production runtime remains free-only and fail-closed. A docs-only canonical commit is used to retrigger Vercel after the prior workflow-only main commit hit the Hobby deployment-rate limit; application runtime code is unchanged by this status update.
+Production runtime remains free-only and fail-closed independently of benchmark status.
