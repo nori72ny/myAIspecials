@@ -47,6 +47,7 @@ All evidence for a quality decision must bind to the same exact candidate SHA an
 - creation and expiry timestamps;
 - reference-system count;
 - judge count or objective evaluator identity;
+- exact task/result or answer bindings where applicable;
 - all failures in the denominator.
 
 Evidence expires after at most 31 days. A different candidate SHA cannot inherit a prior “world-class” result.
@@ -54,26 +55,44 @@ Evidence expires after at most 31 days. A different candidate SHA cannot inherit
 ## Executable gate
 
 ```sh
-npm run eval:world-class-quality -- <evidence.json>
+npm run eval:world-class-quality -- <trusted-raw-evidence.json>
 ```
 
-The executable contract is `origin.world-class-quality-gate.v1`.
+The canonical executable contract is `origin.trusted-world-class-quality-gate.v2`.
 
-It requires evidence for:
+The V2 gate reconstructs domain decisions from trusted raw evidence and rejects the old aggregate-only packet shape. The legacy command remains available for diagnostics only:
+
+```sh
+npm run eval:world-class-quality:legacy -- <aggregate-evidence.json>
+```
+
+A legacy aggregate report is never sufficient for a comparative quality claim.
+
+The canonical V2 gate requires evidence for:
 - answer;
 - coding;
 - agent;
 - image;
 - artifact.
 
-Subjective-output domains use blind-preference evidence. Coding and Agent use objective-comparison evidence.
+Subjective-output domains use blind-preference evidence. Coding and Agent use trusted objective/reference comparisons. Every domain must bind to the exact top-level candidate SHA.
+
+## Evidence state
+
+For the exact current SHA, each domain is treated as one of:
+
+- `QUALIFIED` — current-SHA absolute and comparative evidence passes;
+- `FAILED` — current-SHA measured evidence exists and misses a threshold or hard blocker;
+- `NOT MEASURED` — current-SHA evidence is absent, expired, incomplete, belongs to another SHA, or cannot be reused under the one-shot/private protocol.
+
+Historical qualification is useful context but is not inherited by a new SHA.
 
 ## Release behavior
 
 This gate does **not** mean every small security or correctness fix must wait for a full competitive benchmark. Incremental releases remain allowed.
 
 However:
-- no domain is called “world-class”, “better than other AI”, “Claude Code-class”, or equivalent without its comparative evidence;
+- no domain is called “world-class”, “better than other AI”, “Claude Code-class”, or equivalent without its current-SHA comparative evidence;
 - a major capability milestone intended to satisfy the Owner's excellence target is incomplete until its domain evidence passes;
 - a regression in a previously qualified domain blocks a renewed comparative claim for the new SHA;
 - zero-cost, fail-closed, server-only-secret and approval boundaries remain independent hard requirements and cannot be traded for benchmark score.
@@ -85,7 +104,8 @@ When a domain loses:
 2. reproduce it on non-held-out development cases;
 3. improve the planner/model routing/tool workflow/critic/rendering layer as appropriate;
 4. run deterministic regression tests;
-5. freeze a fresh comparison round;
-6. re-evaluate without tuning on the held-out answers.
+5. freeze or ingest a fresh independent comparison round;
+6. re-evaluate once without tuning on the held-out answers;
+7. bind all resulting evidence to the new exact SHA.
 
 The goal is not to game a leaderboard. The goal is to repeatedly turn measured weaknesses into product improvements while preserving security and $0 operation.
