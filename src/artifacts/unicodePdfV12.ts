@@ -18,7 +18,7 @@ const MAX_FONT_BYTES = 2_500_000;
 const MAX_FONT_FILES = 160;
 const MAX_TOTAL_FONT_BYTES = 24_000_000;
 
-export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v5' as const;
+export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v6' as const;
 
 type LoadedFontSource = {
   filename: string;
@@ -80,7 +80,7 @@ async function loadFontsForText(pdfDoc: PDFDocument, text: string): Promise<PdfF
   const uniqueCodePoints = new Set(
     Array.from(text)
       .map((char) => char.codePointAt(0))
-      .filter((value): value is number => value !== undefined),
+      .filter((value): value is number => value !== undefined && value !== 0x09 && value !== 0x0a && value !== 0x0d),
   );
   for (const codePoint of uniqueCodePoints) selectedFileByCodePoint.set(codePoint, findFileForCodePoint(codePoint));
 
