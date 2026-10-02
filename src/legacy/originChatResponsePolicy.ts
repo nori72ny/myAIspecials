@@ -109,7 +109,7 @@ export function requiresOriginCurrentInformation(message: string): boolean {
   if (
     isTransformOnlyRequest(message)
     || isHypotheticalFreshnessFailureRequest(message)
-    || isStablePricingConceptRequest(message)
+    || (isStablePricingConceptRequest(message) && !hasExplicitExternalFreshnessIntent(message))
     || isSuppliedPriceArithmeticRequest(message)
     || isDeterministicQuantitativeRequest(message)
     || isProvidedPriceDecisionRequest(message)
