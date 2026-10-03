@@ -36,6 +36,7 @@ async function main() {
       || promotion.candidateSha !== candidateSha
       || promotion.baselineSha !== baselineSha
       || promotion.shardCount !== expectedShardCount
+      || completedShardCount !== expectedShardCount
       || promotion.caseCount !== 40
       || promotion.familyCount !== 10
       || typeof promotion.promotionEligible !== "boolean"
