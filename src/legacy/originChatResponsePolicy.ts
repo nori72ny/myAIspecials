@@ -44,6 +44,19 @@ function isStablePricingConceptRequest(message: string): boolean {
     || /\b(?:price|pricing).{0,20}(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning)|(?:strategy|model|theory|elasticity|psychology|concept|definition|meaning).{0,20}(?:price|pricing)\b/is.test(message);
 }
 
+function isStableEnglishTopicExplanationRequest(message: string): boolean {
+  const explicitFreshness = /\b(?:latest|current|today'?s?|live|real[- ]time|search|research|sources?|look\s+up|find\s+sources?|check\s+sources?)\b/i.test(message);
+  if (explicitFreshness) return false;
+
+  const weatherConcept = /\bweather\b/i.test(message)
+    && /\b(?:effect|effects|affect|affects|impact|impacts|mechanism|concept|definition|meaning)\b/i.test(message);
+  const newsConcept = /\bnews\b/i.test(message)
+    && /\b(?:literacy|journalism|editorial|reporting|what\s+is|how\s+does|how\s+do|why\s+does|why\s+do|explain|concept|definition|meaning)\b/i.test(message);
+  const priceEconomicsConcept = /\bprices?\b/i.test(message)
+    && /\b(?:demand|supply|inflation|elasticity|economics?|market\s+structure|marginal\s+cost|why\s+do|why\s+does|how\s+do|how\s+does)\b/i.test(message);
+  return weatherConcept || newsConcept || priceEconomicsConcept;
+}
+
 function hasRealtimeExternalDataIntent(message: string): boolean {
   const japaneseRealtimeData = message.includes("リアルタイム")
     && ["情報", "データ", "ニュース", "天気", "価格", "料金", "株価", "相場", "状況", "結果", "為替", "レート", "更新"]
@@ -110,6 +123,7 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     isTransformOnlyRequest(message)
     || isHypotheticalFreshnessFailureRequest(message)
     || (isStablePricingConceptRequest(message) && !hasExplicitExternalFreshnessIntent(message))
+    || isStableEnglishTopicExplanationRequest(message)
     || isSuppliedPriceArithmeticRequest(message)
     || isDeterministicQuantitativeRequest(message)
     || isProvidedPriceDecisionRequest(message)
