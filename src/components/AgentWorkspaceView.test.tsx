@@ -85,6 +85,7 @@ describe('AgentWorkspaceView v3', () => {
     await screen.findByText('未実行 · 承認待ち');
     expect(screen.getByText(/まだツールは実行していません/)).toBeTruthy();
     expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('document_generator');
+    expect((screen.getByLabelText('達成したいこと') as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
   });
