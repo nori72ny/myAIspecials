@@ -89,7 +89,8 @@ describe('ORIGIN top experience regression boundary', () => {
   it('locks the canonical Release 2 composer instead of the superseded flagship treatment', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('.origin-composer {');
-    expect(topUi).toContain('min-height: 92px !important;');
+    expect(topUi).toContain('min-height: 60px !important;');
+    expect(topUi).toContain('min-height: 44px !important;');
     expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;');
     expect(topUi).toContain('color: var(--text-primary) !important;');
     expect(topUi).toContain('.origin-composer__action.is-ready');
@@ -100,6 +101,16 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('color: #f4f4f5');
     expect(topUi).not.toContain('border-radius: 28px !important;');
     expect(topUi).not.toContain('box-shadow: 0 18px 50px color-mix');
+  });
+
+  it('keeps the mobile composer compact while preserving a 44px touch target and keyboard-safe font size', () => {
+    expect(topUi).toContain('@media (max-width: 639px)');
+    expect(topUi).toContain('min-height: 58px !important;');
+    expect(topUi).toContain('max-height: 144px !important;');
+    expect(topUi).toContain('min-height: 44px !important;');
+    expect(topUi).toContain('font-size: 16px !important;');
+    expect(topUi).not.toContain('min-height: 92px !important;');
+    expect(topUi).not.toContain('min-height: 78px !important;');
   });
 
   it('keeps Release 2 elevation quiet without weakening hierarchy or focus', () => {
@@ -132,7 +143,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('min-height: 60px !important;');
     expect(topUi).toContain('width: 76px !important;');
     expect(topUi).toContain('width: 58px !important;');
-    expect(topUi).toContain('min-height: 92px !important;');
+    expect(topUi).toContain('min-height: 44px !important;');
     expect(topUi).toContain('font-size: 16px !important;');
     expect(topUi).not.toContain('ORIGIN Top Experience — 2026 flagship surface');
     expect(topUi).not.toContain('width: 104px !important;');
