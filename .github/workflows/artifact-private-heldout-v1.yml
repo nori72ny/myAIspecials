@@ -174,3 +174,25 @@ jobs:
           path: test-results/artifact-private/
           retention-days: 90
           if-no-files-found: error
+
+      - name: Require complete technical candidate evidence (not final qualification)
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path='test-results/artifact-private/candidate-summary.json';
+          const summary=JSON.parse(fs.readFileSync(path,'utf8'));
+          const failures=Array.isArray(summary.failures) ? summary.failures : [];
+          const blockers=Array.isArray(summary.blockers) ? summary.blockers : [];
+          if(summary.candidateSha!==process.env.CANDIDATE_SHA) process.exit(21);
+          if(summary.attempted!==16) process.exit(22);
+          if(summary.completed!==16) process.exit(23);
+          if(summary.technicallyPassed!==16) process.exit(24);
+          if(summary.providerIdentityCount!==1) process.exit(25);
+          if(blockers.length!==0) process.exit(26);
+          if(failures.length!==0) process.exit(27);
+          console.log('Artifact private candidate technical evidence is complete. Final comparative qualification remains NOT_MEASURED until reference systems and blind judges are evaluated.');
+          NODE
