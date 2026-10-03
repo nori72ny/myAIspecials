@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
-import { githubJson } from "./aq-final-state-github-json.mjs";
+import { findFinalShardArtifact } from "./aq-final-state-artifacts.mjs";
 
 const exec = promisify(execFile);
 const SHA40 = /^[a-f0-9]{40}$/;
@@ -63,28 +63,9 @@ async function main() {
   await rm(stateDir, { recursive: true, force: true });
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
 
-  const artifacts = [];
-  for (let page = 1; page <= 10; page += 1) {
-    const payload = await githubJson(
-      `https://api.github.com/repos/${repository}/actions/artifacts?per_page=100&page=${page}`,
-      token,
-    );
-    const pageArtifacts = Array.isArray(payload?.artifacts) ? payload.artifacts : [];
-    artifacts.push(...pageArtifacts);
-    if (pageArtifacts.length < 100) break;
-  }
-
   const completed = [];
   for (let shardIndex = 0; shardIndex < expectedShardCount; shardIndex += 1) {
-    const artifactName = `aq-live-final-shard-${candidateSha}-s${shardIndex}`;
-    const artifact = artifacts
-      .filter((item) =>
-        item
-        && !item.expired
-        && item.name === artifactName
-        && typeof item.archive_download_url === "string"
-      )
-      .sort((a, b) => Date.parse(b.created_at || "") - Date.parse(a.created_at || ""))[0];
+    const artifact = await findFinalShardArtifact(repository, token, candidateSha, shardIndex);
 
     if (!artifact) continue;
 
