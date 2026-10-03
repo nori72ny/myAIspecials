@@ -49,7 +49,9 @@
     "inspect:artifact-private-corpus": "tsx scripts/inspect-artifact-private-corpus-v1.ts",
     "eval:artifact-private": "tsx scripts/run-artifact-private-heldout-v1.ts",
     "inspect:image-private-corpus": "tsx scripts/inspect-image-private-corpus-v1.ts",
-    "eval:image-private": "tsx scripts/run-image-private-heldout-v1.ts"
+    "eval:image-private": "tsx scripts/run-image-private-heldout-v1.ts",
+    "inspect:image-edit-private-corpus": "tsx scripts/inspect-image-edit-private-corpus-v1.ts",
+    "eval:image-edit-private": "tsx scripts/run-image-edit-private-heldout-v1.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
