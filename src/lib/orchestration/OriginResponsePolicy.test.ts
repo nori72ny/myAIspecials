@@ -83,4 +83,19 @@ describe("OriginResponsePolicy", () => {
     expect(instruction).toContain("hard requirement");
     expect(instruction).toContain("Do not add wrappers");
   });
+
+  it.each([
+    "Markdownなしで文章だけで返してください",
+    "コードだけ返してください",
+    "no markdown; answer in plain prose",
+    "code only",
+  ])("treats explicit wrapper/format constraints as hard requirements: %s", (message) => {
+    const intent = classifyOriginRequestIntent(message, "review");
+    const policy = resolveOriginResponsePolicy({ intent, taskType: "review", userMessage: message });
+    const instruction = originResponsePolicyInstruction(policy);
+
+    expect(policy.explicitFormatRequested).toBe(true);
+    expect(instruction).toContain("hard requirement");
+    expect(instruction).toContain("Do not add wrappers");
+  });
 });
