@@ -19,14 +19,21 @@ async function main() {
   try {
     const names = await readdir(stateDir);
     completedShardCount = names.filter((name) => /^aq-official-shard-\d+\.json$/.test(name)).length;
-  } catch {
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
     completedShardCount = 0;
   }
 
   let promotion = null;
   try {
-    promotion = JSON.parse(await readFile(promotionPath, "utf8"));
-  } catch {
+    const raw = await readFile(promotionPath, "utf8");
+    try {
+      promotion = JSON.parse(raw);
+    } catch {
+      throw new Error("AQ_FINAL_STATUS_PROMOTION_INVALID_JSON");
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
     promotion = null;
   }
 
