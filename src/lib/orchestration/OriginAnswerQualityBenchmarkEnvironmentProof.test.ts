@@ -153,17 +153,46 @@ describe("OriginAnswerQualityBenchmarkEnvironmentProof", () => {
     });
   });
 
-  it("requires coding readiness when coding is actually part of the shard", async () => {
+  it("binds scoped coding proof to the exact-checkout adapter instead of unrelated HTTP control-plane readiness", async () => {
+    const fetchImpl = fetchFor({ coding: { ready: false } });
     const result = await probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
       "https://candidate.example/",
       sha,
       ["coding"],
-      fetchFor({ coding: { ready: false } }) as typeof fetch,
+      fetchImpl as typeof fetch,
     );
 
-    expect(result).toEqual({
-      ok: false,
-      code: "AQ_BENCHMARK_ENV_CODING_NOT_READY",
+    expect(result.ok).toBe(true);
+    if (result.ok === false) return;
+    expect(result.value.requiredLanes).toEqual(["coding"]);
+    expect(result.value.runtimeIds).toEqual({ coding: "coding-v1.4" });
+    expect(fetchImpl.mock.calls.map((call) =>
+      new URL(String(call[0])).pathname
+    )).toEqual(["/api/health"]);
+  });
+
+  it("keeps HTTP readiness fail-closed for mixed research and artifact lanes while coding remains checkout-bound", async () => {
+    const fetchImpl = fetchFor({ coding: { ready: false } });
+    const result = await probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
+      "https://candidate.example/",
+      sha,
+      ["research", "coding", "artifact"],
+      fetchImpl as typeof fetch,
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok === false) return;
+    expect(result.value.runtimeIds).toEqual({
+      research: "grounded-research-v1.1",
+      coding: "coding-v1.4",
+      artifact: "artifact-v1.2",
     });
+    expect(fetchImpl.mock.calls.map((call) =>
+      new URL(String(call[0])).pathname
+    )).toEqual([
+      "/api/health",
+      "/api/research/v1.1/status",
+      "/api/artifacts/v1.2/status",
+    ]);
   });
 });
