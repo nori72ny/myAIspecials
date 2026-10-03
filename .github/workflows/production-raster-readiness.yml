@@ -1,0 +1,121 @@
+name: Production Raster Readiness Gate
+
+on:
+  workflow_run:
+    workflows:
+      - Production Release CI/CD
+    branches:
+      - main
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-raster-readiness-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify-production-raster:
+    name: Verify production raster runtime is live and free-only
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Bind gate to exact successful main release
+        env:
+          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CANDIDATE_SHA" != ''
+          test "$CANDIDATE_SHA" != 'null'
+          echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify production still serves the exact successful main SHA
+        env:
+          ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_file="$(mktemp)"
+          trap 'rm -f "$health_file"' EXIT
+
+          health_status="$(curl --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --output "$health_file" \
+            --write-out '%{http_code}' \
+            "${ORIGIN_PRODUCTION_URL}/api/health")"
+
+          if [ "$health_status" != '200' ]; then
+            cat "$health_file" >&2 || true
+            echo "::error title=Production release health unavailable::Expected HTTP 200 from /api/health, got ${health_status}."
+            exit 20
+          fi
+
+          deployed_sha="$(jq -r '.releaseSha // empty' "$health_file")"
+          if [ "$deployed_sha" != "$CANDIDATE_SHA" ]; then
+            jq -c '{status,service,releaseSha,costUsd,freeOnly,paidFallbackEnabled,secretDelivery}' "$health_file" >&2
+            echo "::error title=Production SHA drift::Expected ${CANDIDATE_SHA}, production reports ${deployed_sha:-missing}."
+            exit 23
+          fi
+
+          echo "- Deployed release SHA: \`${deployed_sha}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail closed unless production raster runtime is fully ready
+        env:
+          ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_file="$(mktemp)"
+          trap 'rm -f "$status_file"' EXIT
+
+          http_status="$(curl --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --output "$status_file" \
+            --write-out '%{http_code}' \
+            "${ORIGIN_PRODUCTION_URL}/api/creative/v1.5/raster/status")"
+
+          echo '### Production raster readiness' >> "$GITHUB_STEP_SUMMARY"
+          jq -r --arg http "$http_status" '[
+            "- HTTP: `" + ($http|tostring) + "`",
+            "- Provider: `" + ((.providerId // "null")|tostring) + "`",
+            "- Model: `" + ((.model // "null")|tostring) + "`",
+            "- Configured: `" + ((.configured // false)|tostring) + "`",
+            "- Ready: `" + ((.ready // false)|tostring) + "`",
+            "- Zero-cost verified: `" + ((.zeroCostVerified // false)|tostring) + "`",
+            "- Model-based editing: `" + ((.modelBasedImageEditing // false)|tostring) + "`",
+            "- Paid fallback enabled: `" + ((.paidFallbackEnabled // false)|tostring) + "`"
+          ] | .[]' "$status_file" >> "$GITHUB_STEP_SUMMARY" || true
+
+          if [ "$http_status" != '200' ]; then
+            jq -c '{ok,configured,ready,providerId,model,zeroCostVerified,paymentMethodRequired,paidFallbackEnabled,freeOnly,costUsd,modelBasedImageEditing,reason}' "$status_file" >&2 || cat "$status_file" >&2
+            echo "::error title=Production raster runtime unavailable::Expected HTTP 200 from the production raster status endpoint, got ${http_status}."
+            exit 21
+          fi
+
+          jq -e '
+            .ok == true and
+            .configured == true and
+            .ready == true and
+            .zeroCostVerified == true and
+            .paymentMethodRequired == false and
+            .paidFallbackEnabled == false and
+            .freeOnly == true and
+            .costUsd == 0 and
+            .modelBasedImageEditing == true and
+            .secretDelivery == "server-only" and
+            ((.supportedTasks // []) | index("edit") != null)
+          ' "$status_file" >/dev/null || {
+            jq -c '{ok,configured,ready,providerId,model,zeroCostVerified,paymentMethodRequired,paidFallbackEnabled,freeOnly,costUsd,modelBasedImageEditing,secretDelivery,supportedTasks,reason}' "$status_file" >&2
+            echo "::error title=Production raster readiness invariant failed::Raster runtime must be configured, ready, zero-cost verified, edit-capable, server-only, and paid-fallback disabled."
+            exit 22
+          }
