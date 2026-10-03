@@ -36,6 +36,38 @@ jobs:
           test "$CANDIDATE_SHA" != 'null'
           echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify production still serves the exact successful main SHA
+        env:
+          ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_file="$(mktemp)"
+          trap 'rm -f "$health_file"' EXIT
+
+          health_status="$(curl --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --output "$health_file" \
+            --write-out '%{http_code}' \
+            "${ORIGIN_PRODUCTION_URL}/api/health")"
+
+          if [ "$health_status" != '200' ]; then
+            cat "$health_file" >&2 || true
+            echo "::error title=Production release health unavailable::Expected HTTP 200 from /api/health, got ${health_status}."
+            exit 20
+          fi
+
+          deployed_sha="$(jq -r '.releaseSha // empty' "$health_file")"
+          if [ "$deployed_sha" != "$CANDIDATE_SHA" ]; then
+            jq -c '{status,service,releaseSha,costUsd,freeOnly,paidFallbackEnabled,secretDelivery}' "$health_file" >&2
+            echo "::error title=Production SHA drift::Expected ${CANDIDATE_SHA}, production reports ${deployed_sha:-missing}."
+            exit 23
+          fi
+
+          echo "- Deployed release SHA: \`${deployed_sha}\`" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Fail closed unless production raster runtime is fully ready
         env:
           ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
@@ -53,7 +85,7 @@ jobs:
             "${ORIGIN_PRODUCTION_URL}/api/creative/v1.5/raster/status")"
 
           echo '### Production raster readiness' >> "$GITHUB_STEP_SUMMARY"
-          jq -r '[
+          jq -r --arg http "$http_status" '[
             "- HTTP: `" + ($http|tostring) + "`",
             "- Provider: `" + ((.providerId // "null")|tostring) + "`",
             "- Model: `" + ((.model // "null")|tostring) + "`",
@@ -62,7 +94,7 @@ jobs:
             "- Zero-cost verified: `" + ((.zeroCostVerified // false)|tostring) + "`",
             "- Model-based editing: `" + ((.modelBasedImageEditing // false)|tostring) + "`",
             "- Paid fallback enabled: `" + ((.paidFallbackEnabled // false)|tostring) + "`"
-          ] | .[]' --arg http "$http_status" "$status_file" >> "$GITHUB_STEP_SUMMARY" || true
+          ] | .[]' "$status_file" >> "$GITHUB_STEP_SUMMARY" || true
 
           if [ "$http_status" != '200' ]; then
             jq -c '{ok,configured,ready,providerId,model,zeroCostVerified,paymentMethodRequired,paidFallbackEnabled,freeOnly,costUsd,modelBasedImageEditing,reason}' "$status_file" >&2 || cat "$status_file" >&2
