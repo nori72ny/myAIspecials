@@ -26,3 +26,11 @@ The `Frontier coding qualification status audit` workflow turns that distinction
 Production `/api/health` was rechecked at main `e03484f79d42327cc7c195cf90c7ce9ca7180fa3`: status ok, freeOnly true, paidFallbackEnabled false, server-only secrets. Production Release CI/CD run 37094418211 succeeded. This does not supply fresh independent domain qualification.
 
 Follow-up audit repair distinguishes interrupted/failed evaluation from safe preflight-only skips, excludes expired evidence, and rejects incomplete artifact inventories. Next: exact-head CI for this repair, followed by fresh-domain evaluation prerequisite verification without consuming or reusing sealed corpora.
+
+## Follow-up checkpoint — 2026-10-03, after PR #820
+
+- PR #820 merged after all four exact-head workflows passed. Production health now reports `69a06f44127bb62d773ce00192097164fcf57400`, status ok, freeOnly true, paidFallbackEnabled false.
+- Coding run `37083340188`: preflight succeeded, provider-window/selection/benchmark/aggregate skipped. No final evaluation executed; prerequisites were unavailable.
+- Q1 AQ run `37071685960`: restoration failed with `AQ_FINAL_STATE_GITHUB_HTTP_500` before provider execution. Current main already includes bounded metadata GET retries; do not duplicate that repair or describe the old run as an answer-quality failure.
+- Additional restoration defect: repository-wide scanning stopped at 1,000 artifacts, potentially treating older exact-candidate shards as absent. Follow-up uses exact-name retrieval with complete-response validation and preserves SHA/content checks.
+- Live Production raster status: configured=false, ready=false, reason `CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED`. This is an activation blocker, not an image-quality result. No image provider request or private corpus was consumed.
