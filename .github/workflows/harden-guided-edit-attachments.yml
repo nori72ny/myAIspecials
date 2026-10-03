@@ -1,0 +1,104 @@
+name: Harden guided edit attachment isolation
+
+on:
+  push:
+    branches:
+      - port/guided-image-edit-current-main-20261003
+
+permissions:
+  contents: write
+
+concurrency:
+  group: harden-guided-edit-attachments
+  cancel-in-progress: false
+
+jobs:
+  harden-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Require unchanged current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_main='8a385799cf490518fb0d5ce51f51a3ba872c8730'
+          git fetch origin main
+          actual_main="$(git rev-parse origin/main)"
+          test "$actual_main" = "$expected_main" || {
+            echo "main moved: expected $expected_main, found $actual_main" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$expected_main" HEAD
+
+      - name: Apply bounded attachment isolation hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          app = Path('src/App.tsx')
+          text = app.read_text()
+          old = """  const attachFiles = async (fileList?: FileList | File[]) => {\n    if (!fileList?.length) return;\n    setAttachmentError('');\n    setIsSafeWaiting(false);\n"""
+          new = """  const attachFiles = async (fileList?: FileList | File[]) => {\n    if (!fileList?.length) return;\n    if (imageEditTarget) {\n      setAttachmentError(language === 'en'\n        ? 'Image edit mode uses the selected verified source image only. Cancel image edit mode before attaching another file.'\n        : '画像編集モードでは選択した検証済み元画像だけを使います。別ファイルを添付する場合は、先に画像編集を解除してください。');\n      setIsSafeWaiting(false);\n      return;\n    }\n    setAttachmentError('');\n    setIsSafeWaiting(false);\n"""
+          if old not in text:
+              raise SystemExit('attachFiles anchor not found')
+          text = text.replace(old, new, 1)
+
+          old_button = """<button type=\"button\" role=\"menuitem\" onClick={(event) => { closeComposerMenu(event.currentTarget); fileInputRef.current?.click(); }} className=\"min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10\">{language === 'ja' ? 'ファイルを添付' : 'Attach file'}</button>"""
+          new_button = """<button type=\"button\" role=\"menuitem\" disabled={Boolean(imageEditTarget)} onClick={(event) => { closeComposerMenu(event.currentTarget); fileInputRef.current?.click(); }} className=\"min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10\">{language === 'ja' ? 'ファイルを添付' : 'Attach file'}</button>"""
+          if old_button not in text:
+              raise SystemExit('attach menu button anchor not found')
+          text = text.replace(old_button, new_button, 1)
+          app.write_text(text)
+
+          e2e = Path('tests/e2e/reference-image-variation.spec.ts')
+          spec = e2e.read_text()
+          old_spec = """    await editButtons.nth(1).click();\n    await expect(page.getByTestId('image-edit-mode')).toBeVisible();\n    await expect(page.getByTestId('origin-chat-request')).toHaveAttribute('placeholder', /背景だけ/);\n"""
+          new_spec = """    await editButtons.nth(1).click();\n    await expect(page.getByTestId('image-edit-mode')).toBeVisible();\n    await page.getByTestId('origin-add-menu-toggle').click();\n    await expect(page.getByRole('menuitem', { name: 'ファイルを添付' })).toBeDisabled();\n    await page.keyboard.press('Escape');\n    await expect(page.getByTestId('origin-chat-request')).toHaveAttribute('placeholder', /背景だけ/);\n"""
+          if old_spec not in spec:
+              raise SystemExit('guided E2E anchor not found')
+          e2e.write_text(spec.replace(old_spec, new_spec, 1))
+          PY
+
+      - name: Verify hardening
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run lint
+          npx vitest run src/App.test.tsx src/lib/orchestration/OriginCapabilityGuide.test.ts --reporter=default
+          npm run build
+          npx playwright install --with-deps chromium
+          CI=true npx playwright test tests/e2e/reference-image-variation.spec.ts --project=chromium
+
+      - name: Clean generated output and commit only product delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_main='8a385799cf490518fb0d5ce51f51a3ba872c8730'
+          rm .github/workflows/harden-guided-edit-attachments.yml
+          git checkout "$expected_main" -- test-results
+          git clean -fd test-results playwright-report results || true
+          git add -A
+          git diff --cached --check
+          actual_files="$(git diff --name-only "$expected_main" | sort)"
+          expected_files="$(printf '%s\n' \
+            src/App.test.tsx \
+            src/App.tsx \
+            src/lib/orchestration/OriginCapabilityGuide.test.ts \
+            src/lib/orchestration/OriginCapabilityGuide.ts \
+            tests/e2e/reference-image-variation.spec.ts | sort)"
+          test "$actual_files" = "$expected_files" || {
+            echo 'Unexpected current-main diff; refusing to commit.' >&2
+            printf '%s\n' "$actual_files" >&2
+            exit 1
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(image): isolate guided edits from extra attachments'
+          git push origin HEAD:${GITHUB_REF_NAME}
