@@ -62,6 +62,28 @@ describe('MCP production runtime composition', () => {
     expect(createMcpProductionSessionRouterFromEnv({ ...enabledEnv(), ORIGIN_MCP_ENABLED: 'false' })).toBeUndefined();
   });
 
+  it('keeps GitHub App approval bootstrap disabled unless explicitly enabled', () => {
+    const runtime = createMcpProductionRuntimeFromEnv(enabledEnv());
+    expect(runtime?.githubBootstrapRouter).toBeUndefined();
+  });
+
+  it('composes GitHub App approval bootstrap only with owner identity and a valid server-only keyring', () => {
+    const env = enabledEnv();
+    env.ORIGIN_MCP_GITHUB_BOOTSTRAP_ENABLED = 'true';
+    env.ORIGIN_MCP_GITHUB_OWNER_LOGIN = 'nori72ny';
+    env.ORIGIN_MCP_GITHUB_APP_KEYRING_JSON = JSON.stringify({
+      activeKeyId: 'g1',
+      keys: { g1: randomBytes(32).toString('base64') },
+    });
+    expect(createMcpProductionRuntimeFromEnv(env)?.githubBootstrapRouter).toBeDefined();
+
+    const missingOwner = { ...env, ORIGIN_MCP_GITHUB_OWNER_LOGIN: '' };
+    expect(() => createMcpProductionRuntimeFromEnv(missingOwner)).toThrow('MCP_RUNTIME_CONFIG_INVALID');
+
+    const invalidKeyring = { ...env, ORIGIN_MCP_GITHUB_APP_KEYRING_JSON: '{}' };
+    expect(() => createMcpProductionRuntimeFromEnv(invalidKeyring)).toThrow();
+  });
+
   it('constructs the reviewed OAuth runtime and owner-session router only when prerequisites are present', () => {
     const env = enabledEnv();
     const runtime = createMcpProductionRuntimeFromEnv(env);

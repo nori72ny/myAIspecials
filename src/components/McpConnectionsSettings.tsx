@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import McpGithubBootstrapSettings from './McpGithubBootstrapSettings';
 
 type Connection = { id: string; serverId: string; version: number; status: 'registered' | 'verified' | 'failed'; checkedAt: string | null };
 type ServerChoice = { id: string; label: string; authMode: 'oauth' | 'broker' };
@@ -214,6 +215,7 @@ export default function McpConnectionsSettings({ language }: { language: 'ja' | 
       </div>}
       {ready && <>
         <div className="flex justify-end"><button type="button" className={button} disabled={busy} onClick={() => void run({ path: '/api/mcp/session/logout', method: 'POST', body: {}, success: t.signedOut })}>{t.logout}</button></div>
+        <McpGithubBootstrapSettings language={language} buttonClass={button} />
         <label htmlFor="mcp-server-choice" className="block text-sm font-semibold">{t.choose}</label>
         <div className="flex flex-wrap gap-2"><select id="mcp-server-choice" value={selected} disabled={busy} onChange={event => { setSelected(event.target.value); setAuthorizationUrl(''); }} className="origin-surface min-h-11 min-w-0 flex-1 rounded-xl border px-3 text-sm"><option value="">{t.select}</option>{choices.map(server => <option key={server.id} value={server.id}>{server.label}</option>)}</select>
         <button type="button" disabled={busy || !selectedServer} className={button} onClick={() => selectedServer?.authMode === 'oauth'
