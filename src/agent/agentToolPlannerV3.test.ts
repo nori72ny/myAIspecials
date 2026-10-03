@@ -3,10 +3,11 @@ import { selectAgentToolV3 } from './agentToolPlannerV3.js';
 
 describe('Agent V3 deterministic tool planner', () => {
   it.each([
+    ['最新のAI規制を調べて出典付きでまとめて', 'web_search_grounding'],
     ['このリポジトリの構成を確認して', 'repository_explorer'],
     ['このファイルを読んで内容を確認して', 'file_reader'],
     ['新しい設定ファイルを作成して', 'file_writer'],
-    ['テストを実行して', 'verification_runner'],
+    ['テストと型チェックを実行して', 'verification_runner'],
     ['YouTubeサムネ用の画像プロンプトを作って', 'image_prompt_compiler'],
     ['営業提案書を作成して', 'document_generator'],
     ['このTypeScriptコードのバグを分析して', 'code_interpreter'],
@@ -14,15 +15,8 @@ describe('Agent V3 deterministic tool planner', () => {
     expect(selectAgentToolV3(goal)).toMatchObject({ ok: true, toolName });
   });
 
-  it('fails before plan issuance for the registered web tool that the zero-cost kernel cannot execute', () => {
-    expect(selectAgentToolV3('最新のAI規制を調べて出典付きでまとめて')).toEqual({
-      ok: false,
-      code: 'AGENT_TOOL_UNAVAILABLE',
-    });
-  });
-
   it('fails closed for a multi-tool request that needs a supervisor graph', () => {
-    expect(selectAgentToolV3('このリポジトリを確認して、その結果から提案書を作って')).toEqual({
+    expect(selectAgentToolV3('最新市場を調べて、その結果から提案書を作って')).toEqual({
       ok: false,
       code: 'AGENT_MULTI_TOOL_PLAN_REQUIRED',
     });
