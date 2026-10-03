@@ -1,11 +1,11 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 const TRANSIENT_HTTP = new Set([500, 502, 503, 504]);
-const RETRY_DELAYS_MS = [1_000, 2_000];
+const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000];
 
 // Retry only idempotent GitHub metadata reads, never provider calls or a
 // workflow/evaluation run. Authentication, quota, parsing and transport errors
-// remain fail-closed; even transient HTTP errors get at most three attempts.
+// remain fail-closed; transient GitHub server failures get bounded backoff.
 export async function githubJson(url, token, {
   fetchImpl = fetch,
   sleepImpl = (delay) => sleep(delay),
