@@ -31,6 +31,7 @@ type AgentPlan = {
   planToken: string;
   expiresAt: string;
   selectedTool: AgentTool;
+  goal: string;
   plan: AgentPlanStep[];
 };
 
@@ -183,6 +184,7 @@ export default function AgentWorkspaceView() {
         planToken: data.planToken,
         expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
         selectedTool: data.selectedTool,
+        goal: trimmed,
         plan: data.plan.filter((step): step is AgentPlanStep => Boolean(step) && typeof step.id === 'string' && typeof step.title === 'string').slice(0, 12),
       };
       setPlan(next);
@@ -190,7 +192,7 @@ export default function AgentWorkspaceView() {
       setArtifact([
         '# Agent v3 実行計画',
         '',
-        `Goal: ${trimmed}`,
+        `Goal: ${next.goal}`,
         `Tool: ${next.selectedTool}`,
         '',
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
@@ -225,7 +227,7 @@ export default function AgentWorkspaceView() {
       return;
     }
 
-    const toolParams = paramsFor(plan.selectedTool, goal.trim());
+    const toolParams = paramsFor(plan.selectedTool, plan.goal);
     if (!toolParams) {
       setPhase('failed');
       setLog((current) => [...current, `計画ツール ${plan.selectedTool} に必要な明示パラメータが不足しているため、承認前に停止しました。`]);
@@ -285,7 +287,7 @@ export default function AgentWorkspaceView() {
       if (credentialInputRef.current) credentialInputRef.current.value = '';
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [goal, persistCheckpoint, phase, plan]);
+  }, [persistCheckpoint, phase, plan]);
 
   const resetPlan = () => {
     abortRef.current?.abort();
@@ -305,7 +307,7 @@ export default function AgentWorkspaceView() {
     && capability.freeOnly === true
     && capability.costUsd === 0
     && capability.paidFallbackEnabled === false;
-  const plannedParamsReady = plan ? paramsFor(plan.selectedTool, goal.trim()) !== null : false;
+  const plannedParamsReady = plan ? paramsFor(plan.selectedTool, plan.goal) !== null : false;
 
   return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="Agent Workspace">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
@@ -316,8 +318,9 @@ export default function AgentWorkspaceView() {
 
         <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">達成したいこと</label>
         <textarea id="agent-goal" value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={4000}
+          disabled={phase === 'planning' || Boolean(plan) || phase === 'executing'}
           placeholder="例: この要件を整理して、実行可能な文書案を作ってください。"
-          className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
+          className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950" />
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-slate-500">{checkingCapability ? 'Agent基盤を確認中…' : ready ? 'Agent v3 基盤を確認済み' : 'Agent v3 は現在利用できません'}</span>
@@ -326,7 +329,7 @@ export default function AgentWorkspaceView() {
           </span>
         </div>
 
-        <button type="button" onClick={() => void requestPlan()} disabled={!ready || !goal.trim() || phase === 'planning' || phase === 'executing'}
+        <button type="button" onClick={() => void requestPlan()} disabled={!ready || !goal.trim() || Boolean(plan) || phase === 'planning' || phase === 'executing'}
           className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
           {phase === 'planning' ? '計画中…' : '実行計画を作る'}
         </button>
@@ -342,7 +345,7 @@ export default function AgentWorkspaceView() {
           <div aria-label="計画で固定されたツール" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
             {plan.selectedTool}
           </div>
-          <p className="mt-1 text-xs leading-5 text-slate-500">このツール名は署名済みplan tokenに結び付いています。変更する場合は計画を作り直します。</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">このツール名は署名済みplan tokenに結び付いています。依頼内容を変える場合は計画を破棄して作り直します。</p>
           {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には明示パス・内容・検証種別などの安全な実行パラメータが不足しています。依頼文を具体化して計画を作り直してください。</p>}
 
           <details className="mt-2">
