@@ -63,10 +63,17 @@ function requestsComparison(intent: OriginRequestIntent, message: string): boole
     || /(?:比較|違い|メリット.{0,3}デメリット)|\b(?:compare|comparison|versus|\bvs\b)\b/i.test(message);
 }
 
+function hasNonComparisonDeliverable(intent: OriginRequestIntent): boolean {
+  return intent.requestedOutputs.some((output) => output !== "comparison");
+}
+
 function structureFor(input: ResolveOriginResponsePolicyInput): OriginResponseStructure {
   const { intent, taskType, userMessage } = input;
+  // A plain comparison is itself a presentation shape, not a generic deliverable.
+  // If the user also asks for a concrete artifact (proposal/document/chart/etc.),
+  // preserve that artifact as the primary structure and use comparison inside it.
+  if (requestsComparison(intent, userMessage) && !hasNonComparisonDeliverable(intent)) return "comparison";
   if (intent.interactionMode === "deliverable") return "deliverable";
-  if (requestsComparison(intent, userMessage)) return "comparison";
   if (taskType === "research" || taskType === "current-information") return "research";
   if (["implementation", "architecture", "security", "test", "operations"].includes(taskType)) return "technical";
   if (/(?:手順|やり方|方法|ステップ)|\b(?:steps?|how to|procedure)\b/i.test(userMessage)) return "steps";
