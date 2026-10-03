@@ -41,6 +41,16 @@ describe('Agent V3 operator authentication', () => {
     expect(authenticateAgentOperatorV3(requestWithAuth(approvalSecret), env)).toBe(false);
   });
 
+  it('does not claim separation when the dedicated credential reuses the signing key', () => {
+    const env = {
+      ORIGIN_AGENT_APPROVAL_SECRET: approvalSecret,
+      ORIGIN_AGENT_OPERATOR_SECRET: approvalSecret,
+    };
+    expect(agentOperatorAuthorizationModeV3(env)).toBe('unconfigured');
+    expect(agentOperatorConfiguredV3(env)).toBe(false);
+    expect(authenticateAgentOperatorV3(requestWithAuth(approvalSecret), env)).toBe(false);
+  });
+
   it('rejects missing, empty, oversized, and incorrect bearer credentials', () => {
     const env = { ORIGIN_AGENT_OPERATOR_SECRET: operatorSecret };
     expect(authenticateAgentOperatorV3({ get: () => undefined } as never, env)).toBe(false);
