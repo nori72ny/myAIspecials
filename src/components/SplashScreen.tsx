@@ -41,11 +41,14 @@ export default function SplashScreen({ durationMs = 600, visible = true, oncePer
       <div className="origin-ultra-splash__content">
         <div className="origin-ultra-logo" aria-hidden="true">
           <span className="origin-ultra-logo__halo" />
-          <span className="origin-ultra-logo__core">O</span>
-          <span className="origin-ultra-logo__edge" />
+          <img
+            className="origin-ultra-logo__mark"
+            src="/brand/origin-sunrise-mark.svg"
+            alt=""
+            draggable={false}
+          />
         </div>
         <div className="origin-ultra-wordmark">ORIGIN</div>
-        <div className="origin-ultra-caption">PERSONAL INTELLIGENCE</div>
       </div>
       <div className="origin-ultra-skeleton" aria-hidden="true">
         <span />
