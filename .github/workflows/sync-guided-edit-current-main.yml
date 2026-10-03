@@ -27,6 +27,8 @@ jobs:
         run: |
           set -euo pipefail
           expected_main='8a385799cf490518fb0d5ce51f51a3ba872c8730'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git fetch origin main
           actual_main="$(git rev-parse origin/main)"
           test "$actual_main" = "$expected_main" || {
@@ -78,7 +80,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'merge: sync guided image edit with exact current main'
           git push origin HEAD:${GITHUB_REF_NAME}
