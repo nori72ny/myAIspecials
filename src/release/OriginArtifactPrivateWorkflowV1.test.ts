@@ -43,6 +43,20 @@ describe('Artifact private held-out workflow V1',()=>{
     expect(workflow).not.toContain('sealed-corpus.json');
   });
 
+  it('fails closed after preserving evidence unless all 16 technical cases pass',()=>{
+    const upload=workflow.indexOf('Upload candidate artifacts and sanitized evidence');
+    const gate=workflow.indexOf('Require complete technical candidate evidence (not final qualification)');
+    expect(upload).toBeGreaterThan(0);
+    expect(gate).toBeGreaterThan(upload);
+    expect(workflow).toContain('summary.attempted!==16');
+    expect(workflow).toContain('summary.completed!==16');
+    expect(workflow).toContain('summary.technicallyPassed!==16');
+    expect(workflow).toContain('summary.providerIdentityCount!==1');
+    expect(workflow).toContain('blockers.length!==0');
+    expect(workflow).toContain('failures.length!==0');
+    expect(workflow).toContain('Final comparative qualification remains NOT_MEASURED');
+  });
+
   it('does not structurally retry provider output or fan out samples',()=>{
     expect(workflow).not.toContain('for attempt in');
     expect(workflow).not.toContain('strategy:');
