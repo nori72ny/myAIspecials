@@ -187,3 +187,18 @@ jobs:
           path: test-results/image-edit-private/
           retention-days: 90
           if-no-files-found: error
+
+      - name: Fail closed on technical candidate blockers
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const summary=JSON.parse(fs.readFileSync('test-results/image-edit-private/candidate-summary.json','utf8'));
+          if(summary.attempted!==16) process.exit(11);
+          if(summary.completed!==summary.attempted) process.exit(12);
+          if(summary.technicallyQualified!==summary.attempted) process.exit(13);
+          if(summary.providerIdentityCount!==1) process.exit(14);
+          if(!Array.isArray(summary.blockers) || summary.blockers.length!==0) process.exit(15);
+          if(summary.qualificationStatus!=='NOT_MEASURED') process.exit(16);
+          NODE
