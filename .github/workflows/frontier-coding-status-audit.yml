@@ -40,11 +40,17 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const payload = JSON.parse(fs.readFileSync('artifacts.json', 'utf8'));
-          const names = (payload.artifacts || [])
+          if (!Array.isArray(payload.artifacts) || payload.total_count !== payload.artifacts.length) {
+            throw new Error('Incomplete artifact inventory; refusing to classify');
+          }
+          const names = payload.artifacts
+            .filter((artifact) => artifact.expired === false)
             .map((artifact) => String(artifact?.name || ''))
             .filter(Boolean);
           const evidenceArtifacts = names.filter((name) => name.startsWith('origin-held-out-final-evidence-'));
           const taskArtifacts = names.filter((name) => name.startsWith('origin-held-out-final-task-'));
+
+          const startedArtifacts = names.filter((name) => name.startsWith('origin-held-out-final-started-'));
 
           let status = 'NOT_MEASURED';
           let reason = 'FINAL_EVIDENCE_MISSING';
@@ -58,6 +64,14 @@ jobs:
             }
           }
 
+          if (evidenceArtifacts.length === 0 && (taskArtifacts.length > 0 || startedArtifacts.length > 0)) {
+            status = 'FAILED';
+            reason = 'STARTED_WITHOUT_FINAL_EVIDENCE';
+          } else if (evidenceArtifacts.length === 0 && process.env.SOURCE_CONCLUSION !== 'success') {
+            status = 'FAILED';
+            reason = 'SOURCE_WORKFLOW_FAILED_WITHOUT_FINAL_EVIDENCE';
+          }
+
           const report = {
             schema: 'origin.frontier-domain-status.v1',
             domain: 'coding',
@@ -69,6 +83,7 @@ jobs:
             candidateSha: String(process.env.SOURCE_SHA || ''),
             finalEvidenceArtifactCount: evidenceArtifacts.length,
             finalTaskArtifactCount: taskArtifacts.length,
+            startedArtifactCount: startedArtifacts.length,
             evidenceArtifactNames: evidenceArtifacts,
           };
 
