@@ -1,0 +1,87 @@
+name: Port guided image edit to current main
+
+on:
+  push:
+    branches:
+      - port/guided-image-edit-current-main-20261003
+
+permissions:
+  contents: write
+
+concurrency:
+  group: port-guided-image-edit-current-main-20261003
+  cancel-in-progress: false
+
+jobs:
+  port-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact port branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Apply reviewed guided-edit delta with three-way protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 \
+            https://github.com/nori72ny/myAIspecials/pull/766.diff \
+            --output /tmp/guided-image-edit.diff
+          git apply --3way --whitespace=error-all /tmp/guided-image-edit.diff
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo 'Three-way application produced conflicts; refusing to commit.' >&2
+            git diff --name-only --diff-filter=U >&2
+            exit 1
+          fi
+          changed="$(git diff --name-only HEAD)"
+          printf '%s\n' "$changed"
+          for required in \
+            src/App.tsx \
+            src/App.test.tsx \
+            src/lib/orchestration/OriginCapabilityGuide.ts \
+            src/lib/orchestration/OriginCapabilityGuide.test.ts \
+            tests/e2e/reference-image-variation.spec.ts; do
+            printf '%s\n' "$changed" | grep -Fxq "$required" || {
+              echo "Missing expected guided-edit file: $required" >&2
+              exit 1
+            }
+          done
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck and design-token lock
+        run: npm run lint
+
+      - name: Run focused guided-edit unit tests
+        run: npx vitest run src/App.test.tsx src/lib/orchestration/OriginCapabilityGuide.test.ts --reporter=default
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Verify guided-edit invariants in resulting source
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq "buildRasterGuidedEditPrompt" src/App.tsx
+          grep -Fq "画像を編集" src/App.tsx
+          grep -Fq "relation: 'edited-from'" src/App.tsx
+          grep -Fq "actualSha === referenceAssetId.toLowerCase()" src/App.tsx
+          grep -Fq "Mask-directed inpainting" src/lib/orchestration/OriginCapabilityGuide.ts
+          grep -Fq "canvas-expansion outpainting" src/lib/orchestration/OriginCapabilityGuide.ts
+          grep -Fq "image-edit-mode" tests/e2e/reference-image-variation.spec.ts
+
+      - name: Commit only verified product delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/port-guided-image-edit.yml
+          git add -A
+          git diff --cached --check
+          git status --short
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(image): port guided editing onto current main [guided-port-applied]'
+          git push origin HEAD:${GITHUB_REF_NAME}
