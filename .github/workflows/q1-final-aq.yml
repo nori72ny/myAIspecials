@@ -206,3 +206,33 @@ jobs:
           path: aq-final/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Write explicit AQ qualification status
+        if: always()
+        env:
+          AQ_STATUS_OUTPUT_PATH: ${{ github.workspace }}/aq-status/status.json
+          AQ_PROMOTION_PATH: ${{ github.workspace }}/aq-final/promotion.json
+        run: node runner/scripts/write-aq-final-status.mjs
+
+      - name: Upload explicit AQ qualification status
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aq-live-final-status-${{ env.CANDIDATE_SHA }}
+          path: aq-status/status.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Fail closed on completed AQ qualification failure
+        if: always() && steps.final.outputs.ready == 'true'
+        env:
+          AQ_STATUS_PATH: ${{ github.workspace }}/aq-status/status.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const status=JSON.parse(fs.readFileSync(process.env.AQ_STATUS_PATH,'utf8'));
+          if(status.qualificationStatus==='NOT_MEASURED') process.exit(31);
+          if(status.qualificationStatus!=='QUALIFIED' || status.promotionEligible!==true) process.exit(32);
+          NODE
