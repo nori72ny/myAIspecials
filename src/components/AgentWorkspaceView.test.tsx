@@ -41,7 +41,7 @@ function readyStatus() {
   };
 }
 
-function planResponse() {
+function planResponse(selectedTool = 'document_generator') {
   return {
     ok: true,
     protocolVersion: 3,
@@ -52,6 +52,7 @@ function planResponse() {
     freeOnly: true,
     costUsd: 0,
     paidFallbackUsed: false,
+    selectedTool,
     plan: [
       { id: 'task-1', title: 'Goal analysis' },
       { id: 'task-2', title: 'Task decomposition' },
@@ -83,10 +84,12 @@ describe('AgentWorkspaceView v3', () => {
 
     await screen.findByText('未実行 · 承認待ち');
     expect(screen.getByText(/まだツールは実行していません/)).toBeTruthy();
+    expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('document_generator');
+    expect(screen.queryByRole('combobox')).toBeNull();
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
   });
 
-  it('uses exact v3 approval then execute and never stores the credential in component state', async () => {
+  it('uses exact v3 approval then execute with the original goal instead of the rendered plan artifact', async () => {
     const checkpoint = {
       checkpointId: 'task-4-exec-test-v1',
       taskId: 'task-4',
@@ -104,12 +107,14 @@ describe('AgentWorkspaceView v3', () => {
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
         const body = JSON.parse(String(init?.body));
         expect(body).toMatchObject({ runId: 'run-test-1', planToken: 'signed-plan-token', toolName: 'document_generator' });
+        expect(body.params).toEqual({ content: '文書案を作ってください' });
         return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', approvalToken: 'signed-approval-token', scope: 'exact-operation' }, 201);
       }
       if (url === '/api/agent/v3/execute') {
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
         const body = JSON.parse(String(init?.body));
         expect(body).toMatchObject({ runId: 'run-test-1', toolName: 'document_generator', approvalToken: 'signed-approval-token' });
+        expect(body.params).toEqual({ content: '文書案を作ってください' });
         return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', status: 'completed', artifact: '# 完成した文書', checkpoint });
       }
       throw new Error(`unexpected request: ${url}`);
@@ -134,6 +139,41 @@ describe('AgentWorkspaceView v3', () => {
       '/api/agent/v3/approval',
       '/api/agent/v3/execute',
     ]);
+  });
+
+  it('cannot override a different server-planned tool in the workspace UI', async () => {
+    const goal = 'このTypeScriptコードのバグを分析して';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse('code_interpreter'), 201);
+      if (url === '/api/agent/v3/approval') {
+        const body = JSON.parse(String(init?.body));
+        expect(body.toolName).toBe('code_interpreter');
+        expect(body.params).toEqual({ code: goal });
+        return json({ ok: true, approvalToken: 'signed-approval-token' }, 201);
+      }
+      if (url === '/api/agent/v3/execute') {
+        const body = JSON.parse(String(init?.body));
+        expect(body.toolName).toBe('code_interpreter');
+        expect(body.params).toEqual({ code: goal });
+        return json({ ok: true, status: 'completed', artifact: '// verified analysis' });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('Agent v3 基盤を確認済み');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: goal } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('未実行 · 承認待ち');
+    expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('code_interpreter');
+    expect(screen.queryByRole('combobox')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'owner-agent-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+    await screen.findByText('// verified analysis');
   });
 
   it('fails closed when owner approval authentication is rejected', async () => {
