@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import './splash-brand.css';
 
 export interface SplashScreenProps {
   durationMs?: number;
@@ -39,16 +40,16 @@ export default function SplashScreen({ durationMs = 600, visible = true, oncePer
     <div className="origin-ultra-splash" role="status" aria-label="ORIGIN を起動しています">
       <div className="origin-ultra-splash__aurora" aria-hidden="true" />
       <div className="origin-ultra-splash__content">
-        <div className="origin-ultra-logo" aria-hidden="true">
-          <span className="origin-ultra-logo__halo" />
+        <div className="origin-sunrise-logo" aria-hidden="true">
+          <span className="origin-sunrise-logo__halo" />
           <img
-            className="origin-ultra-logo__mark"
+            className="origin-sunrise-logo__mark"
             src="/brand/origin-sunrise-mark.svg"
             alt=""
             draggable={false}
           />
         </div>
-        <div className="origin-ultra-wordmark">ORIGIN</div>
+        <div className="origin-sunrise-wordmark">ORIGIN</div>
       </div>
       <div className="origin-ultra-skeleton" aria-hidden="true">
         <span />
