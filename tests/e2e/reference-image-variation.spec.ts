@@ -106,6 +106,9 @@ for (const width of [390, 1440] as const) {
     const editButtons = page.getByRole('button', { name: '画像を編集' });
     await editButtons.nth(1).click();
     await expect(page.getByTestId('image-edit-mode')).toBeVisible();
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await expect(page.getByRole('menuitem', { name: 'ファイルを添付' })).toBeDisabled();
+    await page.keyboard.press('Escape');
     await expect(page.getByTestId('origin-chat-request')).toHaveAttribute('placeholder', /背景だけ/);
     await page.getByTestId('origin-chat-request').fill('背景だけを深いネイビーに変更して');
     await page.getByTestId('send-request-button').click();
