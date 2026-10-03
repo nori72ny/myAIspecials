@@ -20,12 +20,22 @@ function normalizedSecret(value: string | undefined): Buffer | null {
   return bytes;
 }
 
+function sameSecret(left: Buffer, right: Buffer | null): boolean {
+  return Boolean(right && left.length === right.length && timingSafeEqual(left, right));
+}
+
 function configuredCredential(env: NodeJS.ProcessEnv): ConfiguredCredential | null {
   // Once the dedicated operator credential is present, malformed configuration
   // fails closed. Never silently broaden browser authority back to the HMAC key.
   if (env[AGENT_OPERATOR_SECRET_ENV] !== undefined) {
     const secret = normalizedSecret(env[AGENT_OPERATOR_SECRET_ENV]);
-    return secret ? { mode: 'agent-operator', secret } : null;
+    if (!secret) return null;
+    const signingSecret = normalizedSecret(env[LEGACY_APPROVAL_SECRET_ENV]);
+    // A dedicated variable with the same bytes as the signing key is not real
+    // credential separation. Treat it as a configuration error instead of
+    // reporting the deployment as separated.
+    if (sameSecret(secret, signingSecret)) return null;
+    return { mode: 'agent-operator', secret };
   }
 
   // Migration-only compatibility for current deployments. The status endpoint
