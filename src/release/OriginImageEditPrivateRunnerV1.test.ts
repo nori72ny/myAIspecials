@@ -59,6 +59,19 @@ describe('Image edit private held-out runner V1', () => {
     expect(runner).toContain("qualificationStatus: 'NOT_MEASURED'");
   });
 
+  it('uploads sanitized evidence before a terminal fail-closed technical gate', () => {
+    const upload = workflow.indexOf('Upload candidate edit images and sanitized evidence');
+    const terminalGate = workflow.indexOf('Fail closed on technical candidate blockers');
+    expect(upload).toBeGreaterThan(0);
+    expect(terminalGate).toBeGreaterThan(upload);
+    expect(workflow).toContain('if(summary.attempted!==16) process.exit(11);');
+    expect(workflow).toContain('if(summary.completed!==summary.attempted) process.exit(12);');
+    expect(workflow).toContain('if(summary.technicallyQualified!==summary.attempted) process.exit(13);');
+    expect(workflow).toContain('if(summary.providerIdentityCount!==1) process.exit(14);');
+    expect(workflow).toContain('if(!Array.isArray(summary.blockers) || summary.blockers.length!==0) process.exit(15);');
+    expect(workflow).toContain("if(summary.qualificationStatus!=='NOT_MEASURED') process.exit(16);");
+  });
+
   it('keeps private source bytes and instructions out of the sanitized evidence surface', () => {
     const outputSection = runner.slice(runner.indexOf("await fs.writeFile(path.join(outputRoot, 'public-tasks.json')"));
     expect(outputSection).not.toContain('instruction: task.instruction');
