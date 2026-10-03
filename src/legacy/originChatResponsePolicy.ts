@@ -49,7 +49,7 @@ function isStableEnglishTopicExplanationRequest(message: string): boolean {
   if (explicitFreshness) return false;
 
   const weatherConcept = /\bweather\b/i.test(message)
-    && /\b(?:what\s+is|how\s+does|how\s+do|why\s+does|why\s+do|explain|effect|effects|affect|affects|impact|impacts|mechanism|concept|definition|meaning)\b/i.test(message);
+    && /\b(?:effect|effects|affect|affects|impact|impacts|mechanism|concept|definition|meaning)\b/i.test(message);
   const newsConcept = /\bnews\b/i.test(message)
     && /\b(?:literacy|journalism|editorial|reporting|what\s+is|how\s+does|how\s+do|why\s+does|why\s+do|explain|concept|definition|meaning)\b/i.test(message);
   const priceEconomicsConcept = /\bprices?\b/i.test(message)
