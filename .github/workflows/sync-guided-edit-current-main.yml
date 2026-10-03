@@ -1,0 +1,84 @@
+name: Sync guided edit port to latest main
+
+on:
+  push:
+    branches:
+      - port/guided-image-edit-current-main-20261003
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-guided-edit-current-main
+  cancel-in-progress: false
+
+jobs:
+  sync-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout port branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Merge exact latest main without committing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_main='8a385799cf490518fb0d5ce51f51a3ba872c8730'
+          git fetch origin main
+          actual_main="$(git rev-parse origin/main)"
+          test "$actual_main" = "$expected_main" || {
+            echo "main moved: expected $expected_main, found $actual_main" >&2
+            exit 1
+          }
+          git merge --no-commit --no-ff "$expected_main"
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo 'Conflicts while syncing current main; refusing to commit.' >&2
+            git diff --name-only --diff-filter=U >&2
+            exit 1
+          fi
+
+      - name: Install and verify merged tree
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run lint
+          npx vitest run src/App.test.tsx src/lib/orchestration/OriginCapabilityGuide.test.ts --reporter=default
+          npm run build
+          npx playwright install --with-deps chromium
+          CI=true npx playwright test tests/e2e/reference-image-variation.spec.ts --project=chromium
+
+      - name: Remove sync scaffolding and generated test output
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_main='8a385799cf490518fb0d5ce51f51a3ba872c8730'
+          rm .github/workflows/sync-guided-edit-current-main.yml
+          git checkout "$expected_main" -- test-results
+          git clean -fd test-results playwright-report results || true
+          git add -A
+          git diff --cached --check
+
+          actual_files="$(git diff --name-only "$expected_main" | sort)"
+          expected_files="$(printf '%s\n' \
+            src/App.test.tsx \
+            src/App.tsx \
+            src/lib/orchestration/OriginCapabilityGuide.test.ts \
+            src/lib/orchestration/OriginCapabilityGuide.ts \
+            tests/e2e/reference-image-variation.spec.ts | sort)"
+          printf 'Final files relative to exact main:\n%s\n' "$actual_files"
+          test "$actual_files" = "$expected_files" || {
+            echo 'Unexpected final diff after current-main sync; refusing to commit.' >&2
+            exit 1
+          }
+
+      - name: Commit exact-main sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'merge: sync guided image edit with exact current main'
+          git push origin HEAD:${GITHUB_REF_NAME}
