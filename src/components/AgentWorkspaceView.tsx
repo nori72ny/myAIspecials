@@ -12,11 +12,26 @@ type AgentCapability = {
   paidFallbackEnabled: boolean;
 };
 
+const tools = [
+  'document_generator',
+  'code_interpreter',
+  'image_prompt_compiler',
+  'web_search_grounding',
+  'repository_explorer',
+  'file_reader',
+  'file_writer',
+  'verification_runner',
+] as const;
+type AgentTool = (typeof tools)[number];
+const isAgentTool = (value: unknown): value is AgentTool => typeof value === 'string' && tools.includes(value as AgentTool);
+
 type AgentPlanStep = { id: string; title: string };
 type AgentPlan = {
   runId: string;
   planToken: string;
   expiresAt: string;
+  selectedTool: AgentTool;
+  goal: string;
   plan: AgentPlanStep[];
 };
 
@@ -28,24 +43,55 @@ type AgentExecutionResponse = {
   checkpoint?: CheckpointState;
 };
 
-const tools = [
-  'document_generator',
-  'code_interpreter',
-  'image_prompt_compiler',
-  'web_search_grounding',
-] as const;
-type AgentTool = (typeof tools)[number];
 type Phase = 'idle' | 'planning' | 'awaiting_approval' | 'executing' | 'completed' | 'failed';
+type VerificationKind = 'test' | 'typecheck' | 'lint' | 'build';
 
 function authorizationHeaders(credential: string): HeadersInit {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` };
 }
 
-function paramsFor(tool: AgentTool, goal: string, artifact: string): Record<string, unknown> {
-  if (tool === 'code_interpreter') return { code: artifact || goal };
+function explicitPathFromGoal(goal: string): string | null {
+  const backtick = goal.match(/`([^`\r\n]{1,240})`/);
+  if (backtick?.[1]) return backtick[1].trim();
+  const quoted = goal.match(/["“]([^"”\r\n]{1,240})["”]/);
+  if (quoted?.[1] && /[./]/.test(quoted[1])) return quoted[1].trim();
+  const pathLike = goal.match(/(?:^|\s)((?:\.{0,2}\/)?[A-Za-z0-9_@./-]+\.[A-Za-z0-9_-]{1,12})(?=\s|$|[、。,:：])/);
+  return pathLike?.[1]?.trim() || null;
+}
+
+function fencedContentFromGoal(goal: string): string | null {
+  const fenced = goal.match(/```(?:[A-Za-z0-9_.+-]+)?\s*\n([\s\S]*?)```/);
+  const content = fenced?.[1]?.trimEnd() ?? '';
+  return content ? `${content}\n` : null;
+}
+
+function verificationKindFromGoal(goal: string): VerificationKind | null {
+  const value = goal.normalize('NFKC').toLowerCase();
+  const kinds: VerificationKind[] = [];
+  if (/\btest(?:s|ing)?\b|テスト/.test(value)) kinds.push('test');
+  if (/\btype[- ]?check(?:ing)?\b|型チェック/.test(value)) kinds.push('typecheck');
+  if (/\blint(?:ing)?\b|リント/.test(value)) kinds.push('lint');
+  if (/\bbuild(?:ing)?\b|ビルド/.test(value)) kinds.push('build');
+  return kinds.length === 1 ? kinds[0] : null;
+}
+
+function paramsFor(tool: AgentTool, goal: string): Record<string, unknown> | null {
+  if (tool === 'code_interpreter') return { code: goal };
+  if (tool === 'document_generator') return { content: goal };
   if (tool === 'image_prompt_compiler') return { prompt: goal };
-  if (tool === 'web_search_grounding') return { query: goal };
-  return { content: artifact && !artifact.startsWith('//') ? artifact : goal };
+  if (tool === 'web_search_grounding') return null;
+  if (tool === 'repository_explorer') return {};
+  if (tool === 'file_reader') {
+    const path = explicitPathFromGoal(goal);
+    return path ? { path } : null;
+  }
+  if (tool === 'file_writer') {
+    const path = explicitPathFromGoal(goal);
+    const content = fencedContentFromGoal(goal);
+    return path && content ? { path, content } : null;
+  }
+  const kind = verificationKindFromGoal(goal);
+  return kind ? { kind } : null;
 }
 
 function phaseLabel(phase: Phase): string {
@@ -65,7 +111,6 @@ export default function AgentWorkspaceView() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [log, setLog] = useState<string[]>([]);
   const [artifact, setArtifact] = useState('// Agent v3 の検証済み出力がここに表示されます。');
-  const [selectedTool, setSelectedTool] = useState<AgentTool>('document_generator');
   const [checkpoints, setCheckpoints] = useState<CheckpointState[]>([]);
   const [restoring, setRestoring] = useState(true);
   const credentialInputRef = useRef<HTMLInputElement>(null);
@@ -131,13 +176,15 @@ export default function AgentWorkspaceView() {
         signal: controller.signal,
       });
       const data = await response.json() as Partial<AgentPlan> & { ok?: boolean; code?: string };
-      if (!response.ok || data.ok !== true || typeof data.runId !== 'string' || typeof data.planToken !== 'string' || !Array.isArray(data.plan)) {
+      if (!response.ok || data.ok !== true || typeof data.runId !== 'string' || typeof data.planToken !== 'string' || !Array.isArray(data.plan) || !isAgentTool(data.selectedTool)) {
         throw new Error(data.code ?? 'AGENT_PLAN_FAILED');
       }
       const next: AgentPlan = {
         runId: data.runId,
         planToken: data.planToken,
         expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
+        selectedTool: data.selectedTool,
+        goal: trimmed,
         plan: data.plan.filter((step): step is AgentPlanStep => Boolean(step) && typeof step.id === 'string' && typeof step.title === 'string').slice(0, 12),
       };
       setPlan(next);
@@ -145,14 +192,15 @@ export default function AgentWorkspaceView() {
       setArtifact([
         '# Agent v3 実行計画',
         '',
-        `Goal: ${trimmed}`,
+        `Goal: ${next.goal}`,
+        `Tool: ${next.selectedTool}`,
         '',
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
         '',
-        '実行には、選択した1つの登録済みツールに限定した認証付き承認が必要です。',
+        '実行には、計画に署名された1つの登録済みツールに限定した認証付き承認が必要です。',
         '承認トークンはそのrun・tool・paramsだけに有効で、再利用はできません。',
       ].join('\n'));
-      setLog((current) => [...current, '計画を作成しました。まだツールは実行していません。']);
+      setLog((current) => [...current, `計画を作成しました。署名済みツール: ${next.selectedTool}。まだツールは実行していません。`]);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
@@ -179,11 +227,18 @@ export default function AgentWorkspaceView() {
       return;
     }
 
-    const toolParams = paramsFor(selectedTool, goal.trim(), artifact);
+    const toolParams = paramsFor(plan.selectedTool, plan.goal);
+    if (!toolParams) {
+      setPhase('failed');
+      setLog((current) => [...current, `計画ツール ${plan.selectedTool} に必要な明示パラメータが不足しているため、承認前に停止しました。`]);
+      if (credentialInputRef.current) credentialInputRef.current.value = '';
+      return;
+    }
+
     const controller = new AbortController();
     abortRef.current = controller;
     setPhase('executing');
-    setLog((current) => [...current, `承認対象: ${selectedTool}`, 'exact-operation approvalを取得しています。']);
+    setLog((current) => [...current, `承認対象: ${plan.selectedTool}`, 'exact-operation approvalを取得しています。']);
     try {
       const approvalResponse = await fetch('/api/agent/v3/approval', {
         method: 'POST',
@@ -192,7 +247,7 @@ export default function AgentWorkspaceView() {
         body: JSON.stringify({
           runId: plan.runId,
           planToken: plan.planToken,
-          toolName: selectedTool,
+          toolName: plan.selectedTool,
           params: toolParams,
         }),
         signal: controller.signal,
@@ -208,7 +263,7 @@ export default function AgentWorkspaceView() {
         cache: 'no-store',
         body: JSON.stringify({
           runId: plan.runId,
-          toolName: selectedTool,
+          toolName: plan.selectedTool,
           params: toolParams,
           approvalToken: approval.approvalToken,
         }),
@@ -232,7 +287,7 @@ export default function AgentWorkspaceView() {
       if (credentialInputRef.current) credentialInputRef.current.value = '';
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [artifact, goal, persistCheckpoint, phase, plan, selectedTool]);
+  }, [persistCheckpoint, phase, plan]);
 
   const resetPlan = () => {
     abortRef.current?.abort();
@@ -252,18 +307,20 @@ export default function AgentWorkspaceView() {
     && capability.freeOnly === true
     && capability.costUsd === 0
     && capability.paidFallbackEnabled === false;
+  const plannedParamsReady = plan ? paramsFor(plan.selectedTool, plan.goal) !== null : false;
 
   return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="Agent Workspace">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Agent v3</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
-        <p className="mt-1 text-sm leading-6 text-slate-500">計画を確認してから、承認した1つの登録済みツールだけを実行・検証します。</p>
+        <p className="mt-1 text-sm leading-6 text-slate-500">計画を確認してから、署名済み計画に固定された1つの登録済みツールだけを実行・検証します。</p>
 
         <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">達成したいこと</label>
         <textarea id="agent-goal" value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={4000}
+          disabled={phase === 'planning' || Boolean(plan) || phase === 'executing'}
           placeholder="例: この要件を整理して、実行可能な文書案を作ってください。"
-          className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
+          className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950" />
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-slate-500">{checkingCapability ? 'Agent基盤を確認中…' : ready ? 'Agent v3 基盤を確認済み' : 'Agent v3 は現在利用できません'}</span>
@@ -272,7 +329,7 @@ export default function AgentWorkspaceView() {
           </span>
         </div>
 
-        <button type="button" onClick={() => void requestPlan()} disabled={!ready || !goal.trim() || phase === 'planning' || phase === 'executing'}
+        <button type="button" onClick={() => void requestPlan()} disabled={!ready || !goal.trim() || Boolean(plan) || phase === 'planning' || phase === 'executing'}
           className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
           {phase === 'planning' ? '計画中…' : '実行計画を作る'}
         </button>
@@ -284,11 +341,12 @@ export default function AgentWorkspaceView() {
           </div>
           <ol className="mt-2 space-y-2 pl-5 text-sm">{plan.plan.map((step) => <li key={step.id}>{step.title}</li>)}</ol>
 
-          <label htmlFor="agent-tool" className="mt-4 block text-xs font-bold text-slate-500">今回承認するツール</label>
-          <select id="agent-tool" value={selectedTool} onChange={(event) => setSelectedTool(event.target.value as AgentTool)}
-            className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950">
-            {tools.map((tool) => <option key={tool} value={tool}>{tool}</option>)}
-          </select>
+          <p className="mt-4 block text-xs font-bold text-slate-500">計画で固定されたツール</p>
+          <div aria-label="計画で固定されたツール" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
+            {plan.selectedTool}
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">このツール名は署名済みplan tokenに結び付いています。依頼内容を変える場合は計画を破棄して作り直します。</p>
+          {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には明示パス・内容・検証種別などの安全な実行パラメータが不足しています。依頼文を具体化して計画を作り直してください。</p>}
 
           <details className="mt-2">
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">実行に必要な認証</summary>
@@ -299,7 +357,7 @@ export default function AgentWorkspaceView() {
           </details>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => void approveAndExecute()} disabled={phase !== 'awaiting_approval'}
+            <button type="button" onClick={() => void approveAndExecute()} disabled={phase !== 'awaiting_approval' || !plannedParamsReady}
               className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-200">
               承認して実行
             </button>
