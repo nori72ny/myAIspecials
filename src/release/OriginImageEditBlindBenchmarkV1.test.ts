@@ -120,6 +120,7 @@ describe('ORIGIN image edit blind benchmark v1', () => {
     const base = input();
     const report = evaluateOriginImageEditBlindBenchmarkV1({
       ...base,
+      createdAt: '2026-10-01T12:00:00Z',
       expiresAt: '2026-10-02T12:00:00Z',
       cases: base.cases.slice(0, 15),
     }, NOW);
