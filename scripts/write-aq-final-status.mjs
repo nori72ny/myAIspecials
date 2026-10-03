@@ -46,8 +46,10 @@ async function main() {
       || completedShardCount !== expectedShardCount
       || promotion.caseCount !== 40
       || promotion.familyCount !== 10
+      || promotion.zeroCost !== true
       || typeof promotion.promotionEligible !== "boolean"
       || !Array.isArray(promotion.blockers)
+      || promotion.promotionEligible !== (promotion.blockers.length === 0)
     ) {
       throw new Error("AQ_FINAL_STATUS_PROMOTION_IDENTITY_INVALID");
     }
@@ -69,6 +71,7 @@ async function main() {
     completedShardCount,
     caseCount: measured ? 40 : 0,
     familyCount: measured ? 10 : 0,
+    zeroCost: measured ? true : null,
     qualificationStatus,
     measured,
     promotionEligible: measured ? promotion.promotionEligible : false,
