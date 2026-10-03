@@ -2,7 +2,7 @@ import type { ToolName } from './toolRegistry.js';
 
 export type AgentToolPlanDecisionV3 =
   | { ok: true; toolName: ToolName; reasonCode: string }
-  | { ok: false; code: 'AGENT_TOOL_SELECTION_AMBIGUOUS' | 'AGENT_MULTI_TOOL_PLAN_REQUIRED' };
+  | { ok: false; code: 'AGENT_TOOL_SELECTION_AMBIGUOUS' | 'AGENT_MULTI_TOOL_PLAN_REQUIRED' | 'AGENT_TOOL_UNAVAILABLE' };
 
 type ScoredTool = { toolName: ToolName; score: number; reasonCode: string };
 
@@ -77,10 +77,17 @@ export function selectAgentToolV3(goal: string): AgentToolPlanDecisionV3 {
   const scored = scoreGoal(goal);
   const strong = scored.filter(row => row.score >= 3);
 
+  // The registered network tool is intentionally disabled by the permanent
+  // zero-cost local execution kernel. Planning it as executable would create
+  // a guaranteed post-approval failure, so fail before issuing a plan token.
+  if (strong.some(row => row.toolName === 'web_search_grounding')) {
+    return { ok: false, code: 'AGENT_TOOL_UNAVAILABLE' };
+  }
   if (strong.length > 1) return { ok: false, code: 'AGENT_MULTI_TOOL_PLAN_REQUIRED' };
   if (strong.length === 1) return { ok: true, toolName: strong[0].toolName, reasonCode: strong[0].reasonCode };
 
   const fallback = scored.sort((a, b) => b.score - a.score)[0];
+  if (fallback?.toolName === 'web_search_grounding') return { ok: false, code: 'AGENT_TOOL_UNAVAILABLE' };
   if (fallback) return { ok: true, toolName: fallback.toolName, reasonCode: fallback.reasonCode };
 
   return { ok: false, code: 'AGENT_TOOL_SELECTION_AMBIGUOUS' };
