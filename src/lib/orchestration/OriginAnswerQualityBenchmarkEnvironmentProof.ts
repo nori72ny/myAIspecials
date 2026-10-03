@@ -163,7 +163,6 @@ export async function probeOriginAnswerQualityBenchmarkEnvironment(
   };
 }
 
-
 export interface OriginAnswerQualityBenchmarkScopedEnvironmentProof {
   readonly schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v1";
   readonly baseUrl: string;
@@ -194,7 +193,6 @@ export type OriginAnswerQualityBenchmarkScopedEnvironmentProofResult =
         | "AQ_BENCHMARK_ENV_SHA_MISMATCH"
         | "AQ_BENCHMARK_ENV_RESEARCH_INVALID"
         | "AQ_BENCHMARK_ENV_ARTIFACT_INVALID"
-        | "AQ_BENCHMARK_ENV_CODING_NOT_READY"
         | "AQ_BENCHMARK_ENV_REQUIRED_LANES_INVALID";
     };
 
@@ -283,19 +281,13 @@ export async function probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
   }
 
   if (normalized.includes("coding")) {
-    const coding = await getJson(fetchImpl, base, "/api/coding/v1.4/status");
-    if (!coding) return { ok: false, code: "AQ_BENCHMARK_ENV_FETCH_FAILED" };
-    if (
-      coding.ok !== true
-      || coding.version !== "1.4"
-      || coding.capability !== "durable-agentic-coding-jobs"
-      || coding.ready !== true
-      || coding.freeOnly !== true
-      || coding.costUsd !== 0
-      || coding.paidFallbackEnabled !== false
-    ) {
-      return { ok: false, code: "AQ_BENCHMARK_ENV_CODING_NOT_READY" };
-    }
+    // Official AQ does not execute Coding through the durable HTTP control plane.
+    // It constructs the production-path Coding V1.4 adapter from the exact clean
+    // checkout. That adapter independently requires the expected HEAD SHA, a clean
+    // tracked checkout, installed dependencies, isolated verification, $0 policy,
+    // and valid runtime-adapter metadata. Probing /api/coding/v1.4/status here would
+    // instead require unrelated DB/auth/worker control-plane state and can reject a
+    // valid exact-checkout comparison before the actual Coding proof is constructed.
     runtimeIds.coding = "coding-v1.4";
   }
 
