@@ -22,19 +22,60 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply reviewed guided-edit delta with three-way protection
+      - name: Apply reviewed guided-edit delta with bounded conflict resolution
         shell: bash
         run: |
           set -euo pipefail
           curl --fail --location --retry 3 --retry-delay 2 \
             https://github.com/nori72ny/myAIspecials/pull/766.diff \
             --output /tmp/guided-image-edit.diff
+
+          set +e
           git apply --3way --whitespace=error-all /tmp/guided-image-edit.diff
+          apply_status=$?
+          set -e
+
+          conflicts="$(git diff --name-only --diff-filter=U)"
+          if [ "$apply_status" -ne 0 ]; then
+            if [ "$conflicts" != "src/App.test.tsx" ]; then
+              echo 'Unexpected three-way conflict set; refusing to continue.' >&2
+              printf '%s\n' "$conflicts" >&2
+              exit 1
+            fi
+            echo 'Only App.test.tsx conflicted; preserving current-main tests and adding focused guided-edit coverage.'
+            git checkout --ours src/App.test.tsx
+            git add src/App.test.tsx
+            python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/App.test.tsx')
+          text = path.read_text()
+
+          old_import = 'ArtifactWorkspace, buildRasterVariationPrompt,'
+          new_import = 'ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt,'
+          if new_import not in text:
+              if old_import not in text:
+                  raise SystemExit('Expected App.test import anchor not found')
+              text = text.replace(old_import, new_import, 1)
+
+          anchor = "  it('routes a lineage-aware alternative through bounded reference-image editing', async () => {"
+          guided_test = """  it('builds a preserve-by-default guided edit contract from the original visual request', () => {\n    const prompt = buildRasterGuidedEditPrompt('青い陶器のマグカップを正方形の商品写真で作ってください');\n    expect(prompt).toContain('青い陶器のマグカップ');\n    expect(prompt).toContain('Edit the verified source image');\n    expect(prompt).toContain('Preserve the original subject identity');\n    expect(prompt).toContain('does not explicitly ask to change');\n  });\n\n"""
+          if "preserve-by-default guided edit contract" not in text:
+              if anchor not in text:
+                  raise SystemExit('Expected guided-edit test insertion anchor not found')
+              text = text.replace(anchor, guided_test + anchor, 1)
+
+          path.write_text(text)
+          PY
+            git add src/App.test.tsx
+          fi
+
           if git diff --name-only --diff-filter=U | grep -q .; then
-            echo 'Three-way application produced conflicts; refusing to commit.' >&2
+            echo 'Unresolved merge markers remain; refusing to continue.' >&2
             git diff --name-only --diff-filter=U >&2
             exit 1
           fi
+
           changed="$(git diff --name-only HEAD)"
           printf '%s\n' "$changed"
           for required in \
@@ -60,6 +101,14 @@ jobs:
 
       - name: Build production bundle
         run: npm run build
+
+      - name: Install Chromium for focused E2E
+        run: npx playwright install --with-deps chromium
+
+      - name: Run guided-edit responsive E2E
+        env:
+          CI: 'true'
+        run: npx playwright test tests/e2e/reference-image-variation.spec.ts --project=chromium
 
       - name: Verify guided-edit invariants in resulting source
         shell: bash
