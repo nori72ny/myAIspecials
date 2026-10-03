@@ -7,6 +7,7 @@ const workflowPath = ".github/workflows/q1-final-aq.yml";
 const guardPath = "scripts/check-aq-live-quota-guard.mjs";
 const restorePath = "scripts/prepare-aq-live-final-state.mjs";
 const summaryPath = "scripts/summarize-aq-live-final.mjs";
+const statusPath = "scripts/write-aq-final-status.mjs";
 
 function read(path: string): string {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -64,5 +65,36 @@ describe("Q1 final AQ scheduled workflow", () => {
     expect(summary).toContain("caseCount: 40");
     expect(summary).toContain("familyCount: 10");
     expect(summary).toContain("promotionEligible: blockers.length === 0");
+  });
+
+  it("records NOT_MEASURED on incomplete scheduled runs instead of implying qualification", () => {
+    const workflow = read(workflowPath);
+    const status = read(statusPath);
+    const determine = workflow.indexOf("\n      - name: Determine aggregate readiness");
+    const writeStatus = workflow.indexOf("\n      - name: Write explicit AQ qualification status");
+    const uploadStatus = workflow.indexOf("\n      - name: Upload explicit AQ qualification status");
+
+    expect(writeStatus).toBeGreaterThan(determine);
+    expect(uploadStatus).toBeGreaterThan(writeStatus);
+    expect(workflow).toContain("if: always()");
+    expect(workflow).toContain("aq-live-final-status-${{ env.CANDIDATE_SHA }}");
+    expect(status).toContain('"NOT_MEASURED"');
+    expect(status).toContain('"AQ_FINAL_EVIDENCE_INCOMPLETE"');
+    expect(status).toContain('schemaVersion: "origin.aq-live-final-status.v1"');
+    expect(status).toContain("completedShardCount !== expectedShardCount");
+  });
+
+  it("fails closed after evidence upload when a completed benchmark is not qualified", () => {
+    const workflow = read(workflowPath);
+    const finalEvidence = workflow.indexOf("\n      - name: Upload final AQ evidence");
+    const statusEvidence = workflow.indexOf("\n      - name: Upload explicit AQ qualification status");
+    const terminalGate = workflow.indexOf("\n      - name: Fail closed on completed AQ qualification failure");
+
+    expect(finalEvidence).toBeGreaterThan(0);
+    expect(statusEvidence).toBeGreaterThan(finalEvidence);
+    expect(terminalGate).toBeGreaterThan(statusEvidence);
+    expect(workflow).toContain("if: always() && steps.final.outputs.ready == 'true'");
+    expect(workflow).toContain("if(status.qualificationStatus==='NOT_MEASURED') process.exit(31);");
+    expect(workflow).toContain("if(status.qualificationStatus!=='QUALIFIED' || status.promotionEligible!==true) process.exit(32);");
   });
 });
