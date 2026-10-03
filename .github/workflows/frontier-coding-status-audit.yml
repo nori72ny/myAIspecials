@@ -1,0 +1,101 @@
+name: Frontier coding qualification status audit
+
+on:
+  workflow_run:
+    workflows:
+      - V1.4 final held-out coding qualification
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  classify:
+    if: github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Inspect final held-out evidence
+        id: classify
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" \
+            -o artifacts.json
+
+          SOURCE_RUN_ID="$SOURCE_RUN_ID" \
+          SOURCE_SHA="$SOURCE_SHA" \
+          SOURCE_CONCLUSION="$SOURCE_CONCLUSION" \
+          node <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync('artifacts.json', 'utf8'));
+          const names = (payload.artifacts || [])
+            .map((artifact) => String(artifact?.name || ''))
+            .filter(Boolean);
+          const evidenceArtifacts = names.filter((name) => name.startsWith('origin-held-out-final-evidence-'));
+          const taskArtifacts = names.filter((name) => name.startsWith('origin-held-out-final-task-'));
+
+          let status = 'NOT_MEASURED';
+          let reason = 'FINAL_EVIDENCE_MISSING';
+          if (evidenceArtifacts.length > 0) {
+            if (process.env.SOURCE_CONCLUSION === 'success') {
+              status = 'QUALIFIED';
+              reason = 'ELIGIBLE_FINAL_EVIDENCE_PRESENT';
+            } else {
+              status = 'FAILED';
+              reason = 'FINAL_EVIDENCE_PRESENT_BUT_QUALIFICATION_FAILED';
+            }
+          }
+
+          const report = {
+            schema: 'origin.frontier-domain-status.v1',
+            domain: 'coding',
+            status,
+            reason,
+            sourceWorkflow: 'V1.4 final held-out coding qualification',
+            sourceWorkflowRunId: String(process.env.SOURCE_RUN_ID || ''),
+            sourceWorkflowConclusion: String(process.env.SOURCE_CONCLUSION || ''),
+            candidateSha: String(process.env.SOURCE_SHA || ''),
+            finalEvidenceArtifactCount: evidenceArtifacts.length,
+            finalTaskArtifactCount: taskArtifacts.length,
+            evidenceArtifactNames: evidenceArtifacts,
+          };
+
+          fs.mkdirSync('test-results', { recursive: true });
+          fs.writeFileSync('test-results/frontier-coding-status.json', `${JSON.stringify(report, null, 2)}\n`);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '# Frontier Coding Qualification Status',
+            '',
+            `- Status: **${status}**`,
+            `- Reason: \`${reason}\``,
+            `- Candidate SHA: \`${report.candidateSha}\``,
+            `- Source run: \`${report.sourceWorkflowRunId}\``,
+            `- Source workflow conclusion: \`${report.sourceWorkflowConclusion}\``,
+            `- Final evidence artifacts: ${report.finalEvidenceArtifactCount}`,
+            `- Final task artifacts: ${report.finalTaskArtifactCount}`,
+            '',
+            status === 'NOT_MEASURED'
+              ? 'A successful preflight-only workflow is not qualification evidence.'
+              : 'The status is derived from exact-run final evidence presence plus the qualification workflow conclusion.',
+            '',
+          ].join('\n'));
+          NODE
+
+      - name: Preserve explicit frontier status
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-frontier-coding-status-${{ github.event.workflow_run.id }}
+          path: test-results/frontier-coding-status.json
+          if-no-files-found: error
+          retention-days: 90
