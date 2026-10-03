@@ -42,7 +42,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -758,6 +758,14 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(second).toBe(first);
     expect(second.match(/Create a clearly distinct alternative variation\./g)).toHaveLength(1);
     expect(second.length).toBeLessThanOrEqual(2_000);
+  });
+
+  it('builds a preserve-by-default guided edit contract from the original visual request', () => {
+    const prompt = buildRasterGuidedEditPrompt('青い陶器のマグカップを正方形の商品写真で作ってください');
+    expect(prompt).toContain('青い陶器のマグカップ');
+    expect(prompt).toContain('Edit the verified source image');
+    expect(prompt).toContain('Preserve the original subject identity');
+    expect(prompt).toContain('does not explicitly ask to change');
   });
 
   it('routes a lineage-aware alternative through bounded reference-image editing', async () => {
