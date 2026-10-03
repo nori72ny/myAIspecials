@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">ORIGIN sunrise mark</title>
+  <desc id="desc">Warm orange, coral and magenta ORIGIN symbol with a luminous four-point star.</desc>
+  <defs>
+    <linearGradient id="origin-sunrise" x1="34" y1="18" x2="126" y2="142" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD36A"/>
+      <stop offset="0.29" stop-color="#FF9C4A"/>
+      <stop offset="0.58" stop-color="#FF5B5F"/>
+      <stop offset="0.82" stop-color="#EC3C83"/>
+      <stop offset="1" stop-color="#B63279"/>
+    </linearGradient>
+    <linearGradient id="origin-depth-left" x1="28" y1="84" x2="80" y2="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F04B8A"/>
+      <stop offset="0.55" stop-color="#A83978"/>
+      <stop offset="1" stop-color="#722B67"/>
+    </linearGradient>
+    <linearGradient id="origin-depth-right" x1="132" y1="84" x2="80" y2="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E94D87"/>
+      <stop offset="0.55" stop-color="#9F3977"/>
+      <stop offset="1" stop-color="#6D2B65"/>
+    </linearGradient>
+    <radialGradient id="origin-glow" cx="0" cy="0" r="1" gradientTransform="translate(80 82) rotate(90) scale(40)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF8D8" stop-opacity="0.95"/>
+      <stop offset="0.35" stop-color="#FFDFA0" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#FFDFA0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="origin-soft-glow" x="-38%" y="-38%" width="176%" height="176%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <filter id="origin-star-glow" x="-220%" y="-220%" width="540%" height="540%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="3.2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="origin-disc"><circle cx="80" cy="80" r="62"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#origin-disc)">
+    <circle cx="80" cy="80" r="62" fill="url(#origin-sunrise)"/>
+    <ellipse cx="80" cy="82" rx="54" ry="40" fill="url(#origin-glow)" filter="url(#origin-soft-glow)" opacity="0.72"/>
+
+    <path d="M18 100C38 88 55 82 80 82C62 92 49 108 37 137C27 126 20 113 18 100Z" fill="url(#origin-depth-left)"/>
+    <path d="M142 100C122 88 105 82 80 82C98 92 111 108 123 137C133 126 140 113 142 100Z" fill="url(#origin-depth-right)"/>
+
+    <path d="M80 22C80 52 78 69 68 77C58 84 43 84 22 92" fill="none" stroke="#FFF4D9" stroke-width="2.2" stroke-linecap="round" opacity="0.82"/>
+    <path d="M80 22C80 52 82 69 92 77C102 84 117 84 138 92" fill="none" stroke="#FFE8C0" stroke-width="2" stroke-linecap="round" opacity="0.66"/>
+  </g>
+
+  <circle cx="80" cy="80" r="62" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1"/>
+
+  <path d="M80 57C83.4 69.8 90.2 76.6 103 80C90.2 83.4 83.4 90.2 80 103C76.6 90.2 69.8 83.4 57 80C69.8 76.6 76.6 69.8 80 57Z" fill="#FFFDF6" filter="url(#origin-star-glow)"/>
+  <circle cx="80" cy="80" r="5.5" fill="#FFFFFF"/>
+</svg>
