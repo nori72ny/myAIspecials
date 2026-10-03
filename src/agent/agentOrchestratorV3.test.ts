@@ -24,7 +24,7 @@ describe('agent orchestrator v3', () => {
     .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
     .send({ runId, planToken: issuePlanCapability(runId, 'a'.repeat(64), env).token });
 
-  it('reports readiness only when signing and shared replay protection are configured', async () => {
+  it('reports readiness and legacy credential compatibility truthfully', async () => {
     const store: AgentRunConsumptionStore = { consume: async () => true };
     const ready = await request(appFor(env, store)).get('/api/agent/v3/status');
     expect(ready.status).toBe(200);
@@ -33,12 +33,15 @@ describe('agent orchestrator v3', () => {
       protocolVersion: 3,
       ready: true,
       approvalSigningConfigured: true,
+      operatorAuthenticationConfigured: true,
+      authorizationMode: 'legacy-approval-compat',
+      credentialSeparationConfigured: false,
       replayProtectionConfigured: true,
       replayProtection: 'shared-atomic',
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
-      secretDelivery: 'server-only',
+      secretDelivery: 'legacy-shared-credential',
     });
     expect(JSON.stringify(ready.body)).not.toContain(env.ORIGIN_AGENT_APPROVAL_SECRET);
 
@@ -46,9 +49,69 @@ describe('agent orchestrator v3', () => {
     expect(unavailable.body).toMatchObject({
       ready: false,
       approvalSigningConfigured: false,
+      operatorAuthenticationConfigured: false,
+      authorizationMode: 'unconfigured',
+      credentialSeparationConfigured: false,
       replayProtectionConfigured: false,
       replayProtection: 'unavailable',
+      secretDelivery: 'unavailable',
     });
+  });
+
+  it('uses a dedicated operator credential without exposing or accepting the signing key', async () => {
+    const dedicatedEnv = {
+      ORIGIN_AGENT_APPROVAL_SECRET: 's'.repeat(48),
+      ORIGIN_AGENT_OPERATOR_SECRET: 'o'.repeat(48),
+    };
+    const store: AgentRunConsumptionStore = { consume: async () => true };
+    const app = appFor(dedicatedEnv, store);
+
+    const status = await request(app).get('/api/agent/v3/status');
+    expect(status.body).toMatchObject({
+      ready: true,
+      approvalSigningConfigured: true,
+      operatorAuthenticationConfigured: true,
+      authorizationMode: 'agent-operator',
+      credentialSeparationConfigured: true,
+      secretDelivery: 'signing-secret-server-only',
+    });
+    expect(JSON.stringify(status.body)).not.toContain(dedicatedEnv.ORIGIN_AGENT_APPROVAL_SECRET);
+    expect(JSON.stringify(status.body)).not.toContain(dedicatedEnv.ORIGIN_AGENT_OPERATOR_SECRET);
+
+    const signingKeyRejected = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${dedicatedEnv.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: 'bad', toolName: 'document_generator', params: {}, approvalToken: 'x' });
+    expect(signingKeyRejected.status).toBe(401);
+    expect(signingKeyRejected.body.code).toBe('AGENT_AUTHENTICATION_REQUIRED');
+
+    const operatorAccepted = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${dedicatedEnv.ORIGIN_AGENT_OPERATOR_SECRET}`)
+      .send({ runId: 'bad', toolName: 'document_generator', params: {}, approvalToken: 'x' });
+    expect(operatorAccepted.status).toBe(400);
+    expect(operatorAccepted.body.code).toBe('INVALID_AGENT_RUN_ID');
+  });
+
+  it('fails closed when a present dedicated operator credential is malformed', async () => {
+    const malformed = {
+      ORIGIN_AGENT_APPROVAL_SECRET: 's'.repeat(48),
+      ORIGIN_AGENT_OPERATOR_SECRET: 'short',
+    };
+    const store: AgentRunConsumptionStore = { consume: async () => true };
+    const app = appFor(malformed, store);
+    const status = await request(app).get('/api/agent/v3/status');
+    expect(status.body).toMatchObject({
+      ready: false,
+      approvalSigningConfigured: true,
+      operatorAuthenticationConfigured: false,
+      authorizationMode: 'unconfigured',
+      credentialSeparationConfigured: false,
+    });
+
+    const response = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${malformed.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: operation.runId, toolName: operation.toolName, params: operation.params, approvalToken: 'x' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('AGENT_OPERATOR_AUTH_NOT_CONFIGURED');
   });
 
   it('blocks execution without shared replay protection', async () => {
