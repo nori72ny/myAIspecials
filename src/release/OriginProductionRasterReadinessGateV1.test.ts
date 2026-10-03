@@ -19,9 +19,14 @@ describe('Production raster readiness gate V1', () => {
     expect(workflow).toContain("github.ref == 'refs/heads/main'");
   });
 
-  it('binds evidence to the exact successful main SHA', () => {
+  it('binds evidence to the exact successful main SHA and rejects production drift', () => {
     expect(workflow).toContain('github.event.workflow_run.head_sha || github.sha');
     expect(workflow).toContain('candidate_sha=$CANDIDATE_SHA');
+    expect(workflow).toContain('/api/health');
+    expect(workflow).toContain("deployed_sha=\"$(jq -r '.releaseSha // empty' \"$health_file\")\"");
+    expect(workflow).toContain('if [ "$deployed_sha" != "$CANDIDATE_SHA" ]');
+    expect(workflow).toContain('exit 20');
+    expect(workflow).toContain('exit 23');
   });
 
   it('fails closed unless production image editing is actually ready and zero-cost', () => {
