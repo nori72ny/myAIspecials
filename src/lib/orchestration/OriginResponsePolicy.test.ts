@@ -33,6 +33,16 @@ describe("OriginResponsePolicy", () => {
     expect(policy.structure).toBe("comparison");
   });
 
+  it("keeps a concrete deliverable primary when it contains a comparison", () => {
+    const message = "AとBを比較して、社内向け提案書を作成してください";
+    const intent = classifyOriginRequestIntent(message, "documentation");
+    const policy = resolveOriginResponsePolicy({ intent, taskType: "documentation", userMessage: message });
+
+    expect(intent.requestedOutputs).toEqual(expect.arrayContaining(["proposal", "comparison"]));
+    expect(policy.structure).toBe("deliverable");
+    expect(policy.directAnswerFirst).toBe(false);
+  });
+
   it("honors explicit no-bullets formatting", () => {
     const message = "箇条書きなしで、短く説明してください";
     const intent = classifyOriginRequestIntent(message, "review");
