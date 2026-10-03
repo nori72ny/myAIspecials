@@ -20,3 +20,9 @@ Candidate SHA at creation: `370ea4d43bfe9bd1a51e34533f70f64a25937cb6`.
 A GitHub Actions workflow conclusion of `success` is not by itself frontier qualification. In particular, the V1.4 final held-out coding workflow may complete successfully after a safe preflight-only skip when sealed corpus prerequisites are unavailable. Such a run is `NOT_MEASURED`, not `QUALIFIED`.
 
 The `Frontier coding qualification status audit` workflow turns that distinction into a machine-readable artifact after each completed final held-out coding run.
+
+## Continuation checkpoint — 2026-10-03
+
+Production `/api/health` was rechecked at main `e03484f79d42327cc7c195cf90c7ce9ca7180fa3`: status ok, freeOnly true, paidFallbackEnabled false, server-only secrets. Production Release CI/CD run 37094418211 succeeded. This does not supply fresh independent domain qualification.
+
+Follow-up audit repair distinguishes interrupted/failed evaluation from safe preflight-only skips, excludes expired evidence, and rejects incomplete artifact inventories. Next: exact-head CI for this repair, followed by fresh-domain evaluation prerequisite verification without consuming or reusing sealed corpora.
