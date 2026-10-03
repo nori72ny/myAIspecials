@@ -99,7 +99,22 @@ jobs:
           git add src/lib/orchestration/OriginFreeModelCatalog.ts
           git commit -m 'chore: refresh verified free-model evidence'
           git push origin "$branch"
-          gh pr create --base main --head "$branch" --title 'chore: refresh verified free-model evidence' --body 'Automated fail-closed verification confirmed the fixed OpenRouter model still reports zero prompt and completion pricing. Full CI must pass before merge.'
+
+          set +e
+          pr_output="$(gh pr create --base main --head "$branch" --title 'chore: refresh verified free-model evidence' --body 'Automated fail-closed verification confirmed the fixed OpenRouter model still reports zero prompt and completion pricing. Full CI must pass before merge.' 2>&1)"
+          pr_status=$?
+          set -e
+          if [ "$pr_status" -ne 0 ]; then
+            echo "::warning::Zero-cost evidence was verified and branch $branch was pushed, but GitHub Actions could not create the pull request automatically."
+            {
+              echo '### Evidence refresh branch pushed; PR creation requires an authorized actor.'
+              echo "- Branch: $branch"
+              echo '- Pricing verification and fail-closed tests passed.'
+              echo '- This is an automation-permission limitation, not a pricing-verification failure.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "$pr_output" >> "$GITHUB_STEP_SUMMARY"
       - name: Mark paid, unavailable, or expired evidence as unsafe
         if: failure()
         run: |

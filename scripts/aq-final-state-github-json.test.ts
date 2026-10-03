@@ -39,11 +39,18 @@ describe("AQ final state GitHub metadata recovery", () => {
     }
   });
 
-  it("fails after three transient responses with bounded waits", async () => {
-    const io = harness([500, 502, 503, 200]);
-    await expect(githubJson(url, token, io)).rejects.toThrow("AQ_FINAL_STATE_GITHUB_HTTP_503");
-    expect(io.fetchImpl).toHaveBeenCalledTimes(3);
-    expect(io.sleepImpl.mock.calls).toEqual([[1000], [2000]]);
+  it("recovers after several transient GitHub failures with bounded backoff", async () => {
+    const io = harness([500, 502, 503, 504, 200]);
+    await expect(githubJson(url, token, io)).resolves.toEqual({ artifacts: [] });
+    expect(io.fetchImpl).toHaveBeenCalledTimes(5);
+    expect(io.sleepImpl.mock.calls).toEqual([[1000], [2000], [4000], [8000]]);
+  });
+
+  it("fails after five transient responses with bounded waits", async () => {
+    const io = harness([500, 502, 503, 504, 500, 200]);
+    await expect(githubJson(url, token, io)).rejects.toThrow("AQ_FINAL_STATE_GITHUB_HTTP_500");
+    expect(io.fetchImpl).toHaveBeenCalledTimes(5);
+    expect(io.sleepImpl.mock.calls).toEqual([[1000], [2000], [4000], [8000]]);
   });
 
   it.each([401, 403, 404, 429, 501])("does not retry HTTP %s", async status => {
