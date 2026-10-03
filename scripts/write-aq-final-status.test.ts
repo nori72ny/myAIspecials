@@ -32,6 +32,14 @@ function run(base: string) {
   });
 }
 
+function writeCompleteState(base: string): void {
+  mkdirSync(resolve(base, "state"), { recursive: true });
+  mkdirSync(resolve(base, "final"), { recursive: true });
+  for (let index = 0; index < 16; index += 1) {
+    writeFileSync(resolve(base, `state/aq-official-shard-${index}.json`), "{}\n");
+  }
+}
+
 afterEach(() => {
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
@@ -49,6 +57,7 @@ describe("write-aq-final-status", () => {
       baselineSha,
       expectedShardCount: 16,
       completedShardCount: 0,
+      zeroCost: null,
       qualificationStatus: "NOT_MEASURED",
       measured: false,
       promotionEligible: false,
@@ -56,13 +65,9 @@ describe("write-aq-final-status", () => {
     });
   });
 
-  it("records QUALIFIED only for exact complete promotion evidence", () => {
+  it("records QUALIFIED only for exact complete zero-cost promotion evidence", () => {
     const base = root();
-    mkdirSync(resolve(base, "state"), { recursive: true });
-    mkdirSync(resolve(base, "final"), { recursive: true });
-    for (let index = 0; index < 16; index += 1) {
-      writeFileSync(resolve(base, `state/aq-official-shard-${index}.json`), "{}\n");
-    }
+    writeCompleteState(base);
     writeFileSync(
       resolve(base, "final/promotion.json"),
       JSON.stringify({
@@ -71,6 +76,7 @@ describe("write-aq-final-status", () => {
         baselineSha,
         caseCount: 40,
         familyCount: 10,
+        zeroCost: true,
         shardCount: 16,
         promotionEligible: true,
         blockers: [],
@@ -82,6 +88,7 @@ describe("write-aq-final-status", () => {
     const status = JSON.parse(readFileSync(resolve(base, "status/status.json"), "utf8"));
     expect(status.qualificationStatus).toBe("QUALIFIED");
     expect(status.measured).toBe(true);
+    expect(status.zeroCost).toBe(true);
     expect(status.promotionEligible).toBe(true);
     expect(status.completedShardCount).toBe(16);
   });
@@ -94,5 +101,28 @@ describe("write-aq-final-status", () => {
     const result = run(base);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("AQ_FINAL_STATUS_PROMOTION_INVALID_JSON");
+  });
+
+  it("fails closed when completed promotion evidence violates zero-cost invariants", () => {
+    const base = root();
+    writeCompleteState(base);
+    writeFileSync(
+      resolve(base, "final/promotion.json"),
+      JSON.stringify({
+        schemaVersion: "origin.aq-live-final-promotion.v1",
+        candidateSha,
+        baselineSha,
+        caseCount: 40,
+        familyCount: 10,
+        zeroCost: false,
+        shardCount: 16,
+        promotionEligible: true,
+        blockers: [],
+      }),
+    );
+
+    const result = run(base);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("AQ_FINAL_STATUS_PROMOTION_IDENTITY_INVALID");
   });
 });
