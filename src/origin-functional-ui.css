@@ -52,9 +52,56 @@
 .artifact-workspace__actions [role="group"] { max-width: 100%; }
 
 @media (max-width: 639px) {
-  .origin-composer {
-    bottom: max(10px, env(safe-area-inset-bottom));
+  /* Mobile follows the familiar AI-composer pattern: full-width text first,
+     then a dedicated control rail. This preserves typing width without shrinking
+     the 44px touch targets for add/send. */
+  .origin-app main .origin-composer {
+    bottom: max(8px, env(safe-area-inset-bottom));
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-rows: auto 44px;
+    align-items: center !important;
+    column-gap: 4px !important;
+    row-gap: 4px !important;
   }
+  .origin-app main .origin-composer > textarea,
+  .origin-app main .origin-composer > .origin-composer__input {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: 100%;
+    min-width: 0;
+  }
+  .origin-app main .origin-composer > .origin-add-menu {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .origin-app main .origin-composer > textarea + button:not(:last-child),
+  .origin-app main .origin-composer > .origin-composer__input + button:not(:last-child) {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .origin-app main .origin-composer > button:last-child,
+  .origin-app main .origin-composer > .origin-add-menu + button:last-child {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  /* On the first screen, keep the brand/introduction calm near the upper area
+     while the composer itself settles near the bottom, matching established AI apps. */
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
+    min-height: 100% !important;
+    justify-content: flex-start !important;
+    padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  }
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child > div:nth-of-type(2),
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > div:nth-of-type(2) {
+    margin-top: auto !important;
+  }
+
   .origin-add-menu[open]::before {
     content: "";
     position: fixed;
