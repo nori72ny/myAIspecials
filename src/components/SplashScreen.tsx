@@ -8,6 +8,7 @@ export interface SplashScreenProps {
 }
 
 const SESSION_KEY = 'origin_personal_splash_seen_v1';
+const STARTUP_BRAND_MARK_SRC = '/brand/origin-sunrise-mark.svg?v=sunrise-20261004';
 
 function shouldShowSplash(visible: boolean, oncePerSession: boolean): boolean {
   if (!visible) return false;
@@ -44,7 +45,7 @@ export default function SplashScreen({ durationMs = 600, visible = true, oncePer
           <span className="origin-sunrise-logo__halo" />
           <img
             className="origin-sunrise-logo__mark"
-            src="/brand/origin-sunrise-mark.svg"
+            src={STARTUP_BRAND_MARK_SRC}
             alt=""
             draggable={false}
           />
