@@ -66,6 +66,46 @@ const INITIAL_DRAFT: CreativeDraft = {
   muted: '#686868',
 };
 
+type CreativeWorkspaceV15Props = {
+  initialRequest?: string;
+};
+
+function draftFromInitialRequest(initialRequest: string): CreativeDraft {
+  const request = initialRequest.normalize('NFKC').trim().slice(0, 4000);
+  if (!request) return INITIAL_DRAFT;
+
+  const kind: VisualKind = /(?:ポスター|poster)/i.test(request)
+    ? 'poster'
+    : /(?:情報カード|インフォグラフィック|info\s*card|infographic)/i.test(request)
+      ? 'info-card'
+      : 'social-card';
+  const preset: VisualPreset = /(?:Story|ストーリー|9\s*[:：/]\s*16)/i.test(request)
+    ? 'story'
+    : /(?:横長|landscape|16\s*[:：/]\s*9|1200\s*[x×X]\s*630)/i.test(request)
+      ? 'landscape'
+      : /(?:正方形|square|1\s*[:：/]\s*1)/i.test(request)
+        ? 'square'
+        : 'portrait';
+
+  const explicitTitle = request.match(/(?:タイトル|title)\s*[:：]\s*[「『"'“]?([^\n」』"'”]{2,120})/i)?.[1]?.trim();
+  const cleaned = request
+    .replace(/^(?:please\s+)?(?:use|open)\s+(?:the\s+)?(?:Creative|Create)\s+workspace\s+(?:to\s+)?/i, '')
+    .replace(/^(?:Creative|Create)\s*(?:workspace|ワークスペース|画面|モード)?(?:で|を使って)?\s*/i, '')
+    .replace(/^(?:クリエイティブ|作る)\s*(?:ワークスペース|画面|モード)?(?:で|を使って)?\s*/i, '')
+    .replace(/^(?:please\s+)?(?:make|create|design|prepare)\s+/i, '')
+    .replace(/(?:を)?(?:作って|作成して|デザインして|準備して)(?:ください)?[。.!！]?$/i, '')
+    .trim();
+  const inferredTitle = explicitTitle || (cleaned.length >= 2 && cleaned.length <= 120 ? cleaned : 'チャットから引き継いだVisual');
+
+  return {
+    ...INITIAL_DRAFT,
+    kind,
+    preset,
+    title: inferredTitle.slice(0, 120),
+    body: request.slice(0, 2200),
+  };
+}
+
 const PRESET_LABELS: Record<VisualPreset, string> = {
   square: '正方形 1080×1080',
   portrait: '縦長 1080×1350',
@@ -111,8 +151,9 @@ function historyStorageMessage(status: 'unavailable' | 'quota' | 'failed'): stri
   return '端末内のCreative履歴を更新できませんでした。生成済み作成物はそのまま保存できます。';
 }
 
-export default function CreativeWorkspaceV15() {
-  const [draft, setDraft] = useState<CreativeDraft>(INITIAL_DRAFT);
+export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWorkspaceV15Props) {
+  const preservedRequest = initialRequest.normalize('NFKC').trim().slice(0, 4000);
+  const [draft, setDraft] = useState<CreativeDraft>(() => draftFromInitialRequest(preservedRequest));
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [busy, setBusy] = useState(false);
   const [pngBusy, setPngBusy] = useState(false);
@@ -355,6 +396,12 @@ export default function CreativeWorkspaceV15() {
         </div>
         <span className={`shrink-0 text-xs font-semibold ${status === 'ready' ? 'text-emerald-700 dark:text-emerald-300' : status === 'loading' ? 'text-slate-500' : 'text-amber-700 dark:text-amber-300'}`} role="status">{verificationText}</span>
       </header>
+
+      {preservedRequest && <section data-testid="creative-handoff-request" className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-100" aria-label="チャットから引き継いだ依頼">
+        <p className="font-bold">チャットから引き継いだ依頼</p>
+        <p className="mt-1 whitespace-pre-wrap break-words leading-6">{preservedRequest}</p>
+        <p className="mt-2 text-xs font-medium opacity-75">内容欄に反映済みです。生成はまだ開始していません。</p>
+      </section>}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative controls">

@@ -7,14 +7,14 @@ type MockAppProps = Record<string, unknown> & {
   onOpenResearch?: () => void;
   onOpenAgent?: () => void;
   onOpenCoding?: (goal?: string) => void;
-  onOpenCreative?: () => void;
+  onOpenCreative?: (request?: string) => void;
   onOpenDetails?: () => void;
 };
 
 const appProps = vi.fn();
 vi.mock('../ResearchWorkspaceV31', () => ({ default: () => <section aria-label="Research Workspace">Research test workspace</section> }));
 vi.mock('../CodingWorkspaceV31', () => ({ default: ({ initialGoal }: { initialGoal?: string }) => <section aria-label="Coding Job Workspace">Coding test workspace{initialGoal ? `: ${initialGoal}` : ''}</section> }));
-vi.mock('../../CreativeWorkspaceV15', () => ({ default: () => <section aria-label="Creative Workspace">Creative test workspace</section> }));
+vi.mock('../../CreativeWorkspaceV15', () => ({ default: ({ initialRequest }: { initialRequest?: string }) => <section aria-label="Creative Workspace">Creative test workspace{initialRequest ? `: ${initialRequest}` : ''}</section> }));
 vi.mock('../../AgentWorkspaceView', () => ({ default: () => <section aria-label="Agent Workspace">Agent test workspace</section> }));
 
 vi.mock('../../../App', () => ({
@@ -120,6 +120,17 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
     expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
+  });
+
+  it('carries an explicit chat creative request into the Create workspace without starting generation', async () => {
+    render(<PersonalEditionApp />);
+    const request = 'Creativeワークスペースで新商品のSNSカードを作って';
+
+    act(() => latestAppProps().onOpenCreative?.(request));
+
+    const creative = await screen.findByRole('region', { name: 'Creative Workspace' });
+    expect(creative.textContent).toContain(request);
+    expect(window.location.search).toBe('?workspace=creative');
   });
 
   it('supports direct workspace links and browser history without restoring a permanent mode bar', async () => {

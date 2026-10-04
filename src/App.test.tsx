@@ -42,7 +42,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -589,6 +589,30 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(onOpenCoding).toHaveBeenCalledWith(goal));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByText(/Codingワークスペースへ引き継ぎました/)).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('recognizes explicit Create-workspace requests without hijacking ordinary image generation', () => {
+    expect(isDirectCreativeWorkspaceRequest('Creativeワークスペースで新商品のSNSカードを作って')).toBe(true);
+    expect(isDirectCreativeWorkspaceRequest('Use the Creative workspace to make a launch social card')).toBe(true);
+    expect(isDirectCreativeWorkspaceRequest('夕焼けの海の画像を作ってください')).toBe(false);
+    expect(isDirectCreativeWorkspaceRequest('Create a cinematic image of Tokyo at night')).toBe(false);
+    expect(isDirectCreativeWorkspaceRequest('Creativeワークスペースの仕組みを説明して')).toBe(false);
+  });
+
+  it('hands explicit Create-workspace requests over with the original brief and no provider call', async () => {
+    const fetchMock = vi.fn();
+    const onOpenCreative = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" onOpenCreative={onOpenCreative} />);
+
+    const request = 'Creativeワークスペースで新商品のSNSカードを作って';
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: request } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(onOpenCreative).toHaveBeenCalledWith(request));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/「作る」ワークスペースへ内容ごと引き継ぎました/)).toBeTruthy();
     vi.unstubAllGlobals();
   });
 
