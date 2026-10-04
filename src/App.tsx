@@ -560,6 +560,19 @@ export const isDirectCodingWorkspaceRequest = (input: string): boolean => {
   return action.test(normalized) && codingTarget.test(normalized) && !explanationOnly.test(normalized);
 };
 
+export const isDirectCreativeWorkspaceRequest = (input: string): boolean => {
+  const normalized = input.normalize('NFKC').trim();
+  if (!normalized) return false;
+  const explicitWorkspace = /(?:(?:Creative|Create)\s*(?:workspace|ワークスペース|画面|モード)|Creativeで|クリエイティブ\s*(?:ワークスペース|画面|モード|で)|作る\s*(?:ワークスペース|画面|モード))/i;
+  const creativeTarget = /(?:SNS|ソーシャル|カード|ポスター|情報カード|インフォグラフィック|SVG|ベクター|social\s*card|poster|info\s*card|infographic|vector|visual)/i;
+  const action = /(?:作って|作成して|デザインして|準備して|開いて|移動して|使って|make\b|create\b|design\b|prepare\b|open\b|use\b)/i;
+  const explanationOnly = /(?:説明して|解説して|教えて|仕組み|方法|what is|how does|explain)/i;
+  return explicitWorkspace.test(normalized)
+    && creativeTarget.test(normalized)
+    && action.test(normalized)
+    && !explanationOnly.test(normalized);
+};
+
 const isImageClarificationCancellation = (input: string): boolean =>
   /^(?:やめ(?:る|ます)?|キャンセル|画像(?:生成)?はやめ|別の話|cancel|stop|never mind)\b/i.test(input.trim());
 
@@ -1078,7 +1091,7 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   </aside>;
 };
 
-export type OriginPersonalAppProps = { onOpenSettings?: () => void; onOpenResearch?: () => void; onOpenAgent?: () => void; onOpenCoding?: (goal?: string) => void; onOpenCreative?: () => void; onOpenDetails?: () => void; messages?: ConversationMessage[]; sessions?: readonly ConversationSession[]; artifacts?: readonly ArtifactBlock[]; onArchiveSession?: (messages: readonly ConversationMessage[]) => void; onRestoreSession?: (session: ConversationSession) => void; onMessagesChange?: (messages: ConversationMessage[]) => void; onArtifactsChange?: (artifacts: ArtifactBlock[]) => void; resetSignal?: number; language?: OriginLanguage; designTheme?: OriginDesignTheme; embedded?: boolean };
+export type OriginPersonalAppProps = { onOpenSettings?: () => void; onOpenResearch?: () => void; onOpenAgent?: () => void; onOpenCoding?: (goal?: string) => void; onOpenCreative?: (request?: string) => void; onOpenDetails?: () => void; messages?: ConversationMessage[]; sessions?: readonly ConversationSession[]; artifacts?: readonly ArtifactBlock[]; onArchiveSession?: (messages: readonly ConversationMessage[]) => void; onRestoreSession?: (session: ConversationSession) => void; onMessagesChange?: (messages: ConversationMessage[]) => void; onArtifactsChange?: (artifacts: ArtifactBlock[]) => void; resetSignal?: number; language?: OriginLanguage; designTheme?: OriginDesignTheme; embedded?: boolean };
 export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenResearch, onOpenAgent, onOpenCoding, onOpenCreative, onOpenDetails, messages: controlledMessages, sessions = [], artifacts: controlledArtifacts, onArchiveSession, onRestoreSession, onMessagesChange, onArtifactsChange, resetSignal = 0, language = 'ja', designTheme = 'minimal', embedded = false }) => {
   const t = getTranslations(language);
   const [uncontrolledMessages, setUncontrolledMessages] = useState<ConversationMessage[]>([]);
@@ -1216,6 +1229,29 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       setAttachmentError('');
       setIsSafeWaiting(false);
       onOpenCoding(codingGoal);
+      return;
+    }
+
+    if (
+      !interruptCurrent
+      && attachments.length === 0
+      && onOpenCreative
+      && isDirectCreativeWorkspaceRequest(text.trim())
+    ) {
+      const creativeRequest = text.trim();
+      const handoffMessage = language === 'en'
+        ? 'I moved this request to the Create workspace and carried the original brief with it. No image/provider generation was started by the handoff.'
+        : 'この依頼を「作る」ワークスペースへ内容ごと引き継ぎました。引き継ぎだけでは画像・プロバイダ生成を開始していません。';
+      updateMessages((current) => [
+        ...current,
+        { id: `u-${Date.now()}`, role: 'user', content: creativeRequest },
+        { id: `a-${Date.now()}`, role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
+      ]);
+      setInputText('');
+      setAttachments([]);
+      setAttachmentError('');
+      setIsSafeWaiting(false);
+      onOpenCreative(creativeRequest);
       return;
     }
 

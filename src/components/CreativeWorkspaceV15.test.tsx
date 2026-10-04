@@ -152,6 +152,21 @@ describe('CreativeWorkspaceV15', () => {
     expect(screen.queryByRole('region', { name: 'Creative local history' })).toBeNull();
   });
 
+  it('preserves a chat handoff request, pre-fills a useful draft, and does not generate before user action', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(statusBody));
+    vi.stubGlobal('fetch', fetchMock);
+    const request = 'Creativeワークスペースで新商品のSNSカードを作って';
+
+    render(<CreativeWorkspaceV15 initialRequest={request} />);
+    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+
+    expect(screen.getByTestId('creative-handoff-request').textContent).toContain(request);
+    expect((screen.getByLabelText('タイトル') as HTMLInputElement).value).toContain('新商品のSNSカード');
+    expect((screen.getByLabelText('内容') as HTMLTextAreaElement).value).toBe(request);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/creative/v1.5/status');
+  });
+
   it('checks the zero-cost capability, verifies actual bytes, previews SVG, and persists local history', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(statusBody))
