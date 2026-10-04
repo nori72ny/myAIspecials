@@ -186,7 +186,8 @@ export async function inspectRasterBlobV15(blob: Blob): Promise<RasterTechnicalQ
     canvas.height = height;
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) throw new Error('RASTER_TECHNICAL_CRITIC_CANVAS_UNAVAILABLE');
-    context.drawImage(image, 0, 0, width, height);
+    const drawSource = image as unknown as CanvasImageSource;
+    context.drawImage(drawSource, 0, 0, width, height);
     const pixels = context.getImageData(0, 0, width, height).data;
     return scoreRasterPixelsV15(pixels, width, height);
   } finally {

@@ -24,9 +24,9 @@ describe('ORIGIN PWA boundary', () => {
     expect(manifest.display).toBe('standalone');
     expect(manifest.orientation).toBeUndefined();
     expect(manifest.icons).toEqual(expect.arrayContaining([
-      expect.objectContaining({ src: '/pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' }),
-      expect.objectContaining({ src: '/pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }),
-      expect.objectContaining({ src: '/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }),
+      expect.objectContaining({ src: '/pwa-192.png?v=sunrise-20261004', sizes: '192x192', type: 'image/png', purpose: 'any' }),
+      expect.objectContaining({ src: '/pwa-512.png?v=sunrise-20261004', sizes: '512x512', type: 'image/png', purpose: 'any' }),
+      expect.objectContaining({ src: '/pwa-maskable-512.png?v=sunrise-20261004', sizes: '512x512', type: 'image/png', purpose: 'maskable' }),
     ]));
   });
 
@@ -36,8 +36,9 @@ describe('ORIGIN PWA boundary', () => {
     const topUi = read('src/origin-top-ui.css');
     const mark = read('public/brand/origin-sunrise-mark.svg');
 
-    expect(index).toContain('href="/favicon.svg"');
-    expect(index).toContain('href="/apple-touch-icon.png"');
+    expect(index).toContain('href="/manifest.json?v=sunrise-20261004"');
+    expect(index).toContain('href="/favicon.svg?v=sunrise-20261004"');
+    expect(index).toContain('href="/apple-touch-icon.png?v=sunrise-20261004"');
     expect(index).toContain('content="#0b1024"');
     expect(worker).toContain("'/favicon.svg'");
     expect(worker).toContain("'/pwa-192.png'");
