@@ -44,8 +44,13 @@ jobs:
         cache: 'npm'
     - name: Install dependencies (Clean Install)
       run: npm ci
-    - name: Run Security Audit
-      run: npx --yes npm@latest audit --no-package-lock --audit-level=critical
+    - name: Run lockfile security audit
+      run: npm audit --audit-level=high
+    - name: Capture exact npm audit evidence
+      if: always()
+      run: |
+        mkdir -p test-results
+        npm audit --json > test-results/npm-audit.json || true
     - name: Run linter
       run: npm run lint
     - name: Build the app
