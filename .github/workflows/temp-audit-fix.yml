@@ -1,0 +1,49 @@
+name: Temporary audited lockfile refresh
+
+on:
+  push:
+    branches:
+      - security/npm-audit-lockfile-triage-20261005
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: ${{ !contains(github.event.head_commit.message, 'chore: refresh audited lockfile') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: security/npm-audit-lockfile-triage-20261005
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.x'
+          cache: npm
+      - name: Install exact current lockfile
+        run: npm ci
+      - name: Apply bounded lockfile-only audit fixes
+        run: npm audit fix --package-lock-only
+      - name: Verify no manifest mutation and no high audit findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- package.json
+          npm audit --audit-level=high
+          git diff --check
+          git diff -- package-lock.json
+      - name: Commit generated audited lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- package-lock.json; then
+            echo "No lockfile changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore: refresh audited lockfile"
+          git push origin HEAD:security/npm-audit-lockfile-triage-20261005
