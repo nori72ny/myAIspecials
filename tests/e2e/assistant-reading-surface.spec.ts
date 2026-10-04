@@ -64,6 +64,25 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await page.goto('/');
     await expect(page.getByTestId('origin-home-request')).toBeVisible({ timeout: 15_000 });
     await waitForVisualSurface(page);
+
+    const headerMark = page.locator('.origin-header > div > div:first-child > div:first-child > span[aria-hidden="true"]:first-child');
+    await expect(headerMark).toBeVisible();
+    const headerMarkStyle = await headerMark.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundImage: style.backgroundImage,
+        width: style.width,
+        height: style.height,
+        borderRadius: style.borderRadius,
+        boxShadow: style.boxShadow,
+      };
+    });
+    expect(headerMarkStyle.backgroundImage).toContain('origin-sunrise-mark.svg');
+    expect(headerMarkStyle.width).toBe('20px');
+    expect(headerMarkStyle.height).toBe('20px');
+    expect(headerMarkStyle.borderRadius).toBe('0px');
+    expect(headerMarkStyle.boxShadow).toBe('none');
+
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
 
     await page.getByRole('button', { name: '設定を開く', exact: true }).click();
