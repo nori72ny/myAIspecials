@@ -44,6 +44,35 @@ test.describe('V1.5 Creative workspace production surface', () => {
     }));
   });
 
+  for (const width of [390, 1440]) {
+    test(`preserves explicit Chat → Create brief without duplicate provider generation at ${width}px`, async ({ page }) => {
+      const providerRequests: string[] = [];
+      page.on('request', request => {
+        const url = request.url();
+        if (url.includes('/api/chat')
+          || url.includes('/api/generate-image')
+          || url.includes('/api/creative/v1.5/raster/')) {
+          providerRequests.push(url);
+        }
+      });
+
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await page.goto('/');
+      const request = 'Creativeワークスペースで新商品のSNSカードを作って';
+      await page.getByTestId('origin-home-request').fill(request);
+      await page.getByTestId('start-request-button').click();
+
+      await expect(page).toHaveURL(/workspace=creative/);
+      const handoff = page.getByTestId('creative-handoff-request');
+      await expect(handoff).toContainText(request);
+      await expect(handoff).toContainText('生成はまだ開始していません');
+      await expect(page.getByRole('textbox', { name: 'タイトル', exact: true })).toHaveValue(/新商品のSNSカード/);
+      await expect(page.getByRole('textbox', { name: '内容', exact: true })).toHaveValue(request);
+      expect(providerRequests).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    });
+  }
+
   test('opens Create on mobile, verifies actual SVG bytes, persists history, and exports a real PNG locally', async ({ page }) => {
     const requests: string[] = [];
     page.on('request', request => requests.push(request.url()));
