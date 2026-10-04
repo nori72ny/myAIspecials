@@ -35,9 +35,10 @@ describe('ORIGIN top experience regression boundary', () => {
 
   it('keeps mobile add-menu geometry functional and its appearance visual', () => {
     expect(functionalUi).toContain('left: max(16px, calc((100vw - 360px) / 2)) !important;');
-    expect(functionalUi).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;');
+    expect(functionalUi).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 136px) !important;');
     expect(functionalUi).toContain('max-height: min(46dvh, 320px) !important;');
     expect(functionalUi).toContain('min-height: 44px !important;');
+    expect(functionalUi).not.toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;');
     expect(functionalUi).not.toContain('background: rgba(15, 23, 42, 0.18);');
     expect(functionalUi).not.toContain('box-shadow: 0 24px 70px');
     expect(topUi).toContain('background: rgba(15, 23, 42, 0.08) !important;');
@@ -91,32 +92,41 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('.origin-composer {');
     expect(topUi).toContain('min-height: 60px !important;');
-    expect(topUi).toContain('min-height: 44px !important;');
+    expect(topUi).toContain('min-height: 56px !important;');
     expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;');
     expect(topUi).toContain('color: var(--text-primary) !important;');
     expect(topUi).toContain('.origin-composer__action.is-ready');
     expect(topUi).toContain('background: var(--accent-primary);');
     expect(topUi).toContain('color: var(--text-on-accent);');
     expect(topUi).toContain('font-size: 16px !important;');
+    expect(functionalUi).toContain('grid-template-rows: auto 44px;');
+    expect(functionalUi).toContain('grid-column: 1 / -1;');
+    expect(functionalUi).toContain('grid-column: 2;');
     expect(topUi).not.toContain('background: rgba(24, 24, 27, 0.85)');
     expect(topUi).not.toContain('color: #f4f4f5');
     expect(topUi).not.toContain('border-radius: 28px !important;');
     expect(topUi).not.toContain('box-shadow: 0 18px 50px color-mix');
   });
 
-  it('keeps the mobile composer compact while preserving a 44px touch target and keyboard-safe font size', () => {
+  it('keeps the mobile composer spacious while preserving 44px touch targets and keyboard-safe type', () => {
     expect(topUi).toContain('@media (max-width: 639px)');
-    expect(topUi).toContain('min-height: 58px !important;');
-    expect(topUi).toContain('max-height: 144px !important;');
-    expect(topUi).toContain('min-height: 44px !important;');
+    expect(topUi).toContain('min-height: 116px !important;');
+    expect(topUi).toContain('min-height: 56px !important;');
+    expect(topUi).toContain('max-height: 176px !important;');
     expect(topUi).toContain('font-size: 16px !important;');
-    expect(topUi).not.toContain('min-height: 92px !important;');
-    expect(topUi).not.toContain('min-height: 78px !important;');
+    expect(functionalUi).toContain('grid-template-columns: minmax(0, 1fr) 44px;');
+    expect(functionalUi).toContain('grid-template-rows: auto 44px;');
+    expect(functionalUi).toContain('width: 44px;');
+    expect(functionalUi).toContain('height: 44px;');
+    expect(topUi).not.toContain('max-height: 144px !important;');
+    expect(functionalUi).not.toContain('bottom: max(10px, env(safe-area-inset-bottom));');
   });
 
   it('keeps Release 2 elevation quiet without weakening hierarchy or focus', () => {
     expect(topUi).toContain('box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
-    expect(topUi).toContain('box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px');
+    expect(topUi).toContain('box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 26%, transparent), 0 0 0 2px');
+    expect(topUi).toContain('0 0 0 1px color-mix(in oklch, var(--accent-primary) 14%, transparent)');
+    expect(topUi).not.toContain('0 0 0 3px color-mix(in oklch, var(--accent-primary)');
     expect(topUi).toContain('filter: blur(10px) !important;');
     expect(topUi).toContain('opacity: .72 !important;');
     expect(topUi).not.toContain('0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
@@ -148,7 +158,9 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('width: 64px !important;');
     expect(topUi).toContain('width: 54px !important;');
     expect(topUi).toContain("background: transparent url('/brand/origin-sunrise-mark.svg') center / contain no-repeat !important;");
-    expect(topUi).toContain('min-height: 44px !important;');
+    expect(topUi).toContain('min-height: 56px !important;');
+    expect(functionalUi).toContain('grid-column: 1 / -1;');
+    expect(functionalUi).toContain('margin-top: auto !important;');
     expect(topUi).toContain('font-size: 16px !important;');
     expect(topUi).not.toContain('ORIGIN Top Experience — 2026 flagship surface');
     expect(topUi).not.toContain('width: 104px !important;');
