@@ -52,8 +52,8 @@
 }
 .origin-composer:focus-within,
 .origin-composer.is-focused {
-  border-color: var(--accent-border) !important;
-  box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
+  border-color: color-mix(in oklch, var(--accent-primary) 58%, var(--border-default)) !important;
+  box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 26%, transparent), 0 0 0 2px color-mix(in oklch, var(--accent-primary) 9%, transparent), inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
 }
 .origin-composer textarea,
 .origin-composer__input {
@@ -173,7 +173,7 @@
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
-    padding-top: 20px !important;
+    padding-top: clamp(18px, 4dvh, 32px) !important;
     padding-inline: 0 !important;
   }
   [data-testid="origin-core-logo"] {
@@ -185,18 +185,29 @@
     width: 54px !important;
     height: 54px !important;
   }
-  .origin-composer {
-    min-height: 58px !important;
-    border-radius: 18px !important;
-    padding: 6px !important;
+  .origin-app main .origin-composer {
+    min-height: 116px !important;
+    border-radius: 22px !important;
+    padding: 8px !important;
+    border-width: 1px !important;
+    box-shadow: 0 4px 16px color-mix(in oklch, var(--shadow-color) 20%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent) !important;
   }
-  .origin-composer textarea,
-  .origin-composer__input {
-    min-height: 44px !important;
-    max-height: 144px !important;
-    padding: 8px 9px !important;
+  .origin-app main .origin-composer:focus-within,
+  .origin-app main .origin-composer.is-focused {
+    border-color: color-mix(in oklch, var(--accent-primary) 38%, var(--border-default)) !important;
+    box-shadow: 0 4px 16px color-mix(in oklch, var(--shadow-color) 22%, transparent), 0 0 0 1px color-mix(in oklch, var(--accent-primary) 14%, transparent), inset 0 1px 0 color-mix(in oklch, white 46%, transparent) !important;
+  }
+  .origin-app main .origin-composer textarea,
+  .origin-app main .origin-composer__input {
+    min-height: 56px !important;
+    max-height: 176px !important;
+    padding: 8px 10px 6px !important;
     font-size: 16px !important;
     line-height: 1.5 !important;
+  }
+  .origin-app main .origin-composer > .origin-add-menu > summary,
+  .origin-app main .origin-composer > button {
+    margin: 0 !important;
   }
   .origin-add-menu[open]::before {
     background: rgba(15, 23, 42, 0.08) !important;
