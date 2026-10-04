@@ -20,7 +20,7 @@
   z-index: 50;
   backdrop-filter: blur(10px) saturate(103%);
 }
-.origin-header > div > div:first-child > span[aria-hidden="true"]:first-child {
+.origin-header > div > div:first-child > div:first-child > span[aria-hidden="true"]:first-child {
   display: inline-block !important;
   width: 22px !important;
   height: 22px !important;
@@ -160,7 +160,7 @@
   .origin-header > div > div {
     gap: 4px !important;
   }
-  .origin-header > div > div:first-child > span[aria-hidden="true"]:first-child {
+  .origin-header > div > div:first-child > div:first-child > span[aria-hidden="true"]:first-child {
     width: 20px !important;
     height: 20px !important;
     min-width: 20px !important;
