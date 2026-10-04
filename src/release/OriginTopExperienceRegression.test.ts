@@ -35,7 +35,7 @@ describe('ORIGIN top experience regression boundary', () => {
 
   it('keeps mobile add-menu geometry functional and its appearance visual', () => {
     expect(functionalUi).toContain('left: max(16px, calc((100vw - 360px) / 2)) !important;');
-    expect(functionalUi).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;');
+    expect(functionalUi).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 74px) !important;');
     expect(functionalUi).toContain('max-height: min(46dvh, 320px) !important;');
     expect(functionalUi).toContain('min-height: 44px !important;');
     expect(functionalUi).not.toContain('background: rgba(15, 23, 42, 0.18);');
@@ -104,19 +104,24 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('box-shadow: 0 18px 50px color-mix');
   });
 
-  it('keeps the mobile composer compact while preserving a 44px touch target and keyboard-safe font size', () => {
+  it('gives the mobile composer a full-width input row and preserves 44px touch targets', () => {
     expect(topUi).toContain('@media (max-width: 639px)');
-    expect(topUi).toContain('min-height: 58px !important;');
-    expect(topUi).toContain('max-height: 144px !important;');
+    expect(topUi).toContain('min-height: 124px !important;');
+    expect(topUi).toContain('max-height: 168px !important;');
     expect(topUi).toContain('min-height: 44px !important;');
     expect(topUi).toContain('font-size: 16px !important;');
-    expect(topUi).not.toContain('min-height: 92px !important;');
-    expect(topUi).not.toContain('min-height: 78px !important;');
+    expect(functionalUi).toContain('grid-template-columns: 44px minmax(0, 1fr) 44px;');
+    expect(functionalUi).toContain('grid-template-rows: auto 44px;');
+    expect(functionalUi).toContain('grid-column: 1 / -1;');
+    expect(functionalUi).toContain('grid-column: 3;');
+    expect(functionalUi).not.toContain('bottom: max(10px, env(safe-area-inset-bottom));');
   });
 
-  it('keeps Release 2 elevation quiet without weakening hierarchy or focus', () => {
+  it('keeps Release 2 elevation quiet while using a restrained one-pixel composer focus halo', () => {
     expect(topUi).toContain('box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
-    expect(topUi).toContain('box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px');
+    expect(topUi).toContain('box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 27%, transparent), 0 0 0 1px');
+    expect(topUi).toContain('box-shadow: 0 3px 11px color-mix(in oklch, var(--shadow-color) 25%, transparent), 0 0 0 1px');
+    expect(topUi).not.toContain('0 0 0 3px color-mix(in oklch, var(--accent-primary)');
     expect(topUi).toContain('filter: blur(10px) !important;');
     expect(topUi).toContain('opacity: .72 !important;');
     expect(topUi).not.toContain('0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
