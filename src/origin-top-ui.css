@@ -200,7 +200,7 @@
   .origin-app main .origin-composer textarea,
   .origin-app main .origin-composer__input {
     min-height: 56px !important;
-    max-height: 176px !important;
+    max-height: min(176px, 28dvh) !important;
     padding: 8px 10px 6px !important;
     font-size: 16px !important;
     line-height: 1.5 !important;
