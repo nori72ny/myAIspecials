@@ -7,6 +7,7 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     '6ffbdaf5d08d45f3632432fec27324d840c6dce5',
     '163c0c4bbf7bf90996be52422c244235bc576c1f',
     'fcaa45ab900560a8586725f7ce4e0ee3b2730b74',
+    '92e3cb3510d45ed2c65dcc29cee446bad48fdad2',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
