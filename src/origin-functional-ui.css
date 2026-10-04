@@ -113,7 +113,7 @@
     position: fixed !important;
     left: max(16px, calc((100vw - 360px) / 2)) !important;
     right: max(16px, calc((100vw - 360px) / 2)) !important;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 136px) !important;
     width: auto !important;
     min-width: 0 !important;
     max-height: min(46dvh, 320px) !important;
