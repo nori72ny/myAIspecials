@@ -10,6 +10,7 @@ describe('ORIGIN top experience regression boundary', () => {
   const functionalUi = readFileSync(resolve(root, 'origin-functional-ui.css'), 'utf8');
   const topUi = readFileSync(resolve(root, 'origin-top-ui.css'), 'utf8');
   const ultraOptics = readFileSync(resolve(root, 'ultra-optics.css'), 'utf8');
+  const splashBrand = readFileSync(resolve(root, 'components/splash-brand.css'), 'utf8');
 
   it('locks out destructive header behavior and uses the direct React settings action', () => {
     expect(app).not.toContain('window.location.href = "/"');
@@ -122,7 +123,9 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('0 8px 24px color-mix(in oklch, var(--shadow-color) 42%, transparent)');
     expect(topUi).not.toContain('0 12px 34px color-mix(in oklch, var(--shadow-color) 54%, transparent)');
     expect(ultraOptics).toContain('filter: blur(24px);');
-    expect(ultraOptics).toContain('0 4px 14px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
+    expect(ultraOptics).not.toContain('0 4px 14px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
+    expect(splashBrand).toContain('filter: blur(14px);');
+    expect(splashBrand).toContain('filter: drop-shadow(0 12px 24px rgb(218 74 93 / 13%));');
     expect(ultraOptics).not.toContain('backdrop-filter: blur(16px);');
     expect(ultraOptics).not.toContain('filter: blur(34px);');
     expect(ultraOptics).not.toContain('0 10px 28px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
