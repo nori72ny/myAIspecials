@@ -52,8 +52,8 @@
 }
 .origin-composer:focus-within,
 .origin-composer.is-focused {
-  border-color: var(--accent-border) !important;
-  box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
+  border-color: color-mix(in oklch, var(--accent-primary) 42%, var(--border-default)) !important;
+  box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 24%, transparent), 0 0 0 1px color-mix(in oklch, var(--accent-primary) 22%, transparent), inset 0 1px 0 color-mix(in oklch, white 48%, transparent) !important;
 }
 .origin-composer textarea,
 .origin-composer__input {
@@ -173,8 +173,21 @@
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
-    padding-top: 20px !important;
     padding-inline: 0 !important;
+  }
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto > div:has(> [data-testid="origin-core-logo"]) {
+    min-height: 100% !important;
+    padding-top: clamp(42px, 10dvh, 82px) !important;
+    padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  }
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto > div:has(> [data-testid="origin-core-logo"]) > div:has(> .origin-composer) {
+    width: 100% !important;
+    margin-top: auto !important;
+    padding-top: 28px !important;
+  }
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto > div:has(> [data-testid="origin-core-logo"]) > .origin-safe-note {
+    margin-top: 10px !important;
+    margin-bottom: 0 !important;
   }
   [data-testid="origin-core-logo"] {
     width: 64px !important;
@@ -186,23 +199,59 @@
     height: 54px !important;
   }
   .origin-composer {
-    min-height: 58px !important;
-    border-radius: 18px !important;
-    padding: 6px !important;
+    display: grid !important;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-rows: minmax(48px, auto) 44px;
+    column-gap: 6px !important;
+    row-gap: 2px !important;
+    align-items: end !important;
+    min-height: 106px !important;
+    border-radius: 20px !important;
+    padding: 7px !important;
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
   }
   .origin-composer textarea,
   .origin-composer__input {
-    min-height: 44px !important;
-    max-height: 144px !important;
-    padding: 8px 9px !important;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: 100% !important;
+    min-height: 48px !important;
+    max-height: 156px !important;
+    padding: 8px 10px 4px !important;
     font-size: 16px !important;
-    line-height: 1.5 !important;
+    line-height: 1.55 !important;
+  }
+  .origin-composer > .origin-add-menu {
+    grid-column: 1;
+    grid-row: 2;
+    align-self: end;
+    justify-self: start;
+  }
+  .origin-composer > button {
+    grid-row: 2;
+    align-self: end;
+  }
+  .origin-composer > button:first-of-type {
+    grid-column: 1;
+    justify-self: start;
+  }
+  .origin-composer > button:last-of-type {
+    grid-column: 3;
+    justify-self: end;
+  }
+  .origin-composer > .origin-add-menu summary,
+  .origin-composer > button {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
   }
   .origin-add-menu[open]::before {
     background: rgba(15, 23, 42, 0.08) !important;
     backdrop-filter: blur(1px) !important;
   }
   .origin-add-menu__panel {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 120px) !important;
     padding: 6px !important;
     border-radius: 16px !important;
     gap: 2px !important;
