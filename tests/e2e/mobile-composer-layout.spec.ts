@@ -10,7 +10,7 @@ for (const viewport of [
   { width: 320, height: 568 },
   { width: 390, height: 844 },
 ]) {
-  test(`keeps the mobile composer low, spacious and balanced at ${viewport.width}px`, async ({ page }) => {
+  test(`keeps the mobile composer low, spacious and balanced at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await waitForHome(page);
 
@@ -56,10 +56,14 @@ for (const viewport of [
     expect(focusAppearance.boxShadow).not.toMatch(/0px 0px 0px 3px/);
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await testInfo.attach(`mobile-composer-${viewport.width}px`, {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
   });
 }
 
-test('keeps the conversation composer docked low after the first response', async ({ page }) => {
+test('keeps the conversation composer docked low after the first response', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/chat', route => route.fulfill({
     status: 200,
@@ -89,4 +93,8 @@ test('keeps the conversation composer docked low after the first response', asyn
   expect(inputBox!.width).toBeGreaterThanOrEqual(composerBox!.width - 24);
   expect(Math.abs(addBox!.y - sendBox!.y)).toBeLessThanOrEqual(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await testInfo.attach('mobile-composer-390px-conversation', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
 });
