@@ -8,7 +8,10 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     '163c0c4bbf7bf90996be52422c244235bc576c1f',
     'fcaa45ab900560a8586725f7ce4e0ee3b2730b74',
   ]],
-  ['vite.config.ts', ['fa396109dd321106533a27070567fb77f30b6e90']],
+  ['vite.config.ts', [
+    'fa396109dd321106533a27070567fb77f30b6e90',
+    'fe7ee794c628063f6cc39fc13d503eb5a0becf80',
+  ]],
   ['tsconfig.json', ['166577ad1b6c79a81519689f71b0769e7f465ff3']],
   ['scripts/design-token-lock.js', ['a47fc4b878f84bf3b0bf303e6bf7ea5093e27803']],
 ]);
