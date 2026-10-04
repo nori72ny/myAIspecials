@@ -116,8 +116,8 @@ describe('ORIGIN top experience regression boundary', () => {
   it('keeps Release 2 elevation quiet without weakening hierarchy or focus', () => {
     expect(topUi).toContain('box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
     expect(topUi).toContain('box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px');
-    expect(topUi).toContain('filter: blur(8px) !important;');
-    expect(topUi).toContain('opacity: .30;');
+    expect(topUi).toContain('filter: blur(10px) !important;');
+    expect(topUi).toContain('opacity: .72 !important;');
     expect(topUi).not.toContain('0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
     expect(topUi).not.toContain('0 8px 24px color-mix(in oklch, var(--shadow-color) 42%, transparent)');
     expect(topUi).not.toContain('0 12px 34px color-mix(in oklch, var(--shadow-color) 54%, transparent)');
@@ -142,7 +142,9 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('min-height: 60px !important;');
     expect(topUi).toContain('width: 76px !important;');
-    expect(topUi).toContain('width: 58px !important;');
+    expect(topUi).toContain('width: 64px !important;');
+    expect(topUi).toContain('width: 54px !important;');
+    expect(topUi).toContain("background: transparent url('/brand/origin-sunrise-mark.svg') center / contain no-repeat !important;");
     expect(topUi).toContain('min-height: 44px !important;');
     expect(topUi).toContain('font-size: 16px !important;');
     expect(topUi).not.toContain('ORIGIN Top Experience — 2026 flagship surface');
