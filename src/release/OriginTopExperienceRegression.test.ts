@@ -104,19 +104,26 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('box-shadow: 0 18px 50px color-mix');
   });
 
-  it('keeps the mobile composer compact while preserving a 44px touch target and keyboard-safe font size', () => {
+  it('keeps the mobile composer spacious while preserving compact controls and keyboard-safe text', () => {
     expect(topUi).toContain('@media (max-width: 639px)');
-    expect(topUi).toContain('min-height: 58px !important;');
-    expect(topUi).toContain('max-height: 144px !important;');
+    expect(topUi).toContain('grid-template-columns: 44px minmax(0, 1fr) 44px;');
+    expect(topUi).toContain('grid-template-rows: minmax(48px, auto) 44px;');
+    expect(topUi).toContain('grid-column: 1 / -1;');
+    expect(topUi).toContain('max-height: 156px !important;');
     expect(topUi).toContain('min-height: 44px !important;');
     expect(topUi).toContain('font-size: 16px !important;');
+    expect(topUi).toContain('margin-top: auto !important;');
+    expect(topUi).not.toContain('max-height: 144px !important;');
     expect(topUi).not.toContain('min-height: 92px !important;');
     expect(topUi).not.toContain('min-height: 78px !important;');
   });
 
-  it('keeps Release 2 elevation quiet without weakening hierarchy or focus', () => {
+  it('keeps Release 2 elevation quiet with a restrained composer focus ring', () => {
     expect(topUi).toContain('box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
-    expect(topUi).toContain('box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px');
+    expect(topUi).toContain('box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 24%, transparent), 0 0 0 1px');
+    expect(topUi).toContain('border-color: color-mix(in oklch, var(--accent-primary) 36%, var(--border-default)) !important;');
+    expect(topUi).toContain('0 0 0 1px color-mix(in oklch, var(--accent-primary) 18%, transparent)');
+    expect(topUi).not.toContain('0 0 0 3px color-mix(in oklch, var(--accent-primary)');
     expect(topUi).toContain('filter: blur(10px) !important;');
     expect(topUi).toContain('opacity: .72 !important;');
     expect(topUi).not.toContain('0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
