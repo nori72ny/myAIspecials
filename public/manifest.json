@@ -9,7 +9,7 @@
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone"],
   "background_color": "#f7f6f2",
-  "theme_color": "#1f4765",
+  "theme_color": "#0b1024",
   "categories": ["productivity", "utilities"],
   "prefer_related_applications": false,
   "icons": [
