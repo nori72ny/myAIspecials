@@ -74,3 +74,27 @@ test.describe('mobile composer layout', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 });
+
+for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 390, height: 560 }]) {
+  test(`keeps the add menu above long input at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    const input = page.getByTestId('origin-home-request');
+    await input.fill('長文でも入力と操作を確認します。\n'.repeat(20));
+    await page.getByTestId('origin-add-menu-toggle').click();
+    const menu = page.getByRole('menu', { name: '追加機能' });
+    await expect(menu).toBeVisible();
+    const menuBox = await menu.boundingBox();
+    const composerBox = await page.locator('.origin-composer').boundingBox();
+    expect(menuBox).not.toBeNull();
+    expect(composerBox).not.toBeNull();
+    expect(menuBox!.x).toBeGreaterThanOrEqual(0);
+    expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(viewport.width);
+    expect(menuBox!.y).toBeGreaterThanOrEqual(0);
+    expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(composerBox!.y - 4);
+    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(viewport.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(menu).not.toBeVisible();
+  });
+}

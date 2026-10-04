@@ -70,11 +70,14 @@
     grid-row: 1;
     width: 100%;
     min-width: 0;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
   }
   .origin-app main .origin-composer > .origin-add-menu {
     grid-column: 1;
     grid-row: 2;
     justify-self: start;
+    position: static !important;
   }
   .origin-app main .origin-composer > textarea + button:not(:last-child),
   .origin-app main .origin-composer > .origin-composer__input + button:not(:last-child) {
@@ -109,11 +112,12 @@
     z-index: 40;
     pointer-events: none;
   }
-  .origin-add-menu__panel {
-    position: fixed !important;
-    left: max(16px, calc((100vw - 360px) / 2)) !important;
-    right: max(16px, calc((100vw - 360px) / 2)) !important;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 136px) !important;
+  /* Anchor above the full composer, including an expanded multiline input. */
+  .origin-app main .origin-composer .origin-add-menu__panel {
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: calc(100% + 8px) !important;
     width: auto !important;
     min-width: 0 !important;
     max-height: min(46dvh, 320px) !important;

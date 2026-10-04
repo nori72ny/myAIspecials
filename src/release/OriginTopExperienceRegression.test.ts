@@ -34,8 +34,8 @@ describe('ORIGIN top experience regression boundary', () => {
   });
 
   it('keeps mobile add-menu geometry functional and its appearance visual', () => {
-    expect(functionalUi).toContain('left: max(16px, calc((100vw - 360px) / 2)) !important;');
-    expect(functionalUi).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 136px) !important;');
+    expect(functionalUi).toContain('left: 0 !important;');
+    expect(functionalUi).toContain('bottom: calc(100% + 8px) !important;');
     expect(functionalUi).toContain('max-height: min(46dvh, 320px) !important;');
     expect(functionalUi).toContain('min-height: 44px !important;');
     expect(functionalUi).not.toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;');
@@ -43,7 +43,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(functionalUi).not.toContain('box-shadow: 0 24px 70px');
     expect(topUi).toContain('background: rgba(15, 23, 42, 0.08) !important;');
     expect(topUi).toContain('box-shadow: 0 8px 22px rgba(15, 23, 42, 0.11) !important;');
-    expect(topUi).not.toContain('left: max(16px, calc((100vw - 360px) / 2)) !important;');
+    expect(topUi).not.toContain('left: 0 !important;');
     expect(topUi).not.toContain('max-height: min(46dvh, 320px) !important;');
   });
 
@@ -112,7 +112,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('@media (max-width: 639px)');
     expect(topUi).toContain('min-height: 116px !important;');
     expect(topUi).toContain('min-height: 56px !important;');
-    expect(topUi).toContain('max-height: 176px !important;');
+    expect(topUi).toContain('max-height: min(176px, 28dvh) !important;');
     expect(topUi).toContain('font-size: 16px !important;');
     expect(functionalUi).toContain('grid-template-columns: minmax(0, 1fr) 44px;');
     expect(functionalUi).toContain('grid-template-rows: auto 44px;');
