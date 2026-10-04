@@ -42,7 +42,7 @@
 }
 .origin-composer {
   min-height: 96px !important;
-  border: 1px solid var(--border-default) !important;
+  border: 1px solid color-mix(in oklch, var(--border-default) 92%, var(--text-secondary)) !important;
   border-radius: 24px !important;
   padding: 8px !important;
   background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;
@@ -53,7 +53,7 @@
 .origin-composer:focus-within,
 .origin-composer.is-focused {
   border-color: var(--accent-border) !important;
-  box-shadow: 0 5px 16px color-mix(in oklch, var(--shadow-color) 30%, transparent), 0 0 0 3px color-mix(in oklch, var(--accent-primary) 10%, transparent), inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
+  box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 27%, transparent), 0 0 0 1px color-mix(in oklch, var(--accent-primary) 14%, transparent), inset 0 1px 0 color-mix(in oklch, white 48%, transparent) !important;
 }
 .origin-composer textarea,
 .origin-composer__input {
@@ -173,30 +173,63 @@
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
-    padding-top: 20px !important;
+    padding-top: 18px !important;
     padding-inline: 0 !important;
   }
   [data-testid="origin-core-logo"] {
-    width: 64px !important;
-    height: 64px !important;
-    margin-bottom: 10px !important;
+    width: 60px !important;
+    height: 60px !important;
+    margin-bottom: 8px !important;
   }
   [data-testid="origin-core-logo"] .origin-logo-core {
-    width: 54px !important;
-    height: 54px !important;
+    width: 50px !important;
+    height: 50px !important;
   }
   .origin-composer {
-    min-height: 58px !important;
-    border-radius: 18px !important;
-    padding: 6px !important;
+    min-height: 124px !important;
+    border-radius: 22px !important;
+    padding: 8px !important;
+    box-shadow: 0 2px 9px color-mix(in oklch, var(--shadow-color) 22%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent) !important;
+  }
+  .origin-composer:focus-within,
+  .origin-composer.is-focused {
+    border-color: var(--accent-border) !important;
+    box-shadow: 0 3px 11px color-mix(in oklch, var(--shadow-color) 25%, transparent), 0 0 0 1px color-mix(in oklch, var(--accent-primary) 12%, transparent), inset 0 1px 0 color-mix(in oklch, white 46%, transparent) !important;
   }
   .origin-composer textarea,
   .origin-composer__input {
-    min-height: 44px !important;
-    max-height: 144px !important;
-    padding: 8px 9px !important;
+    min-height: 60px !important;
+    max-height: 168px !important;
+    padding: 10px 10px 8px !important;
     font-size: 16px !important;
     line-height: 1.5 !important;
+  }
+  .origin-composer > .origin-add-menu > summary,
+  .origin-composer > button:not(.origin-primary-button):not(.origin-danger-button):not(.origin-composer__action) {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    color: var(--text-secondary) !important;
+    font-size: 20px !important;
+    box-shadow: none !important;
+  }
+  .origin-composer > .origin-add-menu > summary:hover,
+  .origin-composer > button:not(.origin-primary-button):not(.origin-danger-button):not(.origin-composer__action):hover {
+    background: var(--bg-surface-muted) !important;
+    color: var(--text-primary) !important;
+  }
+  .origin-composer > .origin-primary-button,
+  .origin-composer > .origin-danger-button,
+  .origin-composer > .origin-composer__action {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    border-radius: 999px !important;
+    box-shadow: none !important;
   }
   .origin-add-menu[open]::before {
     background: rgba(15, 23, 42, 0.08) !important;

@@ -42,22 +42,51 @@ test.describe('ORIGIN visual QA evidence', () => {
       }));
 
       await page.goto('/');
-      await expect(page.getByTestId('origin-home-request')).toBeVisible();
+      const homeInput = page.getByTestId('origin-home-request');
+      const addButton = page.getByTestId('origin-add-menu-toggle');
+      const startButton = page.getByTestId('start-request-button');
+      const homeComposer = page.locator('.origin-composer');
+      await expect(homeInput).toBeVisible();
       await expect(page.getByRole('status', { name: 'ORIGIN を起動しています' })).toBeHidden({ timeout: 5_000 });
       const projectWorkspace = page.getByRole('region', { name: 'Project Workspace' });
       await expect(projectWorkspace).toHaveCount(0);
       await expect(page.getByRole('region', { name: 'ORIGIN workspace shell' })).toHaveCount(0);
       await expect(page.getByRole('navigation', { name: 'Mode' })).toHaveCount(0);
-      await expect(page.getByTestId('origin-add-menu-toggle')).toBeVisible();
+      await expect(addButton).toBeVisible();
       const homeWidth = await page.locator('body').evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
       expect(homeWidth.scroll).toBeLessThanOrEqual(homeWidth.client);
+
+      if (viewport.name === 'mobile-390') {
+        const [composerBox, inputBox, addBox, sendBox] = await Promise.all([
+          homeComposer.boundingBox(),
+          homeInput.boundingBox(),
+          addButton.boundingBox(),
+          startButton.boundingBox(),
+        ]);
+        expect(composerBox).not.toBeNull();
+        expect(inputBox).not.toBeNull();
+        expect(addBox).not.toBeNull();
+        expect(sendBox).not.toBeNull();
+        expect(composerBox!.y + composerBox!.height / 2).toBeGreaterThan(viewport.height * 0.7);
+        expect(inputBox!.width).toBeGreaterThan(composerBox!.width * 0.86);
+        expect(inputBox!.y + inputBox!.height).toBeLessThanOrEqual(addBox!.y + 8);
+        expect(Math.abs(addBox!.y - sendBox!.y)).toBeLessThanOrEqual(4);
+        await homeInput.focus();
+        const focusStyle = await homeComposer.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return { borderWidth: style.borderWidth, boxShadow: style.boxShadow };
+        });
+        expect(focusStyle.borderWidth).toBe('1px');
+        expect(focusStyle.boxShadow).not.toContain('0px 0px 0px 3px');
+      }
+
       await testInfo.attach(`origin-home-${viewport.name}.png`, {
         body: await page.screenshot({ fullPage: true }),
         contentType: 'image/png',
       });
 
-      await page.getByTestId('origin-home-request').fill('新機能の公開方法を実務レベルで判断してください');
-      await page.getByTestId('start-request-button').click();
+      await homeInput.fill('新機能の公開方法を実務レベルで判断してください');
+      await startButton.click();
 
       const answer = page.getByRole('article', { name: 'ORIGINの回答' });
       await expect(answer.getByRole('heading', { name: '結論', level: 2 })).toBeVisible();
@@ -65,6 +94,19 @@ test.describe('ORIGIN visual QA evidence', () => {
       await expect(page.getByRole('group', { name: '回答を調整' })).toBeVisible();
       await expect(page.getByTestId('response-verification-details')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+      if (viewport.name === 'mobile-390') {
+        const chatComposer = page.locator('.safe-area-bottom .origin-composer');
+        const chatInput = page.getByTestId('origin-chat-request');
+        const [composerBox, inputBox] = await Promise.all([
+          chatComposer.boundingBox(),
+          chatInput.boundingBox(),
+        ]);
+        expect(composerBox).not.toBeNull();
+        expect(inputBox).not.toBeNull();
+        expect(viewport.height - (composerBox!.y + composerBox!.height)).toBeLessThanOrEqual(18);
+        expect(inputBox!.width).toBeGreaterThan(composerBox!.width * 0.86);
+      }
 
       await testInfo.attach(`origin-answer-${viewport.name}.png`, {
         body: await page.screenshot({ fullPage: true }),

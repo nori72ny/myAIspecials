@@ -53,7 +53,50 @@
 
 @media (max-width: 639px) {
   .origin-composer {
-    bottom: max(10px, env(safe-area-inset-bottom));
+    position: relative;
+    bottom: auto;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-rows: auto 44px;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 4px;
+  }
+  .origin-composer > textarea,
+  .origin-composer > .origin-composer__input {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: 100%;
+    min-width: 0;
+  }
+  .origin-composer > .origin-add-menu,
+  .origin-composer > button:not(.origin-primary-button):not(.origin-danger-button):not(.origin-composer__action) {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .origin-composer > .origin-primary-button,
+  .origin-composer > .origin-danger-button,
+  .origin-composer > .origin-composer__action {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+  }
+  .origin-app main > .safe-area-bottom {
+    padding-bottom: max(6px, env(safe-area-inset-bottom)) !important;
+  }
+  .origin-app main > .min-h-0.flex-1.overflow-y-auto > .items-center.justify-start {
+    min-height: 100% !important;
+    padding-top: max(18px, 3dvh) !important;
+    padding-bottom: max(4px, env(safe-area-inset-bottom)) !important;
+  }
+  .origin-app main > .min-h-0.flex-1.overflow-y-auto > .items-center.justify-start > .mt-7 {
+    margin-top: auto !important;
+    padding-top: clamp(28px, 7dvh, 72px);
+  }
+  .origin-app main > .min-h-0.flex-1.overflow-y-auto > .items-center.justify-start > .origin-safe-note {
+    margin-top: 10px !important;
+    margin-bottom: 0 !important;
   }
   .origin-add-menu[open]::before {
     content: "";
@@ -66,7 +109,7 @@
     position: fixed !important;
     left: max(16px, calc((100vw - 360px) / 2)) !important;
     right: max(16px, calc((100vw - 360px) / 2)) !important;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 74px) !important;
     width: auto !important;
     min-width: 0 !important;
     max-height: min(46dvh, 320px) !important;
