@@ -9,7 +9,8 @@ describe('ORIGIN brand regression boundary', () => {
     const splash = read('src/components/SplashScreen.tsx');
     const splashBrand = read('src/components/splash-brand.css');
 
-    expect(splash).toContain('src="/brand/origin-sunrise-mark.svg?v=sunrise-20261004"');
+    expect(splash).toContain("const STARTUP_BRAND_MARK_SRC = '/brand/origin-sunrise-mark.svg?v=sunrise-20261004';");
+    expect(splash).toContain('src={STARTUP_BRAND_MARK_SRC}');
     expect(splash).toContain('origin-sunrise-logo');
     expect(splash).toContain('origin-sunrise-wordmark');
     expect(splashBrand).toContain('.origin-sunrise-logo__mark');
