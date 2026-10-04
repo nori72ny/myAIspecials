@@ -44,7 +44,9 @@ jobs:
         cache: 'npm'
     - name: Install dependencies (Clean Install)
       run: npm ci
-    - name: Run lockfile security audit
+    - name: Run production dependency security audit
+      run: npm audit --omit=dev --audit-level=low
+    - name: Run all-dependency high severity audit
       run: npm audit --audit-level=high
     - name: Capture exact npm audit evidence
       if: always()
