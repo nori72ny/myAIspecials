@@ -1,4 +1,58 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#1f4765"/>
-  <circle cx="256" cy="256" r="116" fill="none" stroke="#ffffff" stroke-width="42"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ORIGIN app icon</title>
+  <desc id="desc">ORIGIN sunrise mark in warm orange, coral and magenta on a deep midnight rounded square.</desc>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="40" x2="438" y2="474" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#151A3B"/>
+      <stop offset="0.52" stop-color="#0B1027"/>
+      <stop offset="1" stop-color="#090D20"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="64" y1="72" x2="448" y2="448" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB45B"/>
+      <stop offset="0.3" stop-color="#FF6A66"/>
+      <stop offset="0.66" stop-color="#EC3C83"/>
+      <stop offset="1" stop-color="#6E56E8"/>
+    </linearGradient>
+    <linearGradient id="sunrise" x1="34" y1="18" x2="126" y2="142" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD36A"/>
+      <stop offset="0.29" stop-color="#FF9C4A"/>
+      <stop offset="0.58" stop-color="#FF5B5F"/>
+      <stop offset="0.82" stop-color="#EC3C83"/>
+      <stop offset="1" stop-color="#B63279"/>
+    </linearGradient>
+    <linearGradient id="depth-left" x1="28" y1="84" x2="80" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F04B8A"/>
+      <stop offset="0.55" stop-color="#A83978"/>
+      <stop offset="1" stop-color="#722B67"/>
+    </linearGradient>
+    <linearGradient id="depth-right" x1="132" y1="84" x2="80" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E94D87"/>
+      <stop offset="0.55" stop-color="#9F3977"/>
+      <stop offset="1" stop-color="#6D2B65"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(256 246) rotate(90) scale(198)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB24F" stop-opacity="0.2"/>
+      <stop offset="0.42" stop-color="#EC3C83" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#EC3C83" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="silhouette" maskUnits="userSpaceOnUse" x="12" y="12" width="136" height="142">
+      <rect x="12" y="12" width="136" height="142" fill="black"/>
+      <circle cx="80" cy="80" r="62" fill="white"/>
+      <path d="M80 82C63 94 52 115 46 154H114C108 115 97 94 80 82Z" fill="black"/>
+    </mask>
+  </defs>
+  <rect x="22" y="22" width="468" height="468" rx="112" fill="url(#bg)"/>
+  <rect x="23" y="23" width="466" height="466" rx="111" fill="none" stroke="url(#edge)" stroke-opacity="0.58" stroke-width="2"/>
+  <ellipse cx="256" cy="246" rx="206" ry="204" fill="url(#halo)"/>
+  <g transform="translate(96 86) scale(2)">
+    <g mask="url(#silhouette)">
+      <circle cx="80" cy="80" r="62" fill="url(#sunrise)"/>
+      <path d="M18 100C38 88 55 82 80 82C62 92 49 108 37 137C27 126 20 113 18 100Z" fill="url(#depth-left)"/>
+      <path d="M142 100C122 88 105 82 80 82C98 92 111 108 123 137C133 126 140 113 142 100Z" fill="url(#depth-right)"/>
+      <path d="M80 22C80 52 78 69 68 77C58 84 43 84 22 92" fill="none" stroke="#FFF4D9" stroke-width="2.2" stroke-linecap="round" opacity="0.84"/>
+      <path d="M80 22C80 52 82 69 92 77C102 84 117 84 138 92" fill="none" stroke="#FFE8C0" stroke-width="2" stroke-linecap="round" opacity="0.68"/>
+    </g>
+    <path d="M80 57C83.4 69.8 90.2 76.6 103 80C90.2 83.4 83.4 90.2 80 103C76.6 90.2 69.8 83.4 57 80C69.8 76.6 76.6 69.8 80 57Z" fill="#FFFDF6"/>
+    <circle cx="80" cy="80" r="5.5" fill="#FFFFFF"/>
+  </g>
 </svg>
