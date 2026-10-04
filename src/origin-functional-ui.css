@@ -52,6 +52,10 @@
 .artifact-workspace__actions [role="group"] { max-width: 100%; }
 
 @media (max-width: 639px) {
+  .origin-composer > textarea {
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
   .origin-composer {
     bottom: max(10px, env(safe-area-inset-bottom));
   }

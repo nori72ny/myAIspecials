@@ -268,8 +268,6 @@
     min-width: 0 !important;
     min-height: 54px !important;
     max-height: min(196px, 28dvh) !important;
-    overflow-y: auto !important;
-    overscroll-behavior: contain;
     padding: 9px 10px 8px !important;
   }
   .origin-composer > .origin-add-menu,
