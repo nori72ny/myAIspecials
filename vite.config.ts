@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +8,18 @@ import {defineConfig, type Plugin} from 'vite';
 import {createOriginApp} from './src/server/createOriginApp';
 
 const configDir = path.dirname(fileURLToPath(import.meta.url));
+
+function originBrandRasterPlugin(): Plugin {
+  return {
+    name: 'origin-brand-raster',
+    configResolved() {
+      execFileSync(process.execPath, [path.resolve(configDir, 'scripts/generate-origin-brand-icons.mjs')], {
+        cwd: configDir,
+        stdio: 'inherit',
+      });
+    },
+  };
+}
 
 function originPwaReleasePlugin(): Plugin {
   return {
@@ -45,7 +58,7 @@ export default defineConfig(() => {
     // Vite/Vitest caches in the sandbox tmpfs so repository checks never need
     // write access to node_modules.
     cacheDir: process.env.ORIGIN_ISOLATED_VERIFY === 'true' ? '/tmp/origin-vite-cache' : undefined,
-    plugins: [originApiDevPlugin(), originPwaReleasePlugin(), react(), tailwindcss()],
+    plugins: [originBrandRasterPlugin(), originApiDevPlugin(), originPwaReleasePlugin(), react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(configDir, '.'),

@@ -1,5 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ORIGIN">
-  <rect width="512" height="512" fill="#1f4765"/>
-  <circle cx="256" cy="256" r="122" fill="#ffffff"/>
-  <circle cx="256" cy="256" r="80" fill="#1f4765"/>
+  <defs>
+    <linearGradient id="bg" x1="40" y1="28" x2="472" y2="486" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#171B42"/>
+      <stop offset="0.5" stop-color="#0B1027"/>
+      <stop offset="1" stop-color="#080C1D"/>
+    </linearGradient>
+    <linearGradient id="sunrise" x1="34" y1="18" x2="126" y2="142" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD36A"/>
+      <stop offset="0.29" stop-color="#FF9C4A"/>
+      <stop offset="0.58" stop-color="#FF5B5F"/>
+      <stop offset="0.82" stop-color="#EC3C83"/>
+      <stop offset="1" stop-color="#B63279"/>
+    </linearGradient>
+    <linearGradient id="depth-left" x1="28" y1="84" x2="80" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F04B8A"/>
+      <stop offset="0.55" stop-color="#A83978"/>
+      <stop offset="1" stop-color="#722B67"/>
+    </linearGradient>
+    <linearGradient id="depth-right" x1="132" y1="84" x2="80" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E94D87"/>
+      <stop offset="0.55" stop-color="#9F3977"/>
+      <stop offset="1" stop-color="#6D2B65"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(256 250) rotate(90) scale(190)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB24F" stop-opacity="0.22"/>
+      <stop offset="0.48" stop-color="#EC3C83" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#EC3C83" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="silhouette" maskUnits="userSpaceOnUse" x="12" y="12" width="136" height="142">
+      <rect x="12" y="12" width="136" height="142" fill="black"/>
+      <circle cx="80" cy="80" r="62" fill="white"/>
+      <path d="M80 82C63 94 52 115 46 154H114C108 115 97 94 80 82Z" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="250" r="194" fill="url(#halo)"/>
+  <g transform="translate(124 118) scale(1.65)">
+    <g mask="url(#silhouette)">
+      <circle cx="80" cy="80" r="62" fill="url(#sunrise)"/>
+      <path d="M18 100C38 88 55 82 80 82C62 92 49 108 37 137C27 126 20 113 18 100Z" fill="url(#depth-left)"/>
+      <path d="M142 100C122 88 105 82 80 82C98 92 111 108 123 137C133 126 140 113 142 100Z" fill="url(#depth-right)"/>
+    </g>
+    <path d="M80 57C83.4 69.8 90.2 76.6 103 80C90.2 83.4 83.4 90.2 80 103C76.6 90.2 69.8 83.4 57 80C69.8 76.6 76.6 69.8 80 57Z" fill="#FFFDF6"/>
+    <circle cx="80" cy="80" r="5.5" fill="#FFFFFF"/>
+  </g>
 </svg>

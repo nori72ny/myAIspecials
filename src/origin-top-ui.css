@@ -20,6 +20,15 @@
   z-index: 50;
   backdrop-filter: blur(10px) saturate(103%);
 }
+.origin-header > div > div:first-child > div:first-child > span[aria-hidden="true"]:first-child {
+  display: inline-block !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  border-radius: 0 !important;
+  background: url('/brand/origin-sunrise-mark.svg') center / contain no-repeat !important;
+  box-shadow: none !important;
+}
 .origin-header .origin-secondary-button {
   border-color: transparent !important;
   background: transparent !important;
@@ -96,16 +105,22 @@
   margin-bottom: 14px !important;
 }
 [data-testid="origin-core-logo"] .origin-logo-core {
-  width: 58px !important;
-  height: 58px !important;
-  border-radius: 18px !important;
-  font-size: 32px !important;
-  box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 26%, transparent), inset 0 1px 0 color-mix(in oklch, white 46%, transparent) !important;
+  width: 64px !important;
+  height: 64px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent url('/brand/origin-sunrise-mark.svg') center / contain no-repeat !important;
+  color: transparent !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+  box-shadow: none !important;
 }
 [data-testid="origin-core-logo"] .origin-logo-glow {
-  inset: -2px !important;
-  filter: blur(8px) !important;
-  opacity: .30;
+  inset: -5px !important;
+  border-radius: 999px !important;
+  background: radial-gradient(circle, rgb(255 156 74 / 26%) 0%, rgb(236 60 131 / 12%) 40%, transparent 72%) !important;
+  filter: blur(10px) !important;
+  opacity: .72 !important;
 }
 .origin-add-menu__panel {
   width: min(20rem, calc(100vw - 2rem));
@@ -145,6 +160,11 @@
   .origin-header > div > div {
     gap: 4px !important;
   }
+  .origin-header > div > div:first-child > div:first-child > span[aria-hidden="true"]:first-child {
+    width: 20px !important;
+    height: 20px !important;
+    min-width: 20px !important;
+  }
   .origin-header .origin-secondary-button {
     width: 44px !important;
     min-width: 44px !important;
@@ -162,10 +182,8 @@
     margin-bottom: 10px !important;
   }
   [data-testid="origin-core-logo"] .origin-logo-core {
-    width: 50px !important;
-    height: 50px !important;
-    border-radius: 16px !important;
-    font-size: 28px !important;
+    width: 54px !important;
+    height: 54px !important;
   }
   .origin-composer {
     min-height: 58px !important;
