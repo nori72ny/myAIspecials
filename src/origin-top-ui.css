@@ -267,7 +267,9 @@
     width: 100% !important;
     min-width: 0 !important;
     min-height: 54px !important;
-    max-height: 196px !important;
+    max-height: min(196px, 28dvh) !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
     padding: 9px 10px 8px !important;
   }
   .origin-composer > .origin-add-menu,
@@ -301,8 +303,15 @@
   .origin-composer > button:last-child {
     font-size: 19px !important;
   }
-  .origin-add-menu__panel {
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 132px) !important;
+  /* Anchor to the whole composer so growing text never sits behind the menu. */
+  .origin-composer > .origin-add-menu {
+    position: static !important;
+  }
+  .origin-composer .origin-add-menu__panel {
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: calc(100% + 8px) !important;
   }
 }
 

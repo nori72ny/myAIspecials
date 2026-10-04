@@ -50,6 +50,7 @@ for (const viewport of cases) {
     expect(focusMetrics.borderWidth).toBe('1px');
     expect(focusMetrics.boxShadow).not.toContain('0px 0px 0px 3px');
 
+    await input.fill('長文でも入力と操作を確認します。\n'.repeat(20));
     await add.click();
     const menu = page.getByRole('menu', { name: '追加機能' });
     await expect(menu).toBeVisible();
@@ -58,6 +59,8 @@ for (const viewport of cases) {
     expect(menuBox!.x).toBeGreaterThanOrEqual(0);
     expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(viewport.width);
     expect(menuBox!.y).toBeGreaterThanOrEqual(0);
+    const expandedComposerBox = await composer.boundingBox();
+    expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(expandedComposerBox!.y - 4);
     expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(viewport.height);
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
