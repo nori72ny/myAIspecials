@@ -1,3 +1,4 @@
+import { isCloudflareRasterProviderIdV15, type RasterProviderIdV15 } from './creative/rasterProviderIdentityV15';
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { Menu, Plus, Settings } from 'lucide-react';
@@ -192,7 +193,7 @@ export type GeneratedImageMessage = {
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   downloadName: string;
   sha256: string;
-  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
+  providerId: RasterProviderIdV15;
   model: string;
   generationId: string;
   visualBrainVersion: 'visual-brain-v1';
@@ -1307,7 +1308,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             const storedReference = await loadRasterAssetV15(referenceAssetId);
             if (storedReference.status === 'ready'
               && storedReference.entry
-              && storedReference.entry.providerId === 'cloudflare-workers-ai-free') {
+              && isCloudflareRasterProviderIdV15(storedReference.entry.providerId)) {
               referenceBlob = storedReference.entry.blob;
               rasterSessionBlobs.current.set(referenceAssetId, referenceBlob);
             }
@@ -1387,7 +1388,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const expectsReferenceEdit = Boolean(referenceAssetId);
         if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)
           || !/^[a-f0-9]{64}$/i.test(sha256)
-          || providerId !== 'cloudflare-workers-ai-free'
+          || !isCloudflareRasterProviderIdV15(providerId)
           || !model
           || !/^raster-[a-f0-9]{24}$/i.test(generationId)
           || visualBrainVersion !== 'visual-brain-v1'
@@ -1486,7 +1487,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           prompt: imageRequestText,
           mimeType: mimeType as GeneratedImageMessage['mimeType'],
           downloadName: baseDownloadName,
-          providerId: 'cloudflare-workers-ai-free',
+          providerId,
           model,
           generationId,
           visualBrainVersion: 'visual-brain-v1',
@@ -1513,7 +1514,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             prompt: imageRequestText,
             mimeType: finalMimeType,
             downloadName: finalDownloadName,
-            providerId: 'cloudflare-workers-ai-free',
+            providerId,
             model,
             generationId,
             visualBrainVersion: 'visual-brain-v1',
@@ -1550,7 +1551,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           mimeType: finalMimeType,
           downloadName: finalDownloadName,
           sha256: finalAssetId,
-          providerId: 'cloudflare-workers-ai-free',
+          providerId,
           model,
           generationId,
           visualBrainVersion: 'visual-brain-v1',
