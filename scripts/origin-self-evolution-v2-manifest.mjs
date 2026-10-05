@@ -5,21 +5,29 @@ const experiments=JSON.parse(readFileSync("origin-self-evolution-experiments-v2.
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
 const authorization=JSON.parse(readFileSync("origin-self-evolution-authorization-v2.json","utf8"));
 const breaker=JSON.parse(readFileSync("origin-self-evolution-circuit-breaker-v2.json","utf8"));
+const requests=JSON.parse(readFileSync("origin-self-evolution-dry-run-requests-v2.json","utf8"));
+const briefs=JSON.parse(readFileSync("origin-self-evolution-implementation-briefs-v2.json","utf8"));
 const policy=JSON.parse(readFileSync("config/origin-self-evolution-experiment-policy.json","utf8"));
 
 const hash=(v)=>createHash("sha256").update(String(v)).digest("hex");
 const candidateById=new Map(priority.ranked.map(x=>[x.id,x]));
 const authByExperiment=new Map(authorization.decisions.map(x=>[x.experimentId,x]));
+const requestByExperiment=new Map(requests.requests.map(x=>[x.experimentId,x]));
+const briefByCandidate=new Map(briefs.briefs.map(x=>[x.candidateId,x]));
 
 const manifests=experiments.experiments
   .filter(exp=>exp.status==="SPEC_READY")
   .map(exp=>{
     const candidate=candidateById.get(exp.candidateId);
     const auth=authByExperiment.get(exp.experimentId);
+    const request=requestByExperiment.get(exp.experimentId);
+    const brief=briefByCandidate.get(exp.candidateId);
     const executionReady=
       breaker.tripped!==true &&
       auth?.authorized===true &&
-      candidate?.actionable===true;
+      candidate?.actionable===true &&
+      request?.status==="READY_FOR_INTERNAL_DRY_RUN" &&
+      brief?.briefType==="IMPLEMENTATION_EXPERIMENT_BRIEF";
 
     return {
       schemaVersion:"origin.self-evolution.experiment-manifest.v2",
@@ -33,7 +41,20 @@ const manifests=experiments.experiments
       riskClass:"BOUNDED_EPHEMERAL_CODE_EXPERIMENT",
       executionAuthority:policy.executionAuthority,
       executionReady,
-      blockedReason:executionReady ? null : (breaker.tripped ? "CIRCUIT_BREAKER_TRIPPED" : auth?.reason || "NOT_AUTHORIZED"),
+      adapterId:request?.adapterId||null,
+      commandClass:request?.commandClass||null,
+      implementationBriefId:brief?.briefId||null,
+      blockedReason:executionReady
+        ? null
+        : breaker.tripped
+          ? "CIRCUIT_BREAKER_TRIPPED"
+          : auth?.authorized!==true
+            ? auth?.reason||"NOT_AUTHORIZED"
+            : request?.status!=="READY_FOR_INTERNAL_DRY_RUN"
+              ? request?.reason||"DRY_RUN_REQUEST_NOT_READY"
+              : brief?.briefType!=="IMPLEMENTATION_EXPERIMENT_BRIEF"
+                ? "IMPLEMENTATION_BRIEF_NOT_READY"
+                : "MANIFEST_NOT_READY",
       objective:"Test whether the candidate technique measurably improves the already-observed ORIGIN gap without regression.",
       boundaries:{
         ...policy.defaults,
