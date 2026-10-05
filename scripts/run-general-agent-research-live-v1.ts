@@ -126,6 +126,10 @@ async function main():Promise<void>{
     results,
     limitation:'Public-web internal live research measurement; not final sealed or external comparative qualification.',
   })+'\n');
+
+  if(solved!==tasks.length){
+    throw new Error(`RESEARCH_LIVE_SOLVE_THRESHOLD_UNMET:${solved}/${tasks.length}`);
+  }
 }
 
 main().catch((error:unknown)=>{
