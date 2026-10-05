@@ -371,8 +371,13 @@ async function main(): Promise<void> {
   if (currentSha !== candidateSha) throw new Error('GENERAL_AGENT_PRIVATE_CHECKOUT_SHA_MISMATCH');
   if (changedPaths().length !== 0) throw new Error('GENERAL_AGENT_PRIVATE_CHECKOUT_DIRTY');
 
-  const authSecret = randomBytes(48).toString('hex');
-  const env = { ...process.env, ORIGIN_AGENT_APPROVAL_SECRET: authSecret };
+  const approvalSigningSecret = randomBytes(48).toString('hex');
+  const operatorAuthSecret = randomBytes(48).toString('hex');
+  const env = {
+    ...process.env,
+    ORIGIN_AGENT_APPROVAL_SECRET: approvalSigningSecret,
+    ORIGIN_AGENT_OPERATOR_SECRET: operatorAuthSecret,
+  };
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '32kb' }));
@@ -394,7 +399,9 @@ async function main(): Promise<void> {
       && status.body?.freeOnly === true
       && status.body?.costUsd === 0
       && status.body?.paidFallbackEnabled === false
-      && status.body?.secretDelivery === 'server-only';
+      && status.body?.authorizationMode === 'agent-operator'
+      && status.body?.credentialSeparationConfigured === true
+      && status.body?.secretDelivery === 'signing-secret-server-only';
     if (!globalZeroCostReady) throw new Error('GENERAL_AGENT_PRIVATE_AGENT_V3_NOT_READY');
 
     const tasks: GeneralAgentHeldOutTaskV2[] = [];
@@ -403,7 +410,7 @@ async function main(): Promise<void> {
 
     for (const task of corpus.tasks) {
       const publicTask = publicGeneralAgentTaskV2(task);
-      const taskEvidence = await evaluateTask(baseUrl, authSecret, task, globalZeroCostReady);
+      const taskEvidence = await evaluateTask(baseUrl, operatorAuthSecret, task, globalZeroCostReady);
       const built = buildTrustedGeneralAgentRunV2(publicTask, taskEvidence);
       tasks.push(publicTask);
       evidence.push(taskEvidence);
