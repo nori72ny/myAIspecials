@@ -242,3 +242,27 @@ export function planOriginAnswerQualityBenchmarkCaseShards(
     }),
   };
 }
+
+export function selectOriginAnswerQualityBenchmarkNextBudgetedShard(
+  plan: OriginAnswerQualityBenchmarkQuotaPlan,
+  completedShardIndices: ReadonlySet<number>,
+  actualRequestsUsed: number,
+  dailyProviderBudget: number,
+): OriginAnswerQualityBenchmarkQuotaShard | undefined {
+  if (
+    !Number.isSafeInteger(actualRequestsUsed)
+    || actualRequestsUsed < 0
+    || !Number.isSafeInteger(dailyProviderBudget)
+    || dailyProviderBudget < 1
+    || dailyProviderBudget > MAX_SHARD_LIMIT
+    || actualRequestsUsed > dailyProviderBudget
+  ) {
+    return undefined;
+  }
+  const remaining = dailyProviderBudget - actualRequestsUsed;
+  return plan.shards.find(
+    (shard) =>
+      !completedShardIndices.has(shard.shardIndex)
+      && shard.pairedRequestsMax <= remaining,
+  );
+}
