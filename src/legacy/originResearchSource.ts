@@ -288,11 +288,13 @@ function researchIntent(query: string): ResearchIntent {
   const compactMixedQuery = latinTerms.length >= 2
     ? latinTerms.slice(0, 8).join(" ")
     : normalized;
+  const multiSourceRequested = /複数(?:の)?(?:ソース|出典)|複数[^\n]{0,12}(?:ソース|出典)|multiple\s+(?:independent\s+)?sources|compare\s+sources/i.test(normalized);
   return {
     officialRequested,
     requiredHostSuffixes,
     searchQuery: `${compactMixedQuery}${siteConstraint}`.slice(0, 1400),
     terms,
+    minimumDistinctDomains: multiSourceRequested && requiredHostSuffixes.length === 0 ? 2 : 1,
   };
 }
 
