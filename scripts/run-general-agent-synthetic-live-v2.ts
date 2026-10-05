@@ -45,7 +45,7 @@ function baseTask(index: number, candidateSha: string): Omit<GeneralAgentPrivate
     candidateSha,
     timeBudgetMs: 120_000,
     capabilities: [...capabilities],
-    expectedTerminalStatus: stop ? 'cancelled' : research ? 'blocked' : 'completed',
+    expectedTerminalStatus: stop ? 'cancelled' : 'completed',
     recoveryRequired: recovery,
     approvalBoundaryRequired: approval,
     stopCancelRequired: stop,
@@ -61,7 +61,9 @@ function baseTask(index: number, candidateSha: string): Omit<GeneralAgentPrivate
       ? { code: 'function demo(){' }
       : stop
         ? { content: 'internal synthetic evaluator content' }
-        : {},
+        : research
+          ? { query: 'AIエージェントに関する最新情報を複数ソースで調査してください。' }
+          : {},
     action: stop ? 'cancel-after-approval' : 'execute',
     allowedChangedPaths: [],
     regressionCheck: 'none',
