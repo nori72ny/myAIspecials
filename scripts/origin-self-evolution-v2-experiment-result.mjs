@@ -484,10 +484,10 @@ if(!rawInput){
     const improvementOk=bindingOk && provenanceOk && measuredDelta>=minDelta && measuredDelta>0;
 
     if(metricEvidence.ok!==true) out=reject(input,metricEvidence.reason||"EXPERIMENT_METRIC_EVIDENCE_INVALID");
-    else if(gateEvidence.ok!==true) out=reject(input,gateEvidence.reason||"EXPERIMENT_GATE_EVIDENCE_INVALID");
     else if(!bindingOk) out=reject(input,"EXPERIMENT_RESULT_BINDING_INVALID");
     else if(artifactInspection.ok!==true) out=reject(input,artifactInspection.reason||"EXPERIMENT_ARTIFACT_INVALID");
     else if(materialization.ok!==true) out=reject(input,materialization.reason||"MATERIALIZATION_VERIFICATION_FAILED");
+    else if(gateEvidence.ok!==true) out=reject(input,gateEvidence.reason||"EXPERIMENT_GATE_EVIDENCE_INVALID");
     else if(!provenanceOk) out=reject(input,"EXPERIMENT_RESULT_PROVENANCE_INVALID");
     else if(!boundaryOk) out=reject(input,"EXPERIMENT_RESULT_BOUNDARY_INVALID");
     else if(!gatesOk) out=reject(input,"EXPERIMENT_RESULT_GATES_INCOMPLETE");
