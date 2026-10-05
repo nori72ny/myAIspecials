@@ -119,7 +119,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
           "-old",
           "+new",
           ""
-        ].join("\\n");
+        ].join("\n");
         const artifact={
           schemaVersion:"origin.self-evolution.experiment-artifact.v2",
           exactBaseSha:baseSha,
@@ -130,7 +130,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
           implementationBriefId:"brief-1",
           files:[{path:pathValue,patch}]
         };
-        const artifactBytes=JSON.stringify(artifact,null,2)+"\\n";
+        const artifactBytes=JSON.stringify(artifact,null,2)+"\n";
         const actualDigest=createHash("sha256").update(artifactBytes).digest("hex");
         const claimedDigest=digestOverride||actualDigest;
         const artifactPath=join(dir,"artifact.json");
