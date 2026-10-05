@@ -98,11 +98,18 @@ describe("ORIGIN Personal release 1 gate", () => {
 
   it("keeps untrusted-source data away from external sinks unless an explicit approved boundary exists", () => {
     const tools = readRepositoryFile("src/agent/toolRegistry.ts");
+    const policy = readRepositoryFile("src/agent/agentExecutionPolicy.ts");
+    const research = readRepositoryFile("src/legacy/originResearchSource.ts");
     const server = readRepositoryFile("src/server/createOriginApp.ts");
 
     expect(tools).toContain("web_search_grounding");
-    expect(tools).toContain("Network capability intentionally disabled in the zero-cost local execution kernel.");
-    expect(tools).toContain("Network capability is disabled; no request was made.");
+    expect(tools).toContain("capability: 'grounded_research'");
+    expect(tools).toContain("researchCurrentInformation");
+    expect(tools).toContain("arbitrary network access remains disabled");
+    expect(policy).toContain("'grounded_research'");
+    expect(policy).not.toMatch(/DEFAULT_ALLOWED[^\n]*'network'/);
+    expect(research).toContain("https://www.bing.com/search");
+    expect(research).toContain("https://html.duckduckgo.com/html/");
     expect(tools).toContain("requiresApproval: true");
     expect(tools).toContain("if (!approval.approved) throw new Error('HUMAN_APPROVAL_REQUIRED')");
     expect(tools).toContain("if (!securityPolicyPassed) throw new Error('SAFETY_POLICY_BLOCKED')");
