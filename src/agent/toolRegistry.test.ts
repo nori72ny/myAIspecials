@@ -20,8 +20,13 @@ describe('toolRegistry safety boundary', () => {
     await expect(executeToolWithPermission('shell' as never, {}, approved)).rejects.toThrow('TOOL_NOT_REGISTERED');
   });
 
-  it('keeps the network capability fail-closed', async () => {
-    await expect(executeToolWithPermission('web_search_grounding', {}, approved)).rejects.toThrow('AGENT_CAPABILITY_DENIED');
+  it('keeps raw network unavailable while grounded research fails closed without a query', async () => {
+    const result = await executeToolWithPermission('web_search_grounding', {}, approved);
+    expect(result).toMatchObject({
+      ok: false,
+      tool: 'web_search_grounding',
+      message: 'A research query is required.',
+    });
   });
 
   it('permits an approved zero-cost side-effect-free operation without executing supplied code', async () => {
