@@ -97,6 +97,18 @@ function inspectArtifact(rawPath,manifest){
       return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_MISSING",sha256};
     }
     const lines=patch.split(/\r?\n/);
+    const forbiddenDirectives=[
+      "rename from ",
+      "rename to ",
+      "copy from ",
+      "copy to ",
+      "GIT binary patch",
+      "literal ",
+      "delta "
+    ];
+    if(lines.some(line=>forbiddenDirectives.some(prefix=>line.startsWith(prefix)))){
+      return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_DIRECTIVE_BLOCKED",sha256};
+    }
     const headers=lines.filter(line=>line.startsWith("diff --git "));
     if(headers.length!==1 || headers[0]!==`diff --git a/${pathValue} b/${pathValue}`){
       return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_HEADER_INVALID",sha256};
