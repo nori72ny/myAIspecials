@@ -69,7 +69,12 @@ const manifests=experiments.experiments
         experimentBindingRequired:true,
         reproducibleNonHeldOutOnly:true,
         privateHeldOutForbidden:true,
-        missingEvidenceStatus:"NOT_MEASURED"
+        missingEvidenceStatus:"NOT_MEASURED",
+        resultManifestBindingRequired:true,
+        resultAdapterBindingRequired:true,
+        resultImplementationBriefBindingRequired:true,
+        resultArtifactSha256Required:true,
+        resultExecutionReceiptRequired:true
       },
       outputAuthority:{
         mayProducePatchArtifact:true,
