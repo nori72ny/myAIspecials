@@ -139,8 +139,12 @@ async function validatedForm(request: Request, mode: 'generate' | 'edit'): Promi
   for (let index = 0; index < MAX_REFERENCE_IMAGES; index += 1) {
     const value = input.get(`input_image_${index}`);
     if (value === null) continue;
-    if (!(value instanceof Blob)) throw new Error('INPUT_REFERENCE_INVALID');
-    references.push({ index, blob: value });
+    const blobLike = value && typeof value === 'object'
+      && typeof (value as Blob).arrayBuffer === 'function'
+      && typeof (value as Blob).size === 'number'
+      && typeof (value as Blob).type === 'string';
+    if (!blobLike) throw new Error('INPUT_REFERENCE_INVALID');
+    references.push({ index, blob: value as Blob });
   }
   if (references.some((reference, index) => reference.index !== index)) throw new Error('INPUT_REFERENCE_INDEX_GAP');
   if (mode === 'generate' && references.length !== 0) throw new Error('INPUT_REFERENCE_UNEXPECTED');
@@ -182,9 +186,14 @@ function isBodyInit(value: unknown): value is BodyInit {
 
 async function runModel(env: CloudflareRasterGatewayWorkerEnvV15, form: FormData): Promise<Response> {
   if (!env.AI?.run) throw new Error('AI_BINDING_UNAVAILABLE');
-  const serialized = new Response(form);
+  const serialized = new Request('https://origin-raster-gateway.invalid/model-input', {
+    method: 'POST',
+    body: form,
+  });
   const contentType = serialized.headers.get('content-type');
-  if (!serialized.body || !contentType) throw new Error('MULTIPART_SERIALIZATION_FAILED');
+  if (!serialized.body || !contentType?.toLowerCase().startsWith('multipart/form-data;')) {
+    throw new Error('MULTIPART_SERIALIZATION_FAILED');
+  }
 
   const output = await env.AI.run(MODEL, {
     multipart: {
