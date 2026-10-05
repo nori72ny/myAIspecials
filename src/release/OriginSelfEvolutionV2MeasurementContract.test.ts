@@ -27,6 +27,21 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain("65536");
   });
 
+  it("uses stable runner-temp file descriptors instead of check-then-open reads",()=>{
+    const verifier=read("scripts/origin-self-evolution-v2-experiment-result.mjs");
+    const helper=read("scripts/origin-self-evolution-v2-runner-temp.mjs");
+    expect(verifier).toContain("readBoundedRunnerTempFile");
+    expect(verifier).toContain("EXPERIMENT_RESULT_INPUT_CHANGED_DURING_READ");
+    expect(verifier).toContain("EXPERIMENT_ARTIFACT_CHANGED_DURING_READ");
+    expect(verifier).not.toContain("existsSync(");
+    expect(verifier).not.toContain("lstatSync(");
+    expect(verifier).not.toContain("statSync(");
+    expect(helper).toContain("openSync(lexical.file");
+    expect(helper).toContain("constants.O_NOFOLLOW");
+    expect(helper).toContain("fstatSync(fd)");
+    expect(helper).toContain("realpathSync(\`/proc/self/fd/\${fd}\`)");
+  });
+
   it("requires exact binding, zero cost, no mutation, full gates and positive measured delta",()=>{
     const s=read("scripts/origin-self-evolution-v2-experiment-result.mjs");
     expect(s).toContain('input.exactBaseSha===priority.exactBaseSha');
