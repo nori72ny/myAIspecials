@@ -37,7 +37,7 @@ export type RasterImageRequestV15 = {
 export type RasterProviderStatusV15 = {
   configured: boolean;
   ready: boolean;
-  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
+  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free' | 'cloudflare-workers-ai-gateway';
   model: string | null;
   zeroCostVerified: boolean;
   paidFallbackEnabled: false;
