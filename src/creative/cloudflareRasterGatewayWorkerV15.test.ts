@@ -94,6 +94,38 @@ describe('cloudflareRasterGatewayWorkerV15', () => {
     });
   });
 
+  it('decodes the documented FLUX.2 Base64 image output from the Workers AI binding', async () => {
+    const expected = pngHeader(1024, 1024);
+    const aiRun = vi.fn(async (_model: Parameters<AiRun>[0], _input: Parameters<AiRun>[1]) => ({
+      image: Buffer.from(expected).toString('base64'),
+    }));
+    const worker = createCloudflareRasterGatewayWorkerV15();
+    const form = new FormData();
+    form.append('prompt', 'A premium studio product photograph');
+    form.append('width', '1024');
+    form.append('height', '1024');
+
+    const response = await worker.fetch(request('/generate', form), readyEnv(aiRun));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from(expected));
+  });
+
+  it('fails closed on malformed documented Base64 image output', async () => {
+    const aiRun = vi.fn(async (_model: Parameters<AiRun>[0], _input: Parameters<AiRun>[1]) => ({
+      image: 'data:image/png;base64,not-accepted',
+    }));
+    const worker = createCloudflareRasterGatewayWorkerV15();
+    const form = new FormData();
+    form.append('prompt', 'A premium studio product photograph');
+    form.append('width', '1024');
+    form.append('height', '1024');
+
+    const response = await worker.fetch(request('/generate', form), readyEnv(aiRun));
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({ ok: false, code: 'MODEL_EXECUTION_FAILED' });
+  });
+
   it('rejects an oversized multipart body even when Content-Length is absent', async () => {
     const aiRun = vi.fn(async () => pngHeader(1024, 1024));
     const worker = createCloudflareRasterGatewayWorkerV15();
