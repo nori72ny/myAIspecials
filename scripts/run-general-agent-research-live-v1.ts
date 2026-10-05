@@ -59,12 +59,17 @@ async function main():Promise<void>{
       )throw new Error('RESEARCH_LIVE_SUCCESS_CONTRACT_INVALID');
 
       const domains=new Set<string>();
+      let pageVerifiedCount=0;
+      let officialDomainMatchCount=0;
       for(const source of sources){
         if(!source||typeof source!=='object'||Array.isArray(source))throw new Error('RESEARCH_LIVE_SOURCE_INVALID');
-        const url=(source as Record<string,unknown>).url;
+        const record=source as Record<string,unknown>;
+        const url=record.url;
         if(typeof url!=='string'||!/^https?:\/\//i.test(url))throw new Error('RESEARCH_LIVE_SOURCE_URL_INVALID');
         try{ domains.add(new URL(url).hostname.toLowerCase().replace(/^www\./,'')); }
         catch{ throw new Error('RESEARCH_LIVE_SOURCE_URL_INVALID'); }
+        if(record.evidenceLevel==='page-verified')pageVerifiedCount+=1;
+        if(record.sourceAuthority==='official-domain-match')officialDomainMatchCount+=1;
       }
 
       const meetsMultiSource=sources.length>=2&&domains.size>=2;
@@ -74,6 +79,9 @@ async function main():Promise<void>{
         status:meetsMultiSource?'completed':'insufficient-evidence',
         sourceCount:sources.length,
         distinctDomainCount:domains.size,
+        sourceDomains:[...domains].sort().slice(0,8),
+        pageVerifiedCount,
+        officialDomainMatchCount,
         provider:body.provider??null,
         latencyMs:elapsedMs,
         costUsd:0,
