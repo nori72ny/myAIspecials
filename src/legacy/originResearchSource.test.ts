@@ -61,6 +61,34 @@ describe("originResearchSource", () => {
     });
   });
 
+  it("uses keyless Bing RSS to satisfy an independent multi-source request when DuckDuckGo has no results", async () => {
+    const duckLanding = '<html><body><a class="header-url" href="/html/">DuckDuckGo</a></body></html>';
+    const bingRss = `<?xml version="1.0"?><rss><channel>
+      <item><title>Cloudflare Workers AI docs</title><link>https://developers.cloudflare.com/workers-ai/</link><description>Cloudflare Workers AI runs AI models on Cloudflare infrastructure.</description></item>
+      <item><title>Workers AI repository</title><link>https://github.com/cloudflare/workers-ai-provider</link><description>GitHub repository related to Cloudflare Workers AI tooling and integrations.</description></item>
+    </channel></rss>`;
+    secureFetch
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(bingRss)
+      .mockRejectedValueOnce(new Error("original page blocked"))
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "Cloudflare Workers AIの最新情報を複数ソースで調査してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("Bing");
+    expect(result.sources).toHaveLength(2);
+    expect(new Set(result.sources.map(source => source.domain))).toEqual(new Set([
+      "developers.cloudflare.com",
+      "github.com",
+    ]));
+    expect(String(secureFetch.mock.calls[2][0])).toContain("https://www.bing.com/search?");
+    expect(String(secureFetch.mock.calls[2][0])).toContain("format=rss");
+  });
+
   it("uses Japanese search preferences for Japanese queries", async () => {
     secureFetch.mockResolvedValueOnce('<a class="result__a" href="https://example.com/ai">人工知能</a><div class="result__snippet">人工知能に関する説明</div>');
     const result = await researchCurrentInformation("人工知能");
