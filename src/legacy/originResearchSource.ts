@@ -179,6 +179,68 @@ function parseDuckDuckGoResults(html: string, retrievedAt: string, limit = 6): O
   return sources;
 }
 
+function safeHttpsResultUrl(rawHref: string): string | null {
+  const decoded = decodeHtml(rawHref).replace(/^<!\[CDATA\[|\]\]>$/g, "").trim();
+  try {
+    const parsed = new URL(decoded);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null;
+    if (parsed.hostname.toLowerCase() === "localhost") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function xmlItemValue(item: string, tag: string): string {
+  const safeTag = tag.replace(/[^a-z0-9_-]/gi, "");
+  if (!safeTag) return "";
+  const value = item.match(new RegExp(`<${safeTag}>([\\s\\S]*?)<\\/${safeTag}>`, "i"))?.[1] ?? "";
+  return value.replace(/^<!\[CDATA\[|\]\]>$/g, "");
+}
+
+function parseBingRssResults(xml: string, retrievedAt: string, limit = 8): OriginResearchSource[] {
+  const sources: OriginResearchSource[] = [];
+  for (const match of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
+    if (sources.length >= limit) break;
+    const item = match[1] ?? "";
+    const title = cleanExcerpt(xmlItemValue(item, "title"));
+    const excerpt = cleanExcerpt(xmlItemValue(item, "description"));
+    const url = safeHttpsResultUrl(xmlItemValue(item, "link"));
+    if (!title || !excerpt || !url) continue;
+    const domain = new URL(url).hostname.replace(/^www\./i, "");
+    if (domain.endsWith("bing.com") || sources.some((source) => source.url === url)) continue;
+    sources.push({
+      title,
+      url,
+      excerpt,
+      sourceType: "web-search",
+      domain,
+      rank: sources.length + 1,
+      evidenceLevel: "snippet",
+      retrievedAt,
+      freshness: "unknown",
+    });
+  }
+  return sources;
+}
+
+function distinctDomainCount(sources: OriginResearchSource[]): number {
+  return new Set(sources.map(sourceHost).filter(Boolean)).size;
+}
+
+function mergeSources(...groups: readonly OriginResearchSource[][]): OriginResearchSource[] {
+  const seen = new Set<string>();
+  const merged: OriginResearchSource[] = [];
+  for (const source of groups.flat()) {
+    const key = `${sourceHost(source)}|${source.url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ ...source, rank: merged.length + 1 });
+    if (merged.length >= 8) break;
+  }
+  return merged;
+}
+
 function hostMatchesSuffix(hostname: string, suffix: string): boolean {
   const host = hostname.toLowerCase().replace(/^www\./, "");
   const normalizedSuffix = suffix.toLowerCase().replace(/^www\./, "");
