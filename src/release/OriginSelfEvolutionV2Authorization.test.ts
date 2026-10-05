@@ -24,6 +24,10 @@ describe("ORIGIN Self-Evolution V2 authorization and circuit breaker",()=>{
     expect(s).toContain('production:false');
     expect(s).toContain('integrity.safeForExperiments');
     expect(s).toContain('SOURCE_INTEGRITY_BLOCKED');
+    expect(s).toContain('SAFE_DRY_RUN_PLAN_MISSING');
+    expect(s).toContain('EXTERNAL_INSTRUCTIONS_BLOCKED');
+    expect(s).toContain('PLAN_AUTHORITY_VIOLATION');
+    expect(s).toContain('plan?.status === "SAFE_DRY_RUN_PLAN"');
   });
 
   it("fails closed on stale baseline or invariant break",()=>{
