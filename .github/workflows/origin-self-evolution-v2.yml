@@ -70,6 +70,9 @@ jobs:
       - name: Build experiment specifications
         run: node scripts/origin-self-evolution-v2-experiments.mjs
 
+      - name: Compile safe dry-run plan metadata
+        run: node scripts/origin-self-evolution-v2-dry-run-plan.mjs
+
       - name: Verify sandbox eligibility
         run: node scripts/origin-self-evolution-v2-verify.mjs
 
@@ -115,6 +118,8 @@ jobs:
             origin-self-evolution-issue-proposal-v2.md
             origin-self-evolution-experiments-v2.json
             origin-self-evolution-experiments-v2.md
+            origin-self-evolution-dry-run-plan-v2.json
+            origin-self-evolution-dry-run-plan-v2.md
             origin-self-evolution-verification-v2.json
             origin-self-evolution-verification-v2.md
             origin-self-evolution-authorization-v2.json
