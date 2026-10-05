@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const read=(p:string)=>readFileSync(resolve(process.cwd(),p),"utf8");
@@ -17,6 +18,29 @@ describe("ORIGIN Self-Evolution V2 source integrity",()=>{
     expect(observer).toContain("maxSourceBytes");
     const config=JSON.parse(read("config/origin-self-evolution-sources.json"));
     expect(config.rules.maxSourceBytes).toBe(262144);
+  });
+
+  it("pins every configured outbound endpoint and strips raw HTML elements without regex filtering",()=>{
+    const helperUrl=pathToFileURL(resolve(process.cwd(),"scripts/origin-self-evolution-v2-source-safety.mjs")).href;
+    const config=JSON.parse(read("config/origin-self-evolution-sources.json"));
+    const payload=JSON.stringify(config.categories.flatMap((category:{sources:Array<{name:string;url:string}>})=>category.sources));
+    const probe=[
+      `import { resolveCanonicalSource, sanitizeExternalEvidence } from ${JSON.stringify(helperUrl)};`,
+      `const sources=JSON.parse(${JSON.stringify(payload)});`,
+      `const canonical=sources.every(source=>resolveCanonicalSource(source)?.url===source.url);`,
+      `const tampered=resolveCanonicalSource({name:"OpenAI",url:"http://127.0.0.1/internal"});`,
+      `const cleaned=sanitizeExternalEvidence("<script>secret instructions</script\\t\\n bogus><style>hidden</style><p>Safe evidence</p>",1800);`,
+      `console.log(JSON.stringify({canonical,tampered,cleaned}));`
+    ].join("\\n");
+    const result=JSON.parse(execFileSync(process.execPath,["--input-type=module","-e",probe],{encoding:"utf8"}));
+    expect(result.canonical).toBe(true);
+    expect(result.tampered).toBe(null);
+    expect(result.cleaned).toBe("Safe evidence");
+    const observer=read("scripts/origin-self-evolution-v2.mjs");
+    expect(observer).toContain("resolveCanonicalSource(source)");
+    expect(observer).toContain("fetch(canonical.url");
+    expect(observer).not.toContain("fetch(source.url");
+    expect(observer).not.toContain("<script\\\\b");
   });
 
   it("requires public HTTPS and blocks prompt-like external evidence",()=>{
