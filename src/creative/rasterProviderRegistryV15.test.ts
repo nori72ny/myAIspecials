@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { generateCloudflareRasterGatewayImageV15 } from './cloudflareRasterGatewayProviderV15';
 import {
   rasterProviderRegistryV15,
   rasterProviderRuntimeStatusV15,
@@ -50,6 +51,69 @@ describe('rasterProviderRegistryV15', () => {
     expect(resolveRasterProviderV15('text-to-image', gatewayEnv)?.descriptor.id).toBe('cloudflare-workers-ai-gateway');
     expect(resolveRasterProviderV15('edit', gatewayEnv)?.descriptor.id).toBe('cloudflare-workers-ai-gateway');
     expect(resolveRasterProviderV15('inpaint', gatewayEnv)).toBeNull();
+  });
+
+
+  it('rejects FLUX.2 reference inputs outside the documented binding limits before any network call', async () => {
+    const env = {
+      ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
+      ORIGIN_RASTER_GATEWAY_SECRET: 'x'.repeat(48),
+      ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
+    };
+    const fetchImpl = vi.fn<typeof fetch>();
+
+    await expect(generateCloudflareRasterGatewayImageV15({
+      prompt: 'preserve the subject',
+      referenceImages: [{
+        bytes: Buffer.from([0x89]),
+        mimeType: 'image/png',
+        width: 512,
+        height: 128,
+      }],
+    }, env, fetchImpl)).rejects.toThrow('CLOUDFLARE_REFERENCE_IMAGE_DIMENSIONS_UNSUPPORTED');
+
+    const reference = {
+      bytes: Buffer.from([0x89]),
+      mimeType: 'image/png' as const,
+      width: 128,
+      height: 128,
+    };
+    await expect(generateCloudflareRasterGatewayImageV15({
+      prompt: 'combine the references',
+      referenceImages: [reference, reference, reference, reference, reference],
+    }, env, fetchImpl)).rejects.toThrow('CLOUDFLARE_REFERENCE_IMAGE_LIMIT_EXCEEDED');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized gateway image from Content-Length before buffering it', async () => {
+    const env = {
+      ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
+      ORIGIN_RASTER_GATEWAY_SECRET: 'x'.repeat(48),
+      ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
+    };
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        provider: 'cloudflare-workers-ai-binding',
+        model: '@cf/black-forest-labs/flux-2-klein-4b',
+        aiBindingConfigured: true,
+        secretConfigured: true,
+        freeOnly: true,
+        paidFallbackEnabled: false,
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([0x89]), {
+        status: 200,
+        headers: { 'content-length': String(12 * 1024 * 1024 + 1) },
+      }));
+
+    await expect(generateCloudflareRasterGatewayImageV15({
+      prompt: 'a simple test image',
+      width: 1024,
+      height: 1024,
+    }, env, fetchImpl)).rejects.toThrow('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it('keeps reference editing fail-closed until the same verified Free provider is ready', async () => {
