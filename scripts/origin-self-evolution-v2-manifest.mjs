@@ -77,6 +77,8 @@ const manifests=experiments.experiments
         resultArtifactBytesRehashed:true,
         resultArtifactPatchScopeValidated:true,
         resultProtectedPathValidationRequired:true,
+        resultPatchAppliesToExactBaseRequired:true,
+        resultChangedPathSetValidated:true,
         resultExecutionReceiptRequired:true
       },
       outputAuthority:{
