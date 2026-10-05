@@ -8,6 +8,7 @@ import {
   getCloudflareRasterStatusV15,
 } from './cloudflareRasterImageProviderV15.js';
 import {
+  cloudflareRasterGatewayConfiguredV15,
   generateCloudflareRasterGatewayImageV15,
   getCloudflareRasterGatewayStatusV15,
 } from './cloudflareRasterGatewayProviderV15.js';
@@ -105,8 +106,17 @@ export function rasterProviderRegistryV15(): readonly RasterProviderDescriptorV1
   return PROVIDERS.map(provider => structuredClone(provider.descriptor));
 }
 
-export function resolveRasterProviderV15(task: RasterTaskV15): RasterProviderRuntimeV15 | null {
-  return PROVIDERS.find(provider => provider.descriptor.capabilities.some(capability => capability.task === task)) ?? null;
+export function resolveRasterProviderV15(
+  task: RasterTaskV15,
+  env: NodeJS.ProcessEnv = process.env,
+): RasterProviderRuntimeV15 | null {
+  if (cloudflareRasterGatewayConfiguredV15(env)) {
+    const gateway = PROVIDERS.find(provider => provider.descriptor.id === 'cloudflare-workers-ai-gateway'
+      && provider.descriptor.capabilities.some(capability => capability.task === task));
+    if (gateway) return gateway;
+  }
+  return PROVIDERS.find(provider => provider.descriptor.id !== 'cloudflare-workers-ai-gateway'
+    && provider.descriptor.capabilities.some(capability => capability.task === task)) ?? null;
 }
 
 type RasterProviderStatusCacheV15 = Map<RasterProviderRuntimeV15, Promise<RasterProviderStatusV15>>;
