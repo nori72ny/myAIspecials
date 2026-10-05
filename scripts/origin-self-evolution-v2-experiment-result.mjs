@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { posix } from "node:path";
 import { readBoundedRunnerTempFile } from "./origin-self-evolution-v2-runner-temp.mjs";
+import { materializeArtifactAgainstExactBase } from "./origin-self-evolution-v2-materialize.mjs";
 
 const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH||"");
 const rawArtifact=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH||"");
@@ -121,7 +122,7 @@ function inspectArtifact(rawPath,manifest){
   if(patchBytes>maxPatchBytes){
     return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_TOO_LARGE",sha256};
   }
-  return {ok:true,sha256,patchBytes,filesChanged:files.length};
+  return {ok:true,sha256,patchBytes,filesChanged:files.length,artifact};
 }
 
 let out;
@@ -151,6 +152,16 @@ if(!rawInput){
     const manifest=manifests.manifests.find(x=>x.candidateId===input.candidateId && x.experimentId===input.experimentId);
     const artifactSha256=String(input.artifactSha256||"").toLowerCase();
     const artifactInspection=inspectArtifact(rawArtifact,manifest);
+    const repositoryRoot=String(process.env.ORIGIN_SELF_EVOLUTION_REPOSITORY_ROOT||process.cwd());
+    const materialization=artifactInspection.ok===true
+      ? materializeArtifactAgainstExactBase({
+          artifact:artifactInspection.artifact,
+          artifactSha256:artifactInspection.sha256,
+          exactBaseSha:priority.exactBaseSha,
+          runnerTemp,
+          repositoryRoot
+        })
+      : {ok:false,reason:"MATERIALIZATION_SKIPPED_ARTIFACT_INVALID"};
     const receipt=input.executionReceipt||{};
     const receiptArtifactSha256=String(receipt.artifactSha256||"").toLowerCase();
     const metric=input.primaryMetric||{};
@@ -195,6 +206,7 @@ if(!rawInput){
       /^[a-f0-9]{64}$/.test(artifactSha256) &&
       artifactInspection.ok===true &&
       artifactInspection.sha256===artifactSha256 &&
+      materialization.ok===true &&
       receipt.schemaVersion==="origin.self-evolution.execution-receipt.v2" &&
       receipt.manifestId===manifest?.manifestId &&
       receipt.experimentId===input.experimentId &&
@@ -202,6 +214,7 @@ if(!rawInput){
       receipt.adapterId===manifest?.adapterId &&
       receipt.implementationBriefId===manifest?.implementationBriefId &&
       receiptArtifactSha256===artifactSha256 &&
+      receipt.materializationDigest===materialization.materializationDigest &&
       receipt.filesChanged===artifactInspection.filesChanged &&
       receipt.patchBytes===artifactInspection.patchBytes &&
       receipt.executionAuthority===manifest?.executionAuthority &&
@@ -223,6 +236,7 @@ if(!rawInput){
 
     if(!bindingOk) out=reject(input,"EXPERIMENT_RESULT_BINDING_INVALID");
     else if(artifactInspection.ok!==true) out=reject(input,artifactInspection.reason||"EXPERIMENT_ARTIFACT_INVALID");
+    else if(materialization.ok!==true) out=reject(input,materialization.reason||"MATERIALIZATION_VERIFICATION_FAILED");
     else if(!provenanceOk) out=reject(input,"EXPERIMENT_RESULT_PROVENANCE_INVALID");
     else if(!boundaryOk) out=reject(input,"EXPERIMENT_RESULT_BOUNDARY_INVALID");
     else if(!gatesOk) out=reject(input,"EXPERIMENT_RESULT_GATES_INCOMPLETE");
@@ -252,6 +266,8 @@ if(!rawInput){
         artifactSha256,
         artifactFilesChanged:artifactInspection.filesChanged,
         artifactPatchBytes:artifactInspection.patchBytes,
+        materializationDigest:materialization.materializationDigest,
+        materializedChangedPaths:materialization.changedPaths,
         executionReceiptSchema:receipt.schemaVersion
       },
       boundary:{
