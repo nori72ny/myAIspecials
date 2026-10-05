@@ -152,6 +152,7 @@ export async function getCloudflareRasterGatewayStatusV15(
       && body?.model===MODEL
       && body?.aiBindingConfigured===true
       && body?.secretConfigured===true
+      && body?.zeroCostVerified===true
       && body?.freeOnly===true
       && body?.paidFallbackEnabled===false;
     return{
