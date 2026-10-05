@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: origin-self-evolution-v2
@@ -32,11 +33,22 @@ jobs:
       - name: Install without lifecycle scripts
         run: npm ci --ignore-scripts
 
+      - name: Capture exact ORIGIN production baseline
+        run: node scripts/origin-self-evolution-v2-baseline.mjs
+
       - name: Observe and score external evidence
         run: node scripts/origin-self-evolution-v2.mjs
 
       - name: Build baseline-comparison candidate queue
         run: node scripts/origin-self-evolution-v2-plan.mjs
+
+      - name: Rank improvement candidates against baseline
+        run: node scripts/origin-self-evolution-v2-priority.mjs
+
+      - name: Publish deduplicated high-priority improvement queue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/origin-self-evolution-v2-issue.mjs
 
       - name: Build experiment specifications
         run: node scripts/origin-self-evolution-v2-experiments.mjs
@@ -53,10 +65,14 @@ jobs:
         with:
           name: origin-self-evolution-v2-${{ github.run_id }}
           path: |
+            origin-self-evolution-baseline-v2.json
+            origin-self-evolution-baseline-v2.md
             origin-self-evolution-v2.json
             origin-self-evolution-v2.md
             origin-self-evolution-candidates-v2.json
             origin-self-evolution-candidates-v2.md
+            origin-self-evolution-priority-v2.json
+            origin-self-evolution-priority-v2.md
             origin-self-evolution-experiments-v2.json
             origin-self-evolution-experiments-v2.md
             origin-self-evolution-verification-v2.json
