@@ -89,7 +89,7 @@ const GENERIC_LATIN_TERMS = new Set([
 
 const GENERIC_JAPANESE_TERMS = new Set([
   "公式", "ヘルプ", "サポート", "出典", "情報", "公開情報", "最新", "現在", "説明", "方法", "確認",
-  "調査", "要約", "短く", "簡単", "詳しく",
+  "調査", "要約", "短く", "簡単", "詳しく", "最新情報", "複数", "ソース", "複数ソース",
 ]);
 
 function languageForQuery(query: string): keyof typeof WIKI_ORIGINS {
@@ -284,9 +284,8 @@ function researchIntent(query: string): ResearchIntent {
   const requiredHostSuffixes = rule ? [...rule.hostSuffixes] : explicitHosts;
   const siteConstraint = requiredHostSuffixes[0] ? ` site:${requiredHostSuffixes[0]}` : "";
   const terms = meaningfulQueryTerms(normalized);
-  const latinTerms = terms.filter((term) => /^[a-z0-9][a-z0-9._-]*$/i.test(term));
-  const compactMixedQuery = latinTerms.length >= 2
-    ? latinTerms.slice(0, 8).join(" ")
+  const compactMixedQuery = terms.length >= 2
+    ? terms.slice(0, 8).join(" ")
     : normalized;
   const multiSourceRequested = /複数(?:の)?(?:ソース|出典)|複数[^\n]{0,12}(?:ソース|出典)|multiple\s+(?:independent\s+)?sources|compare\s+sources/i.test(normalized);
   return {
