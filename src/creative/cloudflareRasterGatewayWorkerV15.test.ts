@@ -92,6 +92,25 @@ describe('cloudflareRasterGatewayWorkerV15', () => {
     });
   });
 
+  it('rejects an oversized multipart body even when Content-Length is absent', async () => {
+    const aiRun = vi.fn(async () => pngHeader(1024, 1024));
+    const worker = createCloudflareRasterGatewayWorkerV15();
+    const oversized = new Uint8Array(4 * 1024 * 1024 + 1);
+    const oversizedRequest = new Request('https://origin-raster.example.workers.dev/generate', {
+      method: 'POST',
+      headers: {
+        'x-origin-gateway-secret': SECRET,
+        'content-type': 'multipart/form-data; boundary=oversized',
+      },
+      body: oversized,
+    });
+
+    const response = await worker.fetch(oversizedRequest, readyEnv(aiRun));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ code: 'INPUT_REQUEST_TOO_LARGE' });
+    expect(aiRun).not.toHaveBeenCalled();
+  });
+
   it('rejects reference images at 512px or larger before invoking Workers AI', async () => {
     const aiRun = vi.fn(async () => pngHeader(1024, 1024));
     const worker = createCloudflareRasterGatewayWorkerV15();
