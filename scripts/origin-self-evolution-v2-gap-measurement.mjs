@@ -1,20 +1,10 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { readBoundedRunnerTempFile } from "./origin-self-evolution-v2-runner-temp.mjs";
 
 const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_GAP_MEASUREMENT_PATH||"");
 const runnerTemp=String(process.env.RUNNER_TEMP||"");
 const queue=JSON.parse(readFileSync("origin-self-evolution-candidates-v2.json","utf8"));
 const byCandidate=new Map(queue.candidates.map(c=>[c.id,c]));
-
-function safeInputPath(){
-  if(!rawInput) return null;
-  if(!runnerTemp || !isAbsolute(rawInput)) return null;
-  const root=resolve(runnerTemp);
-  const file=resolve(rawInput);
-  const rel=relative(root,file);
-  if(rel.startsWith("..") || isAbsolute(rel)) return null;
-  return file;
-}
 
 function empty(status,reason){
   return {
@@ -28,18 +18,22 @@ function empty(status,reason){
 }
 
 let out;
-const inputPath=safeInputPath();
+const inputRead=readBoundedRunnerTempFile(rawInput,runnerTemp,65536);
 if(!rawInput){
   out=empty("NOT_MEASURED","GAP_MEASUREMENT_INPUT_MISSING");
-}else if(!inputPath){
-  out=empty("REJECTED","GAP_MEASUREMENT_INPUT_PATH_UNSAFE");
-}else if(!existsSync(inputPath)){
+}else if(inputRead.code==="NOT_FOUND"){
   out=empty("NOT_MEASURED","GAP_MEASUREMENT_INPUT_NOT_FOUND");
-}else if(statSync(inputPath).size>65536){
+}else if(inputRead.code==="TOO_LARGE"){
   out=empty("REJECTED","GAP_MEASUREMENT_INPUT_TOO_LARGE");
+}else if(inputRead.code==="REALPATH_UNSAFE"){
+  out=empty("REJECTED","GAP_MEASUREMENT_INPUT_REALPATH_UNSAFE");
+}else if(inputRead.code==="CHANGED_DURING_READ"){
+  out=empty("REJECTED","GAP_MEASUREMENT_INPUT_CHANGED_DURING_READ");
+}else if(inputRead.ok!==true){
+  out=empty("REJECTED","GAP_MEASUREMENT_INPUT_PATH_UNSAFE");
 }else{
   let input;
-  try{ input=JSON.parse(readFileSync(inputPath,"utf8")); }catch{ input=null; }
+  try{ input=JSON.parse(inputRead.bytes.toString("utf8")); }catch{ input=null; }
 
   if(!input || input.schemaVersion!=="origin.self-evolution.gap-measurement.v2" || input.exactBaseSha!==queue.sourceObservationSha || !Array.isArray(input.measurements)){
     out=empty("REJECTED","GAP_MEASUREMENT_BINDING_INVALID");
