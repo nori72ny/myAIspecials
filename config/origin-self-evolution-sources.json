@@ -1,0 +1,195 @@
+{
+  "schemaVersion": "origin.self-evolution.sources.v2",
+  "principle": "ORIGIN baseline first; external data is observation evidence, never authority",
+  "categories": [
+    {
+      "id": "ai-models",
+      "cadence": "daily",
+      "sources": [
+        {
+          "tier": "A",
+          "name": "OpenAI",
+          "url": "https://openai.com/news/"
+        },
+        {
+          "tier": "A",
+          "name": "Anthropic",
+          "url": "https://www.anthropic.com/news"
+        },
+        {
+          "tier": "A",
+          "name": "Google AI",
+          "url": "https://blog.google/technology/ai/"
+        },
+        {
+          "tier": "A",
+          "name": "Microsoft AI",
+          "url": "https://blogs.microsoft.com/ai/"
+        },
+        {
+          "tier": "B",
+          "name": "arXiv AI",
+          "url": "https://arxiv.org/list/cs.AI/recent"
+        },
+        {
+          "tier": "B",
+          "name": "arXiv ML",
+          "url": "https://arxiv.org/list/cs.LG/recent"
+        }
+      ]
+    },
+    {
+      "id": "agents-coding",
+      "cadence": "daily",
+      "sources": [
+        {
+          "tier": "A",
+          "name": "GitHub Changelog",
+          "url": "https://github.blog/changelog/"
+        },
+        {
+          "tier": "A",
+          "name": "Vercel Changelog",
+          "url": "https://vercel.com/changelog"
+        },
+        {
+          "tier": "B",
+          "name": "arXiv SE",
+          "url": "https://arxiv.org/list/cs.SE/recent"
+        },
+        {
+          "tier": "C",
+          "name": "GitHub Trending",
+          "url": "https://github.com/trending"
+        }
+      ]
+    },
+    {
+      "id": "image-multimodal",
+      "cadence": "daily",
+      "sources": [
+        {
+          "tier": "B",
+          "name": "arXiv CV",
+          "url": "https://arxiv.org/list/cs.CV/recent"
+        },
+        {
+          "tier": "A",
+          "name": "Cloudflare AI Changelog",
+          "url": "https://developers.cloudflare.com/changelog/product-group/ai/"
+        }
+      ]
+    },
+    {
+      "id": "security",
+      "cadence": "hourly",
+      "sources": [
+        {
+          "tier": "A",
+          "name": "CISA KEV",
+          "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+        },
+        {
+          "tier": "A",
+          "name": "GitHub Security Advisories",
+          "url": "https://github.com/advisories"
+        },
+        {
+          "tier": "A",
+          "name": "NVD",
+          "url": "https://nvd.nist.gov/"
+        },
+        {
+          "tier": "A",
+          "name": "Node Security Releases",
+          "url": "https://nodejs.org/en/blog/release"
+        }
+      ]
+    },
+    {
+      "id": "platform-runtime",
+      "cadence": "daily",
+      "sources": [
+        {
+          "tier": "A",
+          "name": "Node Releases",
+          "url": "https://nodejs.org/en/blog/release"
+        },
+        {
+          "tier": "A",
+          "name": "React Blog",
+          "url": "https://react.dev/blog"
+        },
+        {
+          "tier": "A",
+          "name": "Vite Blog",
+          "url": "https://vite.dev/blog"
+        },
+        {
+          "tier": "A",
+          "name": "Supabase Changelog",
+          "url": "https://supabase.com/changelog"
+        },
+        {
+          "tier": "A",
+          "name": "Cloudflare Developer Changelog",
+          "url": "https://developers.cloudflare.com/changelog/product-group/developer-platform/"
+        }
+      ]
+    },
+    {
+      "id": "design-ux-a11y",
+      "cadence": "weekly",
+      "sources": [
+        {
+          "tier": "A",
+          "name": "W3C WAI News",
+          "url": "https://www.w3.org/WAI/news/"
+        },
+        {
+          "tier": "A",
+          "name": "Material Design",
+          "url": "https://m3.material.io/blog"
+        },
+        {
+          "tier": "A",
+          "name": "Apple Developer Design",
+          "url": "https://developer.apple.com/design/"
+        }
+      ]
+    },
+    {
+      "id": "standards-web",
+      "cadence": "weekly",
+      "sources": [
+        {
+          "tier": "A",
+          "name": "WHATWG",
+          "url": "https://whatwg.org/"
+        },
+        {
+          "tier": "A",
+          "name": "W3C",
+          "url": "https://www.w3.org/blog/"
+        }
+      ]
+    }
+  ],
+  "rules": {
+    "maxExcerptChars": 1800,
+    "maxSourcesPerRun": 40,
+    "requireTierAFor": [
+      "security",
+      "provider",
+      "pricing",
+      "privacy",
+      "permissions",
+      "secrets"
+    ],
+    "automaticCodeWrite": "draft-pr-only-low-risk",
+    "automaticMerge": false,
+    "productionDeploy": false,
+    "paidFallback": false,
+    "maxCostUsd": 0
+  }
+}
