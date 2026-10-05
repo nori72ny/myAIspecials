@@ -78,6 +78,9 @@ Patch artifacts are bounded by the manifest's maximum changed-file count and pat
 
 The execution receipt must independently agree with the artifact digest, changed-file count, patch bytes, exact manifest/adapter/brief binding, execution authority, clean worktree before and after, rollback availability, duration budget, zero cost, no paid provider, and no network/repository/Production/secret/environment mutation. Any disagreement is REJECTED rather than downgraded to a pass.
 
+The verifier also reconstructs the exact base commit into a fresh runner-temporary workspace using local Git objects only, runs `git apply --check`, applies the patch there, and requires the actual changed-path set to equal the artifact's declared paths. The source repository is not mutated. Symlink paths, rename/copy directives, binary patch directives, non-applying patches, and changed-path mismatches are rejected.
+
+
 ## Fail-closed rules
 
 Missing evidence is NOT_MEASURED. A source outage is not "no change." A green workflow is not quality proof. A newer version is not automatically better. A benchmark seen by engineering is not a valid final held-out. No result may claim superiority without controlled comparative evidence.
