@@ -26,6 +26,11 @@ function config(env:NodeJS.ProcessEnv):GatewayConfig|null{
   };
 }
 
+export function cloudflareRasterGatewayConfiguredV15(env:NodeJS.ProcessEnv=process.env):boolean{
+  const cfg=config(env);
+  return Boolean(cfg?.zeroCostVerified);
+}
+
 async function timedFetch(url:string,init:RequestInit,fetchImpl:typeof fetch):Promise<Response>{
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),REQUEST_TIMEOUT_MS);
