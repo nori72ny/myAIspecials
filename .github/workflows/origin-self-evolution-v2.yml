@@ -79,14 +79,17 @@ jobs:
           ORIGIN_BASELINE_MAX_AGE_MS: "21600000"
         run: node scripts/origin-self-evolution-v2-authorize.mjs
 
+      - name: Enforce self-evolution circuit breaker
+        run: node scripts/origin-self-evolution-v2-circuit-breaker.mjs
+
       - name: Package allowlisted dry-run requests
         run: node scripts/origin-self-evolution-v2-dry-run-request.mjs
 
       - name: Package bounded implementation briefs
         run: node scripts/origin-self-evolution-v2-implementation-brief.mjs
 
-      - name: Enforce self-evolution circuit breaker
-        run: node scripts/origin-self-evolution-v2-circuit-breaker.mjs
+      - name: Build bounded experiment manifests
+        run: node scripts/origin-self-evolution-v2-manifest.mjs
 
       - name: Record self-evolution decision ledger
         run: node scripts/origin-self-evolution-v2-ledger.mjs
@@ -131,6 +134,8 @@ jobs:
             origin-self-evolution-implementation-briefs-v2.md
             origin-self-evolution-circuit-breaker-v2.json
             origin-self-evolution-circuit-breaker-v2.md
+            origin-self-evolution-experiment-manifests-v2.json
+            origin-self-evolution-experiment-manifests-v2.md
             origin-self-evolution-decision-ledger-v2.json
             origin-self-evolution-decision-ledger-v2.md
             origin-self-evolution-experiment-result-v2.json
