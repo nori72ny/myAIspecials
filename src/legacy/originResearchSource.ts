@@ -219,11 +219,16 @@ function researchIntent(query: string): ResearchIntent {
   const explicitHosts = officialRequested ? explicitHttpsHosts(normalized) : [];
   const requiredHostSuffixes = rule ? [...rule.hostSuffixes] : explicitHosts;
   const siteConstraint = requiredHostSuffixes[0] ? ` site:${requiredHostSuffixes[0]}` : "";
+  const terms = meaningfulQueryTerms(normalized);
+  const latinTerms = terms.filter((term) => /^[a-z0-9][a-z0-9._-]*$/i.test(term));
+  const compactMixedQuery = latinTerms.length >= 2
+    ? latinTerms.slice(0, 8).join(" ")
+    : normalized;
   return {
     officialRequested,
     requiredHostSuffixes,
-    searchQuery: `${normalized}${siteConstraint}`.slice(0, 1400),
-    terms: meaningfulQueryTerms(normalized),
+    searchQuery: `${compactMixedQuery}${siteConstraint}`.slice(0, 1400),
+    terms,
   };
 }
 
