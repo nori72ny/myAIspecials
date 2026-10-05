@@ -64,6 +64,10 @@ Never automatic: merge to main while an evaluation freeze is active; modify secr
 
 The comparison target is always the exact current verified ORIGIN baseline, not a stale competitor snapshot. External systems are challenge evidence. ORIGIN may adopt, reject, combine, or exceed outside ideas, but promotion requires reproducible proof of improvement.
 
+## Source integrity
+
+All external pages are untrusted evidence. The observer rejects redirects, caps each fetched body at 256 KiB, accepts only configured public HTTPS sources, fingerprints sanitized evidence, and blocks prompt-like instruction content from candidate planning. Source availability and Tier A primary evidence are required before isolated experiments can become eligible.
+
 ## Fail-closed rules
 
 Missing evidence is NOT_MEASURED. A source outage is not "no change." A green workflow is not quality proof. A newer version is not automatically better. A benchmark seen by engineering is not a valid final held-out. No result may claim superiority without controlled comparative evidence.
