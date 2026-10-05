@@ -31,7 +31,7 @@ describe("ORIGIN Self-Evolution V2 source integrity",()=>{
       `const tampered=resolveCanonicalSource({name:"OpenAI",url:"http://127.0.0.1/internal"});`,
       `const cleaned=sanitizeExternalEvidence("<script>secret instructions</script\\t\\n bogus><style>hidden</style><p>Safe evidence</p>",1800);`,
       `console.log(JSON.stringify({canonical,tampered,cleaned}));`
-    ].join("\\n");
+    ].join("\n");
     const result=JSON.parse(execFileSync(process.execPath,["--input-type=module","-e",probe],{encoding:"utf8"}));
     expect(result.canonical).toBe(true);
     expect(result.tampered).toBe(null);
@@ -50,7 +50,7 @@ describe("ORIGIN Self-Evolution V2 source integrity",()=>{
       `const ok=await readBoundedResponseText(new Response("small"),16);`,
       `let rejected=false; try { await readBoundedResponseText(new Response("0123456789abcdef"),8); } catch (error) { rejected=String(error?.message||error)==="SOURCE_BODY_TOO_LARGE"; }`,
       `console.log(JSON.stringify({ok,rejected}));`
-    ].join("\\n");
+    ].join("\n");
     const result=JSON.parse(execFileSync(process.execPath,["--input-type=module","-e",probe],{encoding:"utf8"}));
     expect(result.ok).toBe("small");
     expect(result.rejected).toBe(true);
