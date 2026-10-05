@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -71,6 +71,19 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain("EXPERIMENT_RESULT_PROVENANCE_INVALID");
   });
 
+  it("requires exact-base materialization and exact changed-path agreement",()=>{
+    const verifier=read("scripts/origin-self-evolution-v2-experiment-result.mjs");
+    const materializer=read("scripts/origin-self-evolution-v2-materialize.mjs");
+    expect(verifier).toContain("materializeArtifactAgainstExactBase");
+    expect(verifier).toContain("receipt.materializationDigest===materialization.materializationDigest");
+    expect(materializer).toContain('run("git", ["archive"');
+    expect(materializer).toContain('run("git", ["apply", "--check"');
+    expect(materializer).toContain("MATERIALIZATION_CHANGED_PATH_MISMATCH");
+    expect(materializer).toContain("MATERIALIZATION_SYMLINK_PATH_BLOCKED");
+    expect(materializer).toContain("MATERIALIZATION_OUTPUT_SYMLINK_BLOCKED");
+    expect(verifier).toContain("EXPERIMENT_ARTIFACT_PATCH_DIRECTIVE_BLOCKED");
+  });
+
   it("rehashes the actual runner-temp artifact and validates bounded patch scope",()=>{
     const s=read("scripts/origin-self-evolution-v2-experiment-result.mjs");
     expect(s).toContain("ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH");
@@ -90,30 +103,42 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain("receipt.durationMs");
   });
 
-  it("executes the verifier against real artifact bytes and fails closed on tampering or protected paths",()=>{
+  it("executes exact-base materialization and fails closed on tampering, protected paths, or non-applying patches",()=>{
     const verifier=resolve(process.cwd(),"scripts/origin-self-evolution-v2-experiment-result.mjs");
-    const baseSha="a".repeat(40);
-    const manifest={
-      manifestId:"manifest-1",
-      experimentId:"experiment-1",
-      candidateId:"candidate-1",
-      exactBaseSha:baseSha,
-      adapterId:"adapter-1",
-      implementationBriefId:"brief-1",
-      executionAuthority:"EXTERNAL_ORCHESTRATOR_ONLY",
-      executionReady:true,
-      boundaries:{
-        maxPatchBytes:131072,
-        maxFilesChanged:20,
-        maxDurationMinutes:20,
-        protectedPathPrefixes:[".github/",".vercel/","secrets/","credentials/"],
-        protectedFileNames:[".env",".env.local",".env.production","vercel.json"]
-      }
-    };
 
-    const execute=(pathValue:string,digestOverride?:string)=>{
+    const execute=(pathValue:string,digestOverride?:string,removedLine="old")=>{
       const dir=mkdtempSync(join(tmpdir(),"origin-self-evolution-result-"));
       try{
+        mkdirSync(join(dir,"src"),{recursive:true});
+        writeFileSync(join(dir,"src/example.ts"),"old\\n");
+        execFileSync("git",["init","-q"],{cwd:dir,stdio:"pipe"});
+        execFileSync("git",["config","user.name","ORIGIN Test"],{cwd:dir,stdio:"pipe"});
+        execFileSync("git",["config","user.email","origin-test@invalid.local"],{cwd:dir,stdio:"pipe"});
+        execFileSync("git",["add","-A"],{cwd:dir,stdio:"pipe"});
+        execFileSync("git",["commit","-q","--no-gpg-sign","-m","base"],{
+          cwd:dir,
+          env:{...process.env,GIT_AUTHOR_DATE:"2000-01-01T00:00:00Z",GIT_COMMITTER_DATE:"2000-01-01T00:00:00Z"},
+          stdio:"pipe"
+        });
+        const baseSha=execFileSync("git",["rev-parse","HEAD"],{cwd:dir,encoding:"utf8"}).trim();
+        const manifest={
+          manifestId:"manifest-1",
+          experimentId:"experiment-1",
+          candidateId:"candidate-1",
+          exactBaseSha:baseSha,
+          adapterId:"adapter-1",
+          implementationBriefId:"brief-1",
+          executionAuthority:"EXTERNAL_ORCHESTRATOR_ONLY",
+          executionReady:true,
+          boundaries:{
+            maxPatchBytes:131072,
+            maxFilesChanged:20,
+            maxDurationMinutes:20,
+            protectedPathPrefixes:[".github/",".vercel/","secrets/","credentials/"],
+            protectedFileNames:[".env",".env.local",".env.production","vercel.json"]
+          }
+        };
+
         writeFileSync(join(dir,"origin-self-evolution-priority-v2.json"),JSON.stringify({
           exactBaseSha:baseSha,
           ranked:[{id:"candidate-1",actionable:true}]
@@ -131,10 +156,10 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
           `--- a/${pathValue}`,
           `+++ b/${pathValue}`,
           "@@ -1 +1 @@",
-          "-old",
+          `-${removedLine}`,
           "+new",
           ""
-        ].join("\n");
+        ].join("\\n");
         const artifact={
           schemaVersion:"origin.self-evolution.experiment-artifact.v2",
           exactBaseSha:baseSha,
@@ -145,9 +170,10 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
           implementationBriefId:"brief-1",
           files:[{path:pathValue,patch}]
         };
-        const artifactBytes=JSON.stringify(artifact,null,2)+"\n";
+        const artifactBytes=JSON.stringify(artifact,null,2)+"\\n";
         const actualDigest=createHash("sha256").update(artifactBytes).digest("hex");
         const claimedDigest=digestOverride||actualDigest;
+        const materializationDigest=createHash("sha256").update([baseSha,actualDigest,pathValue].join("|")).digest("hex");
         const artifactPath=join(dir,"artifact.json");
         writeFileSync(artifactPath,artifactBytes);
 
@@ -183,6 +209,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
             adapterId:"adapter-1",
             implementationBriefId:"brief-1",
             artifactSha256:claimedDigest,
+            materializationDigest,
             filesChanged:1,
             patchBytes:Buffer.byteLength(patch,"utf8"),
             executionAuthority:"EXTERNAL_ORCHESTRATOR_ONLY",
@@ -207,6 +234,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
           env:{
             ...process.env,
             RUNNER_TEMP:dir,
+            ORIGIN_SELF_EVOLUTION_REPOSITORY_ROOT:dir,
             ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH:inputPath,
             ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH:artifactPath
           },
@@ -221,6 +249,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     const valid=execute("src/example.ts");
     expect(valid.status).toBe("MEASURED_IMPROVEMENT");
     expect(valid.accepted).toBe(true);
+    expect(valid.provenance.materializedChangedPaths).toEqual(["src/example.ts"]);
 
     const tampered=execute("src/example.ts","b".repeat(64));
     expect(tampered.status).toBe("REJECTED");
@@ -229,6 +258,10 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     const protectedPath=execute(".github/workflows/unsafe.yml");
     expect(protectedPath.status).toBe("REJECTED");
     expect(protectedPath.reason).toBe("EXPERIMENT_ARTIFACT_PROTECTED_OR_UNSAFE_PATH");
+
+    const nonApplying=execute("src/example.ts",undefined,"not-the-base-line");
+    expect(nonApplying.status).toBe("REJECTED");
+    expect(nonApplying.reason).toBe("MATERIALIZATION_PATCH_DOES_NOT_APPLY");
   });
 
   it("does not promote sandbox eligibility by itself",()=>{
