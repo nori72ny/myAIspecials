@@ -11,6 +11,7 @@ import {
 
 const exec = promisify(execFile);
 const DAILY_PROVIDER_BUDGET = 45;
+const MAX_SHARDS_PER_DAY = 4;
 const SHA40 = /^[a-f0-9]{40}$/;
 
 function required(name: string): string {
@@ -84,7 +85,10 @@ async function main(): Promise<void> {
   const executed: Array<{ shardIndex: number; plannedMax: number; actualRequests: number }> = [];
   let used = 0;
 
-  while (completed.size < plan.value.shards.length) {
+  while (
+    completed.size < plan.value.shards.length
+    && executed.length < MAX_SHARDS_PER_DAY
+  ) {
     const next = selectOriginAnswerQualityBenchmarkNextBudgetedShard(
       plan.value,
       completed,
@@ -172,6 +176,7 @@ async function main(): Promise<void> {
     baselineSha,
     dailyProviderBudget: DAILY_PROVIDER_BUDGET,
     actualRequestsUsed: used,
+    maxShardsPerDay: MAX_SHARDS_PER_DAY,
     executed,
     completedShardCount: completed.size,
     expectedShardCount: plan.value.shards.length,
