@@ -92,6 +92,24 @@ const GENERIC_JAPANESE_TERMS = new Set([
   "調査", "要約", "短く", "簡単", "詳しく", "最新情報", "複数", "ソース", "複数ソース",
 ]);
 
+const RESEARCH_TERM_ALIASES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "エージェント": ["agent", "agents", "agentic"],
+  "人工知能": ["artificial intelligence", "ai"],
+});
+
+function searchTermFor(term: string): string {
+  return RESEARCH_TERM_ALIASES[term]?.[0] ?? term;
+}
+
+function termMatchesResearchHaystack(term: string, haystack: string, compactLatinHaystack: string): boolean {
+  const candidates = [term, ...(RESEARCH_TERM_ALIASES[term] ?? [])];
+  return candidates.some((candidate) => {
+    const normalized = candidate.normalize("NFKC").toLowerCase();
+    if (haystack.includes(normalized)) return true;
+    return /^[a-z0-9]{2,8}$/.test(normalized) && compactLatinHaystack.includes(normalized);
+  });
+}
+
 function languageForQuery(query: string): keyof typeof WIKI_ORIGINS {
   return /[ぁ-んァ-ヶ一-龠]/.test(query) ? "ja" : "en";
 }
@@ -285,7 +303,7 @@ function researchIntent(query: string): ResearchIntent {
   const siteConstraint = requiredHostSuffixes[0] ? ` site:${requiredHostSuffixes[0]}` : "";
   const terms = meaningfulQueryTerms(normalized);
   const compactMixedQuery = terms.length >= 2
-    ? terms.slice(0, 8).join(" ")
+    ? terms.slice(0, 8).map(searchTermFor).join(" ")
     : normalized;
   const multiSourceRequested = /複数(?:の)?(?:ソース|出典)|複数[^\n]{0,12}(?:ソース|出典)|multiple\s+(?:independent\s+)?sources|compare\s+sources/i.test(normalized);
   return {
@@ -308,10 +326,9 @@ function sourceMatchesIntent(source: OriginResearchSource, intent: ResearchInten
 
   const haystack = `${source.title} ${source.excerpt} ${source.url} ${host}`.normalize("NFKC").toLowerCase();
   const compactLatinHaystack = haystack.replace(/[^a-z0-9]/g, "");
-  const matched = topicTerms.filter((term) => {
-    if (haystack.includes(term)) return true;
-    return /^[a-z0-9]{2,5}$/.test(term) && compactLatinHaystack.includes(term);
-  }).length;
+  const matched = topicTerms.filter((term) =>
+    termMatchesResearchHaystack(term, haystack, compactLatinHaystack)
+  ).length;
   const requiredMatches = Math.min(2, topicTerms.length);
   return matched >= requiredMatches;
 }
