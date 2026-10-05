@@ -39,10 +39,17 @@ describe('rasterProviderRegistryV15', () => {
     ]);
   });
 
-  it('resolves text generation and bounded reference editing without overclaiming other edit modes', () => {
-    expect(resolveRasterProviderV15('text-to-image')?.descriptor.id).toBe('cloudflare-workers-ai-gateway');
-    expect(resolveRasterProviderV15('edit')?.descriptor.id).toBe('cloudflare-workers-ai-gateway');
-    expect(resolveRasterProviderV15('inpaint')).toBeNull();
+  it('preserves REST routing by default and selects the gateway only when fully configured', () => {
+    expect(resolveRasterProviderV15('text-to-image', {})?.descriptor.id).toBe('cloudflare-workers-ai-free');
+    expect(resolveRasterProviderV15('edit', {})?.descriptor.id).toBe('cloudflare-workers-ai-free');
+    const gatewayEnv = {
+      ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
+      ORIGIN_RASTER_GATEWAY_SECRET: 'x'.repeat(48),
+      ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
+    };
+    expect(resolveRasterProviderV15('text-to-image', gatewayEnv)?.descriptor.id).toBe('cloudflare-workers-ai-gateway');
+    expect(resolveRasterProviderV15('edit', gatewayEnv)?.descriptor.id).toBe('cloudflare-workers-ai-gateway');
+    expect(resolveRasterProviderV15('inpaint', gatewayEnv)).toBeNull();
   });
 
   it('keeps reference editing fail-closed until the same verified Free provider is ready', async () => {
@@ -69,7 +76,7 @@ describe('rasterProviderRegistryV15', () => {
     expect(selection.ready).toBe(false);
     if ('reason' in selection) {
       expect(selection.reason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
-      expect(selection.statuses).toEqual([
+      expect(selection.statuses).toEqual(expect.arrayContaining([
         expect.objectContaining({
           providerId: 'cloudflare-workers-ai-free',
           ready: false,
@@ -81,7 +88,13 @@ describe('rasterProviderRegistryV15', () => {
             reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
           }),
         }),
-      ]);
+        expect.objectContaining({
+          providerId: 'cloudflare-workers-ai-gateway',
+          ready: false,
+          reason: 'CLOUDFLARE_WORKERS_AI_GATEWAY_NOT_CONFIGURED',
+          supportsTask: true,
+        }),
+      ]));
     }
   });
 
