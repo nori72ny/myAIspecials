@@ -62,6 +62,8 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain("privateHeldOut");
     expect(s).toContain("beforeSamples");
     expect(s).toContain("afterSamples");
+    expect(s).toContain('typeof value==="number"');
+    expect(s).toContain("beforeSamples.length!==afterSamples.length");
     expect(s).toContain("EXPERIMENT_METRIC_SUMMARY_MISMATCH");
   });
 
