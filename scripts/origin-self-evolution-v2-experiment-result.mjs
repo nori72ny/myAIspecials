@@ -58,11 +58,18 @@ function artifactReadReason(code){
   return "EXPERIMENT_ARTIFACT_PATH_UNSAFE";
 }
 
-function finiteSamples(values){
-  return Array.isArray(values) &&
-    values.length>=1 &&
-    values.length<=100 &&
-    values.every(value=>typeof value==="number" && Number.isFinite(value));
+function finitePairedSamples(samples){
+  if(!Array.isArray(samples) || samples.length<1 || samples.length>100) return false;
+  const ids=new Set();
+  for(const sample of samples){
+    const caseId=sample?.caseId;
+    if(typeof caseId!=="string" || caseId.length<1 || caseId.length>128 || !/^[A-Za-z0-9._:/-]+$/.test(caseId)) return false;
+    if(ids.has(caseId)) return false;
+    if(typeof sample?.before!=="number" || !Number.isFinite(sample.before)) return false;
+    if(typeof sample?.after!=="number" || !Number.isFinite(sample.after)) return false;
+    ids.add(caseId);
+  }
+  return true;
 }
 
 function average(values){
@@ -85,8 +92,7 @@ function inspectMetricEvidence(rawPath,manifest,claimedSha256,inputMetric){
   catch{ return {ok:false,reason:"EXPERIMENT_METRIC_EVIDENCE_JSON_INVALID",sha256}; }
 
   const metric=evidence?.metric||{};
-  const beforeSamples=metric.beforeSamples;
-  const afterSamples=metric.afterSamples;
+  const samples=metric.samples;
   const direction=metric.direction;
   const minDelta=Number(metric.minDelta);
   if(
@@ -102,15 +108,15 @@ function inspectMetricEvidence(rawPath,manifest,claimedSha256,inputMetric){
     !["higher_is_better","lower_is_better"].includes(direction) ||
     !Number.isFinite(minDelta) ||
     minDelta<0 ||
-    !finiteSamples(beforeSamples) ||
-    !finiteSamples(afterSamples) ||
-    beforeSamples.length!==afterSamples.length
+    !finitePairedSamples(samples)
   ){
     return {ok:false,reason:"EXPERIMENT_METRIC_EVIDENCE_BINDING_INVALID",sha256};
   }
 
-  const before=average(beforeSamples);
-  const after=average(afterSamples);
+  const before=average(samples.map(sample=>sample.before));
+  const after=average(samples.map(sample=>sample.after));
+  const caseIds=samples.map(sample=>sample.caseId).sort();
+  const caseSetDigest=createHash("sha256").update(caseIds.join("\n")).digest("hex");
   const measuredDelta=direction==="lower_is_better"?before-after:after-before;
   if(
     inputMetric?.name!==metric.name ||
@@ -132,7 +138,9 @@ function inspectMetricEvidence(rawPath,manifest,claimedSha256,inputMetric){
     before,
     after,
     measuredDelta,
-    sampleCounts:{before:beforeSamples.length,after:afterSamples.length}
+    sampleCounts:{paired:samples.length},
+    caseSetDigest,
+    caseIds
   };
 }
 
@@ -307,6 +315,7 @@ if(!rawInput){
       receiptArtifactSha256===artifactSha256 &&
       metricEvidence.ok===true &&
       receipt.metricEvidenceSha256===metricEvidenceSha256 &&
+      receipt.metricCaseSetDigest===metricEvidence.caseSetDigest &&
       receipt.materializationDigest===materialization.materializationDigest &&
       receipt.filesChanged===artifactInspection.filesChanged &&
       receipt.patchBytes===artifactInspection.patchBytes &&
@@ -360,6 +369,8 @@ if(!rawInput){
         artifactSha256,
         metricEvidenceSha256,
         metricEvidenceSampleCounts:metricEvidence.sampleCounts,
+        metricCaseSetDigest:metricEvidence.caseSetDigest,
+        metricCaseIds:metricEvidence.caseIds,
         artifactFilesChanged:artifactInspection.filesChanged,
         artifactPatchBytes:artifactInspection.patchBytes,
         materializationDigest:materialization.materializationDigest,
