@@ -36,7 +36,7 @@ function experimentFor(candidate) {
       rollbackDefined: true
     },
     reason: executable
-      ? "Measured ORIGIN gap plus verified solution-fit evidence may proceed to a dry-run experiment specification."
+      ? "Measured ORIGIN gap may proceed to a constrained solution-fit dry-run specification; solution fit is not yet verified."
       : "Candidate is not eligible for autonomous experimentation."
   };
 }
