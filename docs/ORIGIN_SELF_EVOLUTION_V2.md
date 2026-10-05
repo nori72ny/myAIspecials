@@ -68,6 +68,16 @@ The comparison target is always the exact current verified ORIGIN baseline, not 
 
 All external pages are untrusted evidence. The observer rejects redirects, caps each fetched body at 256 KiB, accepts only configured public HTTPS sources, fingerprints sanitized evidence, and blocks prompt-like instruction content from candidate planning. Source availability and Tier A primary evidence are required before isolated experiments can become eligible.
 
+## Experiment evidence boundary
+
+A measured improvement is accepted only when the external isolated experiment result binds back to the exact execution-ready manifest. The result must identify the exact candidate, experiment, manifest, allowlisted adapter, implementation brief, and SHA-256 digest of the actual experiment artifact.
+
+The artifact itself must be an `origin.self-evolution.experiment-artifact.v2` JSON file located under the runner temporary directory. The verifier re-reads and re-hashes the real artifact bytes; a claimed digest is never trusted by itself. Symlinks and real-path escapes are rejected.
+
+Patch artifacts are bounded by the manifest's maximum changed-file count and patch-byte budget. Every declared path must be normalized and must not target protected paths or protected filenames. Each file patch must contain one matching Git diff header and a valid pre-hunk old/new file header. Duplicate paths, missing hunks, malformed headers, oversized patches, protected paths, and path traversal are rejected.
+
+The execution receipt must independently agree with the artifact digest, changed-file count, patch bytes, exact manifest/adapter/brief binding, execution authority, clean worktree before and after, rollback availability, duration budget, zero cost, no paid provider, and no network/repository/Production/secret/environment mutation. Any disagreement is REJECTED rather than downgraded to a pass.
+
 ## Fail-closed rules
 
 Missing evidence is NOT_MEASURED. A source outage is not "no change." A green workflow is not quality proof. A newer version is not automatically better. A benchmark seen by engineering is not a valid final held-out. No result may claim superiority without controlled comparative evidence.
