@@ -54,7 +54,9 @@ A candidate that weakens the permanent USD 0 boundary, introduces paid fallback,
 
 ## Automation authority
 
-Automatic: read public sources; collect repository/runtime evidence; fingerprint and deduplicate observations; create sanitized findings; open/update Issues; run non-destructive experiments on isolated branches; create Draft PRs for allowlisted low-risk changes.
+Automatic inside Self-Evolution V2: read public sources; collect repository/runtime evidence; fingerprint observations; create sanitized findings; rank candidates; build experiment specifications; verify dry-run eligibility; and package Issue/Draft-PR proposals as retained artifacts.
+
+The Self-Evolution workflow itself has repository contents read permission only. It does not open Issues, create branches/PRs, write code, merge, deploy, mutate settings, or change secrets. A separate explicitly authorized development orchestration may act on a retained proposal under the normal branch/PR/release gates.
 
 Never automatic: merge to main while an evaluation freeze is active; modify secrets/credentials; enable paid providers/billing; expand permissions/egress; relax security/privacy/held-out/release gates; switch production models/providers without qualification; deploy a high-risk change; self-modify this authority boundary.
 
