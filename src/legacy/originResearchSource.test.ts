@@ -88,6 +88,39 @@ describe("originResearchSource", () => {
     ]));
   });
 
+  it("retries broad multi-source Bing RSS with a focused phrase query before failing closed", async () => {
+    const duckLanding = '<html><body><a class="header-url" href="/html/">DuckDuckGo</a></body></html>';
+    const broadRss = `<?xml version="1.0"?><rss><channel>
+      <item><title>Artificial intelligence overview</title><link>https://broad-one.example/ai</link><description>Artificial intelligence products and research.</description></item>
+      <item><title>AI tools</title><link>https://broad-two.example/tools</link><description>General AI software directory.</description></item>
+    </channel></rss>`;
+    const focusedRss = `<?xml version="1.0"?><rss><channel>
+      <item><title>AI agents and agentic systems</title><link>https://focused-one.example/agents</link><description>AI agents plan, use tools, and verify multi-step work.</description></item>
+      <item><title>Reliable AI agent workflows</title><link>https://focused-two.example/agent-workflows</link><description>Agentic AI workflows coordinate planning, execution, and verification.</description></item>
+    </channel></rss>`;
+    secureFetch
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(broadRss)
+      .mockResolvedValueOnce(focusedRss)
+      .mockRejectedValueOnce(new Error("original page blocked"))
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "AIエージェントに関する最新情報を複数ソースで調査してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("Bing");
+    expect(result.sources).toHaveLength(2);
+    expect(new Set(result.sources.map(source => source.domain))).toEqual(new Set([
+      "focused-one.example",
+      "focused-two.example",
+    ]));
+    const focusedUrl = decodeURIComponent(String(secureFetch.mock.calls[3][0]));
+    expect(focusedUrl).toContain('q="ai agent" agents agentic latest');
+  });
+
   it("uses keyless Bing RSS to satisfy an independent multi-source request when DuckDuckGo has no results", async () => {
     const duckLanding = '<html><body><a class="header-url" href="/html/">DuckDuckGo</a></body></html>';
     const bingRss = `<?xml version="1.0"?><rss><channel>
