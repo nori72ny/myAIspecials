@@ -1,12 +1,15 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
-const queue = JSON.parse(readFileSync("origin-self-evolution-candidates-v2.json","utf8"));
+const priority = JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
+const queue = { sourceObservationSha: priority.exactBaseSha, candidates: priority.ranked };
 const sha256 = (v) => createHash("sha256").update(String(v)).digest("hex");
 
 function experimentFor(candidate) {
   const sensitive = ["security","provider","pricing","privacy","permissions","secrets"].includes(candidate.category);
-  const executable = candidate.lane === "BASELINE_COMPARISON" && !sensitive;
+  const executable = candidate.actionable === true &&
+    candidate.lane === "BASELINE_COMPARISON" &&
+    !sensitive;
   return {
     experimentId: sha256(candidate.id + "|" + queue.sourceObservationSha).slice(0,20),
     candidateId: candidate.id,
@@ -33,7 +36,7 @@ function experimentFor(candidate) {
       rollbackDefined: true
     },
     reason: executable
-      ? "Primary non-sensitive evidence may proceed to a dry-run experiment specification."
+      ? "Measured ORIGIN gap plus verified solution-fit evidence may proceed to a dry-run experiment specification."
       : "Candidate is not eligible for autonomous experimentation."
   };
 }
