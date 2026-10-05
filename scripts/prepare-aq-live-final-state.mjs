@@ -2,7 +2,10 @@ import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
-import { findFinalShardArtifact } from "./aq-final-state-artifacts.mjs";
+import {
+  findFinalShardArtifact,
+  listFinalBatchArtifacts,
+} from "./aq-final-state-artifacts.mjs";
 
 const exec = promisify(execFile);
 const SHA40 = /^[a-f0-9]{40}$/;
@@ -63,10 +66,48 @@ async function main() {
   await rm(stateDir, { recursive: true, force: true });
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
 
-  const completed = [];
-  for (let shardIndex = 0; shardIndex < expectedShardCount; shardIndex += 1) {
-    const artifact = await findFinalShardArtifact(repository, token, candidateSha, shardIndex);
+  const completed = new Set();
 
+  const batchArtifacts = await listFinalBatchArtifacts(repository, token, candidateSha);
+  for (const artifact of batchArtifacts) {
+    const zipPath = path.join(stateDir, `batch-${artifact.id}.zip`);
+    const extractDir = path.join(stateDir, `batch-${artifact.id}`);
+    await writeFile(zipPath, await githubBytes(artifact.archive_download_url, token), { mode: 0o600 });
+    await mkdir(extractDir, { recursive: true, mode: 0o700 });
+    await exec("unzip", ["-q", "-o", zipPath, "-d", extractDir], {
+      timeout: 15_000,
+      maxBuffer: 4_194_304,
+    });
+
+    for (let shardIndex = 0; shardIndex < expectedShardCount; shardIndex += 1) {
+      if (completed.has(shardIndex)) continue;
+      const sourcePath = path.join(extractDir, `aq-official-shard-${shardIndex}.json`);
+      let raw;
+      try {
+        raw = await readFile(sourcePath, "utf8");
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") continue;
+        throw error;
+      }
+      const value = JSON.parse(raw);
+      if (!validShard(value, baselineSha, candidateSha, shardIndex)) {
+        throw new Error(`AQ_FINAL_STATE_ARTIFACT_INVALID:${shardIndex}`);
+      }
+      await writeFile(
+        path.join(stateDir, `aq-official-shard-${shardIndex}.json`),
+        raw,
+        { mode: 0o600 },
+      );
+      completed.add(shardIndex);
+    }
+
+    await rm(zipPath, { force: true });
+    await rm(extractDir, { recursive: true, force: true });
+  }
+
+  for (let shardIndex = 0; shardIndex < expectedShardCount; shardIndex += 1) {
+    if (completed.has(shardIndex)) continue;
+    const artifact = await findFinalShardArtifact(repository, token, candidateSha, shardIndex);
     if (!artifact) continue;
 
     const zipPath = path.join(stateDir, `artifact-${shardIndex}.zip`);
@@ -90,22 +131,22 @@ async function main() {
       raw,
       { mode: 0o600 },
     );
-    completed.push(shardIndex);
+    completed.add(shardIndex);
     await rm(zipPath, { force: true });
     await rm(extractDir, { recursive: true, force: true });
   }
 
   const missing = Array.from({ length: expectedShardCount }, (_, index) => index)
-    .filter((index) => !completed.includes(index));
+    .filter((index) => !completed.has(index));
   const complete = missing.length === 0;
 
   await appendFile(
     output,
-    `complete=${complete ? "true" : "false"}\ncompleted_count=${completed.length}\nnext_index=${complete ? "" : missing[0]}\n`,
+    `complete=${complete ? "true" : "false"}\ncompleted_count=${completed.size}\nnext_index=${complete ? "" : missing[0]}\n`,
     "utf8",
   );
   process.stdout.write(
-    `AQ final state ${completed.length}/${expectedShardCount}${complete ? " complete" : ` next=${missing[0]}`}\n`,
+    `AQ final state ${completed.size}/${expectedShardCount}${complete ? " complete" : ` next=${missing[0]}`}\n`,
   );
 }
 

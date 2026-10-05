@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { createOriginAnswerQualityFrozenCorpus } from "./OriginAnswerQualityBenchmarkCorpus";
 import {
   getOriginAnswerQualityBenchmarkQuotaCaseBudget,
+  planOriginAnswerQualityBenchmarkCaseShards,
   planOriginAnswerQualityBenchmarkQuotaShards,
+  selectOriginAnswerQualityBenchmarkNextBudgetedShard,
 } from "./OriginAnswerQualityBenchmarkQuotaPlan";
 
 describe("OriginAnswerQualityBenchmarkQuotaPlan", () => {
@@ -81,6 +83,47 @@ describe("OriginAnswerQualityBenchmarkQuotaPlan", () => {
         expect(shard.pairedRequestsMax).toBe(40);
       }
     }
+  });
+
+  it("creates 40 deterministic one-case shards for budget-aware daily packing", () => {
+    const corpus = createOriginAnswerQualityFrozenCorpus();
+    const result = planOriginAnswerQualityBenchmarkCaseShards(corpus, 45);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.shards).toHaveLength(40);
+    expect(result.value.fullComparisonRequestsMax).toBe(616);
+    expect(result.value.shards.every((shard) => shard.caseIds.length === 1)).toBe(true);
+    expect(result.value.shards.every((shard) => shard.pairedRequestsMax <= 40)).toBe(true);
+    expect(new Set(result.value.shards.flatMap((shard) => shard.caseIds)).size).toBe(40);
+  });
+
+  it("uses observed requests to skip an unsafe 40-request case and fill remaining daily budget", () => {
+    const result = planOriginAnswerQualityBenchmarkCaseShards(
+      createOriginAnswerQualityFrozenCorpus(),
+      45,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const completed = new Set([0]);
+    const next = selectOriginAnswerQualityBenchmarkNextBudgetedShard(
+      result.value,
+      completed,
+      12,
+      45,
+    );
+    expect(next).toBeDefined();
+    expect(next?.shardIndex).not.toBe(1);
+    expect(next?.pairedRequestsMax).toBeLessThanOrEqual(33);
+
+    const none = selectOriginAnswerQualityBenchmarkNextBudgetedShard(
+      result.value,
+      completed,
+      42,
+      45,
+    );
+    expect(none).toBeUndefined();
   });
 
   it("rejects a shard limit too small for one paired coding case", () => {

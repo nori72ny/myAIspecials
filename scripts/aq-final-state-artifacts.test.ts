@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { findFinalShardArtifact } from './aq-final-state-artifacts.mjs';
+import {
+  findFinalShardArtifact,
+  listFinalBatchArtifacts,
+} from './aq-final-state-artifacts.mjs';
 const sha = 'a'.repeat(40);
 const name = `aq-live-final-shard-${sha}-s0`;
 const artifact = { id: 12, name, expired: false, created_at: '2026-10-03T00:00:00Z', archive_download_url: 'https://untrusted.invalid/file' };
@@ -32,5 +35,44 @@ describe('exact AQ shard discovery', () => {
     const readJson = vi.fn();
     await expect(findFinalShardArtifact('../repo', 'synthetic', sha, 0, { readJson })).rejects.toThrow('INPUT_INVALID');
     expect(readJson).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('AQ exact-SHA daily batch discovery', () => {
+  it('lists only non-expired exact candidate batches newest first', async () => {
+    const batchName = `aq-live-final-batch-${sha}`;
+    const readJson = vi.fn(async () => ({
+      total_count: 3,
+      artifacts: [
+        { id: 21, name: batchName, expired: false, created_at: '2026-10-03T01:00:00Z' },
+        { id: 22, name: batchName, expired: true, created_at: '2026-10-03T03:00:00Z' },
+        { id: 23, name: batchName, expired: false, created_at: '2026-10-03T02:00:00Z' },
+      ],
+    }));
+    await expect(listFinalBatchArtifacts('owner/repo', 'synthetic', sha, { readJson })).resolves.toEqual([
+      expect.objectContaining({
+        id: 23,
+        archive_download_url: 'https://api.github.com/repos/owner/repo/actions/artifacts/23/zip',
+      }),
+      expect.objectContaining({
+        id: 21,
+        archive_download_url: 'https://api.github.com/repos/owner/repo/actions/artifacts/21/zip',
+      }),
+    ]);
+    expect(readJson).toHaveBeenCalledExactlyOnceWith(
+      `https://api.github.com/repos/owner/repo/actions/artifacts?per_page=100&name=${batchName}`,
+      'synthetic',
+    );
+  });
+
+  it('fails closed when a batch inventory could be truncated', async () => {
+    const batchName = `aq-live-final-batch-${sha}`;
+    await expect(listFinalBatchArtifacts('owner/repo', 'synthetic', sha, {
+      readJson: async () => ({
+        total_count: 101,
+        artifacts: [{ id: 21, name: batchName, expired: false, created_at: '2026-10-03T01:00:00Z' }],
+      }),
+    })).rejects.toThrow('INVENTORY_INCOMPLETE');
   });
 });

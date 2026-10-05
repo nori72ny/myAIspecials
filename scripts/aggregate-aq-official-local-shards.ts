@@ -5,6 +5,7 @@ import {
   createOriginAnswerQualityFrozenCorpus,
 } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.js";
 import {
+  planOriginAnswerQualityBenchmarkCaseShards,
   planOriginAnswerQualityBenchmarkQuotaShards,
 } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.js";
 import {
@@ -49,7 +50,9 @@ async function main(): Promise<void> {
   );
 
   const corpus = createOriginAnswerQualityFrozenCorpus();
-  const plan = planOriginAnswerQualityBenchmarkQuotaShards(corpus, 45);
+  const plan = process.env.ORIGIN_AQ_SHARD_MODE?.trim() === "case-isolated"
+    ? planOriginAnswerQualityBenchmarkCaseShards(corpus, 45)
+    : planOriginAnswerQualityBenchmarkQuotaShards(corpus, 45);
   if (plan.ok === false) {
     throw new Error(`AQ_LOCAL_SHARD_PLAN_FAILED:${plan.code}`);
   }

@@ -22,7 +22,7 @@ describe("Q1 provider-priority orchestration", () => {
     );
 
     const reservation = workflow.indexOf("\n      - name: Reserve 24-hour provider quota");
-    const run = workflow.indexOf("\n      - name: Run next exact-main shard comparison");
+    const run = workflow.indexOf("\n      - name: Run budgeted exact-main daily comparison");
     expect(reservation).toBeGreaterThan(0);
     expect(run).toBeGreaterThan(reservation);
 

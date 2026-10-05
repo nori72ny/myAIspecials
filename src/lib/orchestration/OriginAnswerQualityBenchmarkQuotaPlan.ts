@@ -206,3 +206,63 @@ export function planOriginAnswerQualityBenchmarkQuotaShards(
     }),
   };
 }
+
+
+export function planOriginAnswerQualityBenchmarkCaseShards(
+  corpus: OriginAnswerQualityBenchmarkFrozenCorpus,
+  maxProviderRequestsPerShard: number,
+): OriginAnswerQualityBenchmarkQuotaPlanResult {
+  const validated = planOriginAnswerQualityBenchmarkQuotaShards(
+    corpus,
+    maxProviderRequestsPerShard,
+  );
+  if (validated.ok === false) return validated;
+
+  const ordered = [...validated.value.caseBudgets].sort(
+    (a, b) =>
+      b.pairedRequestsMax - a.pairedRequestsMax
+      || a.caseId.localeCompare(b.caseId),
+  );
+  const shards = ordered.map((item, shardIndex) => Object.freeze({
+    shardIndex,
+    caseIds: Object.freeze([item.caseId]),
+    pairedRequestsMax: item.pairedRequestsMax,
+  }));
+
+  return {
+    ok: true,
+    value: Object.freeze({
+      schemaVersion: "origin.aq-benchmark-quota-plan.v1",
+      benchmarkId: validated.value.benchmarkId,
+      benchmarkVersion: validated.value.benchmarkVersion,
+      maxProviderRequestsPerShard,
+      fullComparisonRequestsMax: validated.value.fullComparisonRequestsMax,
+      caseBudgets: validated.value.caseBudgets,
+      shards: Object.freeze(shards),
+    }),
+  };
+}
+
+export function selectOriginAnswerQualityBenchmarkNextBudgetedShard(
+  plan: OriginAnswerQualityBenchmarkQuotaPlan,
+  completedShardIndices: ReadonlySet<number>,
+  actualRequestsUsed: number,
+  dailyProviderBudget: number,
+): OriginAnswerQualityBenchmarkQuotaShard | undefined {
+  if (
+    !Number.isSafeInteger(actualRequestsUsed)
+    || actualRequestsUsed < 0
+    || !Number.isSafeInteger(dailyProviderBudget)
+    || dailyProviderBudget < 1
+    || dailyProviderBudget > MAX_SHARD_LIMIT
+    || actualRequestsUsed > dailyProviderBudget
+  ) {
+    return undefined;
+  }
+  const remaining = dailyProviderBudget - actualRequestsUsed;
+  return plan.shards.find(
+    (shard) =>
+      !completedShardIndices.has(shard.shardIndex)
+      && shard.pairedRequestsMax <= remaining,
+  );
+}
