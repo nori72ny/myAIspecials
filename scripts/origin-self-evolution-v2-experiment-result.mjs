@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, posix, relative, resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { posix } from "node:path";
+import { readBoundedRunnerTempFile } from "./origin-self-evolution-v2-runner-temp.mjs";
 
 const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH||"");
 const rawArtifact=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH||"");
@@ -35,25 +36,6 @@ function reject(input,reason){
   };
 }
 
-function safeRunnerTempPath(raw){
-  if(!raw) return null;
-  if(!runnerTemp || !isAbsolute(raw)) return null;
-  const root=resolve(runnerTemp);
-  const file=resolve(raw);
-  const rel=relative(root,file);
-  if(rel.startsWith("..") || isAbsolute(rel)) return null;
-  return file;
-}
-
-function realPathSafe(pathValue){
-  if(!pathValue || !existsSync(pathValue) || !runnerTemp) return false;
-  if(lstatSync(pathValue).isSymbolicLink()) return false;
-  const realRoot=realpathSync(resolve(runnerTemp));
-  const realFile=realpathSync(pathValue);
-  const rel=relative(realRoot,realFile);
-  return !(rel.startsWith("..") || isAbsolute(rel));
-}
-
 function validArtifactPath(pathValue,boundaries){
   if(typeof pathValue!=="string" || !pathValue || pathValue.includes("\\") || pathValue.includes("\0")) return false;
   if(pathValue.startsWith("/") || pathValue.startsWith("../") || pathValue.includes("/../")) return false;
@@ -65,19 +47,26 @@ function validArtifactPath(pathValue,boundaries){
   return true;
 }
 
-function inspectArtifact(artifactPath,manifest){
-  if(!artifactPath) return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATH_UNSAFE"};
-  if(!existsSync(artifactPath)) return {ok:false,reason:"EXPERIMENT_ARTIFACT_NOT_FOUND"};
-  if(!realPathSafe(artifactPath)) return {ok:false,reason:"EXPERIMENT_ARTIFACT_REALPATH_UNSAFE"};
+function artifactReadReason(code){
+  if(code==="NOT_FOUND") return "EXPERIMENT_ARTIFACT_NOT_FOUND";
+  if(code==="TOO_LARGE") return "EXPERIMENT_ARTIFACT_FILE_TOO_LARGE";
+  if(code==="REALPATH_UNSAFE") return "EXPERIMENT_ARTIFACT_REALPATH_UNSAFE";
+  if(code==="CHANGED_DURING_READ") return "EXPERIMENT_ARTIFACT_CHANGED_DURING_READ";
+  if(code==="PLATFORM_UNSUPPORTED") return "EXPERIMENT_ARTIFACT_PLATFORM_UNSUPPORTED";
+  return "EXPERIMENT_ARTIFACT_PATH_UNSAFE";
+}
+
+function inspectArtifact(rawPath,manifest){
   const maxPatchBytes=Number(manifest?.boundaries?.maxPatchBytes||0);
   const maxFilesChanged=Number(manifest?.boundaries?.maxFilesChanged||0);
   if(!Number.isFinite(maxPatchBytes) || maxPatchBytes<=0 || !Number.isFinite(maxFilesChanged) || maxFilesChanged<=0){
     return {ok:false,reason:"EXPERIMENT_ARTIFACT_POLICY_INVALID"};
   }
-  if(statSync(artifactPath).size>Math.max(262144,maxPatchBytes*2)){
-    return {ok:false,reason:"EXPERIMENT_ARTIFACT_FILE_TOO_LARGE"};
-  }
-  const bytes=readFileSync(artifactPath);
+
+  const artifactRead=readBoundedRunnerTempFile(rawPath,runnerTemp,Math.max(262144,maxPatchBytes*2));
+  if(artifactRead.ok!==true) return {ok:false,reason:artifactReadReason(artifactRead.code)};
+
+  const bytes=artifactRead.bytes;
   const sha256=createHash("sha256").update(bytes).digest("hex");
   let artifact;
   try{ artifact=JSON.parse(bytes.toString("utf8")); }
@@ -136,20 +125,22 @@ function inspectArtifact(artifactPath,manifest){
 }
 
 let out;
-const inputPath=safeRunnerTempPath(rawInput);
+const inputRead=readBoundedRunnerTempFile(rawInput,runnerTemp,65536);
 if(!rawInput){
   out=notMeasured("EXPERIMENT_RESULT_INPUT_MISSING");
-}else if(!inputPath){
-  out=reject(null,"EXPERIMENT_RESULT_INPUT_PATH_UNSAFE");
-}else if(!existsSync(inputPath)){
+}else if(inputRead.code==="NOT_FOUND"){
   out=notMeasured("EXPERIMENT_RESULT_INPUT_NOT_FOUND");
-}else if(!realPathSafe(inputPath)){
-  out=reject(null,"EXPERIMENT_RESULT_INPUT_REALPATH_UNSAFE");
-}else if(statSync(inputPath).size>65536){
+}else if(inputRead.code==="TOO_LARGE"){
   out=reject(null,"EXPERIMENT_RESULT_INPUT_TOO_LARGE");
+}else if(inputRead.code==="REALPATH_UNSAFE"){
+  out=reject(null,"EXPERIMENT_RESULT_INPUT_REALPATH_UNSAFE");
+}else if(inputRead.code==="CHANGED_DURING_READ"){
+  out=reject(null,"EXPERIMENT_RESULT_INPUT_CHANGED_DURING_READ");
+}else if(inputRead.ok!==true){
+  out=reject(null,"EXPERIMENT_RESULT_INPUT_PATH_UNSAFE");
 }else{
   let input;
-  try{ input=JSON.parse(readFileSync(inputPath,"utf8")); }
+  try{ input=JSON.parse(inputRead.bytes.toString("utf8")); }
   catch{ input=null; }
 
   if(!input){
@@ -159,8 +150,7 @@ if(!rawInput){
     const check=verified.verification.find(x=>x.candidateId===input.candidateId && x.experimentId===input.experimentId);
     const manifest=manifests.manifests.find(x=>x.candidateId===input.candidateId && x.experimentId===input.experimentId);
     const artifactSha256=String(input.artifactSha256||"").toLowerCase();
-    const artifactPath=safeRunnerTempPath(rawArtifact);
-    const artifactInspection=inspectArtifact(artifactPath,manifest);
+    const artifactInspection=inspectArtifact(rawArtifact,manifest);
     const receipt=input.executionReceipt||{};
     const receiptArtifactSha256=String(receipt.artifactSha256||"").toLowerCase();
     const metric=input.primaryMetric||{};
