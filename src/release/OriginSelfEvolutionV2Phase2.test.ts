@@ -25,9 +25,11 @@ describe("ORIGIN Self-Evolution V2 phase-2 dry-run gates",()=>{
     expect(s).toContain("maxCostUsd: 0");
   });
 
-  it("keeps promotion as packaging only",()=>{
+  it("keeps promotion blocked until real experiment evidence exists",()=>{
     const s=read("scripts/origin-self-evolution-v2-promotion.mjs");
-    expect(s).toContain("DRAFT_PR_PACKAGE_ONLY");
+    expect(s).toContain("HOLD_PENDING_EXPERIMENT_RESULT");
+    expect(s).toContain("HOLD_NOT_ELIGIBLE");
+    expect(s).not.toContain("DRAFT_PR_PACKAGE_ONLY");
     expect(s).toContain("automaticMerge:false");
     expect(s).toContain("automaticDeploy:false");
     expect(s).toContain("codeWriteAuthorized:false");
