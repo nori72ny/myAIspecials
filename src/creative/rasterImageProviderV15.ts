@@ -52,7 +52,7 @@ export type RasterImageResultV15 = {
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   sha256: string;
   model: string;
-  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
+  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free' | 'cloudflare-workers-ai-gateway';
   width: number;
   height: number;
   costUsd: 0;
