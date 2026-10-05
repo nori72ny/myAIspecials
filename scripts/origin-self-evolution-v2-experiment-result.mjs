@@ -7,6 +7,7 @@ import { materializeArtifactAgainstExactBase } from "./origin-self-evolution-v2-
 const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH||"");
 const rawArtifact=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH||"");
 const rawMetricEvidence=String(process.env.ORIGIN_SELF_EVOLUTION_METRIC_EVIDENCE_PATH||"");
+const rawGateEvidence=String(process.env.ORIGIN_SELF_EVOLUTION_GATE_EVIDENCE_PATH||"");
 const runnerTemp=String(process.env.RUNNER_TEMP||"");
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
 const verified=JSON.parse(readFileSync("origin-self-evolution-verification-v2.json","utf8"));
@@ -144,6 +145,94 @@ function inspectMetricEvidence(rawPath,manifest,claimedSha256,inputMetric){
   };
 }
 
+const REQUIRED_GATE_HARNESSES=Object.freeze({
+  relevantTests:"origin-gate-tests-v2",
+  securityRegression:"origin-gate-security-v2",
+  accessibilityRegression:"origin-gate-accessibility-v2",
+  performanceRegression:"origin-gate-performance-v2",
+  rollbackDefined:"origin-gate-rollback-v2"
+});
+
+function hasExecutableField(value){
+  if(!value || typeof value!=="object") return false;
+  for(const [key,child] of Object.entries(value)){
+    if(["command","cmd","shell","script","args","argv","executable"].includes(String(key).toLowerCase())) return true;
+    if(hasExecutableField(child)) return true;
+  }
+  return false;
+}
+
+function inspectGateEvidence(rawPath,manifest,claimedSha256,inputGates){
+  const read=readBoundedRunnerTempFile(rawPath,runnerTemp,65536);
+  if(read.ok!==true) return {ok:false,reason:`EXPERIMENT_GATE_EVIDENCE_${read.code}`};
+  const sha256=createHash("sha256").update(read.bytes).digest("hex");
+  if(!/^[a-f0-9]{64}$/.test(String(claimedSha256||"").toLowerCase()) || sha256!==String(claimedSha256||"").toLowerCase()){
+    return {ok:false,reason:"EXPERIMENT_GATE_EVIDENCE_DIGEST_INVALID",sha256};
+  }
+  let evidence;
+  try{ evidence=JSON.parse(read.bytes.toString("utf8")); }
+  catch{ return {ok:false,reason:"EXPERIMENT_GATE_EVIDENCE_JSON_INVALID",sha256}; }
+
+  if(hasExecutableField(evidence)){
+    return {ok:false,reason:"EXPERIMENT_GATE_EVIDENCE_EXECUTABLE_CONTENT_BLOCKED",sha256};
+  }
+  if(
+    evidence?.schemaVersion!=="origin.self-evolution.gate-evidence.v2" ||
+    evidence?.exactBaseSha!==manifest?.exactBaseSha ||
+    evidence?.manifestId!==manifest?.manifestId ||
+    evidence?.candidateId!==manifest?.candidateId ||
+    evidence?.experimentId!==manifest?.experimentId ||
+    evidence?.evidenceKind!=="TRUSTED_ISOLATED_HARNESS" ||
+    evidence?.privateHeldOut!==false ||
+    !Array.isArray(evidence?.observations) ||
+    evidence.observations.length!==Object.keys(REQUIRED_GATE_HARNESSES).length
+  ){
+    return {ok:false,reason:"EXPERIMENT_GATE_EVIDENCE_BINDING_INVALID",sha256};
+  }
+
+  const observations=new Map();
+  for(const observation of evidence.observations){
+    const gateId=observation?.gateId;
+    const expectedHarness=REQUIRED_GATE_HARNESSES[gateId];
+    if(
+      !expectedHarness ||
+      observations.has(gateId) ||
+      observation?.harnessId!==expectedHarness ||
+      observation?.status!=="PASS" ||
+      observation?.exitCode!==0 ||
+      !/^[a-f0-9]{64}$/.test(String(observation?.outputSha256||"").toLowerCase())
+    ){
+      return {ok:false,reason:"EXPERIMENT_GATE_EVIDENCE_OBSERVATION_INVALID",sha256};
+    }
+    observations.set(gateId,{
+      gateId,
+      harnessId:expectedHarness,
+      outputSha256:String(observation.outputSha256).toLowerCase()
+    });
+  }
+
+  const derived={};
+  for(const gateId of Object.keys(REQUIRED_GATE_HARNESSES)) derived[gateId]=observations.has(gateId);
+  const summaryMatches=Object.entries(derived).every(([gateId,passed])=>inputGates?.[gateId]===passed);
+  if(!summaryMatches){
+    return {ok:false,reason:"EXPERIMENT_GATE_SUMMARY_MISMATCH",sha256};
+  }
+
+  const canonical=[...observations.values()]
+    .sort((a,b)=>a.gateId.localeCompare(b.gateId))
+    .map(x=>[x.gateId,x.harnessId,x.outputSha256].join("|"))
+    .join("\n");
+  const observationSetDigest=createHash("sha256").update(canonical).digest("hex");
+  return {
+    ok:true,
+    reason:"EXPERIMENT_GATE_EVIDENCE_VERIFIED",
+    sha256,
+    derived,
+    observationSetDigest,
+    observationCount:observations.size
+  };
+}
+
 function inspectArtifact(rawPath,manifest){
   const maxPatchBytes=Number(manifest?.boundaries?.maxPatchBytes||0);
   const maxFilesChanged=Number(manifest?.boundaries?.maxFilesChanged||0);
@@ -266,14 +355,17 @@ if(!rawInput){
     const metric=input.primaryMetric||{};
     const metricEvidenceSha256=String(input.metricEvidenceSha256||"").toLowerCase();
     const metricEvidence=inspectMetricEvidence(rawMetricEvidence,manifest,metricEvidenceSha256,metric);
+    const gateEvidenceSha256=String(input.gateEvidenceSha256||"").toLowerCase();
+    const gateEvidence=inspectGateEvidence(rawGateEvidence,manifest,gateEvidenceSha256,input.gates||{});
     const before=metricEvidence.ok===true?metricEvidence.before:Number.NaN;
     const after=metricEvidence.ok===true?metricEvidence.after:Number.NaN;
     const minDelta=metricEvidence.ok===true?metricEvidence.minDelta:Number.NaN;
     const finite=[before,after,minDelta].every(Number.isFinite);
     const direction=metricEvidence.ok===true?metricEvidence.direction:null;
     const measuredDelta=metricEvidence.ok===true?metricEvidence.measuredDelta:Number.NaN;
-    const gates=input.gates||{};
+    const gates=gateEvidence.ok===true?gateEvidence.derived:{};
     const gatesOk=
+      gateEvidence.ok===true &&
       gates.relevantTests===true &&
       gates.securityRegression===true &&
       gates.accessibilityRegression===true &&
@@ -316,6 +408,9 @@ if(!rawInput){
       metricEvidence.ok===true &&
       receipt.metricEvidenceSha256===metricEvidenceSha256 &&
       receipt.metricCaseSetDigest===metricEvidence.caseSetDigest &&
+      gateEvidence.ok===true &&
+      receipt.gateEvidenceSha256===gateEvidenceSha256 &&
+      receipt.gateObservationSetDigest===gateEvidence.observationSetDigest &&
       receipt.materializationDigest===materialization.materializationDigest &&
       receipt.filesChanged===artifactInspection.filesChanged &&
       receipt.patchBytes===artifactInspection.patchBytes &&
@@ -337,6 +432,7 @@ if(!rawInput){
     const improvementOk=bindingOk && provenanceOk && measuredDelta>=minDelta && measuredDelta>0;
 
     if(metricEvidence.ok!==true) out=reject(input,metricEvidence.reason||"EXPERIMENT_METRIC_EVIDENCE_INVALID");
+    else if(gateEvidence.ok!==true) out=reject(input,gateEvidence.reason||"EXPERIMENT_GATE_EVIDENCE_INVALID");
     else if(!bindingOk) out=reject(input,"EXPERIMENT_RESULT_BINDING_INVALID");
     else if(artifactInspection.ok!==true) out=reject(input,artifactInspection.reason||"EXPERIMENT_ARTIFACT_INVALID");
     else if(materialization.ok!==true) out=reject(input,materialization.reason||"MATERIALIZATION_VERIFICATION_FAILED");
@@ -371,6 +467,9 @@ if(!rawInput){
         metricEvidenceSampleCounts:metricEvidence.sampleCounts,
         metricCaseSetDigest:metricEvidence.caseSetDigest,
         metricCaseIds:metricEvidence.caseIds,
+        gateEvidenceSha256,
+        gateObservationSetDigest:gateEvidence.observationSetDigest,
+        gateObservationCount:gateEvidence.observationCount,
         artifactFilesChanged:artifactInspection.filesChanged,
         artifactPatchBytes:artifactInspection.patchBytes,
         materializationDigest:materialization.materializationDigest,
