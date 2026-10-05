@@ -197,13 +197,13 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
             name:"score",
             direction:"higher_is_better",
             minDelta:0.5,
-            beforeSamples:[1],
-            afterSamples:[2]
+            samples:[{caseId:"case-001",before:1,after:2}]
           }
         };
         const metricEvidenceBytes=JSON.stringify(metricEvidence,null,2)+"\n";
         const actualMetricDigest=createHash("sha256").update(metricEvidenceBytes).digest("hex");
         const claimedMetricDigest=metricDigestOverride||actualMetricDigest;
+        const metricCaseSetDigest=createHash("sha256").update("case-001").digest("hex");
         const metricEvidencePath=join(dir,"metric-evidence.json");
         writeFileSync(metricEvidencePath,metricEvidenceBytes);
 
@@ -241,6 +241,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
             implementationBriefId:"brief-1",
             artifactSha256:claimedDigest,
             metricEvidenceSha256:claimedMetricDigest,
+            metricCaseSetDigest,
             materializationDigest,
             filesChanged:1,
             patchBytes:Buffer.byteLength(patch,"utf8"),
@@ -282,6 +283,8 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     const valid=execute("src/example.ts");
     expect(valid,JSON.stringify(valid)).toMatchObject({status:"MEASURED_IMPROVEMENT",accepted:true});
     expect(valid.provenance.materializedChangedPaths).toEqual(["src/example.ts"]);
+    expect(valid.provenance.metricCaseIds).toEqual(["case-001"]);
+    expect(valid.provenance.metricEvidenceSampleCounts).toEqual({paired:1});
 
     const tampered=execute("src/example.ts","b".repeat(64));
     expect(tampered.status).toBe("REJECTED");
