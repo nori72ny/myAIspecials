@@ -48,5 +48,7 @@ describe("ORIGIN Self-Evolution V2 automation boundary",()=>{
     expect(workflow).not.toContain("contents: write");
     expect(workflow).not.toContain("pull-requests: write");
     expect(workflow).not.toContain("deployments: write");
+    expect(workflow).not.toContain("npm ci");
+    expect(workflow).not.toContain("cache: npm");
   });
 });
