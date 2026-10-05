@@ -13,7 +13,7 @@ const proposals = queue.candidates.map(candidate=>{
     proposalId:hash(candidate.id+"|promotion|"+queue.sourceObservationSha).slice(0,20),
     candidateId:candidate.id,
     exactBaseSha:queue.sourceObservationSha,
-    status:ready?"DRAFT_PR_PACKAGE_ONLY":"HOLD",
+    status:ready?"HOLD_PENDING_EXPERIMENT_RESULT":"HOLD_NOT_ELIGIBLE",
     automaticMerge:false,
     automaticDeploy:false,
     codeWriteAuthorized:false,
@@ -29,7 +29,7 @@ const proposals = queue.candidates.map(candidate=>{
       "rollback-plan"
     ],
     note:ready
-      ? "May be packaged as a Draft PR proposal after a real isolated experiment proves improvement."
+      ? "Sandbox eligibility is not promotion evidence. A real isolated experiment result with measured before/after evidence is still required."
       : "Insufficient eligibility for promotion packaging."
   };
 });
@@ -40,8 +40,8 @@ const out={
   exactBaseSha:queue.sourceObservationSha,
   summary:{
     total:proposals.length,
-    draftPackageOnly:proposals.filter(x=>x.status==="DRAFT_PR_PACKAGE_ONLY").length,
-    hold:proposals.filter(x=>x.status==="HOLD").length
+    pendingExperimentResult:proposals.filter(x=>x.status==="HOLD_PENDING_EXPERIMENT_RESULT").length,
+    holdNotEligible:proposals.filter(x=>x.status==="HOLD_NOT_ELIGIBLE").length
   },
   proposals
 };
@@ -51,8 +51,8 @@ writeFileSync("origin-self-evolution-promotion-v2.md",[
 "# ORIGIN Self-Evolution V2 Promotion Packages",
 "",
 `Exact base SHA: ${out.exactBaseSha}`,
-`Draft-package candidates: ${out.summary.draftPackageOnly}`,
-`Held: ${out.summary.hold}`,
+`Pending real experiment result: ${out.summary.pendingExperimentResult}`,
+`Not eligible: ${out.summary.holdNotEligible}`,
 "",
 "Promotion packaging is not merge authority. Automatic merge/deploy remain disabled."
 ].join("\n")+"\n");
