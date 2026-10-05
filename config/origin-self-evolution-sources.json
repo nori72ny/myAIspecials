@@ -191,7 +191,6 @@
     "productionDeploy": false,
     "paidFallback": false,
     "maxCostUsd": 0,
-    "maxSourceBytes": 262144,
-    "maxRedirects": 2
+    "maxSourceBytes": 262144
   }
 }
