@@ -12,10 +12,19 @@ describe("ORIGIN Self-Evolution V2 measured-gap gate",()=>{
 
   it("does not equate external novelty with an ORIGIN gap",()=>{
     const s=read("scripts/origin-self-evolution-v2-gap.mjs");
-    expect(s).toContain("NOT_MEASURED");
     expect(s).toContain("solutionFitVerified:false");
-    expect(s).toContain("measuredImprovementOpportunity:false");
-    expect(s).toContain("BLOCKED_PENDING_MEASURED_GAP_AND_SOLUTION_FIT");
+    expect(s).toContain("measuredGapEvidence");
+    expect(s).toContain("BLOCKED_PENDING_MEASURED_GAP");
+    expect(s).toContain("DRY_RUN_EXPERIMENT_MEASUREMENT_ELIGIBLE");
+  });
+
+  it("validates bounded reproducible non-held-out gap evidence",()=>{
+    const s=read("scripts/origin-self-evolution-v2-gap-measurement.mjs");
+    expect(s).toContain("REPRODUCIBLE_NON_HELD_OUT");
+    expect(s).toContain("privateHeldOut===false");
+    expect(s).toContain("RUNNER_TEMP");
+    expect(s).toContain("GAP_MEASUREMENT_INPUT_TOO_LARGE");
+    expect(s).toContain("measuredGap>=minGap");
   });
 
   it("requires measured opportunity before priority can be actionable",()=>{
