@@ -7,6 +7,8 @@ import type {
 
 const MODEL='@cf/black-forest-labs/flux-2-klein-4b';
 const MAX_IMAGE_BYTES=12*1024*1024;
+const MAX_REFERENCE_IMAGES=4;
+const MAX_REFERENCE_DIMENSION_EXCLUSIVE=512;
 const REQUEST_TIMEOUT_MS=45_000;
 
 type GatewayConfig={url:string;secret:string;zeroCostVerified:boolean};
@@ -36,6 +38,49 @@ async function timedFetch(url:string,init:RequestInit,fetchImpl:typeof fetch):Pr
   const timer=setTimeout(()=>controller.abort(),REQUEST_TIMEOUT_MS);
   try{return await fetchImpl(url,{...init,signal:controller.signal,redirect:'error',cache:'no-store'});}
   finally{clearTimeout(timer);}
+}
+
+async function readBoundedImageBody(response:Response):Promise<Buffer>{
+  const declared=Number(response.headers.get('content-length')??'0');
+  if(Number.isFinite(declared)&&declared>MAX_IMAGE_BYTES)throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
+  if(!response.body){
+    const body=Buffer.from(await response.arrayBuffer());
+    if(!body.length||body.length>MAX_IMAGE_BYTES)throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
+    return body;
+  }
+  const reader=response.body.getReader();
+  const chunks:Buffer[]=[];
+  let total=0;
+  try{
+    while(true){
+      const next=await reader.read();
+      if(next.done)break;
+      const chunk=Buffer.from(next.value);
+      total+=chunk.length;
+      if(total>MAX_IMAGE_BYTES){
+        await reader.cancel();
+        throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
+      }
+      chunks.push(chunk);
+    }
+  }finally{
+    reader.releaseLock();
+  }
+  if(total<=0)throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
+  return Buffer.concat(chunks,total);
+}
+
+function validateReferenceImages(input:RasterImageRequestV15):void{
+  const references=input.referenceImages??[];
+  if(references.length>MAX_REFERENCE_IMAGES)throw new Error('CLOUDFLARE_REFERENCE_IMAGE_LIMIT_EXCEEDED');
+  if(references.some(reference=>
+    !Number.isInteger(reference.width)
+    || !Number.isInteger(reference.height)
+    || reference.width<=0
+    || reference.height<=0
+    || reference.width>=MAX_REFERENCE_DIMENSION_EXCLUSIVE
+    || reference.height>=MAX_REFERENCE_DIMENSION_EXCLUSIVE
+  ))throw new Error('CLOUDFLARE_REFERENCE_IMAGE_DIMENSIONS_UNSUPPORTED');
 }
 
 function imageMime(bytes:Buffer):RasterImageResultV15['mimeType']|null{
@@ -130,12 +175,14 @@ export async function generateCloudflareRasterGatewayImageV15(
 ):Promise<RasterImageResultV15>{
   const cfg=config(env);
   if(!cfg||!cfg.zeroCostVerified)throw new Error('CLOUDFLARE_WORKERS_AI_GATEWAY_NOT_READY');
-  const status=await getCloudflareRasterGatewayStatusV15(env,fetchImpl);
-  if(!status.ready||!status.zeroCostVerified)throw new Error(status.reason??'CLOUDFLARE_WORKERS_AI_GATEWAY_NOT_READY');
 
   const prompt=input.prompt.normalize('NFKC').trim();
   if(!prompt||prompt.length>2048)throw new Error('INVALID_RASTER_PROMPT');
+  validateReferenceImages(input);
   const width=input.width??1024,height=input.height??1024;
+
+  const status=await getCloudflareRasterGatewayStatusV15(env,fetchImpl);
+  if(!status.ready||!status.zeroCostVerified)throw new Error(status.reason??'CLOUDFLARE_WORKERS_AI_GATEWAY_NOT_READY');
   const form=new FormData();
   form.append('prompt',[
     input.referenceImages?.length
@@ -160,8 +207,7 @@ export async function generateCloudflareRasterGatewayImageV15(
     body:form,
   },fetchImpl);
   if(!response.ok)throw new Error(`CLOUDFLARE_WORKERS_AI_GATEWAY_HTTP_${response.status}`);
-  const raw=Buffer.from(await response.arrayBuffer());
-  if(!raw.length||raw.length>MAX_IMAGE_BYTES)throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
+  const raw=await readBoundedImageBody(response);
   const mimeType=imageMime(raw);
   if(!mimeType)throw new Error('CLOUDFLARE_IMAGE_SIGNATURE_MISMATCH');
   const actual=dimensions(raw,mimeType);
