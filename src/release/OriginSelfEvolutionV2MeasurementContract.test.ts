@@ -54,6 +54,18 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain("EXPERIMENT_RESULT_PROVENANCE_INVALID");
   });
 
+  it("rehashes the actual runner-temp artifact and validates bounded patch scope",()=>{
+    const s=read("scripts/origin-self-evolution-v2-experiment-result.mjs");
+    expect(s).toContain("ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH");
+    expect(s).toContain('artifact?.schemaVersion!=="origin.self-evolution.experiment-artifact.v2"');
+    expect(s).toContain('createHash("sha256").update(bytes).digest("hex")');
+    expect(s).toContain("EXPERIMENT_ARTIFACT_PROTECTED_OR_UNSAFE_PATH");
+    expect(s).toContain("EXPERIMENT_ARTIFACT_PATCH_HEADER_INVALID");
+    expect(s).toContain("EXPERIMENT_ARTIFACT_PATCH_TOO_LARGE");
+    expect(s).toContain("receipt.filesChanged===artifactInspection.filesChanged");
+    expect(s).toContain("receipt.patchBytes===artifactInspection.patchBytes");
+  });
+
   it("does not promote sandbox eligibility by itself",()=>{
     const s=read("scripts/origin-self-evolution-v2-promotion.mjs");
     expect(s).toContain('result.status==="MEASURED_IMPROVEMENT"');
