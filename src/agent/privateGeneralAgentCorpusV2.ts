@@ -14,7 +14,8 @@ export const GENERAL_AGENT_PRIVATE_CORPUS_VERSION_V2 =
   'origin.general-agent-private-corpus.v1' as const;
 
 export const GENERAL_AGENT_EVALUATOR_PERMISSION_PROFILE_V1 = Object.freeze({
-  network: 'disabled',
+  network: 'raw-disabled',
+  groundedResearch: 'allowlisted-public-web-only',
   repositoryRead: 'allowed',
   repositoryWrite: 'explicit-approved-only',
   verification: ['test', 'typecheck', 'lint', 'build'],
