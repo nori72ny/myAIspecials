@@ -4,6 +4,8 @@ const MAX_REFERENCE_BYTES = 768 * 1024;
 const MAX_REFERENCE_TOTAL_BYTES = 2 * 1024 * 1024;
 const MAX_REFERENCE_DIMENSION_EXCLUSIVE = 512;
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+const MAX_MODEL_OUTPUT_BYTES = 12 * 1024 * 1024;
+const MAX_MODEL_OUTPUT_BASE64_CHARS = 4 * Math.ceil(MAX_MODEL_OUTPUT_BYTES / 3);
 const MIN_OUTPUT_DIMENSION = 256;
 const MAX_OUTPUT_DIMENSION = 1536;
 
@@ -106,6 +108,48 @@ function imageDimensions(bytes: Uint8Array, mimeType: string): ImageDimensions |
     }
   }
   return null;
+}
+
+function imageMimeType(bytes: Uint8Array): 'image/png' | 'image/jpeg' | 'image/webp' | null {
+  const buffer = Buffer.from(bytes);
+  if (
+    buffer.length >= 24
+    && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  ) return 'image/png';
+  if (
+    buffer.length >= 4
+    && buffer[0] === 0xff
+    && buffer[1] === 0xd8
+    && buffer.at(-2) === 0xff
+    && buffer.at(-1) === 0xd9
+  ) return 'image/jpeg';
+  if (
+    buffer.length >= 12
+    && buffer.subarray(0, 4).toString('ascii') === 'RIFF'
+    && buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) return 'image/webp';
+  return null;
+}
+
+function decodeModelBase64Image(output: unknown): { bytes: Uint8Array; mimeType: string } | null {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return null;
+  const image = (output as Record<string, unknown>).image;
+  if (typeof image !== 'string') return null;
+  const encoded = image.trim();
+  if (
+    !encoded
+    || encoded.length > MAX_MODEL_OUTPUT_BASE64_CHARS
+    || encoded.length % 4 !== 0
+    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)
+  ) throw new Error('AI_OUTPUT_BASE64_INVALID');
+
+  const decoded = Buffer.from(encoded, 'base64');
+  if (!decoded.length || decoded.length > MAX_MODEL_OUTPUT_BYTES) {
+    throw new Error('AI_OUTPUT_SIZE_OUT_OF_BOUNDS');
+  }
+  const mimeType = imageMimeType(decoded);
+  if (!mimeType) throw new Error('AI_OUTPUT_IMAGE_INVALID');
+  return { bytes: new Uint8Array(decoded), mimeType };
 }
 
 function integerField(form: FormData, key: string): number {
@@ -244,6 +288,18 @@ async function runModel(env: CloudflareRasterGatewayWorkerEnvV15, form: FormData
       status: 200,
       headers: {
         'content-type': mimeType,
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+      },
+    });
+  }
+
+  const encodedImage = decodeModelBase64Image(output);
+  if (encodedImage) {
+    return new Response(encodedImage.bytes, {
+      status: 200,
+      headers: {
+        'content-type': encodedImage.mimeType,
         'cache-control': 'no-store',
         'x-content-type-options': 'nosniff',
       },
