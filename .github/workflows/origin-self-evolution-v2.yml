@@ -82,6 +82,9 @@ jobs:
       - name: Enforce self-evolution circuit breaker
         run: node scripts/origin-self-evolution-v2-circuit-breaker.mjs
 
+      - name: Build bounded experiment manifests
+        run: node scripts/origin-self-evolution-v2-manifest.mjs
+
       - name: Record self-evolution decision ledger
         run: node scripts/origin-self-evolution-v2-ledger.mjs
 
@@ -121,6 +124,8 @@ jobs:
             origin-self-evolution-authorization-v2.md
             origin-self-evolution-circuit-breaker-v2.json
             origin-self-evolution-circuit-breaker-v2.md
+            origin-self-evolution-experiment-manifests-v2.json
+            origin-self-evolution-experiment-manifests-v2.md
             origin-self-evolution-decision-ledger-v2.json
             origin-self-evolution-decision-ledger-v2.md
             origin-self-evolution-experiment-result-v2.json
