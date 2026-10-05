@@ -36,10 +36,10 @@ describe("ORIGIN Self-Evolution V2 cadence and publication correctness",()=>{
     expect(script).toContain("scanMode");
   });
 
-  it("paginates issue deduplication beyond the first 100 open issues",()=>{
+  it("retains a stable queue fingerprint for external deduplication",()=>{
     const script=read("scripts/origin-self-evolution-v2-issue.mjs");
-    expect(script).toContain("for(let page=1; page<=10; page++)");
-    expect(script).toContain("per_page=100&page=");
-    expect(script).toContain("DUPLICATE_FINGERPRINT");
+    expect(script).toContain("queueFingerprint");
+    expect(script).toContain("origin-self-evolution-v2:");
+    expect(script).toContain("publishAuthorized:false");
   });
 });
