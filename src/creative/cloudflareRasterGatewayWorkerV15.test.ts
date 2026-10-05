@@ -7,7 +7,9 @@ import {
 
 const SECRET = 's'.repeat(48);
 
-function readyEnv(aiRun: CloudflareRasterGatewayWorkerEnvV15['AI']['run']): CloudflareRasterGatewayWorkerEnvV15 {
+type AiRun = NonNullable<CloudflareRasterGatewayWorkerEnvV15['AI']>['run'];
+
+function readyEnv(aiRun: AiRun): CloudflareRasterGatewayWorkerEnvV15 {
   return {
     AI: { run: aiRun },
     ORIGIN_RASTER_GATEWAY_SECRET: SECRET,
