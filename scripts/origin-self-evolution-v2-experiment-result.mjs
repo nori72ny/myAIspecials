@@ -111,8 +111,13 @@ function inspectArtifact(artifactPath,manifest){
     if(headers.length!==1 || headers[0]!==`diff --git a/${pathValue} b/${pathValue}`){
       return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_HEADER_INVALID",sha256};
     }
-    const oldHeaders=lines.filter(line=>line.startsWith("--- "));
-    const newHeaders=lines.filter(line=>line.startsWith("+++ "));
+    const firstHunk=lines.findIndex(line=>line.startsWith("@@ "));
+    if(firstHunk<0){
+      return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_HUNK_MISSING",sha256};
+    }
+    const preamble=lines.slice(0,firstHunk);
+    const oldHeaders=preamble.filter(line=>line.startsWith("--- "));
+    const newHeaders=preamble.filter(line=>line.startsWith("+++ "));
     const allowedOld=new Set([`--- a/${pathValue}`,"--- /dev/null"]);
     const allowedNew=new Set([`+++ b/${pathValue}`,"+++ /dev/null"]);
     if(oldHeaders.length!==1 || newHeaders.length!==1 || !allowedOld.has(oldHeaders[0]) || !allowedNew.has(newHeaders[0])){
