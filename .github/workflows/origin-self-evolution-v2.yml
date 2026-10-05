@@ -82,6 +82,9 @@ jobs:
       - name: Record self-evolution decision ledger
         run: node scripts/origin-self-evolution-v2-ledger.mjs
 
+      - name: Verify externally supplied isolated experiment evidence
+        run: node scripts/origin-self-evolution-v2-experiment-result.mjs
+
       - name: Build promotion packages
         run: node scripts/origin-self-evolution-v2-promotion.mjs
 
@@ -115,6 +118,8 @@ jobs:
             origin-self-evolution-circuit-breaker-v2.md
             origin-self-evolution-decision-ledger-v2.json
             origin-self-evolution-decision-ledger-v2.md
+            origin-self-evolution-experiment-result-v2.json
+            origin-self-evolution-experiment-result-v2.md
             origin-self-evolution-promotion-v2.json
             origin-self-evolution-promotion-v2.md
           if-no-files-found: warn
