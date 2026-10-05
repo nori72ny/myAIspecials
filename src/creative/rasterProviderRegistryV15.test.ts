@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { generateCloudflareRasterGatewayImageV15 } from './cloudflareRasterGatewayProviderV15';
+import {
+  generateCloudflareRasterGatewayImageV15,
+  getCloudflareRasterGatewayStatusV15,
+} from './cloudflareRasterGatewayProviderV15';
 import {
   rasterProviderRegistryV15,
   rasterProviderRuntimeStatusV15,
@@ -86,6 +89,32 @@ describe('rasterProviderRegistryV15', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('requires the remote gateway to independently attest zero-cost readiness', async () => {
+    const env = {
+      ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
+      ORIGIN_RASTER_GATEWAY_SECRET: 'x'.repeat(48),
+      ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
+    };
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      provider: 'cloudflare-workers-ai-binding',
+      model: '@cf/black-forest-labs/flux-2-klein-4b',
+      aiBindingConfigured: true,
+      secretConfigured: true,
+      zeroCostVerified: false,
+      freeOnly: true,
+      paidFallbackEnabled: false,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+
+    const status = await getCloudflareRasterGatewayStatusV15(env, fetchImpl);
+    expect(status).toMatchObject({
+      configured: true,
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_AI_GATEWAY_STATUS_UNVERIFIED',
+    });
+  });
+
   it('rejects an oversized gateway image from Content-Length before buffering it', async () => {
     const env = {
       ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
@@ -99,6 +128,7 @@ describe('rasterProviderRegistryV15', () => {
         model: '@cf/black-forest-labs/flux-2-klein-4b',
         aiBindingConfigured: true,
         secretConfigured: true,
+        zeroCostVerified: true,
         freeOnly: true,
         paidFallbackEnabled: false,
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
