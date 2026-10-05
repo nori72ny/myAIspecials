@@ -74,6 +74,9 @@ const manifests=experiments.experiments
         resultAdapterBindingRequired:true,
         resultImplementationBriefBindingRequired:true,
         resultArtifactSha256Required:true,
+        resultArtifactBytesRehashed:true,
+        resultArtifactPatchScopeValidated:true,
+        resultProtectedPathValidationRequired:true,
         resultExecutionReceiptRequired:true
       },
       outputAuthority:{
