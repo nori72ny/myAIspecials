@@ -6,6 +6,7 @@ import { materializeArtifactAgainstExactBase } from "./origin-self-evolution-v2-
 
 const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH||"");
 const rawArtifact=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH||"");
+const rawMetricEvidence=String(process.env.ORIGIN_SELF_EVOLUTION_METRIC_EVIDENCE_PATH||"");
 const runnerTemp=String(process.env.RUNNER_TEMP||"");
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
 const verified=JSON.parse(readFileSync("origin-self-evolution-verification-v2.json","utf8"));
@@ -55,6 +56,83 @@ function artifactReadReason(code){
   if(code==="CHANGED_DURING_READ") return "EXPERIMENT_ARTIFACT_CHANGED_DURING_READ";
   if(code==="PLATFORM_UNSUPPORTED") return "EXPERIMENT_ARTIFACT_PLATFORM_UNSUPPORTED";
   return "EXPERIMENT_ARTIFACT_PATH_UNSAFE";
+}
+
+function finiteSamples(values){
+  return Array.isArray(values) &&
+    values.length>=1 &&
+    values.length<=100 &&
+    values.every(value=>Number.isFinite(Number(value)));
+}
+
+function average(values){
+  return values.reduce((sum,value)=>sum+Number(value),0)/values.length;
+}
+
+function nearlyEqual(a,b){
+  return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a-b)<=1e-12;
+}
+
+function inspectMetricEvidence(rawPath,manifest,claimedSha256,inputMetric){
+  const read=readBoundedRunnerTempFile(rawPath,runnerTemp,65536);
+  if(read.ok!==true) return {ok:false,reason:`EXPERIMENT_METRIC_EVIDENCE_${read.code}`};
+  const sha256=createHash("sha256").update(read.bytes).digest("hex");
+  if(!/^[a-f0-9]{64}$/.test(String(claimedSha256||"").toLowerCase()) || sha256!==String(claimedSha256||"").toLowerCase()){
+    return {ok:false,reason:"EXPERIMENT_METRIC_EVIDENCE_DIGEST_INVALID",sha256};
+  }
+  let evidence;
+  try{ evidence=JSON.parse(read.bytes.toString("utf8")); }
+  catch{ return {ok:false,reason:"EXPERIMENT_METRIC_EVIDENCE_JSON_INVALID",sha256}; }
+
+  const metric=evidence?.metric||{};
+  const beforeSamples=metric.beforeSamples;
+  const afterSamples=metric.afterSamples;
+  const direction=metric.direction;
+  const minDelta=Number(metric.minDelta);
+  if(
+    evidence?.schemaVersion!=="origin.self-evolution.metric-evidence.v2" ||
+    evidence?.exactBaseSha!==manifest?.exactBaseSha ||
+    evidence?.manifestId!==manifest?.manifestId ||
+    evidence?.candidateId!==manifest?.candidateId ||
+    evidence?.experimentId!==manifest?.experimentId ||
+    evidence?.evidenceKind!=="REPRODUCIBLE_NON_HELD_OUT" ||
+    evidence?.privateHeldOut!==false ||
+    typeof metric.name!=="string" ||
+    !metric.name ||
+    !["higher_is_better","lower_is_better"].includes(direction) ||
+    !Number.isFinite(minDelta) ||
+    minDelta<0 ||
+    !finiteSamples(beforeSamples) ||
+    !finiteSamples(afterSamples)
+  ){
+    return {ok:false,reason:"EXPERIMENT_METRIC_EVIDENCE_BINDING_INVALID",sha256};
+  }
+
+  const before=average(beforeSamples);
+  const after=average(afterSamples);
+  const measuredDelta=direction==="lower_is_better"?before-after:after-before;
+  if(
+    inputMetric?.name!==metric.name ||
+    inputMetric?.direction!==direction ||
+    !nearlyEqual(Number(inputMetric?.minDelta),minDelta) ||
+    !nearlyEqual(Number(inputMetric?.before),before) ||
+    !nearlyEqual(Number(inputMetric?.after),after)
+  ){
+    return {ok:false,reason:"EXPERIMENT_METRIC_SUMMARY_MISMATCH",sha256};
+  }
+
+  return {
+    ok:true,
+    reason:"EXPERIMENT_METRIC_EVIDENCE_VERIFIED",
+    sha256,
+    name:metric.name,
+    direction,
+    minDelta,
+    before,
+    after,
+    measuredDelta,
+    sampleCounts:{before:beforeSamples.length,after:afterSamples.length}
+  };
 }
 
 function inspectArtifact(rawPath,manifest){
@@ -177,14 +255,14 @@ if(!rawInput){
     const receipt=input.executionReceipt||{};
     const receiptArtifactSha256=String(receipt.artifactSha256||"").toLowerCase();
     const metric=input.primaryMetric||{};
-    const before=Number(metric.before);
-    const after=Number(metric.after);
-    const minDelta=Number(metric.minDelta);
+    const metricEvidenceSha256=String(input.metricEvidenceSha256||"").toLowerCase();
+    const metricEvidence=inspectMetricEvidence(rawMetricEvidence,manifest,metricEvidenceSha256,metric);
+    const before=metricEvidence.ok===true?metricEvidence.before:Number.NaN;
+    const after=metricEvidence.ok===true?metricEvidence.after:Number.NaN;
+    const minDelta=metricEvidence.ok===true?metricEvidence.minDelta:Number.NaN;
     const finite=[before,after,minDelta].every(Number.isFinite);
-    const direction=metric.direction;
-    const measuredDelta=finite
-      ? direction==="lower_is_better" ? before-after : after-before
-      : Number.NaN;
+    const direction=metricEvidence.ok===true?metricEvidence.direction:null;
+    const measuredDelta=metricEvidence.ok===true?metricEvidence.measuredDelta:Number.NaN;
     const gates=input.gates||{};
     const gatesOk=
       gates.relevantTests===true &&
@@ -226,6 +304,8 @@ if(!rawInput){
       receipt.adapterId===manifest?.adapterId &&
       receipt.implementationBriefId===manifest?.implementationBriefId &&
       receiptArtifactSha256===artifactSha256 &&
+      metricEvidence.ok===true &&
+      receipt.metricEvidenceSha256===metricEvidenceSha256 &&
       receipt.materializationDigest===materialization.materializationDigest &&
       receipt.filesChanged===artifactInspection.filesChanged &&
       receipt.patchBytes===artifactInspection.patchBytes &&
@@ -246,7 +326,8 @@ if(!rawInput){
       receipt.costUsd===0;
     const improvementOk=bindingOk && provenanceOk && measuredDelta>=minDelta && measuredDelta>0;
 
-    if(!bindingOk) out=reject(input,"EXPERIMENT_RESULT_BINDING_INVALID");
+    if(metricEvidence.ok!==true) out=reject(input,metricEvidence.reason||"EXPERIMENT_METRIC_EVIDENCE_INVALID");
+    else if(!bindingOk) out=reject(input,"EXPERIMENT_RESULT_BINDING_INVALID");
     else if(artifactInspection.ok!==true) out=reject(input,artifactInspection.reason||"EXPERIMENT_ARTIFACT_INVALID");
     else if(materialization.ok!==true) out=reject(input,materialization.reason||"MATERIALIZATION_VERIFICATION_FAILED");
     else if(!provenanceOk) out=reject(input,"EXPERIMENT_RESULT_PROVENANCE_INVALID");
@@ -276,6 +357,8 @@ if(!rawInput){
         adapterId:manifest.adapterId,
         implementationBriefId:manifest.implementationBriefId,
         artifactSha256,
+        metricEvidenceSha256,
+        metricEvidenceSampleCounts:metricEvidence.sampleCounts,
         artifactFilesChanged:artifactInspection.filesChanged,
         artifactPatchBytes:artifactInspection.patchBytes,
         materializationDigest:materialization.materializationDigest,
