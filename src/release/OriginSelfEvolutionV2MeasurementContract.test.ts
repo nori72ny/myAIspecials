@@ -67,6 +67,13 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain("ids.has(caseId)");
     expect(s).toContain("metricCaseSetDigest");
     expect(s).toContain("EXPERIMENT_METRIC_SUMMARY_MISMATCH");
+    expect(s).toContain("ORIGIN_SELF_EVOLUTION_GATE_EVIDENCE_PATH");
+    expect(s).toContain("ORIGIN_SELF_EVOLUTION_GATE_OUTPUT_DIR");
+    expect(s).toContain('evidence?.evidenceKind!=="TRUSTED_ISOLATED_HARNESS"');
+    expect(s).toContain('output?.evidenceKind!=="TRUSTED_ISOLATED_HARNESS_OUTPUT"');
+    expect(s).toContain("EXPERIMENT_GATE_OUTPUT_DIGEST_INVALID");
+    expect(s).toContain("hasExecutableField");
+    expect(s).toContain("receipt.gateOutputSetDigest===gateEvidence.outputSetDigest");
   });
 
   it("binds measured results to an execution-ready manifest, adapter, brief, artifact digest and receipt",()=>{
@@ -116,7 +123,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
   it("executes exact-base materialization and fails closed on tampering, protected paths, or non-applying patches",()=>{
     const verifier=resolve(process.cwd(),"scripts/origin-self-evolution-v2-experiment-result.mjs");
 
-    const execute=(pathValue:string,digestOverride?:string,removedLine="old",metricDigestOverride?:string)=>{
+    const execute=(pathValue:string,digestOverride?:string,removedLine="old",metricDigestOverride?:string,gateOutputDigestOverride?:string)=>{
       const dir=mkdtempSync(join(tmpdir(),"origin-self-evolution-result-"));
       try{
         mkdirSync(join(dir,"src"),{recursive:true});
@@ -209,6 +216,69 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
         const metricEvidencePath=join(dir,"metric-evidence.json");
         writeFileSync(metricEvidencePath,metricEvidenceBytes);
 
+        const gateHarnesses={
+          relevantTests:"origin-gate-tests-v2",
+          securityRegression:"origin-gate-security-v2",
+          accessibilityRegression:"origin-gate-accessibility-v2",
+          performanceRegression:"origin-gate-performance-v2",
+          rollbackDefined:"origin-gate-rollback-v2"
+        };
+        const gateOutputDir=join(dir,"gate-outputs");
+        mkdirSync(gateOutputDir,{recursive:true});
+        const gateObservations=Object.entries(gateHarnesses).map(([gateId,harnessId])=>{
+          const output={
+            schemaVersion:"origin.self-evolution.gate-output.v2",
+            exactBaseSha:baseSha,
+            manifestId:"manifest-1",
+            candidateId:"candidate-1",
+            experimentId:"experiment-1",
+            artifactSha256:claimedDigest,
+            materializationDigest,
+            gateId,
+            harnessId,
+            evidenceKind:"TRUSTED_ISOLATED_HARNESS_OUTPUT",
+            status:"PASS",
+            exitCode:0,
+            networkWrite:false,
+            secretAccess:false,
+            paidProvider:false,
+            costUsd:0
+          };
+          const bytes=JSON.stringify(output,null,2)+"\n";
+          const actualOutputSha256=createHash("sha256").update(bytes).digest("hex");
+          writeFileSync(join(gateOutputDir,`${gateId}.json`),bytes);
+          return {
+            gateId,
+            harnessId,
+            status:"PASS",
+            exitCode:0,
+            outputSha256:gateId==="relevantTests" && gateOutputDigestOverride
+              ? gateOutputDigestOverride
+              : actualOutputSha256
+          };
+        });
+        const gateCanonical=[...gateObservations]
+          .sort((a,b)=>a.gateId.localeCompare(b.gateId))
+          .map(x=>[x.gateId,x.harnessId,x.outputSha256].join("|"))
+          .join("\n");
+        const gateObservationSetDigest=createHash("sha256").update(gateCanonical).digest("hex");
+        const gateEvidence={
+          schemaVersion:"origin.self-evolution.gate-evidence.v2",
+          exactBaseSha:baseSha,
+          manifestId:"manifest-1",
+          candidateId:"candidate-1",
+          experimentId:"experiment-1",
+          artifactSha256:claimedDigest,
+          materializationDigest,
+          evidenceKind:"TRUSTED_ISOLATED_HARNESS",
+          privateHeldOut:false,
+          observations:gateObservations
+        };
+        const gateEvidenceBytes=JSON.stringify(gateEvidence,null,2)+"\n";
+        const gateEvidenceSha256=createHash("sha256").update(gateEvidenceBytes).digest("hex");
+        const gateEvidencePath=join(dir,"gate-evidence.json");
+        writeFileSync(gateEvidencePath,gateEvidenceBytes);
+
         const input={
           schemaVersion:"origin.self-evolution.experiment-result.v2",
           exactBaseSha:baseSha,
@@ -219,6 +289,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
           implementationBriefId:"brief-1",
           artifactSha256:claimedDigest,
           metricEvidenceSha256:claimedMetricDigest,
+          gateEvidenceSha256,
           costUsd:0,
           paidProvider:false,
           repoMutation:false,
@@ -244,6 +315,9 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
             artifactSha256:claimedDigest,
             metricEvidenceSha256:claimedMetricDigest,
             metricCaseSetDigest,
+            gateEvidenceSha256,
+            gateObservationSetDigest,
+            gateOutputSetDigest:gateObservationSetDigest,
             materializationDigest,
             filesChanged:1,
             patchBytes:Buffer.byteLength(patch,"utf8"),
@@ -272,7 +346,9 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
             ORIGIN_SELF_EVOLUTION_REPOSITORY_ROOT:dir,
             ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH:inputPath,
             ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH:artifactPath,
-            ORIGIN_SELF_EVOLUTION_METRIC_EVIDENCE_PATH:metricEvidencePath
+            ORIGIN_SELF_EVOLUTION_METRIC_EVIDENCE_PATH:metricEvidencePath,
+            ORIGIN_SELF_EVOLUTION_GATE_EVIDENCE_PATH:gateEvidencePath,
+            ORIGIN_SELF_EVOLUTION_GATE_OUTPUT_DIR:gateOutputDir
           },
           stdio:"pipe"
         });
@@ -287,6 +363,8 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(valid.provenance.materializedChangedPaths).toEqual(["src/example.ts"]);
     expect(valid.provenance.metricCaseIds).toEqual(["case-001"]);
     expect(valid.provenance.metricEvidenceSampleCounts).toEqual({paired:1});
+    expect(valid.provenance.gateObservationCount).toBe(5);
+    expect(valid.provenance.gateOutputSetDigest).toMatch(/^[a-f0-9]{64}$/);
 
     const tampered=execute("src/example.ts","b".repeat(64));
     expect(tampered.status).toBe("REJECTED");
@@ -295,6 +373,10 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     const tamperedMetric=execute("src/example.ts",undefined,"old","c".repeat(64));
     expect(tamperedMetric.status).toBe("REJECTED");
     expect(tamperedMetric.reason).toBe("EXPERIMENT_METRIC_EVIDENCE_DIGEST_INVALID");
+
+    const tamperedGateOutput=execute("src/example.ts",undefined,"old",undefined,"d".repeat(64));
+    expect(tamperedGateOutput.status).toBe("REJECTED");
+    expect(tamperedGateOutput.reason).toBe("EXPERIMENT_GATE_OUTPUT_DIGEST_INVALID");
 
     const protectedPath=execute(".github/workflows/unsafe.yml");
     expect(protectedPath.status).toBe("REJECTED");
