@@ -10,6 +10,15 @@ describe("ORIGIN Self-Evolution V2 source integrity",()=>{
     expect(()=>execFileSync(process.execPath,["--check","scripts/origin-self-evolution-v2-source-integrity.mjs"],{stdio:"pipe"})).not.toThrow();
   });
 
+  it("rejects redirects and oversized source bodies before planning",()=>{
+    const observer=read("scripts/origin-self-evolution-v2.mjs");
+    expect(observer).toContain('redirect: "error"');
+    expect(observer).toContain("SOURCE_BODY_TOO_LARGE");
+    expect(observer).toContain("maxSourceBytes");
+    const config=JSON.parse(read("config/origin-self-evolution-sources.json"));
+    expect(config.rules.maxSourceBytes).toBe(262144);
+  });
+
   it("requires public HTTPS and blocks prompt-like external evidence",()=>{
     const s=read("scripts/origin-self-evolution-v2-source-integrity.mjs");
     expect(s).toContain("validPublicHttps");
