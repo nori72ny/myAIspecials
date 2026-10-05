@@ -43,6 +43,22 @@ describe("ORIGIN Self-Evolution V2 source integrity",()=>{
     expect(observer).not.toContain("<script\\\\b");
   });
 
+  it("stops source-body streaming once the byte budget is exceeded",()=>{
+    const helperUrl=pathToFileURL(resolve(process.cwd(),"scripts/origin-self-evolution-v2-source-safety.mjs")).href;
+    const probe=[
+      `import { readBoundedResponseText } from ${JSON.stringify(helperUrl)};`,
+      `const ok=await readBoundedResponseText(new Response("small"),16);`,
+      `let rejected=false; try { await readBoundedResponseText(new Response("0123456789abcdef"),8); } catch (error) { rejected=String(error?.message||error)==="SOURCE_BODY_TOO_LARGE"; }`,
+      `console.log(JSON.stringify({ok,rejected}));`
+    ].join("\\n");
+    const result=JSON.parse(execFileSync(process.execPath,["--input-type=module","-e",probe],{encoding:"utf8"}));
+    expect(result.ok).toBe("small");
+    expect(result.rejected).toBe(true);
+    const observer=read("scripts/origin-self-evolution-v2.mjs");
+    expect(observer).toContain("readBoundedResponseText(response, maxSourceBytes)");
+    expect(observer).not.toContain("response.text()");
+  });
+
   it("requires public HTTPS and blocks prompt-like external evidence",()=>{
     const s=read("scripts/origin-self-evolution-v2-source-integrity.mjs");
     expect(s).toContain("validPublicHttps");
