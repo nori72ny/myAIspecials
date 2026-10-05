@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -27,50 +29,11 @@ function pngHeader(width: number, height: number): Uint8Array {
   return bytes;
 }
 
-function request(path: string, secret = SECRET): Request {
+function request(path: string, form?: FormData, secret = SECRET): Request {
   return new Request(`https://origin-raster.example.workers.dev${path}`, {
-    method: 'GET',
+    method: form ? 'POST' : 'GET',
     headers: { 'x-origin-gateway-secret': secret },
-  });
-}
-
-function multipartRequest(
-  path: string,
-  fields: Record<string, string>,
-  files: Array<{ name: string; filename: string; mimeType: string; bytes: Uint8Array }> = [],
-): Request {
-  const boundary = 'origin-raster-test-boundary';
-  const encoder = new TextEncoder();
-  const parts: Uint8Array[] = [];
-  for (const [name, value] of Object.entries(fields)) {
-    parts.push(encoder.encode(
-      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
-    ));
-  }
-  for (const file of files) {
-    parts.push(encoder.encode(
-      `--${boundary}\r\nContent-Disposition: form-data; name="${file.name}"; filename="${file.filename}"\r\nContent-Type: ${file.mimeType}\r\n\r\n`,
-    ));
-    parts.push(file.bytes);
-    parts.push(encoder.encode('\r\n'));
-  }
-  parts.push(encoder.encode(`--${boundary}--\r\n`));
-
-  const total = parts.reduce((sum, part) => sum + part.byteLength, 0);
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    body.set(part, offset);
-    offset += part.byteLength;
-  }
-
-  return new Request(`https://origin-raster.example.workers.dev${path}`, {
-    method: 'POST',
-    headers: {
-      'x-origin-gateway-secret': SECRET,
-      'content-type': `multipart/form-data; boundary=${boundary}`,
-    },
-    body,
+    body: form,
   });
 }
 
@@ -104,7 +67,7 @@ describe('cloudflareRasterGatewayWorkerV15', () => {
     const aiRun = vi.fn(async () => new Uint8Array([1]));
     const worker = createCloudflareRasterGatewayWorkerV15();
 
-    const response = await worker.fetch(request('/status', 'wrong-secret'), readyEnv(aiRun));
+    const response = await worker.fetch(request('/status', undefined, 'wrong-secret'), readyEnv(aiRun));
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ ok: false, code: 'UNAUTHORIZED' });
     expect(aiRun).not.toHaveBeenCalled();
@@ -113,11 +76,12 @@ describe('cloudflareRasterGatewayWorkerV15', () => {
   it('sends only a sanitized multipart request to the exact FLUX.2 klein 4B binding', async () => {
     const aiRun = vi.fn(async (_model: Parameters<AiRun>[0], _input: Parameters<AiRun>[1]) => pngHeader(1024, 1024));
     const worker = createCloudflareRasterGatewayWorkerV15();
-    const response = await worker.fetch(multipartRequest('/generate', {
-      prompt: 'A premium studio product photograph',
-      width: '1024',
-      height: '1024',
-    }), readyEnv(aiRun));
+    const form = new FormData();
+    form.append('prompt', 'A premium studio product photograph');
+    form.append('width', '1024');
+    form.append('height', '1024');
+
+    const response = await worker.fetch(request('/generate', form), readyEnv(aiRun));
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe('image/png');
     expect(aiRun).toHaveBeenCalledTimes(1);
@@ -152,16 +116,13 @@ describe('cloudflareRasterGatewayWorkerV15', () => {
   it('rejects reference images at 512px or larger before invoking Workers AI', async () => {
     const aiRun = vi.fn(async () => pngHeader(1024, 1024));
     const worker = createCloudflareRasterGatewayWorkerV15();
-    const response = await worker.fetch(multipartRequest('/edit', {
-      prompt: 'Preserve the subject and change the background',
-      width: '1024',
-      height: '1024',
-    }, [{
-      name: 'input_image_0',
-      filename: 'source.png',
-      mimeType: 'image/png',
-      bytes: pngHeader(512, 128),
-    }]), readyEnv(aiRun));
+    const form = new FormData();
+    form.append('prompt', 'Preserve the subject and change the background');
+    form.append('width', '1024');
+    form.append('height', '1024');
+    form.append('input_image_0', new Blob([pngHeader(512, 128)], { type: 'image/png' }), 'source.png');
+
+    const response = await worker.fetch(request('/edit', form), readyEnv(aiRun));
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ code: 'INPUT_REFERENCE_DIMENSIONS_UNSUPPORTED' });
     expect(aiRun).not.toHaveBeenCalled();
