@@ -62,11 +62,11 @@ function finiteSamples(values){
   return Array.isArray(values) &&
     values.length>=1 &&
     values.length<=100 &&
-    values.every(value=>Number.isFinite(Number(value)));
+    values.every(value=>typeof value==="number" && Number.isFinite(value));
 }
 
 function average(values){
-  return values.reduce((sum,value)=>sum+Number(value),0)/values.length;
+  return values.reduce((sum,value)=>sum+value,0)/values.length;
 }
 
 function nearlyEqual(a,b){
@@ -103,7 +103,8 @@ function inspectMetricEvidence(rawPath,manifest,claimedSha256,inputMetric){
     !Number.isFinite(minDelta) ||
     minDelta<0 ||
     !finiteSamples(beforeSamples) ||
-    !finiteSamples(afterSamples)
+    !finiteSamples(afterSamples) ||
+    beforeSamples.length!==afterSamples.length
   ){
     return {ok:false,reason:"EXPERIMENT_METRIC_EVIDENCE_BINDING_INVALID",sha256};
   }
