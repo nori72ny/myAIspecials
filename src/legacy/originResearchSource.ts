@@ -336,35 +336,54 @@ function filterRelevantSources(sources: OriginResearchSource[], intent: Research
 async function searchWeb(intent: ResearchIntent, retrievedAt: string): Promise<OriginResearchResult> {
   const locale = languageForQuery(intent.searchQuery) === "ja" ? "jp-jp" : "us-en";
   const query = encodeURIComponent(intent.searchQuery);
-  const endpoints = [
+  const duckEndpoints = [
     `${SEARCH_ORIGINS.duckduckgoHtml}?q=${query}&kl=${locale}&num=6`,
     `${SEARCH_ORIGINS.duckduckgoLite}?q=${query}&kl=${locale}`,
   ];
   let firstTransportFailure: OriginResearchFailureCode | null = null;
   let receivedSearchResponse = false;
+  let sources: OriginResearchSource[] = [];
+  let provider: "DuckDuckGo" | "Bing" = "DuckDuckGo";
 
-  for (const endpoint of endpoints) {
+  for (const endpoint of duckEndpoints) {
     try {
       const html = await secureFetch(endpoint);
       receivedSearchResponse = true;
-      const parsed = parseDuckDuckGoResults(html, retrievedAt, 6);
-      const sources = filterRelevantSources(parsed, intent);
-      if (sources.length > 0) return { ok: true, sources, searchProvider: "DuckDuckGo" };
+      const parsed = filterRelevantSources(parseDuckDuckGoResults(html, retrievedAt, 6), intent);
+      sources = mergeSources(sources, parsed);
+      if (distinctDomainCount(sources) >= intent.minimumDistinctDomains) {
+        return { ok: true, sources, searchProvider: "DuckDuckGo" };
+      }
     } catch (error) {
       firstTransportFailure ??= classifyFailure(error);
     }
   }
 
+  try {
+    const rss = await secureFetch(`${SEARCH_ORIGINS.bingRss}?format=rss&count=8&q=${query}`);
+    receivedSearchResponse = true;
+    provider = "Bing";
+    const parsed = filterRelevantSources(parseBingRssResults(rss, retrievedAt, 8), intent);
+    sources = mergeSources(sources, parsed);
+    if (distinctDomainCount(sources) >= intent.minimumDistinctDomains) {
+      return { ok: true, sources, searchProvider: "Bing" };
+    }
+  } catch (error) {
+    firstTransportFailure ??= classifyFailure(error);
+  }
+
   return {
     ok: false,
-    sources: [],
+    sources,
     failure: {
       stage: "web-search",
-      code: receivedSearchResponse
-        ? (intent.requiredHostSuffixes.length > 0 ? "SOURCE_CONSTRAINT_UNMET" : "IRRELEVANT_RESULTS")
-        : (firstTransportFailure ?? "NO_RESULTS"),
+      code: sources.length > 0 && distinctDomainCount(sources) < intent.minimumDistinctDomains
+        ? "SOURCE_CONSTRAINT_UNMET"
+        : receivedSearchResponse
+          ? (intent.requiredHostSuffixes.length > 0 ? "SOURCE_CONSTRAINT_UNMET" : "IRRELEVANT_RESULTS")
+          : (firstTransportFailure ?? "NO_RESULTS"),
     },
-    searchProvider: "DuckDuckGo",
+    searchProvider: provider,
   };
 }
 
