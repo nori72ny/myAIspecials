@@ -12,11 +12,11 @@ describe("ORIGIN Self-Evolution V2 candidate planner", () => {
 
   it("does not permit direct code write, merge, or deployment", () => {
     const planner = read("scripts/origin-self-evolution-v2-plan.mjs");
-    expect(planner).toContain("codeWriteAllowed: false");
-    expect(planner).toContain("mergeAllowed: false");
-    expect(planner).toContain("productionDeployAllowed: false");
-    expect(planner).toContain("requireMeasuredImprovement: true");
-    expect(planner).toContain("maxCostUsd: 0");
+    expect(planner).toMatch(/codeWriteAllowed:\s*false/);
+    expect(planner).toMatch(/mergeAllowed:\s*false/);
+    expect(planner).toMatch(/productionDeployAllowed:\s*false/);
+    expect(planner).toMatch(/requireMeasuredImprovement:\s*true/);
+    expect(planner).toMatch(/maxCostUsd:\s*0/);
   });
 
   it("routes non-primary sensitive evidence away from implementation", () => {
