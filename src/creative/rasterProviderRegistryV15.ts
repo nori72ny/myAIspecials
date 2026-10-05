@@ -61,11 +61,24 @@ const CLOUDFLARE_DESCRIPTOR: RasterProviderDescriptorV15 = {
   paymentMethodRequired: false,
 };
 
-const PROVIDERS: readonly RasterProviderRuntimeV15[] = [{
-  descriptor: CLOUDFLARE_DESCRIPTOR,
-  status: (env = process.env) => getCloudflareRasterStatusV15(env),
-  generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
-}];
+const GATEWAY_DESCRIPTOR: RasterProviderDescriptorV15 = {
+  ...CLOUDFLARE_DESCRIPTOR,
+  id: 'cloudflare-workers-ai-gateway',
+  label: 'Cloudflare Workers AI server-bound gateway',
+};
+
+const PROVIDERS: readonly RasterProviderRuntimeV15[] = [
+  {
+    descriptor: GATEWAY_DESCRIPTOR,
+    status: (env = process.env) => getCloudflareRasterGatewayStatusV15(env),
+    generate: (input, env = process.env) => generateCloudflareRasterGatewayImageV15(input, env),
+  },
+  {
+    descriptor: CLOUDFLARE_DESCRIPTOR,
+    status: (env = process.env) => getCloudflareRasterStatusV15(env),
+    generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
+  },
+];
 
 export type RasterProviderSelectionV15 =
   | {
