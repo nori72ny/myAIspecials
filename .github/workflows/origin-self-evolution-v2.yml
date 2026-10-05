@@ -49,6 +49,9 @@ jobs:
       - name: Observe and score external evidence
         run: node scripts/origin-self-evolution-v2.mjs
 
+      - name: Validate source integrity and untrusted-content boundary
+        run: node scripts/origin-self-evolution-v2-source-integrity.mjs
+
       - name: Build baseline-comparison candidate queue
         run: node scripts/origin-self-evolution-v2-plan.mjs
 
@@ -89,6 +92,8 @@ jobs:
             origin-self-evolution-baseline-v2.md
             origin-self-evolution-v2.json
             origin-self-evolution-v2.md
+            origin-self-evolution-source-integrity-v2.json
+            origin-self-evolution-source-integrity-v2.md
             origin-self-evolution-candidates-v2.json
             origin-self-evolution-candidates-v2.md
             origin-self-evolution-priority-v2.json
