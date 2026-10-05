@@ -2,6 +2,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const queue=JSON.parse(readFileSync("origin-self-evolution-candidates-v2.json","utf8"));
 const baseline=JSON.parse(readFileSync("origin-self-evolution-baseline-v2.json","utf8"));
+const measurement=JSON.parse(readFileSync("origin-self-evolution-gap-measurement-v2.json","utf8"));
+const measuredByCandidate=new Map(measurement.acceptedMeasurements.map(x=>[x.candidateId,x]));
 
 function knownRuntimeGap(candidate){
   if(candidate.category==="image-multimodal"){
@@ -25,6 +27,8 @@ function knownRuntimeGap(candidate){
 
 const assessments=queue.candidates.map(candidate=>{
   const gap=knownRuntimeGap(candidate);
+  const measured=measuredByCandidate.get(candidate.id)||null;
+  const measuredImprovementOpportunity=Boolean(measured);
   return {
     candidateId:candidate.id,
     category:candidate.category,
@@ -32,12 +36,17 @@ const assessments=queue.candidates.map(candidate=>{
     capabilityAxes:candidate.capabilityAxes||[],
     requiredGates:candidate.requiredGates||[],
     ...gap,
+    measuredGapEvidence:measured,
     solutionFitVerified:false,
-    measuredImprovementOpportunity:false,
-    actionability:"BLOCKED_PENDING_MEASURED_GAP_AND_SOLUTION_FIT",
-    requiredNextEvidence:gap.gapKnown
-      ? "Measure whether this specific proposed technique improves the known ORIGIN gap without regression."
-      : "Measure ORIGIN on the mapped capability axes before claiming a gap."
+    measuredImprovementOpportunity,
+    actionability:measuredImprovementOpportunity
+      ? "DRY_RUN_EXPERIMENT_MEASUREMENT_ELIGIBLE"
+      : "BLOCKED_PENDING_MEASURED_GAP",
+    requiredNextEvidence:measuredImprovementOpportunity
+      ? "Run an isolated zero-cost dry-run to test whether this specific technique improves the measured ORIGIN gap without regression."
+      : gap.gapKnown
+        ? "Capture reproducible non-held-out evidence quantifying this known ORIGIN gap on a mapped capability axis."
+        : "Measure ORIGIN on the mapped capability axes before claiming a gap."
   };
 });
 
