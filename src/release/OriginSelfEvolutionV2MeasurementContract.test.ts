@@ -110,7 +110,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
       const dir=mkdtempSync(join(tmpdir(),"origin-self-evolution-result-"));
       try{
         mkdirSync(join(dir,"src"),{recursive:true});
-        writeFileSync(join(dir,"src/example.ts"),"old\\n");
+        writeFileSync(join(dir,"src/example.ts"),"old\n");
         execFileSync("git",["init","-q"],{cwd:dir,stdio:"pipe"});
         execFileSync("git",["config","user.name","ORIGIN Test"],{cwd:dir,stdio:"pipe"});
         execFileSync("git",["config","user.email","origin-test@invalid.local"],{cwd:dir,stdio:"pipe"});
