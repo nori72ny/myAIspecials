@@ -21,7 +21,9 @@ jobs:
     env:
       BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
       CANDIDATE_SHA: ${{ github.sha }}
-      EXPECTED_SHARD_COUNT: '16'
+      EXPECTED_SHARD_COUNT: '40'
+      ORIGIN_AQ_SHARD_MODE: case-isolated
+      AQ_NEW_SHARD_DIR: ${{ github.workspace }}/aq-new
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ORIGIN_AQ_BASELINE_PORT: '4611'
       ORIGIN_AQ_CANDIDATE_PORT: '4612'
@@ -91,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          output="$(npx tsx -e 'import {createOriginAnswerQualityFrozenCorpus} from "./src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.ts"; import {planOriginAnswerQualityBenchmarkQuotaShards} from "./src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.ts"; const r=planOriginAnswerQualityBenchmarkQuotaShards(createOriginAnswerQualityFrozenCorpus(),45); if(!r.ok) process.exit(2); console.log(JSON.stringify({count:r.value.shards.length,max:r.value.fullComparisonRequestsMax}));')"
+          output="$(npx tsx -e 'import {createOriginAnswerQualityFrozenCorpus} from "./src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.ts"; import {planOriginAnswerQualityBenchmarkCaseShards} from "./src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.ts"; const r=planOriginAnswerQualityBenchmarkCaseShards(createOriginAnswerQualityFrozenCorpus(),45); if(!r.ok) process.exit(2); console.log(JSON.stringify({count:r.value.shards.length,max:r.value.fullComparisonRequestsMax}));')"
           count="$(node -e 'const v=JSON.parse(process.argv[1]); process.stdout.write(String(v.count))' "$output")"
           max="$(node -e 'const v=JSON.parse(process.argv[1]); process.stdout.write(String(v.max))' "$output")"
           test "$count" -eq "$EXPECTED_SHARD_COUNT"
@@ -137,33 +139,33 @@ jobs:
           test -z "${ANTHROPIC_API_KEY:-}"
           test -z "${GEMINI_API_KEY:-}"
 
-      - name: Run next exact-main shard comparison
+      - name: Run budgeted exact-main daily comparison
         if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
         working-directory: candidate
         env:
-          ORIGIN_AQ_SHARD_INDEX: ${{ steps.state.outputs.next_index }}
           ORIGIN_AQ_BASELINE_ROOT: ${{ github.workspace }}/baseline
           ORIGIN_AQ_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
           ORIGIN_AQ_BASELINE_SHA: ${{ env.BASELINE_SHA }}
           ORIGIN_AQ_CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
-          ORIGIN_AQ_OUTPUT_PATH: ${{ env.AQ_STATE_DIR }}/aq-official-shard-${{ steps.state.outputs.next_index }}.json
-        run: npm run eval:aq-local-comparison-shard
+        run: npm run eval:aq-budgeted-day
 
-      - name: Require successful sanitized shard
+      - name: Require sanitized budgeted daily batch
         if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
-        env:
-          NEXT_INDEX: ${{ steps.state.outputs.next_index }}
+        shell: bash
         run: |
           set -euo pipefail
-          file="$AQ_STATE_DIR/aq-official-shard-$NEXT_INDEX.json"
-          node -e 'const fs=require("fs"); const raw=fs.readFileSync(process.argv[1],"utf8"); const v=JSON.parse(raw); const forbidden=["answerText","\"prompt\"","\"messages\"","chain-of-thought","OPENROUTER_API_KEY"]; if(forbidden.some(x=>raw.includes(x))||v?.ok!==true||v?.shard?.candidateGitSha!==process.env.CANDIDATE_SHA||v?.shard?.baselineGitSha!==process.env.BASELINE_SHA||v?.shard?.shardIndex!==Number(process.env.NEXT_INDEX)) process.exit(1)' "$file"
+          summary="$AQ_NEW_SHARD_DIR/aq-budgeted-day-summary.json"
+          test -f "$summary"
+          node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(v?.schemaVersion!=="origin.aq-budgeted-day.v1"||v?.candidateSha!==process.env.CANDIDATE_SHA||v?.baselineSha!==process.env.BASELINE_SHA||!Number.isInteger(v?.actualRequestsUsed)||v.actualRequestsUsed<0||v.actualRequestsUsed>45||!Array.isArray(v?.executed)||v.executed.length<1||v.expectedShardCount!==40) process.exit(1)' "$summary"
+          count="$(find "$AQ_NEW_SHARD_DIR" -maxdepth 1 -type f -name 'aq-official-shard-*.json' | wc -l | tr -d ' ')"
+          test "$count" -ge 1
 
-      - name: Upload successful shard evidence
+      - name: Upload successful daily shard batch
         if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true' && success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: aq-live-final-shard-${{ env.CANDIDATE_SHA }}-s${{ steps.state.outputs.next_index }}
-          path: ${{ env.AQ_STATE_DIR }}/aq-official-shard-${{ steps.state.outputs.next_index }}.json
+          name: aq-live-final-batch-${{ env.CANDIDATE_SHA }}
+          path: ${{ env.AQ_NEW_SHARD_DIR }}/
           if-no-files-found: error
           retention-days: 30
 
