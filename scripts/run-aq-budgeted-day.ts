@@ -4,7 +4,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { createOriginAnswerQualityFrozenCorpus } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.js";
-import { planOriginAnswerQualityBenchmarkCaseShards } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.js";
+import {
+  planOriginAnswerQualityBenchmarkCaseShards,
+  selectOriginAnswerQualityBenchmarkNextBudgetedShard,
+} from "../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.js";
 
 const exec = promisify(execFile);
 const DAILY_PROVIDER_BUDGET = 45;
@@ -82,9 +85,11 @@ async function main(): Promise<void> {
   let used = 0;
 
   while (completed.size < plan.value.shards.length) {
-    const remaining = DAILY_PROVIDER_BUDGET - used;
-    const next = plan.value.shards.find(
-      (shard) => !completed.has(shard.shardIndex) && shard.pairedRequestsMax <= remaining,
+    const next = selectOriginAnswerQualityBenchmarkNextBudgetedShard(
+      plan.value,
+      completed,
+      used,
+      DAILY_PROVIDER_BUDGET,
     );
     if (!next) break;
 
