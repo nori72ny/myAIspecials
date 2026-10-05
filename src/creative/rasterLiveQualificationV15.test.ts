@@ -147,3 +147,55 @@ describe('rasterLiveQualificationV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(19);
   });
 });
+
+const GATEWAY_ENV = {
+  ...ENV,
+  ORIGIN_RASTER_GATEWAY_URL: 'https://raster.example.workers.dev',
+  ORIGIN_RASTER_GATEWAY_SECRET: 'g'.repeat(48),
+  ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
+};
+function gatewayProof() {
+  return new Response(JSON.stringify({
+    ok: true, provider: 'cloudflare-workers-ai-binding',
+    model: '@cf/black-forest-labs/flux-2-klein-4b',
+    aiBindingConfigured: true, secretConfigured: true,
+    zeroCostVerified: true, freeOnly: true, paidFallbackEnabled: false,
+  }), { headers: { 'content-type': 'application/json' } });
+}
+describe('gateway live qualification routing', () => {
+  it('keeps an unverified gateway blocked without testing a different provider', async () => {
+    const fetchMock = vi.fn();
+    const result = await qualifyRasterLiveV15({
+      env: { ...GATEWAY_ENV, ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'false' },
+      fetchImpl: fetchMock,
+    });
+    expect(result.state).toBe('blocked');
+    expect(result.provider.id).toBe('cloudflare-workers-ai-gateway');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('qualifies gateway generation and reference editing with both semantic checks', async () => {
+    const generated = png(384, 384, 1);
+    const edited = png(384, 384, 2);
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(gatewayProof());
+    fetchMock.mockResolvedValueOnce(gatewayProof());
+    fetchMock.mockResolvedValueOnce(new Response(generated));
+    readyProof(fetchMock);
+    fetchMock.mockResolvedValueOnce(envelope({ answer: semanticAnswer('Valid generation.') }));
+    fetchMock.mockResolvedValueOnce(gatewayProof());
+    fetchMock.mockResolvedValueOnce(new Response(edited));
+    readyProof(fetchMock);
+    fetchMock.mockResolvedValueOnce(envelope({ answer: semanticAnswer('Valid reference edit.') }));
+    const result = await qualifyRasterLiveV15({ env: GATEWAY_ENV, fetchImpl: fetchMock });
+    expect(result.state).toBe('passed');
+    expect(result.provider.id).toBe('cloudflare-workers-ai-gateway');
+    expect(result.generation?.providerId).toBe(result.provider.id);
+    expect(result.edit?.providerId).toBe(result.provider.id);
+    const gatewayCalls = fetchMock.mock.calls.filter(([url]) => String(url).startsWith(GATEWAY_ENV.ORIGIN_RASTER_GATEWAY_URL));
+    expect(gatewayCalls.map(([url]) => String(url).split('/').pop())).toEqual(['status', 'status', 'generate', 'status', 'edit']);
+    const editBody = gatewayCalls.at(-1)?.[1]?.body as FormData;
+    expect(editBody.get('input_image_0')).toBeTruthy();
+    expect(JSON.stringify(result)).not.toContain(GATEWAY_ENV.ORIGIN_RASTER_GATEWAY_SECRET);
+    expect(JSON.stringify(result)).not.toContain(generated.toString('base64'));
+  });
+});

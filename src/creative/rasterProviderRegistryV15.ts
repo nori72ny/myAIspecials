@@ -35,8 +35,8 @@ export type RasterProviderDescriptorV15 = {
 
 export type RasterProviderRuntimeV15 = {
   descriptor: RasterProviderDescriptorV15;
-  status(env?: NodeJS.ProcessEnv): Promise<RasterProviderStatusV15>;
-  generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv): Promise<RasterImageResultV15>;
+  status(env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<RasterProviderStatusV15>;
+  generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<RasterImageResultV15>;
 };
 
 const CLOUDFLARE_DESCRIPTOR: RasterProviderDescriptorV15 = {
@@ -71,13 +71,13 @@ const GATEWAY_DESCRIPTOR: RasterProviderDescriptorV15 = {
 const PROVIDERS: readonly RasterProviderRuntimeV15[] = [
   {
     descriptor: GATEWAY_DESCRIPTOR,
-    status: (env = process.env) => getCloudflareRasterGatewayStatusV15(env),
-    generate: (input, env = process.env) => generateCloudflareRasterGatewayImageV15(input, env),
+    status: (env = process.env, fetchImpl) => getCloudflareRasterGatewayStatusV15(env, fetchImpl),
+    generate: (input, env = process.env, fetchImpl) => generateCloudflareRasterGatewayImageV15(input, env, fetchImpl),
   },
   {
     descriptor: CLOUDFLARE_DESCRIPTOR,
-    status: (env = process.env) => getCloudflareRasterStatusV15(env),
-    generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
+    status: (env = process.env, fetchImpl) => getCloudflareRasterStatusV15(env, fetchImpl),
+    generate: (input, env = process.env, fetchImpl) => generateCloudflareRasterImageV15(input, env, fetchImpl),
   },
 ];
 
@@ -104,6 +104,10 @@ export type RasterProviderSelectionV15 =
 
 export function rasterProviderRegistryV15(): readonly RasterProviderDescriptorV15[] {
   return PROVIDERS.map(provider => structuredClone(provider.descriptor));
+}
+
+export function rasterProviderByIdV15(id: string): RasterProviderRuntimeV15 | null {
+  return PROVIDERS.find(provider => provider.descriptor.id === id) ?? null;
 }
 
 export function resolveRasterProviderV15(
