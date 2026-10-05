@@ -32,7 +32,7 @@ describe("Q1 final AQ scheduled workflow", () => {
     const create = workflow.indexOf("\n      - name: Create sanitized quota reservation");
     const reserve = workflow.indexOf("\n      - name: Reserve 24-hour provider quota");
     const baseline = workflow.indexOf("\n      - name: Checkout frozen baseline");
-    const comparison = workflow.indexOf("\n      - name: Run next exact-main shard comparison");
+    const comparison = workflow.indexOf("\n      - name: Run budgeted exact-main daily comparison");
 
     expect(restore).toBeGreaterThan(0);
     expect(guard).toBeGreaterThan(restore);
@@ -49,9 +49,12 @@ describe("Q1 final AQ scheduled workflow", () => {
     const restore = read(restorePath);
     const summary = read(summaryPath);
 
-    expect(workflow).toContain("EXPECTED_SHARD_COUNT: '16'");
+    expect(workflow).toContain("EXPECTED_SHARD_COUNT: '40'");
+    expect(workflow).toContain("ORIGIN_AQ_SHARD_MODE: case-isolated");
     expect(workflow).toContain('test "$max" -eq 616');
-    expect(workflow).toContain("aq-live-final-shard-${{ env.CANDIDATE_SHA }}-s${{ steps.state.outputs.next_index }}");
+    expect(workflow).toContain("npm run eval:aq-budgeted-day");
+    expect(workflow).toContain("aq-live-final-batch-${{ env.CANDIDATE_SHA }}");
+    expect(workflow).toContain("actualRequestsUsed>45");
     expect(workflow).toContain("retention-days: 30");
     expect(workflow).toContain("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
     expect(workflow).not.toContain("secrets.OPENAI_API_KEY");
