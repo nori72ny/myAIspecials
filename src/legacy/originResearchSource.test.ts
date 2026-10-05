@@ -39,6 +39,28 @@ describe("originResearchSource", () => {
     expect(secureFetch.mock.calls[0][0]).toContain("kl=us-en");
   });
 
+  it("compacts mixed-language product research to stable topic terms", async () => {
+    secureFetch
+      .mockResolvedValueOnce(
+        '<a class="result__a" href="https://developers.cloudflare.com/workers-ai/">Cloudflare Workers AI</a>' +
+        '<div class="result__snippet">Cloudflare Workers AI runs AI models on the Cloudflare global network.</div>',
+      )
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "Cloudflare Workers AIの最新情報を複数ソースで調査してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("DuckDuckGo");
+    expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).toContain("q=cloudflare workers ai");
+    expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).not.toContain("複数ソース");
+    expect(result.sources[0]).toMatchObject({
+      domain: "developers.cloudflare.com",
+      sourceType: "web-search",
+    });
+  });
+
   it("uses Japanese search preferences for Japanese queries", async () => {
     secureFetch.mockResolvedValueOnce('<a class="result__a" href="https://example.com/ai">人工知能</a><div class="result__snippet">人工知能に関する説明</div>');
     const result = await researchCurrentInformation("人工知能");
