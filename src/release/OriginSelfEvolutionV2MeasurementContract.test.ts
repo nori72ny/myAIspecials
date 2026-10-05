@@ -61,9 +61,16 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain('createHash("sha256").update(bytes).digest("hex")');
     expect(s).toContain("EXPERIMENT_ARTIFACT_PROTECTED_OR_UNSAFE_PATH");
     expect(s).toContain("EXPERIMENT_ARTIFACT_PATCH_HEADER_INVALID");
+    expect(s).toContain("EXPERIMENT_ARTIFACT_FILE_HEADER_INVALID");
+    expect(s).toContain("EXPERIMENT_ARTIFACT_REALPATH_UNSAFE");
+    expect(s).toContain("EXPERIMENT_RESULT_INPUT_REALPATH_UNSAFE");
     expect(s).toContain("EXPERIMENT_ARTIFACT_PATCH_TOO_LARGE");
     expect(s).toContain("receipt.filesChanged===artifactInspection.filesChanged");
     expect(s).toContain("receipt.patchBytes===artifactInspection.patchBytes");
+    expect(s).toContain("receipt.cleanWorktreeBefore===true");
+    expect(s).toContain("receipt.cleanWorktreeAfter===true");
+    expect(s).toContain("receipt.rollbackPlanDefined===true");
+    expect(s).toContain("receipt.durationMs");
   });
 
   it("does not promote sandbox eligibility by itself",()=>{
