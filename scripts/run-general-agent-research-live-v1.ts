@@ -58,17 +58,22 @@ async function main():Promise<void>{
         || sources.length<1
       )throw new Error('RESEARCH_LIVE_SUCCESS_CONTRACT_INVALID');
 
+      const domains=new Set<string>();
       for(const source of sources){
         if(!source||typeof source!=='object'||Array.isArray(source))throw new Error('RESEARCH_LIVE_SOURCE_INVALID');
         const url=(source as Record<string,unknown>).url;
         if(typeof url!=='string'||!/^https?:\/\//i.test(url))throw new Error('RESEARCH_LIVE_SOURCE_URL_INVALID');
+        try{ domains.add(new URL(url).hostname.toLowerCase().replace(/^www\./,'')); }
+        catch{ throw new Error('RESEARCH_LIVE_SOURCE_URL_INVALID'); }
       }
 
-      solved+=1;
+      const meetsMultiSource=sources.length>=2&&domains.size>=2;
+      if(meetsMultiSource) solved+=1;
       results.push({
         taskId:`research-live-${index+1}`,
-        status:'completed',
+        status:meetsMultiSource?'completed':'insufficient-evidence',
         sourceCount:sources.length,
+        distinctDomainCount:domains.size,
         provider:body.provider??null,
         latencyMs:elapsedMs,
         costUsd:0,
