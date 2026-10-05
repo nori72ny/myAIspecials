@@ -29,3 +29,33 @@ export async function findFinalShardArtifact(repository, token, candidateSha, sh
   // Build the authenticated download target from the validated repository/id.
   return { ...artifact, archive_download_url: `https://api.github.com/repos/${repository}/actions/artifacts/${artifact.id}/zip` };
 }
+
+export async function listFinalBatchArtifacts(repository, token, candidateSha, { readJson = githubJson } = {}) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_.-]+$/.test(repository)
+    || repository.split("/")[1] === "." || repository.split("/")[1] === ".."
+    || !/^[a-f0-9]{40}$/.test(candidateSha)) {
+    throw new Error('AQ_FINAL_STATE_INPUT_INVALID');
+  }
+  const name = `aq-live-final-batch-${candidateSha}`;
+  const url = `https://api.github.com/repos/${repository}/actions/artifacts?per_page=100&name=${encodeURIComponent(name)}`;
+  const payload = await readJson(url, token);
+  if (!Array.isArray(payload?.artifacts) || !Number.isSafeInteger(payload.total_count)
+    || payload.total_count < 0 || payload.total_count > 100
+    || payload.total_count !== payload.artifacts.length) {
+    throw new Error('AQ_FINAL_STATE_ARTIFACT_INVENTORY_INCOMPLETE');
+  }
+  for (const item of payload.artifacts) {
+    if (item?.name !== name || typeof item.expired !== 'boolean'
+      || !Number.isSafeInteger(item.id) || item.id <= 0
+      || !Number.isFinite(Date.parse(item.created_at))) {
+      throw new Error('AQ_FINAL_STATE_ARTIFACT_METADATA_INVALID');
+    }
+  }
+  return payload.artifacts
+    .filter(item => !item.expired)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+    .map(item => ({
+      ...item,
+      archive_download_url: `https://api.github.com/repos/${repository}/actions/artifacts/${item.id}/zip`,
+    }));
+}
