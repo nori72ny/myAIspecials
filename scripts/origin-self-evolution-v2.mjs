@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 const config = JSON.parse(readFileSync("config/origin-self-evolution-sources.json", "utf8"));
 const maxExcerpt = Number(config.rules.maxExcerptChars || 1800);
 const maxSources = Number(config.rules.maxSourcesPerRun || 40);
+const maxSourceBytes = Number(config.rules.maxSourceBytes || 262144);
 const scanMode = String(process.env.ORIGIN_SELF_EVOLUTION_SCAN_MODE || "hourly");
 const VALID_SCAN_MODES = new Set(["hourly", "daily", "weekly", "all"]);
 if (!VALID_SCAN_MODES.has(scanMode)) throw new Error("INVALID_SELF_EVOLUTION_SCAN_MODE");
@@ -25,14 +26,17 @@ async function fetchEvidence(category, source) {
   const timer = setTimeout(() => controller.abort(), 9000);
   try {
     const response = await fetch(source.url, {
-      redirect: "follow",
+      redirect: "error",
       signal: controller.signal,
       headers: {
         "User-Agent": "ORIGIN-Self-Evolution-V2/1.0",
         Accept: "text/html,application/json,text/plain;q=0.8,*/*;q=0.2"
       }
     });
+    const declaredBytes = Number(response.headers.get("content-length") || 0);
+    if (Number.isFinite(declaredBytes) && declaredBytes > maxSourceBytes) throw new Error("SOURCE_BODY_TOO_LARGE");
     const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxSourceBytes) throw new Error("SOURCE_BODY_TOO_LARGE");
     const excerpt = sanitize(text);
     return {
       category: category.id,
