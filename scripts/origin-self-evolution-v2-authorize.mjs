@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 const baseline=JSON.parse(readFileSync("origin-self-evolution-baseline-v2.json","utf8"));
 const verify=JSON.parse(readFileSync("origin-self-evolution-verification-v2.json","utf8"));
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
+const integrity=JSON.parse(readFileSync("origin-self-evolution-source-integrity-v2.json","utf8"));
 
 const freeze = process.env.ORIGIN_EVALUATION_FREEZE === "true";
 const disabled = process.env.ORIGIN_SELF_EVOLUTION_DISABLED === "true";
@@ -17,6 +18,7 @@ const decisions=verify.verification.map(v=>{
     !freeze &&
     baseline.productionHealthy === true &&
     baselineFresh &&
+    integrity.safeForExperiments === true &&
     v.eligibleForSandbox === true &&
     candidate?.actionable === true &&
     ["P0","P1"].includes(candidate.priority);
@@ -26,6 +28,7 @@ const decisions=verify.verification.map(v=>{
   else if(freeze) reason="EVALUATION_FREEZE_ACTIVE";
   else if(!baseline.productionHealthy) reason="PRODUCTION_BASELINE_UNHEALTHY";
   else if(!baselineFresh) reason="BASELINE_STALE";
+  else if(integrity.safeForExperiments !== true) reason="SOURCE_INTEGRITY_BLOCKED";
   else if(!v.eligibleForSandbox) reason="SANDBOX_NOT_ELIGIBLE";
   else if(candidate?.actionable !== true) reason="CANDIDATE_NOT_ACTIONABLE";
   else if(!["P0","P1"].includes(candidate?.priority)) reason="PRIORITY_TOO_LOW";
@@ -54,6 +57,7 @@ const out={
   baselineGeneratedAt:baseline.generatedAt,
   baselineFresh,
   baselineAgeMs:ageMs,
+  sourceIntegritySafe:integrity.safeForExperiments === true,
   evaluationFreeze:freeze,
   disabled,
   summary:{
@@ -69,6 +73,7 @@ writeFileSync("origin-self-evolution-authorization-v2.md",[
   "# ORIGIN Self-Evolution V2 Authorization Gate",
   "",
   `Baseline fresh: ${baselineFresh}`,
+  `Source integrity safe: ${out.sourceIntegritySafe}`,
   `Evaluation freeze: ${freeze}`,
   `Authorized isolated dry-runs: ${out.summary.authorized}`,
   `Blocked: ${out.summary.blocked}`,
