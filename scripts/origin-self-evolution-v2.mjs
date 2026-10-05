@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolveCanonicalSource, sanitizeExternalEvidence } from "./origin-self-evolution-v2-source-safety.mjs";
+import { readBoundedResponseText, resolveCanonicalSource, sanitizeExternalEvidence } from "./origin-self-evolution-v2-source-safety.mjs";
 
 const config = JSON.parse(readFileSync("config/origin-self-evolution-sources.json", "utf8"));
 const maxExcerpt = Number(config.rules.maxExcerptChars || 1800);
@@ -44,8 +44,7 @@ async function fetchEvidence(category, source) {
     });
     const declaredBytes = Number(response.headers.get("content-length") || 0);
     if (Number.isFinite(declaredBytes) && declaredBytes > maxSourceBytes) throw new Error("SOURCE_BODY_TOO_LARGE");
-    const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > maxSourceBytes) throw new Error("SOURCE_BODY_TOO_LARGE");
+    const text = await readBoundedResponseText(response, maxSourceBytes);
     const excerpt = sanitizeExternalEvidence(text, maxExcerpt);
     return {
       category: category.id,
