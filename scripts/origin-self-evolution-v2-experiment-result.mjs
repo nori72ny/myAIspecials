@@ -5,6 +5,7 @@ const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH||
 const runnerTemp=String(process.env.RUNNER_TEMP||"");
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
 const verified=JSON.parse(readFileSync("origin-self-evolution-verification-v2.json","utf8"));
+const manifests=JSON.parse(readFileSync("origin-self-evolution-experiment-manifests-v2.json","utf8"));
 
 function notMeasured(reason){
   return {
@@ -62,6 +63,10 @@ if(!rawInput){
   }else{
     const candidate=priority.ranked.find(x=>x.id===input.candidateId);
     const check=verified.verification.find(x=>x.candidateId===input.candidateId && x.experimentId===input.experimentId);
+    const manifest=manifests.manifests.find(x=>x.candidateId===input.candidateId && x.experimentId===input.experimentId);
+    const artifactSha256=String(input.artifactSha256||"").toLowerCase();
+    const receipt=input.executionReceipt||{};
+    const receiptArtifactSha256=String(receipt.artifactSha256||"").toLowerCase();
     const metric=input.primaryMetric||{};
     const before=Number(metric.before);
     const after=Number(metric.after);
@@ -82,7 +87,10 @@ if(!rawInput){
       input.costUsd===0 &&
       input.paidProvider===false &&
       input.repoMutation===false &&
-      input.productionMutation===false;
+      input.productionMutation===false &&
+      input.networkWrite===false &&
+      input.secretAccess===false &&
+      input.environmentMutation===false;
     const bindingOk=
       input.schemaVersion==="origin.self-evolution.experiment-result.v2" &&
       input.exactBaseSha===priority.exactBaseSha &&
@@ -91,9 +99,34 @@ if(!rawInput){
       ["higher_is_better","lower_is_better"].includes(direction) &&
       finite &&
       minDelta>=0;
-    const improvementOk=bindingOk && measuredDelta>=minDelta && measuredDelta>0;
+    const provenanceOk=
+      manifests.exactBaseSha===priority.exactBaseSha &&
+      manifest?.executionReady===true &&
+      manifest?.exactBaseSha===priority.exactBaseSha &&
+      input.manifestId===manifest?.manifestId &&
+      input.adapterId===manifest?.adapterId &&
+      input.implementationBriefId===manifest?.implementationBriefId &&
+      /^[a-f0-9]{64}$/.test(artifactSha256) &&
+      receipt.schemaVersion==="origin.self-evolution.execution-receipt.v2" &&
+      receipt.manifestId===manifest?.manifestId &&
+      receipt.experimentId===input.experimentId &&
+      receipt.candidateId===input.candidateId &&
+      receipt.adapterId===manifest?.adapterId &&
+      receipt.implementationBriefId===manifest?.implementationBriefId &&
+      receiptArtifactSha256===artifactSha256 &&
+      receipt.executionAuthority===manifest?.executionAuthority &&
+      receipt.ephemeralWorkspace===true &&
+      receipt.networkWrite===false &&
+      receipt.repositoryMutation===false &&
+      receipt.productionMutation===false &&
+      receipt.secretAccess===false &&
+      receipt.environmentMutation===false &&
+      receipt.paidProvider===false &&
+      receipt.costUsd===0;
+    const improvementOk=bindingOk && provenanceOk && measuredDelta>=minDelta && measuredDelta>0;
 
     if(!bindingOk) out=reject(input,"EXPERIMENT_RESULT_BINDING_INVALID");
+    else if(!provenanceOk) out=reject(input,"EXPERIMENT_RESULT_PROVENANCE_INVALID");
     else if(!boundaryOk) out=reject(input,"EXPERIMENT_RESULT_BOUNDARY_INVALID");
     else if(!gatesOk) out=reject(input,"EXPERIMENT_RESULT_GATES_INCOMPLETE");
     else if(!improvementOk) out=reject(input,"MEASURED_IMPROVEMENT_NOT_PROVEN");
@@ -115,11 +148,21 @@ if(!rawInput){
         measuredDelta
       },
       gates,
+      provenance:{
+        manifestId:manifest.manifestId,
+        adapterId:manifest.adapterId,
+        implementationBriefId:manifest.implementationBriefId,
+        artifactSha256,
+        executionReceiptSchema:receipt.schemaVersion
+      },
       boundary:{
         costUsd:0,
         paidProvider:false,
         repoMutation:false,
-        productionMutation:false
+        productionMutation:false,
+        networkWrite:false,
+        secretAccess:false,
+        environmentMutation:false
       }
     };
   }
