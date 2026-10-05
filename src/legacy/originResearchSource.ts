@@ -52,6 +52,8 @@ type ResearchIntent = {
   requiredHostSuffixes: string[];
   searchQuery: string;
   terms: string[];
+  multiSourceRequested: boolean;
+  freshnessRequested: boolean;
   minimumDistinctDomains: number;
 };
 
@@ -306,13 +308,36 @@ function researchIntent(query: string): ResearchIntent {
     ? terms.slice(0, 8).map(searchTermFor).join(" ")
     : normalized;
   const multiSourceRequested = /複数(?:の)?(?:ソース|出典)|複数[^\n]{0,12}(?:ソース|出典)|multiple\s+(?:independent\s+)?sources|compare\s+sources/i.test(normalized);
+  const freshnessRequested = /(?:最新|直近|今日|今週|recent|latest|current|today|this\s+week)/i.test(normalized);
   return {
     officialRequested,
     requiredHostSuffixes,
     searchQuery: `${compactMixedQuery}${siteConstraint}`.slice(0, 1400),
     terms,
+    multiSourceRequested,
+    freshnessRequested,
     minimumDistinctDomains: multiSourceRequested && requiredHostSuffixes.length === 0 ? 2 : 1,
   };
+}
+
+function alternateMultiSourceQuery(intent: ResearchIntent): string | null {
+  if (
+    !intent.multiSourceRequested
+    || intent.requiredHostSuffixes.length > 0
+    || intent.terms.length < 2
+  ) return null;
+
+  const normalizedTerms = intent.terms.slice(0, 6).map(searchTermFor);
+  const phrase = normalizedTerms.join(" ").trim();
+  if (!phrase) return null;
+
+  const aliases = intent.terms
+    .flatMap((term) => RESEARCH_TERM_ALIASES[term] ?? [])
+    .map((term) => term.normalize("NFKC").toLowerCase())
+    .filter((term) => term && !normalizedTerms.includes(term));
+  const extras = [...new Set(aliases)].slice(0, 3);
+  const freshness = intent.freshnessRequested ? " latest" : "";
+  return [`"${phrase}"`, ...extras, freshness.trim()].filter(Boolean).join(" ").slice(0, 1400);
 }
 
 function sourceMatchesIntent(source: OriginResearchSource, intent: ResearchIntent): boolean {
@@ -383,6 +408,19 @@ async function searchWeb(intent: ResearchIntent, retrievedAt: string): Promise<O
     sources = mergeSources(sources, parsed);
     if (distinctDomainCount(sources) >= intent.minimumDistinctDomains) {
       return { ok: true, sources, searchProvider: "Bing" };
+    }
+
+    const alternateQuery = alternateMultiSourceQuery(intent);
+    if (alternateQuery && alternateQuery !== intent.searchQuery) {
+      const focusedRss = await secureFetch(
+        `${SEARCH_ORIGINS.bingRss}?format=rss&count=8&q=${encodeURIComponent(alternateQuery)}`,
+      );
+      receivedSearchResponse = true;
+      const focused = filterRelevantSources(parseBingRssResults(focusedRss, retrievedAt, 8), intent);
+      sources = mergeSources(sources, focused);
+      if (distinctDomainCount(sources) >= intent.minimumDistinctDomains) {
+        return { ok: true, sources, searchProvider: "Bing" };
+      }
     }
   } catch (error) {
     firstTransportFailure ??= classifyFailure(error);
