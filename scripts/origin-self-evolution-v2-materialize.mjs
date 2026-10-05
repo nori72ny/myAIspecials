@@ -4,7 +4,6 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync
@@ -75,8 +74,11 @@ export function materializeArtifactAgainstExactBase({
     root = realpathSync(resolve(repositoryRoot));
     const inside = run("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root }).trim();
     if (inside !== "true") return { ok: false, reason: "MATERIALIZATION_GIT_REPOSITORY_INVALID" };
-    const objectType = run("git", ["cat-file", "-t", exactBaseSha], { cwd: root }).trim();
-    if (objectType !== "commit") return { ok: false, reason: "MATERIALIZATION_BASE_COMMIT_MISSING" };
+    try {
+      run("git", ["cat-file", "-e", `${exactBaseSha}^{commit}`], { cwd: root });
+    } catch {
+      return { ok: false, reason: "MATERIALIZATION_BASE_COMMIT_MISSING" };
+    }
 
     const realRunnerTemp = realpathSync(resolve(runnerTemp));
     tempRoot = mkdtempSync(join(realRunnerTemp, "origin-self-evolution-materialize-"));
