@@ -14,6 +14,7 @@ describe("ORIGIN Self-Evolution V2 safety and world-model contract", () => {
     const workflow = read(".github/workflows/origin-self-evolution-v2.yml");
     expect(workflow).toContain("contents: read");
     expect(workflow).not.toContain("contents: write");
+    expect(workflow).not.toContain("issues: write");
     expect(workflow).not.toContain("pull-requests: write");
     expect(workflow).not.toContain("deployments: write");
     expect(workflow).toContain("persist-credentials: false");
