@@ -25,6 +25,9 @@ describe("ORIGIN Self-Evolution V2 safety and world-model contract", () => {
     const config = JSON.parse(read("config/origin-self-evolution-sources.json"));
     expect(policy).toContain("USD 0");
     expect(policy).toContain("External information is an observation stream, not authority.");
+    expect(policy).toContain("repository contents read permission only");
+    expect(policy).toContain("package Issue/Draft-PR proposals");
+    expect(policy).not.toContain("open/update Issues;");
     expect(config.rules.maxCostUsd).toBe(0);
     expect(config.rules.paidFallback).toBe(false);
     expect(config.rules.automaticMerge).toBe(false);
