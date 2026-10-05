@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { resolveCanonicalSource, sanitizeExternalEvidence } from "./origin-self-evolution-v2-source-safety.mjs";
 
 const config = JSON.parse(readFileSync("config/origin-self-evolution-sources.json", "utf8"));
 const maxExcerpt = Number(config.rules.maxExcerptChars || 1800);
@@ -10,22 +11,30 @@ const VALID_SCAN_MODES = new Set(["hourly", "daily", "weekly", "all"]);
 if (!VALID_SCAN_MODES.has(scanMode)) throw new Error("INVALID_SELF_EVOLUTION_SCAN_MODE");
 const sha256 = (value) => createHash("sha256").update(String(value)).digest("hex");
 
-function sanitize(value) {
-  return String(value || "")
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxExcerpt);
-}
-
 async function fetchEvidence(category, source) {
+  const canonical = resolveCanonicalSource(source);
+  if (!canonical) {
+    return {
+      category: category.id,
+      cadence: category.cadence,
+      tier: source.tier,
+      name: String(source.name || "unknown"),
+      url: null,
+      ok: false,
+      status: 0,
+      observedAt: new Date().toISOString(),
+      lastModified: null,
+      etag: null,
+      fingerprint: null,
+      excerpt: "",
+      error: "SOURCE_CONFIGURATION_INVALID"
+    };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 9000);
   try {
-    const response = await fetch(source.url, {
+    const response = await fetch(canonical.url, {
       redirect: "error",
       signal: controller.signal,
       headers: {
@@ -37,13 +46,13 @@ async function fetchEvidence(category, source) {
     if (Number.isFinite(declaredBytes) && declaredBytes > maxSourceBytes) throw new Error("SOURCE_BODY_TOO_LARGE");
     const text = await response.text();
     if (new TextEncoder().encode(text).byteLength > maxSourceBytes) throw new Error("SOURCE_BODY_TOO_LARGE");
-    const excerpt = sanitize(text);
+    const excerpt = sanitizeExternalEvidence(text, maxExcerpt);
     return {
       category: category.id,
       cadence: category.cadence,
       tier: source.tier,
       name: source.name,
-      url: source.url,
+      url: canonical.url,
       ok: response.ok,
       status: response.status,
       observedAt: new Date().toISOString(),
@@ -58,7 +67,7 @@ async function fetchEvidence(category, source) {
       cadence: category.cadence,
       tier: source.tier,
       name: source.name,
-      url: source.url,
+      url: canonical.url,
       ok: false,
       status: 0,
       observedAt: new Date().toISOString(),
