@@ -42,6 +42,15 @@ describe("ORIGIN Self-Evolution V2 experiment manifest boundary",()=>{
     expect(s).toContain("CIRCUIT_BREAKER_TRIPPED");
   });
 
+  it("requires result evidence to bind back to the exact manifest provenance",()=>{
+    const s=read("scripts/origin-self-evolution-v2-manifest.mjs");
+    expect(s).toContain("resultManifestBindingRequired:true");
+    expect(s).toContain("resultAdapterBindingRequired:true");
+    expect(s).toContain("resultImplementationBriefBindingRequired:true");
+    expect(s).toContain("resultArtifactSha256Required:true");
+    expect(s).toContain("resultExecutionReceiptRequired:true");
+  });
+
   it("orders circuit breaker before request brief and manifest packaging",()=>{
     const w=read(".github/workflows/origin-self-evolution-v2.yml");
     const breaker=w.indexOf("Enforce self-evolution circuit breaker");
