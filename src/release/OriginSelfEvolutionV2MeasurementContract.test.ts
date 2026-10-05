@@ -1,6 +1,8 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const read=(p:string)=>readFileSync(resolve(process.cwd(),p),"utf8");
@@ -71,6 +73,147 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain("receipt.cleanWorktreeAfter===true");
     expect(s).toContain("receipt.rollbackPlanDefined===true");
     expect(s).toContain("receipt.durationMs");
+  });
+
+  it("executes the verifier against real artifact bytes and fails closed on tampering or protected paths",()=>{
+    const verifier=resolve(process.cwd(),"scripts/origin-self-evolution-v2-experiment-result.mjs");
+    const baseSha="a".repeat(40);
+    const manifest={
+      manifestId:"manifest-1",
+      experimentId:"experiment-1",
+      candidateId:"candidate-1",
+      exactBaseSha:baseSha,
+      adapterId:"adapter-1",
+      implementationBriefId:"brief-1",
+      executionAuthority:"EXTERNAL_ORCHESTRATOR_ONLY",
+      executionReady:true,
+      boundaries:{
+        maxPatchBytes:131072,
+        maxFilesChanged:20,
+        maxDurationMinutes:20,
+        protectedPathPrefixes:[".github/",".vercel/","secrets/","credentials/"],
+        protectedFileNames:[".env",".env.local",".env.production","vercel.json"]
+      }
+    };
+
+    const execute=(pathValue:string,digestOverride?:string)=>{
+      const dir=mkdtempSync(join(tmpdir(),"origin-self-evolution-result-"));
+      try{
+        writeFileSync(join(dir,"origin-self-evolution-priority-v2.json"),JSON.stringify({
+          exactBaseSha:baseSha,
+          ranked:[{id:"candidate-1",actionable:true}]
+        }));
+        writeFileSync(join(dir,"origin-self-evolution-verification-v2.json"),JSON.stringify({
+          verification:[{candidateId:"candidate-1",experimentId:"experiment-1",eligibleForSandbox:true}]
+        }));
+        writeFileSync(join(dir,"origin-self-evolution-experiment-manifests-v2.json"),JSON.stringify({
+          exactBaseSha:baseSha,
+          manifests:[manifest]
+        }));
+
+        const patch=[
+          `diff --git a/${pathValue} b/${pathValue}`,
+          `--- a/${pathValue}`,
+          `+++ b/${pathValue}`,
+          "@@ -1 +1 @@",
+          "-old",
+          "+new",
+          ""
+        ].join("\\n");
+        const artifact={
+          schemaVersion:"origin.self-evolution.experiment-artifact.v2",
+          exactBaseSha:baseSha,
+          manifestId:"manifest-1",
+          candidateId:"candidate-1",
+          experimentId:"experiment-1",
+          adapterId:"adapter-1",
+          implementationBriefId:"brief-1",
+          files:[{path:pathValue,patch}]
+        };
+        const artifactBytes=JSON.stringify(artifact,null,2)+"\\n";
+        const actualDigest=createHash("sha256").update(artifactBytes).digest("hex");
+        const claimedDigest=digestOverride||actualDigest;
+        const artifactPath=join(dir,"artifact.json");
+        writeFileSync(artifactPath,artifactBytes);
+
+        const input={
+          schemaVersion:"origin.self-evolution.experiment-result.v2",
+          exactBaseSha:baseSha,
+          manifestId:"manifest-1",
+          candidateId:"candidate-1",
+          experimentId:"experiment-1",
+          adapterId:"adapter-1",
+          implementationBriefId:"brief-1",
+          artifactSha256:claimedDigest,
+          costUsd:0,
+          paidProvider:false,
+          repoMutation:false,
+          productionMutation:false,
+          networkWrite:false,
+          secretAccess:false,
+          environmentMutation:false,
+          primaryMetric:{name:"score",direction:"higher_is_better",before:1,after:2,minDelta:0.5},
+          gates:{
+            relevantTests:true,
+            securityRegression:true,
+            accessibilityRegression:true,
+            performanceRegression:true,
+            rollbackDefined:true
+          },
+          executionReceipt:{
+            schemaVersion:"origin.self-evolution.execution-receipt.v2",
+            manifestId:"manifest-1",
+            candidateId:"candidate-1",
+            experimentId:"experiment-1",
+            adapterId:"adapter-1",
+            implementationBriefId:"brief-1",
+            artifactSha256:claimedDigest,
+            filesChanged:1,
+            patchBytes:Buffer.byteLength(patch,"utf8"),
+            executionAuthority:"EXTERNAL_ORCHESTRATOR_ONLY",
+            ephemeralWorkspace:true,
+            cleanWorktreeBefore:true,
+            cleanWorktreeAfter:true,
+            rollbackPlanDefined:true,
+            durationMs:1000,
+            networkWrite:false,
+            repositoryMutation:false,
+            productionMutation:false,
+            secretAccess:false,
+            environmentMutation:false,
+            paidProvider:false,
+            costUsd:0
+          }
+        };
+        const inputPath=join(dir,"result-input.json");
+        writeFileSync(inputPath,JSON.stringify(input));
+        execFileSync(process.execPath,[verifier],{
+          cwd:dir,
+          env:{
+            ...process.env,
+            RUNNER_TEMP:dir,
+            ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH:inputPath,
+            ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH:artifactPath
+          },
+          stdio:"pipe"
+        });
+        return JSON.parse(readFileSync(join(dir,"origin-self-evolution-experiment-result-v2.json"),"utf8"));
+      }finally{
+        rmSync(dir,{recursive:true,force:true});
+      }
+    };
+
+    const valid=execute("src/example.ts");
+    expect(valid.status).toBe("MEASURED_IMPROVEMENT");
+    expect(valid.accepted).toBe(true);
+
+    const tampered=execute("src/example.ts","b".repeat(64));
+    expect(tampered.status).toBe("REJECTED");
+    expect(tampered.reason).toBe("EXPERIMENT_RESULT_PROVENANCE_INVALID");
+
+    const protectedPath=execute(".github/workflows/unsafe.yml");
+    expect(protectedPath.status).toBe("REJECTED");
+    expect(protectedPath.reason).toBe("EXPERIMENT_ARTIFACT_PROTECTED_OR_UNSAFE_PATH");
   });
 
   it("does not promote sandbox eligibility by itself",()=>{
