@@ -150,6 +150,7 @@ describe("originResearchSource", () => {
     secureFetch
       .mockRejectedValueOnce(new Error("search unavailable"))
       .mockRejectedValueOnce(new Error("search unavailable"))
+      .mockRejectedValueOnce(new Error("search unavailable"))
       .mockResolvedValueOnce(JSON.stringify({ pages: [{ key: "AI", title: "AI", excerpt: "Artificial intelligence." }] }))
       .mockResolvedValueOnce(JSON.stringify({ html_url: "https://en.wikipedia.org/wiki/AI", latest: { timestamp: "2026-07-01T00:00:00Z" } }));
 
