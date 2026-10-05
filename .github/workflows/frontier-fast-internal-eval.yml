@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/run-general-agent-synthetic-live-v2.ts'
       - 'scripts/run-general-agent-research-live-v1.ts'
+      - 'scripts/diagnose-research-search-surface.ts'
       - '.github/workflows/frontier-fast-internal-eval.yml'
 
 permissions:
@@ -65,5 +66,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
+      - name: Diagnose current public search HTML surface
+        run: node --import tsx scripts/diagnose-research-search-surface.ts
       - name: Run three-task zero-cost Research live evaluation
         run: node --import tsx scripts/run-general-agent-research-live-v1.ts
