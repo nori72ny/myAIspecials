@@ -12,8 +12,8 @@ describe("ORIGIN Self-Evolution V2 measured gap evidence",()=>{
 
   it("defaults to NOT_MEASURED when no measurement is supplied",()=>{
     const s=read("scripts/origin-self-evolution-v2-gap-measurement.mjs");
-    expect(s).toContain("GAP_MEASUREMENT_INPUT_MISSING");
-    expect(s).toContain('status:"NOT_MEASURED"');
+    expect(s).toContain('empty("NOT_MEASURED","GAP_MEASUREMENT_INPUT_MISSING")');
+    expect(s).toContain("acceptedMeasurements:[]");
   });
 
   it("requires exact base and mapped capability axis",()=>{
