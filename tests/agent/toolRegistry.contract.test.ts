@@ -9,8 +9,12 @@ describe('Agent tool registry security contract', () => {
     for (const name of expectedTools) { expect(toolRegistry[name].name).toBe(name); expect(toolRegistry[name].requiresApproval).toBe(true); }
   });
 
-  it('keeps network and shell capabilities out of executable registry entries', () => {
-    for (const tool of Object.values(toolRegistry)) { expect(tool.capability).not.toBe('shell'); if (tool.name === 'web_search_grounding') expect(tool.capability).toBe('network'); else expect(tool.capability).not.toBe('network'); }
+  it('keeps raw network and shell capabilities out of executable registry entries', () => {
+    for (const tool of Object.values(toolRegistry)) {
+      expect(tool.capability).not.toBe('shell');
+      expect(tool.capability).not.toBe('network');
+      if (tool.name === 'web_search_grounding') expect(tool.capability).toBe('grounded_research');
+    }
   });
 
   it('blocks execution without approval, failed safety policy, or non-zero cost', async () => {
@@ -19,7 +23,13 @@ describe('Agent tool registry security contract', () => {
     await expect(executeToolWithPermission('file_reader', { path: 'README.md' }, { approved: true, safetyPolicyPassed: true, costInUSD: 0.000001 })).rejects.toThrow('ZERO_COST_BOUNDARY_BLOCKED');
   });
 
-  it('fails closed for the disabled network capability after the safety gate passes', async () => {
-    await expect(executeToolWithPermission('web_search_grounding', {}, { approved: true, safetyPolicyPassed: true, costInUSD: 0 })).rejects.toThrow('AGENT_CAPABILITY_DENIED');
+  it('fails grounded research closed before any search when the query is missing', async () => {
+    const result = await executeToolWithPermission(
+      'web_search_grounding',
+      {},
+      { approved: true, safetyPolicyPassed: true, costInUSD: 0 },
+    );
+    expect(result).toMatchObject({ ok: false, tool: 'web_search_grounding' });
+    expect(result.message).toBe('A research query is required.');
   });
 });
