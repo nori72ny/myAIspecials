@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
 const marker=`origin-self-evolution-v2:${priority.queueFingerprint}`;
-const selected=priority.ranked.filter(x=>x.actionable && ["P0","P1"].includes(x.priority));
+const selected=priority.ranked.filter(x=>x.tier==="A" && ["P0","P1"].includes(x.priority));
 
 const proposal={
   schemaVersion:"origin.self-evolution.issue-proposal.v2",
@@ -22,7 +22,16 @@ const proposal={
     evidenceTier:x.tier,
     priorityScore:x.priorityScore,
     lane:x.lane,
-    nextAction:x.nextAction
+    actionable:x.actionable===true,
+    evidenceStatus:x.actionable===true
+      ? "IMPROVEMENT_EXPERIMENT_CANDIDATE"
+      : x.gapAssessment?.gapKnown===true
+        ? "SOLUTION_FIT_MEASUREMENT_REQUIRED"
+        : "BASELINE_GAP_MEASUREMENT_REQUIRED",
+    gapAssessment:x.gapAssessment||null,
+    nextAction:x.actionable===true
+      ? x.nextAction
+      : x.gapAssessment?.requiredNextEvidence || x.nextAction
   }))
 };
 
@@ -43,7 +52,9 @@ writeFileSync("origin-self-evolution-issue-proposal-v2.md",[
     `- evidence tier: ${x.tier}`,
     `- score: ${x.priorityScore}`,
     `- lane: ${x.lane}`,
-    `- next: ${x.nextAction}`
+    `- actionable: ${x.actionable===true}`,
+    `- evidence status: ${x.actionable===true ? "IMPROVEMENT_EXPERIMENT_CANDIDATE" : x.gapAssessment?.gapKnown===true ? "SOLUTION_FIT_MEASUREMENT_REQUIRED" : "BASELINE_GAP_MEASUREMENT_REQUIRED"}`,
+    `- next: ${x.actionable===true ? x.nextAction : x.gapAssessment?.requiredNextEvidence || x.nextAction}`
   ].join("\n"))
 ].join("\n")+"\n");
 
