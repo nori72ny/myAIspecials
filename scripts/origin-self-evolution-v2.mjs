@@ -4,6 +4,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 const config = JSON.parse(readFileSync("config/origin-self-evolution-sources.json", "utf8"));
 const maxExcerpt = Number(config.rules.maxExcerptChars || 1800);
 const maxSources = Number(config.rules.maxSourcesPerRun || 40);
+const scanMode = String(process.env.ORIGIN_SELF_EVOLUTION_SCAN_MODE || "hourly");
+const VALID_SCAN_MODES = new Set(["hourly", "daily", "weekly", "all"]);
+if (!VALID_SCAN_MODES.has(scanMode)) throw new Error("INVALID_SELF_EVOLUTION_SCAN_MODE");
 const sha256 = (value) => createHash("sha256").update(String(value)).digest("hex");
 
 function sanitize(value) {
@@ -102,6 +105,7 @@ function buildHypotheses(observations) {
 
 const selected = [];
 for (const category of config.categories) {
+  if (scanMode !== "all" && category.cadence !== scanMode) continue;
   for (const source of category.sources) {
     if (selected.length >= maxSources) break;
     selected.push([category, source]);
@@ -117,6 +121,7 @@ const report = {
   generatedAt,
   repository: process.env.GITHUB_REPOSITORY || "nori72ny/myAIspecials",
   sha,
+  scanMode,
   invariant: {
     maxCostUsd: 0,
     paidFallback: false,
@@ -140,6 +145,7 @@ writeFileSync("origin-self-evolution-v2.md", [
   "",
   `Generated: ${generatedAt}`,
   `Exact SHA: ${sha}`,
+  `Scan mode: ${scanMode}`,
   `Sources: ${report.summary.available}/${report.summary.attempted} available`,
   `Improvement hypotheses: ${hypotheses.length}`,
   "",
