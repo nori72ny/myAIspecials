@@ -27,7 +27,17 @@ async function gh(path,init={}){
   return body;
 }
 
-const open=await gh("/issues?state=open&per_page=100");
+async function listOpenIssues(){
+  const all=[];
+  for(let page=1; page<=10; page++){
+    const batch=await gh(`/issues?state=open&per_page=100&page=${page}`);
+    all.push(...batch);
+    if(batch.length<100) break;
+  }
+  return all;
+}
+
+const open=await listOpenIssues();
 const duplicate=open.some(issue=>!issue.pull_request && String(issue.body||"").includes(marker));
 if(duplicate){
   console.log(JSON.stringify({ok:true,created:false,reason:"DUPLICATE_FINGERPRINT"}));
