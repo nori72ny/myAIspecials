@@ -247,8 +247,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     };
 
     const valid=execute("src/example.ts");
-    expect(valid.status).toBe("MEASURED_IMPROVEMENT");
-    expect(valid.accepted).toBe(true);
+    expect(valid,JSON.stringify(valid)).toMatchObject({status:"MEASURED_IMPROVEMENT",accepted:true});
     expect(valid.provenance.materializedChangedPaths).toEqual(["src/example.ts"]);
 
     const tampered=execute("src/example.ts","b".repeat(64));
