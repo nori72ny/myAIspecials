@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, posix, relative, resolve } from "node:path";
 
 const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH||"");
+const rawArtifact=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH||"");
 const runnerTemp=String(process.env.RUNNER_TEMP||"");
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
 const verified=JSON.parse(readFileSync("origin-self-evolution-verification-v2.json","utf8"));
@@ -33,18 +35,85 @@ function reject(input,reason){
   };
 }
 
-function safeInputPath(){
-  if(!rawInput) return null;
-  if(!runnerTemp || !isAbsolute(rawInput)) return null;
+function safeRunnerTempPath(raw){
+  if(!raw) return null;
+  if(!runnerTemp || !isAbsolute(raw)) return null;
   const root=resolve(runnerTemp);
-  const file=resolve(rawInput);
+  const file=resolve(raw);
   const rel=relative(root,file);
   if(rel.startsWith("..") || isAbsolute(rel)) return null;
   return file;
 }
 
+function validArtifactPath(pathValue,boundaries){
+  if(typeof pathValue!=="string" || !pathValue || pathValue.includes("\\") || pathValue.includes("\0")) return false;
+  if(pathValue.startsWith("/") || pathValue.startsWith("../") || pathValue.includes("/../")) return false;
+  if(posix.normalize(pathValue)!==pathValue) return false;
+  const prefixes=Array.isArray(boundaries?.protectedPathPrefixes)?boundaries.protectedPathPrefixes:[];
+  const names=Array.isArray(boundaries?.protectedFileNames)?boundaries.protectedFileNames:[];
+  if(prefixes.some(prefix=>pathValue.startsWith(prefix))) return false;
+  if(names.includes(posix.basename(pathValue))) return false;
+  return true;
+}
+
+function inspectArtifact(artifactPath,manifest){
+  if(!artifactPath) return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATH_UNSAFE"};
+  if(!existsSync(artifactPath)) return {ok:false,reason:"EXPERIMENT_ARTIFACT_NOT_FOUND"};
+  const maxPatchBytes=Number(manifest?.boundaries?.maxPatchBytes||0);
+  const maxFilesChanged=Number(manifest?.boundaries?.maxFilesChanged||0);
+  if(!Number.isFinite(maxPatchBytes) || maxPatchBytes<=0 || !Number.isFinite(maxFilesChanged) || maxFilesChanged<=0){
+    return {ok:false,reason:"EXPERIMENT_ARTIFACT_POLICY_INVALID"};
+  }
+  if(statSync(artifactPath).size>Math.max(262144,maxPatchBytes*2)){
+    return {ok:false,reason:"EXPERIMENT_ARTIFACT_FILE_TOO_LARGE"};
+  }
+  const bytes=readFileSync(artifactPath);
+  const sha256=createHash("sha256").update(bytes).digest("hex");
+  let artifact;
+  try{ artifact=JSON.parse(bytes.toString("utf8")); }
+  catch{ return {ok:false,reason:"EXPERIMENT_ARTIFACT_JSON_INVALID",sha256}; }
+  const files=Array.isArray(artifact?.files)?artifact.files:[];
+  if(
+    artifact?.schemaVersion!=="origin.self-evolution.experiment-artifact.v2" ||
+    artifact?.exactBaseSha!==manifest?.exactBaseSha ||
+    artifact?.manifestId!==manifest?.manifestId ||
+    artifact?.candidateId!==manifest?.candidateId ||
+    artifact?.experimentId!==manifest?.experimentId ||
+    artifact?.adapterId!==manifest?.adapterId ||
+    artifact?.implementationBriefId!==manifest?.implementationBriefId
+  ) return {ok:false,reason:"EXPERIMENT_ARTIFACT_BINDING_INVALID",sha256};
+  if(files.length<1 || files.length>maxFilesChanged){
+    return {ok:false,reason:"EXPERIMENT_ARTIFACT_FILE_COUNT_INVALID",sha256};
+  }
+  let patchBytes=0;
+  const paths=[];
+  for(const file of files){
+    const pathValue=file?.path;
+    const patch=typeof file?.patch==="string"?file.patch:"";
+    if(!validArtifactPath(pathValue,manifest?.boundaries)){
+      return {ok:false,reason:"EXPERIMENT_ARTIFACT_PROTECTED_OR_UNSAFE_PATH",sha256};
+    }
+    if(!patch){
+      return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_MISSING",sha256};
+    }
+    const headers=patch.split(/\r?\n/).filter(line=>line.startsWith("diff --git "));
+    if(headers.length!==1 || headers[0]!==`diff --git a/${pathValue} b/${pathValue}`){
+      return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_HEADER_INVALID",sha256};
+    }
+    patchBytes+=Buffer.byteLength(patch,"utf8");
+    paths.push(pathValue);
+  }
+  if(new Set(paths).size!==paths.length){
+    return {ok:false,reason:"EXPERIMENT_ARTIFACT_DUPLICATE_PATH",sha256};
+  }
+  if(patchBytes>maxPatchBytes){
+    return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_TOO_LARGE",sha256};
+  }
+  return {ok:true,sha256,patchBytes,filesChanged:files.length};
+}
+
 let out;
-const inputPath=safeInputPath();
+const inputPath=safeRunnerTempPath(rawInput);
 if(!rawInput){
   out=notMeasured("EXPERIMENT_RESULT_INPUT_MISSING");
 }else if(!inputPath){
@@ -65,6 +134,8 @@ if(!rawInput){
     const check=verified.verification.find(x=>x.candidateId===input.candidateId && x.experimentId===input.experimentId);
     const manifest=manifests.manifests.find(x=>x.candidateId===input.candidateId && x.experimentId===input.experimentId);
     const artifactSha256=String(input.artifactSha256||"").toLowerCase();
+    const artifactPath=safeRunnerTempPath(rawArtifact);
+    const artifactInspection=inspectArtifact(artifactPath,manifest);
     const receipt=input.executionReceipt||{};
     const receiptArtifactSha256=String(receipt.artifactSha256||"").toLowerCase();
     const metric=input.primaryMetric||{};
@@ -107,6 +178,8 @@ if(!rawInput){
       input.adapterId===manifest?.adapterId &&
       input.implementationBriefId===manifest?.implementationBriefId &&
       /^[a-f0-9]{64}$/.test(artifactSha256) &&
+      artifactInspection.ok===true &&
+      artifactInspection.sha256===artifactSha256 &&
       receipt.schemaVersion==="origin.self-evolution.execution-receipt.v2" &&
       receipt.manifestId===manifest?.manifestId &&
       receipt.experimentId===input.experimentId &&
@@ -114,6 +187,8 @@ if(!rawInput){
       receipt.adapterId===manifest?.adapterId &&
       receipt.implementationBriefId===manifest?.implementationBriefId &&
       receiptArtifactSha256===artifactSha256 &&
+      receipt.filesChanged===artifactInspection.filesChanged &&
+      receipt.patchBytes===artifactInspection.patchBytes &&
       receipt.executionAuthority===manifest?.executionAuthority &&
       receipt.ephemeralWorkspace===true &&
       receipt.networkWrite===false &&
@@ -126,6 +201,7 @@ if(!rawInput){
     const improvementOk=bindingOk && provenanceOk && measuredDelta>=minDelta && measuredDelta>0;
 
     if(!bindingOk) out=reject(input,"EXPERIMENT_RESULT_BINDING_INVALID");
+    else if(artifactInspection.ok!==true) out=reject(input,artifactInspection.reason||"EXPERIMENT_ARTIFACT_INVALID");
     else if(!provenanceOk) out=reject(input,"EXPERIMENT_RESULT_PROVENANCE_INVALID");
     else if(!boundaryOk) out=reject(input,"EXPERIMENT_RESULT_BOUNDARY_INVALID");
     else if(!gatesOk) out=reject(input,"EXPERIMENT_RESULT_GATES_INCOMPLETE");
@@ -153,6 +229,8 @@ if(!rawInput){
         adapterId:manifest.adapterId,
         implementationBriefId:manifest.implementationBriefId,
         artifactSha256,
+        artifactFilesChanged:artifactInspection.filesChanged,
+        artifactPatchBytes:artifactInspection.patchBytes,
         executionReceiptSchema:receipt.schemaVersion
       },
       boundary:{
