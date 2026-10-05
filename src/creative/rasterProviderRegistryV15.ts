@@ -7,6 +7,10 @@ import {
   generateCloudflareRasterImageV15,
   getCloudflareRasterStatusV15,
 } from './cloudflareRasterImageProviderV15.js';
+import {
+  generateCloudflareRasterGatewayImageV15,
+  getCloudflareRasterGatewayStatusV15,
+} from './cloudflareRasterGatewayProviderV15.js';
 
 export const RASTER_TASKS_V15 = ['text-to-image', 'edit', 'inpaint', 'outpaint', 'variation'] as const;
 export type RasterTaskV15 = (typeof RASTER_TASKS_V15)[number];
