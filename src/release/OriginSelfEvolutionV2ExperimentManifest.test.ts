@@ -53,6 +53,14 @@ describe("ORIGIN Self-Evolution V2 experiment manifest boundary",()=>{
     expect(s).toContain("resultMetricEvidenceDigestRequired:true");
     expect(s).toContain("resultMetricPairedCaseIdsRequired:true");
     expect(s).toContain("resultMetricCaseSetDigestRequired:true");
+    expect(s).toContain("resultGateEvidenceRequired:true");
+    expect(s).toContain("resultGateEvidenceRecomputed:true");
+    expect(s).toContain("resultGateEvidenceDigestRequired:true");
+    expect(s).toContain("resultGateOutputsRehashed:true");
+    expect(s).toContain("resultGateHarnessAllowlistRequired:true");
+    expect(s).toContain("resultGateArtifactBindingRequired:true");
+    expect(s).toContain("resultGateMaterializationBindingRequired:true");
+    expect(s).toContain("resultGateExecutableFieldsForbidden:true");
     expect(s).toContain("resultArtifactBytesRehashed:true");
     expect(s).toContain("resultArtifactPatchScopeValidated:true");
     expect(s).toContain("resultProtectedPathValidationRequired:true");
