@@ -57,6 +57,12 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain('gates.accessibilityRegression===true');
     expect(s).toContain('gates.performanceRegression===true');
     expect(s).toContain('measuredDelta>0');
+    expect(s).toContain("ORIGIN_SELF_EVOLUTION_METRIC_EVIDENCE_PATH");
+    expect(s).toContain('evidence?.evidenceKind!=="REPRODUCIBLE_NON_HELD_OUT"');
+    expect(s).toContain("privateHeldOut");
+    expect(s).toContain("beforeSamples");
+    expect(s).toContain("afterSamples");
+    expect(s).toContain("EXPERIMENT_METRIC_SUMMARY_MISMATCH");
   });
 
   it("binds measured results to an execution-ready manifest, adapter, brief, artifact digest and receipt",()=>{
@@ -106,7 +112,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
   it("executes exact-base materialization and fails closed on tampering, protected paths, or non-applying patches",()=>{
     const verifier=resolve(process.cwd(),"scripts/origin-self-evolution-v2-experiment-result.mjs");
 
-    const execute=(pathValue:string,digestOverride?:string,removedLine="old")=>{
+    const execute=(pathValue:string,digestOverride?:string,removedLine="old",metricDigestOverride?:string)=>{
       const dir=mkdtempSync(join(tmpdir(),"origin-self-evolution-result-"));
       try{
         mkdirSync(join(dir,"src"),{recursive:true});
@@ -177,6 +183,28 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
         const artifactPath=join(dir,"artifact.json");
         writeFileSync(artifactPath,artifactBytes);
 
+        const metricEvidence={
+          schemaVersion:"origin.self-evolution.metric-evidence.v2",
+          exactBaseSha:baseSha,
+          manifestId:"manifest-1",
+          candidateId:"candidate-1",
+          experimentId:"experiment-1",
+          evidenceKind:"REPRODUCIBLE_NON_HELD_OUT",
+          privateHeldOut:false,
+          metric:{
+            name:"score",
+            direction:"higher_is_better",
+            minDelta:0.5,
+            beforeSamples:[1],
+            afterSamples:[2]
+          }
+        };
+        const metricEvidenceBytes=JSON.stringify(metricEvidence,null,2)+"\n";
+        const actualMetricDigest=createHash("sha256").update(metricEvidenceBytes).digest("hex");
+        const claimedMetricDigest=metricDigestOverride||actualMetricDigest;
+        const metricEvidencePath=join(dir,"metric-evidence.json");
+        writeFileSync(metricEvidencePath,metricEvidenceBytes);
+
         const input={
           schemaVersion:"origin.self-evolution.experiment-result.v2",
           exactBaseSha:baseSha,
@@ -186,6 +214,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
           adapterId:"adapter-1",
           implementationBriefId:"brief-1",
           artifactSha256:claimedDigest,
+          metricEvidenceSha256:claimedMetricDigest,
           costUsd:0,
           paidProvider:false,
           repoMutation:false,
@@ -209,6 +238,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
             adapterId:"adapter-1",
             implementationBriefId:"brief-1",
             artifactSha256:claimedDigest,
+            metricEvidenceSha256:claimedMetricDigest,
             materializationDigest,
             filesChanged:1,
             patchBytes:Buffer.byteLength(patch,"utf8"),
@@ -236,7 +266,8 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
             RUNNER_TEMP:dir,
             ORIGIN_SELF_EVOLUTION_REPOSITORY_ROOT:dir,
             ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH:inputPath,
-            ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH:artifactPath
+            ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH:artifactPath,
+            ORIGIN_SELF_EVOLUTION_METRIC_EVIDENCE_PATH:metricEvidencePath
           },
           stdio:"pipe"
         });
@@ -253,6 +284,10 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     const tampered=execute("src/example.ts","b".repeat(64));
     expect(tampered.status).toBe("REJECTED");
     expect(tampered.reason).toBe("EXPERIMENT_RESULT_PROVENANCE_INVALID");
+
+    const tamperedMetric=execute("src/example.ts",undefined,"old","c".repeat(64));
+    expect(tamperedMetric.status).toBe("REJECTED");
+    expect(tamperedMetric.reason).toBe("EXPERIMENT_METRIC_EVIDENCE_DIGEST_INVALID");
 
     const protectedPath=execute(".github/workflows/unsafe.yml");
     expect(protectedPath.status).toBe("REJECTED");
