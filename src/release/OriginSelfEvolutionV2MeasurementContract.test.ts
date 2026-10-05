@@ -60,10 +60,12 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain("ORIGIN_SELF_EVOLUTION_METRIC_EVIDENCE_PATH");
     expect(s).toContain('evidence?.evidenceKind!=="REPRODUCIBLE_NON_HELD_OUT"');
     expect(s).toContain("privateHeldOut");
-    expect(s).toContain("beforeSamples");
-    expect(s).toContain("afterSamples");
-    expect(s).toContain('typeof value==="number"');
-    expect(s).toContain("beforeSamples.length!==afterSamples.length");
+    expect(s).toContain("finitePairedSamples");
+    expect(s).toContain("sample?.caseId");
+    expect(s).toContain('typeof sample?.before==="number"');
+    expect(s).toContain('typeof sample?.after==="number"');
+    expect(s).toContain("ids.has(caseId)");
+    expect(s).toContain("metricCaseSetDigest");
     expect(s).toContain("EXPERIMENT_METRIC_SUMMARY_MISMATCH");
   });
 
