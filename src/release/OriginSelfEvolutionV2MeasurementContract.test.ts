@@ -159,7 +159,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
           `-${removedLine}`,
           "+new",
           ""
-        ].join("\\n");
+        ].join("\n");
         const artifact={
           schemaVersion:"origin.self-evolution.experiment-artifact.v2",
           exactBaseSha:baseSha,
