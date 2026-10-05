@@ -83,11 +83,19 @@ async function main():Promise<void>{
       || body.paidFallbackUsed!==false
     )throw new Error('RESEARCH_LIVE_FAILURE_CONTRACT_INVALID');
 
+    const failure=body.failure&&typeof body.failure==='object'&&!Array.isArray(body.failure)
+      ? body.failure as Record<string,unknown>
+      : null;
+    const fallback=body.fallback&&typeof body.fallback==='object'&&!Array.isArray(body.fallback)
+      ? body.fallback as Record<string,unknown>
+      : null;
     results.push({
       taskId:`research-live-${index+1}`,
       status:'blocked',
       httpStatus:response.status,
       code:typeof body.code==='string'?body.code:'UNKNOWN',
+      failure:failure?{stage:failure.stage??null,code:failure.code??null}:null,
+      fallback:fallback?{stage:fallback.stage??null,code:fallback.code??null}:null,
       latencyMs:elapsedMs,
       costUsd:0,
     });
