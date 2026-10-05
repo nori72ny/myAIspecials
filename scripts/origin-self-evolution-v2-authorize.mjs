@@ -4,6 +4,8 @@ const baseline=JSON.parse(readFileSync("origin-self-evolution-baseline-v2.json",
 const verify=JSON.parse(readFileSync("origin-self-evolution-verification-v2.json","utf8"));
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
 const integrity=JSON.parse(readFileSync("origin-self-evolution-source-integrity-v2.json","utf8"));
+const dryRun=JSON.parse(readFileSync("origin-self-evolution-dry-run-plan-v2.json","utf8"));
+const planByExperiment=new Map(dryRun.plans.map(x=>[x.experimentId,x]));
 
 const freeze = process.env.ORIGIN_EVALUATION_FREEZE === "true";
 const disabled = process.env.ORIGIN_SELF_EVOLUTION_DISABLED === "true";
@@ -13,12 +15,17 @@ const baselineFresh = Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= baselineF
 
 const decisions=verify.verification.map(v=>{
   const candidate=priority.ranked.find(c=>c.id===v.candidateId);
+  const plan=planByExperiment.get(v.experimentId);
   const permitted=
     !disabled &&
     !freeze &&
     baseline.productionHealthy === true &&
     baselineFresh &&
     integrity.safeForExperiments === true &&
+    plan?.status === "SAFE_DRY_RUN_PLAN" &&
+    plan?.executionAuthorized === false &&
+    plan?.codeMutationAuthorized === false &&
+    plan?.externalInstructionsIncluded === false &&
     v.eligibleForSandbox === true &&
     candidate?.actionable === true &&
     ["P0","P1"].includes(candidate.priority);
@@ -29,6 +36,9 @@ const decisions=verify.verification.map(v=>{
   else if(!baseline.productionHealthy) reason="PRODUCTION_BASELINE_UNHEALTHY";
   else if(!baselineFresh) reason="BASELINE_STALE";
   else if(integrity.safeForExperiments !== true) reason="SOURCE_INTEGRITY_BLOCKED";
+  else if(plan?.status !== "SAFE_DRY_RUN_PLAN") reason="SAFE_DRY_RUN_PLAN_MISSING";
+  else if(plan?.externalInstructionsIncluded !== false) reason="EXTERNAL_INSTRUCTIONS_BLOCKED";
+  else if(plan?.executionAuthorized !== false || plan?.codeMutationAuthorized !== false) reason="PLAN_AUTHORITY_VIOLATION";
   else if(!v.eligibleForSandbox) reason="SANDBOX_NOT_ELIGIBLE";
   else if(candidate?.actionable !== true) reason="CANDIDATE_NOT_ACTIONABLE";
   else if(!["P0","P1"].includes(candidate?.priority)) reason="PRIORITY_TOO_LOW";
