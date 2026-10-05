@@ -4,15 +4,20 @@ import { readFileSync, writeFileSync } from "node:fs";
 const hash=(v)=>createHash("sha256").update(String(v)).digest("hex");
 const queue=JSON.parse(readFileSync("origin-self-evolution-candidates-v2.json","utf8"));
 const baseline=JSON.parse(readFileSync("origin-self-evolution-baseline-v2.json","utf8"));
+const gap=JSON.parse(readFileSync("origin-self-evolution-gap-v2.json","utf8"));
+const gapByCandidate=new Map(gap.assessments.map(x=>[x.candidateId,x]));
 
 const ranked=queue.candidates.map(c=>{
+  const gapAssessment=gapByCandidate.get(c.id);
   const evidenceWeight=c.tier==="A"?40:c.tier==="B"?25:c.tier==="C"?15:5;
   const domainWeight=["security","ai-models","agents-coding","image-multimodal"].includes(c.category)?20:10;
   const baselineWeight=baseline.productionHealthy?10:0;
   const score=Math.min(100,Number(c.score||0)+evidenceWeight+domainWeight+baselineWeight);
   const priority=score>=85?"P0":score>=70?"P1":score>=55?"P2":"P3";
-  const actionable=c.lane==="BASELINE_COMPARISON" && c.tier==="A";
-  return {...c,priority,priorityScore:score,actionable};
+  const actionable=gapAssessment?.measuredImprovementOpportunity === true &&
+    c.lane==="BASELINE_COMPARISON" &&
+    c.tier==="A";
+  return {...c,gapAssessment,priority,priorityScore:score,actionable};
 }).sort((a,b)=>b.priorityScore-a.priorityScore || a.id.localeCompare(b.id));
 
 const actionable=ranked.filter(x=>x.actionable && ["P0","P1"].includes(x.priority));
