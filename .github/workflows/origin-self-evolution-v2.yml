@@ -55,6 +55,9 @@ jobs:
       - name: Build baseline-comparison candidate queue
         run: node scripts/origin-self-evolution-v2-plan.mjs
 
+      - name: Validate reproducible measured-gap evidence
+        run: node scripts/origin-self-evolution-v2-gap-measurement.mjs
+
       - name: Assess measured ORIGIN gaps and solution fit
         run: node scripts/origin-self-evolution-v2-gap.mjs
 
@@ -102,6 +105,8 @@ jobs:
             origin-self-evolution-source-integrity-v2.md
             origin-self-evolution-candidates-v2.json
             origin-self-evolution-candidates-v2.md
+            origin-self-evolution-gap-measurement-v2.json
+            origin-self-evolution-gap-measurement-v2.md
             origin-self-evolution-gap-v2.json
             origin-self-evolution-gap-v2.md
             origin-self-evolution-priority-v2.json
