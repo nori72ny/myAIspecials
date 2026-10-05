@@ -32,12 +32,26 @@ describe("ORIGIN Self-Evolution V2 experiment manifest boundary",()=>{
     expect(policy.protectedFileNames).toContain("vercel.json");
   });
 
-  it("requires authorization plus clear circuit breaker",()=>{
+  it("requires breaker, authorization, allowlisted request and implementation brief",()=>{
     const s=read("scripts/origin-self-evolution-v2-manifest.mjs");
     expect(s).toContain("breaker.tripped!==true");
     expect(s).toContain("auth?.authorized===true");
     expect(s).toContain("candidate?.actionable===true");
+    expect(s).toContain('request?.status==="READY_FOR_INTERNAL_DRY_RUN"');
+    expect(s).toContain('brief?.briefType==="IMPLEMENTATION_EXPERIMENT_BRIEF"');
     expect(s).toContain("CIRCUIT_BREAKER_TRIPPED");
+  });
+
+  it("orders circuit breaker before request brief and manifest packaging",()=>{
+    const w=read(".github/workflows/origin-self-evolution-v2.yml");
+    const breaker=w.indexOf("Enforce self-evolution circuit breaker");
+    const request=w.indexOf("Package allowlisted dry-run requests");
+    const brief=w.indexOf("Package bounded implementation briefs");
+    const manifest=w.indexOf("Build bounded experiment manifests");
+    expect(breaker).toBeGreaterThan(0);
+    expect(request).toBeGreaterThan(breaker);
+    expect(brief).toBeGreaterThan(request);
+    expect(manifest).toBeGreaterThan(brief);
   });
 
   it("never grants PR merge deploy secret or billing authority",()=>{
