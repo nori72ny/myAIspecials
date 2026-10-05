@@ -51,6 +51,8 @@ describe("ORIGIN Self-Evolution V2 experiment manifest boundary",()=>{
     expect(s).toContain("resultMetricEvidenceRequired:true");
     expect(s).toContain("resultMetricEvidenceRecomputed:true");
     expect(s).toContain("resultMetricEvidenceDigestRequired:true");
+    expect(s).toContain("resultMetricPairedCaseIdsRequired:true");
+    expect(s).toContain("resultMetricCaseSetDigestRequired:true");
     expect(s).toContain("resultArtifactBytesRehashed:true");
     expect(s).toContain("resultArtifactPatchScopeValidated:true");
     expect(s).toContain("resultProtectedPathValidationRequired:true");
