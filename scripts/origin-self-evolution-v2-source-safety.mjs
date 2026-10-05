@@ -139,3 +139,41 @@ export function sanitizeExternalEvidence(value, maxExcerpt = 1800) {
   const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 10000) : 1800;
   return normalizeVisibleText(stripHtmlAndRawText(value), safeLimit);
 }
+
+
+export async function readBoundedResponseText(response, maxBytes) {
+  const limit = Number(maxBytes);
+  if (!Number.isFinite(limit) || limit <= 0) throw new Error("SOURCE_BODY_LIMIT_INVALID");
+  if (!response?.body || typeof response.body.getReader !== "function") {
+    const fallback = new Uint8Array(await response.arrayBuffer());
+    if (fallback.byteLength > limit) throw new Error("SOURCE_BODY_TOO_LARGE");
+    return new TextDecoder().decode(fallback);
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw new Error("SOURCE_BODY_CHUNK_INVALID");
+      total += value.byteLength;
+      if (total > limit) {
+        await reader.cancel("SOURCE_BODY_TOO_LARGE");
+        throw new Error("SOURCE_BODY_TOO_LARGE");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
