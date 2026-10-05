@@ -77,6 +77,8 @@ const manifests=experiments.experiments
         resultMetricEvidenceRequired:true,
         resultMetricEvidenceRecomputed:true,
         resultMetricEvidenceDigestRequired:true,
+        resultMetricPairedCaseIdsRequired:true,
+        resultMetricCaseSetDigestRequired:true,
         resultArtifactBytesRehashed:true,
         resultArtifactPatchScopeValidated:true,
         resultProtectedPathValidationRequired:true,
