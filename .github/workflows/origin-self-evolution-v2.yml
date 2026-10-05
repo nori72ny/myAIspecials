@@ -56,6 +56,15 @@ jobs:
       - name: Verify sandbox eligibility
         run: node scripts/origin-self-evolution-v2-verify.mjs
 
+      - name: Authorize isolated dry-run experiments
+        env:
+          ORIGIN_EVALUATION_FREEZE: "true"
+          ORIGIN_BASELINE_MAX_AGE_MS: "21600000"
+        run: node scripts/origin-self-evolution-v2-authorize.mjs
+
+      - name: Enforce self-evolution circuit breaker
+        run: node scripts/origin-self-evolution-v2-circuit-breaker.mjs
+
       - name: Build promotion packages
         run: node scripts/origin-self-evolution-v2-promotion.mjs
 
@@ -77,6 +86,10 @@ jobs:
             origin-self-evolution-experiments-v2.md
             origin-self-evolution-verification-v2.json
             origin-self-evolution-verification-v2.md
+            origin-self-evolution-authorization-v2.json
+            origin-self-evolution-authorization-v2.md
+            origin-self-evolution-circuit-breaker-v2.json
+            origin-self-evolution-circuit-breaker-v2.md
             origin-self-evolution-promotion-v2.json
             origin-self-evolution-promotion-v2.md
           if-no-files-found: warn
