@@ -33,10 +33,25 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
     expect(s).toContain('input.costUsd===0');
     expect(s).toContain('input.repoMutation===false');
     expect(s).toContain('input.productionMutation===false');
+    expect(s).toContain('input.networkWrite===false');
+    expect(s).toContain('input.secretAccess===false');
+    expect(s).toContain('input.environmentMutation===false');
     expect(s).toContain('gates.securityRegression===true');
     expect(s).toContain('gates.accessibilityRegression===true');
     expect(s).toContain('gates.performanceRegression===true');
     expect(s).toContain('measuredDelta>0');
+  });
+
+  it("binds measured results to an execution-ready manifest, adapter, brief, artifact digest and receipt",()=>{
+    const s=read("scripts/origin-self-evolution-v2-experiment-result.mjs");
+    expect(s).toContain('manifest?.executionReady===true');
+    expect(s).toContain('input.manifestId===manifest?.manifestId');
+    expect(s).toContain('input.adapterId===manifest?.adapterId');
+    expect(s).toContain('input.implementationBriefId===manifest?.implementationBriefId');
+    expect(s).toContain('/^[a-f0-9]{64}$/.test(artifactSha256)');
+    expect(s).toContain('receipt.schemaVersion==="origin.self-evolution.execution-receipt.v2"');
+    expect(s).toContain('receipt.executionAuthority===manifest?.executionAuthority');
+    expect(s).toContain("EXPERIMENT_RESULT_PROVENANCE_INVALID");
   });
 
   it("does not promote sandbox eligibility by itself",()=>{
