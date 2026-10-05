@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, posix, relative, resolve } from "node:path";
 
 const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH||"");
@@ -45,6 +45,15 @@ function safeRunnerTempPath(raw){
   return file;
 }
 
+function realPathSafe(pathValue){
+  if(!pathValue || !existsSync(pathValue) || !runnerTemp) return false;
+  if(lstatSync(pathValue).isSymbolicLink()) return false;
+  const realRoot=realpathSync(resolve(runnerTemp));
+  const realFile=realpathSync(pathValue);
+  const rel=relative(realRoot,realFile);
+  return !(rel.startsWith("..") || isAbsolute(rel));
+}
+
 function validArtifactPath(pathValue,boundaries){
   if(typeof pathValue!=="string" || !pathValue || pathValue.includes("\\") || pathValue.includes("\0")) return false;
   if(pathValue.startsWith("/") || pathValue.startsWith("../") || pathValue.includes("/../")) return false;
@@ -59,6 +68,7 @@ function validArtifactPath(pathValue,boundaries){
 function inspectArtifact(artifactPath,manifest){
   if(!artifactPath) return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATH_UNSAFE"};
   if(!existsSync(artifactPath)) return {ok:false,reason:"EXPERIMENT_ARTIFACT_NOT_FOUND"};
+  if(!realPathSafe(artifactPath)) return {ok:false,reason:"EXPERIMENT_ARTIFACT_REALPATH_UNSAFE"};
   const maxPatchBytes=Number(manifest?.boundaries?.maxPatchBytes||0);
   const maxFilesChanged=Number(manifest?.boundaries?.maxFilesChanged||0);
   if(!Number.isFinite(maxPatchBytes) || maxPatchBytes<=0 || !Number.isFinite(maxFilesChanged) || maxFilesChanged<=0){
@@ -96,9 +106,17 @@ function inspectArtifact(artifactPath,manifest){
     if(!patch){
       return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_MISSING",sha256};
     }
-    const headers=patch.split(/\r?\n/).filter(line=>line.startsWith("diff --git "));
+    const lines=patch.split(/\r?\n/);
+    const headers=lines.filter(line=>line.startsWith("diff --git "));
     if(headers.length!==1 || headers[0]!==`diff --git a/${pathValue} b/${pathValue}`){
       return {ok:false,reason:"EXPERIMENT_ARTIFACT_PATCH_HEADER_INVALID",sha256};
+    }
+    const oldHeaders=lines.filter(line=>line.startsWith("--- "));
+    const newHeaders=lines.filter(line=>line.startsWith("+++ "));
+    const allowedOld=new Set([`--- a/${pathValue}`,"--- /dev/null"]);
+    const allowedNew=new Set([`+++ b/${pathValue}`,"+++ /dev/null"]);
+    if(oldHeaders.length!==1 || newHeaders.length!==1 || !allowedOld.has(oldHeaders[0]) || !allowedNew.has(newHeaders[0])){
+      return {ok:false,reason:"EXPERIMENT_ARTIFACT_FILE_HEADER_INVALID",sha256};
     }
     patchBytes+=Buffer.byteLength(patch,"utf8");
     paths.push(pathValue);
@@ -120,6 +138,8 @@ if(!rawInput){
   out=reject(null,"EXPERIMENT_RESULT_INPUT_PATH_UNSAFE");
 }else if(!existsSync(inputPath)){
   out=notMeasured("EXPERIMENT_RESULT_INPUT_NOT_FOUND");
+}else if(!realPathSafe(inputPath)){
+  out=reject(null,"EXPERIMENT_RESULT_INPUT_REALPATH_UNSAFE");
 }else if(statSync(inputPath).size>65536){
   out=reject(null,"EXPERIMENT_RESULT_INPUT_TOO_LARGE");
 }else{
@@ -191,6 +211,12 @@ if(!rawInput){
       receipt.patchBytes===artifactInspection.patchBytes &&
       receipt.executionAuthority===manifest?.executionAuthority &&
       receipt.ephemeralWorkspace===true &&
+      receipt.cleanWorktreeBefore===true &&
+      receipt.cleanWorktreeAfter===true &&
+      receipt.rollbackPlanDefined===true &&
+      Number.isFinite(Number(receipt.durationMs)) &&
+      Number(receipt.durationMs)>=0 &&
+      Number(receipt.durationMs)<=Number(manifest?.boundaries?.maxDurationMinutes)*60000 &&
       receipt.networkWrite===false &&
       receipt.repositoryMutation===false &&
       receipt.productionMutation===false &&
