@@ -16,6 +16,19 @@ describe("ORIGIN Self-Evolution V2 measured gap evidence",()=>{
     expect(s).toContain("acceptedMeasurements:[]");
   });
 
+  it("reads runner-temp evidence through a stable no-follow descriptor",()=>{
+    const s=read("scripts/origin-self-evolution-v2-gap-measurement.mjs");
+    const helper=read("scripts/origin-self-evolution-v2-runner-temp.mjs");
+    expect(s).toContain("readBoundedRunnerTempFile");
+    expect(s).toContain("GAP_MEASUREMENT_INPUT_CHANGED_DURING_READ");
+    expect(s).not.toContain("existsSync(");
+    expect(s).not.toContain("statSync(");
+    expect(helper).toContain("constants.O_NOFOLLOW");
+    expect(helper).toContain("fstatSync(fd)");
+    expect(helper).toContain("/proc/self/fd/");
+    expect(helper).toContain("CHANGED_DURING_READ");
+  });
+
   it("requires exact base and mapped capability axis",()=>{
     const s=read("scripts/origin-self-evolution-v2-gap-measurement.mjs");
     expect(s).toContain('input.exactBaseSha!==queue.sourceObservationSha');
