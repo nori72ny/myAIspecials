@@ -450,16 +450,25 @@ export async function researchCurrentInformation(query: string, now = new Date()
     }
 
     const relevant = filterRelevantSources(sources, intent);
-    if (relevant.length === 0) {
+    const combined = mergeSources(webResult.sources, relevant);
+    if (combined.length > 0 && distinctDomainCount(combined) >= intent.minimumDistinctDomains) {
       return {
-        ok: false,
-        sources: [],
-        failure: { stage: "encyclopedia-search", code: sources.length === 0 ? "NO_RESULTS" : "IRRELEVANT_RESULTS" },
+        ok: true,
+        sources: await retrieveResearchPages(combined),
         fallback: webResult.failure,
-        searchProvider: "Wikipedia",
+        searchProvider: webResult.sources.length > 0 ? webResult.searchProvider : "Wikipedia",
       };
     }
-    return { ok: true, sources: relevant, fallback: webResult.failure, searchProvider: "Wikipedia" };
+    return {
+      ok: false,
+      sources: combined,
+      failure: {
+        stage: "encyclopedia-search",
+        code: combined.length > 0 ? "SOURCE_CONSTRAINT_UNMET" : sources.length === 0 ? "NO_RESULTS" : "IRRELEVANT_RESULTS",
+      },
+      fallback: webResult.failure,
+      searchProvider: "Wikipedia",
+    };
   } catch (error) {
     return { ok: false, sources: [], failure: { stage: "encyclopedia-search", code: classifyFailure(error) }, fallback: webResult.failure, searchProvider: "Wikipedia" };
   }
