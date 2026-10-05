@@ -190,6 +190,12 @@ export function validateGeneralAgentPrivateCorpusV2(
     if (task.expectedTool === 'web_search_grounding' && !task.capabilities.includes('research')) {
       blockers.push(`${task.id}:PRIVATE_TASK_RESEARCH_CAPABILITY_MISSING`);
     }
+    if (
+      task.expectedTool === 'web_search_grounding'
+      && (typeof task.params?.query !== 'string' || !task.params.query.trim() || task.params.query.length > 2000)
+    ) {
+      blockers.push(`${task.id}:PRIVATE_TASK_RESEARCH_QUERY_INVALID`);
+    }
     if (task.capabilities.some(capability =>
       !(GENERAL_AGENT_CAPABILITIES_V2 as readonly string[]).includes(capability))) {
       blockers.push(`${task.id}:PRIVATE_TASK_CAPABILITY_INVALID`);
