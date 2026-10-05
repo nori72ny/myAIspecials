@@ -10,8 +10,15 @@ import {
 describe('rasterProviderRegistryV15', () => {
   it('exposes only free-only server-side providers with no paid fallback', () => {
     const providers = rasterProviderRegistryV15();
-    expect(providers).toHaveLength(1);
+    expect(providers).toHaveLength(2);
     expect(providers[0]).toMatchObject({
+      id: 'cloudflare-workers-ai-gateway',
+      zeroCostRequired: true,
+      paidFallback: false,
+      paymentMethodRequired: false,
+      secretDelivery: 'server-only',
+    });
+    expect(providers[1]).toMatchObject({
       id: 'cloudflare-workers-ai-free',
       zeroCostRequired: true,
       paidFallback: false,
@@ -33,8 +40,8 @@ describe('rasterProviderRegistryV15', () => {
   });
 
   it('resolves text generation and bounded reference editing without overclaiming other edit modes', () => {
-    expect(resolveRasterProviderV15('text-to-image')?.descriptor.id).toBe('cloudflare-workers-ai-free');
-    expect(resolveRasterProviderV15('edit')?.descriptor.id).toBe('cloudflare-workers-ai-free');
+    expect(resolveRasterProviderV15('text-to-image')?.descriptor.id).toBe('cloudflare-workers-ai-gateway');
+    expect(resolveRasterProviderV15('edit')?.descriptor.id).toBe('cloudflare-workers-ai-gateway');
     expect(resolveRasterProviderV15('inpaint')).toBeNull();
   });
 
