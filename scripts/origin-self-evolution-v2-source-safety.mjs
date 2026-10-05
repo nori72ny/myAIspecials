@@ -29,14 +29,20 @@ const CANONICAL_SOURCES = Object.freeze([
 
 const RAW_TEXT_ELEMENTS = new Set(["script", "style", "template", "noscript"]);
 
+function isWhitespace(character) {
+  if (!character) return false;
+  const code = character.charCodeAt(0);
+  return code === 9 || code === 10 || code === 12 || code === 13 || code === 32;
+}
+
 function parseTagBody(body) {
   let index = 0;
-  while (index < body.length && /\s/.test(body[index])) index += 1;
+  while (index < body.length && isWhitespace(body[index])) index += 1;
   let closing = false;
   if (body[index] === "/") {
     closing = true;
     index += 1;
-    while (index < body.length && /\s/.test(body[index])) index += 1;
+    while (index < body.length && isWhitespace(body[index])) index += 1;
   }
   const start = index;
   while (index < body.length) {
@@ -106,7 +112,7 @@ function normalizeVisibleText(value, maxExcerpt) {
   for (const character of value) {
     const code = character.codePointAt(0) || 0;
     const control = (code >= 0 && code <= 31) || code === 127;
-    if (control || /\s/.test(character)) {
+    if (control || isWhitespace(character)) {
       pendingSpace = output.length > 0;
       continue;
     }
