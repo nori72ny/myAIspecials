@@ -35,7 +35,7 @@ export interface OriginResearchResult {
   sources: OriginResearchSource[];
   failure?: OriginResearchFailure;
   fallback?: OriginResearchFailure;
-  searchProvider?: "DuckDuckGo" | "Wikipedia";
+  searchProvider?: "DuckDuckGo" | "Bing" | "Wikipedia";
 }
 
 type WikipediaSearchResponse = {
@@ -52,6 +52,7 @@ type ResearchIntent = {
   requiredHostSuffixes: string[];
   searchQuery: string;
   terms: string[];
+  minimumDistinctDomains: number;
 };
 
 const WIKI_ORIGINS = {
@@ -62,6 +63,7 @@ const WIKI_ORIGINS = {
 const SEARCH_ORIGINS = {
   duckduckgoHtml: "https://html.duckduckgo.com/html/",
   duckduckgoLite: "https://lite.duckduckgo.com/lite/",
+  bingRss: "https://www.bing.com/search",
 } as const;
 
 const OFFICIAL_SOURCE_RULES: readonly {
