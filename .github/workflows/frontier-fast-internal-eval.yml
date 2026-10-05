@@ -6,6 +6,7 @@ on:
       - 'scripts/run-general-agent-synthetic-live-v2.ts'
       - 'scripts/run-general-agent-research-live-v1.ts'
       - 'scripts/diagnose-research-search-surface.ts'
+      - 'scripts/diagnose-keyless-search-alternatives.ts'
       - '.github/workflows/frontier-fast-internal-eval.yml'
 
 permissions:
@@ -68,5 +69,7 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Diagnose current public search HTML surface
         run: node --import tsx scripts/diagnose-research-search-surface.ts
+      - name: Compare keyless search alternatives
+        run: node --import tsx scripts/diagnose-keyless-search-alternatives.ts
       - name: Run three-task zero-cost Research live evaluation
         run: node --import tsx scripts/run-general-agent-research-live-v1.ts
