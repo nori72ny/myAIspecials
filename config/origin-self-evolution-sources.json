@@ -186,7 +186,7 @@
       "permissions",
       "secrets"
     ],
-    "automaticCodeWrite": "draft-pr-only-low-risk",
+    "automaticCodeWrite": false,
     "automaticMerge": false,
     "productionDeploy": false,
     "paidFallback": false,
