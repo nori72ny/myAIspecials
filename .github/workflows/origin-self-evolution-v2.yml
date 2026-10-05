@@ -35,6 +35,9 @@ jobs:
       - name: Observe and score external evidence
         run: node scripts/origin-self-evolution-v2.mjs
 
+      - name: Build baseline-comparison candidate queue
+        run: node scripts/origin-self-evolution-v2-plan.mjs
+
       - name: Retain sanitized evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -43,5 +46,7 @@ jobs:
           path: |
             origin-self-evolution-v2.json
             origin-self-evolution-v2.md
+            origin-self-evolution-candidates-v2.json
+            origin-self-evolution-candidates-v2.md
           if-no-files-found: warn
           retention-days: 14
