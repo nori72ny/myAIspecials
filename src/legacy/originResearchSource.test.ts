@@ -61,6 +61,33 @@ describe("originResearchSource", () => {
     });
   });
 
+  it("matches Japanese AI-agent intent against English agent terminology without lowering the match count", async () => {
+    const duckLanding = '<html><body><a class="header-url" href="/html/">DuckDuckGo</a></body></html>';
+    const bingRss = `<?xml version="1.0"?><rss><channel>
+      <item><title>AI agents and agentic systems</title><link>https://example-one.com/ai-agents</link><description>AI agents can plan, use tools, and verify multi-step work.</description></item>
+      <item><title>Building reliable AI agents</title><link>https://example-two.com/agents</link><description>Agentic AI systems coordinate planning, execution, and verification.</description></item>
+    </channel></rss>`;
+    secureFetch
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(bingRss)
+      .mockRejectedValueOnce(new Error("original page blocked"))
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "AIエージェントに関する最新情報を複数ソースで調査してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("Bing");
+    expect(result.sources).toHaveLength(2);
+    expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).toContain("q=ai agent");
+    expect(new Set(result.sources.map(source => source.domain))).toEqual(new Set([
+      "example-one.com",
+      "example-two.com",
+    ]));
+  });
+
   it("uses keyless Bing RSS to satisfy an independent multi-source request when DuckDuckGo has no results", async () => {
     const duckLanding = '<html><body><a class="header-url" href="/html/">DuckDuckGo</a></body></html>';
     const bingRss = `<?xml version="1.0"?><rss><channel>
