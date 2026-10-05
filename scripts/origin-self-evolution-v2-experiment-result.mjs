@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { posix } from "node:path";
+import { join, posix } from "node:path";
 import { readBoundedRunnerTempFile } from "./origin-self-evolution-v2-runner-temp.mjs";
 import { materializeArtifactAgainstExactBase } from "./origin-self-evolution-v2-materialize.mjs";
 
@@ -8,6 +8,7 @@ const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH||
 const rawArtifact=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_ARTIFACT_PATH||"");
 const rawMetricEvidence=String(process.env.ORIGIN_SELF_EVOLUTION_METRIC_EVIDENCE_PATH||"");
 const rawGateEvidence=String(process.env.ORIGIN_SELF_EVOLUTION_GATE_EVIDENCE_PATH||"");
+const rawGateOutputDir=String(process.env.ORIGIN_SELF_EVOLUTION_GATE_OUTPUT_DIR||"");
 const runnerTemp=String(process.env.RUNNER_TEMP||"");
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
 const verified=JSON.parse(readFileSync("origin-self-evolution-verification-v2.json","utf8"));
@@ -162,7 +163,7 @@ function hasExecutableField(value){
   return false;
 }
 
-function inspectGateEvidence(rawPath,manifest,claimedSha256,inputGates){
+function inspectGateEvidence(rawPath,manifest,claimedSha256,inputGates,artifactSha256,materializationDigest){
   const read=readBoundedRunnerTempFile(rawPath,runnerTemp,65536);
   if(read.ok!==true) return {ok:false,reason:`EXPERIMENT_GATE_EVIDENCE_${read.code}`};
   const sha256=createHash("sha256").update(read.bytes).digest("hex");
@@ -182,10 +183,13 @@ function inspectGateEvidence(rawPath,manifest,claimedSha256,inputGates){
     evidence?.manifestId!==manifest?.manifestId ||
     evidence?.candidateId!==manifest?.candidateId ||
     evidence?.experimentId!==manifest?.experimentId ||
+    evidence?.artifactSha256!==artifactSha256 ||
+    evidence?.materializationDigest!==materializationDigest ||
     evidence?.evidenceKind!=="TRUSTED_ISOLATED_HARNESS" ||
     evidence?.privateHeldOut!==false ||
     !Array.isArray(evidence?.observations) ||
-    evidence.observations.length!==Object.keys(REQUIRED_GATE_HARNESSES).length
+    evidence.observations.length!==Object.keys(REQUIRED_GATE_HARNESSES).length ||
+    !rawGateOutputDir
   ){
     return {ok:false,reason:"EXPERIMENT_GATE_EVIDENCE_BINDING_INVALID",sha256};
   }
@@ -204,10 +208,49 @@ function inspectGateEvidence(rawPath,manifest,claimedSha256,inputGates){
     ){
       return {ok:false,reason:"EXPERIMENT_GATE_EVIDENCE_OBSERVATION_INVALID",sha256};
     }
+
+    const outputRead=readBoundedRunnerTempFile(
+      join(rawGateOutputDir,`${gateId}.json`),
+      runnerTemp,
+      32768
+    );
+    if(outputRead.ok!==true){
+      return {ok:false,reason:`EXPERIMENT_GATE_OUTPUT_${gateId}_${outputRead.code}`,sha256};
+    }
+    const outputSha256=createHash("sha256").update(outputRead.bytes).digest("hex");
+    if(outputSha256!==String(observation.outputSha256).toLowerCase()){
+      return {ok:false,reason:"EXPERIMENT_GATE_OUTPUT_DIGEST_INVALID",sha256};
+    }
+
+    let output;
+    try{ output=JSON.parse(outputRead.bytes.toString("utf8")); }
+    catch{ return {ok:false,reason:"EXPERIMENT_GATE_OUTPUT_JSON_INVALID",sha256}; }
+    if(
+      hasExecutableField(output) ||
+      output?.schemaVersion!=="origin.self-evolution.gate-output.v2" ||
+      output?.exactBaseSha!==manifest?.exactBaseSha ||
+      output?.manifestId!==manifest?.manifestId ||
+      output?.candidateId!==manifest?.candidateId ||
+      output?.experimentId!==manifest?.experimentId ||
+      output?.artifactSha256!==artifactSha256 ||
+      output?.materializationDigest!==materializationDigest ||
+      output?.gateId!==gateId ||
+      output?.harnessId!==expectedHarness ||
+      output?.evidenceKind!=="TRUSTED_ISOLATED_HARNESS_OUTPUT" ||
+      output?.status!=="PASS" ||
+      output?.exitCode!==0 ||
+      output?.networkWrite!==false ||
+      output?.secretAccess!==false ||
+      output?.paidProvider!==false ||
+      output?.costUsd!==0
+    ){
+      return {ok:false,reason:"EXPERIMENT_GATE_OUTPUT_BINDING_INVALID",sha256};
+    }
+
     observations.set(gateId,{
       gateId,
       harnessId:expectedHarness,
-      outputSha256:String(observation.outputSha256).toLowerCase()
+      outputSha256
     });
   }
 
@@ -229,6 +272,7 @@ function inspectGateEvidence(rawPath,manifest,claimedSha256,inputGates){
     sha256,
     derived,
     observationSetDigest,
+    outputSetDigest:observationSetDigest,
     observationCount:observations.size
   };
 }
@@ -356,7 +400,14 @@ if(!rawInput){
     const metricEvidenceSha256=String(input.metricEvidenceSha256||"").toLowerCase();
     const metricEvidence=inspectMetricEvidence(rawMetricEvidence,manifest,metricEvidenceSha256,metric);
     const gateEvidenceSha256=String(input.gateEvidenceSha256||"").toLowerCase();
-    const gateEvidence=inspectGateEvidence(rawGateEvidence,manifest,gateEvidenceSha256,input.gates||{});
+    const gateEvidence=inspectGateEvidence(
+      rawGateEvidence,
+      manifest,
+      gateEvidenceSha256,
+      input.gates||{},
+      artifactSha256,
+      materialization.ok===true?materialization.materializationDigest:null
+    );
     const before=metricEvidence.ok===true?metricEvidence.before:Number.NaN;
     const after=metricEvidence.ok===true?metricEvidence.after:Number.NaN;
     const minDelta=metricEvidence.ok===true?metricEvidence.minDelta:Number.NaN;
@@ -411,6 +462,7 @@ if(!rawInput){
       gateEvidence.ok===true &&
       receipt.gateEvidenceSha256===gateEvidenceSha256 &&
       receipt.gateObservationSetDigest===gateEvidence.observationSetDigest &&
+      receipt.gateOutputSetDigest===gateEvidence.outputSetDigest &&
       receipt.materializationDigest===materialization.materializationDigest &&
       receipt.filesChanged===artifactInspection.filesChanged &&
       receipt.patchBytes===artifactInspection.patchBytes &&
@@ -469,6 +521,7 @@ if(!rawInput){
         metricCaseIds:metricEvidence.caseIds,
         gateEvidenceSha256,
         gateObservationSetDigest:gateEvidence.observationSetDigest,
+        gateOutputSetDigest:gateEvidence.outputSetDigest,
         gateObservationCount:gateEvidence.observationCount,
         artifactFilesChanged:artifactInspection.filesChanged,
         artifactPatchBytes:artifactInspection.patchBytes,
