@@ -48,7 +48,7 @@ describe("originResearchSource", () => {
       .mockRejectedValueOnce(new Error("original page blocked"));
 
     const result = await researchCurrentInformation(
-      "Cloudflare Workers AIの最新情報を複数ソースで調査してください。",
+      "Cloudflare Workers AIの最新情報を調査してください。",
     );
 
     expect(result.ok).toBe(true);
@@ -129,6 +129,7 @@ describe("originResearchSource", () => {
     secureFetch
       .mockRejectedValueOnce(new Error("search unavailable"))
       .mockRejectedValueOnce(new Error("search unavailable"))
+      .mockRejectedValueOnce(new Error("search unavailable"))
       .mockResolvedValueOnce(JSON.stringify({ pages: [{ key: "AI", title: "AI", excerpt: "Artificial intelligence." }] }))
       .mockResolvedValueOnce(JSON.stringify({ html_url: "https://en.wikipedia.org/wiki/AI", latest: { timestamp: "2026-09-06T00:00:00Z" } }));
 
@@ -159,6 +160,7 @@ describe("originResearchSource", () => {
   it("fails closed when the source cannot be reached", async () => {
     secureFetch.mockRejectedValueOnce(new Error("network blocked"));
     secureFetch.mockRejectedValueOnce(new Error("network blocked"));
+    secureFetch.mockRejectedValueOnce(new Error("network blocked"));
     secureFetch.mockRejectedValueOnce(new Error("Secure fetch request timed out."));
     const result = await researchCurrentInformation("latest AI news");
     expect(result.ok).toBe(false);
@@ -171,6 +173,7 @@ describe("originResearchSource", () => {
   });
 
   it("classifies invalid fallback responses without returning parser details", async () => {
+    secureFetch.mockRejectedValueOnce(new Error("Fetch error: HTTP status 403"));
     secureFetch.mockRejectedValueOnce(new Error("Fetch error: HTTP status 403"));
     secureFetch.mockRejectedValueOnce(new Error("Fetch error: HTTP status 403"));
     secureFetch.mockResolvedValueOnce("not-json");
@@ -241,7 +244,10 @@ describe("originResearchSource", () => {
     const unrelated =
       '<a class="result__a" href="https://en.wikipedia.org/wiki/The_Beatles">The Beatles</a><div class="result__snippet">English rock band.</div>' +
       '<a class="result__a" href="https://www.nicovideo.jp/">Niconico</a><div class="result__snippet">Video service.</div>';
-    secureFetch.mockResolvedValueOnce(unrelated).mockResolvedValueOnce(unrelated);
+    secureFetch
+      .mockResolvedValueOnce(unrelated)
+      .mockResolvedValueOnce(unrelated)
+      .mockResolvedValueOnce('<?xml version="1.0"?><rss><channel><item><title>Unrelated</title><link>https://example.com/random</link><description>Unrelated content.</description></item></channel></rss>');
 
     const result = await researchCurrentInformation(
       "Google ビジネス プロフィールの営業時間の編集方法を、Google公式ヘルプを出典として短く説明してください。",
@@ -249,10 +255,11 @@ describe("originResearchSource", () => {
 
     expect(result.ok).toBe(false);
     expect(result.sources).toEqual([]);
-    expect(result.searchProvider).toBe("DuckDuckGo");
+    expect(result.searchProvider).toBe("Bing");
     expect(result.failure).toEqual({ stage: "web-search", code: "SOURCE_CONSTRAINT_UNMET" });
-    expect(secureFetch).toHaveBeenCalledTimes(2);
+    expect(secureFetch).toHaveBeenCalledTimes(3);
     expect(String(secureFetch.mock.calls[1][0])).toContain("https://lite.duckduckgo.com/lite/");
+    expect(String(secureFetch.mock.calls[2][0])).toContain("https://www.bing.com/search?");
   });
 
   it("recovers an official Google Help result from DuckDuckGo lite when the HTML surface misses it", async () => {
