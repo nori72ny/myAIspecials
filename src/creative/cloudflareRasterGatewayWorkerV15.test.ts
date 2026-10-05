@@ -72,7 +72,7 @@ describe('cloudflareRasterGatewayWorkerV15', () => {
   });
 
   it('sends only a sanitized multipart request to the exact FLUX.2 klein 4B binding', async () => {
-    const aiRun = vi.fn(async () => pngHeader(1024, 1024));
+    const aiRun = vi.fn(async (_model: Parameters<AiRun>[0], _input: Parameters<AiRun>[1]) => pngHeader(1024, 1024));
     const worker = createCloudflareRasterGatewayWorkerV15();
     const form = new FormData();
     form.append('prompt', 'A premium studio product photograph');
