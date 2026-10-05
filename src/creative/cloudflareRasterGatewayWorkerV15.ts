@@ -118,13 +118,47 @@ function integerField(form: FormData, key: string): number {
   return value;
 }
 
+async function boundedRequestWithBody(request: Request): Promise<Request> {
+  if (!request.body) throw new Error('INPUT_MULTIPART_REQUIRED');
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > MAX_REQUEST_BYTES) {
+        await reader.cancel();
+        throw new Error('INPUT_REQUEST_TOO_LARGE');
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body,
+  });
+}
+
 async function validatedForm(request: Request, mode: 'generate' | 'edit'): Promise<FormData> {
   const contentType = request.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().startsWith('multipart/form-data;')) throw new Error('INPUT_MULTIPART_REQUIRED');
   const declared = Number(request.headers.get('content-length') ?? '0');
   if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) throw new Error('INPUT_REQUEST_TOO_LARGE');
 
-  const input = await request.formData();
+  const boundedRequest = await boundedRequestWithBody(request);
+  const input = await boundedRequest.formData();
   const allowedNames = new Set(['prompt', 'width', 'height', 'input_image_0', 'input_image_1', 'input_image_2', 'input_image_3']);
   for (const name of input.keys()) {
     if (!allowedNames.has(name)) throw new Error('INPUT_FIELD_UNSUPPORTED');
