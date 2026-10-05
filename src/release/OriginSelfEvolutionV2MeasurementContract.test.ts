@@ -170,7 +170,7 @@ describe("ORIGIN Self-Evolution V2 measurement evidence contract",()=>{
           implementationBriefId:"brief-1",
           files:[{path:pathValue,patch}]
         };
-        const artifactBytes=JSON.stringify(artifact,null,2)+"\\n";
+        const artifactBytes=JSON.stringify(artifact,null,2)+"\n";
         const actualDigest=createHash("sha256").update(artifactBytes).digest("hex");
         const claimedDigest=digestOverride||actualDigest;
         const materializationDigest=createHash("sha256").update([baseSha,actualDigest,pathValue].join("|")).digest("hex");
