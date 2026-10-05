@@ -190,6 +190,8 @@
     "automaticMerge": false,
     "productionDeploy": false,
     "paidFallback": false,
-    "maxCostUsd": 0
+    "maxCostUsd": 0,
+    "maxSourceBytes": 262144,
+    "maxRedirects": 2
   }
 }
