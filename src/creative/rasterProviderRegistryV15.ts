@@ -119,6 +119,15 @@ export function resolveRasterProviderV15(
     && provider.descriptor.capabilities.some(capability => capability.task === task)) ?? null;
 }
 
+function orderedProvidersV15(env: NodeJS.ProcessEnv): readonly RasterProviderRuntimeV15[] {
+  const gatewayReadyForSelection = cloudflareRasterGatewayConfiguredV15(env);
+  return gatewayReadyForSelection
+    ? PROVIDERS
+    : [...PROVIDERS].sort((a, b) =>
+        Number(a.descriptor.id === 'cloudflare-workers-ai-gateway')
+        - Number(b.descriptor.id === 'cloudflare-workers-ai-gateway'));
+}
+
 type RasterProviderStatusCacheV15 = Map<RasterProviderRuntimeV15, Promise<RasterProviderStatusV15>>;
 
 function cachedProviderStatusV15(
@@ -147,7 +156,7 @@ async function selectRasterProviderWithCacheV15(
   }[] = [];
 
   let anySupport = false;
-  for (const provider of PROVIDERS) {
+  for (const provider of orderedProvidersV15(env)) {
     const supportsTask = provider.descriptor.capabilities.some(capability => capability.task === task);
     anySupport ||= supportsTask;
     if (!supportsTask) {
