@@ -8,6 +8,7 @@ import {
   createOriginAnswerQualityFrozenCorpus,
 } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.js";
 import {
+  planOriginAnswerQualityBenchmarkCaseShards,
   planOriginAnswerQualityBenchmarkQuotaShards,
 } from "../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.js";
 import {
@@ -227,7 +228,9 @@ async function main(): Promise<void> {
   }
 
   const fullCorpus = createOriginAnswerQualityFrozenCorpus();
-  const quotaPlan = planOriginAnswerQualityBenchmarkQuotaShards(fullCorpus, 45);
+  const quotaPlan = process.env.ORIGIN_AQ_SHARD_MODE?.trim() === "case-isolated"
+    ? planOriginAnswerQualityBenchmarkCaseShards(fullCorpus, 45)
+    : planOriginAnswerQualityBenchmarkQuotaShards(fullCorpus, 45);
   if (quotaPlan.ok === false) {
     throw new Error(`AQ_LOCAL_COMPARISON_QUOTA_PLAN_FAILED:${quotaPlan.code}`);
   }
