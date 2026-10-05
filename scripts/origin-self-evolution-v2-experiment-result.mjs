@@ -1,6 +1,8 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 
-const INPUT="origin-self-evolution-experiment-result-input-v2.json";
+const rawInput=String(process.env.ORIGIN_SELF_EVOLUTION_EXPERIMENT_RESULT_PATH||"");
+const runnerTemp=String(process.env.RUNNER_TEMP||"");
 const priority=JSON.parse(readFileSync("origin-self-evolution-priority-v2.json","utf8"));
 const verified=JSON.parse(readFileSync("origin-self-evolution-verification-v2.json","utf8"));
 
@@ -30,12 +32,29 @@ function reject(input,reason){
   };
 }
 
+function safeInputPath(){
+  if(!rawInput) return null;
+  if(!runnerTemp || !isAbsolute(rawInput)) return null;
+  const root=resolve(runnerTemp);
+  const file=resolve(rawInput);
+  const rel=relative(root,file);
+  if(rel.startsWith("..") || isAbsolute(rel)) return null;
+  return file;
+}
+
 let out;
-if(!existsSync(INPUT)){
+const inputPath=safeInputPath();
+if(!rawInput){
   out=notMeasured("EXPERIMENT_RESULT_INPUT_MISSING");
+}else if(!inputPath){
+  out=reject(null,"EXPERIMENT_RESULT_INPUT_PATH_UNSAFE");
+}else if(!existsSync(inputPath)){
+  out=notMeasured("EXPERIMENT_RESULT_INPUT_NOT_FOUND");
+}else if(statSync(inputPath).size>65536){
+  out=reject(null,"EXPERIMENT_RESULT_INPUT_TOO_LARGE");
 }else{
   let input;
-  try{ input=JSON.parse(readFileSync(INPUT,"utf8")); }
+  try{ input=JSON.parse(readFileSync(inputPath,"utf8")); }
   catch{ input=null; }
 
   if(!input){
