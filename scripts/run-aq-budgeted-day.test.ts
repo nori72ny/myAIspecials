@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { validateDailyBatch } from './validate-aq-daily-batch.mjs';
@@ -8,7 +8,7 @@ import { runBudgetedDay } from './run-aq-budgeted-day.js';
 import { createOriginAnswerQualityFrozenCorpus } from '../src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.js';
 import { planOriginAnswerQualityBenchmarkCaseShards } from '../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.js';
 const roots: string[] = [];
-afterEach(async () => { vi.unstubAllEnvs(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.unstubAllEnvs(); vi.restoreAllMocks(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 async function setup() {
   const root = await mkdtemp(path.join(tmpdir(), 'aq-checkpoint-')); roots.push(root);
   vi.stubEnv('ORIGIN_AQ_BASELINE_SHA', 'a'.repeat(40));
@@ -75,5 +75,67 @@ describe('AQ partial-day evidence survives a later failure', () => {
       await writeFile(file,JSON.stringify(value));
     }
     await expect(validateDailyBatch(directory,'a'.repeat(40),'b'.repeat(40))).rejects.toThrow('AQ_DAILY_BATCH_INVALID');
+  });
+});
+
+
+describe('AQ first failure diagnostics remain safe and durable in logs', () => {
+  it.each(['symlink', 'oversized', 'malformed'])('rejects %s diagnostic files without leaking or retrying', async kind => {
+    const root = await setup();
+    const log = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    let calls = 0;
+    await expect(runBudgetedDay(async env => {
+      calls++;
+      const value = JSON.stringify({ schemaVersion: 'origin.aq-local-shard-result.v1',
+        ok: false, code: 'AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED', detail: 'SECRET_CANARY' });
+      if (kind === 'symlink') {
+        const target = path.join(root, 'external.json');
+        await writeFile(target, value);
+        await symlink(target, env.ORIGIN_AQ_OUTPUT_PATH!);
+      } else {
+        await writeFile(env.ORIGIN_AQ_OUTPUT_PATH!, kind === 'oversized' ? value + ' '.repeat(16_385) : '{SECRET_CANARY');
+      }
+      throw new Error('SECRET_CANARY');
+    })).rejects.toThrow('SECRET_CANARY');
+    const output = log.mock.calls.map(call => call[0]).join('');
+    expect(output).toContain('AQ_FAILURE_UNCLASSIFIED');
+    expect(output).not.toContain('SECRET_CANARY');
+    expect(calls).toBe(1);
+    expect(await readdir(path.join(root, 'state'))).toEqual([]);
+    await expect(validateDailyBatch(path.join(root, 'new'), 'a'.repeat(40), 'b'.repeat(40))).rejects.toThrow('AQ_DAILY_BATCH_INVALID');
+  });
+
+  it.each(['structured', 'local', 'unknown', 'malicious-code'])('reports only fixed labels for %s failures', async kind => {
+    const root = await setup();
+    const log = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    let calls = 0;
+    await expect(runBudgetedDay(async env => {
+      calls++;
+      if (kind === 'structured' || kind === 'malicious-code') {
+        await writeFile(env.ORIGIN_AQ_OUTPUT_PATH!, JSON.stringify({
+          schemaVersion: 'origin.aq-local-shard-result.v1', ok: false,
+          code: kind === 'structured' ? 'AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED' : 'AQ_SECRET_CANARY',
+          detail: 'SECRET_CANARY', answerText: 'SECRET_CANARY',
+        }));
+      }
+      throw Object.assign(new Error('SECRET_CANARY'), {
+        stderr: kind === 'local'
+          ? 'SECRET_CANARY\nAQ_LOCAL_COMPARISON_BUILD_FAILED:baseline\n'
+          : 'AQ_LOCAL_COMPARISON_BUILD_FAILED:baseline SECRET_CANARY',
+      });
+    })).rejects.toThrow('SECRET_CANARY');
+    const expected = kind === 'structured' ? 'AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED'
+      : kind === 'local' ? 'AQ_LOCAL_COMPARISON_BUILD_FAILED:baseline' : 'AQ_FAILURE_UNCLASSIFIED';
+    const output = log.mock.calls.map(call => call[0]).join('');
+    expect(output).toContain(expected);
+    expect(output).toContain('"attemptedShardIndex":0');
+    expect(output).toContain('"providerRequestCountKnown":false');
+    expect(output).not.toContain('SECRET_CANARY');
+    expect(calls).toBe(1);
+    expect(await readdir(path.join(root, 'state'))).toEqual([]);
+    const summary = await readFile(path.join(root, 'new/aq-budgeted-day-summary.json'), 'utf8');
+    expect(summary).not.toContain('SECRET_CANARY');
+    expect(JSON.parse(summary)).toMatchObject({failureCode:expected, completedShardCount:0, interrupted:true});
+    await expect(validateDailyBatch(path.join(root,'new'),'a'.repeat(40),'b'.repeat(40))).rejects.toThrow('AQ_DAILY_BATCH_INVALID');
   });
 });
