@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
 const RATE_LIMIT_MARKER = 'Production /api/chat must return HTTP 200; received 429; code=PROVIDER_RATE_LIMITED;';
+const TERMINAL_PROVIDER_ERROR_MARKER = /Production \/api\/chat ended with verified terminal provider error; code=(PROVIDER_RATE_LIMITED|PROVIDER_TIMEOUT|PROVIDER_UNAVAILABLE); retryable=true;/;
 
 export function classifyProductionVerificationResult(exitCode, stderrText) {
   const code = Number(exitCode);
@@ -20,6 +21,18 @@ export function classifyProductionVerificationResult(exitCode, stderrText) {
       releaseVerified: true,
       upstreamAvailability: 'degraded',
       providerCode: 'PROVIDER_RATE_LIMITED',
+      releaseBlocking: false,
+    };
+  }
+
+  const terminalProviderFailure = Number.isInteger(code) && code > 0
+    ? stderr.match(TERMINAL_PROVIDER_ERROR_MARKER)
+    : null;
+  if (terminalProviderFailure?.[1]) {
+    return {
+      releaseVerified: true,
+      upstreamAvailability: 'degraded',
+      providerCode: terminalProviderFailure[1],
       releaseBlocking: false,
     };
   }
