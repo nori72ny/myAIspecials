@@ -34,6 +34,8 @@ The gate invokes the trusted General Agent comparison directly. ORIGIN and refer
 
 The gate re-runs the 24-case image blind benchmark from the full benchmark packet, including technical evidence, exact output digests, three fixed references and independent judge scores.
 
+For a V1.6 publication claim, the ORIGIN candidate images must originate from the exact-current-main V1.6 private runner (`npm run eval:image-private-world-class`) and the same user-visible `/api/creative/v1.6/world-class/generate` route. Evidence from the V1.5 Cloudflare-only private runner is valid only for that V1.5 route and cannot qualify V1.6. Evaluation-mode outputs must carry the exact release SHA and evaluation marker and must not carry a world-class-qualified header before the blind benchmark passes.
+
 ### Artifact
 
 The gate re-runs the 16-case artifact blind benchmark from the full benchmark packet, including technical checks, exact artifact digests, three references and independent judge scores.
