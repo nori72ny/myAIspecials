@@ -127,8 +127,8 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(result.passed).toBe(false);
     expect(result.issues).toEqual(expect.arrayContaining([
       'watch-face geometry is visibly distorted',
-      'subjectIntegrity-below-3',
-      'professionalUsefulness-below-3',
+      'subjectIntegrity-below-3.4',
+      'professionalUsefulness-below-3.4',
     ]));
   });
 
