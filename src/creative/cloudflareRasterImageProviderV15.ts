@@ -7,7 +7,11 @@ import type {
 import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
 
 const API_ORIGIN = 'https://api.cloudflare.com';
-const MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
+const DEFAULT_MODEL = '@cf/black-forest-labs/flux-2-klein-9b';
+const ALLOWED_MODELS = new Set([
+  '@cf/black-forest-labs/flux-2-klein-9b',
+  '@cf/black-forest-labs/flux-2-klein-4b',
+]);
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 45_000;
 const MODEL_SCHEMA_TIMEOUT_MS = 10_000;
@@ -70,6 +74,7 @@ function workerPlanText(value: Subscription): string {
 async function verifyWorkersFreePlan(
   accountId: string,
   apiToken: string,
+  model: string,
   fetchImpl: typeof fetch,
 ): Promise<{ ok: boolean; requests: number; reason: string | null }> {
   const settings = await timedFetch(
@@ -118,7 +123,7 @@ async function verifyWorkersFreePlan(
   }
 
   const schema = await timedFetch(
-    `${API_ORIGIN}/client/v4/accounts/${accountId}/ai/models/schema?model=${encodeURIComponent(MODEL)}`,
+    `${API_ORIGIN}/client/v4/accounts/${accountId}/ai/models/schema?model=${encodeURIComponent(model)}`,
     { method: 'GET', headers: headers(apiToken) },
     fetchImpl,
     MODEL_SCHEMA_TIMEOUT_MS,
@@ -224,6 +229,19 @@ export async function getCloudflareRasterStatusV15(
   fetchImpl: typeof fetch = fetch,
 ): Promise<RasterProviderStatusV15> {
   const auth = credentials(env);
+  const model = env.ORIGIN_CLOUDFLARE_IMAGE_MODEL?.trim() || DEFAULT_MODEL;
+  if (!ALLOWED_MODELS.has(model)) return {
+    configured: true,
+    ready: false,
+    providerId: 'cloudflare-workers-ai-free',
+    model: null,
+    zeroCostVerified: false,
+    paidFallbackEnabled: false,
+    paymentMethodRequired: false,
+    secretDelivery: 'server-only',
+    externalNetwork: true,
+    reason: 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
+  };
   if (!auth) return {
     configured: false,
     ready: false,
@@ -238,12 +256,12 @@ export async function getCloudflareRasterStatusV15(
   };
 
   try {
-    const proof = await verifyWorkersFreePlan(auth.accountId, auth.apiToken, fetchImpl);
+    const proof = await verifyWorkersFreePlan(auth.accountId, auth.apiToken, model, fetchImpl);
     return {
       configured: true,
       ready: proof.ok,
       providerId: 'cloudflare-workers-ai-free',
-      model: proof.ok ? MODEL : null,
+      model: proof.ok ? model : null,
       zeroCostVerified: proof.ok,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
@@ -274,6 +292,8 @@ export async function generateCloudflareRasterImageV15(
 ): Promise<RasterImageResultV15> {
   const auth = credentials(env);
   if (!auth) throw new Error('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
+  const model = env.ORIGIN_CLOUDFLARE_IMAGE_MODEL?.trim() || DEFAULT_MODEL;
+  if (!ALLOWED_MODELS.has(model)) throw new Error('CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED');
 
   const width = typeof input.width === 'number' ? input.width : 1024;
   const height = typeof input.height === 'number' ? input.height : 1024;
@@ -298,7 +318,7 @@ export async function generateCloudflareRasterImageV15(
     }
   }
 
-  const proof = await verifyWorkersFreePlan(auth.accountId, auth.apiToken, fetchImpl);
+  const proof = await verifyWorkersFreePlan(auth.accountId, auth.apiToken, model, fetchImpl);
   if (!proof.ok) throw new Error(proof.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
 
   const form = new FormData();
@@ -329,7 +349,7 @@ export async function generateCloudflareRasterImageV15(
   });
 
   const response = await timedFetch(
-    `${API_ORIGIN}/client/v4/accounts/${auth.accountId}/ai/run/${MODEL}`,
+    `${API_ORIGIN}/client/v4/accounts/${auth.accountId}/ai/run/${model}`,
     {
       method: 'POST',
       headers: headers(auth.apiToken, false),
@@ -362,7 +382,7 @@ export async function generateCloudflareRasterImageV15(
     bytes,
     mimeType,
     sha256: createHash('sha256').update(bytes).digest('hex'),
-    model: MODEL,
+    model,
     providerId: 'cloudflare-workers-ai-free',
     width: actual.width,
     height: actual.height,
