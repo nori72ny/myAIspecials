@@ -41,6 +41,31 @@ it('accepts a genuine upstream multi-chunk response that proves multi-turn conte
   expect(result).toMatchObject({ status: 200, streamSource: 'upstream', contextVerified: true, streamChunkCount: 2 });
 });
 
+it('classifies a verified partial upstream stream interruption without exposing provider details', async () => {
+  const model = 'inclusionai/ling-3.0-flash-sante:free';
+  const body = [
+    `data: ${JSON.stringify({ type: 'delta', text: 'verified partial' })}`,
+    `data: ${JSON.stringify({ type: 'error' })}`,
+    '',
+  ].join('\n\n');
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
+    status: 200,
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'x-origin-stream-source': 'upstream',
+      'x-origin-stream-protocol': 'origin-verified-sse-v1',
+      'x-origin-free-only': 'true',
+      'x-origin-cost-usd': '0',
+      'x-origin-billing-tier': 'free',
+      'x-origin-model-id': model,
+      'x-vercel-id': 'synthetic-vercel-id',
+    },
+  })));
+  await expect(verifyLiveChat('https://example.com', 1000)).rejects.toThrow(
+    'upstream stream interrupted after verified deltas; code=PROVIDER_STREAM_INTERRUPTED;',
+  );
+});
+
 it('rejects a post-completion-style response that does not identify genuine upstream streaming', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('ORIGIN-CONTEXT-42\nSTREAM-CHECK\n'.repeat(8), { headers: { 'content-type': 'text/plain' } })));
   await expect(verifyLiveChat('https://example.com', 1000)).rejects.toThrow('stream source as upstream provider deltas');
