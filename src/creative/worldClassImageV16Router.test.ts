@@ -26,16 +26,23 @@ function pngBytes(): Buffer {
   return bytes;
 }
 
-function modelsResponse(editing = true): Response {
+function modelsResponse(editing = true, onlyModel?: string): Response {
+  const ids = onlyModel ? [onlyModel] : [
+    'openai/gpt-image-2.5-sunburst',
+    'openai/gpt-image-2.5-flare',
+    'microsoft/mai-image-2.6',
+    'x-ai/grok-imagine-image-2.0',
+    'google/gemini-3.1-flash-image',
+  ];
   return new Response(JSON.stringify({
-    data: [{
-      id: 'openai/gpt-image-2.5-sunburst',
+    data: ids.map((id) => ({
+      id,
       supported_parameters: {
         resolution: { type: 'enum', values: ['1K','2K'] },
         aspect_ratio: { type: 'enum', values: ['1:1','16:9','9:16'] },
         ...(editing ? { input_references: { type: 'range', min: 0, max: 16 } } : {}),
       },
-    }],
+    })),
   }), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
@@ -138,6 +145,7 @@ describe('worldClassImageV16Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-provider']).toBe('openrouter-image-api');
     expect(response.headers['x-origin-visual-model']).toBe('openai/gpt-image-2.5-sunburst');
+    expect(response.headers['x-origin-visual-routing']).toBe('frontier-auto');
     expect(response.headers['x-origin-release-sha']).toBe(SHA);
     expect(response.headers['x-origin-world-class-qualified-sha']).toBe(SHA);
     expect(response.headers['x-origin-world-class-evaluation']).toBeUndefined();
@@ -157,6 +165,40 @@ describe('worldClassImageV16Router', () => {
       quality: 'high',
       output_format: 'png',
     });
+  });
+
+  it('routes multi-reference editing to MAI-Image-2.6 for stronger controlled composition', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse(true, 'microsoft/mai-image-2.6'))
+      .mockResolvedValueOnce(generatedResponse(0.12));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const source = `data:image/png;base64,${pngBytes().toString('base64')}`;
+    const response = await request(app(BASE_ENV))
+      .post('/api/creative/v1.6/world-class/edit')
+      .send({ prompt: '人物と商品を維持して背景だけ高級ホテルに変更', referenceImages: [source, source] });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-model']).toBe('microsoft/mai-image-2.6');
+    expect(response.headers['x-origin-visual-routing']).toBe('frontier-auto');
+    const payload = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(payload.model).toBe('microsoft/mai-image-2.6');
+    expect(payload.input_references).toHaveLength(2);
+  });
+
+  it('allows an explicit approved frontier model without changing the publication gate', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse(true, 'x-ai/grok-imagine-image-2.0'))
+      .mockResolvedValueOnce(generatedResponse(0.08));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(BASE_ENV))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '映画的な夜の東京', model: 'x-ai/grok-imagine-image-2.0' });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-model']).toBe('x-ai/grok-imagine-image-2.0');
+    expect(response.headers['x-origin-visual-routing']).toBe('explicit-model');
   });
 
   it('sends editing references in the OpenRouter image_url object format', async () => {
@@ -187,7 +229,7 @@ describe('worldClassImageV16Router', () => {
 
     expect(response.status).toBe(503);
     expect(response.body.code).toBe('WORLD_CLASS_IMAGE_MODEL_CAPABILITY_UNVERIFIED');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it('enforces the configured post-response cost cap', async () => {
