@@ -6,7 +6,8 @@
   "framework": "vite",
   "functions": {
     "api/index.ts": {
-      "maxDuration": 120
+      "maxDuration": 120,
+      "includeFiles": "node_modules/@fontsource/noto-sans-jp/files/{noto-sans-jp-japanese-400-normal.woff,noto-sans-jp-latin-400-normal.woff,noto-sans-jp-latin-ext-400-normal.woff,noto-sans-jp-cyrillic-400-normal.woff}"
     }
   },
   "headers": [
