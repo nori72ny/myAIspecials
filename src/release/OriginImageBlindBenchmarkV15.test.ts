@@ -181,7 +181,22 @@ describe('ORIGIN image blind benchmark v2', () => {
     const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases }, NOW);
     expect(report.passed).toBe(false);
     expect(report.losses).toBe(24);
-    expect(report.blockers).toContain('IMAGE_BENCHMARK_WIN_RATE_LT_50');
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_WIN_RATE_LT_60');
+  });
+
+  it('requires a decisive world-class win rate rather than a bare majority', () => {
+    const base = input();
+    const cases = base.cases.map((item, index) => index < 13 ? item : ({
+      ...item,
+      judges: item.judges.map((judge) => ({
+        ...judge,
+        firstChoiceBlindKey: 'D',
+        scores: { ...judge.scores, A: scores(3.6), D: scores(3.8) },
+      })),
+    }));
+    const report = evaluateOriginImageBlindBenchmarkV15({ ...base, cases }, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('IMAGE_BENCHMARK_WIN_RATE_LT_60');
   });
 
   it('requires absolute image quality even if preference votes would otherwise pass', () => {

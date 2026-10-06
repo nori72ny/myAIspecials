@@ -50,6 +50,7 @@
     "eval:artifact-private": "tsx scripts/run-artifact-private-heldout-v1.ts",
     "inspect:image-private-corpus": "tsx scripts/inspect-image-private-corpus-v1.ts",
     "eval:image-private": "tsx scripts/run-image-private-heldout-v1.ts",
+    "eval:image-private-world-class": "tsx scripts/run-world-class-image-private-heldout-v2.ts",
     "inspect:image-edit-private-corpus": "tsx scripts/inspect-image-edit-private-corpus-v1.ts",
     "eval:image-edit-private": "tsx scripts/run-image-edit-private-heldout-v1.ts",
     "eval:aq-budgeted-day": "tsx scripts/run-aq-budgeted-day.ts"
