@@ -1,0 +1,167 @@
+import express from 'express';
+import request from 'supertest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { createWorldClassImageV16Router } from './worldClassImageV16Router';
+
+const SHA = 'a'.repeat(40);
+const BASE_ENV: NodeJS.ProcessEnv = {
+  OPENROUTER_API_KEY: 'sk-or-test-' + 'x'.repeat(32),
+  ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'true',
+  ORIGIN_IMAGE_WORLD_CLASS_MODEL: 'openai/gpt-image-2.5-sunburst',
+  ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: SHA,
+  VERCEL_GIT_COMMIT_SHA: SHA,
+};
+
+function app(env: NodeJS.ProcessEnv) {
+  const instance = express();
+  instance.use(express.json({ limit: '3mb' }));
+  instance.use(createWorldClassImageV16Router(env));
+  return instance;
+}
+
+function pngBytes(): Buffer {
+  const bytes = Buffer.alloc(2048, 7);
+  Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]).copy(bytes, 0);
+  return bytes;
+}
+
+function modelsResponse(editing = true): Response {
+  return new Response(JSON.stringify({
+    data: [{
+      id: 'openai/gpt-image-2.5-sunburst',
+      supported_parameters: {
+        resolution: { type: 'enum', values: ['1K','2K'] },
+        aspect_ratio: { type: 'enum', values: ['1:1','16:9','9:16'] },
+        ...(editing ? { input_references: { type: 'range', min: 0, max: 16 } } : {}),
+      },
+    }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
+function generatedResponse(cost = 0.12): Response {
+  return new Response(JSON.stringify({
+    data: [{ b64_json: pngBytes().toString('base64') }],
+    usage: { cost },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
+describe('worldClassImageV16Router', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('fails closed when world-class mode is disabled', async () => {
+    const response = await request(app({ ...BASE_ENV, ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'false' }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級ホテルの広告ビジュアル' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_MODE_DISABLED');
+  });
+
+  it('fails closed when the deployed exact SHA is not independently qualified', async () => {
+    const response = await request(app({
+      ...BASE_ENV,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級ホテルの広告ビジュアル' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
+  });
+
+  it('reports ready only when enabled, keyed, provider-ready, and exact-sha qualified', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(modelsResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app(BASE_ENV)).get('/api/creative/v1.6/world-class/status');
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      ready: true,
+      enabled: true,
+      qualified: true,
+      provider: 'openrouter-image-api',
+      model: 'openai/gpt-image-2.5-sunburst',
+      providerReady: true,
+      publicationPolicy: 'exact-sha-qualified-only',
+      freeOnly: false,
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
+    });
+  });
+
+  it('generates through the frontier model only after capability and exact-sha gates pass', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse())
+      .mockResolvedValueOnce(generatedResponse(0.12));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(BASE_ENV))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級ホテルの縦型広告、映画的照明、文字なし', width: 1080, height: 1920 });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-provider']).toBe('openrouter-image-api');
+    expect(response.headers['x-origin-visual-model']).toBe('openai/gpt-image-2.5-sunburst');
+    expect(response.headers['x-origin-world-class-qualified-sha']).toBe(SHA);
+    expect(response.headers['x-origin-cost-usd']).toBe('0.12');
+    expect(response.headers['x-origin-free-only']).toBe('false');
+    expect(response.headers['x-origin-paid-fallback']).toBe('false');
+    expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
+
+    const call = fetchMock.mock.calls[1];
+    expect(String(call?.[0])).toBe('https://openrouter.ai/api/v1/images');
+    const payload = JSON.parse(String(call?.[1]?.body));
+    expect(payload).toMatchObject({
+      model: 'openai/gpt-image-2.5-sunburst',
+      n: 1,
+      resolution: '1K',
+      aspect_ratio: '9:16',
+      quality: 'max',
+      output_format: 'png',
+    });
+  });
+
+  it('requires verified editing capability before forwarding reference images', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(modelsResponse(false));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const source = `data:image/png;base64,${pngBytes().toString('base64')}`;
+    const response = await request(app(BASE_ENV))
+      .post('/api/creative/v1.6/world-class/edit')
+      .send({ prompt: '背景だけ夜景に変更', referenceImages: [source] });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_MODEL_CAPABILITY_UNVERIFIED');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('enforces the configured post-response cost cap', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse())
+      .mockResolvedValueOnce(generatedResponse(0.4));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      ...BASE_ENV,
+      ORIGIN_IMAGE_WORLD_CLASS_MAX_COST_USD: '0.25',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '商品広告を作成してください' });
+
+    expect(response.status).toBe(502);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_COST_CAP_EXCEEDED');
+  });
+
+  it('blocks sensitive material before any provider request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app(BASE_ENV))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: 'APIキー sk-abcdefghijklmnopqrstuv をポスターにしてください' });
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe('SENSITIVE_INPUT_BLOCKED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
