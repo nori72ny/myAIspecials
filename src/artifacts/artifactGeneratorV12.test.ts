@@ -11,7 +11,7 @@ function app() {
   return app;
 }
 
-const binaryParser = (res: NodeJS.ReadableStream, callback: (error: Error | null, body?: Buffer) => void) => {
+const binaryParser: any = (res: NodeJS.ReadableStream, callback: (error: Error | null, body?: Buffer) => void) => {
   const chunks: Buffer[] = [];
   res.on('data', (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
   res.on('end', () => callback(null, Buffer.concat(chunks)));
