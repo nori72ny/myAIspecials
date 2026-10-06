@@ -124,8 +124,11 @@ jobs:
           test "$pptx_http" = '200'
           assert_headers "$pptx_headers"
           unzip -t "$pptx_file" >/dev/null
-          unzip -l "$pptx_file" | grep -q 'ppt/slides/slide3.xml'
-          unzip -p "$pptx_file" 'ppt/slides/slide*.xml' | grep -q 'FINAL_SENTINEL_21'
+          pptx_dir="$evidence_dir/pptx-unpacked"
+          mkdir -p "$pptx_dir"
+          unzip -q "$pptx_file" -d "$pptx_dir"
+          test -f "$pptx_dir/ppt/slides/slide3.xml"
+          grep -R -q 'FINAL_SENTINEL_21' "$pptx_dir/ppt/slides"
 
           xlsx_payload="$evidence_dir/xlsx-request.json"
           jq -n '{
@@ -145,8 +148,11 @@ jobs:
           test "$xlsx_http" = '200'
           assert_headers "$xlsx_headers"
           unzip -t "$xlsx_file" >/dev/null
-          unzip -p "$xlsx_file" xl/worksheets/sheet1.xml | grep -q '<f>SUM(B2:B4)</f><v>5200</v>'
-          unzip -p "$xlsx_file" xl/workbook.xml | grep -q 'calcMode="auto"'
+          xlsx_dir="$evidence_dir/xlsx-unpacked"
+          mkdir -p "$xlsx_dir"
+          unzip -q "$xlsx_file" -d "$xlsx_dir"
+          grep -q '<f>SUM(B2:B4)</f><v>5200</v>' "$xlsx_dir/xl/worksheets/sheet1.xml"
+          grep -q 'calcMode="auto"' "$xlsx_dir/xl/workbook.xml"
 
           sha256sum "$pdf_file" "$pptx_file" "$xlsx_file" > "$evidence_dir/sha256.txt"
           jq -n             --arg candidateSha "$CANDIDATE_SHA"             --arg pdfHttp "$pdf_http"             --arg pptxHttp "$pptx_http"             --arg xlsxHttp "$xlsx_http"             --argjson pdfPageTokens "$page_tokens"             '{candidateSha:$candidateSha,pdf:{http:($pdfHttp|tonumber),pageTokens:$pdfPageTokens},pptx:{http:($pptxHttp|tonumber),sentinelPreserved:true},xlsx:{http:($xlsxHttp|tonumber),formulaPreserved:true},freeOnly:true,costUsd:0}'             > "$evidence_dir/evidence.json"
