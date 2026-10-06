@@ -301,3 +301,15 @@ describe('measured advertising regression inputs', () => {
     expect(a.quality.issues).toContain('text-contrast-below-aa');
   });
 });
+
+ describe('wide Latin glyph regression', () => {
+  it('reserves full glyph width instead of declaring overflowing W headings verified', () => {
+    const a=generateVisualArtifactV15({kind:'poster',preset:'portrait',layout:'split',title:'W'.repeat(24)});
+    expect(a.verified).toBe(true);
+    expect(()=>generateVisualArtifactV15({kind:'poster',preset:'portrait',layout:'split',title:'W'.repeat(30)})).toThrow('VISUAL_TEXT_OVERFLOW_TITLE');
+    const group=a.bytes.toString().match(/data-origin-role="title"[^>]*>([\s\S]*?)<\/text>/)![1];
+    const lines=[...group.matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g)].map(m=>m[1]);
+    expect(lines.join('')).toBe('W'.repeat(24));
+    expect(Math.max(...lines.map(l=>l.length))*76).toBeLessThan(1080-Math.round(1080*0.34)-81);
+  });
+});

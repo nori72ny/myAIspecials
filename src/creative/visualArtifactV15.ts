@@ -147,7 +147,13 @@ export function parseVisualArtifactRequestV15(input: unknown): Required<Omit<Vis
 }
 
 function textUnits(text: string): number {
-  return Array.from(text).reduce((sum, char) => sum + (/^[\x00-\x7f]$/.test(char) ? 1 : 2), 0);
+  return Array.from(text).reduce((sum, char) => {
+    const units = /^[MWmw@#%&]$/.test(char) ? 2
+      : /^[A-Z]$/.test(char) ? 1.6
+        : /^[a-z]$/.test(char) ? 1.2
+          : /^[\x00-\x7f]$/.test(char) ? 1 : 2;
+    return sum + units;
+  }, 0);
 }
 
 function wrapText(text: string, maxUnits: number, maxLines: number, balance = false): string[] {
