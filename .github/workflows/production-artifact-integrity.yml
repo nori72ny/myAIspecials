@@ -93,6 +93,37 @@ jobs:
             grep -Eiq '^x-origin-cost-usd:[[:space:]]*0' "$headers"
           }
 
+          markdown_payload="$evidence_dir/markdown-request.json"
+          jq -n '{type:"markdown",title:"日本語Markdown",content:"MARKDOWN_SENTINEL_日本語"}' > "$markdown_payload"
+          markdown_file="$evidence_dir/origin-live-markdown.md"
+          markdown_headers="$evidence_dir/markdown-headers.txt"
+          markdown_http="$(curl --silent --show-error --connect-timeout 10 --max-time 45 -D "$markdown_headers" -H 'content-type: application/json' --data-binary "@$markdown_payload" --output "$markdown_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/generate")"
+          test "$markdown_http" = '200'
+          assert_headers "$markdown_headers"
+          grep -q 'MARKDOWN_SENTINEL_日本語' "$markdown_file"
+
+          csv_payload="$evidence_dir/csv-request.json"
+          jq -n '{type:"csv",title:"日本語CSV",rows:[["項目","値"],["CSV_SENTINEL_日本語",1234]]}' > "$csv_payload"
+          csv_file="$evidence_dir/origin-live-table.csv"
+          csv_headers="$evidence_dir/csv-headers.txt"
+          csv_http="$(curl --silent --show-error --connect-timeout 10 --max-time 45 -D "$csv_headers" -H 'content-type: application/json' --data-binary "@$csv_payload" --output "$csv_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/generate")"
+          test "$csv_http" = '200'
+          assert_headers "$csv_headers"
+          grep -q 'CSV_SENTINEL_日本語,1234' "$csv_file"
+
+          docx_payload="$evidence_dir/docx-request.json"
+          jq -n '{type:"docx",title:"日本語DOCX",content:"# 見出し\nDOCX_SENTINEL_日本語"}' > "$docx_payload"
+          docx_file="$evidence_dir/origin-live-document.docx"
+          docx_headers="$evidence_dir/docx-headers.txt"
+          docx_http="$(curl --silent --show-error --connect-timeout 10 --max-time 45 -D "$docx_headers" -H 'content-type: application/json' --data-binary "@$docx_payload" --output "$docx_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/generate")"
+          test "$docx_http" = '200'
+          assert_headers "$docx_headers"
+          unzip -t "$docx_file" >/dev/null
+          docx_dir="$evidence_dir/docx-unpacked"
+          mkdir -p "$docx_dir"
+          unzip -q "$docx_file" -d "$docx_dir"
+          grep -q 'DOCX_SENTINEL_日本語' "$docx_dir/word/document.xml"
+
           pdf_payload="$evidence_dir/pdf-request.json"
           jq -n '{
             type:"pdf",
@@ -154,7 +185,7 @@ jobs:
           grep -q '<f>SUM(B2:B4)</f><v>5200</v>' "$xlsx_dir/xl/worksheets/sheet1.xml"
           grep -q 'calcMode="auto"' "$xlsx_dir/xl/workbook.xml"
 
-          sha256sum "$pdf_file" "$pptx_file" "$xlsx_file" > "$evidence_dir/sha256.txt"
+          sha256sum "$markdown_file" "$csv_file" "$pdf_file" "$docx_file" "$pptx_file" "$xlsx_file" > "$evidence_dir/sha256.txt"
           jq -n             --arg candidateSha "$CANDIDATE_SHA"             --arg pdfHttp "$pdf_http"             --arg pptxHttp "$pptx_http"             --arg xlsxHttp "$xlsx_http"             --argjson pdfPageTokens "$page_tokens"             '{candidateSha:$candidateSha,pdf:{http:($pdfHttp|tonumber),pageTokens:$pdfPageTokens},pptx:{http:($pptxHttp|tonumber),sentinelPreserved:true},xlsx:{http:($xlsxHttp|tonumber),formulaPreserved:true},freeOnly:true,costUsd:0}'             > "$evidence_dir/evidence.json"
 
           cat "$evidence_dir/evidence.json" >> "$GITHUB_STEP_SUMMARY"
