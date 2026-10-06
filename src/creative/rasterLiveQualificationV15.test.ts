@@ -177,11 +177,14 @@ describe('gateway live qualification routing', () => {
     const generated = png(384, 384, 1);
     const edited = png(384, 384, 2);
     const fetchMock = vi.fn();
+    readyProof(fetchMock);
     fetchMock.mockResolvedValueOnce(gatewayProof());
+    readyProof(fetchMock);
     fetchMock.mockResolvedValueOnce(gatewayProof());
     fetchMock.mockResolvedValueOnce(new Response(generated));
     readyProof(fetchMock);
     fetchMock.mockResolvedValueOnce(envelope({ answer: semanticAnswer('Valid generation.') }));
+    readyProof(fetchMock);
     fetchMock.mockResolvedValueOnce(gatewayProof());
     fetchMock.mockResolvedValueOnce(new Response(edited));
     readyProof(fetchMock);
