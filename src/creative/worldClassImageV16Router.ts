@@ -184,7 +184,7 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
       n: 1,
       resolution: '1K',
       aspect_ratio: nearestRatio(input.width, input.height),
-      quality: 'max',
+      quality: 'high',
       output_format: 'png',
     };
     if (editing) payload.input_references = input.referenceImages.map((url) => ({
