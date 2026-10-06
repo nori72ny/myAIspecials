@@ -144,7 +144,7 @@ describe("createOriginStreamingChatRouter", () => {
       .send({ messages: [{ role: "user", content: "文章を作ってください" }] });
     expect(response.status).toBe(200);
     expect(response.text).toContain(`data: {"type":"delta","text":"unverified partial"}`);
-    expect(response.text).toContain(`data: {"type":"error"}`);
+    expect(response.text).toContain(`data: {"type":"error","code":"PROVIDER_POLICY_VIOLATION","retryable":false}`);
     expect(response.text).not.toContain('"type":"complete"');
     expect(response.text).not.toContain("[DONE]");
   });
