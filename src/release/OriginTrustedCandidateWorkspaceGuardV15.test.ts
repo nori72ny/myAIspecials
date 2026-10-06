@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { copyFile, link, mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { copyFile, link, mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -77,6 +77,18 @@ describe('trusted candidate workspace guard', () => {
     await writeFile(path.join(root, 'vitest.config.ts'), 'export default {};\n');
     await expect(assertTrustedCandidateVerificationBaselineV15(root))
       .rejects.toThrow('TRUSTED_CANDIDATE_VERIFICATION_CONFIG_SET_MISMATCH');
+  });
+
+  it('rejects a modified lockfile even when its JSON remains valid', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-lock-tamper-'));
+    await seedTrustedVerificationBaseline(root);
+    await expect(assertTrustedCandidateVerificationBaselineV15(root)).resolves.toBeUndefined();
+    const lockPath = path.join(root, 'package-lock.json');
+    const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+    lock.packages['node_modules/@modelcontextprotocol/sdk'].integrity = 'sha512-untrusted';
+    await writeFile(lockPath, JSON.stringify(lock, null, 2) + '\n');
+    await expect(assertTrustedCandidateVerificationBaselineV15(root))
+      .rejects.toThrow('TRUSTED_CANDIDATE_VERIFICATION_BASELINE_MISMATCH');
   });
 
   it('rejects a modified trusted verification config', async () => {
