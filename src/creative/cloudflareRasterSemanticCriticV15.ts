@@ -212,24 +212,24 @@ export async function critiqueCloudflareRasterSemanticV15(
     'professionalUsefulness',
   ];
   for (const axis of thresholdAxes) {
-    if (parsed.scores[axis] >= 3) checks.push(`${axis}-gte-3`);
+    if (parsed.scores[axis] >= 3.4) checks.push(`${axis}-gte-3.4`);
   }
-  if (parsed.scores.styleExecution >= 2.5) checks.push('styleExecution-gte-2.5');
-  if (parsed.scores.textHandling >= 3) checks.push('textHandling-gte-3');
+  if (parsed.scores.styleExecution >= 3.3) checks.push('styleExecution-gte-3.3');
+  if (parsed.scores.textHandling >= 3.3) checks.push('textHandling-gte-3.3');
 
   const average = RASTER_SEMANTIC_AXES_V15.reduce((sum, axis) => sum + parsed.scores[axis], 0) / RASTER_SEMANTIC_AXES_V15.length;
   const issues = [...parsed.issues];
   for (const axis of thresholdAxes) {
-    if (parsed.scores[axis] < 3) issues.push(`${axis}-below-3`);
+    if (parsed.scores[axis] < 3.4) issues.push(`${axis}-below-3.4`);
   }
-  if (parsed.scores.styleExecution < 2.5) issues.push('styleExecution-below-2.5');
-  if (parsed.scores.textHandling < 3) issues.push('textHandling-below-3');
+  if (parsed.scores.styleExecution < 3.3) issues.push('styleExecution-below-3.3');
+  if (parsed.scores.textHandling < 3.3) issues.push('textHandling-below-3.3');
 
   if (!parsed.safetyPassed) issues.push('visible-output-safety-failed');
   const uniqueIssues = [...new Set(issues)];
   return {
     version: 'raster-semantic-critic-v1',
-    passed: parsed.safetyPassed && uniqueIssues.length === 0 && average >= 3.15,
+    passed: parsed.safetyPassed && uniqueIssues.length === 0 && average >= 3.5,
     safetyPassed: parsed.safetyPassed,
     safetyIssues: parsed.safetyIssues,
     score: Math.round((average / 4) * 100),
