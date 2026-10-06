@@ -169,7 +169,6 @@ describe('worldClassImageV16Router', () => {
 
   it('routes multi-reference editing to MAI-Image-2.6 for stronger controlled composition', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(modelsResponse(true, 'openai/gpt-image-2.5-sunburst'))
       .mockResolvedValueOnce(modelsResponse(true, 'microsoft/mai-image-2.6'))
       .mockResolvedValueOnce(generatedResponse(0.12));
     vi.stubGlobal('fetch', fetchMock);
@@ -182,7 +181,7 @@ describe('worldClassImageV16Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-model']).toBe('microsoft/mai-image-2.6');
     expect(response.headers['x-origin-visual-routing']).toBe('frontier-auto');
-    const payload = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    const payload = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(payload.model).toBe('microsoft/mai-image-2.6');
     expect(payload.input_references).toHaveLength(2);
   });
@@ -230,7 +229,7 @@ describe('worldClassImageV16Router', () => {
 
     expect(response.status).toBe(503);
     expect(response.body.code).toBe('WORLD_CLASS_IMAGE_MODEL_CAPABILITY_UNVERIFIED');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it('enforces the configured post-response cost cap', async () => {
