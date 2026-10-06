@@ -1,6 +1,6 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
@@ -18,7 +18,7 @@ const MAX_FONT_BYTES = 2_500_000;
 const MAX_FONT_FILES = 160;
 const MAX_TOTAL_FONT_BYTES = 24_000_000;
 
-export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v6' as const;
+export const UNICODE_PDF_RENDERER_VERSION_V12 = 'unicode-pdf-renderer-v7' as const;
 
 type LoadedFontSource = {
   filename: string;
@@ -29,19 +29,22 @@ type PdfFonts = {
   byCodePoint: ReadonlyMap<number, PDFFont>;
 };
 
-function fontDirectory(): { root: string; files: readonly string[] } {
+const FONT_SPECIFIERS = [
+  '@fontsource/noto-sans-jp/files/noto-sans-jp-japanese-400-normal.woff',
+  '@fontsource/noto-sans-jp/files/noto-sans-jp-latin-400-normal.woff',
+  '@fontsource/noto-sans-jp/files/noto-sans-jp-latin-ext-400-normal.woff',
+  '@fontsource/noto-sans-jp/files/noto-sans-jp-cyrillic-400-normal.woff',
+] as const;
+
+function fontFiles(): readonly string[] {
   const projectRequire = createRequire(resolve(process.cwd(), 'package.json'));
-  const cssPath = projectRequire.resolve('@fontsource/noto-sans-jp/400.css');
-  const root = join(dirname(cssPath), 'files');
-  const files = readdirSync(root)
-    .filter((filename) => /^noto-sans-jp-[a-z0-9-]+-400-normal\.woff$/i.test(filename))
-    .sort((left, right) => left.localeCompare(right));
+  const files = FONT_SPECIFIERS.map((specifier) => projectRequire.resolve(specifier));
   if (!files.length || files.length > MAX_FONT_FILES) throw new Error('PDF_UNICODE_FONT_CATALOG_INVALID');
-  return { root, files };
+  return files;
 }
 
 async function loadFontsForText(pdfDoc: PDFDocument, text: string): Promise<PdfFonts> {
-  const { root, files } = fontDirectory();
+  const files = fontFiles();
   const fontkitApi = fontkit as unknown as {
     create(data: Uint8Array): { characterSet?: number[] };
   };
@@ -53,7 +56,7 @@ async function loadFontsForText(pdfDoc: PDFDocument, text: string): Promise<PdfF
   const loadSource = (filename: string): LoadedFontSource => {
     const cached = loaded.get(filename);
     if (cached) return cached;
-    const raw = readFileSync(join(root, filename));
+    const raw = readFileSync(filename);
     totalBytes += raw.length;
     if (raw.length < 1_000 || raw.length > MAX_FONT_BYTES || totalBytes > MAX_TOTAL_FONT_BYTES) {
       throw new Error('PDF_UNICODE_FONT_INVALID');
@@ -61,7 +64,7 @@ async function loadFontsForText(pdfDoc: PDFDocument, text: string): Promise<PdfF
     const bytes = Uint8Array.from(raw);
     const source = fontkitApi.create(bytes);
     if (!Array.isArray(source.characterSet)) throw new Error('PDF_UNICODE_FONT_CHARACTER_SET_UNAVAILABLE');
-    const value = { filename, bytes, supported: new Set(source.characterSet) } satisfies LoadedFontSource;
+    const value = { filename: basename(filename), bytes, supported: new Set(source.characterSet) } satisfies LoadedFontSource;
     loaded.set(filename, value);
     return value;
   };
