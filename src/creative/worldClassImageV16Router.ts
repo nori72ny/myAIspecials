@@ -5,13 +5,17 @@ import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 const OPENROUTER_IMAGES_URL = 'https://openrouter.ai/api/v1/images';
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/images/models';
 const DEFAULT_MODEL = 'openai/gpt-image-2.5-sunburst';
-const ALLOWED_MODELS = new Set([
+const FRONTIER_MODELS = [
   'openai/gpt-image-2.5-sunburst',
   'openai/gpt-image-2.5-flare',
+  'microsoft/mai-image-2.6',
+  'x-ai/grok-imagine-image-2.0',
   'google/gemini-3.1-flash-image',
-]);
+] as const;
+const ALLOWED_MODELS = new Set<string>(FRONTIER_MODELS);
+const MULTI_REFERENCE_EDIT_MODEL = 'microsoft/mai-image-2.6';
 const RATIOS = ['1:1','3:2','2:3','4:3','3:4','16:9','9:16'] as const;
-const MAX_REFERENCE_IMAGES = 4;
+const MAX_REFERENCE_IMAGES = 5;
 const MAX_REFERENCE_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 const FULL_SHA = /^[0-9a-f]{40}$/i;
@@ -20,7 +24,7 @@ type ParsedRequest = {
   prompt: string;
   width?: number;
   height?: number;
-  model: string;
+  requestedModel: string | null;
   referenceImages: string[];
 };
 
@@ -64,8 +68,8 @@ function parse(body: unknown, editing: boolean): ParsedRequest {
   const height = row.height;
   if (width !== undefined && (!Number.isInteger(width) || Number(width) < 256 || Number(width) > 4096)) throw new Error('INVALID_WORLD_CLASS_IMAGE_DIMENSION');
   if (height !== undefined && (!Number.isInteger(height) || Number(height) < 256 || Number(height) > 4096)) throw new Error('INVALID_WORLD_CLASS_IMAGE_DIMENSION');
-  const model = typeof row.model === 'string' && row.model.trim() ? row.model.trim() : DEFAULT_MODEL;
-  if (!ALLOWED_MODELS.has(model)) throw new Error('WORLD_CLASS_IMAGE_MODEL_NOT_ALLOWED');
+  const requestedModel = typeof row.model === 'string' && row.model.trim() ? row.model.trim() : null;
+  if (requestedModel && !ALLOWED_MODELS.has(requestedModel)) throw new Error('WORLD_CLASS_IMAGE_MODEL_NOT_ALLOWED');
   const references = editing ? row.referenceImages : [];
   if (editing && (!Array.isArray(references) || references.length < 1 || references.length > MAX_REFERENCE_IMAGES)) throw new Error('INVALID_WORLD_CLASS_REFERENCE_COUNT');
   let total = 0;
@@ -76,7 +80,7 @@ function parse(body: unknown, editing: boolean): ParsedRequest {
     if (total > MAX_REFERENCE_BYTES) throw new Error('WORLD_CLASS_REFERENCE_BYTES_EXCEEDED');
     return item;
   });
-  return { prompt, width: width as number | undefined, height: height as number | undefined, model, referenceImages };
+  return { prompt, width: width as number | undefined, height: height as number | undefined, requestedModel, referenceImages };
 }
 function nearestRatio(width = 1024, height = 1024): typeof RATIOS[number] {
   const target = width / height;
@@ -126,6 +130,41 @@ async function modelReady(apiKey: string, model: string, editing: boolean): Prom
   if (editing && !('input_references' in params)) return false;
   return true;
 }
+function preferredModels(input: ParsedRequest, editing: boolean, env: NodeJS.ProcessEnv): readonly string[] {
+  if (input.requestedModel) return [input.requestedModel];
+  const pinned = env.ORIGIN_IMAGE_WORLD_CLASS_MODEL?.trim();
+  const autoRouter = env.ORIGIN_IMAGE_WORLD_CLASS_ROUTER_ENABLED?.trim().toLowerCase() !== 'false';
+  if (!autoRouter && pinned && ALLOWED_MODELS.has(pinned)) return [pinned];
+
+  if (editing && input.referenceImages.length >= 2) {
+    return [
+      MULTI_REFERENCE_EDIT_MODEL,
+      DEFAULT_MODEL,
+      'google/gemini-3.1-flash-image',
+      'x-ai/grok-imagine-image-2.0',
+      'openai/gpt-image-2.5-flare',
+    ];
+  }
+  return [
+    DEFAULT_MODEL,
+    'openai/gpt-image-2.5-flare',
+    'microsoft/mai-image-2.6',
+    'x-ai/grok-imagine-image-2.0',
+    'google/gemini-3.1-flash-image',
+  ];
+}
+
+async function selectReadyModel(
+  apiKey: string,
+  input: ParsedRequest,
+  editing: boolean,
+  env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+  for (const model of preferredModels(input, editing, env)) {
+    if (await modelReady(apiKey, model, editing).catch(() => false)) return model;
+  }
+  return null;
+}
 function sensitive(body: unknown): boolean {
   let text = '';
   try {
@@ -142,10 +181,10 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     const key = credentials(env);
     const enabled = bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_ENABLED');
     const isQualified = qualified(env);
-    const model = env.ORIGIN_IMAGE_WORLD_CLASS_MODEL?.trim() || DEFAULT_MODEL;
-    const allowed = ALLOWED_MODELS.has(model);
+    const configuredModel = env.ORIGIN_IMAGE_WORLD_CLASS_MODEL?.trim() || DEFAULT_MODEL;
+    const allowed = ALLOWED_MODELS.has(configuredModel);
     let providerReady = false;
-    if (key && enabled && allowed) providerReady = await modelReady(key, model, false).catch(() => false);
+    if (key && enabled && allowed) providerReady = await modelReady(key, configuredModel, false).catch(() => false);
     const ready = Boolean(key && enabled && isQualified && allowed && providerReady);
     const evaluationReady = Boolean(
       key && enabled && allowed && providerReady && (isQualified || evaluationBypassAllowed(env)),
@@ -159,8 +198,10 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
       releaseSha: releaseSha(env),
       qualifiedSha: env.ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA?.trim().toLowerCase() || null,
       provider: 'openrouter-image-api',
-      model,
+      model: configuredModel,
       allowedModels: [...ALLOWED_MODELS],
+      frontierModels: [...FRONTIER_MODELS],
+      routingPolicy: 'frontier-capability-aware-v1',
       providerReady,
       benchmarkGate: '24-case blind benchmark vs 3 frontier references + 2 independent judges',
       publicationPolicy: 'exact-sha-qualified-only',
@@ -180,10 +221,11 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     if (!bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_ENABLED')) return fail(res, 503, 'WORLD_CLASS_IMAGE_MODE_DISABLED', '世界最高品質モードはまだ有効化されていません。');
     if (!qualified(env) && !evaluationBypassAllowed(env)) return fail(res, 503, 'WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED', 'blind品質評価を通過したexact SHAだけが本番利用できます。');
     if (!key) return fail(res, 503, 'OPENROUTER_IMAGE_KEY_NOT_CONFIGURED', '画像モデル接続用のサーバー資格情報がありません。');
-    if (!(await modelReady(key, input.model, editing).catch(() => false))) return fail(res, 503, 'WORLD_CLASS_IMAGE_MODEL_CAPABILITY_UNVERIFIED', 'モデル能力を事前確認できませんでした。');
+    const selectedModel = await selectReadyModel(key, input, editing, env);
+    if (!selectedModel) return fail(res, 503, 'WORLD_CLASS_IMAGE_MODEL_CAPABILITY_UNVERIFIED', '利用可能なfrontier画像モデルの能力を事前確認できませんでした。');
 
     const payload: Record<string, unknown> = {
-      model: input.model,
+      model: selectedModel,
       prompt: input.prompt,
       n: 1,
       resolution: '1K',
@@ -219,7 +261,8 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     res.setHeader('X-Origin-Visual-Verified', 'true');
     res.setHeader('X-Origin-Visual-Sha256', sha);
     res.setHeader('X-Origin-Visual-Provider', 'openrouter-image-api');
-    res.setHeader('X-Origin-Visual-Model', input.model);
+    res.setHeader('X-Origin-Visual-Model', selectedModel);
+    res.setHeader('X-Origin-Visual-Routing', input.requestedModel ? 'explicit-model' : 'frontier-auto');
     res.setHeader('X-Origin-Visual-Task', editing ? 'edit' : 'generate');
     const currentReleaseSha = releaseSha(env);
     res.setHeader('X-Origin-Release-Sha', currentReleaseSha);
