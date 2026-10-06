@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { constants, promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
@@ -35,11 +35,23 @@ const LOCAL_FAILURE_CODES = new Set(
 async function classifyFailure(outputPath: string | undefined, error: unknown): Promise<string> {
   if (outputPath) {
     try {
-      const stat = await fs.stat(outputPath);
-      if (stat.isFile() && stat.size <= 16_384) {
-        const value = JSON.parse(await fs.readFile(outputPath, "utf8"));
-        if (value?.schemaVersion === "origin.aq-local-shard-result.v1"
-          && value.ok === false && FAILURE_CODES.has(value.code)) return value.code;
+      // Open once: validation and the bounded read refer to the same inode.
+      // Reject symlinks and avoid blocking on a substituted FIFO.
+      const file = await fs.open(outputPath,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const stat = await file.stat();
+        if (stat.isFile() && stat.size <= 16_384) {
+          const buffer = Buffer.alloc(16_385);
+          const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+          if (bytesRead <= 16_384) {
+            const value = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
+            if (value?.schemaVersion === "origin.aq-local-shard-result.v1"
+              && value.ok === false && FAILURE_CODES.has(value.code)) return value.code;
+          }
+        }
+      } finally {
+        await file.close();
       }
     } catch { /* Missing or invalid output is not evidence of a provider error. */ }
   }
