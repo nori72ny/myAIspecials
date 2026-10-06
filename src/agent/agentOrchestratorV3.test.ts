@@ -15,7 +15,7 @@ function appFor(testEnv: NodeJS.ProcessEnv = env, store?: AgentRunConsumptionSto
 }
 
 describe('agent orchestrator v3', () => {
-  const operation = { action: 'execute' as const, runId: 'run-replay-test', toolName: 'document_generator' as const, params: { content: 'Harmless audit document' } };
+  const operation = { action: 'execute' as const, runId: 'run-replay-test', toolName: 'repository_explorer' as const, params: {} };
   const execute = (app: express.Express) => request(app).post('/api/agent/v3/execute')
     .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
     .send({ ...operation, approvalToken: issueApprovalCapability(operation.runId, approvalDigest(operation), env).token });
@@ -23,6 +23,29 @@ describe('agent orchestrator v3', () => {
   const cancel = (app: express.Express, runId = operation.runId) => request(app).post('/api/agent/v3/cancel')
     .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
     .send({ runId, planToken: issuePlanCapability(runId, 'a'.repeat(64), env).token });
+
+  it.each([
+    ['code_interpreter', { code: 'function add(a,b) { return a + ; }' }],
+    ['code_interpreter', { code: 'function add(a,b) { return a - b; }' }],
+    ['document_generator', { content: '商品A:1200円×3個、商品B:800円×2個。売上合計と提案を作成してください。' }],
+  ] as const)('does not certify an echoed %s artifact as completed', async (toolName, params) => {
+    const app = appFor(env, { consume: async () => true });
+    const goal = toolName === 'code_interpreter' ? 'Repair this code.' : 'Create a sales report.';
+    const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
+    expect(plan.status).toBe(201);
+    const approval = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: plan.body.runId, planToken: plan.body.planToken, toolName, params });
+    expect(approval.status).toBe(201);
+    const result = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: plan.body.runId, approvalToken: approval.body.approvalToken, toolName, params });
+    expect(result.status).toBe(422);
+    expect(result.body.code).toBe('ARTIFACT_VERIFICATION_FAILED');
+    expect(result.body.status).not.toBe('completed');
+    expect(result.body.artifact).toBeUndefined();
+    expect(result.body.checkpoint).toBeUndefined();
+  });
 
   it('reports readiness and legacy credential compatibility truthfully', async () => {
     const store: AgentRunConsumptionStore = { consume: async () => true };
@@ -209,7 +232,7 @@ describe('agent orchestrator v3', () => {
         } };
         const first = appFor(env, store);
         const second = appFor(env, store);
-        const planned = await request(first).post('/api/agent/v3/plan').send({ goal: '営業提案書を作成して' });
+        const planned = await request(first).post('/api/agent/v3/plan').send({ goal: 'Inspect repository structure' });
         expect(planned.status).toBe(201);
         const { runId, planToken } = planned.body;
         const cancelPlanned = () => request(first).post('/api/agent/v3/cancel')
