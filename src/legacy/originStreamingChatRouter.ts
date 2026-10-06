@@ -185,7 +185,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         providerDeltaCount,
       });
       if (!downstreamStarted && !res.headersSent) return sendSafeProviderFailure(res, safeError, requestId);
-      res.end(`data: ${JSON.stringify({ type: "error" })}\n\n`);
+      res.end(`data: ${JSON.stringify({ type: "error", code: safeError.code, retryable: safeError.retryable })}\n\n`);
       return;
     }
   });
