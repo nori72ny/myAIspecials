@@ -1284,6 +1284,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         ? 'A verified $0.00 free-model response is unavailable. The response was withheld; please try again later.'
         : SAFE_WAITING_MESSAGE);
       setIsSafeWaiting(true);
+      updateMessages((current) => current.at(-1)?.role === 'assistant' && current.at(-1)?.deliveryState !== 'verified'
+        ? current.slice(0, -1)
+        : current);
     };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
     try {
@@ -1631,16 +1634,24 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         if (source === 'upstream' && protocol !== 'origin-verified-sse-v1') throw new Error('unverified-upstream-stream');
         if (protocol === 'origin-verified-sse-v1') {
           let buffer = ''; let complete = false; let doneSeen = false;
+          let terminalProviderError: { code: string; retryable: boolean } | null = null;
           const consumeLine = (line: string) => {
             if (!line.startsWith('data:')) return;
             const raw = line.slice(5).trim();
             if (doneSeen) throw new Error('event-after-done');
+            if (terminalProviderError) throw new Error('event-after-stream-error');
             if (raw === '[DONE]') { doneSeen = true; return; }
-            const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costUsd?: unknown; fallbackUsed?: unknown };
+            const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costUsd?: unknown; fallbackUsed?: unknown; code?: unknown; retryable?: unknown };
             if (event.type === 'delta' && typeof event.text === 'string' && !complete) { streamRenderBatcher?.enqueue(event.text); return; }
             if (event.type === 'complete' && !complete && event.modelId === ORIGIN_FIXED_FREE_MODEL
               && (event.servedModel === ORIGIN_FIXED_FREE_MODEL || event.servedModel === ORIGIN_FIXED_FREE_MODEL.replace(/:free$/, ''))
               && event.costUsd === 0 && event.fallbackUsed === false) { complete = true; return; }
+            if (event.type === 'error' && !complete
+              && typeof event.code === 'string' && /^PROVIDER_[A-Z0-9_]{1,64}$/.test(event.code)
+              && typeof event.retryable === 'boolean') {
+              terminalProviderError = { code: event.code, retryable: event.retryable };
+              return;
+            }
             throw new Error('invalid-stream-event');
           };
           while (true) {
@@ -1653,6 +1664,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           buffer += decoder.decode();
           if (buffer.trim()) consumeLine(buffer.trim());
           streamRenderBatcher.flush();
+          if (terminalProviderError) {
+            throw Object.assign(new Error('verified-provider-stream-error'), terminalProviderError);
+          }
           if (!complete || !doneSeen || !fullText.trim()) throw new Error('incomplete-stream');
         } else {
           while (true) {
@@ -1666,7 +1680,13 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       }
       updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, deliveryState: 'verified' } : message));
     } catch (error) {
-      if ((error as DOMException).name !== 'AbortError') appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+      if ((error as DOMException).name !== 'AbortError') {
+        const providerCode = typeof (error as { code?: unknown }).code === 'string'
+          ? String((error as { code: string }).code)
+          : null;
+        if (providerCode && SAFE_WAITING_PROVIDER_CODES.has(providerCode)) enterSafeWaiting();
+        else appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+      }
     }
     finally {
       streamRenderBatcher?.cancel();
