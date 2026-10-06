@@ -3,11 +3,13 @@ import { zipStore } from './zipStore.js';
 
 export type ArtifactType = 'markdown' | 'csv' | 'pdf' | 'docx' | 'xlsx' | 'pptx';
 export type ArtifactSlide = { title?: string; content?: string };
+export type ArtifactFormulaCell = { formula: string; cachedValue?: number | boolean | null };
+export type ArtifactCell = string | number | boolean | null | ArtifactFormulaCell;
 export type ArtifactRequest = {
   type: ArtifactType;
   title?: string;
   content?: string;
-  rows?: Array<Array<string | number | boolean | null>>;
+  rows?: Array<Array<ArtifactCell>>;
   slides?: ArtifactSlide[];
 };
 export type GeneratedArtifact = {
@@ -23,7 +25,23 @@ export type GeneratedArtifact = {
 const xml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 const safeName = (value: string | undefined, fallback: string) => (value || fallback).normalize('NFKC').replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 80) || fallback;
 
+function isFormulaCell(value: unknown): value is ArtifactFormulaCell {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && typeof (value as ArtifactFormulaCell).formula === 'string');
+}
+
+function normalizeFormula(formulaInput: string): string {
+  const raw = formulaInput.trim();
+  const formula = raw.startsWith('=') ? raw.slice(1) : raw;
+  if (!formula || formula.length > 512 || /[\r\n]/.test(formula)) throw new Error('INVALID_ARTIFACT_FORMULA');
+  if (!/^[\p{L}\p{N}_.$:+\-*/^(),<>=!% '"&]+$/u.test(formula)) throw new Error('INVALID_ARTIFACT_FORMULA');
+  if (/\b(?:HYPERLINK|WEBSERVICE|RTD|DDE|FILTERXML|ENCODEURL)\s*\(/i.test(formula) || /https?:\/\//i.test(formula)) {
+    throw new Error('INVALID_ARTIFACT_FORMULA');
+  }
+  return formula;
+}
+
 function csvCell(value: unknown): string {
+  if (isFormulaCell(value)) throw new Error('FORMULA_CELLS_REQUIRE_XLSX');
   const text = String(value ?? '');
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
@@ -104,14 +122,23 @@ function columnName(index: number): string {
   while (value > 0) { const rem = (value - 1) % 26; out = String.fromCharCode(65 + rem) + out; value = Math.floor((value - 1) / 26); }
   return out;
 }
-function xlsxCellXml(value: string | number | boolean | null, ref: string, styleId = 0): string {
+function xlsxCellXml(value: ArtifactCell, ref: string, styleId = 0): string {
   const style = styleId > 0 ? ` s="${styleId}"` : '';
+  if (isFormulaCell(value)) {
+    const formula = normalizeFormula(value.formula);
+    const cached = value.cachedValue;
+    if (typeof cached === 'number' && !Number.isFinite(cached)) throw new Error('INVALID_ARTIFACT_FORMULA');
+    const type = typeof cached === 'boolean' ? ' t="b"' : '';
+    const cachedXml = cached === undefined || cached === null ? '' : `<v>${typeof cached === 'boolean' ? (cached ? 1 : 0) : cached}</v>`;
+    return `<c r="${ref}"${type}${style}><f>${xml(formula)}</f>${cachedXml}</c>`;
+  }
   if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"${style}><v>${value}</v></c>`;
   if (typeof value === 'boolean') return `<c r="${ref}" t="b"${style}><v>${value ? 1 : 0}</v></c>`;
   return `<c r="${ref}" t="inlineStr"${style}><is><t xml:space="preserve">${xml(value ?? '')}</t></is></c>`;
 }
 function spreadsheetVisualWidth(value: unknown): number {
-  return [...String(value ?? '')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0);
+  const display = isFormulaCell(value) ? (value.cachedValue ?? `=${value.formula}`) : value;
+  return [...String(display ?? '')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0);
 }
 function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
   const table = rows?.length ? rows : content.split(/\r?\n/).filter(Boolean).map(line => [line]);
@@ -131,7 +158,7 @@ function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
   return zipStore([
     { name: '[Content_Types].xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>') },
     { name: '_rels/.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') },
-    { name: 'xl/workbook.xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="ORIGIN" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/workbook.xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="ORIGIN" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="191029" calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>') },
     { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>') },
     { name: 'xl/styles.xml', data: Buffer.from(styles) },
     { name: 'xl/worksheets/sheet1.xml', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${rowXml}</sheetData>${filter}</worksheet>`) },
