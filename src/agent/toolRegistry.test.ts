@@ -29,11 +29,21 @@ describe('toolRegistry safety boundary', () => {
     });
   });
 
-  it('permits an approved zero-cost side-effect-free operation without executing supplied code', async () => {
+  it('does not pass echoed code off as a completed operation', async () => {
     const result = await executeToolWithPermission('code_interpreter', { code: 'process.env.SHOULD_NOT_EXECUTE = "1"' }, approved);
-    expect(result.ok).toBe(true);
-    expect(result.artifact).toContain('Sandboxed analysis');
+    expect(result.ok).toBe(false);
+    expect(result.artifact).toBeUndefined();
+    expect(result.message).toBe('AGENT_CODE_GENERATION_UNAVAILABLE');
     expect(process.env.SHOULD_NOT_EXECUTE).toBeUndefined();
+  });
+
+  it('does not pass a document request off as a generated report', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      content: '商品A: 1200円×3個。商品B: 800円×2個。売上合計と改善提案を含む完成レポートを作成してください。',
+    }, approved);
+    expect(result.ok).toBe(false);
+    expect(result.artifact).toBeUndefined();
+    expect(result.message).toBe('AGENT_DOCUMENT_GENERATION_UNAVAILABLE');
   });
 
   it('keeps repository tools pinned to the server-owned repository root', async () => {

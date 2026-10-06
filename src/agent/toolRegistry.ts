@@ -24,8 +24,10 @@ const readExisting = async (filePath: string): Promise<string | undefined> => {
 };
 
 const registry: Record<ToolName, ToolDefinition> = {
-  code_interpreter: { name: 'code_interpreter', capability: 'read_repository', description: 'Deterministic local code analysis/formatting without external execution.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const code = textParam(params, 'code'); return { ok: true, tool: 'code_interpreter', artifact: code ? `// Sandboxed analysis\n${code}` : '// No code supplied.', message: 'Local code operation completed.' }; } },
-  document_generator: { name: 'document_generator', capability: 'read_repository', description: 'Creates a text artifact in memory; no repository or external write occurs.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const content = textParam(params, 'content'); return { ok: true, tool: 'document_generator', artifact: content || '# Document\n\nNo content supplied.', message: 'Document artifact generated locally.' }; } },
+  // These legacy adapters only echoed caller input. Until a real generation
+  // backend and task-level verifier are wired, they cannot certify completion.
+  code_interpreter: { name: 'code_interpreter', capability: 'read_repository', description: 'Code generation and repair are unavailable in this legacy Agent V3 adapter.', sideEffects: 'none', requiresApproval: true, execute: async () => ({ ok: false, tool: 'code_interpreter', message: 'AGENT_CODE_GENERATION_UNAVAILABLE' }) },
+  document_generator: { name: 'document_generator', capability: 'read_repository', description: 'Document generation is unavailable in this legacy Agent V3 adapter.', sideEffects: 'none', requiresApproval: true, execute: async () => ({ ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_GENERATION_UNAVAILABLE' }) },
   web_search_grounding: {
     name: 'web_search_grounding',
     capability: 'grounded_research',
