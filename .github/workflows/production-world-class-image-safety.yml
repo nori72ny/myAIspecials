@@ -1,0 +1,117 @@
+name: Production World-Class Image Safety Gate
+
+on:
+  workflow_run:
+    workflows:
+      - Production Release CI/CD
+    branches:
+      - main
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-world-class-image-safety-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify-world-class-image-publication-boundary:
+    name: Verify world-class image exact-SHA publication boundary
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+      CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Bind to exact deployed main SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_file="$(mktemp)"
+          trap 'rm -f "$health_file"' EXIT
+          matched='false'
+          for attempt in $(seq 1 18); do
+            http="$(curl --silent --show-error --connect-timeout 10 --max-time 30 --output "$health_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/health" || true)"
+            deployed="$(jq -r '.releaseSha // empty' "$health_file" 2>/dev/null || true)"
+            if [ "$http" = '200' ] && [ "$deployed" = "$CANDIDATE_SHA" ]; then
+              matched='true'
+              break
+            fi
+            sleep 5
+          done
+          if [ "$matched" != 'true' ]; then
+            cat "$health_file" >&2 || true
+            echo "::error title=Production SHA mismatch::Expected ${CANDIDATE_SHA}; production did not converge to the exact successful release SHA."
+            exit 40
+          fi
+
+      - name: Verify exact-SHA image publication boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_file="$(mktemp)"
+          headers_file="$(mktemp)"
+          body_file="$(mktemp)"
+          trap 'rm -f "$status_file" "$headers_file" "$body_file"' EXIT
+
+          status_http="$(curl --silent --show-error --connect-timeout 10 --max-time 45             --output "$status_file" --write-out '%{http_code}'             "${ORIGIN_PRODUCTION_URL}/api/creative/v1.6/world-class/status")"
+
+          jq -e --arg sha "$CANDIDATE_SHA" '
+            .releaseSha == $sha and
+            .provider == "openrouter-image-api" and
+            .publicationPolicy == "exact-sha-qualified-only" and
+            .paidFallbackEnabled == false and
+            .secretDelivery == "server-only"
+          ' "$status_file" >/dev/null || {
+            cat "$status_file" >&2
+            echo "::error title=World-class image status invariant failed::Release identity or publication boundary is invalid."
+            exit 41
+          }
+
+          qualified="$(jq -r '.qualified // false' "$status_file")"
+          if [ "$qualified" = 'true' ]; then
+            test "$status_http" = '200'
+            jq -e --arg sha "$CANDIDATE_SHA" '
+              .ok == true and
+              .ready == true and
+              .qualified == true and
+              .qualifiedSha == $sha and
+              .providerReady == true
+            ' "$status_file" >/dev/null || {
+              cat "$status_file" >&2
+              echo "::error title=Qualified world-class image release invalid::A qualified SHA must be provider-ready and exactly match Production."
+              exit 42
+            }
+            echo "World-class image: QUALIFIED and live for exact SHA $CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          else
+            test "$status_http" = '503'
+            jq -e '
+              .ok == false and
+              .ready == false and
+              .qualified == false
+            ' "$status_file" >/dev/null || {
+              cat "$status_file" >&2
+              echo "::error title=Unqualified image route is not fail-closed::Production must stay unavailable until exact-SHA qualification."
+              exit 43
+            }
+
+            generate_http="$(curl --silent --show-error --connect-timeout 10 --max-time 45               -D "$headers_file"               -H 'content-type: application/json'               --data '{"prompt":"publication boundary smoke test"}'               --output "$body_file" --write-out '%{http_code}'               "${ORIGIN_PRODUCTION_URL}/api/creative/v1.6/world-class/generate")"
+            test "$generate_http" = '503'
+            jq -e '
+              .ok == false and
+              (.code == "WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED" or .code == "WORLD_CLASS_IMAGE_MODE_DISABLED")
+            ' "$body_file" >/dev/null || {
+              cat "$body_file" >&2
+              echo "::error title=Unqualified world-class generation escaped boundary::Expected a fail-closed qualification response."
+              exit 44
+            }
+            echo "World-class image: UNQUALIFIED and correctly fail-closed for SHA $CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          jq -c '{ok,ready,enabled,qualified,releaseSha,qualifiedSha,provider,model,providerReady,publicationPolicy,paidFallbackEnabled,secretDelivery}' "$status_file" >> "$GITHUB_STEP_SUMMARY"
