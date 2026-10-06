@@ -150,18 +150,15 @@ jobs:
         run: npm run eval:aq-budgeted-day
 
       - name: Require sanitized budgeted daily batch
-        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
+        id: batch
+        if: always() && steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          summary="$AQ_NEW_SHARD_DIR/aq-budgeted-day-summary.json"
-          test -f "$summary"
-          node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(v?.schemaVersion!=="origin.aq-budgeted-day.v1"||v?.candidateSha!==process.env.CANDIDATE_SHA||v?.baselineSha!==process.env.BASELINE_SHA||!Number.isInteger(v?.actualRequestsUsed)||v.actualRequestsUsed<0||v.actualRequestsUsed>45||!Array.isArray(v?.executed)||v.executed.length<1||v.expectedShardCount!==40) process.exit(1)' "$summary"
-          count="$(find "$AQ_NEW_SHARD_DIR" -maxdepth 1 -type f -name 'aq-official-shard-*.json' | wc -l | tr -d ' ')"
-          test "$count" -ge 1
+          node runner/scripts/validate-aq-daily-batch.mjs
 
       - name: Upload successful daily shard batch
-        if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true' && success()
+        if: always() && steps.batch.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: aq-live-final-batch-${{ env.CANDIDATE_SHA }}

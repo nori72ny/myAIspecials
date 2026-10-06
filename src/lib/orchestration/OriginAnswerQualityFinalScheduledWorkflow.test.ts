@@ -54,7 +54,8 @@ describe("Q1 final AQ scheduled workflow", () => {
     expect(workflow).toContain('test "$max" -eq 616');
     expect(workflow).toContain("npm run eval:aq-budgeted-day");
     expect(workflow).toContain("aq-live-final-batch-${{ env.CANDIDATE_SHA }}");
-    expect(workflow).toContain("actualRequestsUsed>45");
+    expect(workflow).toContain("validate-aq-daily-batch.mjs");
+    expect(read("scripts/validate-aq-daily-batch.mjs")).toContain("actualRequestsUsed>45");
     expect(workflow).toContain("retention-days: 30");
     expect(workflow).toContain("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
     expect(workflow).not.toContain("secrets.OPENAI_API_KEY");
