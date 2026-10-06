@@ -377,7 +377,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('returns verified raster bytes and zero-cost evidence through the production-compatible route', async () => {
-    const fetchMock = successfulFetchMock();
+    const fetchMock = semanticFetchMock(true);
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app(CF_ENV))
@@ -459,7 +459,7 @@ describe('rasterImageV15Router', () => {
       secretDelivery: 'server-only',
     });
     expect(response.body.message).toContain(messagePart);
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('runs the semantic delivery gate by default and returns only a passing image', async () => {
