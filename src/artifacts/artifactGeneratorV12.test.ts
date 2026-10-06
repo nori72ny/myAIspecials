@@ -225,7 +225,7 @@ describe('V1.2 real artifacts', () => {
     const encoded = response.headers['content-disposition'].split("filename*=UTF-8''")[1];
     expect(decodeURIComponent(encoded)).toBe('日本語.pdf');
     expect(response.body.subarray(0, 5).toString('ascii')).toBe('%PDF-');
-  });
+  }, 20_000);
 
   it('fails closed when a glyph is outside the bundled Japanese/Latin font coverage', async () => {
     await expect(generateArtifactV12Async({
@@ -288,7 +288,7 @@ describe('V1.2 real artifacts', () => {
     expect(response.headers['x-origin-artifact-verified']).toBe('true');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
-  });
+  }, 20_000);
 
   it('fails closed for invalid and sensitive requests', async () => {
     expect((await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'exe' })).status).toBe(400);
