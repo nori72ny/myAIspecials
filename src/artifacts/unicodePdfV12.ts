@@ -29,16 +29,16 @@ type PdfFonts = {
   byCodePoint: ReadonlyMap<number, PDFFont>;
 };
 
-const FONT_SPECIFIERS = [
-  '@fontsource/noto-sans-jp/files/noto-sans-jp-japanese-400-normal.woff',
-  '@fontsource/noto-sans-jp/files/noto-sans-jp-latin-400-normal.woff',
-  '@fontsource/noto-sans-jp/files/noto-sans-jp-latin-ext-400-normal.woff',
-  '@fontsource/noto-sans-jp/files/noto-sans-jp-cyrillic-400-normal.woff',
-] as const;
-
 function fontFiles(): readonly string[] {
   const projectRequire = createRequire(resolve(process.cwd(), 'package.json'));
-  const files = FONT_SPECIFIERS.map((specifier) => projectRequire.resolve(specifier));
+  // Keep each asset as a literal resolve target so deployment file tracing can
+  // discover the exact font files instead of depending on a runtime directory scan.
+  const files = [
+    projectRequire.resolve('@fontsource/noto-sans-jp/files/noto-sans-jp-japanese-400-normal.woff'),
+    projectRequire.resolve('@fontsource/noto-sans-jp/files/noto-sans-jp-latin-400-normal.woff'),
+    projectRequire.resolve('@fontsource/noto-sans-jp/files/noto-sans-jp-latin-ext-400-normal.woff'),
+    projectRequire.resolve('@fontsource/noto-sans-jp/files/noto-sans-jp-cyrillic-400-normal.woff'),
+  ];
   if (!files.length || files.length > MAX_FONT_FILES) throw new Error('PDF_UNICODE_FONT_CATALOG_INVALID');
   return files;
 }
