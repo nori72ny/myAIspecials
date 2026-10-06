@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
@@ -64,7 +64,7 @@ async function loadFontsForText(pdfDoc: PDFDocument, text: string): Promise<PdfF
     const bytes = Uint8Array.from(raw);
     const source = fontkitApi.create(bytes);
     if (!Array.isArray(source.characterSet)) throw new Error('PDF_UNICODE_FONT_CHARACTER_SET_UNAVAILABLE');
-    const value = { filename: basename(filename), bytes, supported: new Set(source.characterSet) } satisfies LoadedFontSource;
+    const value = { filename, bytes, supported: new Set(source.characterSet) } satisfies LoadedFontSource;
     loaded.set(filename, value);
     return value;
   };
