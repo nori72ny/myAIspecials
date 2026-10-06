@@ -160,7 +160,7 @@ describe('rasterImageV15Router', () => {
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
         deliveryGateWired: true,
-        enabled: false,
+        enabled: true,
         activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
       },
       candidateSelection: {
@@ -350,7 +350,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('routes a validated reference edit through the same verified Free provider', async () => {
-    const fetchMock = successfulFetchMock();
+    const fetchMock = semanticFetchMock(true);
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app(CF_ENV))
@@ -369,7 +369,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
 
     const form = fetchMock.mock.calls[3]?.[1]?.body as FormData;
     expect(form.get('input_image_0')).toBeInstanceOf(Blob);
@@ -390,12 +390,12 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-task']).toBe('generate');
     expect(response.headers['x-origin-visual-reference-count']).toBe('0');
     expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
-    expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-4b');
+    expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-9b');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
     expect(response.headers['x-origin-external-network']).toBe('true');
-    expect(response.headers['x-origin-external-network-requests']).toBe('4');
+    expect(response.headers['x-origin-external-network-requests']).toBe('8');
     expect(response.headers['x-origin-secret-delivery']).toBe('server-only');
     expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-generation-id']).toMatch(/^raster-[a-f0-9]{24}$/);
@@ -418,12 +418,12 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-width']).toBe('768');
     expect(response.headers['x-origin-visual-height']).toBe('1024');
     expect(Buffer.isBuffer(response.body)).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
 
     const providerRequest = fetchMock.mock.calls[3]?.[1] as RequestInit;
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe(`Bearer test-${'x'.repeat(40)}`);
-    expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/ai/run/@cf/black-forest-labs/flux-2-klein-4b');
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/ai/run/@cf/black-forest-labs/flux-2-klein-9b');
     expect(providerRequest.body).toBeInstanceOf(FormData);
     const providerBody = providerRequest.body as FormData;
     expect(String(providerBody.get('prompt'))).toContain('Create a polished production-quality image');
@@ -459,17 +459,14 @@ describe('rasterImageV15Router', () => {
       secretDelivery: 'server-only',
     });
     expect(response.body.message).toContain(messagePart);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 
-  it('runs the semantic delivery gate only when explicitly enabled and returns only a passing image', async () => {
+  it('runs the semantic delivery gate by default and returns only a passing image', async () => {
     const fetchMock = semanticFetchMock(true);
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await request(app({
-      ...CF_ENV,
-      ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE: 'true',
-    }))
+    const response = await request(app(CF_ENV))
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
@@ -477,9 +474,21 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-semantic-gate']).toBe('enabled');
     expect(response.headers['x-origin-visual-semantic-verified']).toBe('true');
     expect(response.headers['x-origin-visual-semantic-critic']).toBe('raster-semantic-critic-v1');
-    expect(Number(response.headers['x-origin-visual-semantic-score'])).toBeGreaterThanOrEqual(79);
+    expect(Number(response.headers['x-origin-visual-semantic-score'])).toBeGreaterThanOrEqual(88);
     expect(response.headers['x-origin-external-network-requests']).toBe('8');
     expect(fetchMock).toHaveBeenCalledTimes(8);
+  });
+
+  it('allows an explicit semantic-gate opt-out only for controlled diagnostics', async () => {
+    const fetchMock = successfulFetchMock();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app({ ...CF_ENV, ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE: 'false' }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-semantic-gate']).toBe('disabled');
+    expect(response.headers['x-origin-visual-semantic-verified']).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('withholds a structurally valid image when the enabled semantic critic rejects it', async () => {
