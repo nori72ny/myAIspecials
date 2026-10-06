@@ -44,6 +44,12 @@ try {
   assert.match(pageResponse.headers.get("content-type") ?? "", /text\/html/i);
   assert.match(await pageResponse.text(), /<!doctype|<html/i);
 
+  const artifactStatusResponse = await fetch(`${baseUrl}/api/artifacts/v1.2/status`);
+  assert.equal(artifactStatusResponse.status, 200);
+  const artifactStatus = await artifactStatusResponse.json();
+  assert.equal(artifactStatus.ready, true);
+  assert.equal(artifactStatus.generatorSelfTest.pdf, true);
+
   const unicodePdfResponse = await fetch(`${baseUrl}/api/artifacts/v1.2/generate`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -61,6 +67,45 @@ try {
   const unicodePdfBytes = Buffer.from(await unicodePdfResponse.arrayBuffer());
   assert.equal(unicodePdfBytes.subarray(0, 5).toString("ascii"), "%PDF-");
   assert.ok(unicodePdfBytes.length > 1000);
+
+  const pptxContent = [...Array.from({ length: 20 }, (_, index) => `Line ${index + 1}`), "FINAL_SENTINEL_21"].join("\n");
+  const pptxResponse = await fetch(`${baseUrl}/api/artifacts/v1.2/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "pptx",
+      title: "PPTX integrity",
+      slides: [{ title: "PPTX integrity", content: pptxContent }],
+    }),
+  });
+  assert.equal(pptxResponse.status, 200);
+  assert.equal(pptxResponse.headers.get("x-origin-artifact-verified"), "true");
+  const pptxBytes = Buffer.from(await pptxResponse.arrayBuffer());
+  assert.equal(pptxBytes.readUInt32LE(0), 0x04034b50);
+  assert.ok(pptxBytes.includes(Buffer.from("FINAL_SENTINEL_21", "utf8")));
+  assert.ok(pptxBytes.includes(Buffer.from("ppt/slides/slide3.xml", "utf8")));
+
+  const xlsxResponse = await fetch(`${baseUrl}/api/artifacts/v1.2/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "xlsx",
+      title: "売上集計",
+      rows: [
+        ["項目", "金額"],
+        ["A", 1200],
+        ["B", 1800],
+        ["C", 2200],
+        ["合計", { formula: "=SUM(B2:B4)", cachedValue: 5200 }],
+      ],
+    }),
+  });
+  assert.equal(xlsxResponse.status, 200);
+  assert.equal(xlsxResponse.headers.get("x-origin-artifact-verified"), "true");
+  const xlsxBytes = Buffer.from(await xlsxResponse.arrayBuffer());
+  assert.equal(xlsxBytes.readUInt32LE(0), 0x04034b50);
+  assert.ok(xlsxBytes.includes(Buffer.from("<f>SUM(B2:B4)</f><v>5200</v>", "utf8")));
+  assert.ok(xlsxBytes.includes(Buffer.from('calcMode="auto"', "utf8")));
 
   console.log("Node production runtime smoke test passed.");
 } finally {
