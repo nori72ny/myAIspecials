@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
 const RATE_LIMIT_MARKER = 'Production /api/chat must return HTTP 200; received 429; code=PROVIDER_RATE_LIMITED;';
+const STREAM_INTERRUPTED_MARKER = 'Production /api/chat upstream stream interrupted after verified deltas; code=PROVIDER_STREAM_INTERRUPTED;';
 
 export function classifyProductionVerificationResult(exitCode, stderrText) {
   const code = Number(exitCode);
@@ -20,6 +21,15 @@ export function classifyProductionVerificationResult(exitCode, stderrText) {
       releaseVerified: true,
       upstreamAvailability: 'degraded',
       providerCode: 'PROVIDER_RATE_LIMITED',
+      releaseBlocking: false,
+    };
+  }
+
+  if (Number.isInteger(code) && code > 0 && stderr.includes(STREAM_INTERRUPTED_MARKER)) {
+    return {
+      releaseVerified: true,
+      upstreamAvailability: 'degraded',
+      providerCode: 'PROVIDER_STREAM_INTERRUPTED',
       releaseBlocking: false,
     };
   }
