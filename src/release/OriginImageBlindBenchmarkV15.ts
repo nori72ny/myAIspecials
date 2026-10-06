@@ -139,13 +139,13 @@ const MAX_EVIDENCE_AGE_MS = 31 * 24 * 60 * 60_000;
 const CASE_MARGIN = 0.1;
 
 const ABSOLUTE_MINIMUMS: Record<ImageRubricAxisV15, number> = {
-  promptAdherence: 3.4,
-  composition: 3.3,
-  subjectIntegrity: 3.3,
-  styleExecution: 3.2,
-  textHandling: 3.2,
-  artifactControl: 3.4,
-  professionalUsefulness: 3.4,
+  promptAdherence: 3.6,
+  composition: 3.5,
+  subjectIntegrity: 3.5,
+  styleExecution: 3.4,
+  textHandling: 3.4,
+  artifactControl: 3.6,
+  professionalUsefulness: 3.6,
 };
 
 function round4(value: number): number {
@@ -433,16 +433,16 @@ export function evaluateOriginImageBlindBenchmarkV15(
   const lossRate = total ? losses / total : 1;
   const nonLossRate = total ? (wins + ties) / total : 0;
 
-  if (winRate < 0.5) blockers.push('IMAGE_BENCHMARK_WIN_RATE_LT_50');
-  if (lossRate > 0.3) blockers.push('IMAGE_BENCHMARK_LOSS_RATE_GT_30');
-  if (nonLossRate < 0.6) blockers.push('IMAGE_BENCHMARK_NON_LOSS_RATE_LT_60');
+  if (winRate < 0.6) blockers.push('IMAGE_BENCHMARK_WIN_RATE_LT_60');
+  if (lossRate > 0.2) blockers.push('IMAGE_BENCHMARK_LOSS_RATE_GT_20');
+  if (nonLossRate < 0.8) blockers.push('IMAGE_BENCHMARK_NON_LOSS_RATE_LT_80');
 
   const familyNonLossRate = Object.fromEntries(
     IMAGE_FAMILIES_V15.map((family) => {
       const tally = familyTally[family];
       const familyTotal = tally.wins + tally.ties + tally.losses;
       const rate = familyTotal ? (tally.wins + tally.ties) / familyTotal : 0;
-      if (rate < 0.6) blockers.push(`IMAGE_BENCHMARK_FAMILY_NON_LOSS_LT_60:${family}`);
+      if (rate < 2 / 3) blockers.push(`IMAGE_BENCHMARK_FAMILY_NON_LOSS_LT_67:${family}`);
       return [family, round4(rate)];
     }),
   ) as Record<ImageFamilyV15, number>;
@@ -455,7 +455,7 @@ export function evaluateOriginImageBlindBenchmarkV15(
   ) as Record<ImageRubricAxisV15, number>;
 
   const overallMean = round4(average(originOverallValues));
-  const absoluteQualityPassed = overallMean >= 3.35
+  const absoluteQualityPassed = overallMean >= 3.55
     && IMAGE_RUBRIC_AXES_V15.every((axis) => originAxisMeans[axis] >= ABSOLUTE_MINIMUMS[axis]);
   if (!absoluteQualityPassed) blockers.push('IMAGE_BENCHMARK_ABSOLUTE_QUALITY_NOT_PASSED');
 
