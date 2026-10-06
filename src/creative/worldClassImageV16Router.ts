@@ -40,6 +40,12 @@ function credentials(env: NodeJS.ProcessEnv): string | null {
   const key = env.OPENROUTER_API_KEY?.trim() ?? '';
   return key.length >= 20 ? key : null;
 }
+function evaluationBypassAllowed(env: NodeJS.ProcessEnv): boolean {
+  if (!bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_EVAL')) return false;
+  const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
+  const nodeEnv = env.NODE_ENV?.trim().toLowerCase();
+  return vercelEnv !== 'production' && nodeEnv !== 'production';
+}
 function fail(res: ExpressResponse, status: number, code: string, message: string) {
   return res.status(status).json({
     ok: false, code, message, retryable: status >= 500,
@@ -168,7 +174,7 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
 
     const key = credentials(env);
     if (!bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_ENABLED')) return fail(res, 503, 'WORLD_CLASS_IMAGE_MODE_DISABLED', '世界最高品質モードはまだ有効化されていません。');
-    if (!qualified(env) && !bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_EVAL')) return fail(res, 503, 'WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED', 'blind品質評価を通過したexact SHAだけが本番利用できます。');
+    if (!qualified(env) && !evaluationBypassAllowed(env)) return fail(res, 503, 'WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED', 'blind品質評価を通過したexact SHAだけが本番利用できます。');
     if (!key) return fail(res, 503, 'OPENROUTER_IMAGE_KEY_NOT_CONFIGURED', '画像モデル接続用のサーバー資格情報がありません。');
     if (!(await modelReady(key, input.model, editing).catch(() => false))) return fail(res, 503, 'WORLD_CLASS_IMAGE_MODEL_CAPABILITY_UNVERIFIED', 'モデル能力を事前確認できませんでした。');
 
@@ -181,7 +187,10 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
       quality: 'max',
       output_format: 'png',
     };
-    if (editing) payload.input_references = input.referenceImages;
+    if (editing) payload.input_references = input.referenceImages.map((url) => ({
+      type: 'image_url',
+      image_url: { url },
+    }));
 
     const response = await fetchJson(OPENROUTER_IMAGES_URL, key, { method: 'POST', body: JSON.stringify(payload) }, 120000);
     if (!response.ok) return fail(res, response.status === 429 ? 429 : 502, `OPENROUTER_IMAGE_HTTP_${response.status}`, '上位画像モデルの生成に失敗しました。');
