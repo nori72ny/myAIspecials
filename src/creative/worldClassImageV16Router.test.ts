@@ -131,7 +131,7 @@ describe('worldClassImageV16Router', () => {
       n: 1,
       resolution: '1K',
       aspect_ratio: '9:16',
-      quality: 'max',
+      quality: 'high',
       output_format: 'png',
     });
   });
