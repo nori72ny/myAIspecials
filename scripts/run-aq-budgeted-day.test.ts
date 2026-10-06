@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { validateDailyBatch } from './validate-aq-daily-batch.mjs';
@@ -80,6 +80,31 @@ describe('AQ partial-day evidence survives a later failure', () => {
 
 
 describe('AQ first failure diagnostics remain safe and durable in logs', () => {
+  it.each(['symlink', 'oversized', 'malformed'])('rejects %s diagnostic files without leaking or retrying', async kind => {
+    const root = await setup();
+    const log = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    let calls = 0;
+    await expect(runBudgetedDay(async env => {
+      calls++;
+      const value = JSON.stringify({ schemaVersion: 'origin.aq-local-shard-result.v1',
+        ok: false, code: 'AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED', detail: 'SECRET_CANARY' });
+      if (kind === 'symlink') {
+        const target = path.join(root, 'external.json');
+        await writeFile(target, value);
+        await symlink(target, env.ORIGIN_AQ_OUTPUT_PATH!);
+      } else {
+        await writeFile(env.ORIGIN_AQ_OUTPUT_PATH!, kind === 'oversized' ? value + ' '.repeat(16_385) : '{SECRET_CANARY');
+      }
+      throw new Error('SECRET_CANARY');
+    })).rejects.toThrow('SECRET_CANARY');
+    const output = log.mock.calls.map(call => call[0]).join('');
+    expect(output).toContain('AQ_FAILURE_UNCLASSIFIED');
+    expect(output).not.toContain('SECRET_CANARY');
+    expect(calls).toBe(1);
+    expect(await readdir(path.join(root, 'state'))).toEqual([]);
+    await expect(validateDailyBatch(path.join(root, 'new'), 'a'.repeat(40), 'b'.repeat(40))).rejects.toThrow('AQ_DAILY_BATCH_INVALID');
+  });
+
   it.each(['structured', 'local', 'unknown', 'malicious-code'])('reports only fixed labels for %s failures', async kind => {
     const root = await setup();
     const log = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
