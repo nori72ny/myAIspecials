@@ -4,6 +4,7 @@ import type {
   RasterImageResultV15,
   RasterProviderStatusV15,
 } from './rasterImageProviderV15.js';
+import { getCloudflareRasterStatusV15 } from './cloudflareRasterImageProviderV15.js';
 
 const MODEL='@cf/black-forest-labs/flux-2-klein-4b';
 const MAX_IMAGE_BYTES=12*1024*1024;
@@ -135,6 +136,13 @@ export async function getCloudflareRasterGatewayStatusV15(
     configured:true,ready:false,providerId:'cloudflare-workers-ai-gateway',
     model:null,zeroCostVerified:false,paidFallbackEnabled:false,paymentMethodRequired:false,
     secretDelivery:'server-only',externalNetwork:true,reason:'CLOUDFLARE_WORKERS_AI_GATEWAY_ZERO_COST_UNVERIFIED',
+  };
+  const freePlanStatus=await getCloudflareRasterStatusV15(env,fetchImpl);
+  if(!freePlanStatus.ready||!freePlanStatus.zeroCostVerified)return{
+    configured:true,ready:false,providerId:'cloudflare-workers-ai-gateway',
+    model:null,zeroCostVerified:false,paidFallbackEnabled:false,paymentMethodRequired:false,
+    secretDelivery:'server-only',externalNetwork:true,
+    reason:freePlanStatus.reason??'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
   };
   try{
     const response=await timedFetch(`${cfg.url}/status`,{
