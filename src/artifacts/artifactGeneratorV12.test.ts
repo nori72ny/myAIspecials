@@ -11,6 +11,13 @@ function app() {
   return app;
 }
 
+const binaryParser = (res: NodeJS.ReadableStream, callback: (error: Error | null, body?: Buffer) => void) => {
+  const chunks: Buffer[] = [];
+  res.on('data', (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+  res.on('end', () => callback(null, Buffer.concat(chunks)));
+  res.on('error', (error) => callback(error as Error));
+};
+
 describe('V1.2 real artifacts', () => {
   it.each(['markdown', 'csv', 'docx', 'xlsx', 'pptx'] as const)('delivers %s with a Japanese download filename', async (type) => {
     const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type, title: '営業資料', content: '売上の確認' });
@@ -164,7 +171,7 @@ describe('V1.2 real artifacts', () => {
     expect(artifact.verification).toContain('pptx-content-preserved');
     expect(artifact.verified).toBe(true);
 
-    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').buffer(true).parse(binaryParser).send({
       type: 'pptx',
       title: 'Stress',
       slides: [{ title: 'Stress', content }],
@@ -175,7 +182,7 @@ describe('V1.2 real artifacts', () => {
   });
 
   it('accepts explicit XLSX formulas through the production artifact API contract', async () => {
-    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').buffer(true).parse(binaryParser).send({
       type: 'xlsx',
       title: '売上集計',
       rows: [
