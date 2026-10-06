@@ -73,6 +73,26 @@ test.describe('V1.5 Creative workspace production surface', () => {
     });
   }
 
+  for (const width of [390, 1440]) {
+    test(`preserves multiline headlines and keeps expanded controls within ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await page.goto('/?workspace=creative');
+      const title = '予約手数料を\n見直しませんか？';
+      const titleInput = page.getByRole('textbox', { name: 'タイトル', exact: true });
+      await titleInput.fill(title);
+      await expect(titleInput).toHaveValue(title);
+      await page.getByText('詳細設定', { exact: true }).click();
+      await page.getByLabel('サブタイトル', { exact: true }).fill('200円/人 → 100円/人');
+      await page.getByLabel('フッター', { exact: true }).fill('評価用の架空料金');
+      expect(await titleInput.evaluate(element => getComputedStyle(element).fontSize)).toBe('16px');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      const request = page.waitForRequest('**/api/creative/v1.5/generate');
+      await page.getByRole('button', { name: 'Visualを生成', exact: true }).click();
+      expect((await request).postDataJSON().title).toBe(title);
+      await expect(page.getByRole('link', { name: 'SVG保存', exact: true })).toBeVisible();
+    });
+  }
+
   test('opens Create on mobile, verifies actual SVG bytes, persists history, and exports a real PNG locally', async ({ page }) => {
     const requests: string[] = [];
     page.on('request', request => requests.push(request.url()));

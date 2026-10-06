@@ -407,11 +407,11 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative controls">
           <div className="grid gap-4">
             <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">タイトル
-              <input value={draft.title} maxLength={240} onChange={(event) => update('title', event.target.value)} className="min-h-12 rounded-xl border border-slate-300 bg-white px-3 text-base font-semibold text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+              <textarea value={draft.title} maxLength={240} rows={2} onChange={(event) => update('title', event.target.value)} className="min-h-12 min-w-0 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-base leading-6 font-semibold text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
             </label>
 
             <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">内容
-              <textarea value={draft.body} maxLength={2200} rows={6} onChange={(event) => update('body', event.target.value)} className="rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+              <textarea value={draft.body} maxLength={2200} rows={6} onChange={(event) => update('body', event.target.value)} className="min-w-0 w-full rounded-xl border border-slate-300 bg-white p-3 text-base leading-6 text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
             </label>
 
             <details className="rounded-2xl border border-slate-200 px-3 dark:border-slate-800">
@@ -419,27 +419,27 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
               <div className="grid gap-4 pb-4">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">用途
-                    <select value={draft.kind} onChange={(event) => update('kind', event.target.value as VisualKind)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    <select value={draft.kind} onChange={(event) => update('kind', event.target.value as VisualKind)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
                       <option value="social-card">SNSカード</option><option value="poster">ポスター</option><option value="info-card">情報カード</option>
                     </select>
                   </label>
                   <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">サイズ
-                    <select value={draft.preset} onChange={(event) => update('preset', event.target.value as VisualPreset)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    <select value={draft.preset} onChange={(event) => update('preset', event.target.value as VisualPreset)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
                       {(Object.keys(PRESET_LABELS) as VisualPreset[]).map((preset) => <option key={preset} value={preset}>{PRESET_LABELS[preset]}</option>)}
                     </select>
                   </label>
                   <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">レイアウト
-                    <select value={draft.layout} onChange={(event) => update('layout', event.target.value as VisualLayout)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    <select value={draft.layout} onChange={(event) => update('layout', event.target.value as VisualLayout)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
                       <option value="editorial">Editorial</option><option value="minimal">Minimal</option><option value="split">Split</option>
                     </select>
                   </label>
                 </div>
 
                 <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">サブタイトル
-                  <input value={draft.subtitle} maxLength={320} onChange={(event) => update('subtitle', event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+                  <input value={draft.subtitle} maxLength={320} onChange={(event) => update('subtitle', event.target.value)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
                 </label>
                 <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">フッター
-                  <input value={draft.footer} maxLength={240} onChange={(event) => update('footer', event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+                  <input value={draft.footer} maxLength={240} onChange={(event) => update('footer', event.target.value)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
                 </label>
 
                 <fieldset className="rounded-2xl border border-slate-200 p-3 dark:border-slate-800">
