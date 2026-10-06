@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response as ExpressResponse } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 
 const OPENROUTER_IMAGES_URL = 'https://openrouter.ai/api/v1/images';
@@ -40,7 +40,7 @@ function credentials(env: NodeJS.ProcessEnv): string | null {
   const key = env.OPENROUTER_API_KEY?.trim() ?? '';
   return key.length >= 20 ? key : null;
 }
-function fail(res: Response, status: number, code: string, message: string) {
+function fail(res: ExpressResponse, status: number, code: string, message: string) {
   return res.status(status).json({
     ok: false, code, message, retryable: status >= 500,
     worldClassMode: true, paidFallbackUsed: false, secretDelivery: 'server-only',
@@ -89,7 +89,7 @@ function imageMime(bytes: Buffer): 'image/png'|'image/jpeg'|'image/webp'|null {
   if (bytes.length >= 12 && bytes.subarray(0,4).toString('ascii') === 'RIFF' && bytes.subarray(8,12).toString('ascii') === 'WEBP') return 'image/webp';
   return null;
 }
-async function fetchJson(url: string, apiKey: string, init: RequestInit = {}, timeoutMs = 20000): Promise<Response> {
+async function fetchJson(url: string, apiKey: string, init: RequestInit = {}, timeoutMs = 20000): Promise<globalThis.Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -160,7 +160,7 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     });
   });
 
-  const handler = (editing: boolean) => async (req: Request, res: Response) => {
+  const handler = (editing: boolean) => async (req: Request, res: ExpressResponse) => {
     if (sensitive(req.body)) return fail(res, 422, 'SENSITIVE_INPUT_BLOCKED', '機密情報の可能性があるため外部画像モデルへ送信しません。');
     let input: ParsedRequest;
     try { input = parse(req.body, editing); }
