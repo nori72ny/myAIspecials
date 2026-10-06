@@ -71,6 +71,40 @@ describe('worldClassImageV16Router', () => {
     expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
   });
 
+  it('never allows the evaluation bypass in production', async () => {
+    const response = await request(app({
+      ...BASE_ENV,
+      VERCEL_ENV: 'production',
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
+      ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級ホテルの広告ビジュアル' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
+  });
+
+  it('labels non-production evaluation output without falsely claiming qualification', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse())
+      .mockResolvedValueOnce(generatedResponse(0.12));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      ...BASE_ENV,
+      VERCEL_ENV: 'preview',
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
+      ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級ホテルの広告ビジュアル' });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-release-sha']).toBe(SHA);
+    expect(response.headers['x-origin-world-class-qualified-sha']).toBeUndefined();
+    expect(response.headers['x-origin-world-class-evaluation']).toBe('true');
+  });
+
   it('reports ready only when enabled, keyed, provider-ready, and exact-sha qualified', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(modelsResponse());
     vi.stubGlobal('fetch', fetchMock);
@@ -104,7 +138,9 @@ describe('worldClassImageV16Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-provider']).toBe('openrouter-image-api');
     expect(response.headers['x-origin-visual-model']).toBe('openai/gpt-image-2.5-sunburst');
+    expect(response.headers['x-origin-release-sha']).toBe(SHA);
     expect(response.headers['x-origin-world-class-qualified-sha']).toBe(SHA);
+    expect(response.headers['x-origin-world-class-evaluation']).toBeUndefined();
     expect(response.headers['x-origin-cost-usd']).toBe('0.12');
     expect(response.headers['x-origin-free-only']).toBe('false');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
@@ -118,9 +154,26 @@ describe('worldClassImageV16Router', () => {
       n: 1,
       resolution: '1K',
       aspect_ratio: '9:16',
-      quality: 'max',
+      quality: 'high',
       output_format: 'png',
     });
+  });
+
+  it('sends editing references in the OpenRouter image_url object format', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse(true))
+      .mockResolvedValueOnce(generatedResponse(0.12));
+    vi.stubGlobal('fetch', fetchMock);
+    const source = `data:image/png;base64,${pngBytes().toString('base64')}`;
+    const response = await request(app(BASE_ENV))
+      .post('/api/creative/v1.6/world-class/edit')
+      .send({ prompt: '背景だけ夜景に変更', referenceImages: [source] });
+    expect(response.status).toBe(200);
+    const payload = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(payload.input_references).toEqual([{
+      type: 'image_url',
+      image_url: { url: source },
+    }]);
   });
 
   it('requires verified editing capability before forwarding reference images', async () => {
