@@ -97,7 +97,8 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await expect(svgDownload).toHaveAttribute('download', 'creative-e2e-portrait.svg');
     await expect(page.getByText(new RegExp(`SHA-256 ${svgSha256.slice(0, 12)}…`))).toBeVisible();
     await expect(page.getByText(/visual-brain-v1/)).toBeVisible();
-    await expect(page.getByText(/Critic 100/)).toBeVisible();
+    await expect(page.getByText(/文字・安全性の自動検査済み（広告効果は未評価）/)).toBeVisible();
+    await expect(page.getByText(/Critic 100/)).toHaveCount(0);
     await expect(page.getByText(/実バイト照合済み/)).toBeVisible();
     await expect(page.getByRole('button', { name: '履歴を開く: モバイルCreative' })).toBeVisible();
 

@@ -57,9 +57,9 @@ const INITIAL_DRAFT: CreativeDraft = {
   preset: 'portrait',
   layout: 'editorial',
   title: '伝わるクリエイティブを、すぐ形に。',
-  subtitle: 'ORIGIN Creative',
+  subtitle: '',
   body: '1080×1350を含む実ファイルを、外部画像モデルなし・通信なしで生成します。',
-  footer: 'Verified SVG · $0',
+  footer: '',
   background: '#F7F7F4',
   foreground: '#151515',
   accent: '#315CFF',
@@ -492,7 +492,7 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
             )}
           </div>
           {artifact && previewUrl && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · {artifact.visualBrainVersion ?? 'visual-brain'} · {artifact.providerId ?? 'local'} · Critic 100 · 実バイト照合済み · 外部通信なし · PNGは端末内変換
+            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · {artifact.visualBrainVersion ?? 'visual-brain'} · {artifact.providerId ?? 'local'} · 文字・安全性の自動検査済み（広告効果は未評価） · 実バイト照合済み · 外部通信なし · PNGは端末内変換
           </div>}
         </section>
       </div>
