@@ -407,7 +407,7 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative controls">
           <div className="grid gap-4">
             <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">タイトル
-              <textarea value={draft.title} maxLength={240} rows={2} onChange={(event) => update('title', event.target.value)} className="min-h-12 min-w-0 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-base leading-6 font-semibold text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+              <textarea aria-label="タイトル" value={draft.title} maxLength={240} rows={2} onChange={(event) => update('title', event.target.value)} className="min-h-12 min-w-0 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-base leading-6 font-semibold text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
             </label>
 
             <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">内容
