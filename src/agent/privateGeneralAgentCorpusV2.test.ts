@@ -32,13 +32,13 @@ function baseTask(index:number): Omit<GeneralAgentPrivateTaskV2,'taskDigest'> {
     candidateSha:SHA,
     timeBudgetMs:120_000,
     capabilities:[...capabilities],
-    expectedTerminalStatus:stop?'cancelled':research?'blocked':'completed',
+    expectedTerminalStatus:stop?'cancelled':'completed',
     recoveryRequired:recovery,
     approvalBoundaryRequired:approval,
     stopCancelRequired:stop,
     goal: recovery ? 'Analyze this malformed code snippet and return a repaired local artifact.' : stop ? 'Create a local document artifact and stop when cancelled.' : research ? 'Research a current public topic using the available grounded search tool.' : 'Inspect the repository structure without external network access.',
     expectedTool:tool,
-    params: recovery ? {code:'function demo(){'} : stop ? {content:'private evaluator content'} : {},
+    params: recovery ? {code:'function demo(){'} : stop ? {content:'private evaluator content'} : research ? {query:'AIエージェントに関する最新情報を複数ソースで調査してください。'} : {},
     action: stop ? 'cancel-after-approval' : 'execute',
     allowedChangedPaths:[],
     regressionCheck:'none',
@@ -63,6 +63,8 @@ function corpus(): GeneralAgentPrivateCorpusV2 {
 describe('General Agent private corpus V2',()=>{
   it('uses a stable public permission profile digest',()=>{
     expect(GENERAL_AGENT_EVALUATOR_PERMISSION_PROFILE_V1.externalWrites).toBe('forbidden');
+    expect(GENERAL_AGENT_EVALUATOR_PERMISSION_PROFILE_V1.network).toBe('raw-disabled');
+    expect(GENERAL_AGENT_EVALUATOR_PERMISSION_PROFILE_V1.groundedResearch).toBe('allowlisted-public-web-only');
     expect(GENERAL_AGENT_EVALUATOR_PERMISSION_PROFILE_V1.maxCostUsd).toBe(0);
     expect(digestGeneralAgentPermissionProfileV1()).toMatch(/^[a-f0-9]{64}$/);
   });
@@ -98,6 +100,17 @@ describe('General Agent private corpus V2',()=>{
     expect(blockers).toContain('PRIVATE_CORPUS_RECOVERY_TASKS_LT_3');
     expect(blockers).toContain('PRIVATE_CORPUS_APPROVAL_TASKS_LT_2');
     expect(blockers).toContain('PRIVATE_CORPUS_STOP_TASKS_LT_2');
+  });
+
+  it('requires research tasks to carry a bounded explicit query',()=>{
+    const value=corpus();
+    const original=value.tasks[5];
+    const nextBase={...original,params:{}};
+    const {taskDigest:_digest,...without}=nextBase;
+    const tasks=[...value.tasks];
+    tasks[5]={...nextBase,taskDigest:digestGeneralAgentPrivateTaskV2(without)};
+    expect(validateGeneralAgentPrivateCorpusV2({...value,tasks}))
+      .toContain('agent-private-06:PRIVATE_TASK_RESEARCH_QUERY_INVALID');
   });
 
   it('does not allow research capability to be credited through a non-research tool',()=>{

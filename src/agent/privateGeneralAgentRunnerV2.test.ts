@@ -43,6 +43,16 @@ describe('General Agent private runner workflow',()=>{
     expect(runner).not.toContain("writeFile(path.join(outputDir, 'private");
   });
 
+  it('uses separated signing and operator credentials with the current Agent V3 status contract',()=>{
+    expect(runner).toContain('ORIGIN_AGENT_APPROVAL_SECRET: approvalSigningSecret');
+    expect(runner).toContain('ORIGIN_AGENT_OPERATOR_SECRET: operatorAuthSecret');
+    expect(runner).toContain("status.body?.authorizationMode === 'agent-operator'");
+    expect(runner).toContain('status.body?.credentialSeparationConfigured === true');
+    expect(runner).toContain("status.body?.secretDelivery === 'signing-secret-server-only'");
+    expect(runner).toContain('evaluateTask(baseUrl, operatorAuthSecret, task, globalZeroCostReady)');
+    expect(runner).not.toContain('evaluateTask(baseUrl, authSecret, task, globalZeroCostReady)');
+  });
+
   it('executes the real Agent V3 HTTP contract rather than constructing success booleans directly',()=>{
     expect(runner).toContain("createAgentOrchestratorV3Router");
     expect(runner).toContain("'/api/agent/v3/plan'");

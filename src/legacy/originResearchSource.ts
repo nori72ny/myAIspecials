@@ -35,7 +35,7 @@ export interface OriginResearchResult {
   sources: OriginResearchSource[];
   failure?: OriginResearchFailure;
   fallback?: OriginResearchFailure;
-  searchProvider?: "DuckDuckGo" | "Wikipedia";
+  searchProvider?: "DuckDuckGo" | "Bing" | "Wikipedia";
 }
 
 type WikipediaSearchResponse = {
@@ -52,6 +52,9 @@ type ResearchIntent = {
   requiredHostSuffixes: string[];
   searchQuery: string;
   terms: string[];
+  multiSourceRequested: boolean;
+  freshnessRequested: boolean;
+  minimumDistinctDomains: number;
 };
 
 const WIKI_ORIGINS = {
@@ -62,6 +65,7 @@ const WIKI_ORIGINS = {
 const SEARCH_ORIGINS = {
   duckduckgoHtml: "https://html.duckduckgo.com/html/",
   duckduckgoLite: "https://lite.duckduckgo.com/lite/",
+  bingRss: "https://www.bing.com/search",
 } as const;
 
 const OFFICIAL_SOURCE_RULES: readonly {
@@ -87,8 +91,26 @@ const GENERIC_LATIN_TERMS = new Set([
 
 const GENERIC_JAPANESE_TERMS = new Set([
   "公式", "ヘルプ", "サポート", "出典", "情報", "公開情報", "最新", "現在", "説明", "方法", "確認",
-  "調査", "要約", "短く", "簡単", "詳しく",
+  "調査", "要約", "短く", "簡単", "詳しく", "最新情報", "複数", "ソース", "複数ソース",
 ]);
+
+const RESEARCH_TERM_ALIASES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "エージェント": ["agent", "agents", "agentic"],
+  "人工知能": ["artificial intelligence", "ai"],
+});
+
+function searchTermFor(term: string): string {
+  return RESEARCH_TERM_ALIASES[term]?.[0] ?? term;
+}
+
+function termMatchesResearchHaystack(term: string, haystack: string, compactLatinHaystack: string): boolean {
+  const candidates = [term, ...(RESEARCH_TERM_ALIASES[term] ?? [])];
+  return candidates.some((candidate) => {
+    const normalized = candidate.normalize("NFKC").toLowerCase();
+    if (haystack.includes(normalized)) return true;
+    return /^[a-z0-9]{2,8}$/.test(normalized) && compactLatinHaystack.includes(normalized);
+  });
+}
 
 function languageForQuery(query: string): keyof typeof WIKI_ORIGINS {
   return /[ぁ-んァ-ヶ一-龠]/.test(query) ? "ja" : "en";
@@ -177,6 +199,68 @@ function parseDuckDuckGoResults(html: string, retrievedAt: string, limit = 6): O
   return sources;
 }
 
+function safeHttpsResultUrl(rawHref: string): string | null {
+  const decoded = decodeHtml(rawHref).replace(/^<!\[CDATA\[|\]\]>$/g, "").trim();
+  try {
+    const parsed = new URL(decoded);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null;
+    if (parsed.hostname.toLowerCase() === "localhost") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function xmlItemValue(item: string, tag: string): string {
+  const safeTag = tag.replace(/[^a-z0-9_-]/gi, "");
+  if (!safeTag) return "";
+  const value = item.match(new RegExp(`<${safeTag}>([\\s\\S]*?)<\\/${safeTag}>`, "i"))?.[1] ?? "";
+  return value.replace(/^<!\[CDATA\[|\]\]>$/g, "");
+}
+
+function parseBingRssResults(xml: string, retrievedAt: string, limit = 8): OriginResearchSource[] {
+  const sources: OriginResearchSource[] = [];
+  for (const match of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
+    if (sources.length >= limit) break;
+    const item = match[1] ?? "";
+    const title = cleanExcerpt(xmlItemValue(item, "title"));
+    const excerpt = cleanExcerpt(xmlItemValue(item, "description"));
+    const url = safeHttpsResultUrl(xmlItemValue(item, "link"));
+    if (!title || !excerpt || !url) continue;
+    const domain = new URL(url).hostname.replace(/^www\./i, "");
+    if (domain.endsWith("bing.com") || sources.some((source) => source.url === url)) continue;
+    sources.push({
+      title,
+      url,
+      excerpt,
+      sourceType: "web-search",
+      domain,
+      rank: sources.length + 1,
+      evidenceLevel: "snippet",
+      retrievedAt,
+      freshness: "unknown",
+    });
+  }
+  return sources;
+}
+
+function distinctDomainCount(sources: OriginResearchSource[]): number {
+  return new Set(sources.map(sourceHost).filter(Boolean)).size;
+}
+
+function mergeSources(...groups: readonly OriginResearchSource[][]): OriginResearchSource[] {
+  const seen = new Set<string>();
+  const merged: OriginResearchSource[] = [];
+  for (const source of groups.flat()) {
+    const key = `${sourceHost(source)}|${source.url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ ...source, rank: merged.length + 1 });
+    if (merged.length >= 8) break;
+  }
+  return merged;
+}
+
 function hostMatchesSuffix(hostname: string, suffix: string): boolean {
   const host = hostname.toLowerCase().replace(/^www\./, "");
   const normalizedSuffix = suffix.toLowerCase().replace(/^www\./, "");
@@ -219,12 +303,41 @@ function researchIntent(query: string): ResearchIntent {
   const explicitHosts = officialRequested ? explicitHttpsHosts(normalized) : [];
   const requiredHostSuffixes = rule ? [...rule.hostSuffixes] : explicitHosts;
   const siteConstraint = requiredHostSuffixes[0] ? ` site:${requiredHostSuffixes[0]}` : "";
+  const terms = meaningfulQueryTerms(normalized);
+  const compactMixedQuery = terms.length >= 2
+    ? terms.slice(0, 8).map(searchTermFor).join(" ")
+    : normalized;
+  const multiSourceRequested = /複数(?:の)?(?:ソース|出典)|複数[^\n]{0,12}(?:ソース|出典)|multiple\s+(?:independent\s+)?sources|compare\s+sources/i.test(normalized);
+  const freshnessRequested = /(?:最新|直近|今日|今週|recent|latest|current|today|this\s+week)/i.test(normalized);
   return {
     officialRequested,
     requiredHostSuffixes,
-    searchQuery: `${normalized}${siteConstraint}`.slice(0, 1400),
-    terms: meaningfulQueryTerms(normalized),
+    searchQuery: `${compactMixedQuery}${siteConstraint}`.slice(0, 1400),
+    terms,
+    multiSourceRequested,
+    freshnessRequested,
+    minimumDistinctDomains: multiSourceRequested && requiredHostSuffixes.length === 0 ? 2 : 1,
   };
+}
+
+function alternateMultiSourceQuery(intent: ResearchIntent): string | null {
+  if (
+    !intent.multiSourceRequested
+    || intent.requiredHostSuffixes.length > 0
+    || intent.terms.length < 2
+  ) return null;
+
+  const normalizedTerms = intent.terms.slice(0, 6).map(searchTermFor);
+  const phrase = normalizedTerms.join(" ").trim();
+  if (!phrase) return null;
+
+  const aliases = intent.terms
+    .flatMap((term) => RESEARCH_TERM_ALIASES[term] ?? [])
+    .map((term) => term.normalize("NFKC").toLowerCase())
+    .filter((term) => term && !normalizedTerms.includes(term));
+  const extras = [...new Set(aliases)].slice(0, 3);
+  const freshness = intent.freshnessRequested ? " latest" : "";
+  return [`"${phrase}"`, ...extras, freshness.trim()].filter(Boolean).join(" ").slice(0, 1400);
 }
 
 function sourceMatchesIntent(source: OriginResearchSource, intent: ResearchIntent): boolean {
@@ -238,10 +351,9 @@ function sourceMatchesIntent(source: OriginResearchSource, intent: ResearchInten
 
   const haystack = `${source.title} ${source.excerpt} ${source.url} ${host}`.normalize("NFKC").toLowerCase();
   const compactLatinHaystack = haystack.replace(/[^a-z0-9]/g, "");
-  const matched = topicTerms.filter((term) => {
-    if (haystack.includes(term)) return true;
-    return /^[a-z0-9]{2,5}$/.test(term) && compactLatinHaystack.includes(term);
-  }).length;
+  const matched = topicTerms.filter((term) =>
+    termMatchesResearchHaystack(term, haystack, compactLatinHaystack)
+  ).length;
   const requiredMatches = Math.min(2, topicTerms.length);
   return matched >= requiredMatches;
 }
@@ -265,35 +377,67 @@ function filterRelevantSources(sources: OriginResearchSource[], intent: Research
 async function searchWeb(intent: ResearchIntent, retrievedAt: string): Promise<OriginResearchResult> {
   const locale = languageForQuery(intent.searchQuery) === "ja" ? "jp-jp" : "us-en";
   const query = encodeURIComponent(intent.searchQuery);
-  const endpoints = [
+  const duckEndpoints = [
     `${SEARCH_ORIGINS.duckduckgoHtml}?q=${query}&kl=${locale}&num=6`,
     `${SEARCH_ORIGINS.duckduckgoLite}?q=${query}&kl=${locale}`,
   ];
   let firstTransportFailure: OriginResearchFailureCode | null = null;
   let receivedSearchResponse = false;
+  let sources: OriginResearchSource[] = [];
+  let provider: "DuckDuckGo" | "Bing" = "DuckDuckGo";
 
-  for (const endpoint of endpoints) {
+  for (const endpoint of duckEndpoints) {
     try {
       const html = await secureFetch(endpoint);
       receivedSearchResponse = true;
-      const parsed = parseDuckDuckGoResults(html, retrievedAt, 6);
-      const sources = filterRelevantSources(parsed, intent);
-      if (sources.length > 0) return { ok: true, sources, searchProvider: "DuckDuckGo" };
+      const parsed = filterRelevantSources(parseDuckDuckGoResults(html, retrievedAt, 6), intent);
+      sources = mergeSources(sources, parsed);
+      if (distinctDomainCount(sources) >= intent.minimumDistinctDomains) {
+        return { ok: true, sources, searchProvider: "DuckDuckGo" };
+      }
     } catch (error) {
       firstTransportFailure ??= classifyFailure(error);
     }
   }
 
+  try {
+    const rss = await secureFetch(`${SEARCH_ORIGINS.bingRss}?format=rss&count=8&q=${query}`);
+    receivedSearchResponse = true;
+    provider = "Bing";
+    const parsed = filterRelevantSources(parseBingRssResults(rss, retrievedAt, 8), intent);
+    sources = mergeSources(sources, parsed);
+    if (distinctDomainCount(sources) >= intent.minimumDistinctDomains) {
+      return { ok: true, sources, searchProvider: "Bing" };
+    }
+
+    const alternateQuery = alternateMultiSourceQuery(intent);
+    if (alternateQuery && alternateQuery !== intent.searchQuery) {
+      const focusedRss = await secureFetch(
+        `${SEARCH_ORIGINS.bingRss}?format=rss&count=8&q=${encodeURIComponent(alternateQuery)}`,
+      );
+      receivedSearchResponse = true;
+      const focused = filterRelevantSources(parseBingRssResults(focusedRss, retrievedAt, 8), intent);
+      sources = mergeSources(sources, focused);
+      if (distinctDomainCount(sources) >= intent.minimumDistinctDomains) {
+        return { ok: true, sources, searchProvider: "Bing" };
+      }
+    }
+  } catch (error) {
+    firstTransportFailure ??= classifyFailure(error);
+  }
+
   return {
     ok: false,
-    sources: [],
+    sources,
     failure: {
       stage: "web-search",
-      code: receivedSearchResponse
-        ? (intent.requiredHostSuffixes.length > 0 ? "SOURCE_CONSTRAINT_UNMET" : "IRRELEVANT_RESULTS")
-        : (firstTransportFailure ?? "NO_RESULTS"),
+      code: sources.length > 0 && distinctDomainCount(sources) < intent.minimumDistinctDomains
+        ? "SOURCE_CONSTRAINT_UNMET"
+        : receivedSearchResponse
+          ? (intent.requiredHostSuffixes.length > 0 ? "SOURCE_CONSTRAINT_UNMET" : "IRRELEVANT_RESULTS")
+          : (firstTransportFailure ?? "NO_RESULTS"),
     },
-    searchProvider: "DuckDuckGo",
+    searchProvider: provider,
   };
 }
 
@@ -360,16 +504,25 @@ export async function researchCurrentInformation(query: string, now = new Date()
     }
 
     const relevant = filterRelevantSources(sources, intent);
-    if (relevant.length === 0) {
+    const combined = mergeSources(webResult.sources, relevant);
+    if (combined.length > 0 && distinctDomainCount(combined) >= intent.minimumDistinctDomains) {
       return {
-        ok: false,
-        sources: [],
-        failure: { stage: "encyclopedia-search", code: sources.length === 0 ? "NO_RESULTS" : "IRRELEVANT_RESULTS" },
+        ok: true,
+        sources: await retrieveResearchPages(combined),
         fallback: webResult.failure,
-        searchProvider: "Wikipedia",
+        searchProvider: webResult.sources.length > 0 ? webResult.searchProvider : "Wikipedia",
       };
     }
-    return { ok: true, sources: relevant, fallback: webResult.failure, searchProvider: "Wikipedia" };
+    return {
+      ok: false,
+      sources: combined,
+      failure: {
+        stage: "encyclopedia-search",
+        code: combined.length > 0 ? "SOURCE_CONSTRAINT_UNMET" : sources.length === 0 ? "NO_RESULTS" : "IRRELEVANT_RESULTS",
+      },
+      fallback: webResult.failure,
+      searchProvider: "Wikipedia",
+    };
   } catch (error) {
     return { ok: false, sources: [], failure: { stage: "encyclopedia-search", code: classifyFailure(error) }, fallback: webResult.failure, searchProvider: "Wikipedia" };
   }

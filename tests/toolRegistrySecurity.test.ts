@@ -20,9 +20,15 @@ describe('tool registry security boundary', () => {
       .rejects.toThrow('HUMAN_APPROVAL_REQUIRED');
   });
 
-  it('fails closed for network and non-zero cost', async () => {
-    await expect(executeToolWithPermission('web_search_grounding', {}, { approved: true, safetyPolicyPassed: true, costInUSD: 0 }))
-      .rejects.toThrow('AGENT_CAPABILITY_DENIED');
+  it('keeps arbitrary network unavailable and preserves the zero-cost boundary', async () => {
+    expect(toolRegistry.web_search_grounding.capability).toBe('grounded_research');
+    const research = await executeToolWithPermission(
+      'web_search_grounding',
+      {},
+      { approved: true, safetyPolicyPassed: true, costInUSD: 0 },
+    );
+    expect(research.ok).toBe(false);
+    expect(research.message).toBe('A research query is required.');
     await expect(executeToolWithPermission('code_interpreter', { code: '1 + 1' }, { approved: true, safetyPolicyPassed: true, costInUSD: 0.01 }))
       .rejects.toThrow('ZERO_COST_BOUNDARY_BLOCKED');
   });

@@ -6,6 +6,7 @@ import { runVerification, type VerificationKind } from './verificationRunner.js'
 import { isCapabilityAllowed, type AgentCapability } from './agentExecutionPolicy.js';
 import { containsLikelySecret } from './safeFilePolicy.js';
 import type { FileMutationCheckpoint } from './checkpointManager.js';
+import { researchCurrentInformation } from '../legacy/originResearchSource.js';
 
 export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner';
 export type ToolParams = Record<string, unknown>;
@@ -25,7 +26,34 @@ const readExisting = async (filePath: string): Promise<string | undefined> => {
 const registry: Record<ToolName, ToolDefinition> = {
   code_interpreter: { name: 'code_interpreter', capability: 'read_repository', description: 'Deterministic local code analysis/formatting without external execution.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const code = textParam(params, 'code'); return { ok: true, tool: 'code_interpreter', artifact: code ? `// Sandboxed analysis\n${code}` : '// No code supplied.', message: 'Local code operation completed.' }; } },
   document_generator: { name: 'document_generator', capability: 'read_repository', description: 'Creates a text artifact in memory; no repository or external write occurs.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const content = textParam(params, 'content'); return { ok: true, tool: 'document_generator', artifact: content || '# Document\n\nNo content supplied.', message: 'Document artifact generated locally.' }; } },
-  web_search_grounding: { name: 'web_search_grounding', capability: 'network', description: 'Network capability intentionally disabled in the zero-cost local execution kernel.', sideEffects: 'none', requiresApproval: true, execute: async () => ({ ok: false, tool: 'web_search_grounding', message: 'Network capability is disabled; no request was made.' }) },
+  web_search_grounding: {
+    name: 'web_search_grounding',
+    capability: 'grounded_research',
+    description: 'Zero-cost grounded research through allowlisted public search surfaces; arbitrary network access remains disabled.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async (params) => {
+      const query = textParam(params, 'query').trim();
+      if (!query) return { ok: false, tool: 'web_search_grounding', message: 'A research query is required.' };
+      const result = await researchCurrentInformation(query);
+      if (!result.ok || result.sources.length < 1) {
+        return { ok: false, tool: 'web_search_grounding', message: `Grounded research failed closed (${result.failure?.code ?? 'NO_RESULTS'}).` };
+      }
+      const artifact = JSON.stringify({
+        provider: result.searchProvider ?? null,
+        sources: result.sources.slice(0, 8).map(source => ({
+          title: source.title,
+          url: source.url,
+          excerpt: source.excerpt,
+          domain: source.domain ?? null,
+          evidenceLevel: source.evidenceLevel,
+          sourceAuthority: source.sourceAuthority ?? null,
+          freshness: source.freshness,
+        })),
+      });
+      return { ok: true, tool: 'web_search_grounding', artifact, message: `Grounded research completed with ${result.sources.length} source(s).` };
+    },
+  },
   image_prompt_compiler: { name: 'image_prompt_compiler', capability: 'read_repository', description: 'Compiles an image brief into a provider-neutral prompt locally.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const input = textParam(params, 'prompt'); return { ok: true, tool: 'image_prompt_compiler', artifact: input ? `Subject: ${input}\n\nCapture: natural light, coherent composition, physically plausible materials.\nQuality: fine detail, clean edges, accurate anatomy.` : 'No image brief supplied.', message: 'Image prompt compiled locally.' }; } },
   repository_explorer: { name: 'repository_explorer', capability: 'read_repository', description: 'Read-only bounded repository tree exploration with protected-path filtering.', sideEffects: 'none', requiresApproval: true, execute: async () => { const entries = await listRepository(repositoryRoot()); return { ok: true, tool: 'repository_explorer', artifact: JSON.stringify(entries), message: `Repository exploration completed (${entries.length} entries).` }; } },
   file_reader: { name: 'file_reader', capability: 'read_repository', description: 'Read-only bounded file access with traversal, secret-path, and size protections.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const filePath = textParam(params, 'path'); if (!filePath) return { ok: false, tool: 'file_reader', message: 'A file path is required.' }; const content = await readRepositoryFile(repositoryRoot(), filePath); return { ok: true, tool: 'file_reader', artifact: content.slice(0, MAX_TEXT), message: 'Repository file read completed.' }; } },
