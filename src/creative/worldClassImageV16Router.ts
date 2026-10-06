@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 
 const OPENROUTER_IMAGES_URL = 'https://openrouter.ai/api/v1/images';
@@ -160,7 +160,7 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     });
   });
 
-  const handler = (editing: boolean) => async (req: express.Request, res: express.Response) => {
+  const handler = (editing: boolean) => async (req: Request, res: Response) => {
     if (sensitive(req.body)) return fail(res, 422, 'SENSITIVE_INPUT_BLOCKED', '機密情報の可能性があるため外部画像モデルへ送信しません。');
     let input: ParsedRequest;
     try { input = parse(req.body, editing); }
