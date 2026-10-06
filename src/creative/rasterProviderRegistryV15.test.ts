@@ -11,6 +11,30 @@ import {
   selectRasterProviderV15,
 } from './rasterProviderRegistryV15';
 
+const FREE_PLAN_ENV: NodeJS.ProcessEnv = {
+  CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+  CLOUDFLARE_API_TOKEN: `test-${'x'.repeat(40)}`,
+};
+
+function envelope(result: unknown, status = 200) {
+  return new Response(JSON.stringify({
+    success: status >= 200 && status < 300,
+    result,
+    errors: [],
+    messages: [],
+  }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function readyProof(fetchMock: ReturnType<typeof vi.fn>) {
+  fetchMock
+    .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+    .mockResolvedValueOnce(envelope([]))
+    .mockResolvedValueOnce(envelope({ input: {}, output: {} }));
+}
+
 describe('rasterProviderRegistryV15', () => {
   it('exposes only free-only server-side providers with no paid fallback', () => {
     const providers = rasterProviderRegistryV15();
@@ -47,6 +71,7 @@ describe('rasterProviderRegistryV15', () => {
     expect(resolveRasterProviderV15('text-to-image', {})?.descriptor.id).toBe('cloudflare-workers-ai-free');
     expect(resolveRasterProviderV15('edit', {})?.descriptor.id).toBe('cloudflare-workers-ai-free');
     const gatewayEnv = {
+      ...FREE_PLAN_ENV,
       ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
       ORIGIN_RASTER_GATEWAY_SECRET: 'x'.repeat(48),
       ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
@@ -59,6 +84,7 @@ describe('rasterProviderRegistryV15', () => {
 
   it('rejects FLUX.2 reference inputs outside the documented binding limits before any network call', async () => {
     const env = {
+      ...FREE_PLAN_ENV,
       ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
       ORIGIN_RASTER_GATEWAY_SECRET: 'x'.repeat(48),
       ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
@@ -91,11 +117,14 @@ describe('rasterProviderRegistryV15', () => {
 
   it('requires the remote gateway to independently attest zero-cost readiness', async () => {
     const env = {
+      ...FREE_PLAN_ENV,
       ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
       ORIGIN_RASTER_GATEWAY_SECRET: 'x'.repeat(48),
       ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
     };
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(JSON.stringify({
+    const fetchImpl = vi.fn<typeof fetch>();
+    readyProof(fetchImpl);
+    fetchImpl.mockResolvedValueOnce(new Response(JSON.stringify({
       ok: true,
       provider: 'cloudflare-workers-ai-binding',
       model: '@cf/black-forest-labs/flux-2-klein-4b',
@@ -115,14 +144,37 @@ describe('rasterProviderRegistryV15', () => {
     });
   });
 
-  it('rejects an oversized gateway image from Content-Length before buffering it', async () => {
+  it('blocks the gateway on a Workers Paid usage model before contacting the gateway', async () => {
     const env = {
+      ...FREE_PLAN_ENV,
       ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
       ORIGIN_RASTER_GATEWAY_SECRET: 'x'.repeat(48),
       ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
     };
     const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'standard' }));
+
+    const status = await getCloudflareRasterGatewayStatusV15(env, fetchImpl);
+    expect(status).toMatchObject({
+      configured: true,
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED',
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain('/workers/account-settings');
+  });
+
+  it('rejects an oversized gateway image from Content-Length before buffering it', async () => {
+    const env = {
+      ...FREE_PLAN_ENV,
+      ORIGIN_RASTER_GATEWAY_URL: 'https://origin-raster.example.workers.dev',
+      ORIGIN_RASTER_GATEWAY_SECRET: 'x'.repeat(48),
+      ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true',
+    };
+    const fetchImpl = vi.fn<typeof fetch>();
+    readyProof(fetchImpl);
+    fetchImpl.mockResolvedValueOnce(new Response(JSON.stringify({
         ok: true,
         provider: 'cloudflare-workers-ai-binding',
         model: '@cf/black-forest-labs/flux-2-klein-4b',
@@ -143,7 +195,7 @@ describe('rasterProviderRegistryV15', () => {
       height: 1024,
     }, env, fetchImpl)).rejects.toThrow('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
 
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
   });
 
   it('keeps reference editing fail-closed until the same verified Free provider is ready', async () => {
