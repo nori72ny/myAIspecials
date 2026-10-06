@@ -150,23 +150,32 @@ function textUnits(text: string): number {
   return Array.from(text).reduce((sum, char) => sum + (/^[\x00-\x7f]$/.test(char) ? 1 : 2), 0);
 }
 
-function wrapText(text: string, maxUnits: number, maxLines: number): string[] {
+function wrapText(text: string, maxUnits: number, maxLines: number, balance = false): string[] {
   if (!text) return [];
   const output: string[] = [];
-  let line = '';
-  let units = 0;
-  for (const char of Array.from(text.replace(/\s+/g, ' ').trim())) {
-    const charUnits = /^[\x00-\x7f]$/.test(char) ? 1 : 2;
-    if (units + charUnits > maxUnits && line) {
-      output.push(line.trimEnd());
-      line = '';
-      units = 0;
-      if (output.length >= maxLines) break;
+  for (const paragraph of text.split(/\r?\n/)) {
+    const normalized = paragraph.replace(/\s+/g, ' ').trim();
+    if (!normalized) continue;
+    let capacity = maxUnits;
+    if (balance && textUnits(normalized) > capacity) {
+      const lineCount = Math.ceil(textUnits(normalized) / capacity);
+      capacity = Math.min(capacity, Math.ceil(textUnits(normalized) / lineCount) + 1);
     }
-    line += char;
-    units += charUnits;
+    let line = '';
+    let units = 0;
+    for (const char of Array.from(normalized)) {
+      const charUnits = /^[\x00-\x7f]$/.test(char) ? 1 : 2;
+      if (units + charUnits > capacity && line) {
+        output.push(line.trimEnd());
+        line = '';
+        units = 0;
+      }
+      line += char;
+      units += charUnits;
+    }
+    if (line) output.push(line.trimEnd());
   }
-  if (output.length < maxLines && line) output.push(line.trimEnd());
+  if (output.length > maxLines) throw new VisualArtifactValidationErrorV15('VISUAL_TEXT_OVERFLOW_LAYOUT');
   return output;
 }
 
@@ -188,19 +197,27 @@ function buildSvg(request: ReturnType<typeof parseVisualArtifactRequestV15>): { 
   const { width, height } = PRESETS[request.preset];
   const { background, foreground, accent, muted } = request.theme;
   const pad = Math.round(Math.min(width, height) * 0.075);
-  const maxUnits = request.preset === 'landscape' ? 34 : 24;
-  const titleSize = request.preset === 'story' ? 82 : request.preset === 'landscape' ? 68 : 76;
-  const subtitleSize = Math.round(titleSize * 0.42);
-  const bodySize = Math.round(titleSize * 0.34);
+  const contentX = request.layout === 'split' ? Math.round(width * 0.34) : pad;
+  const contentWidth = width - contentX - pad;
+  const titleSize = request.preset === 'story' ? 82 : request.preset === 'landscape' ? 64 : 76;
+  const subtitleSize = Math.round(titleSize * 0.5);
+  const bodySize = request.preset === 'landscape' ? 24 : 30;
+  const footerSize = 24;
+  // Conservative glyph budget: full-width glyphs reserve 1.2 em.
+  const unitsFor = (size: number) => Math.floor(contentWidth / (size * 0.6));
+  const titleUnits = unitsFor(titleSize);
+  const subtitleUnits = unitsFor(subtitleSize);
+  const bodyUnits = unitsFor(bodySize);
+  const footerUnits = unitsFor(footerSize);
   const bodyLines = request.preset === 'story' ? 10 : 7;
-  assertTextFits(request.title, maxUnits, 4, 'VISUAL_TEXT_OVERFLOW_TITLE');
-  assertTextFits(request.subtitle, maxUnits + 6, 3, 'VISUAL_TEXT_OVERFLOW_SUBTITLE');
-  assertTextFits(request.body, maxUnits + 10, bodyLines, 'VISUAL_TEXT_OVERFLOW_BODY');
-  assertTextFits(request.footer, maxUnits + 12, 2, 'VISUAL_TEXT_OVERFLOW_FOOTER');
-  const title = wrapText(request.title, maxUnits, 4);
-  const subtitle = wrapText(request.subtitle, maxUnits + 6, 3);
-  const body = wrapText(request.body, maxUnits + 10, bodyLines);
-  const footer = wrapText(request.footer, maxUnits + 12, 2);
+  assertTextFits(request.title, titleUnits, 4, 'VISUAL_TEXT_OVERFLOW_TITLE');
+  assertTextFits(request.subtitle, subtitleUnits, 3, 'VISUAL_TEXT_OVERFLOW_SUBTITLE');
+  assertTextFits(request.body, bodyUnits, bodyLines, 'VISUAL_TEXT_OVERFLOW_BODY');
+  assertTextFits(request.footer, footerUnits, 2, 'VISUAL_TEXT_OVERFLOW_FOOTER');
+  const title = wrapText(request.title, titleUnits, 4, true);
+  const subtitle = wrapText(request.subtitle, subtitleUnits, 3);
+  const body = wrapText(request.body, bodyUnits, bodyLines);
+  const footer = wrapText(request.footer, footerUnits, 2);
 
   const elements: string[] = [
     `<rect width="${width}" height="${height}" fill="${background}"/>`,
@@ -217,27 +234,36 @@ function buildSvg(request: ReturnType<typeof parseVisualArtifactRequestV15>): { 
     elements.push(`<rect x="${pad}" y="${pad}" width="18" height="18" rx="9" fill="${accent}"/>`);
   }
 
-  const contentX = request.layout === 'split' ? Math.round(width * 0.34) : pad;
-  const contentWidth = width - contentX - pad;
-  const top = request.preset === 'story' ? Math.round(height * 0.23) : Math.round(height * 0.25);
-  const titleLineHeight = Math.round(titleSize * 1.12);
-  elements.push(svgText(title, request.title, contentX, top, titleSize, foreground, 760, titleLineHeight, 'title'));
-
-  let cursor = top + Math.max(1, title.length) * titleLineHeight + Math.round(titleSize * 0.45);
+  const titleLineHeight = Math.round(titleSize * 1.2);
+  const subtitleLineHeight = Math.round(subtitleSize * 1.4);
+  const bodyLineHeight = Math.round(bodySize * 1.5);
+  const footerLineHeight = Math.round(footerSize * 1.4);
+  const gap = request.preset === 'landscape' ? 24 : 40;
+  const footerTop = height - pad - footer.length * footerLineHeight;
+  const contentBottom = footer.length ? footerTop - gap : height - pad;
+  const blockHeight = title.length * titleLineHeight
+    + (subtitle.length ? gap + subtitle.length * subtitleLineHeight : 0)
+    + (body.length ? gap + body.length * bodyLineHeight : 0);
+  const minTop = pad + 70;
+  if (blockHeight > contentBottom - minTop) {
+    throw new VisualArtifactValidationErrorV15('VISUAL_TEXT_OVERFLOW_LAYOUT');
+  }
+  // Center the message in the usable area; retain a clear footer boundary.
+  let cursor = Math.round(minTop + (contentBottom - minTop - blockHeight) * 0.4);
+  elements.push(svgText(title, request.title, contentX, cursor + titleSize, titleSize, foreground, 760, titleLineHeight, 'title'));
+  cursor += title.length * titleLineHeight;
   if (subtitle.length > 0) {
-    elements.push(svgText(subtitle, request.subtitle, contentX, cursor, subtitleSize, accent, 650, Math.round(subtitleSize * 1.35), 'subtitle'));
-    cursor += subtitle.length * Math.round(subtitleSize * 1.35) + Math.round(titleSize * 0.45);
+    cursor += gap;
+    elements.push(svgText(subtitle, request.subtitle, contentX, cursor + subtitleSize, subtitleSize, accent, 650, subtitleLineHeight, 'subtitle'));
+    cursor += subtitle.length * subtitleLineHeight;
   }
   if (body.length > 0) {
-    elements.push(`<line x1="${contentX}" y1="${cursor - Math.round(bodySize * 0.7)}" x2="${contentX + Math.min(contentWidth, Math.round(width * 0.22))}" y2="${cursor - Math.round(bodySize * 0.7)}" stroke="${muted}" stroke-width="3" opacity="0.3"/>`);
-    elements.push(svgText(body, request.body, contentX, cursor, bodySize, muted, 430, Math.round(bodySize * 1.48), 'body'));
+    cursor += gap;
+    elements.push(svgText(body, request.body, contentX, cursor + bodySize, bodySize, muted, 430, bodyLineHeight, 'body'));
   }
   if (footer.length > 0) {
-    elements.push(svgText(footer, request.footer, contentX, height - pad, Math.max(24, Math.round(bodySize * 0.82)), muted, 560, Math.round(bodySize * 1.1), 'footer'));
+    elements.push(svgText(footer, request.footer, contentX, footerTop + footerSize, footerSize, muted, 560, footerLineHeight, 'footer'));
   }
-
-  const label = xml(request.kind.toUpperCase().replace('-', ' '));
-  elements.push(`<text x="${width - pad}" y="${height - pad}" text-anchor="end" fill="${foreground}" opacity="0.4" font-family="system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="20" font-weight="650" letter-spacing="0.12em">${label}</text>`);
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(request.title)}">${elements.join('')}</svg>\n`;
   return { svg, width, height };
@@ -312,7 +338,8 @@ export function critiqueVisualSvgV15(
   const mutedContrast = request.body || request.footer
     ? contrastRatio(request.theme.muted, request.theme.background)
     : 7;
-  const contrastPass = foregroundContrast >= 4.5 && mutedContrast >= 4.5;
+  const subtitleContrast = request.subtitle ? contrastRatio(request.theme.accent, request.theme.background) : 7;
+  const contrastPass = foregroundContrast >= 4.5 && mutedContrast >= 4.5 && subtitleContrast >= 4.5;
   const ariaPass = /<svg\b[^>]*role="img"[^>]*aria-label="[^"]+"/i.test(svg);
 
   const checks = [

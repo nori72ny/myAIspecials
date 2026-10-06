@@ -278,3 +278,26 @@ describe('V1.5 verified visual artifacts', () => {
     expect(sensitive.body.costUsd).toBe(0);
   });
 });
+
+describe('measured advertising regression inputs', () => {
+  it('fits the actual Japanese campaign in every preset and layout without orphan punctuation or footer overflow', () => {
+    for (const preset of ['square', 'portrait', 'story', 'landscape'] as const) {
+      for (const layout of ['editorial', 'minimal', 'split'] as const) {
+        const a = generateVisualArtifactV15({kind:'poster',preset,layout,title:'予約手数料を見直しませんか？',subtitle:'200円/人 → 100円/人',body:'月200人なら40,000円から20,000円、月20,000円の削減。',footer:'無料相談はこちら。評価用の架空広告です。'});
+        expect(a.verified).toBe(true);
+        const svg = a.bytes.toString();
+        expect(svg).not.toMatch(/>か\?<\/tspan>/);
+        expect(svg).not.toContain('POSTER</text>');
+        expect(svg).toContain('月20,000円の削減。');
+      }
+    }
+  });
+  it('refuses vertically crowded text rather than emitting overlapping verified content', () => {
+    expect(() => generateVisualArtifactV15({kind:'poster',preset:'landscape',layout:'split',title:'大切な情報'.repeat(4),subtitle:'補足情報'.repeat(6),body:'本文'.repeat(40),footer:'免責事項'})).toThrow('VISUAL_TEXT_OVERFLOW_LAYOUT');
+  });
+  it('checks the contrast of price and subtitle text', () => {
+    const a=generateVisualArtifactV15({kind:'poster',title:'料金',subtitle:'100円',theme:{background:'#FFFFFF',accent:'#EEEEEE'}});
+    expect(a.verified).toBe(false);
+    expect(a.quality.issues).toContain('text-contrast-below-aa');
+  });
+});
