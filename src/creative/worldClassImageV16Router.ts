@@ -147,9 +147,13 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     let providerReady = false;
     if (key && enabled && allowed) providerReady = await modelReady(key, model, false).catch(() => false);
     const ready = Boolean(key && enabled && isQualified && allowed && providerReady);
+    const evaluationReady = Boolean(
+      key && enabled && allowed && providerReady && (isQualified || evaluationBypassAllowed(env)),
+    );
     return res.status(ready ? 200 : 503).json({
       ok: ready,
       ready,
+      evaluationReady,
       enabled,
       qualified: isQualified,
       releaseSha: releaseSha(env),
@@ -217,7 +221,13 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     res.setHeader('X-Origin-Visual-Provider', 'openrouter-image-api');
     res.setHeader('X-Origin-Visual-Model', input.model);
     res.setHeader('X-Origin-Visual-Task', editing ? 'edit' : 'generate');
-    res.setHeader('X-Origin-World-Class-Qualified-Sha', releaseSha(env));
+    const currentReleaseSha = releaseSha(env);
+    res.setHeader('X-Origin-Release-Sha', currentReleaseSha);
+    if (qualified(env)) {
+      res.setHeader('X-Origin-World-Class-Qualified-Sha', currentReleaseSha);
+    } else if (evaluationBypassAllowed(env)) {
+      res.setHeader('X-Origin-World-Class-Evaluation', 'true');
+    }
     res.setHeader('X-Origin-Cost-Usd', String(costUsd));
     res.setHeader('X-Origin-Free-Only', 'false');
     res.setHeader('X-Origin-Paid-Fallback', 'false');
