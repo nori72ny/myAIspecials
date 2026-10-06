@@ -103,11 +103,17 @@ Public benchmark evaluator:
 npm run eval:image-blind-quality -- <comparison-packet.json>
 ```
 
-Private candidate runner:
+Private candidate runners:
 
 ```sh
+# Zero-cost V1.5 Cloudflare raster path
 npm run eval:image-private -- <private-corpus-input>
+
+# V1.6 publication candidate path (OpenRouter Image API)
+npm run eval:image-private-world-class -- <private-corpus-input>
 ```
+
+The V1.6 runner is the required candidate-side evidence path for any claim about the V1.6 world-class route. It must execute the same `/api/creative/v1.6/world-class/generate` route intended for publication, bind to exact current-main SHA, run the sealed 24-case corpus once, require explicit paid-evaluation approval, and enforce both per-image and total-round cost caps. The V1.5 zero-cost runner cannot qualify the V1.6 route.
 
 Measure instruction adherence, composition, realism/style execution when applicable, text rendering, edit preservation, identity/object consistency, anatomy/object integrity, artifact rate, usefulness, delivery integrity, and source-blind preference. Bytes returned alone are not success.
 
