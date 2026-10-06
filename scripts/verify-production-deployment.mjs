@@ -91,16 +91,27 @@ export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   assert.equal(response.headers.get("x-origin-cost-usd"), "0", "Production /api/chat must report zero cost.");
   assert.equal(response.headers.get("x-origin-billing-tier"), "free", "Production /api/chat must report the free billing tier.");
   assert.equal(response.headers.get("x-origin-model-id"), EXPECTED_FREE_MODEL, "Production /api/chat must use the reviewed fixed free model.");
-  let generated = ""; let completion; let doneSeen = false;
+  let generated = ""; let completion; let doneSeen = false; let terminalError;
   for (const line of body.split(/\r?\n/)) {
     if (!line.startsWith("data:")) continue;
     const raw = line.slice(5).trim();
     assert.equal(doneSeen, false, "Production stream must not emit data after DONE.");
+    assert.equal(terminalError, undefined, "Production stream must not emit data after a terminal error.");
     if (raw === "[DONE]") { doneSeen = true; continue; }
     const event = JSON.parse(raw);
-    if (event.type === "delta") generated += event.text;
-    else if (event.type === "complete") completion = event;
-    else assert.fail("Production stream emitted an unsafe event.");
+    if (event.type === "delta" && typeof event.text === "string" && completion === undefined) generated += event.text;
+    else if (event.type === "complete" && completion === undefined) completion = event;
+    else if (event.type === "error"
+      && typeof event.code === "string"
+      && SAFE_FAILURE_CODE.test(event.code)
+      && typeof event.retryable === "boolean") {
+      terminalError = { code: event.code, retryable: event.retryable };
+    } else assert.fail("Production stream emitted an unsafe event.");
+  }
+  if (terminalError) {
+    assert.equal(completion, undefined, "A failed stream must not include completion proof.");
+    assert.equal(doneSeen, false, "A failed stream must not include DONE.");
+    throw new Error(`Production /api/chat ended with verified terminal provider error; code=${terminalError.code}; retryable=${terminalError.retryable}; x-vercel-id=${vercelId || "missing"}; body=[response body withheld]`);
   }
   assert.ok(doneSeen && completion, "Production stream must include a verified completion and DONE.");
   assert.deepEqual({ modelId: completion.modelId, costUsd: completion.costUsd, fallbackUsed: completion.fallbackUsed }, { modelId: EXPECTED_FREE_MODEL, costUsd: 0, fallbackUsed: false });
