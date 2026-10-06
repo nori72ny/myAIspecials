@@ -1,0 +1,199 @@
+name: Production Artifact Integrity Gate
+
+on:
+  workflow_run:
+    workflows:
+      - Production Release CI/CD
+    branches:
+      - main
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-artifact-integrity-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify-production-artifacts:
+    name: Verify live PDF PPTX and XLSX outputs
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+      CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Bind to exact deployed main SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CANDIDATE_SHA"
+          test "$CANDIDATE_SHA" != 'null'
+          health_file="$(mktemp)"
+          trap 'rm -f "$health_file"' EXIT
+          matched='false'
+          for attempt in $(seq 1 18); do
+            http="$(curl --silent --show-error --connect-timeout 10 --max-time 30 --output "$health_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/health" || true)"
+            deployed="$(jq -r '.releaseSha // empty' "$health_file" 2>/dev/null || true)"
+            if [ "$http" = '200' ] && [ "$deployed" = "$CANDIDATE_SHA" ]; then
+              matched='true'
+              break
+            fi
+            sleep 5
+          done
+          if [ "$matched" != 'true' ]; then
+            cat "$health_file" >&2 || true
+            echo "::error title=Production SHA mismatch::Expected ${CANDIDATE_SHA}; production did not converge to the exact successful release SHA."
+            exit 40
+          fi
+          echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify truthful artifact readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_file="$(mktemp)"
+          http="$(curl --silent --show-error --connect-timeout 10 --max-time 45 --output "$status_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/status")"
+          if [ "$http" != '200' ]; then
+            cat "$status_file" >&2 || true
+            exit 41
+          fi
+          jq -e '
+            .ok == true and
+            .ready == true and
+            .freeOnly == true and
+            .costUsd == 0 and
+            .paidFallbackEnabled == false and
+            .generatorSelfTest.pdf == true and
+            .generatorSelfTest.pptx == true and
+            .generatorSelfTest.xlsx == true
+          ' "$status_file" >/dev/null || {
+            jq -c '{ok,ready,generatorSelfTest,freeOnly,costUsd,paidFallbackEnabled}' "$status_file" >&2
+            exit 42
+          }
+          jq -c '{ok,ready,generatorSelfTest,freeOnly,costUsd,paidFallbackEnabled}' "$status_file" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate and inspect live artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/origin-live-artifact-integrity"
+          mkdir -p "$evidence_dir"
+
+          assert_headers() {
+            local headers="$1"
+            grep -Eiq '^x-origin-artifact-verified:[[:space:]]*true' "$headers"
+            grep -Eiq '^x-origin-free-only:[[:space:]]*true' "$headers"
+            grep -Eiq '^x-origin-cost-usd:[[:space:]]*0' "$headers"
+          }
+
+          markdown_payload="$evidence_dir/markdown-request.json"
+          jq -n '{type:"markdown",title:"日本語Markdown",content:"MARKDOWN_SENTINEL_日本語"}' > "$markdown_payload"
+          markdown_file="$evidence_dir/origin-live-markdown.md"
+          markdown_headers="$evidence_dir/markdown-headers.txt"
+          markdown_http="$(curl --silent --show-error --connect-timeout 10 --max-time 45 -D "$markdown_headers" -H 'content-type: application/json' --data-binary "@$markdown_payload" --output "$markdown_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/generate")"
+          test "$markdown_http" = '200'
+          assert_headers "$markdown_headers"
+          grep -q 'MARKDOWN_SENTINEL_日本語' "$markdown_file"
+
+          csv_payload="$evidence_dir/csv-request.json"
+          jq -n '{type:"csv",title:"日本語CSV",rows:[["項目","値"],["CSV_SENTINEL_日本語",1234]]}' > "$csv_payload"
+          csv_file="$evidence_dir/origin-live-table.csv"
+          csv_headers="$evidence_dir/csv-headers.txt"
+          csv_http="$(curl --silent --show-error --connect-timeout 10 --max-time 45 -D "$csv_headers" -H 'content-type: application/json' --data-binary "@$csv_payload" --output "$csv_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/generate")"
+          test "$csv_http" = '200'
+          assert_headers "$csv_headers"
+          grep -q 'CSV_SENTINEL_日本語,1234' "$csv_file"
+
+          docx_payload="$evidence_dir/docx-request.json"
+          jq -n '{type:"docx",title:"日本語DOCX",content:"# 見出し\nDOCX_SENTINEL_日本語"}' > "$docx_payload"
+          docx_file="$evidence_dir/origin-live-document.docx"
+          docx_headers="$evidence_dir/docx-headers.txt"
+          docx_http="$(curl --silent --show-error --connect-timeout 10 --max-time 45 -D "$docx_headers" -H 'content-type: application/json' --data-binary "@$docx_payload" --output "$docx_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/generate")"
+          test "$docx_http" = '200'
+          assert_headers "$docx_headers"
+          unzip -t "$docx_file" >/dev/null
+          docx_dir="$evidence_dir/docx-unpacked"
+          mkdir -p "$docx_dir"
+          unzip -q "$docx_file" -d "$docx_dir"
+          grep -q 'DOCX_SENTINEL_日本語' "$docx_dir/word/document.xml"
+
+          pdf_payload="$evidence_dir/pdf-request.json"
+          jq -n '{
+            type:"pdf",
+            title:"日本語PDF実成果物検証",
+            content: ([range(1;121) | ("日本語の検証行 " + (.|tostring) + " — ABC 123")] | join("\n"))
+          }' > "$pdf_payload"
+          pdf_file="$evidence_dir/origin-live-ja-multipage.pdf"
+          pdf_headers="$evidence_dir/pdf-headers.txt"
+          pdf_http="$(curl --silent --show-error --connect-timeout 10 --max-time 90 -D "$pdf_headers" -H 'content-type: application/json' --data-binary "@$pdf_payload" --output "$pdf_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/generate")"
+          test "$pdf_http" = '200'
+          assert_headers "$pdf_headers"
+          test "$(head -c 5 "$pdf_file")" = '%PDF-'
+          test "$(wc -c < "$pdf_file")" -gt 1000
+          page_tokens="$(grep -ao '/Type /Page' "$pdf_file" | wc -l)"
+          test "$page_tokens" -ge 3
+
+          pptx_payload="$evidence_dir/pptx-request.json"
+          jq -n '{
+            type:"pptx",
+            title:"PPTX integrity",
+            slides:[{
+              title:"PPTX integrity",
+              content: (([range(1;21) | ("Line " + (.|tostring))] + ["FINAL_SENTINEL_21"]) | join("\n"))
+            }]
+          }' > "$pptx_payload"
+          pptx_file="$evidence_dir/origin-live-pptx-stress.pptx"
+          pptx_headers="$evidence_dir/pptx-headers.txt"
+          pptx_http="$(curl --silent --show-error --connect-timeout 10 --max-time 60 -D "$pptx_headers" -H 'content-type: application/json' --data-binary "@$pptx_payload" --output "$pptx_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/generate")"
+          test "$pptx_http" = '200'
+          assert_headers "$pptx_headers"
+          unzip -t "$pptx_file" >/dev/null
+          pptx_dir="$evidence_dir/pptx-unpacked"
+          mkdir -p "$pptx_dir"
+          unzip -q "$pptx_file" -d "$pptx_dir"
+          test -f "$pptx_dir/ppt/slides/slide3.xml"
+          grep -R -q 'FINAL_SENTINEL_21' "$pptx_dir/ppt/slides"
+
+          xlsx_payload="$evidence_dir/xlsx-request.json"
+          jq -n '{
+            type:"xlsx",
+            title:"売上集計",
+            rows:[
+              ["項目","金額"],
+              ["A",1200],
+              ["B",1800],
+              ["C",2200],
+              ["合計",{"formula":"=SUM(B2:B4)","cachedValue":5200}]
+            ]
+          }' > "$xlsx_payload"
+          xlsx_file="$evidence_dir/origin-live-formula.xlsx"
+          xlsx_headers="$evidence_dir/xlsx-headers.txt"
+          xlsx_http="$(curl --silent --show-error --connect-timeout 10 --max-time 60 -D "$xlsx_headers" -H 'content-type: application/json' --data-binary "@$xlsx_payload" --output "$xlsx_file" --write-out '%{http_code}' "${ORIGIN_PRODUCTION_URL}/api/artifacts/v1.2/generate")"
+          test "$xlsx_http" = '200'
+          assert_headers "$xlsx_headers"
+          unzip -t "$xlsx_file" >/dev/null
+          xlsx_dir="$evidence_dir/xlsx-unpacked"
+          mkdir -p "$xlsx_dir"
+          unzip -q "$xlsx_file" -d "$xlsx_dir"
+          grep -q '<f>SUM(B2:B4)</f><v>5200</v>' "$xlsx_dir/xl/worksheets/sheet1.xml"
+          grep -q 'calcMode="auto"' "$xlsx_dir/xl/workbook.xml"
+
+          sha256sum "$markdown_file" "$csv_file" "$pdf_file" "$docx_file" "$pptx_file" "$xlsx_file" > "$evidence_dir/sha256.txt"
+          jq -n             --arg candidateSha "$CANDIDATE_SHA"             --arg pdfHttp "$pdf_http"             --arg pptxHttp "$pptx_http"             --arg xlsxHttp "$xlsx_http"             --argjson pdfPageTokens "$page_tokens"             '{candidateSha:$candidateSha,pdf:{http:($pdfHttp|tonumber),pageTokens:$pdfPageTokens},pptx:{http:($pptxHttp|tonumber),sentinelPreserved:true},xlsx:{http:($xlsxHttp|tonumber),formulaPreserved:true},freeOnly:true,costUsd:0}'             > "$evidence_dir/evidence.json"
+
+          cat "$evidence_dir/evidence.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload live artifact evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-artifact-integrity-${{ github.event.workflow_run.head_sha || github.sha }}
+          path: ${{ runner.temp }}/origin-live-artifact-integrity/
+          if-no-files-found: error
+          retention-days: 14

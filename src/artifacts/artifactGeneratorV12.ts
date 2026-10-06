@@ -3,11 +3,13 @@ import { zipStore } from './zipStore.js';
 
 export type ArtifactType = 'markdown' | 'csv' | 'pdf' | 'docx' | 'xlsx' | 'pptx';
 export type ArtifactSlide = { title?: string; content?: string };
+export type ArtifactFormulaCell = { formula: string; cachedValue?: number | boolean | null };
+export type ArtifactCell = string | number | boolean | null | ArtifactFormulaCell;
 export type ArtifactRequest = {
   type: ArtifactType;
   title?: string;
   content?: string;
-  rows?: Array<Array<string | number | boolean | null>>;
+  rows?: Array<Array<ArtifactCell>>;
   slides?: ArtifactSlide[];
 };
 export type GeneratedArtifact = {
@@ -23,7 +25,23 @@ export type GeneratedArtifact = {
 const xml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 const safeName = (value: string | undefined, fallback: string) => (value || fallback).normalize('NFKC').replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 80) || fallback;
 
+function isFormulaCell(value: unknown): value is ArtifactFormulaCell {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && typeof (value as ArtifactFormulaCell).formula === 'string');
+}
+
+function normalizeFormula(formulaInput: string): string {
+  const raw = formulaInput.trim();
+  const formula = raw.startsWith('=') ? raw.slice(1) : raw;
+  if (!formula || formula.length > 512 || /[\r\n]/.test(formula)) throw new Error('INVALID_ARTIFACT_FORMULA');
+  if (!/^[\p{L}\p{N}_.$:+\-*/^(),<>=!% '"&]+$/u.test(formula)) throw new Error('INVALID_ARTIFACT_FORMULA');
+  if (/\b(?:HYPERLINK|WEBSERVICE|RTD|DDE|FILTERXML|ENCODEURL)\s*\(/i.test(formula) || /https?:\/\//i.test(formula)) {
+    throw new Error('INVALID_ARTIFACT_FORMULA');
+  }
+  return formula;
+}
+
 function csvCell(value: unknown): string {
+  if (isFormulaCell(value)) throw new Error('FORMULA_CELLS_REQUIRE_XLSX');
   const text = String(value ?? '');
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
@@ -104,14 +122,23 @@ function columnName(index: number): string {
   while (value > 0) { const rem = (value - 1) % 26; out = String.fromCharCode(65 + rem) + out; value = Math.floor((value - 1) / 26); }
   return out;
 }
-function xlsxCellXml(value: string | number | boolean | null, ref: string, styleId = 0): string {
+function xlsxCellXml(value: ArtifactCell, ref: string, styleId = 0): string {
   const style = styleId > 0 ? ` s="${styleId}"` : '';
+  if (isFormulaCell(value)) {
+    const formula = normalizeFormula(value.formula);
+    const cached = value.cachedValue;
+    if (typeof cached === 'number' && !Number.isFinite(cached)) throw new Error('INVALID_ARTIFACT_FORMULA');
+    const type = typeof cached === 'boolean' ? ' t="b"' : '';
+    const cachedXml = cached === undefined || cached === null ? '' : `<v>${typeof cached === 'boolean' ? (cached ? 1 : 0) : cached}</v>`;
+    return `<c r="${ref}"${type}${style}><f>${xml(formula)}</f>${cachedXml}</c>`;
+  }
   if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"${style}><v>${value}</v></c>`;
   if (typeof value === 'boolean') return `<c r="${ref}" t="b"${style}><v>${value ? 1 : 0}</v></c>`;
   return `<c r="${ref}" t="inlineStr"${style}><is><t xml:space="preserve">${xml(value ?? '')}</t></is></c>`;
 }
 function spreadsheetVisualWidth(value: unknown): number {
-  return [...String(value ?? '')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0);
+  const display = isFormulaCell(value) ? (value.cachedValue ?? `=${value.formula}`) : value;
+  return [...String(display ?? '')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0);
 }
 function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
   const table = rows?.length ? rows : content.split(/\r?\n/).filter(Boolean).map(line => [line]);
@@ -131,7 +158,7 @@ function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
   return zipStore([
     { name: '[Content_Types].xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>') },
     { name: '_rels/.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') },
-    { name: 'xl/workbook.xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="ORIGIN" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/workbook.xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="ORIGIN" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="191029" calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>') },
     { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>') },
     { name: 'xl/styles.xml', data: Buffer.from(styles) },
     { name: 'xl/worksheets/sheet1.xml', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${rowXml}</sheetData>${filter}</worksheet>`) },
@@ -143,14 +170,48 @@ const DRAW_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const PKG_REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 
+const PPTX_BODY_LINES_PER_SLIDE = 10;
+const PPTX_BODY_CHARS_PER_LINE = 140;
+const PPTX_TITLE_CHARS_PER_LINE = 70;
+
+function splitPptLinePreservingText(line: string, maxChars: number): string[] {
+  const chars = Array.from(line);
+  if (!chars.length) return [''];
+  const parts: string[] = [];
+  for (let offset = 0; offset < chars.length; offset += maxChars) parts.push(chars.slice(offset, offset + maxChars).join(''));
+  return parts;
+}
+
+function preparePptSlides(title: string, content: string, requestedSlides: ArtifactRequest['slides']): Required<ArtifactSlide>[] {
+  const source = requestedSlides?.length ? requestedSlides : [{ title, content }];
+  const expanded: Required<ArtifactSlide>[] = [];
+  source.forEach((slide, index) => {
+    const slideTitle = String(slide.title ?? (index === 0 ? title : `Slide ${index + 1}`));
+    const slideContent = String(slide.content ?? '');
+    if (slideTitle.length > 200) throw new Error('INVALID_ARTIFACT_TITLE');
+    if (slideContent.length > 10000) throw new Error('INVALID_ARTIFACT_SLIDES');
+    const logicalLines = slideContent.split(/\r?\n/).flatMap((line) => splitPptLinePreservingText(line, PPTX_BODY_CHARS_PER_LINE));
+    const lines = logicalLines.length ? logicalLines : [''];
+    for (let offset = 0; offset < lines.length; offset += PPTX_BODY_LINES_PER_SLIDE) {
+      expanded.push({ title: slideTitle, content: lines.slice(offset, offset + PPTX_BODY_LINES_PER_SLIDE).join('\n') });
+    }
+  });
+  if (!expanded.length || expanded.length > 50) throw new Error('PPTX_CONTENT_REQUIRES_TOO_MANY_SLIDES');
+  return expanded;
+}
+
+function pptTextFragments(text: string, title: boolean): string[] {
+  return text.split(/\r?\n/).flatMap((line) => splitPptLinePreservingText(line, title ? PPTX_TITLE_CHARS_PER_LINE : PPTX_BODY_CHARS_PER_LINE));
+}
+
 function pptTextBox(id: number, name: string, text: string, x: number, y: number, cx: number, cy: number, title = false): string {
-  const lines = text.split(/\r?\n/).slice(0, title ? 1 : 20);
+  const lines = pptTextFragments(text, title);
   const safeLines = lines.length ? lines : [''];
-  const size = title ? 3200 : 1800;
+  const size = title ? 2600 : 1700;
   const color = title ? '17324D' : '334155';
   const paragraphs = safeLines.map((line) => {
     const normalized = title ? line : line.replace(/^\s*[-•]\s*/, '• ');
-    return `<a:p><a:pPr><a:spcAft><a:spcPts val="${title ? 0 : 700}"/></a:spcAft></a:pPr><a:r><a:rPr lang="ja-JP" sz="${size}"${title ? ' b="1"' : ''}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${xml(normalized.slice(0, title ? 120 : 420))}</a:t></a:r><a:endParaRPr lang="ja-JP" sz="${size}"/></a:p>`;
+    return `<a:p><a:pPr><a:spcAft><a:spcPts val="${title ? 0 : 300}"/></a:spcAft></a:pPr><a:r><a:rPr lang="ja-JP" sz="${size}"${title ? ' b="1"' : ''}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${xml(normalized)}</a:t></a:r><a:endParaRPr lang="ja-JP" sz="${size}"/></a:p>`;
   }).join('');
   return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${xml(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr wrap="square" lIns="0" rIns="0" tIns="0" bIns="0"/><a:lstStyle/>${paragraphs}</p:txBody></p:sp>`;
 }
@@ -160,10 +221,7 @@ function pptRect(id: number, name: string, x: number, y: number, cx: number, cy:
 }
 
 function makePptx(title: string, content: string, requestedSlides: ArtifactRequest['slides']): Buffer {
-  const slides = (requestedSlides?.length ? requestedSlides : [{ title, content }]).slice(0, 50).map((slide, index) => ({
-    title: String(slide.title ?? (index === 0 ? title : `Slide ${index + 1}`)).slice(0, 200),
-    content: String(slide.content ?? '').slice(0, 10000),
-  }));
+  const slides = preparePptSlides(title, content, requestedSlides);
   const slideOverrides = slides.map((_, index) => `<Override PartName="/ppt/slides/slide${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('');
   const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>${slideOverrides}<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`;
   const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PKG_REL_NS}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`;
@@ -189,7 +247,7 @@ function makePptx(title: string, content: string, requestedSlides: ArtifactReque
     { name: 'docProps/app.xml', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>ORIGIN</Application><Slides>${slides.length}</Slides></Properties>`) },
   ];
   slides.forEach((slide, index) => {
-    const slideXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="${DRAW_NS}" xmlns:r="${REL_NS}" xmlns:p="${PPT_NS}"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${pptRect(2, 'Background', 0, 0, 12192000, 6858000, 'F7FAFC')}${pptRect(3, 'Accent', 0, 0, 152400, 6858000, '0F6CBD')}${pptTextBox(4, 'Title', slide.title, 762000, 520000, 10400000, 900000, true)}${pptRect(5, 'ContentCard', 762000, 1550000, 10300000, 4300000, 'FFFFFF', 'E2E8F0')}${pptTextBox(6, 'Content', slide.content, 1120000, 1900000, 9600000, 3600000)}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+    const slideXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="${DRAW_NS}" xmlns:r="${REL_NS}" xmlns:p="${PPT_NS}"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${pptRect(2, 'Background', 0, 0, 12192000, 6858000, 'F7FAFC')}${pptRect(3, 'Accent', 0, 0, 152400, 6858000, '0F6CBD')}${pptTextBox(4, 'Title', slide.title, 762000, 420000, 10400000, 1250000, true)}${pptRect(5, 'ContentCard', 762000, 1800000, 10300000, 4250000, 'FFFFFF', 'E2E8F0')}${pptTextBox(6, 'Content', slide.content, 1120000, 2100000, 9600000, 3650000)}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
     const slideRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PKG_REL_NS}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`;
     entries.push({ name: `ppt/slides/slide${index + 1}.xml`, data: Buffer.from(slideXml) });
     entries.push({ name: `ppt/slides/_rels/slide${index + 1}.xml.rels`, data: Buffer.from(slideRels) });
@@ -197,12 +255,46 @@ function makePptx(title: string, content: string, requestedSlides: ArtifactReque
   return zipStore(entries);
 }
 
-export function generateArtifactV12(input: ArtifactRequest): GeneratedArtifact {
-  if (input.rows?.some(row => row.some(value => typeof value === 'number' && !Number.isFinite(value)))) {
-    throw new Error('INVALID_ARTIFACT_ROWS');
+function validateArtifactRows(rows: ArtifactRequest['rows']): void {
+  if (!rows) return;
+  for (const row of rows) {
+    for (const value of row) {
+      if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('INVALID_ARTIFACT_ROWS');
+      if (isFormulaCell(value)) {
+        normalizeFormula(value.formula);
+        if (typeof value.cachedValue === 'number' && !Number.isFinite(value.cachedValue)) throw new Error('INVALID_ARTIFACT_FORMULA');
+      }
+    }
   }
-  const title = String(input.title || 'ORIGIN Artifact').slice(0, 200);
-  const content = String(input.content || '').slice(0, 120000);
+}
+
+function pptxInputPreserved(bytes: Buffer, title: string, content: string, requestedSlides: ArtifactRequest['slides']): boolean {
+  try {
+    const slides = preparePptSlides(title, content, requestedSlides);
+    return slides.every((slide) => {
+      const titleOk = pptTextFragments(slide.title, true).filter(Boolean).every((fragment) => bytes.includes(Buffer.from(xml(fragment), 'utf8')));
+      const contentOk = pptTextFragments(slide.content, false).filter(Boolean).every((fragment) => {
+        const normalized = fragment.replace(/^\s*[-•]\s*/, '• ');
+        return bytes.includes(Buffer.from(xml(normalized), 'utf8'));
+      });
+      return titleOk && contentOk;
+    });
+  } catch {
+    return false;
+  }
+}
+
+function xlsxFormulaInputPreserved(bytes: Buffer, rows: ArtifactRequest['rows']): boolean {
+  const formulas = (rows ?? []).flat().filter(isFormulaCell).map((cell) => normalizeFormula(cell.formula));
+  return formulas.every((formula) => bytes.includes(Buffer.from(`<f>${xml(formula)}</f>`, 'utf8')));
+}
+
+export function generateArtifactV12(input: ArtifactRequest): GeneratedArtifact {
+  validateArtifactRows(input.rows);
+  const title = String(input.title || 'ORIGIN Artifact');
+  const content = String(input.content || '');
+  if (title.length > 200) throw new Error('INVALID_ARTIFACT_TITLE');
+  if (content.length > 120000) throw new Error('INVALID_ARTIFACT_CONTENT');
   const stem = safeName(input.title, 'origin-artifact');
   let bytes: Buffer, ext: string, mimeType: string;
   if (input.type === 'markdown') { bytes = Buffer.from(`# ${title}\n\n${content}\n`, 'utf8'); ext = 'md'; mimeType = 'text/markdown; charset=utf-8'; }
@@ -222,20 +314,24 @@ export function generateArtifactV12(input: ArtifactRequest): GeneratedArtifact {
   if (input.type === 'docx' && bytes.includes(Buffer.from('word/document.xml'))) verification.push('docx-package');
   if (input.type === 'xlsx' && bytes.includes(Buffer.from('xl/workbook.xml'))) verification.push('xlsx-package');
   if (input.type === 'pptx' && bytes.includes(Buffer.from('ppt/presentation.xml')) && bytes.includes(Buffer.from('ppt/slides/slide1.xml'))) verification.push('pptx-package');
+  if (input.type === 'pptx' && pptxInputPreserved(bytes, title, content, input.slides)) verification.push('pptx-content-preserved');
+  if (input.type === 'xlsx' && xlsxFormulaInputPreserved(bytes, input.rows)) verification.push('xlsx-formulas-preserved');
   if (input.type === 'markdown' || input.type === 'csv') verification.push('utf8-text');
-  const verified = verification.length >= 2;
+  const verified = verification.length >= 2
+    && (input.type !== 'pptx' || verification.includes('pptx-content-preserved'))
+    && (input.type !== 'xlsx' || verification.includes('xlsx-formulas-preserved'));
   return { type: input.type, filename: `${stem}.${ext}`, mimeType, bytes, sha256: createHash('sha256').update(bytes).digest('hex'), verified, verification };
 }
 
 
 export async function generateArtifactV12Async(input: ArtifactRequest): Promise<GeneratedArtifact> {
   if (input.type !== 'pdf') return generateArtifactV12(input);
-  if (input.rows?.some(row => row.some(value => typeof value === 'number' && !Number.isFinite(value)))) {
-    throw new Error('INVALID_ARTIFACT_ROWS');
-  }
+  validateArtifactRows(input.rows);
 
-  const title = String(input.title || 'ORIGIN Artifact').slice(0, 200);
-  const content = String(input.content || '').slice(0, 120000);
+  const title = String(input.title || 'ORIGIN Artifact');
+  const content = String(input.content || '');
+  if (title.length > 200) throw new Error('INVALID_ARTIFACT_TITLE');
+  if (content.length > 120000) throw new Error('INVALID_ARTIFACT_CONTENT');
   const stem = safeName(input.title, 'origin-artifact');
   const { makeUnicodePdfV12 } = await import('./unicodePdfV12.js');
   const bytes = await makeUnicodePdfV12(title, content);
@@ -256,6 +352,18 @@ export async function generateArtifactV12Async(input: ArtifactRequest): Promise<
     verified,
     verification,
   };
+}
+
+export async function artifactSelfTestV12Async(): Promise<{ ready: boolean; formats: Record<ArtifactType, boolean> }> {
+  const sync = artifactSelfTestV12();
+  const formats = { ...sync.formats };
+  try {
+    const pdf = await generateArtifactV12Async({ type: 'pdf', title: '日本語セルフテスト', content: '営業資料 ABC 123' });
+    formats.pdf = pdf.verified && pdf.verification.includes('embedded-unicode-font');
+  } catch {
+    formats.pdf = false;
+  }
+  return { ready: Object.values(formats).every(Boolean), formats };
 }
 
 export function artifactSelfTestV12(): { ready: boolean; formats: Record<ArtifactType, boolean> } {

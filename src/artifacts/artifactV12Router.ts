@@ -1,19 +1,29 @@
 import { Router } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
-import { artifactSelfTestV12, generateArtifactV12Async, type ArtifactRequest, type ArtifactType } from './artifactGeneratorV12.js';
+import { artifactSelfTestV12Async, generateArtifactV12Async, type ArtifactFormulaCell, type ArtifactRequest, type ArtifactType } from './artifactGeneratorV12.js';
 
 const TYPES: readonly ArtifactType[] = ['markdown', 'csv', 'pdf', 'docx', 'xlsx', 'pptx'];
 const isType = (value: unknown): value is ArtifactType => typeof value === 'string' && TYPES.includes(value as ArtifactType);
-const isCell = (value: unknown): value is string | number | boolean | null => value === null
+const isFormulaCell = (value: unknown): value is ArtifactFormulaCell => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Partial<ArtifactFormulaCell>;
+  return typeof candidate.formula === 'string'
+    && (candidate.cachedValue === undefined
+      || candidate.cachedValue === null
+      || typeof candidate.cachedValue === 'boolean'
+      || (typeof candidate.cachedValue === 'number' && Number.isFinite(candidate.cachedValue)));
+};
+const isCell = (value: unknown) => value === null
   || typeof value === 'string'
   || typeof value === 'boolean'
-  || (typeof value === 'number' && Number.isFinite(value));
+  || (typeof value === 'number' && Number.isFinite(value))
+  || isFormulaCell(value);
 
 export function createArtifactV12Router() {
   const router = Router();
 
-  router.get('/api/artifacts/v1.2/status', (_req, res) => {
-    const selfTest = artifactSelfTestV12();
+  router.get('/api/artifacts/v1.2/status', async (_req, res) => {
+    const selfTest = await artifactSelfTestV12Async();
     return res.status(200).json({
       ok: true,
       ready: selfTest.ready,
@@ -38,6 +48,9 @@ export function createArtifactV12Router() {
     if (body.content !== undefined && (typeof body.content !== 'string' || body.content.length > 120000)) return res.status(400).json({ ok: false, code: 'INVALID_ARTIFACT_CONTENT' });
     if (body.rows !== undefined && (!Array.isArray(body.rows) || body.rows.length > 1000 || body.rows.some(row => !Array.isArray(row) || row.length > 100 || row.some(value => !isCell(value))))) {
       return res.status(400).json({ ok: false, code: 'INVALID_ARTIFACT_ROWS' });
+    }
+    if (body.rows !== undefined && body.type !== 'xlsx' && body.rows.some(row => row.some(value => isFormulaCell(value)))) {
+      return res.status(400).json({ ok: false, code: 'FORMULA_CELLS_REQUIRE_XLSX' });
     }
     if (body.slides !== undefined && (!Array.isArray(body.slides) || body.slides.length === 0 || body.slides.length > 50 || body.slides.some(slide => !slide || typeof slide !== 'object' || Array.isArray(slide) || (slide.title !== undefined && (typeof slide.title !== 'string' || slide.title.length > 200)) || (slide.content !== undefined && (typeof slide.content !== 'string' || slide.content.length > 10000))))) {
       return res.status(400).json({ ok: false, code: 'INVALID_ARTIFACT_SLIDES' });
@@ -69,6 +82,9 @@ export function createArtifactV12Router() {
       res.setHeader('X-Origin-Cost-Usd', '0');
       return res.status(200).send(artifact.bytes);
     } catch (error) {
+      if (error instanceof Error && ['INVALID_ARTIFACT_FORMULA', 'FORMULA_CELLS_REQUIRE_XLSX', 'PPTX_CONTENT_REQUIRES_TOO_MANY_SLIDES', 'INVALID_ARTIFACT_TITLE', 'INVALID_ARTIFACT_CONTENT', 'INVALID_ARTIFACT_SLIDES'].includes(error.message)) {
+        return res.status(400).json({ ok: false, code: error.message, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      }
       if (error instanceof Error && error.message === 'PDF_UNICODE_RENDERING_UNAVAILABLE') {
         return res.status(422).json({
           ok: false,

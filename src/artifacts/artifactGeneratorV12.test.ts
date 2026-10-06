@@ -11,6 +11,13 @@ function app() {
   return app;
 }
 
+const binaryParser: any = (res: NodeJS.ReadableStream, callback: (error: Error | null, body?: Buffer) => void) => {
+  const chunks: Buffer[] = [];
+  res.on('data', (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+  res.on('end', () => callback(null, Buffer.concat(chunks)));
+  res.on('error', (error) => callback(error as Error));
+};
+
 describe('V1.2 real artifacts', () => {
   it.each(['markdown', 'csv', 'docx', 'xlsx', 'pptx'] as const)('delivers %s with a Japanese download filename', async (type) => {
     const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type, title: '営業資料', content: '売上の確認' });
@@ -114,6 +121,83 @@ describe('V1.2 real artifacts', () => {
     expect(body).toContain('<c r="A2" t="inlineStr"><is><t xml:space="preserve">Sales</t></is></c>');
   });
 
+  it('writes explicit XLSX formula cells as formulas without converting ordinary strings', () => {
+    const artifact = generateArtifactV12({
+      type: 'xlsx',
+      title: '売上集計',
+      rows: [
+        ['項目', '金額'],
+        ['A', 1200],
+        ['B', 1800],
+        ['C', 2200],
+        ['合計', { formula: '=SUM(B2:B4)', cachedValue: 5200 }],
+        ['説明', '=SUM(B2:B4)'],
+      ],
+    });
+    const body = artifact.bytes.toString('utf8');
+    expect(body).toContain('<f>SUM(B2:B4)</f><v>5200</v>');
+    expect(body).toContain('calcMode="auto"');
+    expect(body).toContain('fullCalcOnLoad="1"');
+    expect(body).toContain('<t xml:space="preserve">=SUM(B2:B4)</t>');
+    expect(artifact.verification).toContain('xlsx-formulas-preserved');
+    expect(artifact.verified).toBe(true);
+  });
+
+  it('rejects unsafe XLSX formula functions and formula objects outside XLSX', async () => {
+    expect(() => generateArtifactV12({
+      type: 'xlsx',
+      rows: [['x'], [{ formula: '=WEBSERVICE("https://example.com")' }]],
+    })).toThrow('INVALID_ARTIFACT_FORMULA');
+
+    const csvResponse = await request(app()).post('/api/artifacts/v1.2/generate').send({
+      type: 'csv',
+      rows: [['value'], [{ formula: '=SUM(A1:A2)', cachedValue: 3 }]],
+    });
+    expect(csvResponse.status).toBe(400);
+    expect(csvResponse.body.code).toBe('FORMULA_CELLS_REQUIRE_XLSX');
+  });
+
+  it('preserves every PPTX input line by paginating instead of silently truncating at line 20', async () => {
+    const content = [...Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`), 'FINAL_SENTINEL_21'].join('\n');
+    const artifact = generateArtifactV12({
+      type: 'pptx',
+      title: 'Stress',
+      slides: [{ title: 'Stress', content }],
+    });
+    const body = artifact.bytes.toString('utf8');
+    expect(body).toContain('FINAL_SENTINEL_21');
+    expect(body).toContain('ppt/slides/slide3.xml');
+    expect(body).toContain('<Slides>3</Slides>');
+    expect(artifact.verification).toContain('pptx-content-preserved');
+    expect(artifact.verified).toBe(true);
+
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').buffer(true).parse(binaryParser).send({
+      type: 'pptx',
+      title: 'Stress',
+      slides: [{ title: 'Stress', content }],
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-artifact-verified']).toBe('true');
+    expect(response.body.includes(Buffer.from('FINAL_SENTINEL_21', 'utf8'))).toBe(true);
+  });
+
+  it('accepts explicit XLSX formulas through the production artifact API contract', async () => {
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').buffer(true).parse(binaryParser).send({
+      type: 'xlsx',
+      title: '売上集計',
+      rows: [
+        ['項目', '金額'],
+        ['A', 1200],
+        ['B', 1800],
+        ['C', 2200],
+        ['合計', { formula: '=SUM(B2:B4)', cachedValue: 5200 }],
+      ],
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-artifact-verified']).toBe('true');
+    expect(response.body.includes(Buffer.from('<f>SUM(B2:B4)</f><v>5200</v>', 'utf8'))).toBe(true);
+  });
+
   it('keeps the legacy sync PDF path fail-closed while the async route renders Japanese safely', async () => {
     expect(() => generateArtifactV12({ type: 'pdf', title: '日本語', content: '営業資料' })).toThrow('PDF_UNICODE_RENDERING_UNAVAILABLE');
 
@@ -141,7 +225,7 @@ describe('V1.2 real artifacts', () => {
     const encoded = response.headers['content-disposition'].split("filename*=UTF-8''")[1];
     expect(decodeURIComponent(encoded)).toBe('日本語.pdf');
     expect(response.body.subarray(0, 5).toString('ascii')).toBe('%PDF-');
-  });
+  }, 20_000);
 
   it('fails closed when a glyph is outside the bundled Japanese/Latin font coverage', async () => {
     await expect(generateArtifactV12Async({
@@ -188,13 +272,14 @@ describe('V1.2 real artifacts', () => {
     expect(selfTest.formats).toEqual({ markdown: true, csv: true, pdf: true, docx: true, xlsx: true, pptx: true });
   });
 
-  it('reports zero-cost readiness and returns verified downloadable bytes', async () => {
+  it('reports zero-cost readiness only after the real Unicode PDF path passes', async () => {
     const status = await request(app()).get('/api/artifacts/v1.2/status');
     expect(status.status).toBe(200);
     expect(status.body).toMatchObject({ ready: true, version: '1.2', freeOnly: true, costUsd: 0, paidFallbackEnabled: false, persistence: 'client-save-only' });
     expect(status.body.formats).toContain('pptx');
     expect(status.body.formatLimitations.pdf).toContain('Embedded Noto Sans JP');
     expect(status.body.formatLimitations.pdf).toContain('unsupported glyphs fail closed');
+    expect(status.body.generatorSelfTest.pdf).toBe(true);
     expect(status.body.generatorSelfTest.pptx).toBe(true);
 
     const response = await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'pptx', title: 'Audit', slides: [{ title: 'Audit', content: 'Harmless public content.' }] });
@@ -203,7 +288,7 @@ describe('V1.2 real artifacts', () => {
     expect(response.headers['x-origin-artifact-verified']).toBe('true');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
-  });
+  }, 20_000);
 
   it('fails closed for invalid and sensitive requests', async () => {
     expect((await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'exe' })).status).toBe(400);
