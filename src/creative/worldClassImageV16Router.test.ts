@@ -84,6 +84,27 @@ describe('worldClassImageV16Router', () => {
     expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
   });
 
+  it('labels non-production evaluation output without falsely claiming qualification', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse())
+      .mockResolvedValueOnce(generatedResponse(0.12));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      ...BASE_ENV,
+      VERCEL_ENV: 'preview',
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
+      ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級ホテルの広告ビジュアル' });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-release-sha']).toBe(SHA);
+    expect(response.headers['x-origin-world-class-qualified-sha']).toBeUndefined();
+    expect(response.headers['x-origin-world-class-evaluation']).toBe('true');
+  });
+
   it('reports ready only when enabled, keyed, provider-ready, and exact-sha qualified', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(modelsResponse());
     vi.stubGlobal('fetch', fetchMock);
@@ -117,7 +138,9 @@ describe('worldClassImageV16Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-provider']).toBe('openrouter-image-api');
     expect(response.headers['x-origin-visual-model']).toBe('openai/gpt-image-2.5-sunburst');
+    expect(response.headers['x-origin-release-sha']).toBe(SHA);
     expect(response.headers['x-origin-world-class-qualified-sha']).toBe(SHA);
+    expect(response.headers['x-origin-world-class-evaluation']).toBeUndefined();
     expect(response.headers['x-origin-cost-usd']).toBe('0.12');
     expect(response.headers['x-origin-free-only']).toBe('false');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
