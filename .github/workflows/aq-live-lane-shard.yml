@@ -237,7 +237,7 @@ jobs:
 
           const laneCategories = {
             research: new Set(['current-factual','multi-source-comparison','contradiction-detection']),
-            chat: new Set(['professional-advice','user-document','fail-closed','multi-turn-context']),
+            chat: new Set(['user-document-reasoning','professional-advice','ambiguity-handling','fail-closed','citation-precision']),
             coding: new Set(['coding-generation','coding-repair']),
             artifact: new Set(['artifact-generation']),
           };
