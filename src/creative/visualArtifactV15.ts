@@ -163,15 +163,23 @@ function wrapText(text: string, maxUnits: number, maxLines: number, balance = fa
     }
     let line = '';
     let units = 0;
-    for (const char of Array.from(normalized)) {
-      const charUnits = /^[\x00-\x7f]$/.test(char) ? 1 : 2;
-      if (units + charUnits > capacity && line) {
-        output.push(line.trimEnd());
-        line = '';
-        units = 0;
+    const tokens: string[] = [];
+    for (const { segment } of new Intl.Segmenter('ja', { granularity: 'word' }).segment(normalized)) {
+      if (tokens.length && /^[、。！？!?.,:;%)）\]」』]+$/.test(segment)) tokens[tokens.length - 1] += segment;
+      else tokens.push(segment);
+    }
+    for (const token of tokens) {
+      const parts = textUnits(token) > capacity ? Array.from(token) : [token];
+      for (const part of parts) {
+        const partUnits = textUnits(part);
+        if (units + partUnits > capacity && line) {
+          output.push(line.trimEnd());
+          line = '';
+          units = 0;
+        }
+        line += part;
+        units += partUnits;
       }
-      line += char;
-      units += charUnits;
     }
     if (line) output.push(line.trimEnd());
   }
