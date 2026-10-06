@@ -15,6 +15,42 @@ const DAILY_PROVIDER_BUDGET = 45;
 const MAX_SHARDS_PER_DAY = 4;
 const SHA40 = /^[a-f0-9]{40}$/;
 
+// Emit only fixed, reviewed labels. Never forward child stderr, messages,
+// provider payloads or arbitrary detail strings into public Actions logs.
+const FAILURE_CODES = new Set([
+  "AQ_BENCHMARK_SHARD_COMPARISON_INVALID_INPUT",
+  "AQ_BENCHMARK_SHARD_BASELINE_ENVIRONMENT_INVALID",
+  "AQ_BENCHMARK_SHARD_CANDIDATE_ENVIRONMENT_INVALID",
+  "AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED",
+  "AQ_BENCHMARK_SHARD_CANDIDATE_SESSION_FAILED",
+  "AQ_BENCHMARK_SHARD_SCORER_MISMATCH",
+  "AQ_BENCHMARK_SHARD_SESSION_IDENTITY_MISMATCH",
+]);
+const LOCAL_FAILURE_CODES = new Set(
+  ["BUILD_FAILED", "SERVER_EXITED", "SERVER_START_TIMEOUT", "SHA_INVALID",
+    "SHA_MISMATCH", "DIRTY_CHECKOUT"].flatMap(code =>
+    ["baseline", "candidate"].map(side => `AQ_LOCAL_COMPARISON_${code}:${side}`)),
+);
+
+async function classifyFailure(outputPath: string | undefined, error: unknown): Promise<string> {
+  if (outputPath) {
+    try {
+      const stat = await fs.stat(outputPath);
+      if (stat.isFile() && stat.size <= 16_384) {
+        const value = JSON.parse(await fs.readFile(outputPath, "utf8"));
+        if (value?.schemaVersion === "origin.aq-local-shard-result.v1"
+          && value.ok === false && FAILURE_CODES.has(value.code)) return value.code;
+      }
+    } catch { /* Missing or invalid output is not evidence of a provider error. */ }
+  }
+  const stderr = error && typeof error === "object" && "stderr" in error
+    && typeof error.stderr === "string" ? error.stderr : "";
+  for (const line of stderr.slice(0, 65_536).split(/\r?\n/)) {
+    if (LOCAL_FAILURE_CODES.has(line)) return line;
+  }
+  return "AQ_FAILURE_UNCLASSIFIED";
+}
+
 function required(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`AQ_BUDGETED_DAY_ENV_MISSING:${name}`);
@@ -94,6 +130,8 @@ export async function runBudgetedDay(runShard = async (env: NodeJS.ProcessEnv) =
   let used = 0;
   let pendingOutput: string | undefined;
   let interrupted = true;
+  let attemptedShardIndex: number | null = null;
+  let failureCode: string | null = null;
 
   try {
     while (
@@ -110,6 +148,7 @@ export async function runBudgetedDay(runShard = async (env: NodeJS.ProcessEnv) =
 
       const outputPath = path.join(stateDir, `aq-official-shard-${next.shardIndex}.json`);
       pendingOutput = outputPath;
+      attemptedShardIndex = next.shardIndex;
       await runShard({
           ...process.env,
           ORIGIN_AQ_SHARD_MODE: "case-isolated",
@@ -181,6 +220,9 @@ export async function runBudgetedDay(runShard = async (env: NodeJS.ProcessEnv) =
       throw new Error("AQ_BUDGETED_DAY_NO_SAFE_SHARD_AVAILABLE");
     }
     interrupted = false;
+  } catch (error) {
+    failureCode = await classifyFailure(pendingOutput, error);
+    throw error;
   } finally {
     // A failed attempt may have consumed requests: never retry it in this day.
     // Only fully validated successes enter durable evidence or aggregate state.
@@ -198,12 +240,22 @@ export async function runBudgetedDay(runShard = async (env: NodeJS.ProcessEnv) =
       expectedShardCount: plan.value.shards.length,
       interrupted,
       actualRequestsUsedIsLowerBound: interrupted,
+      failureCode,
+      attemptedShardIndex,
     };
     await fs.writeFile(
       path.join(newDir, "aq-budgeted-day-summary.json"),
       `${JSON.stringify(summary, null, 2)}\n`,
       { encoding: "utf8", mode: 0o600 },
     );
+    if (interrupted) {
+      // This also survives a first-shard failure, when no success batch exists.
+      process.stdout.write(`AQ failure checkpoint ${JSON.stringify({
+        candidateSha, baselineSha, attemptedShardIndex, failureCode,
+        completedShardCount: completed.size, actualRequestsUsedLowerBound: used,
+        providerRequestCountKnown: false, qualificationStatus: "NOT_MEASURED",
+      })}\n`);
+    }
   }
 
   process.stdout.write(
