@@ -57,6 +57,29 @@ describe('agent orchestrator v3', () => {
     expect(result.body.checkpoint).toBeUndefined();
   });
 
+  it('rejects old signed coding plans and approvals without consuming a run', async () => {
+    let consumed = 0;
+    const app = appFor(env, { consume: async () => { consumed++; return true; } });
+    const runId = 'run-historic-code';
+    const params = { code: 'function demo() { return 1; }' };
+    const oldPlan = issuePlanCapability(runId, 'a'.repeat(64), env, Date.now(), 'code_interpreter');
+    const approvalResponse = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId, planToken: oldPlan.token, toolName: 'code_interpreter', params });
+    expect(approvalResponse.status).toBe(503);
+    expect(approvalResponse.body).toEqual({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+    expect(approvalResponse.body.approvalToken).toBeUndefined();
+
+    const oldOperation = { action: 'execute' as const, runId, toolName: 'code_interpreter' as const, params };
+    const oldApproval = issueApprovalCapability(runId, approvalDigest(oldOperation), env);
+    const executionResponse = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ ...oldOperation, approvalToken: oldApproval.token });
+    expect(executionResponse.status).toBe(503);
+    expect(executionResponse.body).toEqual({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+    expect(consumed).toBe(0);
+  });
+
   it('reports readiness and legacy credential compatibility truthfully', async () => {
     const store: AgentRunConsumptionStore = { consume: async () => true };
     const ready = await request(appFor(env, store)).get('/api/agent/v3/status');
