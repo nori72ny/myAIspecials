@@ -37,7 +37,7 @@ describe('opt-in document generation adapter (provider stub, not live quality pr
     expect((await generateAgentDocumentV3({ content, format: 'docx' }, { env, execute })).message).toBe('AGENT_DOCUMENT_FORMAT_UNSUPPORTED');
     expect(execute).not.toHaveBeenCalled();
   });
-  it.each([content, '', 'x'.repeat(120001), '<script>alert(1)</script>', 'hello\u0000world'])('rejects echoed, invalid or active output', async text => {
+  it.each([content, '', 'x'.repeat(120001), '<script>alert(1)</script>', '<img src=x onerror=alert(1)>', '<svg onload=alert(1)>', '<IMG SRC=x ONERROR=alert(1)>', '<details open ontoggle=alert(1)>', '<!-- HTML -->', '```html\n<img src=x onerror=alert(1)>\n```', '[link](data:text/html,test)', 'hello\u0000world'])('rejects echoed, invalid or active output', async text => {
     const result = await generateAgentDocumentV3({ content }, { env, execute: async () => response(text) });
     expect(result.ok).toBe(false);
     expect(result.artifact).toBeUndefined();

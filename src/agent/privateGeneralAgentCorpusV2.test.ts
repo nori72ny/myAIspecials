@@ -83,6 +83,26 @@ describe('General Agent private corpus V2',()=>{
     expect(digestGeneralAgentPrivateTaskV2({...withExpectation,artifactExpectation:{sha256:'b'.repeat(64),byteLength:123}})).not.toBe(digestGeneralAgentPrivateTaskV2(withExpectation));
   });
 
+  it.each([null, {}, [], 'invalid', {sha256:'bad',byteLength:0}, {sha256:'a'.repeat(64),byteLength:-1}, {sha256:'a'.repeat(64),byteLength:480001}, {sha256:'a'.repeat(64),byteLength:0.5}, {sha256:'a'.repeat(64),byteLength:'0'}])('rejects malformed artifact expectations even with matching task digests: %j', artifactExpectation => {
+    const value=corpus();
+    const {taskDigest:_,...original}=value.tasks[7];
+    const next={...original,artifactExpectation} as unknown as Omit<GeneralAgentPrivateTaskV2,'taskDigest'>;
+    const tasks=[...value.tasks];
+    tasks[7]={...next,taskDigest:digestGeneralAgentPrivateTaskV2(next)};
+    value.tasks=tasks;
+    expect(validateGeneralAgentPrivateCorpusV2(value)).toContain('agent-private-08:PRIVATE_TASK_ARTIFACT_EXPECTATION_INVALID');
+  });
+
+  it.each([0,480000])('accepts valid artifact expectation bounds: %i', byteLength => {
+    const value=corpus();
+    const {taskDigest:_,...original}=value.tasks[7];
+    const next={...original,artifactExpectation:{sha256:'a'.repeat(64),byteLength}};
+    const tasks=[...value.tasks];
+    tasks[7]={...next,taskDigest:digestGeneralAgentPrivateTaskV2(next)};
+    value.tasks=tasks;
+    expect(validateGeneralAgentPrivateCorpusV2(value)).toEqual([]);
+  });
+
   it('binds each private goal/tool/params/action to the task digest',()=>{
     const value=corpus();
     const tasks=[...value.tasks];

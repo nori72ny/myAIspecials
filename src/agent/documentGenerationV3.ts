@@ -33,7 +33,9 @@ export async function generateAgentDocumentV3(params: ToolParams, options: {
     if (typeof document !== 'string' || !document.trim() || document.length > 120000 || document.includes('\u0000')) return failure('AGENT_DOCUMENT_OUTPUT_INVALID');
     if (document.trim() === content.trim()) return failure('AGENT_DOCUMENT_INPUT_ECHO_REJECTED');
     if (containsLikelySecret(document)) return failure('AGENT_DOCUMENT_SENSITIVE_OUTPUT_BLOCKED');
-    if (/<\s*(?:script|iframe|object|embed)\b|javascript\s*:/i.test(document)) return failure('AGENT_DOCUMENT_ACTIVE_CONTENT_BLOCKED');
+    // Plain Markdown only: reject raw '<' even inside examples/fences, rather than
+    // attempting to enumerate executable tags/attributes or altering provider output.
+    if (document.includes('<') || /(?:javascript|vbscript|data)\s*:/i.test(document)) return failure('AGENT_DOCUMENT_ACTIVE_CONTENT_BLOCKED');
     return { ok: true, tool: 'document_generator', artifact: document, message: 'Markdown document drafted by the zero-cost provider. Factual and task-quality review is still required.' };
   } catch {
     // Provider errors may carry request details; return a bounded, non-secret diagnostic.

@@ -8,7 +8,7 @@ import {
   type GeneralAgentExpectedTerminalV2,
   type GeneralAgentHeldOutTaskV2,
 } from './heldOutGeneralAgentBenchmarkV2.js';
-import type { GeneralAgentArtifactExpectationV2 } from './generalAgentArtifactEvidenceV2.js';
+import { isGeneralAgentArtifactExpectationV2, type GeneralAgentArtifactExpectationV2 } from './generalAgentArtifactEvidenceV2.js';
 import type { ToolName } from './toolRegistry.js';
 
 export const GENERAL_AGENT_PRIVATE_CORPUS_VERSION_V2 =
@@ -154,6 +154,9 @@ export function validateGeneralAgentPrivateCorpusV2(
   if (new Set(tasks.map(task => task?.id)).size !== tasks.length) blockers.push('PRIVATE_CORPUS_TASK_IDS_DUPLICATE');
 
   for (const task of tasks) {
+    if (task?.artifactExpectation !== undefined && !isGeneralAgentArtifactExpectationV2(task.artifactExpectation)) {
+      blockers.push(`${task?.id ?? 'unknown'}:PRIVATE_TASK_ARTIFACT_EXPECTATION_INVALID`);
+    }
     blockers.push(...validateGeneralAgentTaskV2(publicTask(task)).map(code => `${task?.id ?? 'unknown'}:${code}`));
     if (task?.candidateSha?.toLowerCase() !== corpus.candidateSha.toLowerCase()) {
       blockers.push(`${task?.id ?? 'unknown'}:PRIVATE_TASK_CANDIDATE_SHA_MISMATCH`);
