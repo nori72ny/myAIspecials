@@ -1,0 +1,43 @@
+name: Image private corpus preflight probe
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/image-private-corpus-preflight-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install evaluator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Inspect sealed corpus metadata without generation
+        env:
+          ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64"
+          metadata="$(node --import tsx scripts/inspect-image-private-corpus-v1.ts)"
+          echo "$metadata"
+          node -e 'const v=JSON.parse(process.argv[1]); if(v.taskCount!==24) process.exit(2);' "$metadata"
