@@ -14,7 +14,7 @@ for (const entry of entries) {
   const match = /^(\d+) blob ([a-f0-9]+)\t(.+)$/.exec(entry);
   if (!match) { omitted.push(entry); continue; }
   const [, mode, , name] = match;
-  const scope = /^(src|services|api|packages|tests|scripts|\.github\/workflows)\//.test(name) || !name.includes('/');
+  const scope = name === 'docs/reviews/code-quality-submission-20261007.md' || /^(src|services|api|packages|tests|scripts|\.github\/workflows)\//.test(name) || !name.includes('/');
   const text = /\.(?:[cm]?[jt]sx?|json|ya?ml|css|html|md|toml|jsonc)$/.test(name);
   const sensitive = /(?:^|\/)(?:\.env[^/]*|[^/]*\.(?:pem|key|p12|pfx)|[^/]*(?:sealed|private-corpus)[^/]*)$/i.test(name);
   if (mode !== '100644' && mode !== '100755' || !scope || !text || sensitive || name === 'THIRD_PARTY_EVALUATION_BUNDLE.md') {
