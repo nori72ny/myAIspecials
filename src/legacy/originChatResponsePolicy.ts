@@ -26,8 +26,9 @@ function isTransformOnlyRequest(message: string): boolean {
   // An explicit additional research task must not be suppressed by the
   // transformation shortcut. Quoted/fenced source text is not a task request.
   const requestText = message.replace(/```[\s\S]*?```|「[^」]*」|『[^』]*』|"[^"\n]*"/g, " ");
-  const additionalResearch = /(?:また|さらに|加えて|併せて|あわせて|その上で|そのうえで|それとは別に|[、，]).{0,80}(?:検索(?:して|する)|調査(?:して|する)|リサーチ(?:して|する)|調べ(?:て|る)|(?:出典|一次情報|公開情報).{0,16}確認)/s.test(requestText)
-    || /\b(?:and(?:\s+also)?|also|additionally|in\s+addition|then)\s+(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify)\b/i.test(requestText);
+  const additionalResearch = /(?:また|さらに|加えて|併せて|あわせて|その上で|そのうえで|それとは別に|[、，。！？\n]).{0,80}(?:検索(?:して|する)|調査(?:して|する)|リサーチ(?:して|する)|調べ(?:て|る)|(?:出典|一次情報|公開情報).{0,16}確認)/s.test(requestText)
+    || /\b(?:and(?:\s+also)?|also|additionally|in\s+addition|then)\s+(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify)\b/i.test(requestText)
+    || /(?:^|[.!?\n])\s*(?:[-*]\s+|\d+[.)]\s+)?(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify\s+(?:the\s+)?sources?)\b/i.test(requestText);
   return !additionalResearch;
 }
 
