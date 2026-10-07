@@ -19,6 +19,7 @@ import { createWebPublicationV131Router } from "../builder/webPublicationV131Rou
 import { createVisualArtifactV15Router } from "../creative/visualArtifactV15Router.js";
 import { createRasterImageV15Router } from "../creative/rasterImageV15Router.js";
 import { createWorldClassImageV16Router } from "../creative/worldClassImageV16Router.js";
+import { createImageGatewayEvalPreflightRouter } from "../creative/imageGatewayEvalPreflightRouter.js";
 import { createMcpManagementRouter, type McpManagementDependencies } from "../mcp/mcpManagementRouter.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
@@ -81,6 +82,7 @@ export function createOriginApp(
   app.use(createVisualArtifactV15Router(env));
   app.use(createRasterImageV15Router(env));
   app.use(createWorldClassImageV16Router(env));
+  app.use(createImageGatewayEvalPreflightRouter(env));
   app.use(createOriginResearchRouter());
   // Browser clients request text/event-stream. Handle provider-eligible requests here
   // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router
