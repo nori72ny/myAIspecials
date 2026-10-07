@@ -42,6 +42,24 @@ describe('opt-in document generation adapter (provider stub, not live quality pr
     expect(result.ok).toBe(false);
     expect(result.artifact).toBeUndefined();
   });
+  it.each([
+    '![chart](https://example.invalid/pixel)',
+    '![chart](//example.invalid/pixel)',
+    '![chart](/pixel)',
+    '![chart][tracker]\n\n[tracker]: https://example.invalid/pixel',
+    '![tracker][]\n\n[tracker]: https://example.invalid/pixel',
+    '![tracker]\n\n[tracker]: https://example.invalid/pixel',
+    '[![chart](https://example.invalid/pixel)](https://example.invalid)',
+    '```md\n![chart](https://example.invalid/pixel)\n```',
+    '![[remote-image]]',
+  ])('rejects embedded resources without returning an artifact: %s', async text => {
+    const result=await generateAgentDocumentV3({content},{env,execute:async()=>response(text)});
+    expect(result).toEqual({ok:false,tool:'document_generator',message:'AGENT_DOCUMENT_EMBEDDED_RESOURCE_BLOCKED'});
+  });
+  it('preserves ordinary Markdown headings, tables and explicit navigation links', async () => {
+    const text='# レポート\n\n| 項目 | 値 |\n| --- | --- |\n| 合計 | 5200円 |\n\n[参考資料](https://example.invalid/report)';
+    expect(await generateAgentDocumentV3({content},{env,execute:async()=>response(text)})).toMatchObject({ok:true,artifact:text});
+  });
   it('rejects non-zero or absent cost evidence', async () => {
     for (const result of [{ ...response(), actualCostUsd: 1 }, { ...response(), usage: undefined }]) {
       expect((await generateAgentDocumentV3({ content }, { env, execute: async () => result as never })).ok).toBe(false);
