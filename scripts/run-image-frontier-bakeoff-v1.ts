@@ -56,7 +56,7 @@ type JudgeResult = {
 const IMAGE_URL = 'https://openrouter.ai/api/v1/images';
 const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
-const TOTAL_COST_CAP = Number(process.env.ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD ?? '15');
+const TOTAL_COST_CAP = Number(process.env.ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD ?? '6');
 const IMAGE_COST_CAP = Number(process.env.ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD ?? '0.25');
 const JUDGE_COST_CAP = Number(process.env.ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD ?? '0.25');
 const EXECUTION_BUDGET_MS = 180_000;
@@ -358,6 +358,9 @@ async function generateOrigin(baseUrl: string, browser: Browser, task: Task, tot
   });
   if (!response.ok) {
     const body = await response.text();
+    if (body.includes('OPENROUTER_IMAGE_HTTP_402')) {
+      throw new Error('BAKEOFF_OPENROUTER_IMAGE_CREDITS_REQUIRED');
+    }
     throw new Error(`BAKEOFF_ORIGIN_HTTP_${response.status}:${body.slice(0,120)}`);
   }
   const bytes = Buffer.from(await response.arrayBuffer());
@@ -474,7 +477,7 @@ async function main(){
   const apiKey=required('OPENROUTER_API_KEY');
   const candidateSha=required('ORIGIN_BAKEOFF_CANDIDATE_SHA').toLowerCase();
   if(!/^[a-f0-9]{40}$/.test(candidateSha)) throw new Error('BAKEOFF_CANDIDATE_SHA_INVALID');
-  if(!Number.isFinite(TOTAL_COST_CAP)||TOTAL_COST_CAP<=0||TOTAL_COST_CAP>20) throw new Error('BAKEOFF_TOTAL_COST_CAP_INVALID');
+  if(!Number.isFinite(TOTAL_COST_CAP)||TOTAL_COST_CAP<=0||TOTAL_COST_CAP>6) throw new Error('BAKEOFF_TOTAL_COST_CAP_INVALID');
   const outputDir=path.resolve(process.env.ORIGIN_BAKEOFF_OUTPUT_DIR??'test-results/image-frontier-bakeoff-v1');
   const imageDir=path.join(outputDir,'images');
   await fs.mkdir(imageDir,{recursive:true});
@@ -500,10 +503,12 @@ async function main(){
   const baseUrl=`http://127.0.0.1:${address.port}`;
   const browser=await chromium.launch({headless:true});
   let totalCostUsd=0;
+  let currentCaseId: string | null = null;
   const evidenceCases:any[]=[];
   const diagnostics:any[]=[];
   try{
     for(const [index,task] of TASKS.entries()){
+      currentCaseId = task.caseId;
       const generated:Generated[]=[];
       const origin=await generateOrigin(baseUrl,browser,task,totalCostUsd,candidateSha);
       totalCostUsd+=origin.costUsd; generated.push(origin);
