@@ -1,3 +1,4 @@
+import { isCloudflareRasterProviderIdV15 } from '../src/creative/rasterProviderIdentityV15.js';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import http from 'node:http';
@@ -160,7 +161,7 @@ async function evaluateEditCase(
     && response.headers.get('x-origin-cost-usd') === '0'
     && response.headers.get('x-origin-paid-fallback') === 'false'
     && response.headers.get('x-origin-secret-delivery') === 'server-only'
-    && providerId
+    && isCloudflareRasterProviderIdV15(providerId)
     && modelId
   );
   const qualified = Boolean(
@@ -190,7 +191,7 @@ async function evaluateEditCase(
     sourceImageSha256: task.sourceImageSha256,
     outputImageSha256,
     identicalToSource,
-    executionStatus: 'completed',
+    executionStatus: qualified ? 'completed' : 'failed',
     durationMs: Date.now() - started,
     mimeType: typedMime,
     width: dimensions?.width ?? null,

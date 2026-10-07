@@ -1,11 +1,8 @@
 import { createHash } from 'node:crypto';
-import {
-  generateCloudflareRasterImageV15,
-  getCloudflareRasterStatusV15,
-} from './cloudflareRasterImageProviderV15.js';
+import { resolveRasterProviderV15, rasterProviderByIdV15, type RasterProviderRuntimeV15 } from './rasterProviderRegistryV15.js';
 import { critiqueRasterStructureV15 } from './rasterImageCriticV15.js';
 import { critiqueCloudflareRasterSemanticV15 } from './cloudflareRasterSemanticCriticV15.js';
-import type { RasterImageRequestV15, RasterImageResultV15 } from './rasterImageProviderV15.js';
+import type { RasterImageRequestV15, RasterImageResultV15, RasterProviderStatusV15 } from './rasterImageProviderV15.js';
 
 export const RASTER_LIVE_QUALIFICATION_VERSION_V15 = 'raster-live-qualification-v1' as const;
 const LIVE_OPT_IN = 'ORIGIN_RASTER_LIVE_QUALIFICATION';
@@ -73,7 +70,7 @@ type QualifyOptions = {
   generatedAt?: string;
 };
 
-function safeProviderEvidence(status: Awaited<ReturnType<typeof getCloudflareRasterStatusV15>>) {
+function safeProviderEvidence(status: RasterProviderStatusV15) {
   return {
     id: status.providerId,
     configured: status.configured,
@@ -95,6 +92,7 @@ function finalize(value: Omit<RasterLiveQualificationEvidenceV15, 'evidenceSha25
 }
 
 async function runPhase(
+  runtime: RasterProviderRuntimeV15,
   input: RasterImageRequestV15,
   originalRequest: string,
   env: NodeJS.ProcessEnv,
@@ -102,7 +100,8 @@ async function runPhase(
   now: () => number,
 ): Promise<{ evidence: RasterLivePhaseEvidenceV15; result: RasterImageResultV15 }> {
   const started = now();
-  const result = await generateCloudflareRasterImageV15(input, env, fetchImpl);
+  const result = await runtime.generate(input, env, fetchImpl);
+  if (result.providerId !== runtime.descriptor.id) throw new Error('RASTER_LIVE_PROVIDER_IDENTITY_MISMATCH');
   const structural = critiqueRasterStructureV15(result.bytes, result.mimeType, result.width, result.height);
   if (!structural.passed) throw new Error('RASTER_LIVE_STRUCTURAL_CRITIC_REJECTED');
 
@@ -135,6 +134,12 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
   const generatedAt = options.generatedAt ?? new Date().toISOString();
+  // An explicitly targeted gateway must never qualify the REST provider instead.
+  const targetsGateway = Boolean(env.ORIGIN_RASTER_GATEWAY_URL?.trim() || env.ORIGIN_RASTER_GATEWAY_SECRET?.trim());
+  const runtime = targetsGateway
+    ? rasterProviderByIdV15('cloudflare-workers-ai-gateway')
+    : resolveRasterProviderV15('text-to-image', env);
+  if (!runtime) throw new Error('RASTER_LIVE_PROVIDER_UNAVAILABLE');
   const baseInvariants = {
     freeOnly: true as const,
     costUsd: 0 as const,
@@ -152,7 +157,7 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
       reason: 'EXPLICIT_LIVE_QUALIFICATION_OPT_IN_REQUIRED',
       generatedAt,
       provider: {
-        id: 'cloudflare-workers-ai-free',
+        id: runtime.descriptor.id,
         configured: false,
         ready: false,
         model: null,
@@ -167,9 +172,10 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
     });
   }
 
-  const status = await getCloudflareRasterStatusV15(env, fetchImpl);
+  const status = await runtime.status(env, fetchImpl);
   const provider = safeProviderEvidence(status);
-  if (!status.ready
+  if (status.providerId !== runtime.descriptor.id
+    || !status.ready
     || !status.zeroCostVerified
     || status.paymentMethodRequired
     || status.paidFallbackEnabled
@@ -189,7 +195,7 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
   let generation: RasterLivePhaseEvidenceV15 | null = null;
   let edit: RasterLivePhaseEvidenceV15 | null = null;
   try {
-    const generated = await runPhase({
+    const generated = await runPhase(runtime, {
       prompt: GENERATION_PROMPT,
       negativePrompt: 'text, lettering, logo, watermark, duplicate mug, extra objects',
       width: 384,
@@ -197,7 +203,7 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
     }, GENERATION_PROMPT, env, fetchImpl, now);
     generation = generated.evidence;
 
-    const edited = await runPhase({
+    const edited = await runPhase(runtime, {
       prompt: EDIT_PROMPT,
       negativePrompt: 'text, lettering, logo, watermark, extra objects, changed mug shape, changed mug color',
       width: 384,
