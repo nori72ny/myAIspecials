@@ -29,7 +29,9 @@ function isTransformOnlyRequest(message: string): boolean {
   const additionalResearch = /(?:また|さらに|加えて|併せて|あわせて|その上で|そのうえで|それとは別に|[、，。！？\n]).{0,80}(?:検索(?:して|する)|調査(?:して|する)|リサーチ(?:して|する)|調べ(?:て|る)|(?:出典|一次情報|公開情報).{0,16}確認)/s.test(requestText)
     || /\b(?:and(?:\s+also)?|also|additionally|in\s+addition|then)\s+(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify)\b/i.test(requestText)
     || /(?:^|[.!?\n])\s*(?:[-*]\s+|\d+[.)]\s+)?(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify\s+(?:the\s+)?sources?)\b/i.test(requestText);
-  return !additionalResearch;
+  const additionalCurrentFacts = /(?:また|さらに|加えて|併せて|あわせて|その上で|そのうえで|それとは別に|[、，。！？\n]).{0,80}(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)[^。！？\n]{0,24}(?:教え|確認|調べ|示し|提示)/s.test(requestText)
+    || /(?:\b(?:and(?:\s+also)?|also|additionally|then)\s+|[.!?\n]\s*)(?:please\s+)?(?:tell|show|give|check|confirm|find)\b[^.!?\n]{0,48}\b(?:latest|current|today'?s?)\b[^.!?\n]{0,32}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|versions?|models?)\b/i.test(requestText);
+  return !additionalResearch && !additionalCurrentFacts;
 }
 
 function isHypotheticalFreshnessFailureRequest(message: string): boolean {
