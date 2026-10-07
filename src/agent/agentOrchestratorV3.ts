@@ -70,6 +70,12 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if ('code' in selected) {
       return res.status(422).json({ ok: false, code: selected.code, protocolVersion: 3 });
     }
+    // Code execution must first be delegated to the isolated Coding V1.4 worker
+    // with a separate, owner-bound authorization. Do not issue a misleading
+    // approval-capability for an adapter that is explicitly unavailable.
+    if (selected.toolName === 'code_interpreter') {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+    }
     const run = new AgentRunSession();
     run.transition('planning');
     run.transition('awaiting_approval');
