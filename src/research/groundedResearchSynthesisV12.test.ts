@@ -259,4 +259,49 @@ describe("groundedResearchSynthesisV12", () => {
     )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
   });
 
+  it("rejects a smaller number embedded in a larger evidence value", () => {
+    const evidence = [{ ...sources[0], excerpt: "Count is 1000.", retrievedAt: "2026-09-24T08:00:00.000Z" }];
+    expect(validateGroundedResearchSynthesis("Count is 100.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects a yen value embedded in a larger yen amount", () => {
+    const evidence = [{ ...sources[0], excerpt: "料金は1100円です。", retrievedAt: "2026-09-24T08:00:00.000Z" }];
+    expect(validateGroundedResearchSynthesis("料金は100円です。[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects a whole number embedded in a decimal", () => {
+    const evidence = [{ ...sources[0], excerpt: "Value is 100.5.", retrievedAt: "2026-09-24T08:00:00.000Z" }];
+    expect(validateGroundedResearchSynthesis("Value is 100.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects a positive value supported only by a negative value", () => {
+    const evidence = [{ ...sources[0], excerpt: "Balance is -100.", retrievedAt: "2026-09-24T08:00:00.000Z" }];
+    expect(validateGroundedResearchSynthesis("Balance is 100.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects a negative value supported only by a positive value", () => {
+    const evidence = [{ ...sources[0], excerpt: "Balance is 100.", retrievedAt: "2026-09-24T08:00:00.000Z" }];
+    expect(validateGroundedResearchSynthesis("Balance is -100.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects a percentage embedded in a larger percentage", () => {
+    const evidence = [{ ...sources[0], excerpt: "Rate is 110%.", retrievedAt: "2026-09-24T08:00:00.000Z" }];
+    expect(validateGroundedResearchSynthesis("Rate is 10%.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects an unsupported single-digit currency amount", () => {
+    const evidence = [{ ...sources[0], excerpt: "Price is $6.", retrievedAt: "2026-09-24T08:00:00.000Z" }];
+    expect(validateGroundedResearchSynthesis("Price is $5.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("accepts equivalent full-width and comma-formatted values", () => {
+    const evidence = [{ ...sources[0], excerpt: "料金は１，０００円です。", retrievedAt: "2026-09-24T08:00:00.000Z" }];
+    expect(validateGroundedResearchSynthesis("料金は1000円です。[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("accepts an exact negative decimal", () => {
+    const evidence = [{ ...sources[0], excerpt: "Balance is -100.5.", retrievedAt: "2026-09-24T08:00:00.000Z" }];
+    expect(validateGroundedResearchSynthesis("Balance is -100.5.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
 });
