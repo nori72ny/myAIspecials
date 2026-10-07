@@ -31,7 +31,7 @@ export function createArtifactV12Router() {
       capability: 'real-artifact-generation',
       formats: TYPES,
       generatorSelfTest: selfTest.formats,
-      formatLimitations: { xlsx: 'Formula caches are independently calculated for numeric arithmetic, cell references and SUM. Other formulas require recalculation in a spreadsheet application; caller-provided caches are discarded.', pdf: 'Embedded Noto Sans JP Japanese/Latin renderer with width-aware wrapping; unsupported glyphs fail closed.' },
+      formatLimitations: { xlsx: 'Formula caches are independently calculated for numeric arithmetic, cell references and SUM. Other formulas require recalculation in a spreadsheet application; caller-provided caches are discarded. Text wraps with fitted row heights; content requiring more than 409 points per row must be split.', pdf: 'Embedded Noto Sans JP Japanese/Latin renderer with width-aware wrapping; unsupported glyphs fail closed.' },
       delivery: 'verified-download',
       persistence: 'client-save-only',
       freeOnly: true,
@@ -82,6 +82,9 @@ export function createArtifactV12Router() {
       res.setHeader('X-Origin-Cost-Usd', '0');
       return res.status(200).send(artifact.bytes);
     } catch (error) {
+      if (error instanceof Error && error.message === 'XLSX_CELL_CONTENT_REQUIRES_TOO_MANY_LINES') {
+        return res.status(400).json({ ok: false, code: error.message, message: '1つのセルに入る文章が長すぎます。内容を複数の行に分けてください。', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      }
       if (error instanceof Error && ['INVALID_ARTIFACT_FORMULA', 'FORMULA_CELLS_REQUIRE_XLSX', 'PPTX_CONTENT_REQUIRES_TOO_MANY_SLIDES', 'INVALID_ARTIFACT_TITLE', 'INVALID_ARTIFACT_CONTENT', 'INVALID_ARTIFACT_SLIDES'].includes(error.message)) {
         return res.status(400).json({ ok: false, code: error.message, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
       }
