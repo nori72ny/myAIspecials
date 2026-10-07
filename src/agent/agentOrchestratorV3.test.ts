@@ -40,7 +40,7 @@ describe('agent orchestrator v3', () => {
     ['document_generator', { content: '商品A:1200円×3個、商品B:800円×2個。売上合計と提案を作成してください。' }],
   ] as const)('does not certify an echoed %s artifact as completed', async (toolName, params) => {
     const app = appFor(env, { consume: async () => true });
-    const goal = toolName === 'code_interpreter' ? 'Repair this code.' : 'Create a sales report.';
+    const goal = 'Create a sales report.';
     const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
     expect(plan.status).toBe(201);
     const approval = await request(app).post('/api/agent/v3/approval')
