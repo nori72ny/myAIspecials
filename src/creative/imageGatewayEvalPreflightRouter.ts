@@ -12,12 +12,12 @@ const REQUIRED_IMAGE_MODELS = [
 export function createImageGatewayEvalPreflightRouter(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
-  router.get('/api/eval/image-gateway/credits', async (_req, res) => {
+  router.get('/api/eval/image-gateway/credits', async (req, res) => {
     if (env.VERCEL_ENV?.trim().toLowerCase() !== 'preview') {
       return res.status(404).json({ code: 'EVAL_ROUTE_NOT_AVAILABLE' });
     }
 
-    const token = env.VERCEL_OIDC_TOKEN?.trim();
+    const token = req.get('x-vercel-oidc-token')?.trim() || env.VERCEL_OIDC_TOKEN?.trim();
     if (!token) {
       return res.status(503).json({
         ok: false,
