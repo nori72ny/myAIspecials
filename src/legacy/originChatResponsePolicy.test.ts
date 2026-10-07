@@ -185,4 +185,50 @@ describe("originChatResponsePolicy", () => {
     expect(requiresOriginGroundedResearch(message)).toBe(expected);
   });
 
+  it.each([
+    [
+        "この文章を要約して、現在の価格も教えてください。",
+        true
+    ],
+    [
+        "この資料を短くしてください。最新の仕様を確認してください。",
+        true
+    ],
+    [
+        "この文章を翻訳してください。さらに今日の為替レートを提示してください。",
+        true
+    ],
+    [
+        "Summarize this report and tell me the current price.",
+        true
+    ],
+    [
+        "Translate this passage. Please show today's exchange rate.",
+        true
+    ],
+    [
+        "Rewrite this text, then check the latest version.",
+        true
+    ],
+    [
+        "この文章を要約してください。『現在の価格も教えてください。』",
+        false
+    ],
+    [
+        "Summarize this passage: \"Tell me the current price.\"",
+        false
+    ],
+    [
+        "Summarize this report. Preserve the supplied current pricing.",
+        false
+    ],
+    [
+        "この文章を要約してください。現在の価格という表現を残してください。",
+        false
+    ]
+])("preserves explicit current-fact tasks after transformations: %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+    expect(requiresOriginCurrentInformation(message)).toBe(expected);
+  });
+
 });
