@@ -8,6 +8,7 @@ import {
   type GeneralAgentExpectedTerminalV2,
   type GeneralAgentHeldOutTaskV2,
 } from './heldOutGeneralAgentBenchmarkV2.js';
+import type { GeneralAgentArtifactExpectationV2 } from './generalAgentArtifactEvidenceV2.js';
 import type { ToolName } from './toolRegistry.js';
 
 export const GENERAL_AGENT_PRIVATE_CORPUS_VERSION_V2 =
@@ -16,6 +17,7 @@ export const GENERAL_AGENT_PRIVATE_CORPUS_VERSION_V2 =
 export const GENERAL_AGENT_EVALUATOR_PERMISSION_PROFILE_V1 = Object.freeze({
   network: 'raw-disabled',
   groundedResearch: 'allowlisted-public-web-only',
+  documentDrafting: 'explicit-opt-in-zero-cost-zdr-provider-only',
   repositoryRead: 'allowed',
   repositoryWrite: 'explicit-approved-only',
   verification: ['test', 'typecheck', 'lint', 'build'],
@@ -70,6 +72,7 @@ export type GeneralAgentPrivateTaskV2 = {
   params: Readonly<Record<string, unknown>>;
   action: GeneralAgentPrivateActionV2;
   allowedChangedPaths?: readonly string[];
+  artifactExpectation?: GeneralAgentArtifactExpectationV2;
   regressionCheck?: 'none' | 'test' | 'typecheck' | 'lint' | 'build';
 };
 
@@ -114,6 +117,7 @@ export function digestGeneralAgentPrivateTaskV2(
       action: task.action,
       allowedChangedPaths: [...(task.allowedChangedPaths ?? [])],
       regressionCheck: task.regressionCheck ?? 'none',
+      ...(task.artifactExpectation === undefined ? {} : { artifactExpectation: task.artifactExpectation }),
     }), 'utf8')
     .digest('hex');
 }

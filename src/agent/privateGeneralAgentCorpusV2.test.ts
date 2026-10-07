@@ -7,6 +7,7 @@ import {
   digestGeneralAgentPermissionProfileV1,
   digestGeneralAgentPrivateTaskV2,
   validateGeneralAgentPrivateCorpusV2,
+  publicGeneralAgentTaskV2,
   type GeneralAgentPrivateCorpusV2,
   type GeneralAgentPrivateTaskV2,
 } from './privateGeneralAgentCorpusV2.js';
@@ -71,6 +72,15 @@ describe('General Agent private corpus V2',()=>{
 
   it('accepts a complete 12-task private corpus with required challenge coverage',()=>{
     expect(validateGeneralAgentPrivateCorpusV2(corpus())).toEqual([]);
+  });
+
+  it('binds the evaluator artifact expectation without exposing it in public tasks',()=>{
+    const value=baseTask(7);
+    const original=digestGeneralAgentPrivateTaskV2(value);
+    const withExpectation={...value,artifactExpectation:{sha256:'a'.repeat(64),byteLength:123}};
+    expect(digestGeneralAgentPrivateTaskV2(withExpectation)).not.toBe(original);
+    expect(publicGeneralAgentTaskV2({...withExpectation,taskDigest:digestGeneralAgentPrivateTaskV2(withExpectation)})).not.toHaveProperty('artifactExpectation');
+    expect(digestGeneralAgentPrivateTaskV2({...withExpectation,artifactExpectation:{sha256:'b'.repeat(64),byteLength:123}})).not.toBe(digestGeneralAgentPrivateTaskV2(withExpectation));
   });
 
   it('binds each private goal/tool/params/action to the task digest',()=>{

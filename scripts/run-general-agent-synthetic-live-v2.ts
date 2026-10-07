@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -27,7 +28,7 @@ function baseTask(index: number, candidateSha: string): Omit<GeneralAgentPrivate
       ? 'document_generator'
       : research
         ? 'web_search_grounding'
-        : 'repository_explorer';
+        : 'file_reader';
   const capabilities = new Set<GeneralAgentPrivateTaskV2['capabilities'][number]>([
     'planning',
     'tool-choice',
@@ -55,7 +56,7 @@ function baseTask(index: number, candidateSha: string): Omit<GeneralAgentPrivate
         ? 'Create a local document artifact and stop when cancelled.'
         : research
           ? 'Research a current public topic using the available grounded search tool.'
-          : 'Inspect the repository structure without external network access.',
+          : 'Read this source file and return its complete content.',
     expectedTool: tool,
     params: recovery
       ? { code: 'function demo(){' }
@@ -63,19 +64,26 @@ function baseTask(index: number, candidateSha: string): Omit<GeneralAgentPrivate
         ? { content: 'internal synthetic evaluator content' }
         : research
           ? { query: 'AIエージェントに関する最新情報を複数ソースで調査してください。' }
-          : {},
+          : { path: ['package.json', 'src/agent/toolRegistry.ts', 'src/agent/agentOrchestratorV3.ts', 'src/agent/privateGeneralAgentCorpusV2.ts', 'src/agent/autoVerificationEngine.ts', 'docs/ORIGIN_OWNER_SCOPE.md'][index - 6] },
     action: stop ? 'cancel-after-approval' : 'execute',
     allowedChangedPaths: [],
     regressionCheck: 'none',
   };
 }
 
-function task(index: number, candidateSha: string): GeneralAgentPrivateTaskV2 {
+async function task(index: number, candidateSha: string): Promise<GeneralAgentPrivateTaskV2> {
   const value = baseTask(index, candidateSha);
+  if (index >= 6) {
+    // Evaluator reads the expected bytes directly, independently of the Agent tool.
+    // This is visible internal evidence, not a sealed unseen task.
+    const expected = await readFile(path.resolve(String(value.params.path)));
+    value.artifactExpectation = { sha256: createHash('sha256').update(expected).digest('hex'), byteLength: expected.length };
+  }
   return { ...value, taskDigest: digestGeneralAgentPrivateTaskV2(value) };
 }
 
 async function main(): Promise<void> {
+  if (process.env.ORIGIN_GENERAL_AGENT_DISPOSABLE_CHECKOUT !== 'true') throw new Error('GENERAL_AGENT_DISPOSABLE_CHECKOUT_REQUIRED');
   const { stdout: shaStdout } = await execute('git', ['rev-parse', 'HEAD'], { cwd: process.cwd() });
   const candidateSha = shaStdout.trim().toLowerCase();
   if (!/^[a-f0-9]{40}$/.test(candidateSha)) throw new Error('INTERNAL_AGENT_CANDIDATE_SHA_INVALID');
@@ -88,7 +96,7 @@ async function main(): Promise<void> {
     corpusId: `internal-synthetic-live-${candidateSha.slice(0, 12)}`,
     candidateSha,
     permissionProfileDigest: digestGeneralAgentPermissionProfileV1(),
-    tasks: Array.from({ length: 12 }, (_, index) => task(index, candidateSha)),
+    tasks: await Promise.all(Array.from({ length: 12 }, (_, index) => task(index, candidateSha))),
   };
   const encoded = gzipSync(Buffer.from(JSON.stringify(corpus), 'utf8'), { level: 9 }).toString('base64');
   const outputDir = await mkdtemp(path.join(tmpdir(), 'origin-agent-live-eval-'));
@@ -117,6 +125,7 @@ async function main(): Promise<void> {
       attempted: number;
       solved: number;
       blockersByTask: Array<{ taskId: string; blockers: string[] }>;
+      artifactChecks: Array<{ taskId: string; code: string; httpStatus: number }>;
     };
     const evidence = JSON.parse(await readFile(path.join(outputDir, 'candidate-trusted-evidence.json'), 'utf8')) as Array<{
       events: Array<Record<string, unknown>>;
@@ -153,6 +162,7 @@ async function main(): Promise<void> {
       solveRate: summary.solved / summary.attempted,
       zeroCostSafe: true,
       blockersByTask: summary.blockersByTask,
+      artifactChecks: summary.artifactChecks,
       limitation: 'Visible synthetic internal benchmark; not final sealed/private or external comparative qualification.',
     }) + '\n');
   } finally {

@@ -1,3 +1,4 @@
+import { documentGenerationConfiguredV3 } from './documentGenerationV3.js';
 import { createHash } from 'node:crypto';
 import express, { type Router } from 'express';
 import { executeToolWithPermission, type ToolName, type ToolParams } from './toolRegistry.js';
@@ -39,6 +40,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       ok: true,
       protocolVersion: 3,
       ready: approvalSigningConfigured && operatorAuthenticationConfigured && replayProtectionConfigured,
+      readinessScope: 'authorization-and-replay-protection',
+      unavailableTools: ['code_interpreter', ...(documentGenerationConfiguredV3(env) ? [] : ['document_generator'])],
+      documentGeneration: { configured: documentGenerationConfiguredV3(env), format: 'markdown', liveVerified: false },
+      artifactVerificationScope: 'structural-preflight-only',
+      taskQualityQualification: 'not-measured',
       approvalSigningConfigured,
       operatorAuthenticationConfigured,
       authorizationMode,
@@ -188,9 +194,9 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
           return;
         }
         if (!consumed) return res.status(409).json({ ok: false, code: 'AGENT_RUN_ALREADY_CONSUMED', protocolVersion: 3, runId });
-        const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
+        const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval, env);
         const graph = createAgentTaskGraph(`execute ${toolName}`, [toolName]);
-        const execution = await executeNextTask(graph, async () => runTool(toolName, toolParams), async (result) => result.artifact
+        const execution = await executeNextTask(graph, async () => runTool(toolName, toolParams), async (result) => typeof result.artifact === 'string'
           ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams)
           : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' });
         const record = execution.record;
