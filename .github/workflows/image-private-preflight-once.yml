@@ -1,0 +1,57 @@
+name: Image private preflight once
+
+on:
+  push:
+    branches:
+      - eval/image-private-preflight-once-20261007
+    paths:
+      - .github/workflows/image-private-preflight-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Inspect sealed image corpus metadata
+        env:
+          ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64"
+          node --import tsx scripts/inspect-image-private-corpus-v1.ts | tee metadata.json
+          node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const fs=require('node:fs');
+          const v=JSON.parse(fs.readFileSync('metadata.json','utf8'));
+          console.log('### Sealed image corpus preflight');
+          console.log('');
+          console.log('- corpusId: `'+v.corpusId+'`');
+          console.log('- candidateSha: `'+v.candidateSha+'`');
+          console.log('- taskCount: '+v.taskCount);
+          console.log('- corpusDigest: `'+v.corpusDigest+'`');
+          NODE
+
+      - name: Verify OpenRouter image API key presence and model readiness
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ORIGIN_IMAGE_CANDIDATE_SHA: ${{ github.sha }}
+          ORIGIN_IMAGE_WORLD_CLASS_MODEL: openai/gpt-image-2.5-sunburst
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          node --import tsx scripts/preflight-world-class-image-v16.ts
