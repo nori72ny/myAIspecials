@@ -304,4 +304,76 @@ describe("groundedResearchSynthesisV12", () => {
     expect(validateGroundedResearchSynthesis("Balance is -100.5.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
   });
 
+  it("rejects an ISO date assembled from distinct evidence dates", () => {
+    const evidence = [{ ...sources[0], excerpt: "Events: 2026-09-20 and 2025-10-24." }];
+    expect(validateGroundedResearchSynthesis("Event: 2026-10-24.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects a Japanese date assembled from distinct evidence dates", () => {
+    const evidence = [{ ...sources[0], excerpt: "開催日は2026年9月20日と2025年10月24日。" }];
+    expect(validateGroundedResearchSynthesis("開催日は2026年10月24日。[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("accepts an intact ISO date", () => {
+    const evidence = [{ ...sources[0], excerpt: "Event: 2026-10-24." }];
+    expect(validateGroundedResearchSynthesis("Event: 2026-10-24.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("accepts a Japanese rendering of an intact ISO date", () => {
+    const evidence = [{ ...sources[0], excerpt: "Event: 2026-10-24." }];
+    expect(validateGroundedResearchSynthesis("開催日は2026年10月24日。[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("accepts an ISO rendering of an intact Japanese date", () => {
+    const evidence = [{ ...sources[0], excerpt: "開催日は2026年10月24日。" }];
+    expect(validateGroundedResearchSynthesis("Event: 2026-10-24.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("rejects a positive value supported only by a Unicode minus", () => {
+    const evidence = [{ ...sources[0], excerpt: "Balance is −100." }];
+    expect(validateGroundedResearchSynthesis("Balance is 100.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects a Unicode negative value supported only by a positive value", () => {
+    const evidence = [{ ...sources[0], excerpt: "Balance is 100." }];
+    expect(validateGroundedResearchSynthesis("Balance is −100.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("accepts equivalent Unicode and ASCII minus signs", () => {
+    const evidence = [{ ...sources[0], excerpt: "Balance is −100." }];
+    expect(validateGroundedResearchSynthesis("Balance is -100.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("rejects an exponent used as a plain value", () => {
+    const evidence = [{ ...sources[0], excerpt: "Magnitude is 1e100." }];
+    expect(validateGroundedResearchSynthesis("Magnitude is 100.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("accepts an exact scientific-notation value", () => {
+    const evidence = [{ ...sources[0], excerpt: "Magnitude is 1e100." }];
+    expect(validateGroundedResearchSynthesis("Magnitude is 1e100.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+
+  it("rejects a value outside the bounded excerpt actually shown to synthesis", () => {
+    const evidence = [{ ...sources[0], excerpt: "x".repeat(1300) + " 999円" }];
+    expect(validateGroundedResearchSynthesis("料金は999円。[S1](https://example.com/one)", evidence)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+  });
+
+  it("accepts a value inside the bounded excerpt", () => {
+    const evidence = [{ ...sources[0], excerpt: "x".repeat(1100) + " 999円" }];
+    expect(validateGroundedResearchSynthesis("料金は999円。[S1](https://example.com/one)", evidence)).toEqual(
+      { ok: true, usedSourceIds: ["S1"] },
+    );
+  });
+
+  it("uses the same whitespace compaction as the evidence packet", () => {
+    const evidence = [{ ...sources[0], excerpt: " ".repeat(1300) + "999円" }];
+    expect(validateGroundedResearchSynthesis("料金は999円。[S1](https://example.com/one)", evidence)).toEqual(
+      { ok: true, usedSourceIds: ["S1"] },
+    );
+  });
+
 });
