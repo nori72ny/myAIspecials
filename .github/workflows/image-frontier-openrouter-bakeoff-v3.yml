@@ -60,6 +60,32 @@ jobs:
           if(!Number.isFinite(judge)||judge<=0||judge>0.25) process.exit(4);
           NODE
 
+      - name: Verify OpenRouter paid capacity before any paid call
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_meta="$(mktemp)"
+          trap 'rm -f "$key_meta"' EXIT
+          http="$(curl --silent --show-error --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H 'Accept: application/json' \
+            -o "$key_meta" -w '%{http_code}' \
+            https://openrouter.ai/api/v1/key)"
+          test "$http" = '200'
+          jq -e '.data and (.data.is_free_tier | type == "boolean")' "$key_meta" >/dev/null
+          jq -c '{is_free_tier:.data.is_free_tier,limit:.data.limit,limit_remaining:.data.limit_remaining,limit_reset:.data.limit_reset}' "$key_meta" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(jq -r '.data.is_free_tier' "$key_meta")" = 'true' ]; then
+            echo "::error title=OpenRouter paid credits required::The configured evaluation key is still on the free tier. No paid image request was started."
+            exit 5
+          fi
+          remaining="$(jq -r '.data.limit_remaining // empty' "$key_meta")"
+          if [ -n "$remaining" ]; then
+            REMAINING="$remaining" node <<'NODE'
+          const remaining=Number(process.env.REMAINING);
+          if(Number.isFinite(remaining) && remaining < 6) process.exit(6);
+          NODE
+          fi
+
       - name: Preflight OpenRouter key and exact benchmark models
         shell: bash
         run: |
