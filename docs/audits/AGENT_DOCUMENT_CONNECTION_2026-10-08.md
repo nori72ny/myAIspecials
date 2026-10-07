@@ -23,10 +23,10 @@ Local environment presence checks (values were not read or printed): document fe
 
 ## Unfinished qualification
 
-1. Authorized remote branch/PR reflection and exact-head CI. Automatic review has blocked the GitHub push pending explicit destination-specific approval. No alternate write route was attempted.
+1. Remote reflection is complete in Draft PR #919 after destination-specific authorization. Exact-head CI is running; see the PR for current results. Earlier push-block notes are historical.
 2. Preview-only activation with existing approved server-side configuration, followed by actual document output inspection and task-specific semantic checks. No production activation is authorized by this document.
 3. Agent code execution must use the existing Coding V1.4 isolated worker and its owner-bound job authorization. It must not be enabled by running caller code on the HTTP server or by mapping the general Agent operator to a Coding owner without an explicit trusted delegation design.
-4. Research must be retested in an authorized network-enabled environment; local DNS failure is not answer-quality evidence.
+4. Remote Research live diagnostics passed 3/3 at revision 4f173eb1. This verifies the retrieval diagnostic only; semantic answer quality and independent qualification remain unmeasured.
 5. Final sealed evaluation, independent comparison and production release remain incomplete.
 
 The previous inspection ZIP targets an earlier exact SHA and remains historical evidence, not evidence for this revision.

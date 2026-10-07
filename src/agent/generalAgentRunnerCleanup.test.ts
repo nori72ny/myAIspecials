@@ -20,7 +20,7 @@ describe('private evaluator refuses cleanup before validating a disposable check
       writeFileSync(path.join(bin, 'git'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(gitCalled)}, 'called'); process.exit(99);\n`, { mode: 0o755 });
       writeFileSync(path.join(root, 'tracked.txt'), 'OWNER EDIT');
       writeFileSync(path.join(root, 'untracked.txt'), 'OWNER NEW FILE');
-      const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` };
+      const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` };
       delete env.ORIGIN_GENERAL_AGENT_DISPOSABLE_CHECKOUT;
       if (mode === 'invalid-corpus') {
         env.ORIGIN_GENERAL_AGENT_DISPOSABLE_CHECKOUT = 'true';

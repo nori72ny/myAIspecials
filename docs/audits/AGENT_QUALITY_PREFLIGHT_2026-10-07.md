@@ -80,3 +80,13 @@ Runtime revision: `575d72b72cc7a6901724f88bb6a3399a63ba766a`.
 - Regression: 71 files / 475 tests passed. TypeScript passed. Local HTTP packet: 15/15 passed, comprising status, six exact-file reads (including empty, whitespace, Japanese, long text, incomplete source text and the 120000-character boundary), oversize rejection, authentication, parameter tampering, invalid approval, replay, cancellation and truthful rejection of unavailable code/document generation.
 - The first packet run had 12/13 due to a fixture accidentally sized at 120001 characters. The fixture was corrected to compute its padding from the actual sentinel length. No production limit was relaxed. The earlier result is retained as a harness-development record.
 - These are observable regression inputs/results for technical inspection. Code/document generation, live research, semantic task quality, independent sealed evaluation and production CI remain unqualified. The packet does not convert blocked generation into a passing feature.
+
+## Remote review follow-up
+
+Draft PR: https://github.com/nori72ny/myAIspecials/pull/919. The owner authorized remote reflection; earlier blocked-push notes above are historical.
+
+- Revision `4f173eb1`: local Agent regression 73 files / 498 tests passed; remote Frontier internal evaluation passed. The synthetic diagnostic remains 8/12, not a final qualification.
+- Remote research retrieval diagnostic passed 3/3. Source retrieval does not establish semantic report correctness.
+- The secret scan initially flagged a synthetic private-key header with no key material. The fixture now constructs the same marker at runtime; input/output rejection assertions and scanning rules are unchanged.
+- The minimal Production worker has no Git binary. Early-cleanup tests now use a sentinel executable and assert that preflight errors invoke no Git command and preserve user files. The worker sandbox is unchanged.
+- Current exact-head CI evidence is maintained in the PR. Full Agent task-quality qualification, live document model output inspection, isolated code-tool integration and sealed evaluator separation remain incomplete.
