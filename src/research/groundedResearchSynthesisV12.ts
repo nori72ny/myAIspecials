@@ -265,13 +265,25 @@ export function buildGroundedResearchSynthesisPrompt(
 }
 
 function numericTokens(value: string): string[] {
-  const withoutCitations = value.replace(CITATION_PATTERN, " ");
-  const matches = withoutCitations.normalize("NFKC").match(/[+-]?(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
-  return [...new Set(matches.map((token) => token.replace(/[\s,，]/g, "").toLowerCase()).filter((token) => {
+  const normalized = value.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-");
+  const dates: string[] = [];
+  // Keep a date intact: separate year/month/day matches can fabricate a new date.
+  const withoutDates = normalized.replace(
+    /(?<!\d)(\d{4})(?:-(\d{2})-(\d{2})|年\s*(\d{1,2})月\s*(\d{1,2})日)(?!\d)/g,
+    (_match, year: string, isoMonth: string | undefined, isoDay: string | undefined, jaMonth: string | undefined, jaDay: string | undefined) => {
+      const month = (isoMonth ?? jaMonth ?? "").padStart(2, "0");
+      const day = (isoDay ?? jaDay ?? "").padStart(2, "0");
+      dates.push(`date:${year}-${month}-${day}`);
+      return " ";
+    },
+  );
+  const matches = withoutDates.match(/[+-]?(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:e[+-]?\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
+  const numbers = matches.map((token) => token.replace(/[\s,，]/g, "").toLowerCase()).filter((token) => {
     const digits = token.match(/\d/g)?.length ?? 0;
     const hasSemanticSuffix = /[$¥€£%円ドル]|usd|jpy|eur|gbp|年|月|日|万|億|兆/i.test(token);
     return digits >= 2 || hasSemanticSuffix;
-  }))];
+  });
+  return [...new Set([...dates, ...numbers])];
 }
 
 function citedSourceIds(value: string): string[] {
@@ -311,7 +323,7 @@ export function validateGroundedResearchSynthesis(
       sourceMap.set(id, normalized);
       sourceEvidence.set(id, [
         source.title,
-        source.excerpt,
+        compactExcerpt(source.excerpt),
         evidenceTimestamp(source.retrievedAt) ?? "",
         evidenceTimestamp(source.revisionTimestamp) ?? "",
       ].join("\n"));
