@@ -112,6 +112,10 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!isToolName(plan.plannedTool) || plan.plannedTool !== toolName) {
       return res.status(403).json({ ok: false, code: 'AGENT_PLAN_TOOL_MISMATCH' });
     }
+    // Old signed plans must not revive a tool whose execution backend is unavailable.
+    if (toolName === 'code_interpreter') {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+    }
     if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
     const operation: AgentApprovalOperation = { action: 'execute', runId, toolName, params: params ?? {} };
     const capability = issueApprovalCapability(runId, approvalDigest(operation), env, approvalNow);
@@ -182,6 +186,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const approval = verifyApprovalCapability(approvalToken, env);
     if (!approval || approval.runId !== runId || approval.digest !== approvalDigest(operation)) {
       return res.status(403).json({ ok: false, code: 'AGENT_AUTHENTICATED_APPROVAL_REQUIRED' });
+    }
+    // A still-valid approval issued by an older deployment cannot execute a
+    // disconnected coding adapter or consume a run while no worker is bound.
+    if (toolName === 'code_interpreter') {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
     }
     if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
 
