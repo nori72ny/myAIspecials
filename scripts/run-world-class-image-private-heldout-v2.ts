@@ -171,7 +171,6 @@ async function evaluateCase(
   budgetMs: number,
   outputDir: string,
   candidateSha: string,
-  maxImageCostUsd: number,
   runtimeEnv: NodeJS.ProcessEnv,
 ): Promise<CandidateCaseEvidence> {
   const started = Date.now();
@@ -205,7 +204,7 @@ async function evaluateCase(
       effectivePromptSha256: sha256(prompt),
       output: {
         blindKey: 'ORIGIN',
-        systemId: 'origin-world-class-v16',
+        systemId: 'origin-world-class-zero-cost',
         role: 'origin',
         executionStatus: 'failed',
         durationMs: Date.now() - started,
@@ -239,7 +238,7 @@ async function evaluateCase(
       effectivePromptSha256: sha256(prompt),
       output: {
         blindKey: 'ORIGIN',
-        systemId: 'origin-world-class-v16',
+        systemId: 'origin-world-class-zero-cost',
         role: 'origin',
         executionStatus: classifyFailure(response.status, code),
         durationMs: Date.now() - started,
@@ -298,14 +297,14 @@ async function evaluateCase(
       && response.headers.get('x-origin-release-sha') === candidateSha
       && response.headers.get('x-origin-world-class-evaluation') === 'true'
       && !response.headers.get('x-origin-world-class-qualified-sha')
-      && response.headers.get('x-origin-free-only') === 'false'
+      && response.headers.get('x-origin-free-only') === 'true'
       && response.headers.get('x-origin-paid-fallback') === 'false'
       && response.headers.get('x-origin-secret-delivery') === 'server-only'
-      && providerId === 'openrouter-image-api'
+      && response.headers.get('x-origin-visual-quality-tier') === 'world-class-free'
+      && providerId === 'cloudflare-workers-ai-free'
       && Boolean(modelId)
       && Number.isFinite(costUsd)
-      && costUsd >= 0
-      && costUsd <= maxImageCostUsd
+      && costUsd === 0
   );
 
   let semantic: CandidateCaseEvidence['semantic'] = null;
@@ -374,7 +373,7 @@ async function evaluateCase(
     effectivePromptSha256: sha256(prompt),
     output: {
       blindKey: 'ORIGIN',
-      systemId: 'origin-world-class-v16',
+      systemId: 'origin-world-class-zero-cost',
       role: 'origin',
       executionStatus: 'completed',
       durationMs: Date.now() - started,
@@ -400,7 +399,6 @@ async function evaluateCase(
 async function main(): Promise<void> {
   const candidateSha = requiredEnv('ORIGIN_IMAGE_CANDIDATE_SHA').toLowerCase();
   const expectedCorpusId = requiredEnv('ORIGIN_IMAGE_CORPUS_ID');
-  requiredEnv('OPENROUTER_API_KEY');
   requiredEnv('CLOUDFLARE_ACCOUNT_ID');
   requiredEnv('CLOUDFLARE_API_TOKEN');
 
@@ -408,25 +406,15 @@ async function main(): Promise<void> {
     throw new Error('WORLD_CLASS_IMAGE_PRIVATE_CANDIDATE_SHA_INVALID');
   }
 
-  const maxImageCostUsd = Number(process.env.ORIGIN_IMAGE_WORLD_CLASS_MAX_COST_USD ?? '0.25');
-  const maxTotalCostUsd = Number(process.env.ORIGIN_IMAGE_WORLD_CLASS_MAX_TOTAL_COST_USD ?? '6');
-  if (
-    !Number.isFinite(maxImageCostUsd)
-    || maxImageCostUsd < 0.01
-    || maxImageCostUsd > 1
-    || !Number.isFinite(maxTotalCostUsd)
-    || maxTotalCostUsd < maxImageCostUsd
-    || maxTotalCostUsd > 10
-  ) {
-    throw new Error('WORLD_CLASS_IMAGE_PRIVATE_COST_CAP_INVALID');
-  }
+  const maxImageCostUsd = 0;
+  const maxTotalCostUsd = 0;
 
   const runtimeEnv: NodeJS.ProcessEnv = {
     ...process.env,
     ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'true',
     ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
     ORIGIN_RELEASE_SHA: candidateSha,
-    ORIGIN_IMAGE_WORLD_CLASS_MAX_COST_USD: String(maxImageCostUsd),
+    ORIGIN_IMAGE_ZERO_COST_MAX_ATTEMPTS: '2',
     VERCEL_ENV: 'preview',
     NODE_ENV: 'test',
   };
@@ -461,9 +449,12 @@ async function main(): Promise<void> {
     const statusBody = await errorJson(status);
     if (
       statusBody?.evaluationReady !== true
-      || statusBody?.providerReady !== true
+      || statusBody?.primaryReady !== true
       || statusBody?.releaseSha !== candidateSha
-      || statusBody?.provider !== 'openrouter-image-api'
+      || statusBody?.provider !== 'cloudflare-workers-ai-free'
+      || statusBody?.freeOnly !== true
+      || statusBody?.costUsd !== 0
+      || statusBody?.paidFallbackEnabled !== false
     ) {
       throw new Error('WORLD_CLASS_IMAGE_PRIVATE_PROVIDER_NOT_READY');
     }
@@ -495,10 +486,6 @@ async function main(): Promise<void> {
 
     await fs.mkdir(imagesDir, { recursive: true });
     for (const [caseIndex, task] of corpus.tasks.entries()) {
-      if (totalCostUsd >= maxTotalCostUsd && caseIndex < corpus.tasks.length) {
-        runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_TOTAL_COST_CAP_REACHED');
-        break;
-      }
       const item = await evaluateCase(
         baseUrl,
         browser,
@@ -507,17 +494,13 @@ async function main(): Promise<void> {
         corpus.executionBudgetMs,
         imagesDir,
         candidateSha,
-        maxImageCostUsd,
         runtimeEnv,
       );
       cases.push(item);
       if (item.costUsd !== null) totalCostUsd += item.costUsd;
+      if (item.costUsd !== 0) runBlockers.push(`WORLD_CLASS_IMAGE_PRIVATE_NONZERO_COST:${item.caseId}`);
       if (item.output.durationMs > corpus.executionBudgetMs) {
         runBlockers.push(`WORLD_CLASS_IMAGE_PRIVATE_EXECUTION_BUDGET_EXCEEDED:${item.caseId}`);
-      }
-      if (totalCostUsd > maxTotalCostUsd) {
-        runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_TOTAL_COST_CAP_EXCEEDED');
-        break;
       }
     }
 
@@ -560,11 +543,11 @@ async function main(): Promise<void> {
       corpusDigest,
       candidateSha,
       evaluatorSha: candidateSha,
-      originSystemId: 'origin-world-class-v16',
+      originSystemId: 'origin-world-class-zero-cost',
       executionBudgetMs: corpus.executionBudgetMs,
       providerIdentities: [...identities],
-      maxImageCostUsd,
-      maxTotalCostUsd,
+      maxImageCostUsd: 0,
+      maxTotalCostUsd: 0,
       totalCostUsd: Math.round(totalCostUsd * 1_000_000) / 1_000_000,
       cases,
       blockers: [...new Set(runBlockers)],
