@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   preflight:
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_paid_evaluation == true }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
@@ -44,7 +44,7 @@ jobs:
       - name: Install evaluator dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Verify exact candidate binding and spend inputs
+      - name: Verify exact candidate binding and zero-cost policy
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         shell: bash
@@ -176,7 +176,7 @@ jobs:
           set -euo pipefail
           npm run eval:image-private-world-class
 
-      - name: Verify sanitized evidence surface
+      - name: Verify sanitized evidence and exact zero-cost execution
         shell: bash
         run: |
           set -euo pipefail
@@ -185,6 +185,15 @@ jobs:
           test -f test-results/image-private-world-class/candidate-summary.json
           test -d test-results/image-private-world-class/candidate-images
           test -z "$(find test-results/image-private-world-class -type f \( -name '*corpus*' -o -name '*prompt*' \) -print)"
+          node <<'NODE'
+          const fs=require('node:fs');
+          const evidence=JSON.parse(fs.readFileSync('test-results/image-private-world-class/candidate-evidence.json','utf8'));
+          const summary=JSON.parse(fs.readFileSync('test-results/image-private-world-class/candidate-summary.json','utf8'));
+          if(evidence.totalCostUsd!==0 || summary.totalCostUsd!==0) process.exit(31);
+          if(!Array.isArray(evidence.cases) || evidence.cases.some((c)=>c.costUsd!==0)) process.exit(32);
+          if(!Array.isArray(evidence.providerIdentities) || evidence.providerIdentities.some((x)=>!String(x).startsWith('cloudflare-workers-ai-free::'))) process.exit(33);
+          if(Array.isArray(evidence.blockers) && evidence.blockers.some((x)=>String(x).includes('NONZERO_COST'))) process.exit(34);
+          NODE
 
       - name: Upload candidate images and sanitized evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
