@@ -31,7 +31,7 @@ export function createArtifactV12Router() {
       capability: 'real-artifact-generation',
       formats: TYPES,
       generatorSelfTest: selfTest.formats,
-      formatLimitations: { pdf: 'Embedded Noto Sans JP Japanese/Latin renderer with width-aware wrapping; unsupported glyphs fail closed.' },
+      formatLimitations: { xlsx: 'Formula caches are independently calculated for numeric arithmetic, cell references and SUM. Other formulas require recalculation in a spreadsheet application; caller-provided caches are discarded.', pdf: 'Embedded Noto Sans JP Japanese/Latin renderer with width-aware wrapping; unsupported glyphs fail closed.' },
       delivery: 'verified-download',
       persistence: 'client-save-only',
       freeOnly: true,
