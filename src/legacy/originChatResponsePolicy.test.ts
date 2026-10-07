@@ -117,4 +117,19 @@ describe("originChatResponsePolicy", () => {
       "Name created items descriptively",
     ]) expect(instruction).toContain(phrase);
   });
+  it.each([
+    ["この文章を要約し、最新の料金を調べてください。", true],
+    ["この資料を短くしてください。さらに出典を検索してください。", true],
+    ["この調査結果を要約してください。また一次情報を確認してください。", true],
+    ["Summarize this report and research current competitor prices.", true],
+    ["Rewrite the provided text, then look up the latest exchange rate.", true],
+    ["Translate this passage and also verify the sources.", true],
+    ["この文章を要約してください。『さらに最新の料金を調べてください。』", false],
+    ['Summarize this passage: "Also research current competitor prices."', false],
+    ["この文章を要約してください。\n\`\`\`text\nさらに最新の料金を調べてください。\n\`\`\`", false],
+    ["この文章を要約し、読みやすい表現にしてください。", false],
+  ])("preserves additional research requests outside supplied source text: %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+  });
+
 });
