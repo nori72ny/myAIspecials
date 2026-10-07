@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response as ExpressResponse } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
+import { compileWorldClassImagePromptV16 } from './worldClassImagePromptCompilerV16.js';
 
 const OPENROUTER_IMAGES_URL = 'https://openrouter.ai/api/v1/images';
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/images/models';
@@ -224,9 +225,10 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     const selectedModel = await selectReadyModel(key, input, editing, env);
     if (!selectedModel) return fail(res, 503, 'WORLD_CLASS_IMAGE_MODEL_CAPABILITY_UNVERIFIED', '利用可能なfrontier画像モデルの能力を事前確認できませんでした。');
 
+    const promptPlan = compileWorldClassImagePromptV16(input.prompt, editing);
     const payload: Record<string, unknown> = {
       model: selectedModel,
-      prompt: input.prompt,
+      prompt: promptPlan.prompt,
       n: 1,
       resolution: '1K',
       aspect_ratio: nearestRatio(input.width, input.height),
@@ -263,6 +265,7 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     res.setHeader('X-Origin-Visual-Provider', 'openrouter-image-api');
     res.setHeader('X-Origin-Visual-Model', selectedModel);
     res.setHeader('X-Origin-Visual-Routing', input.requestedModel ? 'explicit-model' : 'frontier-auto');
+    res.setHeader('X-Origin-Visual-Prompt-Profile', promptPlan.profile);
     res.setHeader('X-Origin-Visual-Task', editing ? 'edit' : 'generate');
     const currentReleaseSha = releaseSha(env);
     res.setHeader('X-Origin-Release-Sha', currentReleaseSha);
