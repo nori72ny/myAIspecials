@@ -39,6 +39,116 @@ describe("originResearchSource", () => {
     expect(secureFetch.mock.calls[0][0]).toContain("kl=us-en");
   });
 
+  it("compacts mixed-language product research to stable topic terms", async () => {
+    secureFetch
+      .mockResolvedValueOnce(
+        '<a class="result__a" href="https://developers.cloudflare.com/workers-ai/">Cloudflare Workers AI</a>' +
+        '<div class="result__snippet">Cloudflare Workers AI runs AI models on the Cloudflare global network.</div>',
+      )
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "Cloudflare Workers AIの最新情報を調査してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("DuckDuckGo");
+    expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).toContain("q=cloudflare workers ai");
+    expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).not.toContain("複数ソース");
+    expect(result.sources[0]).toMatchObject({
+      domain: "developers.cloudflare.com",
+      sourceType: "web-search",
+    });
+  });
+
+  it("matches Japanese AI-agent intent against English agent terminology without lowering the match count", async () => {
+    const duckLanding = '<html><body><a class="header-url" href="/html/">DuckDuckGo</a></body></html>';
+    const bingRss = `<?xml version="1.0"?><rss><channel>
+      <item><title>AI agents and agentic systems</title><link>https://example-one.com/ai-agents</link><description>AI agents can plan, use tools, and verify multi-step work.</description></item>
+      <item><title>Building reliable AI agents</title><link>https://example-two.com/agents</link><description>Agentic AI systems coordinate planning, execution, and verification.</description></item>
+    </channel></rss>`;
+    secureFetch
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(bingRss)
+      .mockRejectedValueOnce(new Error("original page blocked"))
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "AIエージェントに関する最新情報を複数ソースで調査してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("Bing");
+    expect(result.sources).toHaveLength(2);
+    expect(decodeURIComponent(String(secureFetch.mock.calls[0][0]))).toContain("q=ai agent");
+    expect(new Set(result.sources.map(source => source.domain))).toEqual(new Set([
+      "example-one.com",
+      "example-two.com",
+    ]));
+  });
+
+  it("retries broad multi-source Bing RSS with a focused phrase query before failing closed", async () => {
+    const duckLanding = '<html><body><a class="header-url" href="/html/">DuckDuckGo</a></body></html>';
+    const broadRss = `<?xml version="1.0"?><rss><channel>
+      <item><title>Artificial intelligence overview</title><link>https://broad-one.example/ai</link><description>Artificial intelligence products and research.</description></item>
+      <item><title>AI tools</title><link>https://broad-two.example/tools</link><description>General AI software directory.</description></item>
+    </channel></rss>`;
+    const focusedRss = `<?xml version="1.0"?><rss><channel>
+      <item><title>AI agents and agentic systems</title><link>https://focused-one.example/agents</link><description>AI agents plan, use tools, and verify multi-step work.</description></item>
+      <item><title>Reliable AI agent workflows</title><link>https://focused-two.example/agent-workflows</link><description>Agentic AI workflows coordinate planning, execution, and verification.</description></item>
+    </channel></rss>`;
+    secureFetch
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(broadRss)
+      .mockResolvedValueOnce(focusedRss)
+      .mockRejectedValueOnce(new Error("original page blocked"))
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "AIエージェントに関する最新情報を複数ソースで調査してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("Bing");
+    expect(result.sources).toHaveLength(2);
+    expect(new Set(result.sources.map(source => source.domain))).toEqual(new Set([
+      "focused-one.example",
+      "focused-two.example",
+    ]));
+    const focusedUrl = decodeURIComponent(String(secureFetch.mock.calls[3][0]));
+    expect(focusedUrl).toContain('q="ai agent" agents agentic latest');
+  });
+
+  it("uses keyless Bing RSS to satisfy an independent multi-source request when DuckDuckGo has no results", async () => {
+    const duckLanding = '<html><body><a class="header-url" href="/html/">DuckDuckGo</a></body></html>';
+    const bingRss = `<?xml version="1.0"?><rss><channel>
+      <item><title>Cloudflare Workers AI docs</title><link>https://developers.cloudflare.com/workers-ai/</link><description>Cloudflare Workers AI runs AI models on Cloudflare infrastructure.</description></item>
+      <item><title>Workers AI repository</title><link>https://github.com/cloudflare/workers-ai-provider</link><description>GitHub repository related to Cloudflare Workers AI tooling and integrations.</description></item>
+    </channel></rss>`;
+    secureFetch
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(duckLanding)
+      .mockResolvedValueOnce(bingRss)
+      .mockRejectedValueOnce(new Error("original page blocked"))
+      .mockRejectedValueOnce(new Error("original page blocked"));
+
+    const result = await researchCurrentInformation(
+      "Cloudflare Workers AIの最新情報を複数ソースで調査してください。",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("Bing");
+    expect(result.sources).toHaveLength(2);
+    expect(new Set(result.sources.map(source => source.domain))).toEqual(new Set([
+      "developers.cloudflare.com",
+      "github.com",
+    ]));
+    expect(String(secureFetch.mock.calls[2][0])).toContain("https://www.bing.com/search?");
+    expect(String(secureFetch.mock.calls[2][0])).toContain("format=rss");
+  });
+
   it("uses Japanese search preferences for Japanese queries", async () => {
     secureFetch.mockResolvedValueOnce('<a class="result__a" href="https://example.com/ai">人工知能</a><div class="result__snippet">人工知能に関する説明</div>');
     const result = await researchCurrentInformation("人工知能");
@@ -50,6 +160,7 @@ describe("originResearchSource", () => {
 
   it("does not promote search excerpts to page evidence after metadata-only retrieval", async () => {
     secureFetch
+      .mockRejectedValueOnce(new Error("search unavailable"))
       .mockRejectedValueOnce(new Error("search unavailable"))
       .mockRejectedValueOnce(new Error("search unavailable"))
       .mockResolvedValueOnce(JSON.stringify({ pages: [{ key: "AI", title: "AI", excerpt: "Artificial intelligence." }] }))
@@ -72,6 +183,7 @@ describe("originResearchSource", () => {
     secureFetch
       .mockRejectedValueOnce(new Error("search unavailable"))
       .mockRejectedValueOnce(new Error("search unavailable"))
+      .mockRejectedValueOnce(new Error("search unavailable"))
       .mockResolvedValueOnce(JSON.stringify({ pages: [{ key: "AI", title: "AI", excerpt: "Artificial intelligence." }] }))
       .mockResolvedValueOnce(JSON.stringify({ html_url: "https://en.wikipedia.org/wiki/AI", latest: { timestamp: "2026-07-01T00:00:00Z" } }));
 
@@ -80,6 +192,7 @@ describe("originResearchSource", () => {
   });
 
   it("fails closed when the source cannot be reached", async () => {
+    secureFetch.mockRejectedValueOnce(new Error("network blocked"));
     secureFetch.mockRejectedValueOnce(new Error("network blocked"));
     secureFetch.mockRejectedValueOnce(new Error("network blocked"));
     secureFetch.mockRejectedValueOnce(new Error("Secure fetch request timed out."));
@@ -94,6 +207,7 @@ describe("originResearchSource", () => {
   });
 
   it("classifies invalid fallback responses without returning parser details", async () => {
+    secureFetch.mockRejectedValueOnce(new Error("Fetch error: HTTP status 403"));
     secureFetch.mockRejectedValueOnce(new Error("Fetch error: HTTP status 403"));
     secureFetch.mockRejectedValueOnce(new Error("Fetch error: HTTP status 403"));
     secureFetch.mockResolvedValueOnce("not-json");
@@ -164,7 +278,10 @@ describe("originResearchSource", () => {
     const unrelated =
       '<a class="result__a" href="https://en.wikipedia.org/wiki/The_Beatles">The Beatles</a><div class="result__snippet">English rock band.</div>' +
       '<a class="result__a" href="https://www.nicovideo.jp/">Niconico</a><div class="result__snippet">Video service.</div>';
-    secureFetch.mockResolvedValueOnce(unrelated).mockResolvedValueOnce(unrelated);
+    secureFetch
+      .mockResolvedValueOnce(unrelated)
+      .mockResolvedValueOnce(unrelated)
+      .mockResolvedValueOnce('<?xml version="1.0"?><rss><channel><item><title>Unrelated</title><link>https://example.com/random</link><description>Unrelated content.</description></item></channel></rss>');
 
     const result = await researchCurrentInformation(
       "Google ビジネス プロフィールの営業時間の編集方法を、Google公式ヘルプを出典として短く説明してください。",
@@ -172,10 +289,11 @@ describe("originResearchSource", () => {
 
     expect(result.ok).toBe(false);
     expect(result.sources).toEqual([]);
-    expect(result.searchProvider).toBe("DuckDuckGo");
+    expect(result.searchProvider).toBe("Bing");
     expect(result.failure).toEqual({ stage: "web-search", code: "SOURCE_CONSTRAINT_UNMET" });
-    expect(secureFetch).toHaveBeenCalledTimes(2);
+    expect(secureFetch).toHaveBeenCalledTimes(3);
     expect(String(secureFetch.mock.calls[1][0])).toContain("https://lite.duckduckgo.com/lite/");
+    expect(String(secureFetch.mock.calls[2][0])).toContain("https://www.bing.com/search?");
   });
 
   it("recovers an official Google Help result from DuckDuckGo lite when the HTML surface misses it", async () => {

@@ -18,6 +18,8 @@ import { createWebPublicationStoreFromEnv } from "../builder/webPublicationStore
 import { createWebPublicationV131Router } from "../builder/webPublicationV131Router.js";
 import { createVisualArtifactV15Router } from "../creative/visualArtifactV15Router.js";
 import { createRasterImageV15Router } from "../creative/rasterImageV15Router.js";
+import { createWorldClassImageV16Router } from "../creative/worldClassImageV16Router.js";
+import { createImageGatewayEvalPreflightRouter } from "../creative/imageGatewayEvalPreflightRouter.js";
 import { createMcpManagementRouter, type McpManagementDependencies } from "../mcp/mcpManagementRouter.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
@@ -37,10 +39,12 @@ export function createOriginApp(
   app.use("/api/builder", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
   app.use("/api/coding/v1.4", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
   app.use("/api/creative/v1.5", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
+  app.use("/api/creative/v1.6", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
   app.use("/api/generate-image", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
   // Reference-image edits are explicitly isolated from the normal 64kb JSON boundary.
   // The router applies stricter decoded-image count/size/dimension checks before provider execution.
   app.use("/api/creative/v1.5/raster/edit", express.json({ limit: "3mb", strict: true, type: ["application/json", "application/*+json"] }));
+  app.use("/api/creative/v1.6/world-class/edit", express.json({ limit: "3mb", strict: true, type: ["application/json", "application/*+json"] }));
   app.use(express.json({ limit: "64kb", strict: true, type: ["application/json", "application/*+json"] }));
 
   const invalidJsonHandler: ErrorRequestHandler = (error, _req, res, next) => {
@@ -77,6 +81,8 @@ export function createOriginApp(
   app.use(createCodingJobV14Router(env, codingStores.jobStore, undefined, codingStores.resultStore));
   app.use(createVisualArtifactV15Router(env));
   app.use(createRasterImageV15Router(env));
+  app.use(createWorldClassImageV16Router(env));
+  app.use(createImageGatewayEvalPreflightRouter(env));
   app.use(createOriginResearchRouter());
   // Browser clients request text/event-stream. Handle provider-eligible requests here
   // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router

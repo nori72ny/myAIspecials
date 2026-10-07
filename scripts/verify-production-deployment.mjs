@@ -100,7 +100,10 @@ export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
     const event = JSON.parse(raw);
     if (event.type === "delta") generated += event.text;
     else if (event.type === "complete") completion = event;
-    else assert.fail("Production stream emitted an unsafe event.");
+    else if (event.type === "error") {
+      assert.ok(generated.length > 0, "Production stream emitted an error before any verified provider delta.");
+      throw new Error(`Production /api/chat upstream stream interrupted after verified deltas; code=PROVIDER_STREAM_INTERRUPTED; x-vercel-id=${vercelId || "missing"}; body=[response body withheld]`);
+    } else assert.fail("Production stream emitted an unsafe event.");
   }
   assert.ok(doneSeen && completion, "Production stream must include a verified completion and DONE.");
   assert.deepEqual({ modelId: completion.modelId, costUsd: completion.costUsd, fallbackUsed: completion.fallbackUsed }, { modelId: EXPECTED_FREE_MODEL, costUsd: 0, fallbackUsed: false });

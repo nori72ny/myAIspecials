@@ -20,7 +20,7 @@ const MAX_TOTAL_REFERENCE_BYTES = 2 * 1024 * 1024;
 const MAX_REFERENCE_DIMENSION_EXCLUSIVE = 512;
 
 function semanticDeliveryGateEnabled(env: NodeJS.ProcessEnv): boolean {
-  return env.ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE?.trim().toLowerCase() === 'true';
+  return env.ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE?.trim().toLowerCase() !== 'false';
 }
 
 function sensitiveKinds(body: unknown): string[] {

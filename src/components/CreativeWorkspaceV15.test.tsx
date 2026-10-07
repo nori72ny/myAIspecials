@@ -186,7 +186,7 @@ describe('CreativeWorkspaceV15', () => {
     expect(screen.getByText(/SHA-256 aaaaaaaaaaaa…/)).toBeTruthy();
     expect(screen.getByText(/visual-brain-v1/)).toBeTruthy();
     expect(screen.getByText(/origin-local-svg/)).toBeTruthy();
-    expect(screen.getByText(/Critic 100/)).toBeTruthy();
+    expect(screen.getByText(/文字・安全性の自動検査済み/)).toBeTruthy();
     expect(screen.getByText(/実バイト照合済み/)).toBeTruthy();
     await screen.findByText('端末内履歴に保存しました。SVGは再読み込み後もこの端末から開けます。');
 

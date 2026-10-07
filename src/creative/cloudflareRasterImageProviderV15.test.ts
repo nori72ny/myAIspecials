@@ -85,7 +85,7 @@ describe('cloudflareRasterImageProviderV15', () => {
     await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
       configured: true,
       ready: true,
-      model: '@cf/black-forest-labs/flux-2-klein-4b',
+      model: '@cf/black-forest-labs/flux-2-klein-9b',
       zeroCostVerified: true,
       reason: null,
     });
@@ -191,6 +191,20 @@ describe('cloudflareRasterImageProviderV15', () => {
     });
   });
 
+  it('rejects an unapproved Cloudflare image model before any provider request', async () => {
+    const fetchMock = vi.fn();
+    await expect(getCloudflareRasterStatusV15({
+      ...ENV,
+      ORIGIN_CLOUDFLARE_IMAGE_MODEL: '@cf/unknown/frontier-model',
+    }, fetchMock as unknown as typeof fetch)).resolves.toMatchObject({
+      configured: true,
+      ready: false,
+      model: null,
+      reason: 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('generates only after re-verifying the free-plan boundary immediately before inference', async () => {
     const bytes = png(768,1024);
     const fetchMock = vi.fn()
@@ -208,7 +222,7 @@ describe('cloudflareRasterImageProviderV15', () => {
 
     expect(result).toMatchObject({
       providerId: 'cloudflare-workers-ai-free',
-      model: '@cf/black-forest-labs/flux-2-klein-4b',
+      model: '@cf/black-forest-labs/flux-2-klein-9b',
       mimeType: 'image/png',
       width: 768,
       height: 1024,

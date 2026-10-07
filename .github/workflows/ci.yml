@@ -233,9 +233,10 @@ jobs:
           fi
           echo "$classification"
           availability="$(CLASSIFICATION="$classification" node -e 'const v=JSON.parse(process.env.CLASSIFICATION); process.stdout.write(String(v.upstreamAvailability))')"
+          provider_code="$(CLASSIFICATION="$classification" node -e 'const v=JSON.parse(process.env.CLASSIFICATION); process.stdout.write(String(v.providerCode ?? "UNKNOWN"))')"
           if [ "$availability" = 'degraded' ]; then
-            echo "::warning title=Free provider quota exhausted::Production release is healthy, but live AI availability is degraded because the reviewed free provider returned PROVIDER_RATE_LIMITED. Paid fallback remains disabled."
-            printf '### ORIGIN production verification\n\n- Release: verified\n- Live AI availability: degraded\n- Provider code: `PROVIDER_RATE_LIMITED`\n- Paid fallback: disabled\n' >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Free provider availability degraded::Production release is healthy, but the reviewed free provider is temporarily degraded (${provider_code}). Paid fallback remains disabled."
+            printf '### ORIGIN production verification\n\n- Release: verified\n- Live AI availability: degraded\n- Provider code: `%s`\n- Paid fallback: disabled\n' "$provider_code" >> "$GITHUB_STEP_SUMMARY"
           else
             printf '### ORIGIN production verification\n\n- Release: verified\n- Live AI availability: available\n- Paid fallback: disabled\n' >> "$GITHUB_STEP_SUMMARY"
           fi

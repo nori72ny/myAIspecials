@@ -22,6 +22,16 @@ describe('production verification result classification', () => {
     });
   });
 
+  it('classifies a verified partial-stream interruption as degraded without hiding it', () => {
+    const stderr = 'Production /api/chat upstream stream interrupted after verified deltas; code=PROVIDER_STREAM_INTERRUPTED; x-vercel-id=synthetic; body=[response body withheld]';
+    expect(classifyProductionVerificationResult(1, stderr)).toEqual({
+      releaseVerified: true,
+      upstreamAvailability: 'degraded',
+      providerCode: 'PROVIDER_STREAM_INTERRUPTED',
+      releaseBlocking: false,
+    });
+  });
+
   it.each([
     'Production /api/chat must return HTTP 200; received 503; code=PROVIDER_UNAVAILABLE; body=[response body withheld]',
     'Production did not expose expected main SHA within the bounded window.',

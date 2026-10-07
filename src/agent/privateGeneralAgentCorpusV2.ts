@@ -14,7 +14,8 @@ export const GENERAL_AGENT_PRIVATE_CORPUS_VERSION_V2 =
   'origin.general-agent-private-corpus.v1' as const;
 
 export const GENERAL_AGENT_EVALUATOR_PERMISSION_PROFILE_V1 = Object.freeze({
-  network: 'disabled',
+  network: 'raw-disabled',
+  groundedResearch: 'allowlisted-public-web-only',
   repositoryRead: 'allowed',
   repositoryWrite: 'explicit-approved-only',
   verification: ['test', 'typecheck', 'lint', 'build'],
@@ -188,6 +189,12 @@ export function validateGeneralAgentPrivateCorpusV2(
     }
     if (task.expectedTool === 'web_search_grounding' && !task.capabilities.includes('research')) {
       blockers.push(`${task.id}:PRIVATE_TASK_RESEARCH_CAPABILITY_MISSING`);
+    }
+    if (
+      task.expectedTool === 'web_search_grounding'
+      && (typeof task.params?.query !== 'string' || !task.params.query.trim() || task.params.query.length > 2000)
+    ) {
+      blockers.push(`${task.id}:PRIVATE_TASK_RESEARCH_QUERY_INVALID`);
     }
     if (task.capabilities.some(capability =>
       !(GENERAL_AGENT_CAPABILITIES_V2 as readonly string[]).includes(capability))) {

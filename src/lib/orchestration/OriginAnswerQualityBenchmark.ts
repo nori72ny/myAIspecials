@@ -52,6 +52,8 @@ function boundedScore(value: number): boolean {
 
 function validObservation(item: OriginAnswerQualityBenchmarkObservation): boolean {
   return item.caseId.trim().length > 0
+    && typeof item.verifierRejectedUnsupportedClaim === "boolean"
+    && (item.repairSucceeded === undefined || typeof item.repairSucceeded === "boolean")
     && boundedScore(item.factualSupportScore)
     && boundedScore(item.citationPrecisionScore)
     && boundedScore(item.taskCompletionScore)
@@ -75,7 +77,8 @@ export function aggregateOriginAnswerQualityBenchmark(
   observations: readonly OriginAnswerQualityBenchmarkObservation[],
 ): OriginAnswerQualityBenchmarkResult {
   if (observations.length === 0) return { ok: false, code: "EMPTY_BENCHMARK" };
-  if (!observations.every(validObservation)) {
+  if (!observations.every(validObservation)
+    || new Set(observations.map(item => item.caseId.trim())).size !== observations.length) {
     return { ok: false, code: "INVALID_BENCHMARK_OBSERVATION" };
   }
 

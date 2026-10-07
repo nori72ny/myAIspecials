@@ -51,13 +51,14 @@
     "eval:artifact-private": "tsx scripts/run-artifact-private-heldout-v1.ts",
     "inspect:image-private-corpus": "tsx scripts/inspect-image-private-corpus-v1.ts",
     "eval:image-private": "tsx scripts/run-image-private-heldout-v1.ts",
+    "eval:image-private-world-class": "tsx scripts/run-world-class-image-private-heldout-v2.ts",
     "inspect:image-edit-private-corpus": "tsx scripts/inspect-image-edit-private-corpus-v1.ts",
     "eval:image-edit-private": "tsx scripts/run-image-edit-private-heldout-v1.ts",
     "eval:aq-budgeted-day": "tsx scripts/run-aq-budgeted-day.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@tailwindcss/vite": "^4.1.14",
     "@types/dompurify": "^3.0.5",
     "@vitejs/plugin-react": "^5.0.4",

@@ -1,0 +1,191 @@
+name: Image Frontier OpenRouter Bakeoff V3
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: origin-image-frontier-openrouter-bakeoff-v3
+  cancel-in-progress: false
+
+jobs:
+  run-bakeoff:
+    if: contains(github.event.head_commit.message, '[run-image-frontier-bakeoff-v3]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ORIGIN_BAKEOFF_CANDIDATE_SHA: ${{ github.sha }}
+      ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD: '6'
+      ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD: '0.25'
+      ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD: '0.25'
+      ORIGIN_BAKEOFF_CONFIRMED_PAID_EVALUATION: 'true'
+      ORIGIN_BAKEOFF_OUTPUT_DIR: ${{ github.workspace }}/test-results/image-frontier-openrouter-bakeoff-v3
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify bounded paid-evaluation authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          test "$ORIGIN_BAKEOFF_CONFIRMED_PAID_EVALUATION" = 'true'
+          test "$ORIGIN_BAKEOFF_CANDIDATE_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          node <<'NODE'
+          const total=Number(process.env.ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD);
+          const per=Number(process.env.ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD);
+          const judge=Number(process.env.ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD);
+          if(!Number.isFinite(total)||total<=0||total>6) process.exit(2);
+          if(!Number.isFinite(per)||per<=0||per>0.25) process.exit(3);
+          if(!Number.isFinite(judge)||judge<=0||judge>0.25) process.exit(4);
+          NODE
+
+      - name: Verify OpenRouter paid capacity before any paid call
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_meta="$(mktemp)"
+          trap 'rm -f "$key_meta"' EXIT
+          http="$(curl --silent --show-error --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H 'Accept: application/json' \
+            -o "$key_meta" -w '%{http_code}' \
+            https://openrouter.ai/api/v1/key)"
+          test "$http" = '200'
+          jq -e '.data and (.data.is_free_tier | type == "boolean")' "$key_meta" >/dev/null
+          jq -c '{is_free_tier:.data.is_free_tier,limit:.data.limit,limit_remaining:.data.limit_remaining,limit_reset:.data.limit_reset}' "$key_meta" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(jq -r '.data.is_free_tier' "$key_meta")" = 'true' ]; then
+            echo "::error title=OpenRouter paid credits required::The configured evaluation key is still on the free tier. No paid image request was started."
+            exit 5
+          fi
+          remaining="$(jq -r '.data.limit_remaining // empty' "$key_meta")"
+          if [ -n "$remaining" ]; then
+            REMAINING="$remaining" node <<'NODE'
+          const remaining=Number(process.env.REMAINING);
+          if(Number.isFinite(remaining) && remaining < 6) process.exit(6);
+          NODE
+          fi
+
+      - name: Preflight OpenRouter key and exact benchmark models
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 45             -H "Authorization: Bearer $OPENROUTER_API_KEY"             -H 'Accept: application/json'             https://openrouter.ai/api/v1/images/models > image-models.json
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 45             -H "Authorization: Bearer $OPENROUTER_API_KEY"             -H 'Accept: application/json'             https://openrouter.ai/api/v1/models > text-models.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const image=JSON.parse(fs.readFileSync('image-models.json','utf8'));
+          const text=JSON.parse(fs.readFileSync('text-models.json','utf8'));
+          const imageIds=new Set((image.data||[]).map(x=>x.id));
+          const textIds=new Set((text.data||[]).map(x=>x.id));
+          const requiredImages=[
+            'openai/gpt-image-2.5-sunburst',
+            'microsoft/mai-image-2.6',
+            'x-ai/grok-imagine-image-2.0',
+            'bytedance-seed/seedream-4.5',
+          ];
+          const requiredJudges=[
+            'openai/gpt-5.1',
+            'google/gemini-2.5-flash',
+          ];
+          for(const id of requiredImages) if(!imageIds.has(id)){console.error('missing image model',id);process.exit(11);}
+          for(const id of requiredJudges) if(!textIds.has(id)){console.error('missing judge model',id);process.exit(12);}
+          NODE
+          rm -f image-models.json text-models.json
+
+      - name: Check one-shot marker before paid calls
+        id: one_shot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="origin-image-frontier-openrouter-v3-started-${GITHUB_SHA}"
+          curl --fail --silent --show-error             -H 'Accept: application/vnd.github+json'             -H "Authorization: Bearer ${GH_TOKEN}"             -H 'X-GitHub-Api-Version: 2026-03-10'             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${marker}&per_page=100"             -o prior-artifacts.json
+          count="$(node -e "const v=require('./prior-artifacts.json'); process.stdout.write(String(v.total_count||0))")"
+          rm -f prior-artifacts.json
+          if [ "$count" != '0' ]; then
+            echo "can_start=false" >> "$GITHUB_OUTPUT"
+            echo "This exact candidate has already started paid image evaluation."
+            exit 0
+          fi
+          echo "can_start=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create one-shot start marker
+        if: steps.one_shot.outputs.can_start == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          node <<'NODE'
+          const fs=require('node:fs');
+          fs.writeFileSync('test-results/openrouter-bakeoff-started.json',JSON.stringify({
+            schemaVersion:'origin.image-frontier-openrouter-bakeoff-start-marker.v3',
+            candidateSha:process.env.GITHUB_SHA,
+            workflowRunId:process.env.GITHUB_RUN_ID,
+            maxTotalCostUsd:Number(process.env.ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD),
+            maxImageCostUsd:Number(process.env.ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD),
+            confirmedPaidEvaluation:process.env.ORIGIN_BAKEOFF_CONFIRMED_PAID_EVALUATION==='true',
+            started:true,
+          },null,2)+'\n');
+          NODE
+
+      - name: Preserve marker before paid evaluation
+        if: steps.one_shot.outputs.can_start == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-image-frontier-openrouter-v3-started-${{ github.sha }}
+          path: test-results/openrouter-bakeoff-started.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Install Chromium for deterministic pixel validation
+        if: steps.one_shot.outputs.can_start == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real 24-case OpenRouter frontier bakeoff
+        if: steps.one_shot.outputs.can_start == 'true'
+        run: node --import tsx scripts/run-image-frontier-openrouter-bakeoff-v3.ts
+
+      - name: Publish benchmark or partial progress
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="test-results/image-frontier-openrouter-bakeoff-v3"
+          if [ -f "$dir/benchmark-summary.json" ]; then
+            cat "$dir/benchmark-summary.json"
+          elif [ -f "$dir/progress.json" ]; then
+            cat "$dir/progress.json"
+          else
+            echo "No paid-case result file was produced."
+          fi
+
+      - name: Upload comparison evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-frontier-openrouter-bakeoff-v3-${{ github.sha }}
+          path: test-results/image-frontier-openrouter-bakeoff-v3/
+          retention-days: 30
+          if-no-files-found: warn

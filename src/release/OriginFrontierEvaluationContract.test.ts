@@ -40,6 +40,7 @@ describe('frontier evaluation contract', () => {
       'eval:heldout-agent:trusted-comparison': 'tsx scripts/evaluate-general-agent-trusted-comparison-v2.ts',
       'eval:image-blind-quality': 'tsx scripts/evaluate-image-blind-quality-v15.ts',
       'eval:image-private': 'tsx scripts/run-image-private-heldout-v1.ts',
+      'eval:image-private-world-class': 'tsx scripts/run-world-class-image-private-heldout-v2.ts',
       'eval:artifact-blind-quality': 'tsx scripts/evaluate-artifact-blind-quality-v1.ts',
       'eval:artifact-private': 'tsx scripts/run-artifact-private-heldout-v1.ts',
     };
