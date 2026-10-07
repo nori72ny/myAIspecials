@@ -1,0 +1,93 @@
+name: Image runtime 24-case comparison
+
+on:
+  push:
+    branches:
+      - eval/image-runtime-comparison-20261007
+    paths:
+      - .github/workflows/image-runtime-comparison-once.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-image-runtime-comparison-once
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ORIGIN_IMAGE_CANDIDATE_SHA: ${{ github.sha }}
+      ORIGIN_IMAGE_COMPARISON_MAX_TOTAL_USD: '6.00'
+      ORIGIN_IMAGE_COMPARISON_MAX_IMAGE_USD: '0.25'
+      ORIGIN_IMAGE_COMPARISON_OUTPUT_DIR: ${{ github.workspace }}/test-results/image-runtime-comparison
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install evaluator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Preflight OpenRouter key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          ORIGIN_IMAGE_WORLD_CLASS_MODEL=openai/gpt-image-2.5-sunburst node --import tsx scripts/preflight-world-class-image-v16.ts
+
+      - name: Run 24-case four-way blind comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/run-image-runtime-comparison-v1.ts | tee comparison-console.json
+
+      - name: Validate report surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f test-results/image-runtime-comparison/summary.json
+          test -f test-results/image-runtime-comparison/benchmark-report.json
+          test -f test-results/image-runtime-comparison/case-details.json
+          test -d test-results/image-runtime-comparison/images
+          node <<'NODE'
+          const fs=require('node:fs');
+          const s=JSON.parse(fs.readFileSync('test-results/image-runtime-comparison/summary.json','utf8'));
+          if(Number(s.totalCostUsd)>6.000001) process.exit(2);
+          if(!Array.isArray(s.references)||s.references.length!==3) process.exit(3);
+          if(!Array.isArray(s.judges)||s.judges.length!==2) process.exit(4);
+          console.log(JSON.stringify({
+            casesMeasured:s.casesMeasured,
+            totalCostUsd:s.totalCostUsd,
+            failures:s.failures?.length||0,
+            wins:s.benchmark?.wins,
+            ties:s.benchmark?.ties,
+            losses:s.benchmark?.losses,
+            overallMean:s.benchmark?.overallMean,
+            passed:s.benchmark?.passed,
+            blockers:s.benchmark?.blockers,
+            familySummary:s.familySummary
+          },null,2));
+          NODE
+
+      - name: Upload comparison evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-runtime-comparison-${{ github.sha }}
+          path: |
+            test-results/image-runtime-comparison/
+            comparison-console.json
+          retention-days: 90
+          if-no-files-found: warn
