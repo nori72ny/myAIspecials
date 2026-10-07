@@ -139,7 +139,7 @@ function xlsxCellXml(value: ArtifactCell, ref: string, styleId = 0): string {
 }
 function spreadsheetVisualWidth(value: unknown): number {
   const display = isFormulaCell(value) ? (value.cachedValue ?? `=${value.formula}`) : value;
-  return String(display ?? '').split(/\r\n|\r|\n/).reduce((max, line) => Math.max(max, [...line.replace(/\t/g, '    ')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0)), 0);
+  return String(display ?? '').split(/\r\n|\r|\n/).reduce((max, line) => Math.max(max, [...line.replace(/\t/g, '    ')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff || /[MWmw@%&]/.test(char) ? 2 : /[A-Z]/.test(char) ? 1.5 : 1), 0)), 0);
 }
 function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
   const table = calculateFormulaCaches(rows?.length ? rows : content.split(/\r?\n/).filter(Boolean).map(line => [line]));
