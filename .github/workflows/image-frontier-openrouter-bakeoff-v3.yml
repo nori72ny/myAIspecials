@@ -76,7 +76,7 @@ jobs:
             'openai/gpt-image-2.5-sunburst',
             'microsoft/mai-image-2.6',
             'x-ai/grok-imagine-image-2.0',
-            'google/gemini-3.1-flash-lite-image',
+            'bytedance-seed/seedream-4.5',
           ];
           const requiredJudges=[
             'openai/gpt-5.1',
