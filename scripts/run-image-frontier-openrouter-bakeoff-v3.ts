@@ -63,7 +63,7 @@ const ORIGIN_MODEL = 'openai/gpt-image-2.5-sunburst';
 const REFERENCES = [
   { systemId: 'microsoft/mai-image-2.6', model: 'microsoft/mai-image-2.6' },
   { systemId: 'x-ai/grok-imagine-image-2.0', model: 'x-ai/grok-imagine-image-2.0', quality: 'low' },
-  { systemId: 'google/gemini-3.1-flash-lite-image', model: 'google/gemini-3.1-flash-lite-image' },
+  { systemId: 'bytedance-seed/seedream-4.5', model: 'bytedance-seed/seedream-4.5' },
 ] as const;
 const JUDGES = [
   'openai/gpt-5.1',
