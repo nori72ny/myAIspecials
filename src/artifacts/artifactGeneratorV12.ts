@@ -139,7 +139,7 @@ function xlsxCellXml(value: ArtifactCell, ref: string, styleId = 0): string {
 }
 function spreadsheetVisualWidth(value: unknown): number {
   const display = isFormulaCell(value) ? (value.cachedValue ?? `=${value.formula}`) : value;
-  return [...String(display ?? '')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0);
+  return String(display ?? '').split(/\r\n|\r|\n/).reduce((max, line) => Math.max(max, [...line.replace(/\t/g, '    ')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0)), 0);
 }
 function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
   const table = calculateFormulaCaches(rows?.length ? rows : content.split(/\r?\n/).filter(Boolean).map(line => [line]));
@@ -151,11 +151,19 @@ function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
   const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('');
   const rowXml = table.map((row, r) => {
     const styleId = r === 0 ? 1 : (r % 2 === 0 ? 2 : 0);
-    return `<row r="${r + 1}" ht="${r === 0 ? 24 : 21}" customHeight="1">${row.map((value, col) => xlsxCellXml(value, `${columnName(col)}${r + 1}`, styleId)).join('')}</row>`;
+    const lines = Math.max(1, ...row.map((value, col) => {
+      const display = isFormulaCell(value) ? (value.cachedValue ?? '') : value;
+      const capacity = Math.max(1, (widths[col] - 3) / 1.1);
+      return String(display ?? '').split(/\r\n|\r|\n/).reduce((count, line) => count + Math.max(1, Math.ceil(spreadsheetVisualWidth(line) / capacity)), 0);
+    }));
+    const height = lines === 1 ? (r === 0 ? 24 : 21) : lines * 16 + 8;
+    // Excel cannot display a row taller than 409 points. Do not silently clip it.
+    if (height > 409) throw new Error('XLSX_CELL_CONTENT_REQUIRES_TOO_MANY_LINES');
+    return `<row r="${r + 1}" ht="${height}" customHeight="1">${row.map((value, col) => xlsxCellXml(value, `${columnName(col)}${r + 1}`, styleId)).join('')}</row>`;
   }).join('');
   const lastColumn = columnName(columnCount - 1);
   const filter = table.length > 1 ? `<autoFilter ref="A1:${lastColumn}${table.length}"/>` : '';
-  const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><color theme="1"/><name val="Aptos"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Aptos"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0F6CBD"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF4F7FB"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF0A4F8A"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+  const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><color theme="1"/><name val="Aptos"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Aptos"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0F6CBD"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF4F7FB"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF0A4F8A"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
   return zipStore([
     { name: '[Content_Types].xml', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>') },
     { name: '_rels/.rels', data: Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') },
