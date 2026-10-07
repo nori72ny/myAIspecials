@@ -565,7 +565,19 @@ async function main(){
           scores:j.scores,
         })),
       });
-      process.stdout.write(JSON.stringify({event:'case-complete',caseId:task.caseId,family:task.family,outcome:outcome.outcome,totalCostUsd:Math.round(totalCostUsd*1e6)/1e6})+'\\n');
+      const progress = {
+        schemaVersion:'origin.image-frontier-openrouter-bakeoff-progress.v3',
+        candidateSha,
+        completedCases:evidenceCases.length,
+        totalCases:TASKS.length,
+        totalCostUsd:Math.round(totalCostUsd*1e6)/1e6,
+        totalCostCapUsd:TOTAL_COST_CAP,
+        lastCaseId:task.caseId,
+        casesDetail:diagnostics,
+      };
+      await fs.writeFile(path.join(outputDir,'progress.json'),JSON.stringify(progress,null,2)+'\\n',{mode:0o600});
+      await fs.writeFile(path.join(outputDir,`case-${task.caseId}.json`),JSON.stringify(diagnostics.at(-1),null,2)+'\\n',{mode:0o600});
+      process.stdout.write(JSON.stringify({event:'case-complete',caseId:task.caseId,family:task.family,outcome:outcome.outcome,totalCostUsd:progress.totalCostUsd})+'\\n');
     }
 
     const createdAt=new Date().toISOString();
