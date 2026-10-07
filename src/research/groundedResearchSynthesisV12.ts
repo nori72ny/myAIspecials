@@ -264,16 +264,12 @@ export function buildGroundedResearchSynthesisPrompt(
   ].filter(Boolean).join("\n");
 }
 
-function normalizedEvidenceText(value: string): string {
-  return value.normalize("NFKC").toLowerCase().replace(/[\s,，]/g, "");
-}
-
 function numericTokens(value: string): string[] {
   const withoutCitations = value.replace(CITATION_PATTERN, " ");
-  const matches = withoutCitations.normalize("NFKC").match(/(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
+  const matches = withoutCitations.normalize("NFKC").match(/[+-]?(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
   return [...new Set(matches.map((token) => token.replace(/[\s,，]/g, "").toLowerCase()).filter((token) => {
     const digits = token.match(/\d/g)?.length ?? 0;
-    const hasSemanticSuffix = /[%円ドル]|usd|jpy|eur|gbp|年|月|日|万|億|兆/i.test(token);
+    const hasSemanticSuffix = /[$¥€£%円ドル]|usd|jpy|eur|gbp|年|月|日|万|億|兆/i.test(token);
     return digits >= 2 || hasSemanticSuffix;
   }))];
 }
@@ -313,12 +309,12 @@ export function validateGroundedResearchSynthesis(
     const normalized = safeHttpsUrl(source.url);
     if (normalized) {
       sourceMap.set(id, normalized);
-      sourceEvidence.set(id, normalizedEvidenceText([
+      sourceEvidence.set(id, [
         source.title,
         source.excerpt,
         evidenceTimestamp(source.retrievedAt) ?? "",
         evidenceTimestamp(source.revisionTimestamp) ?? "",
-      ].join("\n")));
+      ].join("\n"));
     }
   });
 
@@ -365,8 +361,10 @@ export function validateGroundedResearchSynthesis(
 
     const ids = citedSourceIds(unit);
     const evidenceText = ids.map((id) => sourceEvidence.get(id) ?? "").join("\n");
+    // Compare whole numeric tokens; substring matches can silently change magnitude or sign.
+    const supportedNumbers = new Set(numericTokens(evidenceText));
     for (const token of numericTokens(unit)) {
-      if (!normalizedEvidenceText(evidenceText).includes(normalizedEvidenceText(token))) {
+      if (!supportedNumbers.has(token)) {
         return {
           ok: false,
           code: "UNSUPPORTED_NUMERIC_TOKEN",
