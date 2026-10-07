@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { zipStore } from './zipStore.js';
+import { calculateFormulaCaches } from './xlsxFormulaCache.js';
 
 export type ArtifactType = 'markdown' | 'csv' | 'pdf' | 'docx' | 'xlsx' | 'pptx';
 export type ArtifactSlide = { title?: string; content?: string };
@@ -141,7 +142,7 @@ function spreadsheetVisualWidth(value: unknown): number {
   return [...String(display ?? '')].reduce((sum, char) => sum + (char.codePointAt(0)! > 0xff ? 2 : 1), 0);
 }
 function makeXlsx(rows: ArtifactRequest['rows'], content: string): Buffer {
-  const table = rows?.length ? rows : content.split(/\r?\n/).filter(Boolean).map(line => [line]);
+  const table = calculateFormulaCaches(rows?.length ? rows : content.split(/\r?\n/).filter(Boolean).map(line => [line]));
   const columnCount = Math.max(1, ...table.map(row => row.length));
   const widths = Array.from({ length: columnCount }, (_, column) => {
     const max = Math.max(8, ...table.map(row => spreadsheetVisualWidth(row[column])));

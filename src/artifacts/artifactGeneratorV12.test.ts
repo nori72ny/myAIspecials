@@ -190,7 +190,7 @@ describe('V1.2 real artifacts', () => {
         ['A', 1200],
         ['B', 1800],
         ['C', 2200],
-        ['合計', { formula: '=SUM(B2:B4)', cachedValue: 5200 }],
+        ['合計', { formula: '=SUM(B2:B4)', cachedValue: 1 }],
       ],
     });
     expect(response.status).toBe(200);
