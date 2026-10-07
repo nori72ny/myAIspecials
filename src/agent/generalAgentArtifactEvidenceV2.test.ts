@@ -22,6 +22,16 @@ describe('independent agent artifact expectation', () => {
     expect(verify('', empty).ok).toBe(true);
     expect(verify(undefined, empty).ok).toBe(false);
   });
+  it('accepts the attainable UTF-8 maximum and rejects impossible expectations', () => {
+    const text='あ'.repeat(120000);
+    const hash=createHash('sha256').update(text).digest('hex');
+    expect(verify(text,{sha256:hash,byteLength:360000}).ok).toBe(true);
+    for (const byteLength of [360001,480000]) {
+      expect(verify(text,{sha256:hash,byteLength})).toEqual({ok:false,code:'TASK_ARTIFACT_EXPECTATION_INVALID'});
+    }
+    expect(verify(text+'a',{sha256:hash,byteLength:360000}).code).toBe('TASK_ARTIFACT_MISSING_OR_OVERSIZED');
+  });
+
   it('rejects malformed expectations', () => {
     expect(verify(content, { ...expectation, sha256: 'invalid' }).ok).toBe(false);
     expect(verify(content, { ...expectation, byteLength: NaN }).ok).toBe(false);

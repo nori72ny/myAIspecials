@@ -9,6 +9,7 @@ import { gzipSync } from 'node:zlib';
 import {
   GENERAL_AGENT_PRIVATE_CORPUS_VERSION_V2,
   digestGeneralAgentPermissionProfileV1,
+  validateGeneralAgentPrivateCorpusV2,
   digestGeneralAgentPrivateTaskV2,
   type GeneralAgentPrivateCorpusV2,
   type GeneralAgentPrivateTaskV2,
@@ -98,6 +99,18 @@ async function main(): Promise<void> {
     permissionProfileDigest: digestGeneralAgentPermissionProfileV1(),
     tasks: await Promise.all(Array.from({ length: 12 }, (_, index) => task(index, candidateSha))),
   };
+  const blockers = validateGeneralAgentPrivateCorpusV2(corpus);
+  if (blockers.length) {
+    // An incomplete visible diagnostic is not eligible for a private evaluation round.
+    // Report the missing verifier configuration without inventing expected artifacts,
+    // running the candidate or awarding previously observed successes to this SHA.
+    console.log(JSON.stringify({ evaluation: 'GENERAL_AGENT_INTERNAL_SYNTHETIC_LIVE_V2', candidateSha,
+      status: 'blocked-preflight', planned: corpus.tasks.length, attempted: 0, solved: 0,
+      blockers, qualificationStatus: 'NOT_MEASURED',
+      limitation: 'Visible diagnostic lacks complete independent expectations; no private runner or one-shot round was started.' }));
+    return;
+  }
+
   const encoded = gzipSync(Buffer.from(JSON.stringify(corpus), 'utf8'), { level: 9 }).toString('base64');
   const outputDir = await mkdtemp(path.join(tmpdir(), 'origin-agent-live-eval-'));
 

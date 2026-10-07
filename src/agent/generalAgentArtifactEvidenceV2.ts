@@ -12,7 +12,7 @@ export function isGeneralAgentArtifactExpectationV2(value: unknown): value is Ge
   const expectation = value as Record<string, unknown>;
   return typeof expectation.sha256 === 'string' && /^[a-f0-9]{64}$/.test(expectation.sha256)
     && typeof expectation.byteLength === 'number' && Number.isSafeInteger(expectation.byteLength)
-    && expectation.byteLength >= 0 && expectation.byteLength <= 480_000;
+    && expectation.byteLength >= 0 && expectation.byteLength <= 360_000;
 }
 
 export function verifyGeneralAgentArtifactEvidenceV2(

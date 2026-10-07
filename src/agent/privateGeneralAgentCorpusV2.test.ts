@@ -43,6 +43,7 @@ function baseTask(index:number): Omit<GeneralAgentPrivateTaskV2,'taskDigest'> {
     action: stop ? 'cancel-after-approval' : 'execute',
     allowedChangedPaths:[],
     regressionCheck:'none',
+    ...(stop ? {} : {artifactExpectation:{sha256:'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',byteLength:0}}),
   };
 }
 
@@ -83,7 +84,7 @@ describe('General Agent private corpus V2',()=>{
     expect(digestGeneralAgentPrivateTaskV2({...withExpectation,artifactExpectation:{sha256:'b'.repeat(64),byteLength:123}})).not.toBe(digestGeneralAgentPrivateTaskV2(withExpectation));
   });
 
-  it.each([null, {}, [], 'invalid', {sha256:'bad',byteLength:0}, {sha256:'a'.repeat(64),byteLength:-1}, {sha256:'a'.repeat(64),byteLength:480001}, {sha256:'a'.repeat(64),byteLength:0.5}, {sha256:'a'.repeat(64),byteLength:'0'}])('rejects malformed artifact expectations even with matching task digests: %j', artifactExpectation => {
+  it.each([null, {}, [], 'invalid', {sha256:'bad',byteLength:0}, {sha256:'a'.repeat(64),byteLength:-1}, {sha256:'a'.repeat(64),byteLength:360001}, {sha256:'a'.repeat(64),byteLength:0.5}, {sha256:'a'.repeat(64),byteLength:'0'}])('rejects malformed artifact expectations even with matching task digests: %j', artifactExpectation => {
     const value=corpus();
     const {taskDigest:_,...original}=value.tasks[7];
     const next={...original,artifactExpectation} as unknown as Omit<GeneralAgentPrivateTaskV2,'taskDigest'>;
@@ -93,7 +94,7 @@ describe('General Agent private corpus V2',()=>{
     expect(validateGeneralAgentPrivateCorpusV2(value)).toContain('agent-private-08:PRIVATE_TASK_ARTIFACT_EXPECTATION_INVALID');
   });
 
-  it.each([0,480000])('accepts valid artifact expectation bounds: %i', byteLength => {
+  it.each([0,360000])('accepts valid artifact expectation bounds: %i', byteLength => {
     const value=corpus();
     const {taskDigest:_,...original}=value.tasks[7];
     const next={...original,artifactExpectation:{sha256:'a'.repeat(64),byteLength}};
@@ -101,6 +102,14 @@ describe('General Agent private corpus V2',()=>{
     tasks[7]={...next,taskDigest:digestGeneralAgentPrivateTaskV2(next)};
     value.tasks=tasks;
     expect(validateGeneralAgentPrivateCorpusV2(value)).toEqual([]);
+  });
+
+  it('requires an expectation before a completed execution can enter the private round', () => {
+    const value=corpus();
+    const {taskDigest:_,artifactExpectation:__,...next}=value.tasks[7];
+    const tasks=[...value.tasks];
+    tasks[7]={...next,taskDigest:digestGeneralAgentPrivateTaskV2(next)};
+    expect(validateGeneralAgentPrivateCorpusV2({...value,tasks})).toContain('agent-private-08:PRIVATE_TASK_ARTIFACT_EXPECTATION_REQUIRED');
   });
 
   it('binds each private goal/tool/params/action to the task digest',()=>{

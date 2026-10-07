@@ -154,6 +154,9 @@ export function validateGeneralAgentPrivateCorpusV2(
   if (new Set(tasks.map(task => task?.id)).size !== tasks.length) blockers.push('PRIVATE_CORPUS_TASK_IDS_DUPLICATE');
 
   for (const task of tasks) {
+    if (task?.action === 'execute' && task?.expectedTerminalStatus === 'completed' && task?.artifactExpectation === undefined) {
+      blockers.push(`${task?.id ?? 'unknown'}:PRIVATE_TASK_ARTIFACT_EXPECTATION_REQUIRED`);
+    }
     if (task?.artifactExpectation !== undefined && !isGeneralAgentArtifactExpectationV2(task.artifactExpectation)) {
       blockers.push(`${task?.id ?? 'unknown'}:PRIVATE_TASK_ARTIFACT_EXPECTATION_INVALID`);
     }
