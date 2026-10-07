@@ -1,0 +1,83 @@
+name: Image Frontier Bakeoff V1
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: origin-image-frontier-bakeoff-v1
+  cancel-in-progress: false
+
+jobs:
+  run-bakeoff:
+    if: contains(github.event.head_commit.message, '[run-image-bakeoff-v1]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ORIGIN_BAKEOFF_CANDIDATE_SHA: ${{ github.sha }}
+      ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD: '15'
+      ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD: '0.25'
+      ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD: '0.25'
+      ORIGIN_BAKEOFF_OUTPUT_DIR: ${{ github.workspace }}/test-results/image-frontier-bakeoff-v1
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Chromium for deterministic pixel validation
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify paid evaluation authorization and key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENROUTER_API_KEY"
+          test "$ORIGIN_BAKEOFF_CANDIDATE_SHA" = "$GITHUB_SHA"
+          node <<'NODE'
+          const total=Number(process.env.ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD);
+          const per=Number(process.env.ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD);
+          const judge=Number(process.env.ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD);
+          if(!Number.isFinite(total)||total<=0||total>15) process.exit(2);
+          if(!Number.isFinite(per)||per<=0||per>0.25) process.exit(3);
+          if(!Number.isFinite(judge)||judge<=0||judge>0.25) process.exit(4);
+          NODE
+
+      - name: Run real 24-case image frontier bakeoff
+        run: node --import tsx scripts/run-image-frontier-bakeoff-v1.ts
+
+      - name: Publish benchmark summary to workflow log
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f test-results/image-frontier-bakeoff-v1/benchmark-summary.json ]; then
+            cat test-results/image-frontier-bakeoff-v1/benchmark-summary.json
+          else
+            echo "benchmark-summary.json not produced"
+          fi
+
+      - name: Upload comparison evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-frontier-bakeoff-v1-${{ github.sha }}
+          path: test-results/image-frontier-bakeoff-v1/
+          retention-days: 30
+          if-no-files-found: warn
