@@ -146,6 +146,7 @@ describe('worldClassImageV16Router', () => {
     expect(response.headers['x-origin-visual-provider']).toBe('openrouter-image-api');
     expect(response.headers['x-origin-visual-model']).toBe('openai/gpt-image-2.5-sunburst');
     expect(response.headers['x-origin-visual-routing']).toBe('frontier-auto');
+    expect(response.headers['x-origin-visual-prompt-profile']).toBe('text-layout');
     expect(response.headers['x-origin-release-sha']).toBe(SHA);
     expect(response.headers['x-origin-world-class-qualified-sha']).toBe(SHA);
     expect(response.headers['x-origin-world-class-evaluation']).toBeUndefined();
@@ -165,6 +166,9 @@ describe('worldClassImageV16Router', () => {
       quality: 'high',
       output_format: 'png',
     });
+    expect(payload.prompt).toContain('PRIMARY INSTRUCTION:');
+    expect(payload.prompt).toContain('高級ホテルの縦型広告、映画的照明、文字なし');
+    expect(payload.prompt).toContain('EXECUTION CONSTRAINTS:');
   });
 
   it('routes multi-reference editing to MAI-Image-2.6 for stronger controlled composition', async () => {
@@ -181,6 +185,7 @@ describe('worldClassImageV16Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-model']).toBe('microsoft/mai-image-2.6');
     expect(response.headers['x-origin-visual-routing']).toBe('frontier-auto');
+    expect(response.headers['x-origin-visual-prompt-profile']).toBe('product-commercial');
     const payload = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(payload.model).toBe('microsoft/mai-image-2.6');
     expect(payload.input_references).toHaveLength(2);
