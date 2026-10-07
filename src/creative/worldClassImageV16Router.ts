@@ -51,9 +51,9 @@ function evaluationBypassAllowed(env: NodeJS.ProcessEnv): boolean {
   const nodeEnv = env.NODE_ENV?.trim().toLowerCase();
   return vercelEnv !== 'production' && nodeEnv !== 'production';
 }
-function fail(res: ExpressResponse, status: number, code: string, message: string) {
+function fail(res: ExpressResponse, status: number, code: string, message: string, retryable = status >= 500) {
   return res.status(status).json({
-    ok: false, code, message, retryable: status >= 500,
+    ok: false, code, message, retryable,
     worldClassMode: true, paidFallbackUsed: false, secretDelivery: 'server-only',
   });
 }
@@ -241,6 +241,7 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
     }));
 
     const response = await fetchJson(OPENROUTER_IMAGES_URL, key, { method: 'POST', body: JSON.stringify(payload) }, 120000);
+    if (response.status === 402) return fail(res, 502, 'OPENROUTER_IMAGE_HTTP_402', '画像サービスの利用条件を確認する必要があります。管理者が契約・残高を確認してから再実行してください。', false);
     if (!response.ok) return fail(res, response.status === 429 ? 429 : 502, `OPENROUTER_IMAGE_HTTP_${response.status}`, '上位画像モデルの生成に失敗しました。');
     const result = await response.json().catch(() => null) as Record<string, unknown> | null;
     const data = Array.isArray(result?.data) ? result!.data as Record<string, unknown>[] : [];
