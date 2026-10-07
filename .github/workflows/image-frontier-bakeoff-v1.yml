@@ -21,7 +21,7 @@ jobs:
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ORIGIN_BAKEOFF_CANDIDATE_SHA: ${{ github.sha }}
-      ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD: '15'
+      ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD: '6'
       ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD: '0.25'
       ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD: '0.25'
       ORIGIN_BAKEOFF_OUTPUT_DIR: ${{ github.workspace }}/test-results/image-frontier-bakeoff-v1
@@ -41,9 +41,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Install Chromium for deterministic pixel validation
-        run: npx playwright install --with-deps chromium
-
       - name: Verify paid evaluation authorization and key
         shell: bash
         run: |
@@ -54,10 +51,28 @@ jobs:
           const total=Number(process.env.ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD);
           const per=Number(process.env.ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD);
           const judge=Number(process.env.ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD);
-          if(!Number.isFinite(total)||total<=0||total>15) process.exit(2);
+          if(!Number.isFinite(total)||total<=0||total>6) process.exit(2);
           if(!Number.isFinite(per)||per<=0||per>0.25) process.exit(3);
           if(!Number.isFinite(judge)||judge<=0||judge>0.25) process.exit(4);
           NODE
+
+      - name: Verify OpenRouter key metadata before any paid image call
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_meta="$(mktemp)"
+          trap 'rm -f "$key_meta"' EXIT
+          http="$(curl --silent --show-error --connect-timeout 10 --max-time 30             -H "Authorization: Bearer $OPENROUTER_API_KEY"             -H 'Accept: application/json'             -o "$key_meta" -w '%{http_code}'             https://openrouter.ai/api/v1/key)"
+          test "$http" = '200'
+          jq -e '.data and (.data.is_free_tier | type == "boolean")' "$key_meta" >/dev/null
+          if [ "$(jq -r '.data.is_free_tier' "$key_meta")" = 'true' ]; then
+            echo "::error title=OpenRouter image credits required::The configured key is on the free tier; OpenRouter image generation requires paid credits."
+            exit 5
+          fi
+          jq -c '{is_free_tier:.data.is_free_tier,limit:.data.limit,limit_remaining:.data.limit_remaining,limit_reset:.data.limit_reset}' "$key_meta" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install Chromium for deterministic pixel validation
+        run: npx playwright install --with-deps chromium
 
       - name: Run real 24-case image frontier bakeoff
         run: node --import tsx scripts/run-image-frontier-bakeoff-v1.ts
