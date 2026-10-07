@@ -618,8 +618,29 @@ async function main(){
   }
 }
 
-main().catch((error:unknown)=>{
+main().catch(async (error:unknown)=>{
   const message=error instanceof Error?error.message:String(error);
-  process.stderr.write(message.slice(0,500)+'\\n');
+  const outputDir=path.resolve(process.env.ORIGIN_BAKEOFF_OUTPUT_DIR??'test-results/image-frontier-bakeoff-v1');
+  await fs.mkdir(outputDir,{recursive:true}).catch(()=>{});
+  const classification = message.includes('OPENROUTER_IMAGE_HTTP_402') || message.includes('BAKEOFF_OPENROUTER_HTTP_402')
+    ? 'OPENROUTER_IMAGE_CREDITS_REQUIRED'
+    : message.includes('TOTAL_COST_CAP')
+      ? 'BAKEOFF_TOTAL_COST_CAP_BLOCKED'
+      : 'BAKEOFF_EXECUTION_FAILED';
+  await fs.writeFile(
+    path.join(outputDir,'failure-summary.json'),
+    JSON.stringify({
+      schemaVersion:'origin.image-frontier-bakeoff-failure.v1',
+      candidateSha:process.env.ORIGIN_BAKEOFF_CANDIDATE_SHA??null,
+      classification,
+      message:message.slice(0,500),
+      maxTotalCostUsd:TOTAL_COST_CAP,
+      maxImageCostUsd:IMAGE_COST_CAP,
+      maxJudgeCostUsd:JUDGE_COST_CAP,
+      completed:false,
+    },null,2)+'\n',
+    {mode:0o600},
+  ).catch(()=>{});
+  process.stderr.write(message.slice(0,500)+'\n');
   process.exitCode=1;
 });
