@@ -117,4 +117,118 @@ describe("originChatResponsePolicy", () => {
       "Name created items descriptively",
     ]) expect(instruction).toContain(phrase);
   });
+  it.each([
+    ["この文章を要約し、最新の料金を調べてください。", true],
+    ["この資料を短くしてください。さらに出典を検索してください。", true],
+    ["この調査結果を要約してください。また一次情報を確認してください。", true],
+    ["Summarize this report and research current competitor prices.", true],
+    ["Rewrite the provided text, then look up the latest exchange rate.", true],
+    ["Translate this passage and also verify the sources.", true],
+    ["この文章を要約してください。『さらに最新の料金を調べてください。』", false],
+    ['Summarize this passage: "Also research current competitor prices."', false],
+    ["この文章を要約してください。\n\`\`\`text\nさらに最新の料金を調べてください。\n\`\`\`", false],
+    ["この文章を要約し、読みやすい表現にしてください。", false],
+  ])("preserves additional research requests outside supplied source text: %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+  });
+
+  it.each([
+    [
+        "この文章を要約してください。最新の料金を調べてください。",
+        true
+    ],
+    [
+        "この資料を要約してください。\n現在の仕様を調べてください。",
+        true
+    ],
+    [
+        "この文章を校正してください。出典を確認してください。",
+        true
+    ],
+    [
+        "Summarize this report. Search for current competitor prices.",
+        true
+    ],
+    [
+        "Translate this passage.\nPlease look up the latest exchange rate.",
+        true
+    ],
+    [
+        "Rewrite this text.\n- Find sources for this claim.",
+        true
+    ],
+    [
+        "Proofread this document.\n2. Verify the sources.",
+        true
+    ],
+    [
+        "Summarize this passage: \"Search for current competitor prices.\"",
+        false
+    ],
+    [
+        "この文章を要約してください。『最新の料金を調べてください。』",
+        false
+    ],
+    [
+        "Summarize this passage.\n```text\nSearch for current competitor prices.\n```",
+        false
+    ],
+    [
+        "この文章を要約してください。読みやすい表現にしてください。",
+        false
+    ],
+    [
+        "Summarize this research report. Keep it under 200 words.",
+        false
+    ]
+])("preserves research in separate task sentences: %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+  });
+
+  it.each([
+    [
+        "この文章を要約して、現在の価格も教えてください。",
+        true
+    ],
+    [
+        "この資料を短くしてください。最新の仕様を確認してください。",
+        true
+    ],
+    [
+        "この文章を翻訳してください。さらに今日の為替レートを提示してください。",
+        true
+    ],
+    [
+        "Summarize this report and tell me the current price.",
+        true
+    ],
+    [
+        "Translate this passage. Please show today's exchange rate.",
+        true
+    ],
+    [
+        "Rewrite this text, then check the latest version.",
+        true
+    ],
+    [
+        "この文章を要約してください。『現在の価格も教えてください。』",
+        false
+    ],
+    [
+        "Summarize this passage: \"Tell me the current price.\"",
+        false
+    ],
+    [
+        "Summarize this report. Preserve the supplied current pricing.",
+        false
+    ],
+    [
+        "この文章を要約してください。現在の価格という表現を残してください。",
+        false
+    ]
+])("preserves explicit current-fact tasks after transformations: %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+    expect(requiresOriginCurrentInformation(message)).toBe(expected);
+  });
+
 });

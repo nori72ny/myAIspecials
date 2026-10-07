@@ -19,8 +19,19 @@ export function requiresOriginFutureReleaseInformation(message: string): boolean
 }
 
 function isTransformOnlyRequest(message: string): boolean {
-  return /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録|調査結果|リサーチ結果).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
+  const transformsSuppliedContent = /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録|調査結果|リサーチ結果).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
     || /\b(?:summari[sz]e|shorten|rewrite|translate|proofread|reformat)\b.{0,48}\b(?:this|following|provided|text|passage|document|research\s+(?:result|report|brief))\b/is.test(message);
+  if (!transformsSuppliedContent) return false;
+
+  // An explicit additional research task must not be suppressed by the
+  // transformation shortcut. Quoted/fenced source text is not a task request.
+  const requestText = message.replace(/```[\s\S]*?```|「[^」]*」|『[^』]*』|"[^"\n]*"/g, " ");
+  const additionalResearch = /(?:また|さらに|加えて|併せて|あわせて|その上で|そのうえで|それとは別に|[、，。！？\n]).{0,80}(?:検索(?:して|する)|調査(?:して|する)|リサーチ(?:して|する)|調べ(?:て|る)|(?:出典|一次情報|公開情報).{0,16}確認)/s.test(requestText)
+    || /\b(?:and(?:\s+also)?|also|additionally|in\s+addition|then)\s+(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify)\b/i.test(requestText)
+    || /(?:^|[.!?\n])\s*(?:[-*]\s+|\d+[.)]\s+)?(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify\s+(?:the\s+)?sources?)\b/i.test(requestText);
+  const additionalCurrentFacts = /(?:また|さらに|加えて|併せて|あわせて|その上で|そのうえで|それとは別に|[、，。！？\n]).{0,80}(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)[^。！？\n]{0,24}(?:教え|確認|調べ|示し|提示)/s.test(requestText)
+    || /(?:\b(?:and(?:\s+also)?|also|additionally|then)\s+|[.!?\n]\s*)(?:please\s+)?(?:tell|show|give|check|confirm|find)\b[^.!?\n]{0,48}\b(?:latest|current|today'?s?)\b[^.!?\n]{0,32}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|versions?|models?)\b/i.test(requestText);
+  return !additionalResearch && !additionalCurrentFacts;
 }
 
 function isHypotheticalFreshnessFailureRequest(message: string): boolean {
@@ -115,7 +126,7 @@ export function requiresOriginGroundedResearch(message: string): boolean {
   if (requiresOriginCurrentInformation(message)) return true;
 
   return /(?:検索|調査|リサーチ)(?:を)?(?:して|してください|して下さい|する|してほしい)|(?:一次情報|出典|公開情報).{0,12}(?:を)?(?:調べ|確認|探|集め)|(?:調べ|確認|探).{0,24}(?:出典|一次情報|公開情報)/s.test(message)
-    || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?)\b/i.test(message);
+    || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify\s+(?:the\s+)?sources?)\b/i.test(message);
 }
 
 export function requiresOriginCurrentInformation(message: string): boolean {
@@ -160,12 +171,13 @@ export function originChatSystemInstruction(
 - Decide which missing items would materially change the result. Ask only those. Ask one to three focused questions per turn, prioritized by impact, and use concrete choices or short examples when that makes answering easier. Do not dump a long generic questionnaire on the user.
 - Continue the clarification loop across turns until the material unknowns are resolved. Reuse every answer already given in the conversation, update the requirement brief silently, and never repeat a question that the user has already answered.
 - If the user explicitly says to leave details to ORIGIN, choose sensible low-risk defaults, state the important assumptions briefly, and proceed. If the request is already sufficiently specified, proceed immediately without unnecessary questions.
+- If one part is blocked by a genuinely material unknown, complete the independent, reversible parts with the information already supplied and clearly identify the remaining blocker. Do not invent required facts or imply the blocked work was completed.
 - For small, reversible, low-stakes requests, prefer useful assumptions over interrogation. For pure rewriting, summarization, translation, formatting, or transformation of supplied content, do not ask follow-up questions unless a missing choice would genuinely change the requested transformation.
 - Before a substantial custom deliverable, when ambiguity still exists after clarification, briefly restate the understood requirements and ask for confirmation only if getting them wrong would cause meaningful rework. Otherwise proceed.
 - After producing a first version, treat user feedback as new requirements: preserve accepted parts, change only what the feedback requires, and continue refining until the result fits the user's actual use case.
-- For routine explanatory or comparison answers, default to a one-to-three sentence bottom line followed by three to five prioritized key points. For complex multi-part requests, use as many distinct points as needed—within the six-section limit—to cover every material requirement without filler. Put the most decision-relevant information first.
-- Write for a phone screen: use short descriptive headings, one idea per paragraph, and compact bullet lists. Do not use a Markdown table unless the user explicitly asks for a table.
-- Use at most six main sections. Remove duplicated headings, repeated claims, generic filler, and repeated summaries.
+- For routine explanatory or comparison answers, start with a concise direct answer and add only the key points needed. For complex multi-part requests, use as many distinct points as needed to cover every material requirement without filler. Put the most decision-relevant information first.
+- Write for a phone screen: use one idea per paragraph, descriptive headings when useful, and compact lists. Use a compact Markdown table when it makes options or exact mappings easier to compare; use prose when a table would be wide, repetitive, or unnecessary. Follow the user's explicit format preference.
+- Use only as many sections as the task needs. Remove duplicated headings, repeated claims, generic filler, and repeated summaries; do not omit a requested item to fit an arbitrary section count.
 - Calibrate depth to complexity. Simple requests may be brief; multi-part, technical, planning, or consequential requests must address every explicit requirement with enough reasoning, constraints, examples, and execution detail to be decision-ready.
 - Use professional, domain-appropriate language. Do not oversimplify important nuance unless the user asks for a beginner explanation.
 - Prefer specific recommendations, examples, and ready-to-use wording over generic advice.
