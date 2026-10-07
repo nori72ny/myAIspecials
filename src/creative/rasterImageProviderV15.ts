@@ -157,7 +157,7 @@ function detectImageMime(bytes: Buffer): RasterImageResultV15['mimeType'] | null
   return null;
 }
 
-function readRasterDimensionsV15(bytes: Buffer, mimeType: RasterImageResultV15['mimeType']): RasterImageSizeV15 | null {
+export function readRasterDimensionsV15(bytes: Buffer, mimeType: RasterImageResultV15['mimeType']): RasterImageSizeV15 | null {
   if (mimeType === 'image/png') {
     if (bytes.length < 24) return null;
     const width = bytes.readUInt32BE(16);
