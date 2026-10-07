@@ -69,7 +69,7 @@ const FULL_SHA = /^[0-9a-f]{40}$/i;
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
-  if (!value) throw new Error(\`IMAGE_RUNTIME_COMPARISON_REQUIRED_ENV_MISSING:\${name}\`);
+  if (!value) throw new Error(`IMAGE_RUNTIME_COMPARISON_REQUIRED_ENV_MISSING:${name}`);
   return value;
 }
 function sha256(value: Buffer|string): string {
@@ -106,7 +106,7 @@ async function api(url:string,key:string,init:RequestInit={},timeout=120000):Pro
       redirect:'error',
       cache:'no-store',
       headers:{
-        Authorization:\`Bearer \${key}\`,
+        Authorization:`Bearer ${key}`,
         Accept:'application/json',
         'Content-Type':'application/json',
         'HTTP-Referer':'https://origin-personal.vercel.app',
@@ -119,7 +119,7 @@ async function api(url:string,key:string,init:RequestInit={},timeout=120000):Pro
 async function pixelCritic(browser:Browser,bytes:Buffer,mime:string){
   const page=await browser.newPage();
   try{
-    const dataUrl=\`data:\${mime};base64,\${bytes.toString('base64')}\`;
+    const dataUrl=`data:${mime};base64,${bytes.toString('base64')}`;
     const decoded=await page.evaluate(async ({dataUrl})=>{
       const image=new Image();
       image.decoding='async';
@@ -177,7 +177,7 @@ function buildPromptSha(task:Task):string { return sha256(task.prompt.normalize(
 
 async function modelCatalog(key:string){
   const r=await api(OPENROUTER_IMAGE_MODELS_URL,key,{},30000);
-  if(!r.ok) throw new Error(\`IMAGE_MODELS_HTTP_\${r.status}\`);
+  if(!r.ok) throw new Error(`IMAGE_MODELS_HTTP_${r.status}`);
   const j=await r.json() as {data?:Record<string,unknown>[]};
   return Array.isArray(j.data)?j.data:[];
 }
@@ -203,7 +203,7 @@ async function directGenerate(
   if('output_format' in params) payload.output_format='png';
   try{
     const r=await api(OPENROUTER_IMAGES_URL,key,{method:'POST',body:JSON.stringify(payload)},180000);
-    if(!r.ok) return {systemId:model,role:'reference',bytes:null,mime:null,durationMs:Date.now()-started,costUsd:0,failureCode:\`IMAGE_HTTP_\${r.status}\`,technical:technicalFalse(),modelId:model};
+    if(!r.ok) return {systemId:model,role:'reference',bytes:null,mime:null,durationMs:Date.now()-started,costUsd:0,failureCode:`IMAGE_HTTP_${r.status}`,technical:technicalFalse(),modelId:model};
     const j=await r.json() as Record<string,unknown>;
     const data=Array.isArray(j.data)?j.data as Record<string,unknown>[]:[];
     const b64=typeof data[0]?.b64_json==='string'?String(data[0].b64_json):'';
@@ -230,10 +230,10 @@ async function directGenerate(
 async function originGenerate(baseUrl:string,browser:Browser,task:Task,candidateSha:string):Promise<Generated>{
   const started=Date.now();
   try{
-    const r=await fetch(\`\${baseUrl}/api/creative/v1.6/world-class/generate\`,{
+    const r=await fetch(`${baseUrl}/api/creative/v1.6/world-class/generate`,{
       method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt:task.prompt,width:task.width,height:task.height}),signal:AbortSignal.timeout(180000)
     });
-    if(!r.ok) return {systemId:ORIGIN_SYSTEM,role:'origin',bytes:null,mime:null,durationMs:Date.now()-started,costUsd:0,failureCode:\`ORIGIN_HTTP_\${r.status}\`,technical:technicalFalse(),modelId:r.headers.get('x-origin-visual-model')??'unknown'};
+    if(!r.ok) return {systemId:ORIGIN_SYSTEM,role:'origin',bytes:null,mime:null,durationMs:Date.now()-started,costUsd:0,failureCode:`ORIGIN_HTTP_${r.status}`,technical:technicalFalse(),modelId:r.headers.get('x-origin-visual-model')??'unknown'};
     const bytes=Buffer.from(await r.arrayBuffer());
     const mime=(r.headers.get('content-type')??'').split(';')[0].trim();
     const mt=mime==='image/png'||mime==='image/jpeg'||mime==='image/webp'?mime:null;
@@ -314,13 +314,13 @@ async function judgeCase(
       'Also mark safetyPassedByKey true unless the output itself contains clearly unsafe/disallowed visual content.',
       'Do not infer system identity. Judge only pixels and request compliance.',
       'Return JSON only with: firstChoiceBlindKey, scores, safetyPassedByKey, failureNotesByKey.',
-      \`USER REQUEST: \${task.prompt}\`,
+      `USER REQUEST: ${task.prompt}`,
     ].join('\n')
   }];
   for(const item of blind){
     if(!item.gen.bytes||!item.gen.mime) continue;
-    content.push({type:'text',text:\`BLIND KEY \${item.key}\`});
-    content.push({type:'image_url',image_url:{url:\`data:\${item.gen.mime};base64,\${item.gen.bytes.toString('base64')}\`}});
+    content.push({type:'text',text:`BLIND KEY ${item.key}`});
+    content.push({type:'image_url',image_url:{url:`data:${item.gen.mime};base64,${item.gen.bytes.toString('base64')}`}});
   }
   const started=Date.now();
   try{
@@ -330,7 +330,7 @@ async function judgeCase(
       max_tokens:1600,
       messages:[{role:'user',content}],
     })},120000);
-    if(!r.ok) return {judge:null,safety:{},notes:{},costUsd:0,failure:\`JUDGE_HTTP_\${r.status}\`};
+    if(!r.ok) return {judge:null,safety:{},notes:{},costUsd:0,failure:`JUDGE_HTTP_${r.status}`};
     const j=await r.json() as Record<string,unknown>;
     const choices=Array.isArray(j.choices)?j.choices as Record<string,unknown>[]:[];
     const message=choices[0]?.message as Record<string,unknown>|undefined;
@@ -354,7 +354,7 @@ async function judgeCase(
       safety,notes,costUsd:Number.isFinite(cost)&&cost>=0?cost:0,failure:null
     };
   }catch{
-    return {judge:null,safety:{},notes:{},costUsd:0,failure:\`JUDGE_FAILED_\${Date.now()-started}\`};
+    return {judge:null,safety:{},notes:{},costUsd:0,failure:`JUDGE_FAILED_${Date.now()-started}`};
   }
 }
 
@@ -390,14 +390,14 @@ async function main(){
   const server=http.createServer(app);
   await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',()=>resolve());});
   const address=server.address(); if(!address||typeof address==='string') throw new Error('LOCAL_ROUTER_BIND_FAILED');
-  const baseUrl=\`http://127.0.0.1:\${address.port}\`;
+  const baseUrl=`http://127.0.0.1:${address.port}`;
 
   const catalog=await modelCatalog(key);
   for(const model of REFERENCES){
-    if(!catalog.some(x=>x.id===model)) throw new Error(\`REFERENCE_MODEL_UNAVAILABLE:\${model}\`);
+    if(!catalog.some(x=>x.id===model)) throw new Error(`REFERENCE_MODEL_UNAVAILABLE:${model}`);
   }
   const allModelsResp=await api(OPENROUTER_MODELS_URL,key,{},30000);
-  if(!allModelsResp.ok) throw new Error(\`JUDGE_MODELS_HTTP_\${allModelsResp.status}\`);
+  if(!allModelsResp.ok) throw new Error(`JUDGE_MODELS_HTTP_${allModelsResp.status}`);
   const allModelsJson=await allModelsResp.json() as {data?:Record<string,unknown>[]};
   const judgeModels=chooseJudges(Array.isArray(allModelsJson.data)?allModelsJson.data:[]);
 
@@ -409,19 +409,19 @@ async function main(){
   try{
     for(const [index,task] of tasks().entries()){
       if(totalCostUsd>=SOFT_STOP_USD){
-        failures.push(\`TOTAL_COST_SOFT_STOP_BEFORE:\${task.caseId}\`);
+        failures.push(`TOTAL_COST_SOFT_STOP_BEFORE:${task.caseId}`);
         break;
       }
       const generated:Generated[]=[];
       const origin=await originGenerate(baseUrl,browser,task,candidateSha);
       generated.push(origin); totalCostUsd+=origin.costUsd;
       for(const model of REFERENCES){
-        if(totalCostUsd>=SOFT_STOP_USD){ failures.push(\`TOTAL_COST_SOFT_STOP_DURING:\${task.caseId}\`); break; }
+        if(totalCostUsd>=SOFT_STOP_USD){ failures.push(`TOTAL_COST_SOFT_STOP_DURING:${task.caseId}`); break; }
         const ref=await directGenerate(key,browser,model,task,catalog);
         generated.push(ref); totalCostUsd+=ref.costUsd;
       }
       if(generated.length!==4||generated.some(x=>!x.bytes)){
-        failures.push(\`INCOMPLETE_GENERATION:\${task.caseId}\`);
+        failures.push(`INCOMPLETE_GENERATION:${task.caseId}`);
         detail.push({caseId:task.caseId,family:task.family,generation:generated.map(x=>({systemId:x.systemId,modelId:x.modelId,costUsd:x.costUsd,failureCode:x.failureCode}))});
         continue;
       }
@@ -429,7 +429,7 @@ async function main(){
       const blind=blindOrder(index,generated);
       for(const item of blind){
         const ext=item.gen.mime==='image/png'?'png':item.gen.mime==='image/webp'?'webp':'jpg';
-        await fs.writeFile(path.join(imageRoot,\`\${task.caseId}-\${item.key}.\${ext}\`),item.gen.bytes!,{mode:0o600});
+        await fs.writeFile(path.join(imageRoot,`${task.caseId}-${item.key}.${ext}`),item.gen.bytes!,{mode:0o600});
       }
 
       const judges:ImageJudgeScoreV15[]=[];
@@ -446,7 +446,7 @@ async function main(){
             safetyVotes[item.key].push(jr.safety[item.key]!==false);
             noteMap[item.key].push(...(jr.notes[item.key]??[]));
           }
-        }else failures.push(\`JUDGE_FAILURE:\${task.caseId}:\${judgeModel}:\${jr.failure}\`);
+        }else failures.push(`JUDGE_FAILURE:${task.caseId}:${judgeModel}:${jr.failure}`);
       }
 
       const outputs:ImageBenchmarkOutputV15[]=blind.map(item=>{
@@ -502,7 +502,7 @@ async function main(){
     originSystemId:ORIGIN_SYSTEM,
     referenceSystemIds:[...REFERENCES],
     executionBudgetMs:300000,
-    roundId:\`runtime-24-\${candidateSha.slice(0,12)}\`,
+    roundId:`runtime-24-${candidateSha.slice(0,12)}`,
     createdAt:createdAt.toISOString(),
     expiresAt:new Date(createdAt.getTime()+7*24*60*60*1000).toISOString(),
     cases:caseResults,
