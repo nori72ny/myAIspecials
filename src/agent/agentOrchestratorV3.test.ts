@@ -24,9 +24,19 @@ describe('agent orchestrator v3', () => {
     .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
     .send({ runId, planToken: issuePlanCapability(runId, 'a'.repeat(64), env).token });
 
+  it.each(['Repair this code.', 'このTypeScriptコードのバグを分析して'])(
+    'refuses unavailable code execution during planning without creating an approval capability: %s', async goal => {
+      const response = await request(appFor(env, { consume: async () => true }))
+        .post('/api/agent/v3/plan').send({ goal });
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+      expect(response.body.runId).toBeUndefined();
+      expect(response.body.planToken).toBeUndefined();
+      expect(JSON.stringify(response.body)).not.toContain(goal);
+    },
+  );
+
   it.each([
-    ['code_interpreter', { code: 'function add(a,b) { return a + ; }' }],
-    ['code_interpreter', { code: 'function add(a,b) { return a - b; }' }],
     ['document_generator', { content: '商品A:1200円×3個、商品B:800円×2個。売上合計と提案を作成してください。' }],
   ] as const)('does not certify an echoed %s artifact as completed', async (toolName, params) => {
     const app = appFor(env, { consume: async () => true });
