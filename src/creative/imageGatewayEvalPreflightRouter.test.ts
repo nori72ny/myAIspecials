@@ -54,10 +54,9 @@ describe('imageGatewayEvalPreflightRouter', () => {
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await request(app({
-      VERCEL_ENV: 'preview',
-      VERCEL_OIDC_TOKEN: 'oidc-token',
-    })).get('/api/eval/image-gateway/credits');
+    const response = await request(app({ VERCEL_ENV: 'preview' }))
+      .get('/api/eval/image-gateway/credits')
+      .set('x-vercel-oidc-token', 'oidc-token');
 
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
