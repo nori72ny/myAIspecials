@@ -100,11 +100,17 @@ try {
     const cancel = await post('cancel', { runId: p.operation.runId, planToken: p.planToken });
     return cancel.status === 200 && (await post('execute', { ...p.operation, approvalToken: p.approvalToken })).status === 409;
   });
-  for (const [id, goal, params] of [
-    ['code-generation-unavailable', 'Repair this code.', { code: 'function f(){' }],
-    ['document-generation-unavailable', 'Create a sales report.', { content: '売上を集計して提案してください。' }],
-  ] as const) await check(id, async () => {
-    const p = await prepare(goal, params);
+  // Unavailable coding must fail at planning, before creating an approval
+  // capability. Keep this as a measured negative result, never coding success.
+  await check('code-generation-unavailable', async () => {
+    const result = await post('plan', { goal: 'Repair this code.' }, false);
+    return result.status === 503
+      && result.body.code === 'AGENT_CODE_GENERATION_UNAVAILABLE'
+      && result.body.planToken === undefined
+      && result.body.runId === undefined;
+  });
+  await check('document-generation-unavailable', async () => {
+    const p = await prepare('Create a sales report.', { content: '売上を集計して提案してください。' });
     const result = await post('execute', { ...p.operation, approvalToken: p.approvalToken });
     return result.status === 422 && result.body.status !== 'completed' && result.body.artifact === undefined;
   });
