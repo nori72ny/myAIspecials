@@ -26,24 +26,17 @@ jobs:
 
       - run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Inspect sealed image corpus metadata
+      - name: Report sealed corpus availability
         env:
           ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64 }}
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64"
-          node --import tsx scripts/inspect-image-private-corpus-v1.ts | tee metadata.json
-          node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
-          const fs=require('node:fs');
-          const v=JSON.parse(fs.readFileSync('metadata.json','utf8'));
-          console.log('### Sealed image corpus preflight');
-          console.log('');
-          console.log('- corpusId: `'+v.corpusId+'`');
-          console.log('- candidateSha: `'+v.candidateSha+'`');
-          console.log('- taskCount: '+v.taskCount);
-          console.log('- corpusDigest: `'+v.corpusDigest+'`');
-          NODE
+          if [ -n "$ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64" ]; then
+            echo "- sealedCorpus: available" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- sealedCorpus: missing" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Verify OpenRouter image API key presence and model readiness
         env:
