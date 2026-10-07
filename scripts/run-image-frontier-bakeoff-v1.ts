@@ -221,7 +221,7 @@ const TASKS: Task[] = [
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
-  if (!value) throw new Error(\`BAKEOFF_REQUIRED_ENV_MISSING:\${name}\`);
+  if (!value) throw new Error(`BAKEOFF_REQUIRED_ENV_MISSING:${name}`);
   return value;
 }
 function sha256(value: Buffer | string): string {
@@ -243,7 +243,7 @@ function mime(bytes: Buffer): Generated['mime'] | null {
   return null;
 }
 function parseJsonObject(text: string): Record<string, unknown> {
-  const clean = text.trim().replace(/^\\\`\\\`\\\`(?:json)?/i,'').replace(/\\\`\\\`\\\`$/,'').trim();
+  const clean = text.trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
   const start = clean.indexOf('{');
   const end = clean.lastIndexOf('}');
   if (start < 0 || end <= start) throw new Error('BAKEOFF_JUDGE_JSON_MISSING');
@@ -253,7 +253,7 @@ async function openRouter(apiKey: string, url: string, payload: unknown, timeout
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: \`Bearer \${apiKey}\`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'HTTP-Referer': 'https://origin-personal.vercel.app',
@@ -263,7 +263,7 @@ async function openRouter(apiKey: string, url: string, payload: unknown, timeout
     signal: AbortSignal.timeout(timeoutMs),
   });
   const json = await response.json().catch(() => null) as Record<string, unknown> | null;
-  if (!response.ok || !json) throw new Error(\`BAKEOFF_OPENROUTER_HTTP_\${response.status}\`);
+  if (!response.ok || !json) throw new Error(`BAKEOFF_OPENROUTER_HTTP_${response.status}`);
   return json;
 }
 function usageCost(result: Record<string, unknown>): number {
@@ -276,7 +276,7 @@ function usageCost(result: Record<string, unknown>): number {
 async function pixelCritic(browser: Browser, bytes: Buffer, mimeType: string): Promise<boolean> {
   const page = await browser.newPage();
   try {
-    const dataUrl = \`data:\${mimeType};base64,\${bytes.toString('base64')}\`;
+    const dataUrl = `data:${mimeType};base64,${bytes.toString('base64')}`;
     const decoded = await page.evaluate(async ({ dataUrl }) => {
       const image = new Image();
       image.decoding = 'async';
@@ -333,13 +333,13 @@ async function generateReference(apiKey: string, browser: Browser, task: Task, r
     output_format: 'png',
   },EXECUTION_BUDGET_MS);
   const costUsd = usageCost(result);
-  if (costUsd > IMAGE_COST_CAP) throw new Error(\`BAKEOFF_IMAGE_COST_CAP_EXCEEDED:\${ref.systemId}\`);
+  if (costUsd > IMAGE_COST_CAP) throw new Error(`BAKEOFF_IMAGE_COST_CAP_EXCEEDED:${ref.systemId}`);
   const data = Array.isArray(result.data) ? result.data as Record<string,unknown>[] : [];
   const encoded = typeof data[0]?.b64_json === 'string' ? String(data[0].b64_json) : '';
-  if (!encoded) throw new Error(\`BAKEOFF_IMAGE_PAYLOAD_INVALID:\${ref.systemId}\`);
+  if (!encoded) throw new Error(`BAKEOFF_IMAGE_PAYLOAD_INVALID:${ref.systemId}`);
   const bytes = Buffer.from(encoded,'base64');
   const imageMime = mime(bytes);
-  if (!imageMime || bytes.length > MAX_IMAGE_BYTES) throw new Error(\`BAKEOFF_IMAGE_BINARY_INVALID:\${ref.systemId}\`);
+  if (!imageMime || bytes.length > MAX_IMAGE_BYTES) throw new Error(`BAKEOFF_IMAGE_BINARY_INVALID:${ref.systemId}`);
   return {
     systemId: ref.systemId, role: 'reference', bytes, mime: imageMime,
     durationMs: Date.now()-started, imageSha256: sha256(bytes),
@@ -350,7 +350,7 @@ async function generateReference(apiKey: string, browser: Browser, task: Task, r
 async function generateOrigin(baseUrl: string, browser: Browser, task: Task, totalCost: number, candidateSha: string): Promise<Generated> {
   assertBudget(totalCost, IMAGE_COST_CAP);
   const started = Date.now();
-  const response = await fetch(\`\${baseUrl}/api/creative/v1.6/world-class/generate\`,{
+  const response = await fetch(`${baseUrl}/api/creative/v1.6/world-class/generate`,{
     method:'POST',
     headers:{'content-type':'application/json',accept:'image/png,image/jpeg,image/webp,application/json'},
     body:JSON.stringify({prompt:task.prompt,width:task.width,height:task.height}),
@@ -358,7 +358,7 @@ async function generateOrigin(baseUrl: string, browser: Browser, task: Task, tot
   });
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(\`BAKEOFF_ORIGIN_HTTP_\${response.status}:\${body.slice(0,120)}\`);
+    throw new Error(`BAKEOFF_ORIGIN_HTTP_${response.status}:${body.slice(0,120)}`);
   }
   const bytes = Buffer.from(await response.arrayBuffer());
   const imageMime = mime(bytes);
@@ -376,7 +376,7 @@ async function generateOrigin(baseUrl: string, browser: Browser, task: Task, tot
   };
 }
 function blindOrder(caseId: string, outputs: Generated[]): { key: string; output: Generated }[] {
-  const ranked = outputs.map((output,index)=>({output,index,rank:sha256(\`\${caseId}:\${output.systemId}\`)})).sort((a,b)=>a.rank.localeCompare(b.rank));
+  const ranked = outputs.map((output,index)=>({output,index,rank:sha256(`${caseId}:${output.systemId}`)})).sort((a,b)=>a.rank.localeCompare(b.rank));
   return ranked.map((item,index)=>({key:['A','B','C','D'][index],output:item.output}));
 }
 function validateScores(value: unknown, keys: string[]): Record<string,ImageRubricScoresV15> {
@@ -403,11 +403,11 @@ async function judge(apiKey:string,task:Task,blind:{key:string;output:Generated}
   const rubric='Score each image 0-4 on promptAdherence, composition, subjectIntegrity, styleExecution, textHandling, artifactControl, professionalUsefulness.';
   const taxonomy='Allowed failure factors only: prompt-adherence, composition, anatomy-geometry, material-realism, lighting, style-fidelity, text-handling, artifacting, professional-usefulness, none.';
   const content:any[]=[{type:'text',text:
-    \`You are an independent blind image-quality judge. Do not infer or discuss model identity. User request:\\n\${task.prompt}\\n\\n\${rubric}\\n\${taxonomy}\\nReturn JSON only with keys firstChoiceBlindKey, scores, criticalSafetyIssues, failureFactors. scores must contain exactly \${keys.join(',')} and all 7 numeric axes. criticalSafetyIssues maps each key to true/false. failureFactors maps each key to an array of allowed taxonomy strings. Judge professional usefulness at the requested size; for exact-text tasks penalize any wrong, missing, invented, duplicated, or illegible text.\`
+    `You are an independent blind image-quality judge. Do not infer or discuss model identity. User request:\\n${task.prompt}\\n\\n${rubric}\\n${taxonomy}\\nReturn JSON only with keys firstChoiceBlindKey, scores, criticalSafetyIssues, failureFactors. scores must contain exactly ${keys.join(',')} and all 7 numeric axes. criticalSafetyIssues maps each key to true/false. failureFactors maps each key to an array of allowed taxonomy strings. Judge professional usefulness at the requested size; for exact-text tasks penalize any wrong, missing, invented, duplicated, or illegible text.`
   }];
   for(const item of blind){
-    content.push({type:'text',text:\`Blind output \${item.key}:\`});
-    content.push({type:'image_url',image_url:{url:\`data:\${item.output.mime};base64,\${item.output.bytes.toString('base64')}\`}});
+    content.push({type:'text',text:`Blind output ${item.key}:`});
+    content.push({type:'image_url',image_url:{url:`data:${item.output.mime};base64,${item.output.bytes.toString('base64')}`}});
   }
   const result=await openRouter(apiKey,CHAT_URL,{
     model:judgeId,
@@ -419,7 +419,7 @@ async function judge(apiKey:string,task:Task,blind:{key:string;output:Generated}
     max_tokens:2200,
   },120_000);
   const costUsd=usageCost(result);
-  if(costUsd>JUDGE_COST_CAP) throw new Error(\`BAKEOFF_JUDGE_COST_CAP_EXCEEDED:\${judgeId}\`);
+  if(costUsd>JUDGE_COST_CAP) throw new Error(`BAKEOFF_JUDGE_COST_CAP_EXCEEDED:${judgeId}`);
   const choices=Array.isArray(result.choices)?result.choices as Record<string,unknown>[]:[];
   const message=choices[0]?.message && typeof choices[0].message==='object' ? choices[0].message as Record<string,unknown> : {};
   const raw=typeof message.content==='string'?message.content:'';
@@ -497,7 +497,7 @@ async function main(){
   await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',()=>resolve());});
   const address=server.address();
   if(!address||typeof address==='string') throw new Error('BAKEOFF_SERVER_BIND_FAILED');
-  const baseUrl=\`http://127.0.0.1:\${address.port}\`;
+  const baseUrl=`http://127.0.0.1:${address.port}`;
   const browser=await chromium.launch({headless:true});
   let totalCostUsd=0;
   const evidenceCases:any[]=[];
@@ -514,7 +514,7 @@ async function main(){
       const blind=blindOrder(task.caseId,generated);
       for(const item of blind){
         const ext=item.output.mime==='image/png'?'png':item.output.mime==='image/webp'?'webp':'jpg';
-        await fs.writeFile(path.join(imageDir,\`\${task.caseId}-\${item.key}.\${ext}\`),item.output.bytes,{mode:0o600});
+        await fs.writeFile(path.join(imageDir,`${task.caseId}-${item.key}.${ext}`),item.output.bytes,{mode:0o600});
       }
       const judges:JudgeResult[]=[];
       for(const judgeId of JUDGES){
@@ -571,7 +571,7 @@ async function main(){
       originSystemId:ORIGIN_SYSTEM,
       referenceSystemIds:REFERENCES.map(x=>x.systemId),
       executionBudgetMs:EXECUTION_BUDGET_MS,
-      roundId:\`frontier-bakeoff-v1-\${candidateSha.slice(0,12)}\`,
+      roundId:`frontier-bakeoff-v1-${candidateSha.slice(0,12)}`,
       createdAt,
       expiresAt:new Date(Date.now()+30*24*60*60_000).toISOString(),
       cases:evidenceCases,
