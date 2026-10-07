@@ -137,6 +137,11 @@ describe('V1.2 real artifacts', () => {
     expect(body).toContain('三行目');
   });
 
+  it('accounts for wide Latin glyphs instead of estimating every ASCII character as narrow', () => {
+    expect(() => generateArtifactV12({ type: 'xlsx', rows: [['Text'], ['W'.repeat(700)]] }))
+      .toThrow('XLSX_CELL_CONTENT_REQUIRES_TOO_MANY_LINES');
+  });
+
   it('does not silently clip text beyond the spreadsheet row-height limit', async () => {
     const response = await request(app()).post('/api/artifacts/v1.2/generate').send({
       type: 'xlsx', rows: [['説明'], [Array(30).fill('確認').join('\n')]],
