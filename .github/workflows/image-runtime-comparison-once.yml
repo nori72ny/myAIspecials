@@ -1,4 +1,5 @@
 name: Image runtime 24-case comparison
+# rerun: syntax-fix-1
 
 on:
   push:
