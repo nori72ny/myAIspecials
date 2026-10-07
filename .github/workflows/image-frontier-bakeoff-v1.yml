@@ -21,7 +21,7 @@ jobs:
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ORIGIN_BAKEOFF_CANDIDATE_SHA: ${{ github.sha }}
-      ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD: '15'
+      ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD: '6'
       ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD: '0.25'
       ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD: '0.25'
       ORIGIN_BAKEOFF_OUTPUT_DIR: ${{ github.workspace }}/test-results/image-frontier-bakeoff-v1
@@ -54,9 +54,41 @@ jobs:
           const total=Number(process.env.ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD);
           const per=Number(process.env.ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD);
           const judge=Number(process.env.ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD);
-          if(!Number.isFinite(total)||total<=0||total>15) process.exit(2);
+          if(!Number.isFinite(total)||total<=0||total>6) process.exit(2);
           if(!Number.isFinite(per)||per<=0||per>0.25) process.exit(3);
           if(!Number.isFinite(judge)||judge<=0||judge>0.25) process.exit(4);
+          NODE
+
+      - name: Inspect OpenRouter key state without spending credits
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error             -H "Authorization: Bearer $OPENROUTER_API_KEY"             https://openrouter.ai/api/v1/key             -o openrouter-key-state.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const value=JSON.parse(fs.readFileSync('openrouter-key-state.json','utf8'));
+          const data=value&&value.data&&typeof value.data==='object'?value.data:{};
+          const safe={
+            is_free_tier:data.is_free_tier===true,
+            is_management_key:data.is_management_key===true,
+            limit:typeof data.limit==='number'?data.limit:null,
+            limit_remaining:typeof data.limit_remaining==='number'?data.limit_remaining:null,
+            expires_at:data.expires_at??null,
+          };
+          fs.mkdirSync('test-results/image-frontier-bakeoff-v1',{recursive:true});
+          fs.writeFileSync(
+            'test-results/image-frontier-bakeoff-v1/openrouter-key-state.json',
+            JSON.stringify(safe,null,2)+'\n',
+            {mode:0o600},
+          );
+          if(safe.is_free_tier){
+            console.error('OPENROUTER_IMAGE_CREDITS_REQUIRED: key is on free tier; paid image generation cannot run');
+            process.exit(10);
+          }
+          if(safe.limit_remaining!==null && safe.limit_remaining<=0){
+            console.error('OPENROUTER_KEY_LIMIT_EXHAUSTED');
+            process.exit(11);
+          }
           NODE
 
       - name: Run real 24-case image frontier bakeoff
