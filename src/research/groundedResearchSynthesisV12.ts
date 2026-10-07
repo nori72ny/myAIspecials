@@ -265,7 +265,8 @@ export function buildGroundedResearchSynthesisPrompt(
 }
 
 function numericTokens(value: string): string[] {
-  const normalized = value.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-");
+  const normalized = value.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-")
+    .replace(/\d+つ目の資料/g, "資料");
   const dates: string[] = [];
   // Keep a date intact: separate year/month/day matches can fabricate a new date.
   const withoutDates = normalized.replace(
@@ -278,11 +279,8 @@ function numericTokens(value: string): string[] {
     },
   );
   const matches = withoutDates.match(/[+-]?(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:e[+-]?\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
-  const numbers = matches.map((token) => token.replace(/[\s,，]/g, "").toLowerCase()).filter((token) => {
-    const digits = token.match(/\d/g)?.length ?? 0;
-    const hasSemanticSuffix = /[$¥€£%円ドル]|usd|jpy|eur|gbp|年|月|日|万|億|兆/i.test(token);
-    return digits >= 2 || hasSemanticSuffix;
-  });
+  // Single-digit counts are factual values too; only explicit source-list labels are excluded above.
+  const numbers = matches.map((token) => token.replace(/[\\s,，]/g, "").toLowerCase());
   return [...new Set([...dates, ...numbers])];
 }
 
@@ -352,7 +350,7 @@ export function validateGroundedResearchSynthesis(
     }
   }
 
-  const requiredCoverage = Math.min(2, sourceMap.size);
+  const requiredCoverage = Math.max(1, Math.min(2, sourceMap.size));
   if (used.size < requiredCoverage) {
     return {
       ok: false,
