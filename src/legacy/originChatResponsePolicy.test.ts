@@ -132,4 +132,57 @@ describe("originChatResponsePolicy", () => {
     expect(requiresOriginGroundedResearch(message)).toBe(expected);
   });
 
+  it.each([
+    [
+        "この文章を要約してください。最新の料金を調べてください。",
+        true
+    ],
+    [
+        "この資料を要約してください。\n現在の仕様を調べてください。",
+        true
+    ],
+    [
+        "この文章を校正してください。出典を確認してください。",
+        true
+    ],
+    [
+        "Summarize this report. Search for current competitor prices.",
+        true
+    ],
+    [
+        "Translate this passage.\nPlease look up the latest exchange rate.",
+        true
+    ],
+    [
+        "Rewrite this text.\n- Find sources for this claim.",
+        true
+    ],
+    [
+        "Proofread this document.\n2. Verify the sources.",
+        true
+    ],
+    [
+        "Summarize this passage: \"Search for current competitor prices.\"",
+        false
+    ],
+    [
+        "この文章を要約してください。『最新の料金を調べてください。』",
+        false
+    ],
+    [
+        "Summarize this passage.\n```text\nSearch for current competitor prices.\n```",
+        false
+    ],
+    [
+        "この文章を要約してください。読みやすい表現にしてください。",
+        false
+    ],
+    [
+        "Summarize this research report. Keep it under 200 words.",
+        false
+    ]
+])("preserves research in separate task sentences: %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+  });
+
 });
