@@ -1,0 +1,104 @@
+name: Image Frontier Direct Bakeoff V2
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: origin-image-frontier-direct-bakeoff-v2
+  cancel-in-progress: false
+
+jobs:
+  run-bakeoff:
+    if: contains(github.event.head_commit.message, '[run-image-direct-bakeoff-v2]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      ORIGIN_BAKEOFF_CANDIDATE_SHA: ${{ github.sha }}
+      ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD: '6'
+      ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD: '0.25'
+      ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD: '0.25'
+      ORIGIN_BAKEOFF_OUTPUT_DIR: ${{ github.workspace }}/test-results/image-frontier-direct-bakeoff-v2
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify bounded paid-evaluation authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENAI_API_KEY"
+          test -n "$GEMINI_API_KEY"
+          test "$ORIGIN_BAKEOFF_CANDIDATE_SHA" = "$GITHUB_SHA"
+          node <<'NODE'
+          const total=Number(process.env.ORIGIN_BAKEOFF_MAX_TOTAL_COST_USD);
+          const per=Number(process.env.ORIGIN_BAKEOFF_MAX_IMAGE_COST_USD);
+          const judge=Number(process.env.ORIGIN_BAKEOFF_MAX_JUDGE_COST_USD);
+          if(!Number.isFinite(total)||total<=0||total>6) process.exit(2);
+          if(!Number.isFinite(per)||per<=0||per>0.25) process.exit(3);
+          if(!Number.isFinite(judge)||judge<=0||judge>0.25) process.exit(4);
+          NODE
+
+      - name: Preflight direct provider credentials and model access
+        shell: bash
+        run: |
+          set -euo pipefail
+          openai_status="$(curl --silent --show-error --connect-timeout 10 --max-time 30             -H "Authorization: Bearer $OPENAI_API_KEY"             -H 'Accept: application/json'             -o openai-model.json -w '%{http_code}'             https://api.openai.com/v1/models/gpt-image-2.5-sunburst || true)"
+          if [ "$openai_status" != '200' ]; then
+            cat openai-model.json >&2 || true
+            echo "::error title=OpenAI image model unavailable::Direct gpt-image-2.5-sunburst access is required before any paid call."
+            exit 11
+          fi
+
+          gemini_status="$(curl --silent --show-error --connect-timeout 10 --max-time 30             -H "x-goog-api-key: $GEMINI_API_KEY"             -H 'Accept: application/json'             -o gemini-model.json -w '%{http_code}'             https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image || true)"
+          if [ "$gemini_status" != '200' ]; then
+            cat gemini-model.json >&2 || true
+            echo "::error title=Gemini image model unavailable::Direct Gemini 3.1 Flash Image access is required before any paid call."
+            exit 12
+          fi
+          rm -f openai-model.json gemini-model.json
+
+      - name: Install Chromium for deterministic pixel validation
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real 24-case direct-provider bakeoff
+        run: node --import tsx scripts/run-image-frontier-direct-bakeoff-v2.ts
+
+      - name: Publish benchmark summary to workflow log
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f test-results/image-frontier-direct-bakeoff-v2/benchmark-summary.json ]; then
+            cat test-results/image-frontier-direct-bakeoff-v2/benchmark-summary.json
+          else
+            echo "benchmark-summary.json not produced"
+          fi
+
+      - name: Upload comparison evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-frontier-direct-bakeoff-v2-${{ github.sha }}
+          path: test-results/image-frontier-direct-bakeoff-v2/
+          retention-days: 30
+          if-no-files-found: warn
