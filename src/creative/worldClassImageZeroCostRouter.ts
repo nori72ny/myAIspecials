@@ -88,7 +88,7 @@ function parse(body: unknown, editing: boolean): ParsedRequest {
   const allowed = new Set(editing ? ['prompt', 'width', 'height', 'referenceImages'] : ['prompt', 'width', 'height']);
   if (Object.keys(row).some((key) => !allowed.has(key))) throw new Error('INVALID_WORLD_CLASS_IMAGE_FIELD');
   const prompt = typeof row.prompt === 'string' ? row.prompt.normalize('NFKC').trim() : '';
-  if (!prompt || prompt.length > 3000) throw new Error('INVALID_WORLD_CLASS_IMAGE_PROMPT');
+  if (!prompt || prompt.length > 1400) throw new Error('INVALID_WORLD_CLASS_IMAGE_PROMPT');
   if ((row.width === undefined) !== (row.height === undefined)) throw new Error('INVALID_WORLD_CLASS_IMAGE_DIMENSION_PAIR');
   const width = row.width;
   const height = row.height;
@@ -123,6 +123,20 @@ function exactTextCandidates(prompt: string): string[] {
   }
   for (const match of prompt.matchAll(/(?:¥|￥|\$)\s?[\d,.]+(?:円)?/g)) values.add(match[0].trim());
   return [...values].slice(0, 8);
+}
+
+function boundedCompiledPrompt(original: string, compiled: string, editing: boolean): string {
+  if (compiled.length <= 2000) return compiled;
+  return [
+    'PRIMARY INSTRUCTION:',
+    original,
+    '',
+    'EXECUTION CONSTRAINTS:',
+    '- Follow the instruction exactly. Do not add unrequested subjects, text, logos, watermarks, borders, or clutter.',
+    '- Preserve requested visible text exactly and keep anatomy, geometry, perspective, lighting, materials, and composition coherent.',
+    editing ? '- Edit only the requested regions and preserve all untouched content.' : '',
+    '- Produce professional, artifact-free output suitable for direct use.',
+  ].filter(Boolean).join('\n');
 }
 
 function remediationPrompt(original: string, issues: readonly string[], summary: string): string {
@@ -198,6 +212,7 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
     const cloudflare = await getCloudflareRasterStatusV15(env).catch(() => null);
     const primaryReady = Boolean(cloudflare?.ready && cloudflare.zeroCostVerified && !cloudflare.paidFallbackEnabled);
     const promptPlan = compileWorldClassImagePromptV16(input.prompt, editing);
+    const compiledPrompt = boundedCompiledPrompt(input.prompt, promptPlan.prompt, editing);
     const exactText = exactTextCandidates(input.prompt);
 
     let finalResult: Awaited<ReturnType<typeof generateCloudflareRasterImageV15>> | null = null;
@@ -206,7 +221,7 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
     let providerTier: 'world-class-free' | 'standard-free' = 'world-class-free';
 
     if (primaryReady) {
-      let workingPrompt = promptPlan.prompt;
+      let workingPrompt = compiledPrompt;
       const maxAttempts = env.ORIGIN_IMAGE_ZERO_COST_MAX_ATTEMPTS === '1' ? 1 : 2;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         attempts = attempt;
@@ -229,10 +244,9 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
         }
         if (finalCritic.passed) break;
         if (attempt < maxAttempts) {
-          workingPrompt = compileWorldClassImagePromptV16(
-            remediationPrompt(input.prompt, finalCritic.issues, finalCritic.summary),
-            editing,
-          ).prompt;
+          const repaired = remediationPrompt(input.prompt, finalCritic.issues, finalCritic.summary);
+          const repairPlan = compileWorldClassImagePromptV16(repaired, editing);
+          workingPrompt = boundedCompiledPrompt(repaired, repairPlan.prompt, editing);
         }
       }
 
@@ -251,7 +265,7 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
       attempts = 1;
       try {
         const standard = await generateRasterImageV15({
-          prompt: promptPlan.prompt,
+          prompt: compiledPrompt,
           width: input.width,
           height: input.height,
         }, env);
