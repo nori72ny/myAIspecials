@@ -237,6 +237,21 @@ describe('worldClassImageV16Router', () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
+  it('does not suggest retrying a provider payment failure or expose its raw body', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse())
+      .mockResolvedValueOnce(new Response('private-provider-billing-detail', { status: 402 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app(BASE_ENV))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '商品広告を作成してください' });
+    expect(response.status).toBe(502);
+    expect(response.body).toMatchObject({ ok: false, code: 'OPENROUTER_IMAGE_HTTP_402', retryable: false, paidFallbackUsed: false });
+    expect(response.body.message).toContain('管理者');
+    expect(JSON.stringify(response.body)).not.toContain('private-provider-billing-detail');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('enforces the configured post-response cost cap', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(modelsResponse())
