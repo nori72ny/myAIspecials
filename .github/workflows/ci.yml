@@ -140,7 +140,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Bound browser dependency downloads
+        run: |
+          # The hosted Azure HTTP mirror can stall before browser tests begin.
+          # Keep Ubuntu package signature verification; use the official HTTPS mirror.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
+          fi
+          printf '%s\n' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' 'Acquire::Retries "2";' | sudo tee /etc/apt/apt.conf.d/80origin-download-bounds >/dev/null
       - name: Install ${{ matrix.browser }}
+        timeout-minutes: 8
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npm run build
       - name: Exercise isolated preview boundary
