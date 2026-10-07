@@ -121,6 +121,37 @@ describe('V1.2 real artifacts', () => {
     expect(body).toContain('<c r="A2" t="inlineStr"><is><t xml:space="preserve">Sales</t></is></c>');
   });
 
+  it('wraps Japanese headers and body text while fitting explicit newlines and preserving content', () => {
+    const long = '料金だけでなく固定費と利用人数も確認してください。'.repeat(3);
+    const artifact = generateArtifactV12({ type: 'xlsx', rows: [
+      ['項目', long], ['長文', long], ['改行', '一行目\r\n二行目\n三行目'], ['短文', '通常'],
+    ] });
+    const body = artifact.bytes.toString('utf8');
+    const heights = [...body.matchAll(/<row r="\d+" ht="([\d.]+)"/g)].map(match => Number(match[1]));
+    expect(heights[0]).toBeGreaterThan(24);
+    expect(heights[1]).toBeGreaterThan(21);
+    expect(heights[2]).toBeGreaterThanOrEqual(48);
+    expect(heights[3]).toBe(21);
+    expect(body.match(/wrapText="1"/g)).toHaveLength(3);
+    expect(body).toContain(long);
+    expect(body).toContain('三行目');
+  });
+
+  it('accounts for wide Latin glyphs instead of estimating every ASCII character as narrow', () => {
+    expect(() => generateArtifactV12({ type: 'xlsx', rows: [['Text'], ['W'.repeat(700)]] }))
+      .toThrow('XLSX_CELL_CONTENT_REQUIRES_TOO_MANY_LINES');
+  });
+
+  it('does not silently clip text beyond the spreadsheet row-height limit', async () => {
+    const response = await request(app()).post('/api/artifacts/v1.2/generate').send({
+      type: 'xlsx', rows: [['説明'], [Array(30).fill('確認').join('\n')]],
+    });
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('XLSX_CELL_CONTENT_REQUIRES_TOO_MANY_LINES');
+    expect(response.body.message).toContain('複数の行');
+    expect(response.headers['x-origin-artifact-verified']).toBeUndefined();
+  });
+
   it('writes explicit XLSX formula cells as formulas without converting ordinary strings', () => {
     const artifact = generateArtifactV12({
       type: 'xlsx',
