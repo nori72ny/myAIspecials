@@ -1,0 +1,43 @@
+name: Image Provider Preflight Temp
+
+on:
+  push:
+    branches:
+      - eval/image-provider-preflight-20261007
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Probe credentials without paid inference
+        shell: bash
+        run: |
+          set +e
+          openai=missing
+          gemini=missing
+          cloudflare=missing
+          if [ -n "$OPENAI_API_KEY" ]; then
+            code="$(curl -sS -o /tmp/o.json -w '%{http_code}' -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models/gpt-image-2.5-sunburst)"
+            [ "$code" = 200 ] && openai=ready || openai="http-$code"
+          fi
+          if [ -n "$GEMINI_API_KEY" ]; then
+            code="$(curl -sS -o /tmp/g.json -w '%{http_code}' -H "x-goog-api-key: $GEMINI_API_KEY" https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image)"
+            [ "$code" = 200 ] && gemini=ready || gemini="http-$code"
+          fi
+          if [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            code="$(curl -sS -o /tmp/c.json -w '%{http_code}' -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/models/search?search=flux")"
+            [ "$code" = 200 ] && cloudflare=ready || cloudflare="http-$code"
+          fi
+          echo "OPENAI=$openai"
+          echo "GEMINI=$gemini"
+          echo "CLOUDFLARE=$cloudflare"
