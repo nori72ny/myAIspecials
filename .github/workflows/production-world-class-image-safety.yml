@@ -64,9 +64,12 @@ jobs:
 
           jq -e --arg sha "$CANDIDATE_SHA" '
             .releaseSha == $sha and
-            .provider == "openrouter-image-api" and
+            .provider == "cloudflare-workers-ai-free" and
             .publicationPolicy == "exact-sha-qualified-only" and
+            .freeOnly == true and
+            .costUsd == 0 and
             .paidFallbackEnabled == false and
+            .paymentMethodRequired == false and
             .secretDelivery == "server-only"
           ' "$status_file" >/dev/null || {
             cat "$status_file" >&2
@@ -82,7 +85,7 @@ jobs:
               .ready == true and
               .qualified == true and
               .qualifiedSha == $sha and
-              .providerReady == true
+              .primaryReady == true
             ' "$status_file" >/dev/null || {
               cat "$status_file" >&2
               echo "::error title=Qualified world-class image release invalid::A qualified SHA must be provider-ready and exactly match Production."
@@ -114,4 +117,4 @@ jobs:
             echo "World-class image: UNQUALIFIED and correctly fail-closed for SHA $CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          jq -c '{ok,ready,enabled,qualified,releaseSha,qualifiedSha,provider,model,providerReady,publicationPolicy,paidFallbackEnabled,secretDelivery}' "$status_file" >> "$GITHUB_STEP_SUMMARY"
+          jq -c '{ok,ready,enabled,qualified,releaseSha,qualifiedSha,provider,model,primaryReady,standardFallbackReady,publicationPolicy,freeOnly,costUsd,paidFallbackEnabled,paymentMethodRequired,secretDelivery}' "$status_file" >> "$GITHUB_STEP_SUMMARY"
