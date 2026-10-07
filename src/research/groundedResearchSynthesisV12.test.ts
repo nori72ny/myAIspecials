@@ -376,4 +376,46 @@ describe("groundedResearchSynthesisV12", () => {
     );
   });
 
+  it("rejects an unsupported single-digit headcount", () => {
+    const evidence = [{ ...sources[0], excerpt: "Employees: 3." }];
+    expect(validateGroundedResearchSynthesis("Employees: 5.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects an unsupported Japanese single-digit count", () => {
+    const evidence = [{ ...sources[0], excerpt: "契約数は3件。" }];
+    expect(validateGroundedResearchSynthesis("契約数は5件。[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects an unsupported zero count", () => {
+    const evidence = [{ ...sources[0], excerpt: "Results: 3." }];
+    expect(validateGroundedResearchSynthesis("Results: 0.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("accepts a supported single-digit count", () => {
+    const evidence = [{ ...sources[0], excerpt: "Employees: 3." }];
+    expect(validateGroundedResearchSynthesis("Employees: 3.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("accepts a supported zero count", () => {
+    const evidence = [{ ...sources[0], excerpt: "Results: 0." }];
+    expect(validateGroundedResearchSynthesis("Results: 0.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("accepts a numbered list without treating its marker as a claim", () => {
+    const evidence = [{ ...sources[0], excerpt: "Employees: 3." }];
+    expect(validateGroundedResearchSynthesis("1. Employees: 3.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("does not approve an answer when no source was retrieved", () => {
+    expect(validateGroundedResearchSynthesis("## Summary", [])).toEqual(
+      expect.objectContaining({ ok: false, code: "INSUFFICIENT_SOURCE_COVERAGE" }),
+    );
+  });
+
+  it("does not approve an answer when every source URL is unsafe", () => {
+    expect(validateGroundedResearchSynthesis("## Summary", [{ ...sources[0], url: "http://example.com/one" }])).toEqual(
+      expect.objectContaining({ ok: false, code: "INSUFFICIENT_SOURCE_COVERAGE" }),
+    );
+  });
+
 });
