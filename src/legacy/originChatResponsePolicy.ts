@@ -255,7 +255,11 @@ export function requiresOriginGroundedResearch(message: string): boolean {
   if (requiresOriginCurrentInformation(message)) return true;
 
   return /(?:検索|調査|リサーチ)(?:を)?(?:して|してください|して下さい|する|してほしい)|(?:一次情報|出典|公開情報).{0,12}(?:を)?(?:調べ|確認|探|集め)|(?:調べ|確認|探).{0,24}(?:出典|一次情報|公開情報)/s.test(message)
-    || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify\s+(?:the\s+)?sources?)\b/i.test(message);
+    || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+(?:the\s+)?sources?|check\s+(?:the\s+)?sources?|verify\s+(?:the\s+)?sources?)\b/i.test(message)
+    // Share the same explicit follow-up semantics as the transformation guard.
+    // Without this, the shortcut notices an added task but the final router
+    // still drops it (e.g. "translate ... and check the sources").
+    || hasEnglishAdditionalTask(withoutQuotedSourceText(message), "research");
 }
 
 export function requiresOriginCurrentInformation(message: string): boolean {
