@@ -13,6 +13,15 @@ describe('compileWorldClassImagePromptV16', () => {
     expect(plan.prompt).toContain('Do not translate, paraphrase, invent, omit, or duplicate text.');
   });
 
+  it('retains fullwidth prices and brand typography exactly in advertising prompts', () => {
+    const original = '美容広告：「初回限定５０％ＯＦＦ」 料金￥４，９８０ 全角文字ＡＢＣ';
+    const plan = compileWorldClassImagePromptV16(original, false);
+    expect(plan.profile).toBe('text-layout');
+    expect(plan.prompt).toContain(original);
+    expect(plan.prompt).toContain('￥４，９８０');
+    expect(plan.prompt).not.toContain('初回限定50%OFF');
+  });
+
   it('adds strict preservation constraints for image editing', () => {
     const plan = compileWorldClassImagePromptV16(
       '人物と商品はそのままに、背景だけ高級ホテルの夜景へ変更',
