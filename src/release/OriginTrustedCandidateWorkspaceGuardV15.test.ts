@@ -91,9 +91,17 @@ describe('trusted candidate workspace guard', () => {
     const file = path.join(root, 'package-lock.json');
     const modified = JSON.parse(await readFile(file, 'utf8'));
     modified.packages['node_modules/handlebars'].integrity = 'sha512-FAKE';
-    await writeFile(file, JSON.stringify(modified, null, 2) + '\\n');
+    await writeFile(file, JSON.stringify(modified, null, 2) + '\n');
     await expect(assertTrustedCandidateVerificationBaselineV15(root))
       .rejects.toThrow('TRUSTED_CANDIDATE_VERIFICATION_BASELINE_MISMATCH');
+  });
+
+  it('does not retain the formerly trusted vulnerable Handlebars 4.7.9 lockfile blob', async () => {
+    const source = await readFile(path.resolve(process.cwd(),
+      'src/release/OriginTrustedCandidateWorkspaceGuardV15.ts'), 'utf8');
+    const oldGitBlob = 'af43541852474fb8a1a1e4fffbb745b4ab601237';
+    // Keep the former SHA absent from active grant syntax, while allowing an explanatory comment.
+    expect(source).not.toContain("'" + oldGitBlob + "',");
   });
 
   it('rejects a modified lockfile even when its JSON remains valid', async () => {
