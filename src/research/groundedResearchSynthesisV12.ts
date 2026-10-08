@@ -337,16 +337,40 @@ function citedSourceIds(value: string): string[] {
   return [...ids];
 }
 
+/** Tables have structural, non-factual header/divider rows. Keep data rows
+ * subject to exact citation and numeric evidence validation. */
+function isMarkdownTableDivider(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return false;
+  const withoutEdgePipes = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  const cells = withoutEdgePipes.split("|");
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
 function factualUnits(text: string): string[] {
   const normalized = text.replace(/\r\n/g, "\n").trim();
   if (!normalized) return [];
-  return normalized
-    .split(/\n\s*\n/)
-    .flatMap((block) => block.split("\n").map((line) => line.trim()).filter(Boolean))
-    .filter((line) => !HEADING_PATTERN.test(line))
-    .filter((line) => !SHORT_NONFACTUAL_PATTERN.test(line))
-    .map((line) => line.replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "").trim())
-    .filter(Boolean);
+  const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
+  const units: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (isMarkdownTableDivider(line) || /^-{3,}$/.test(line)) continue;
+    // A pipe-table header is a label, not a fact. Never exempt a header
+    // containing numbers: dated/numeric claims still need evidence.
+    if (line.includes("|") && isMarkdownTableDivider(lines[index + 1] ?? "")
+      && !/[0-9０-９]/.test(line)) continue;
+    if (SHORT_NONFACTUAL_PATTERN.test(line)) continue;
+    if (HEADING_PATTERN.test(line)) {
+      const heading = line.replace(HEADING_PATTERN, "").trim();
+      // A numerical heading can assert facts even outside ordinary prose.
+      if (!/[0-9０-９]/.test(heading)) continue;
+      units.push(heading);
+      continue;
+    }
+    const content = line.replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "").trim();
+    if (content) units.push(content);
+  }
+  return units;
 }
 
 export function validateGroundedResearchSynthesis(
