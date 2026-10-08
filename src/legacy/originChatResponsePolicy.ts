@@ -18,6 +18,44 @@ export function requiresOriginFutureReleaseInformation(message: string): boolean
     || /\b(?:future|next[- ]generation)\s+(?:AI|models?)\b/i.test(message);
 }
 
+/**
+ * Strip user-quoted source text in one left-to-right scan. A multi-alternative
+ * regex with open-ended Japanese quotation spans permits polynomial backtracking
+ * on an input containing thousands of unmatched 「 / 『 openers.
+ */
+function withoutQuotedSourceText(message: string): string {
+  const result: string[] = [];
+  let closing: string | null = null;
+  for (let index = 0; index < message.length; index += 1) {
+    const char = message[index];
+    if (closing !== null) {
+      if (closing === "```" && message.slice(index, index + 3) === "```") {
+        index += 2;
+        closing = null;
+        result.push(" ");
+      } else if (char === closing) {
+        closing = null;
+        result.push(" ");
+      } else if (closing === '"' && char === "\n") {
+        closing = null;
+        result.push("\n");
+      }
+      continue;
+    }
+    if (message.slice(index, index + 3) === "```") {
+      closing = "```";
+      index += 2;
+      result.push(" ");
+    } else if (char === "「" || char === "『" || char === '"') {
+      closing = char === "「" ? "」" : char === "『" ? "』" : '"';
+      result.push(" ");
+    } else {
+      result.push(char);
+    }
+  }
+  return result.join("");
+}
+
 function isTransformOnlyRequest(message: string): boolean {
   const transformsSuppliedContent = /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録|調査結果|リサーチ結果).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
     || /\b(?:summari[sz]e|shorten|rewrite|translate|proofread|reformat)\b.{0,48}\b(?:this|following|provided|text|passage|document|research\s+(?:result|report|brief))\b/is.test(message);
@@ -25,7 +63,7 @@ function isTransformOnlyRequest(message: string): boolean {
 
   // An explicit additional research task must not be suppressed by the
   // transformation shortcut. Quoted/fenced source text is not a task request.
-  const requestText = message.replace(/```[\s\S]*?```|「[^」]*」|『[^』]*』|"[^"\n]*"/g, " ");
+  const requestText = withoutQuotedSourceText(message);
   const additionalResearch = /(?:また|さらに|加えて|併せて|あわせて|その上で|そのうえで|それとは別に|[、，。！？\n]).{0,80}(?:検索(?:して|する)|調査(?:して|する)|リサーチ(?:して|する)|調べ(?:て|る)|(?:出典|一次情報|公開情報).{0,16}確認)/s.test(requestText)
     || /\b(?:and(?:\s+also)?|also|additionally|in\s+addition|then)\s+(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify)\b/i.test(requestText)
     || /(?:^|[.!?\n])\s*(?:[-*]\s+|\d+[.)]\s+)?(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify\s+(?:the\s+)?sources?)\b/i.test(requestText);
