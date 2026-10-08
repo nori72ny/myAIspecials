@@ -33,3 +33,28 @@ Token must be provisioned directly in trusted CI; do not paste it into a PR or c
 ## Production stop rule
 
 Do not merge PR #920 or #922, change secrets/DB/providers, make production public, or enable paid plans solely from passing PR checks or this runbook. Their Draft state is intentional until external settings and release-level evidence are independently verified.
+
+## Vercel本番エイリアス・チェックの読み取り専用監査
+
+Vercel公式の `GET /v2/projects/{projectIdOrName}/checks` API で
+`blocks=deployment-alias` を絞り込み、名前が
+`ORIGIN Exact-SHA Release Gate` の信頼済みチェックがただ1件存在することを検査する
+`scripts/audit-progressive-release-vercel.ts` を追加した。
+
+* 実行先は信頼済み・保護された環境のみ。PR checkoutやブラウザーで
+  `VERCEL_TOKEN` を使わない。
+* 予め必要な `VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`, `VERCEL_TOKEN`
+  はCI保護環境から与える。ログにはトークンやAPI生応答を出さない。
+* 監査コマンド（保護されたCIからのみ）:
+  `node --import tsx scripts/audit-progressive-release-vercel.ts`
+* 出力 `configuredBlockingCheckFound` は設定検出に過ぎず、
+  `releaseAuthorized` は常に `false`。404/401/403、空応答、違う
+  `projectId`、間違ったチェック名、ブロックなし、同名重複は失敗扱い。
+* 設定検出の次に必須なのは**本番エイリアスの負経路テスト**。CI失敗や
+  レビュー未承認のデプロイが本番URLへ切り替わらないことを、
+  本番SHAの実観測で証明する。ログ/PR本文/ヘルスAPIの `costUsd=0`
+  だけを根拠に公開を許可しない。
+* 本スクリプトはチェック作成やProductionへの書き込みを実行しない。
+
+Vercel参考: https://vercel.com/docs/rest-api/checks-v2/list-all-checks-for-a-project
+
