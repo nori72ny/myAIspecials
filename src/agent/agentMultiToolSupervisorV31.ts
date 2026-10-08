@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { types as nodeUtilTypes } from 'node:util';
 
 import {
   AGENT_MULTI_TOOL_PLAN_VERSION_V31,
@@ -59,7 +60,8 @@ function canonicalParams(value: unknown): string {
     if (candidate === null || typeof candidate === 'string' || typeof candidate === 'boolean') return candidate;
     if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
     if (!candidate || typeof candidate !== 'object') throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
-    if (visited.has(candidate)) throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
+    if (visited.has(candidate) || nodeUtilTypes.isProxy(candidate))
+      throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
     visited.add(candidate);
     // Inspect descriptors rather than reading properties: a getter can otherwise
     // run arbitrary code before approval has been consumed.
