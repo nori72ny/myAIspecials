@@ -53,11 +53,30 @@ function hasExplicitCodingWork(goal: string): boolean {
     || /\b(?:write|generate)\s+(?:(?:the|my|a|an)\s+)?(?:code|script|function|typescript|javascript|python)\b/.test(value);
 }
 
+/**
+ * A keyword hit for "edit file" is not itself permission to write.
+ * In particular, negated, educational and conditional mentions must not
+ * elevate a read-only request into a repository-changing Agent step.
+ */
+function hasExplicitFileMutationWork(goal: string): boolean {
+  const value = goal.normalize('NFKC').toLowerCase();
+  const prohibitedOrHypothetical =
+    /(?:ファイル|ソース).{0,40}(?:作成|追加|編集|修正|更新|変更)(?:しない|せず|不要|禁止|するな|しなくて|しないで|方法|手順|事例|前に)/.test(value)
+    || /(?:作成|追加|編集|修正|更新|変更)(?:しない|せず|不要|禁止|するな|しなくて|しないで|方法|手順|事例)/.test(value)
+    || /\b(?:do not|don't|without|never|avoid)\s+(?:(?:create|write|add|edit|modify|update|patch|change)\b.{0,32}\b(?:file|source)\b|(?:editing|modifying|writing|changing|updating)\b)/.test(value)
+    || /\b(?:how to|tutorial|example of|guide to)\s+(?:create|write|add|edit|modify|update|patch|change)\b.{0,32}\b(?:file|source)\b/.test(value);
+  if (prohibitedOrHypothetical) return false;
+  return /(?:ファイル|ソース).{0,32}(?:作成|追加|編集|修正|更新|変更)(?:して|しろ|する|したい|してから|して、|し、|してください)/.test(value)
+    || /(?:作成|追加|編集|修正|更新|変更)(?:して|しろ|する|したい|してください).{0,32}(?:ファイル|ソース)/.test(value)
+    || /\b(?:create|write|add|edit|modify|update|patch|change)\b.{0,32}\b(?:file|source)\b/.test(value);
+}
+
 function normalizeMatchedTools(goal: string): Array<{ toolName: ToolName; reasonCode: string }> {
   const scored = scoreAgentToolsV3(goal);
   const strong = scored.filter((row) => row.score >= 3);
   const byTool = new Map<ToolName, { toolName: ToolName; reasonCode: string }>();
   for (const row of strong) byTool.set(row.toolName, { toolName: row.toolName, reasonCode: row.reasonCode });
+  if (!hasExplicitFileMutationWork(goal)) byTool.delete('file_writer');
 
   // A trusted Coding V1.4 session already performs repository discovery and final
   // test/typecheck/lint/build verification. Do not manufacture redundant side
