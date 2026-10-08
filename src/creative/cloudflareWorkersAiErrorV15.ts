@@ -1,3 +1,5 @@
+import { readBoundedCloudflareRasterJsonV15 } from './cloudflareRasterResponseLimitV15.js';
+
 export type CloudflareWorkersAiFailureV15 = {
   code: string;
   retryable: boolean;
@@ -33,7 +35,7 @@ export async function classifyCloudflareWorkersAiFailureV15(
   const status = response.status;
   let internalCode: number | null = null;
   try {
-    const body = await response.json() as unknown;
+    const body = await readBoundedCloudflareRasterJsonV15(response, 64 * 1024);
     internalCode = internalCodeFrom(body);
   } catch {
     internalCode = null;
