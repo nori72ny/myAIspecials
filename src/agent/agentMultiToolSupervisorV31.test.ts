@@ -99,8 +99,11 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
 
   it('passes only immutable cloned parameters to a tool after their approval is consumed', async () => {
     const actions = deps();
-    const shared = { action: 'original', details: { content: 'approved' } };
-    actions.prepareParams = vi.fn(async () => shared);
+    let shared = { action: 'original', details: { content: 'approved' } };
+    actions.prepareParams = vi.fn(async () => {
+      shared = { action: 'original', details: { content: 'approved' } };
+      return shared;
+    });
     actions.consumeExactApproval = vi.fn(async () => {
       shared.action = 'changed-after-approval';
       shared.details.content = 'not-approved';
