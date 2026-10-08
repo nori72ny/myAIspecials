@@ -329,6 +329,21 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
   return allowed;
 }
 
+/** Block invalid comma grouping in quantities before token normalization can
+ * erase the comma and accidentally equate e.g. 1,20円 with 120円.
+ * Unlabelled lists (e.g. "1,2,3") are not interpreted as grouped quantities.
+ */
+function hasMalformedGroupedQuantity(unit: string): boolean {
+  const normalized = unit.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-");
+  const quantity = /(?<![0-9.,])[-+]?[ \t]*([$¥€£]?)[ \t]*(\d[\d,]*(?:\.\d+)?)[ \t]*(円|店舗|店|件|人|ドル|usd|jpy|eur|gbp|%|万|億|兆)?(?![0-9.,])/gi;
+  for (const match of normalized.matchAll(quantity)) {
+    const [, currency, amount, unitSuffix] = match;
+    if (!amount.includes(",") || (!currency && !unitSuffix)) continue;
+    if (!/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(amount)) return true;
+  }
+  return false;
+}
+
 function citedSourceIds(value: string): string[] {
   const ids = new Set<string>();
   CITATION_PATTERN.lastIndex = 0;
@@ -439,6 +454,10 @@ export function validateGroundedResearchSynthesis(
         code: "UNCITED_FACTUAL_UNIT",
         detail: `Factual unit did not include an inline citation: ${unit.slice(0, 120)}`,
       };
+    }
+
+    if (hasMalformedGroupedQuantity(unit)) {
+      return { ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN", detail: "Quantity used invalid thousands separators." };
     }
 
     const ids = citedSourceIds(unit);
