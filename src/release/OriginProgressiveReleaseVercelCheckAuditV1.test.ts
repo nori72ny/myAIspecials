@@ -8,6 +8,7 @@ import {
 
 const projectId = "prj_WecnnicbGAamToppgV97rHgd8QSB";
 const teamId = "team_2oPfSS7sHa4Db1asn4C0IJkq";
+const trustedSource = { kind: "webhook", identity: "hook_fixture_verified" } as const;
 const check = {
   id: "chk_valid123",
   projectId,
@@ -20,7 +21,7 @@ const check = {
 
 describe("Vercel deployment-alias release check configuration audit", () => {
   it("accepts a configured named blocking check but NEVER authorizes production", () => {
-    expect(auditOriginVercelChecksV1({ checks: [check] }, projectId)).toEqual({
+    expect(auditOriginVercelChecksV1({ checks: [check] }, projectId, trustedSource)).toEqual({
       schemaVersion: "origin.vercel-checks-audit.v1",
       projectId,
       configuredBlockingCheckFound: true,
@@ -48,7 +49,7 @@ describe("Vercel deployment-alias release check configuration audit", () => {
     ["duplicate with missing source kind", { checks: [check, { ...check, id: "chk_other", sourceKind: undefined }] }],
     ["duplicate exact gate", { checks: [check, { ...check, id: "chk_duplicate" }] }],
   ])("blocks missing or ambiguous production check: %s", (_label, payload) => {
-    const audit = auditOriginVercelChecksV1(payload, projectId);
+    const audit = auditOriginVercelChecksV1(payload, projectId, trustedSource);
     expect(audit.configuredBlockingCheckFound).toBe(false);
     expect(audit.releaseAuthorized).toBe(false);
     expect(audit.blockers).toContain("REQUIRED_DEPLOYMENT_ALIAS_CHECK_MISSING");
@@ -57,7 +58,7 @@ describe("Vercel deployment-alias release check configuration audit", () => {
   it.each([undefined, null, {}, { checks: "not-an-array" },
     { checks: [{ ...check, projectId: "prj_other" }] }])(
     "fails closed on missing or inconsistent Vercel evidence", payload => {
-      const audit = auditOriginVercelChecksV1(payload, projectId);
+      const audit = auditOriginVercelChecksV1(payload, projectId, trustedSource);
       expect(audit.releaseAuthorized).toBe(false);
       expect(audit.configuredBlockingCheckFound).toBe(false);
       expect(audit.blockers).toContain("VERCEL_CHECK_API_EVIDENCE_MISSING");
@@ -68,22 +69,39 @@ describe("Vercel deployment-alias release check configuration audit", () => {
     const integration = auditOriginVercelChecksV1({
       checks: [{ ...check, sourceKind: "integration",
         source: { kind: "integration", externalResourceId: "integration_fixture" } }],
-    }, projectId);
+    }, projectId, { kind: "integration", identity: "integration_fixture" });
     expect(integration.configuredBlockingCheckFound).toBe(true);
     expect(integration.releaseAuthorized).toBe(false);
 
     const githubExternal = auditOriginVercelChecksV1({
       checks: [{ ...check, sourceKind: "git-provider",
         source: { kind: "git-provider", provider: "github", externalCheckName: "ORIGIN gate" } }],
-    }, projectId);
+    }, projectId, { kind: "git-provider", identity: "ORIGIN gate" });
     expect(githubExternal.configuredBlockingCheckFound).toBe(true);
     expect(githubExternal.releaseAuthorized).toBe(false);
 
     const unrelatedExternal = auditOriginVercelChecksV1({
       checks: [{ ...check, sourceKind: "git-provider",
         source: { kind: "git-provider", provider: "other", externalCheckName: "ORIGIN gate" } }],
-    }, projectId);
+    }, projectId, trustedSource);
     expect(unrelatedExternal.configuredBlockingCheckFound).toBe(false);
+  });
+
+  it("fails closed without pre-approved release-check identity or with a forged webhook", () => {
+    const unbound = auditOriginVercelChecksV1({ checks: [check] }, projectId);
+    expect(unbound.configuredBlockingCheckFound).toBe(false);
+    expect(unbound.releaseAuthorized).toBe(false);
+    expect(unbound.blockers).toContain("TRUSTED_CHECK_SOURCE_NOT_CONFIGURED");
+
+    const forged = auditOriginVercelChecksV1({
+      checks: [{ ...check, source: { kind: "webhook", webhookId: "attacker_hook" } }],
+    }, projectId, trustedSource);
+    expect(forged.configuredBlockingCheckFound).toBe(false);
+    expect(forged.blockers).toContain("REQUIRED_DEPLOYMENT_ALIAS_CHECK_MISSING");
+
+    const wrongExpected = auditOriginVercelChecksV1({ checks: [check] }, projectId,
+      { kind: "webhook", identity: "other_authority" });
+    expect(wrongExpected.configuredBlockingCheckFound).toBe(false);
   });
 
   it("queries official Vercel fixed-host read-only endpoint without leaking secrets", async () => {
@@ -96,7 +114,7 @@ describe("Vercel deployment-alias release check configuration audit", () => {
     }) as typeof fetch;
 
     const result = await fetchAndAuditOriginVercelChecksV1({
-      projectId, teamId, token: "fake-test-token-secret", fetchImpl: fakeFetch,
+      projectId, teamId, trustedSource, token: "fake-test-token-secret", fetchImpl: fakeFetch,
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -121,7 +139,7 @@ describe("Vercel deployment-alias release check configuration audit", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }) as typeof fetch;
     const result = await fetchAndAuditOriginVercelChecksV1({
-      projectId, teamId, token: "fixture-token-should-never-be-logged", fetchImpl: fakeFetch,
+      projectId, teamId, trustedSource, token: "fixture-token-should-never-be-logged", fetchImpl: fakeFetch,
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -134,18 +152,18 @@ describe("Vercel deployment-alias release check configuration audit", () => {
 
   it("redacts missing token, HTTP errors, network errors, and malformed responses", async () => {
     expect(await fetchAndAuditOriginVercelChecksV1({
-      projectId, teamId, token: "",
+      projectId, teamId, trustedSource, token: "",
     })).toEqual({ ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" });
     expect(await fetchAndAuditOriginVercelChecksV1({
-      projectId, teamId, token: "fake-test-token-secret",
+      projectId, teamId, trustedSource, token: "fake-test-token-secret",
       fetchImpl: (async () => new Response("request rejected", { status: 403 })) as typeof fetch,
     })).toEqual({ ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" });
     expect(await fetchAndAuditOriginVercelChecksV1({
-      projectId, teamId, token: "fake-test-token-secret",
+      projectId, teamId, trustedSource, token: "fake-test-token-secret",
       fetchImpl: (async () => { throw new Error("sensitive upstream failure"); }) as typeof fetch,
     })).toEqual({ ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" });
     expect(await fetchAndAuditOriginVercelChecksV1({
-      projectId, teamId, token: "fake-test-token-secret",
+      projectId, teamId, trustedSource, token: "fake-test-token-secret",
       fetchImpl: (async () => new Response("not JSON", { status: 200 })) as typeof fetch,
     })).toEqual({ ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" });
   });
