@@ -84,6 +84,38 @@ describe('V1.4 durable coding worker controller', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it('recovers from exact-match model proposals by one bounded fresh replan without loosening patch matching', async () => {
+    const { root, envelope, lease } = await fixture();
+    const store = new FakeStore(lease);
+    const invalid = modelResult(JSON.stringify({ edits: [{ path: 'src/math.js', search: 'invented text', replacement: 'a + b' }], creates: [] }));
+    const valid = modelResult(JSON.stringify({ edits: [{ path: 'src/math.js', search: 'a - b', replacement: 'a + b' }], creates: [] }));
+    const execute = vi.fn().mockResolvedValueOnce(invalid).mockResolvedValueOnce(invalid).mockResolvedValueOnce(valid);
+    const outcome = await runCodingJobWorkerV14(envelope.jobId, 'gha:123:1', {
+      store, env, execute,
+      resolveTarget: async () => ({ root, allowedPaths: ['src/math.js'], trustedWorkspaceApproved: true }),
+      verify: async () => green(),
+    });
+    expect(outcome).toMatchObject({ state: 'verified', code: 'CODING_CHECKS_PASSED' });
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(await readFile(path.join(root, 'src/math.js'), 'utf8')).toContain('a + b');
+  });
+
+  it('still blocks an unfixable exact-match proposal after the bounded replanning budget', async () => {
+    const { root, envelope, lease } = await fixture();
+    const store = new FakeStore(lease);
+    const invalid = modelResult(JSON.stringify({ edits: [{ path: 'src/math.js', search: 'invented text', replacement: 'a + b' }], creates: [] }));
+    const execute = vi.fn(async () => invalid);
+    const outcome = await runCodingJobWorkerV14(envelope.jobId, 'gha:123:1', {
+      store, env, execute,
+      resolveTarget: async () => ({ root, allowedPaths: ['src/math.js'], trustedWorkspaceApproved: true }),
+      verify: async () => green(),
+    });
+    expect(outcome).toMatchObject({ state: 'blocked', code: 'CODING_MODEL_EDIT_MATCH_INVALID' });
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(store.completion).toMatchObject({ status: 'blocked', code: 'CODING_MODEL_EDIT_MATCH_INVALID' });
+    expect(await readFile(path.join(root, 'src/math.js'), 'utf8')).toContain('a - b');
+  });
+
   it('honors a cancellation before model/provider access', async () => {
     const { root, envelope, lease } = await fixture();
     const store = new FakeStore(lease);
