@@ -289,7 +289,7 @@ function numericTokens(value: string): string[] {
  * Both operands must appear as whole numeric tokens in this unit's cited
  * evidence. This does not authorize unsourced estimates or unshown arithmetic.
  */
-function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<string>): Set<string> {
+function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<string>, citedEvidence: string): Set<string> {
   const allowed = new Set<string>();
   const expression = /(?<![\d.])(\d{1,12})(店|店舗|件|人|円)?\s*([+\-−])\s*(\d{1,12})(店|店舗|件|人|円)?\s*[=＝]\s*(\d{1,12})(店|店舗|件|人|円)?(?![\d.])/g;
   for (const match of unit.normalize("NFKC").matchAll(expression)) {
@@ -302,6 +302,11 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
     // as ordinary surrounding words. Match its exact normalized token form.
     const numericSuffix = leftUnit === "円" ? "円" : "";
     if (!evidence.has(`${leftText}${numericSuffix}`) || !evidence.has(`${rightText}${numericSuffix}`)) continue;
+    // Prevent converting unrelated source measures into store counts: if the
+    // answer names a unit, each cited operand must explicitly carry that unit.
+    const sourceText = citedEvidence.normalize("NFKC");
+    if (leftUnit && (!sourceText.includes(`${leftText}${leftUnit}`)
+      || !sourceText.includes(`${rightText}${leftUnit}`))) continue;
     allowed.add(`${resultText}${numericSuffix}`);
     // Numeric tokenization retains the binary sign of the second operand.
     // It is permitted only inside this specifically verified expression.
@@ -397,7 +402,7 @@ export function validateGroundedResearchSynthesis(
     const evidenceText = ids.map((id) => sourceEvidence.get(id) ?? "").join("\n");
     // Compare whole numeric tokens; substring matches can silently change magnitude or sign.
     const supportedNumbers = new Set(numericTokens(evidenceText));
-    const verifiedResults = verifiedDerivedArithmeticTokens(unit, supportedNumbers);
+    const verifiedResults = verifiedDerivedArithmeticTokens(unit, supportedNumbers, evidenceText);
     for (const token of numericTokens(unit)) {
       if (!supportedNumbers.has(token) && !verifiedResults.has(token)) {
         return {
