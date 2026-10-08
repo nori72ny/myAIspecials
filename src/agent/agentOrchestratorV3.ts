@@ -13,6 +13,7 @@ import { issueApprovalCapability, issuePlanCapability, latestApprovalExpiryForPl
 import { selectAgentToolV3 } from './agentToolPlannerV3.js';
 import { agentOperatorAuthorizationModeV3, agentOperatorConfiguredV3, authenticateAgentOperatorV3 } from './agentOperatorAuthV3.js';
 import { AgentCodingBridgeV3 } from './agentCodingBridgeV3.js';
+import { createOriginChatRateLimiter } from '../server/originSecurity.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
 const isToolName = (value: unknown): value is ToolName => typeof value === 'string' && TOOL_NAMES.includes(value as ToolName);
@@ -30,6 +31,7 @@ export interface AgentRunConsumptionStore {
 
 export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, codingBridge?: AgentCodingBridgeV3): Router {
   const router = express.Router();
+  const codingRouteRateLimiter = createOriginChatRateLimiter(Date.now, ['POST']);
 
   router.get('/api/agent/v3/status', (_req, res) => {
     const approvalSigningConfigured = v3CapabilityConfigured(env);
@@ -173,7 +175,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     return undefined;
   });
 
-  router.post('/api/agent/v3/coding/status', (req, res) => {
+  router.post('/api/agent/v3/coding/status', codingRouteRateLimiter, (req, res) => {
     if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
     if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
     if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
@@ -192,7 +194,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     return undefined;
   });
 
-  router.post('/api/agent/v3/coding/cancel', (req, res) => {
+  router.post('/api/agent/v3/coding/cancel', codingRouteRateLimiter, (req, res) => {
     if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
     if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
     if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
