@@ -166,7 +166,9 @@ export function isConfirmedCodingCancelAcknowledgement(
     && receipt.freeOnly === true
     && receipt.costUsd === 0
     && receipt.paidFallbackUsed === false
-    && (receipt.status !== 'cancelled' || receipt.codingStatus === 'cancelled');
+    && (receipt.status === 'cancelled'
+      ? receipt.codingStatus === 'cancelled'
+      : ['queued', 'leased', 'running', 'repairing'].includes(receipt.codingStatus ?? ''));
 }
 
 export function isConfirmedCodingCancellationReceipt(
