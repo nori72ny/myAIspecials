@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import WorldClassImageV16Panel from './WorldClassImageV16Panel';
 import {
   pngFilenameFromSvg,
   rasterizeVerifiedSvgToPng,
@@ -496,6 +497,8 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
           </div>}
         </section>
       </div>
+
+      {import.meta.env.VITE_WORLD_CLASS_IMAGE_UI_ENABLED === 'true' && <WorldClassImageV16Panel />}
 
       {(history.length > 0 || historyNotice) && <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative local history">
         <div className="flex flex-wrap items-center justify-between gap-3">
