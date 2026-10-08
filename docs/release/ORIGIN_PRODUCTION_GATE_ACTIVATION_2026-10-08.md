@@ -99,3 +99,22 @@ Vercel API が返す「チェック名」と「Webhook/連携元IDが存在す�
 - これは「設定照合」に限定される。必ず非合格デプロイでの
   **本番エイリアス割当拒否を実測**し、Owner exact-head承認と
   実回答の独立評価が揃うまで本番公開は停止する。
+
+## 回答品質の評価対象SHA一致を必須化
+
+未公開PRの回答品質に関する独立評価と、mainの既存評価を混同しない。
+`OriginProgressiveReleasePreflightV1` は
+`capabilityQualityQualified === true` だけでは公開を許可しない。
+信頼済みサーバー側で検証済みの
+`capabilityQualityEvidenceCandidateSha` が現在の
+`candidateSha` と完全一致していることも必須とする。
+値が空、不正、旧main SHA、別PR SHAの場合は
+`QUALITY_EVIDENCE_MISSING` で公開を拒否する。
+当該SHAはPR本文・ブラウザー・モデル自己申告から採用してはならない。
+
+現行 `.github/workflows/q1-final-aq.yml` は
+`CANDIDATE_SHA=${{ github.sha }}` かつ
+`github.ref == 'refs/heads/main'` で動くため、
+**main-only 40問比較の合格を未公開PR #930の品質合格として流用しない**。
+PR headに実際に紐づいた独立40問評価と秘密48問評価の証拠が
+別途必要。現在の通常技術CI成功をモデル回答品質成功と誤認しない。
