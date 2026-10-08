@@ -26,10 +26,16 @@ export type AgentMultiToolStepOutcomeV31 = {
 export type AgentMultiToolSupervisorDepsV31 = {
   /** A trusted resolver supplies actual operation arguments, not the model's claims. */
   prepareParams: (step: AgentMultiToolStepV31, prior: readonly AgentMultiToolVerifiedStepV31[]) => Promise<unknown>;
-  /** Verify a real exact-operation authorization for the computed digest, per step. */
-  verifyExactApproval: (operationDigest: string, step: AgentMultiToolStepV31) => Promise<boolean>;
+  /** Real backing store must guarantee one-time atomic consumption even across replicas. */
+  /** Atomically consume a single-use approval bound to this run and exact operation. */
+  consumeExactApproval: (runId: string, operationDigest: string, step: AgentMultiToolStepV31) => Promise<boolean>;
   /** Must block until terminal verified tool evidence; dispatch/running is NOT success. */
   executeAndVerify: (step: AgentMultiToolStepV31, params: unknown, prior: readonly AgentMultiToolVerifiedStepV31[]) => Promise<AgentMultiToolStepOutcomeV31>;
+  /** A distinct trusted evidence reader must independently confirm the terminal record
+   * binds to the same run, exact operation, job/result and $0 status.
+   * Never trust only a tool's own claimed 'verified' flag or digest.
+   */
+  verifyTrustedTerminal: (runId: string, operationDigest: string, step: AgentMultiToolStepV31, outcome: AgentMultiToolStepOutcomeV31) => Promise<boolean>;
   /** Shared store / cancellation service, not merely a browser AbortController. */
   isCancelled: () => Promise<boolean>;
 };
@@ -125,7 +131,7 @@ export async function executeAgentMultiToolSequenceV31(
       const params = await deps.prepareParams(step, prior);
       const operationDigest = approvalBinding(runId, goalDigest, step, params, prior);
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
-      if (await deps.verifyExactApproval(operationDigest, step) !== true)
+      if (await deps.consumeExactApproval(runId, operationDigest, step) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED', completed);
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       const outcome = await deps.executeAndVerify(step, params, prior);
@@ -134,6 +140,9 @@ export async function executeAgentMultiToolSequenceV31(
         || !SHA256.test(outcome.evidenceDigest ?? '') || /^0{64}$/.test(outcome.evidenceDigest)
         || outcome.freeOnly !== true || outcome.costUsd !== 0 || outcome.paidFallbackUsed !== false)
         return finish('blocked', 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED', completed);
+      if (await deps.verifyTrustedTerminal(runId, operationDigest, step, outcome) !== true)
+        return finish('blocked', 'AGENT_MULTI_TOOL_TRUSTED_TERMINAL_MISSING', completed);
+      if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       completed.push({
         stepId: step.id,
         toolName: step.toolName,
