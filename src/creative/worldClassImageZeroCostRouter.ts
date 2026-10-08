@@ -13,6 +13,7 @@ import { critiqueCloudflareRasterSemanticV15 } from './cloudflareRasterSemanticC
 import { compileWorldClassImagePromptV16 } from './worldClassImagePromptCompilerV16.js';
 
 const FULL_SHA = /^[0-9a-f]{40}$/i;
+const EXACT_WORLD_CLASS_MODEL_V16 = '@cf/black-forest-labs/flux-2-klein-9b';
 const MAX_REFERENCE_IMAGES = 4;
 const MAX_REFERENCE_IMAGE_BYTES = 768 * 1024;
 
@@ -157,7 +158,11 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
   router.get('/api/creative/v1.6/world-class/status', async (_req, res) => {
     const cloudflare = await getCloudflareRasterStatusV15(env).catch(() => null);
     const isQualified = qualified(env);
-    const primaryReady = Boolean(cloudflare?.ready && cloudflare.zeroCostVerified && !cloudflare.paidFallbackEnabled);
+    const primaryReady = Boolean(
+      (env.ORIGIN_CLOUDFLARE_IMAGE_MODEL?.trim() || EXACT_WORLD_CLASS_MODEL_V16) === EXACT_WORLD_CLASS_MODEL_V16
+      && cloudflare?.model === EXACT_WORLD_CLASS_MODEL_V16
+      && cloudflare.ready && cloudflare.zeroCostVerified && !cloudflare.paidFallbackEnabled
+    );
     const ready = isQualified && primaryReady;
     const evaluationReady = Boolean(primaryReady && (isQualified || evaluationBypassAllowed(env)));
     return res.status(ready ? 200 : 503).json({
@@ -169,7 +174,7 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
       releaseSha: releaseSha(env),
       qualifiedSha: env.ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA?.trim().toLowerCase() || null,
       provider: 'cloudflare-workers-ai-free',
-      model: cloudflare?.model ?? '@cf/black-forest-labs/flux-2-klein-9b',
+      model: cloudflare?.model ?? EXACT_WORLD_CLASS_MODEL_V16,
       primaryReady,
       // Standard-tier generation is a separate V1.5 capability, never a V1.6 world-class substitute.
       standardFallbackReady: false,
@@ -207,7 +212,11 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
     }
 
     const cloudflare = await getCloudflareRasterStatusV15(env).catch(() => null);
-    const primaryReady = Boolean(cloudflare?.ready && cloudflare.zeroCostVerified && !cloudflare.paidFallbackEnabled);
+    const primaryReady = Boolean(
+      (env.ORIGIN_CLOUDFLARE_IMAGE_MODEL?.trim() || EXACT_WORLD_CLASS_MODEL_V16) === EXACT_WORLD_CLASS_MODEL_V16
+      && cloudflare?.model === EXACT_WORLD_CLASS_MODEL_V16
+      && cloudflare.ready && cloudflare.zeroCostVerified && !cloudflare.paidFallbackEnabled
+    );
     const promptPlan = compileWorldClassImagePromptV16(input.prompt, editing);
     const compiledPrompt = boundedCompiledPrompt(input.prompt, promptPlan.prompt, editing);
     const exactText = exactTextCandidates(input.prompt);
@@ -229,6 +238,12 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
             height: input.height,
             referenceImages: input.referenceImages,
           }, env);
+          if (finalResult.model !== EXACT_WORLD_CLASS_MODEL_V16
+            || finalResult.providerId !== 'cloudflare-workers-ai-free'
+            || finalResult.freeOnly !== true || finalResult.costUsd !== 0) {
+            return fail(res, 503, 'WORLD_CLASS_FREE_PROVIDER_IDENTITY_DRIFT',
+              '検証済みの無料9B画像モデルと異なる応答が返されたため利用を停止しました。');
+          }
           if (editing && input.referenceImages.some((reference) =>
             createHash('sha256').update(reference.bytes).digest('hex') === finalResult?.sha256)) {
             // A reference passed through unchanged is NOT evidence that the edit succeeded.

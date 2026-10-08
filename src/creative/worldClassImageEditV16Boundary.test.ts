@@ -55,6 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.providerStatus.mockResolvedValue({
     configured: true, ready: true, zeroCostVerified: true,
+    model: '@cf/black-forest-labs/flux-2-klein-9b',
     paidFallbackEnabled: false,
   });
   mocks.critique.mockResolvedValue({
@@ -63,6 +64,63 @@ beforeEach(() => {
   });
 });
 describe('V1.6 image editing strict reference integrity', () => {
+  it('blocks an unbenchmarked 4B model even if its Free plan is ready', async () => {
+    mocks.providerStatus.mockResolvedValue({
+      configured: true, ready: true, zeroCostVerified: true, paidFallbackEnabled: false,
+      model: '@cf/black-forest-labs/flux-2-klein-4b',
+    });
+    const status = await request(app()).get('/api/creative/v1.6/world-class/status');
+    expect(status.status).toBe(503);
+    expect(status.body.primaryReady).toBe(false);
+    const response = await request(app())
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高精細な商品写真', width: 256, height: 256 });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('ZERO_COST_WORLD_CLASS_PROVIDER_UNAVAILABLE');
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a 4B configuration even when provider status advertises 9B', async () => {
+    const instance = express();
+    instance.use(express.json({ limit: '3mb' }));
+    instance.use(createWorldClassImageZeroCostRouter({
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: SHA,
+      ORIGIN_CLOUDFLARE_IMAGE_MODEL: '@cf/black-forest-labs/flux-2-klein-4b',
+    }));
+    const res = await request(instance).post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '建築物の高品質画像', width: 256, height: 256 });
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('ZERO_COST_WORLD_CLASS_PROVIDER_UNAVAILABLE');
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a downgraded 4B response after valid 9B plan proof', async () => {
+    mocks.generate.mockResolvedValue({
+      ...result(image(27)), model: '@cf/black-forest-labs/flux-2-klein-4b',
+    });
+    const res = await request(app()).post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: 'スタジオ風の広告画像', width: 256, height: 256 });
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('WORLD_CLASS_FREE_PROVIDER_IDENTITY_DRIFT');
+    expect(mocks.critique).not.toHaveBeenCalled();
+  });
+
+  it('rejects a provider identity or nonzero-cost drift before trusting an image', async () => {
+    for (const drift of [
+      { providerId: 'paid-provider' },
+      { costUsd: 0.01 },
+      { freeOnly: false },
+    ]) {
+      mocks.generate.mockReset().mockResolvedValue({ ...result(image(28)), ...drift });
+      const res = await request(app()).post('/api/creative/v1.6/world-class/generate')
+        .send({ prompt: 'スタジオ風の商品写真', width: 256, height: 256 });
+      expect(res.status).toBe(503);
+      expect(res.body.code).toBe('WORLD_CLASS_FREE_PROVIDER_IDENTITY_DRIFT');
+    }
+    expect(mocks.critique).not.toHaveBeenCalled();
+  });
+
   it('does not accept an unmodified source as a successful edit', async () => {
     const original = image(12);
     mocks.generate.mockResolvedValue(result(original));
