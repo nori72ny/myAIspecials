@@ -183,6 +183,9 @@ export default function AgentWorkspaceView() {
   const [restoring, setRestoring] = useState(true);
   const credentialInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // An ephemeral, run-bound cancellation capability. Never persisted to a browser store.
+  const [activeCoding, setActiveCoding] = useState<{ runId: string; jobId: string; bridgeToken: string } | null>(null);
+  const [codingCancelPending, setCodingCancelPending] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -353,6 +356,7 @@ export default function AgentWorkspaceView() {
         }
 
         if (credentialInputRef.current) credentialInputRef.current.value = '';
+        setActiveCoding({ runId: plan.runId, jobId: result.jobId, bridgeToken: result.bridgeToken });
         setArtifact([
           '# Coding V1.4',
           '',
@@ -385,6 +389,7 @@ export default function AgentWorkspaceView() {
           if (poll.status === 'completed' && poll.verified === true && poll.result) {
             setArtifact(verifiedCodingArtifact(poll.result));
             setPhase('completed');
+            setActiveCoding(null);
             setLog((current) => [...current, 'Coding V1.4 の最終4検証が完了しました。完了状態へ移行します。']);
             setPlan(null);
             return;
@@ -417,6 +422,35 @@ export default function AgentWorkspaceView() {
       if (abortRef.current === controller) abortRef.current = null;
     }
   }, [persistCheckpoint, phase, plan]);
+
+  const cancelActiveCoding = useCallback(async () => {
+    if (!activeCoding || codingCancelPending) return;
+    setCodingCancelPending(true);
+    try {
+      const response = await fetch('/api/agent/v3/coding/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify(activeCoding),
+      });
+      const result = await response.json() as { ok?: boolean; status?: string; code?: string };
+      if (!response.ok || result.ok !== true || !['cancelling', 'cancelled'].includes(result.status ?? '')) {
+        throw new Error(result.code ?? 'AGENT_CODING_CANCEL_FAILED');
+      }
+      setLog((current) => [...current, result.status === 'cancelled'
+        ? 'Codingジョブはサーバー側で中止されました。完了扱いにはしません。'
+        : 'Codingジョブの中止要求をサーバー側で受理しました。終端状態の確認中です。']);
+      if (result.status === 'cancelled') {
+        abortRef.current?.abort();
+        setPhase('failed');
+        setActiveCoding(null);
+      }
+    } catch (error) {
+      setLog((current) => [...current, `Codingジョブの中止を確認できません: ${(error as Error).message}。ブラウザを閉じてもサーバー処理は停止したとは限りません。`]);
+    } finally {
+      setCodingCancelPending(false);
+    }
+  }, [activeCoding, codingCancelPending]);
 
   const resetPlan = () => {
     abortRef.current?.abort();
@@ -492,6 +526,11 @@ export default function AgentWorkspaceView() {
             </button>
             <button type="button" onClick={resetPlan} disabled={phase === 'executing'} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{phase === 'executing' ? '実行中' : '計画を破棄'}</button>
           </div>
+          {activeCoding && <button type="button" onClick={() => void cancelActiveCoding()} disabled={codingCancelPending}
+            className="origin-secondary-button mt-3 min-h-11 w-full rounded-xl border border-amber-300 px-4 text-sm font-semibold disabled:opacity-50"
+            aria-label="実行中のCodingジョブを中止">
+            {codingCancelPending ? '中止を確認中…' : '実行中のCodingジョブを中止'}
+          </button>}
         </section>}
 
         <details className="mt-4 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
