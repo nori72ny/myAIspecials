@@ -193,7 +193,17 @@ export async function executeAgentMultiToolSequenceV31(
       if (await deps.consumeExactApproval(runId, operationDigest, step) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED', completed);
       if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
-      const outcome = Object.freeze({ ...(await deps.executeAndVerify(step, params, prior, Object.freeze({ runId, operationDigest }))) });
+      let rawOutcome: AgentMultiToolStepOutcomeV31;
+      try {
+        rawOutcome = await deps.executeAndVerify(step, params, prior, Object.freeze({ runId, operationDigest }));
+      } catch {
+        // The remote action may have committed before a timeout/network error.
+        // Never call it safely retryable or invent a confirmed terminal failure.
+        return finish('blocked', 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED', completed);
+      }
+      if (!rawOutcome || typeof rawOutcome !== 'object')
+        return finish('blocked', 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED', completed);
+      const outcome = Object.freeze({ ...rawOutcome });
       // Dispatch may already have committed a side effect. A concurrent cancellation
       // request is not evidence of terminal cancellation. Block and reconcile
       // against the durable job receipt before any retry or downstream step.
