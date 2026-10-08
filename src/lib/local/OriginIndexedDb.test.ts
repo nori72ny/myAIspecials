@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { awaitOriginIdbCommit, isQuotaExceeded, migrateOriginLegacySnapshot, type OriginPersistedSnapshot, type OriginStorageAdapter } from './OriginIndexedDb';
+import { awaitOriginIdbCommit, isQuotaExceeded, migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageAdapter } from './OriginIndexedDb';
 
 const snapshot: OriginPersistedSnapshot = { version: 1, messages: [{ id: 'm-1', role: 'user', content: 'persist me' }], sessions: [], artifacts: [{ id: 'a-1', content: '<main>artifact</main>' }], updatedAt: 1 };
 
@@ -61,6 +61,34 @@ describe('OriginIndexedDb migration boundary', () => {
     await expect(migrateOriginLegacySnapshot(adapter, legacy, removeLegacy)).resolves.toEqual({ snapshot: legacy, source: 'memory', writeResult: 'failed', readFailed: true });
     expect(adapter.save).not.toHaveBeenCalled();
     expect(removeLegacy).not.toHaveBeenCalled();
+  });
+
+  it('the live adapter waits for transaction completion after put success', async () => {
+    let started!: () => void;
+    const start = new Promise<void>(resolve => { started = resolve; });
+    const request = { onsuccess: null, onerror: null, result: 'primary', error: null } as unknown as IDBRequest;
+    const transaction = {
+      oncomplete: null, onabort: null, onerror: null, error: null,
+      objectStore: () => ({ put: () => request }),
+    } as unknown as IDBTransaction;
+    const database = { transaction: () => { started(); return transaction; }, close: () => undefined };
+    const openRequest = { result: database, onsuccess: null, onerror: null, onblocked: null, onupgradeneeded: null } as unknown as IDBOpenDBRequest;
+    vi.stubGlobal('indexedDB', {
+      open: () => { queueMicrotask(() => openRequest.onsuccess?.call(openRequest, new Event('success'))); return openRequest; },
+    });
+    try {
+      let resolved = false;
+      const saving = originIndexedDbAdapter.save(snapshot).then(value => { resolved = true; return value; });
+      await start;
+      request.onsuccess?.call(request, new Event('success'));
+      await Promise.resolve();
+      expect(resolved).toBe(false);
+      transaction.oncomplete?.call(transaction, new Event('complete'));
+      await expect(saving).resolves.toBe('saved');
+      expect(resolved).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('does not acknowledge persistence until the IndexedDB transaction completes', async () => {
