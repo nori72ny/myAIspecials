@@ -78,6 +78,25 @@ describe('World-class image private held-out runner V2', () => {
     );
   });
 
+  it('rejects unsafe-only or text-inaccurate images even when pixel checks pass', () => {
+    expect(runner).toContain('const passed = Object.values(technical).every(Boolean) && semantic?.passed === true');
+    expect(runner).toContain('&& semantic?.passed === true\n    && deliveryIntegrityPassed');
+    expect(runner).toContain('WORLD_CLASS_IMAGE_PRIVATE_SEMANTIC_QUALITY_FAILED');
+    expect(runner).toContain('&& item.semantic?.passed === true');
+    expect(runner).toContain('freeOnly: cases.every(item => item.costUsd === 0) && totalCostUsd === 0');
+  });
+
+  it('requires an immutable shard plan and pinned UTC day before inference', () => {
+    expect(runner.indexOf("requiredEnv('ORIGIN_IMAGE_SHARD_INDEX')"))
+      .toBeLessThan(runner.indexOf('await evaluateCase('));
+    expect(runner).toContain("requiredEnv('ORIGIN_IMAGE_SHARD_PLAN_DIGEST')");
+    expect(runner).toContain("requiredEnv('ORIGIN_IMAGE_SHARD_UTC_DAY')");
+    expect(runner).toContain('WORLD_CLASS_IMAGE_PRIVATE_UTC_DAY_MISMATCH');
+    expect(runner).toContain('WORLD_CLASS_IMAGE_PRIVATE_UTC_DAY_ROLLOVER');
+    expect(runner).toContain('WORLD_CLASS_IMAGE_PRIVATE_SHARD_PLAN_MISMATCH');
+    expect(runner).toContain("if (!chosenCaseIds.has(task.caseId)) continue");
+  });
+
   it('runs each candidate case once and does not add paid-provider fan-out', () => {
     expect(workflow.match(/npm run eval:image-private-world-class/g)).toHaveLength(1);
     expect(workflow).not.toContain('matrix:');
