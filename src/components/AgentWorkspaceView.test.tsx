@@ -11,7 +11,7 @@ vi.mock('../agent/indexedDbCheckpointStore', () => ({
   saveCheckpointToIndexedDB,
 }));
 
-import AgentWorkspaceView from './AgentWorkspaceView';
+import AgentWorkspaceView, { verifiedCodingArtifact } from './AgentWorkspaceView';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -63,6 +63,59 @@ function planResponse(selectedTool = 'document_generator') {
     ],
   };
 }
+
+describe('Coding V1.4 verified result presentation', () => {
+  const baseResult = {
+    schemaVersion: 1 as const,
+    sessionStatus: 'verified' as const,
+    repairRounds: 1,
+    diffs: [{
+      path: 'src/math.ts',
+      kind: 'modified' as const,
+      before: 'return a - b;',
+      after: 'return a + b;',
+      beforeTruncated: false,
+      afterTruncated: false,
+      previewAvailable: true,
+    }],
+    verificationChecks: (['typecheck', 'lint', 'test', 'build'] as const).map(kind => ({
+      kind, ok: true, exitCode: 0, timedOut: false, attempt: 1,
+    })),
+    freeOnly: true as const,
+    costUsd: 0 as const,
+    gitPublished: false as const,
+    deployed: false as const,
+  };
+
+  it('shows actual bounded before and after code plus all four checks, without claiming publication', () => {
+    const visible = verifiedCodingArtifact(baseResult);
+    expect(visible).toContain('src/math.ts');
+    expect(visible).toContain('return a - b;');
+    expect(visible).toContain('return a + b;');
+    expect(visible).toContain('typecheck: PASS');
+    expect(visible).toContain('lint: PASS');
+    expect(visible).toContain('test: PASS');
+    expect(visible).toContain('build: PASS');
+    expect(visible).toContain('Git publish: not authorized');
+    expect(visible).toContain('Deploy: not authorized');
+  });
+
+  it('labels truncated and unavailable previews instead of silently implying complete source', () => {
+    const visible = verifiedCodingArtifact({
+      ...baseResult,
+      diffs: [
+        { ...baseResult.diffs[0], beforeTruncated: true, afterTruncated: true },
+        { path: 'src/other.ts', kind: 'modified', before: null, after: null,
+          beforeTruncated: false, afterTruncated: false, previewAvailable: false },
+      ],
+    });
+    expect(visible).toContain('変更前（一部省略）');
+    expect(visible).toContain('変更後（一部省略）');
+    expect(visible).toContain('src/other.ts');
+    expect(visible).toContain('プレビューを取得できません');
+    expect(visible).toContain('完全なGit差分・デプロイ済みコードを意味しません');
+  });
+});
 
 describe('AgentWorkspaceView v3', () => {
   it('creates a signed v3 plan without claiming any tool ran', async () => {
