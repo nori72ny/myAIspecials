@@ -67,3 +67,11 @@ Vercel参考: https://vercel.com/docs/rest-api/checks-v2/list-all-checks-for-a-p
 - These edits require fresh exact-head CI; previous results do not qualify the new commit. PR #930 remains at `fa12767533462baa3a0e8cd75804f746acf2774d`, with four successful engineering workflows, but its skipped live AQ workflow does not constitute measured answer quality.
 - Remaining release blockers are unchanged: real candidate/baseline model-output evaluation, independent exact-head review and applicable owner approval, effective GitHub/Vercel enforcement and a negative-path proof, and actual zero-cost evidence. No main merge, production alias change, secret changes or paid model execution is authorized by these repairs.
 - Local verification: all 18 Vercel-audit unit tests pass; npm ci succeeds; all-dependency audit exits 0 at the unchanged high threshold (0 high/critical, 21 existing moderate findings remain). The pre-fix module reproduced all three duplicate false positives.
+
+## 2026-10-09: respect effective review quorum and additional required checks
+
+- Reproduced three failing regression tests against the previous auditor: a two-reviewer rule accepted one approval, and additional enforced checks from either `contexts` or `checks` were ignored when missing.
+- The audit now requires the configured count of distinct, non-author, exact-head approvals. Case variants and repeated approvals by one account count once; stale approvals do not satisfy the quorum. Outstanding change requests still block.
+- The audit evaluates the union of the built-in minimum and all configured required check names. Additional checks that are missing, pending, skipped or neutral fail closed; only one completed-success record qualifies.
+- Local validation: 37 tests pass across both GitHub and Vercel audit suites, including the new regressions and success controls. Targeted TypeScript checking passes. Fresh exact-head CI is still required after commit.
+- This is a read-only evidence evaluator, not enforcement activation. Live branch-protection permissions, Vercel alias hold, independent model evaluation and release approvals remain unverified. No production changes.

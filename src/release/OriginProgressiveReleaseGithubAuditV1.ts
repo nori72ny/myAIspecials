@@ -74,6 +74,16 @@ export interface OriginGithubReleaseAuditV1 {
 
 const validSha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
 
+function configuredCheckNames(protection: OriginGithubReleaseSnapshotV1['mainProtection']): string[] {
+  const rules = protection?.required_status_checks;
+  const contexts = Array.isArray(rules?.contexts) ? rules.contexts : [];
+  const checks = Array.isArray(rules?.checks) ? rules.checks : [];
+  return [...new Set([
+    ...contexts.filter((c): c is string => typeof c === 'string'),
+    ...checks.map(c => c?.context).filter((c): c is string => typeof c === 'string'),
+  ])];
+}
+
 // A protected=true summary flag alone does not attest enforced CI, reviews,
 // stale-approval dismissal or admin coverage. Missing 403 responses fail closed.
 function verifiedMainBranchRules(protection: OriginGithubReleaseSnapshotV1['mainProtection']): boolean {
@@ -87,12 +97,7 @@ function verifiedMainBranchRules(protection: OriginGithubReleaseSnapshotV1['main
     || protection.enforce_admins?.enabled !== true
     || protection.allow_force_pushes?.enabled !== false
     || protection.allow_deletions?.enabled !== false) return false;
-  const contexts = Array.isArray(rules.contexts) ? rules.contexts : [];
-  const checks = Array.isArray(rules.checks) ? rules.checks : [];
-  const required = new Set([
-    ...contexts.filter((c): c is string => typeof c === 'string'),
-    ...checks.map(c => c?.context).filter((c): c is string => typeof c === 'string'),
-  ]);
+  const required = new Set(configuredCheckNames(protection));
   return REQUIRED_ORIGIN_RELEASE_CHECKS_V1.every(name => required.has(name));
 }
 
@@ -125,7 +130,13 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
 
   // Duplicate check names from old reruns must not be silently considered valid.
   // Every required result must appear once, be completed, and have conclusion success.
-  const missingOrFailedChecks = REQUIRED_ORIGIN_RELEASE_CHECKS_V1.filter(name => {
+  // Repository-enforced checks may be stricter than our built-in minimum.
+  // Missing or skipped additional quality gates must also block this audit.
+  const requiredNames = [...new Set([
+    ...REQUIRED_ORIGIN_RELEASE_CHECKS_V1,
+    ...configuredCheckNames(input?.mainProtection),
+  ])];
+  const missingOrFailedChecks = requiredNames.filter(name => {
     const matches = checkRows.filter(row => row?.name === name);
     return matches.length !== 1 || matches[0]?.status !== 'completed' || matches[0]?.conclusion !== 'success';
   });
@@ -155,11 +166,14 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
   }
   const anyChangesRequested = unidentifiedChangeRequest || [...latestDecisiveReview.values()]
     .some(review => review.state === 'CHANGES_REQUESTED');
+  const requiredApprovals = input?.mainProtection?.required_pull_request_reviews?.required_approving_review_count;
+  const independentApprovals = [...latestDecisiveReview].filter(([reviewer, review]) => review.state === 'APPROVED'
+    && review.commit_id === candidateSha && reviewer !== pull?.user?.login?.toLowerCase()).length;
   const reviewed = candidateSha !== null && Array.isArray(reviews)
     && typeof pull?.user?.login === 'string' && pull.user.login.length > 0
     && !anyChangesRequested
-    && [...latestDecisiveReview].some(([reviewer, review]) => review.state === 'APPROVED'
-      && review.commit_id === candidateSha && reviewer !== pull?.user?.login.toLowerCase());
+    && Number.isSafeInteger(requiredApprovals) && (requiredApprovals ?? 0) >= 1
+    && independentApprovals >= (requiredApprovals ?? Infinity);
   if (!reviewed) blockers.push('EXACT_HEAD_REVIEW_MISSING');
 
   return Object.freeze({
@@ -171,3 +185,4 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
     blockers: Object.freeze([...new Set(blockers)]),
   });
 }
+

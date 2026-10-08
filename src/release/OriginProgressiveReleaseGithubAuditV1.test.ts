@@ -137,6 +137,38 @@ describe('live GitHub evidence audit (read-only)', () => {
       expect(report.githubReadyForFurtherReview).toBe(false);
     }
   });
+  it('requires the configured number of distinct exact-head reviewers', () => {
+    const input = good();
+    const mainProtection = { ...input.mainProtection!, required_pull_request_reviews: {
+      required_approving_review_count: 2, dismiss_stale_reviews: true,
+    } };
+    expect(audit({ ...input, mainProtection }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+    expect(audit({ ...input, mainProtection, reviews: [...input.reviews!, {
+      state: 'APPROVED', commit_id: sha, user: { login: 'REVIEWER' },
+    }] }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+    expect(audit({ ...input, mainProtection, reviews: [...input.reviews!, {
+      state: 'APPROVED', commit_id: main, user: { login: 'second-reviewer' },
+    }] }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+    expect(audit({ ...input, mainProtection, reviews: [...input.reviews!, {
+      state: 'APPROVED', commit_id: sha, user: { login: 'second-reviewer' },
+    }] }).githubReadyForFurtherReview).toBe(true);
+  });
+  it.each(['contexts', 'checks'] as const)('honors additional enforced %s, not only the built-in minimum', field => {
+    const input = good();
+    const extra = 'Independent answer quality';
+    const rules = field === 'contexts'
+      ? { strict: true, contexts: [...required, extra] }
+      : { strict: true, checks: [...required, extra].map(context => ({ context })) };
+    const snapshot = { ...input, mainProtection: { ...input.mainProtection!, required_status_checks: rules } };
+    expect(audit(snapshot).missingOrFailedChecks).toContain(extra);
+    for (const [status, conclusion] of [['queued', null], ['completed', 'skipped'], ['completed', 'neutral']]) {
+      const check_runs = [...input.checks!.check_runs, { name: extra, status: status!, conclusion }];
+      expect(audit({ ...snapshot, checks: { total_count: check_runs.length, check_runs } }).blockers)
+        .toContain('REQUIRED_CI_NOT_GREEN');
+    }
+    const check_runs = [...input.checks!.check_runs, { name: extra, status: 'completed', conclusion: 'success' }];
+    expect(audit({ ...snapshot, checks: { total_count: check_runs.length, check_runs } }).githubReadyForFurtherReview).toBe(true);
+  });
   it('the standalone live audit fails closed when configuration is missing', () => {
     const result = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/audit-progressive-release-github.ts'], {
       env: { ...process.env, GITHUB_REPOSITORY: '', ORIGIN_AUDIT_PR_NUMBER: '' },
@@ -147,3 +179,4 @@ describe('live GitHub evidence audit (read-only)', () => {
     expect(result.stderr).toContain('BLOCKED');
   });
 });
+
