@@ -294,6 +294,11 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
   // Bound every numeric group and spacing run: source/answer text is untrusted,
   // and this matcher must not cause regex denial-of-service on long inputs.
   const expression = /(?<![0-9.])([0-9]{1,12})(店|店舗|件|人|円)?[ \t]{0,8}([+\-−])[ \t]{0,8}([0-9]{1,12})(店|店舗|件|人|円)?[ \t]{0,8}[=＝][ \t]{0,8}([0-9]{1,12})(店|店舗|件|人|円)?(?![0-9.])/g;
+  const sourceMeasures = new Set<string>();
+  const measurePattern = /[+-]?[0-9][0-9,]*(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?[ \t]{0,8}(?:店舗|店|件|人|円)/gi;
+  for (const measure of citedEvidence.normalize("NFKC").matchAll(measurePattern)) {
+    sourceMeasures.add(measure[0].replace(/[ ,\t]/g, ""));
+  }
   for (const match of unit.normalize("NFKC").matchAll(expression)) {
     const [, leftText, leftUnit = "", operator, rightText, rightUnit = "", resultText, resultUnit = ""] = match;
     if (leftUnit !== rightUnit || leftUnit !== resultUnit) continue;
@@ -306,9 +311,8 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
     if (!evidence.has(`${leftText}${numericSuffix}`) || !evidence.has(`${rightText}${numericSuffix}`)) continue;
     // Prevent converting unrelated source measures into store counts: if the
     // answer names a unit, each cited operand must explicitly carry that unit.
-    const sourceText = citedEvidence.normalize("NFKC");
-    if (leftUnit && (!sourceText.includes(`${leftText}${leftUnit}`)
-      || !sourceText.includes(`${rightText}${leftUnit}`))) continue;
+    if (leftUnit && (!sourceMeasures.has(`${leftText}${leftUnit}`)
+      || !sourceMeasures.has(`${rightText}${leftUnit}`))) continue;
     allowed.add(`${resultText}${numericSuffix}`);
     // Numeric tokenization retains the binary sign of the second operand.
     // It is permitted only inside this specifically verified expression.
