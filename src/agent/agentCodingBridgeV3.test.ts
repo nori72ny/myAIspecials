@@ -189,4 +189,57 @@ describe('AgentCodingBridgeV3', () => {
     await expect(bridge.start('run-agent-5', 'Fix code.')).rejects.toThrow('CODING_DISPATCH_UNAVAILABLE');
     expect(jobStore.requestCancel).toHaveBeenCalledTimes(1);
   });
+  it('propagates cancellation to the durable coding job and does not claim completion', async () => {
+    const created = record('queued');
+    const cancelled = { ...created, status: 'cancelled' as const, cancelRequested: true };
+    const jobStore = {
+      create: vi.fn(async () => created),
+      getJob: vi.fn(async () => created),
+      requestCancel: vi.fn(async () => cancelled),
+    };
+    const resultStore = { get: vi.fn(async () => null) };
+    const dispatch = vi.fn(async (jobId: string) => ({
+      accepted: true as const,
+      jobId,
+      repository: 'nori72ny/myAIspecials' as const,
+      workflow: 'coding-job-worker-v14.yml' as const,
+      ref: 'main' as const,
+    }));
+    const bridge = new AgentCodingBridgeV3(env, jobStore, resultStore, dispatch);
+
+    const started = await bridge.start('run-agent-cancel', 'Repair code safely.');
+    const stopped = await bridge.cancel('run-agent-cancel', started.jobId, started.bridgeToken);
+
+    expect(stopped.ok).toBe(true);
+    expect(stopped.status).toBe('cancelled');
+    expect(stopped.cancelRequested).toBe(true);
+    expect(jobStore.requestCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not allow a bridge token from another run to cancel a coding job', async () => {
+    const created = record('queued');
+    const jobStore = {
+      create: vi.fn(async () => created),
+      getJob: vi.fn(async () => created),
+      requestCancel: vi.fn(async () => created),
+    };
+    const resultStore = { get: vi.fn(async () => null) };
+    const dispatch = vi.fn(async (jobId: string) => ({
+      accepted: true as const,
+      jobId,
+      repository: 'nori72ny/myAIspecials' as const,
+      workflow: 'coding-job-worker-v14.yml' as const,
+      ref: 'main' as const,
+    }));
+    const bridge = new AgentCodingBridgeV3(env, jobStore, resultStore, dispatch);
+
+    const started = await bridge.start('run-agent-owner', 'Repair code safely.');
+    const stopped = await bridge.cancel('run-agent-other', started.jobId, started.bridgeToken);
+
+    expect(stopped.ok).toBe(false);
+    if ('code' in stopped) expect(stopped.code).toBe('AGENT_CODING_BRIDGE_TOKEN_INVALID');
+    expect(jobStore.getJob).not.toHaveBeenCalled();
+    expect(jobStore.requestCancel).not.toHaveBeenCalled();
+  });
+
 });
