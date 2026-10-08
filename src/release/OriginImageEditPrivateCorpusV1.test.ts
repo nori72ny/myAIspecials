@@ -20,7 +20,7 @@ SOURCE_BYTES.writeUInt32BE(320, 20);
 const SOURCE_SHA = createHash('sha256').update(SOURCE_BYTES).digest('hex');
 const SOURCE = `data:image/png;base64,${SOURCE_BYTES.toString('base64')}`;
 
-function digest(value: string) {
+function digest(value: string | Buffer) {
   return createHash('sha256').update(value).digest('hex');
 }
 
