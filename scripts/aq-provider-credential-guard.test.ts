@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkOriginAqCredentialBoundary,
+  createOriginAqChildEnvironment,
   ORIGIN_AQ_FROZEN_BASELINE_SHA,
 } from "./aq-provider-credential-guard.js";
 
@@ -70,5 +71,61 @@ describe("public AQ benchmark inherited-secret boundary", () => {
 
   it("allows a no-credential offline smoke without granting a model-quality pass", () => {
     expect(check({ GITHUB_ACTIONS: "false" })).toEqual({ ok: true, hasLiveProviderKey: false });
+  });
+});
+
+describe("AQ benchmark child-process secret minimization", () => {
+  const host = {
+    PATH: "/usr/local/bin:/usr/bin", HOME: "/home/runner", CI: "true",
+    LANG: "ja_JP.UTF-8",
+    OPENROUTER_API_KEY: "test-fixture-only",
+    GITHUB_TOKEN: "never-child-github-token",
+    GH_TOKEN: "never-child-gh-token",
+    POSTGRES_URL: "never-child-database",
+    SUPABASE_SERVICE_ROLE_KEY: "never-child-service-role",
+    OPENAI_API_KEY: "never-child-paid-provider",
+    ANTHROPIC_API_KEY: "never-child-other-provider",
+    GEMINI_API_KEY: "never-child-other-provider",
+    VERCEL_TOKEN: "never-child-vercel",
+    AWS_SECRET_ACCESS_KEY: "never-child-unknown-credential",
+    DATABASE_URL: "never-child-database",
+  };
+  it("passes no inherited credential to a candidate or baseline build", () => {
+    const child = createOriginAqChildEnvironment(host, { sha: candidateSha, phase: "build" });
+    expect(child).toEqual({
+      PATH: host.PATH, HOME: host.HOME, CI: "true", LANG: host.LANG,
+      NODE_ENV: "production", ORIGIN_RELEASE_SHA: candidateSha,
+    });
+    expect(Object.keys(child)).not.toContain("OPENROUTER_API_KEY");
+  });
+
+  it("passes only the free provider credential and whitelisted metadata to trusted server runtime", () => {
+    const child = createOriginAqChildEnvironment(host, {
+      sha: candidateSha, phase: "runtime", port: 4312,
+    });
+    expect(child).toEqual({
+      PATH: host.PATH, HOME: host.HOME, CI: "true", LANG: host.LANG,
+      NODE_ENV: "production", ORIGIN_RELEASE_SHA: candidateSha,
+      PORT: "4312", OPENROUTER_API_KEY: host.OPENROUTER_API_KEY,
+    });
+    expect(child).not.toHaveProperty("AWS_SECRET_ACCESS_KEY");
+    expect(child).not.toHaveProperty("GITHUB_TOKEN");
+  });
+
+  it("does not add a nonexistent provider credential and rejects malformed process identity", () => {
+    expect(createOriginAqChildEnvironment({}, {
+      sha: candidateSha, phase: "runtime", port: 4311,
+    })).toEqual({
+      NODE_ENV: "production", ORIGIN_RELEASE_SHA: candidateSha, PORT: "4311",
+    });
+    expect(() => createOriginAqChildEnvironment(host, {
+      sha: "bad", phase: "runtime", port: 4311,
+    })).toThrow("AQ_CHILD_ENV_TARGET_INVALID");
+    expect(() => createOriginAqChildEnvironment(host, {
+      sha: candidateSha, phase: "runtime", port: 22,
+    })).toThrow("AQ_CHILD_ENV_TARGET_INVALID");
+    expect(() => createOriginAqChildEnvironment(host, {
+      sha: candidateSha, phase: "build", port: 4312,
+    })).toThrow("AQ_CHILD_ENV_TARGET_INVALID");
   });
 });
