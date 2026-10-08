@@ -152,6 +152,23 @@ function phaseLabel(phase: Phase): string {
  * A blocked response is only a confirmed cancellation if it identifies the
  * exact original run/job and preserves the no-spend boundary.
  */
+/** Exact acknowledged cancellation from the server; never trust status alone. */
+export function isConfirmedCodingCancelAcknowledgement(
+  receipt: AgentExecutionResponse & { cancelRequested?: boolean },
+  runId: string,
+  jobId: string,
+): boolean {
+  return receipt?.ok === true
+    && (receipt.status === 'cancelling' || receipt.status === 'cancelled')
+    && receipt.runId === runId
+    && receipt.jobId === jobId
+    && receipt.cancelRequested === true
+    && receipt.freeOnly === true
+    && receipt.costUsd === 0
+    && receipt.paidFallbackUsed === false
+    && (receipt.status !== 'cancelled' || receipt.codingStatus === 'cancelled');
+}
+
 export function isConfirmedCodingCancellationReceipt(
   receipt: AgentExecutionResponse,
   runId: string,
@@ -532,9 +549,9 @@ export default function AgentWorkspaceView() {
         cache: 'no-store',
         body: JSON.stringify(activeCoding),
       });
-      const result = await response.json() as { ok?: boolean; status?: string; code?: string };
-      if (!response.ok || result.ok !== true || !['cancelling', 'cancelled'].includes(result.status ?? '')) {
-        throw new Error(result.code ?? 'AGENT_CODING_CANCEL_FAILED');
+      const result = await response.json() as AgentExecutionResponse & { cancelRequested?: boolean };
+      if (!response.ok || !isConfirmedCodingCancelAcknowledgement(result, activeCoding.runId, activeCoding.jobId)) {
+        throw new Error(result.code ?? 'AGENT_CODING_CANCEL_RECEIPT_INVALID');
       }
       setLog((current) => [...current, result.status === 'cancelled'
         ? 'Codingジョブはサーバー側で中止されました。完了扱いにはしません。'
