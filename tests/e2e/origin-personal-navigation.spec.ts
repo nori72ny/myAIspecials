@@ -240,6 +240,10 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       } else if (path.endsWith('/coding/status')) {
         body = {
           ok: true, status: 'completed', verified: true,
+          codingStatus: 'verified',
+          runId: 'run-mobile-agent',
+          jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+          freeOnly: true, costUsd: 0, paidFallbackUsed: false,
           result: {
             schemaVersion: 1, sessionStatus: 'verified', repairRounds: 1,
             diffs: [{
