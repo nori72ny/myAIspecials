@@ -913,7 +913,7 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
       const data = event.data as { source?: string; type?: string; message?: string; edits?: unknown; timestamp?: number };
       const isBoundaryMessage = data.source === 'ORIGIN_SANDBOX_BOUNDARY' && (data.type === 'ready' || data.type === 'runtime-error');
       const isDirectTouchEditing = data.source === 'ORIGIN_DIRECT_TOUCH' && data.type === 'editing' && isDirectEditing;
-      const isDirectTouchCommit = data.source === 'ORIGIN_DIRECT_TOUCH' && data.type === 'commit' && isDirectTouchEdits(data.edits);
+      const isDirectTouchCommit = isDirectEditing && data.source === 'ORIGIN_DIRECT_TOUCH' && data.type === 'commit' && isDirectTouchEdits(data.edits);
       if (!isBoundaryMessage && !isDirectTouchCommit && !isDirectTouchEditing) return;
       if (isDirectTouchEditing) {
         document.documentElement.dataset.originDirectTouchPending = 'true';
