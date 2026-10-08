@@ -36,6 +36,7 @@ export function createOriginApp(
   if (env.NODE_ENV === "production") app.set("trust proxy", 1);
   app.use(applyOriginSecurityHeaders(env));
   app.use("/api/chat", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
+  app.use("/api/agent/v3", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
   app.use("/api/research/v1.1", createOriginChatRateLimiter());
   app.use("/api/artifacts/v1.2", createOriginChatRateLimiter());
   app.use("/api/builder", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
