@@ -209,6 +209,7 @@ function PersonalReleaseRoot() {
   const [updateReady, setUpdateReady] = useState(false);
   const [knowledgeContext, setKnowledgeContext] = useState('');
   const dirtyDuringHydration = useRef({ messages: false, sessions: false, artifacts: false });
+  const activeStorageSnapshot = useRef(0);
 
   const resolvedTheme = useMemo(() => settings.selectedTheme === 'dark' || settings.selectedTheme === 'light' ? settings.selectedTheme : (systemPrefersDark ? 'dark' : 'light'), [settings.selectedTheme, systemPrefersDark]);
   useEffect(() => { const media = window.matchMedia('(prefers-color-scheme: dark)'); const onChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches); setSystemPrefersDark(media.matches); media.addEventListener?.('change', onChange); return () => media.removeEventListener?.('change', onChange); }, []);
@@ -218,23 +219,35 @@ function PersonalReleaseRoot() {
   useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { if (!dirtyDuringHydration.current.messages) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } } if (!dirtyDuringHydration.current.sessions) setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
   useEffect(() => {
     if (!isHydrated || storageReadFailed) return;
+    const saveEpoch = ++activeStorageSnapshot.current;
+    // Save pending is unsafe even if a composer was cleared after submit.
+    // React state changes are not proof that a history entry is in IndexedDB.
+    document.documentElement.dataset.originStorageState = 'saving';
     const snapshot = snapshotFromState(messages, sessions, artifacts);
     const pendingRevision = document.documentElement.dataset.originDirectTouchPending;
     // Neither React state acceptance nor elapsed debounce time is durable proof.
     // Match the last committed revision to the snapshot that actually saves.
     const timer = window.setTimeout(() => {
       void originIndexedDbAdapter.save(snapshot).then((result) => {
-        setStorageHealth(result === 'saved' ? 'ready' : result);
+        // Old queued saves may complete after a newer user edit. They cannot
+        // mark storage as ready or activate a waiting service worker.
+        if (saveEpoch !== activeStorageSnapshot.current) return;
+        const isSaved = result === 'saved';
+        document.documentElement.dataset.originStorageState = isSaved ? 'ready' : 'degraded';
+        setStorageHealth(isSaved ? 'ready' : result);
         if (directTouchRevisionDurablySaved(
           pendingRevision, document.documentElement.dataset.originDirectTouchPending,
           artifacts, result,
         )) {
           document.documentElement.dataset.originDirectTouchPending = 'false';
-          window.dispatchEvent(new Event('origin:pwa-safe-apply'));
         }
+        if (isSaved) window.dispatchEvent(new Event('origin:pwa-safe-apply'));
       });
     }, 180);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (activeStorageSnapshot.current === saveEpoch) activeStorageSnapshot.current += 1;
+    };
   }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
 
   const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション'; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };
