@@ -61,14 +61,28 @@ function canonicalParams(value: unknown): string {
     if (!candidate || typeof candidate !== 'object') throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
     if (visited.has(candidate)) throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
     visited.add(candidate);
-    if (Array.isArray(candidate)) return candidate.map(item => walk(item));
+    // Inspect descriptors rather than reading properties: a getter can otherwise
+    // run arbitrary code before approval has been consumed.
+    const keys = Reflect.ownKeys(candidate);
+    if (keys.some(key => typeof key !== 'string') || keys.length > 512)
+      throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
+    const descriptors = Object.getOwnPropertyDescriptors(candidate);
+    if (keys.some(key => !('value' in (descriptors[key as string] ?? {}))))
+      throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
+    if (Array.isArray(candidate)) {
+      if (Object.getPrototypeOf(candidate) !== Array.prototype || candidate.length > 512
+        || keys.length !== candidate.length + 1
+        || keys.some(key => key !== 'length' && !/^(0|[1-9][0-9]*)$/.test(key as string)))
+        throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
+      return candidate.map(item => walk(item));
+    }
     if (Object.getPrototypeOf(candidate) !== Object.prototype && Object.getPrototypeOf(candidate) !== null)
       throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
     const result: Record<string, unknown> = {};
     for (const key of Object.keys(candidate).sort()) {
       if (key === '__proto__' || key === 'prototype' || key === 'constructor')
         throw new Error('AGENT_MULTI_TOOL_PARAMS_INVALID');
-      result[key] = walk((candidate as Record<string, unknown>)[key]);
+      result[key] = walk(descriptors[key]!.value as unknown);
     }
     return result;
   };
@@ -180,14 +194,21 @@ export async function executeAgentMultiToolSequenceV31(
         return finish('blocked', 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED', completed);
       if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       const outcome = Object.freeze({ ...(await deps.executeAndVerify(step, params, prior, Object.freeze({ runId, operationDigest }))) });
-      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      // Dispatch may already have committed a side effect. A concurrent cancellation
+      // request is not evidence of terminal cancellation. Block and reconcile
+      // against the durable job receipt before any retry or downstream step.
+      if (await readVerifiedCancellationState(deps, runId))
+        return finish('blocked', 'AGENT_MULTI_TOOL_CANCEL_DISPATCH_RECONCILIATION_REQUIRED', completed);
       if (outcome?.terminal !== 'verified' || outcome.toolExecuted !== true || outcome.verified !== true
         || !SHA256.test(outcome.evidenceDigest ?? '') || /^0{64}$/.test(outcome.evidenceDigest)
         || outcome.freeOnly !== true || outcome.costUsd !== 0 || outcome.paidFallbackUsed !== false)
         return finish('blocked', 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED', completed);
       if (await deps.verifyTrustedTerminal(runId, operationDigest, step, outcome) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_TRUSTED_TERMINAL_MISSING', completed);
-      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      // A late cancel after verified execution cannot be represented as an
+      // acknowledged cancelled job without reconciling the committed effect.
+      if (await readVerifiedCancellationState(deps, runId))
+        return finish('blocked', 'AGENT_MULTI_TOOL_CANCEL_DISPATCH_RECONCILIATION_REQUIRED', completed);
       completed.push({
         stepId: step.id,
         toolName: step.toolName,
