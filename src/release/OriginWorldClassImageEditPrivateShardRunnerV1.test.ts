@@ -24,6 +24,11 @@ describe('V1.6 world-class image edit Free-only private shard runner', () => {
 
   it('fails before sealed corpus inspection when real Cloudflare Free status is unproved', () => {
     expect(source).toContain('getCloudflareRasterStatusV15(process.env)');
+    expect(source).toContain('verifyAllEditSourcesDecodedV1(corpus.tasks)');
+    expect(source).toContain('await img.decode()');
+    expect(source).toContain('IMAGE_EDIT_PRIVATE_SOURCE_BROWSER_DECODE_FAILED');
+    expect(source.indexOf('await verifyAllEditSourcesDecodedV1(corpus.tasks)'))
+      .toBeLessThan(source.indexOf('server.listen(0'));
     expect(source).toContain('!provider.zeroCostVerified || provider.paidFallbackEnabled');
     expect(source.indexOf('getCloudflareRasterStatusV15(process.env)'))
       .toBeLessThan(source.indexOf("requiredEnv('ORIGIN_IMAGE_EDIT_PRIVATE_CORPUS_GZIP_B64')"));

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 import express from 'express';
+import { chromium } from 'playwright';
 
 import { critiqueRasterStructureV15, readRasterDimensionsV15 } from '../src/creative/rasterImageCriticV15.js';
 import { createWorldClassImageV16Router } from '../src/creative/worldClassImageV16Router.js';
@@ -73,6 +74,44 @@ function extension(mime: string): string {
   if (mime === 'image/png') return 'png';
   if (mime === 'image/webp') return 'webp';
   return 'jpg';
+}
+
+async function verifyAllEditSourcesDecodedV1(tasks: readonly ImageEditPrivateTaskV1[]): Promise<void> {
+  // Do this once per sealed corpus, before ANY outbound image inference.
+  // A PNG header or matching hash is insufficient to prove decodable image pixels.
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    try {
+      for (const task of tasks) {
+        let actual: { width: number; height: number };
+        try {
+          actual = await page.evaluate(async (source) => {
+            const image = new Image();
+            image.src = source;
+            await imgDecode(image);
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('NO_CANVAS');
+            context.drawImage(image, 0, 0, 1, 1);
+            context.getImageData(0, 0, 1, 1);
+            return { width: image.naturalWidth, height: image.naturalHeight };
+            async function imgDecode(img: HTMLImageElement) { await img.decode(); }
+          }, task.sourceImageDataUrl);
+        } catch {
+          throw new Error('IMAGE_EDIT_PRIVATE_SOURCE_BROWSER_DECODE_FAILED');
+        }
+        if (actual.width < 1 || actual.height < 1 || actual.width >= 512 || actual.height >= 512) {
+          throw new Error('IMAGE_EDIT_PRIVATE_SOURCE_BROWSER_DIMENSIONS_INVALID');
+        }
+      }
+    } finally {
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
 }
 
 async function evaluateEditCase(
@@ -259,6 +298,9 @@ async function main(): Promise<void> {
   if (plan.planDigest !== planDigest || !plan.shards[shardIndex]) {
     throw new Error('IMAGE_EDIT_FREE_SHARD_PLAN_MISMATCH');
   }
+  // Reject all malformed or non-decodable private reference images before the
+  // evaluation server can invoke the Cloudflare model (paid fallback forbidden).
+  await verifyAllEditSourcesDecodedV1(corpus.tasks);
   const shard = plan.shards[shardIndex];
   const selectedIds = new Set(shard.caseIds);
   if (selectedIds.size !== shard.caseIds.length || shard.caseIds.length > 2) {

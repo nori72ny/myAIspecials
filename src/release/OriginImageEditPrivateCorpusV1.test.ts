@@ -11,6 +11,12 @@ import {
 
 const NOW = Date.parse('2026-10-04T00:00:00Z');
 const SOURCE_BYTES = Buffer.alloc(128, 7);
+// Syntactically valid PNG header and declared dimensions; the live shard runner
+// additionally requires Chromium to fully decode every input reference.
+Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(SOURCE_BYTES, 0);
+Buffer.from('IHDR', 'ascii').copy(SOURCE_BYTES, 12);
+SOURCE_BYTES.writeUInt32BE(320, 16);
+SOURCE_BYTES.writeUInt32BE(320, 20);
 const SOURCE_SHA = createHash('sha256').update(SOURCE_BYTES).digest('hex');
 const SOURCE = `data:image/png;base64,${SOURCE_BYTES.toString('base64')}`;
 
@@ -62,6 +68,22 @@ describe('image edit private corpus v1', () => {
     const blockers = validateImageEditPrivateCorpusV1({ ...base, tasks: [broken, ...base.tasks.slice(1)] }, NOW);
     expect(blockers).toContain(`IMAGE_EDIT_PRIVATE_CORPUS_SOURCE_INVALID:${first.caseId}`);
     expect(JSON.stringify(blockers)).not.toContain(SOURCE);
+  });
+
+  it('rejects syntactically invalid or falsely labeled sources even with correct hashes', () => {
+    const original = corpus();
+    const item = original.tasks[0];
+    const bogus = Buffer.alloc(128, 9);
+    const bad = { ...item, sourceImageDataUrl: 'data:image/png;base64,' + bogus.toString('base64'),
+      sourceImageSha256: digest(bogus) };
+    const badMime = { ...item, sourceImageDataUrl: SOURCE.replace('image/png', 'image/webp') };
+    const invalid = validateImageEditPrivateCorpusV1({ ...original,
+      tasks: [bad, ...original.tasks.slice(1)] }, NOW);
+    const mismatch = validateImageEditPrivateCorpusV1({ ...original,
+      tasks: [badMime, ...original.tasks.slice(1)] }, NOW);
+    expect(invalid).toContain('IMAGE_EDIT_PRIVATE_CORPUS_SOURCE_INVALID:' + item.caseId);
+    expect(mismatch).toContain('IMAGE_EDIT_PRIVATE_CORPUS_SOURCE_INVALID:' + item.caseId);
+    expect(JSON.stringify(invalid)).not.toContain(bogus.toString('base64'));
   });
 
   it('fails closed on incomplete family coverage and stale evidence', () => {
