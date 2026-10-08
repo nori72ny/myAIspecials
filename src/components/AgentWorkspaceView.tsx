@@ -147,6 +147,28 @@ function phaseLabel(phase: Phase): string {
  * stale or mismatched HTTP receipt must also be rejected by the UI. Do not
  * infer terminal success from status=completed alone or from four check labels.
  */
+/**
+ * Cancellation is a terminal server result, not a client-side AbortSignal.
+ * A blocked response is only a confirmed cancellation if it identifies the
+ * exact original run/job and preserves the no-spend boundary.
+ */
+export function isConfirmedCodingCancellationReceipt(
+  receipt: AgentExecutionResponse,
+  runId: string,
+  jobId: string,
+): boolean {
+  return receipt?.ok === false
+    && receipt.status === 'blocked'
+    && receipt.codingStatus === 'cancelled'
+    && receipt.code === 'AGENT_CODING_CANCELLED'
+    && receipt.runId === runId
+    && receipt.jobId === jobId
+    && receipt.verified === false
+    && receipt.freeOnly === true
+    && receipt.costUsd === 0
+    && receipt.paidFallbackUsed === false;
+}
+
 export function isVerifiedCodingReceipt(receipt: AgentExecutionResponse, runId: string, jobId: string): boolean {
   if (receipt?.ok !== true || receipt.status !== 'completed' || receipt.verified !== true
     || receipt.codingStatus !== 'verified' || receipt.runId !== runId || receipt.jobId !== jobId
@@ -449,6 +471,14 @@ export default function AgentWorkspaceView() {
             signal: controller.signal,
           });
           const poll = await pollResponse.json() as AgentExecutionResponse;
+          if (isConfirmedCodingCancellationReceipt(poll, plan.runId, result.jobId)) {
+            setActiveCoding(null);
+            setPlan(null);
+            setPhase('failed');
+            setLog((current) => [...current,
+              'Codingジョブの中止をサーバーの終端状態で確認しました。コード変更は完了扱いにしません。']);
+            return;
+          }
           if (!pollResponse.ok || poll.ok !== true) {
             throw new Error(poll.code ?? 'AGENT_CODING_STATUS_FAILED');
           }
