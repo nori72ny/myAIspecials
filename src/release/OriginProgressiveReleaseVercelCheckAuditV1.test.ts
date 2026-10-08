@@ -14,7 +14,8 @@ const check = {
   name: ORIGIN_VERCEL_RELEASE_CHECK_NAME,
   blocks: "deployment-alias",
   sourceKind: "webhook",
-  source: { integrationConfigurationId: "configured-provider" },
+  source: { kind: "webhook", webhookId: "hook_fixture_verified" },
+  targets: ["production"],
 };
 
 describe("Vercel deployment-alias release check configuration audit", () => {
@@ -35,6 +36,13 @@ describe("Vercel deployment-alias release check configuration audit", () => {
     ["wrong block stage", { checks: [{ ...check, blocks: "deployment-start" }] }],
     ["missing trusted source", { checks: [{ ...check, source: undefined }] }],
     ["missing source kind", { checks: [{ ...check, sourceKind: undefined }] }],
+    ["empty unbound webhook identity", { checks: [{ ...check, source: { kind: "webhook" } }] }],
+    ["unsupported check source", { checks: [{ ...check, sourceKind: "custom", source: { kind: "custom", webhookId: "x" } }] }],
+    ["mismatched source kind", { checks: [{ ...check, sourceKind: "integration" }] }],
+    ["empty production targets", { checks: [{ ...check, targets: [] }] }],
+    ["preview-only check", { checks: [{ ...check, targets: ["preview"] }] }],
+    ["unspecified target list", { checks: [{ ...check, targets: undefined }] }],
+
     ["duplicate with nonblocking configuration", { checks: [check, { ...check, id: "chk_other", blocks: "none" }] }],
     ["duplicate with missing source", { checks: [check, { ...check, id: "chk_other", source: undefined }] }],
     ["duplicate with missing source kind", { checks: [check, { ...check, id: "chk_other", sourceKind: undefined }] }],
@@ -55,6 +63,28 @@ describe("Vercel deployment-alias release check configuration audit", () => {
       expect(audit.blockers).toContain("VERCEL_CHECK_API_EVIDENCE_MISSING");
     },
   );
+
+  it("accepts correctly bound production-source alternatives without authorizing release", () => {
+    const integration = auditOriginVercelChecksV1({
+      checks: [{ ...check, sourceKind: "integration",
+        source: { kind: "integration", externalResourceId: "integration_fixture" } }],
+    }, projectId);
+    expect(integration.configuredBlockingCheckFound).toBe(true);
+    expect(integration.releaseAuthorized).toBe(false);
+
+    const githubExternal = auditOriginVercelChecksV1({
+      checks: [{ ...check, sourceKind: "git-provider",
+        source: { kind: "git-provider", provider: "github", externalCheckName: "ORIGIN gate" } }],
+    }, projectId);
+    expect(githubExternal.configuredBlockingCheckFound).toBe(true);
+    expect(githubExternal.releaseAuthorized).toBe(false);
+
+    const unrelatedExternal = auditOriginVercelChecksV1({
+      checks: [{ ...check, sourceKind: "git-provider",
+        source: { kind: "git-provider", provider: "other", externalCheckName: "ORIGIN gate" } }],
+    }, projectId);
+    expect(unrelatedExternal.configuredBlockingCheckFound).toBe(false);
+  });
 
   it("queries official Vercel fixed-host read-only endpoint without leaking secrets", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
