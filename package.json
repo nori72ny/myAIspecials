@@ -106,5 +106,8 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "handlebars": "4.7.10"
   }
 }
