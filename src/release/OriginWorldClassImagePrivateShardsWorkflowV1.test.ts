@@ -42,7 +42,11 @@ describe('World-class image Workers Free sharded execution safety', () => {
     expect(workflow).toContain('ORIGIN_IMAGE_SHARD_PLAN_DIGEST:');
     expect(workflow).toContain('ORIGIN_IMAGE_SHARD_INDEX:');
     expect(workflow).toContain('origin-image-free-shard-started-');
-    expect(workflow).toContain('markers.some(a=>a.name.endsWith');
+    expect(workflow).toContain("encodeURIComponent(name)+'&per_page=10'");
+    expect(workflow).toContain('IMAGE_SHARD_ALREADY_ATTEMPTED');
+    expect(workflow).toContain('IMAGE_SHARD_UTC_DAY_ALREADY_USED');
+    expect(workflow).toContain('artifact.created_at.slice(0,10)===day');
+    expect(workflow).toContain('age>=31*86400000');
   });
 
   it('does not allow old 24-case workflow to accidentally run', () => {
