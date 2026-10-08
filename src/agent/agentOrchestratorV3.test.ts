@@ -154,6 +154,7 @@ describe('agent orchestrator v3', () => {
       credentialSeparationConfigured: false,
       replayProtectionConfigured: true,
       replayProtection: 'shared-atomic',
+      codingBridgeConfigured: false,
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
@@ -170,6 +171,7 @@ describe('agent orchestrator v3', () => {
       credentialSeparationConfigured: false,
       replayProtectionConfigured: false,
       replayProtection: 'unavailable',
+      codingBridgeConfigured: false,
       secretDelivery: 'unavailable',
     });
   });
@@ -431,4 +433,53 @@ describe('agent orchestrator v3', () => {
     expect(response.status).toBe(401);
     expect(response.body).toEqual({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
   });
+  it('fails at plan time when coding execution is unavailable', async () => {
+    const response = await request(appFor(env, { consume: async () => true }))
+      .post('/api/agent/v3/plan')
+      .send({ goal: 'Repair this TypeScript bug.' });
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({
+      ok: false,
+      code: 'AGENT_CODE_GENERATION_UNAVAILABLE',
+      protocolVersion: 3,
+    });
+  });
+
+  it('propagates authenticated coding cancellation through the exact bridge binding', async () => {
+    const cancelCoding = vi.fn(async (runId: string, jobId: string, bridgeToken: string) => ({
+      ok: true as const,
+      runId,
+      jobId,
+      status: 'cancelling' as const,
+      codingStatus: 'running' as const,
+      cancelRequested: true as const,
+      freeOnly: true as const,
+      costUsd: 0 as const,
+      paidFallbackUsed: false as const,
+    }));
+    const bridge = {
+      start: vi.fn(),
+      poll: vi.fn(),
+      cancel: cancelCoding,
+    } as unknown as AgentCodingBridgeV3;
+    const app = appFor(env, { consume: async () => true }, bridge);
+
+    const unauthenticated = await request(app).post('/api/agent/v3/coding/cancel')
+      .send({ runId: 'run-cancel-code', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
+    expect(unauthenticated.status).toBe(401);
+
+    const response = await request(app).post('/api/agent/v3/coding/cancel')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: 'run-cancel-code', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      status: 'cancelling',
+      codingStatus: 'running',
+      cancelRequested: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+    });
+    expect(cancelCoding).toHaveBeenCalledWith('run-cancel-code', 'coding-AAAAAAAAAAAAAAAAAAAAAA', 'bound-token');
+  });
+
 });
