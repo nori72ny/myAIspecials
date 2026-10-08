@@ -231,4 +231,18 @@ describe("originChatResponsePolicy", () => {
     expect(requiresOriginCurrentInformation(message)).toBe(expected);
   });
 
+  it("handles thousands of unmatched Japanese quotation openers without launching a quoted research task", () => {
+    for (const marker of ["「", "『"]) {
+      const unclosedSource = "この文章を要約してください。" + marker.repeat(20_000) + "さらに現在の価格を調べてください。";
+      expect(requiresOriginGroundedResearch(unclosedSource)).toBe(false);
+      expect(requiresOriginCurrentInformation(unclosedSource)).toBe(false);
+    }
+  });
+
+  it("keeps additional current-fact requests outside properly quoted spans", () => {
+    const message = "この文章を要約してください。『現在の価格を教えてください』さらに最新の仕様を確認してください。";
+    expect(requiresOriginGroundedResearch(message)).toBe(true);
+    expect(requiresOriginCurrentInformation(message)).toBe(true);
+  });
+
 });
