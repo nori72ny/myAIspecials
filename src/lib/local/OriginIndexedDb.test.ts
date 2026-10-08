@@ -131,6 +131,40 @@ describe('OriginIndexedDb migration boundary', () => {
     }
   });
 
+  it('an aborted first save does not poison a later queued snapshot', async () => {
+    const opened: { request: IDBRequest; transaction: IDBTransaction; value: OriginPersistedSnapshot | null }[] = [];
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        let value: OriginPersistedSnapshot | null = null;
+        const request = { onsuccess: null, onerror: null, error: null } as unknown as IDBRequest;
+        const transaction = {
+          oncomplete: null, onabort: null, onerror: null, error: null,
+          objectStore: () => ({ put: (next: OriginPersistedSnapshot) => { value = next; return request; } }),
+        } as unknown as IDBTransaction;
+        const db = { transaction: () => transaction, close: () => undefined };
+        const openRequest = { result: db, onsuccess: null, onerror: null, onblocked: null, onupgradeneeded: null } as unknown as IDBOpenDBRequest;
+        opened.push({ request, transaction, get value() { return value; } });
+        queueMicrotask(() => openRequest.onsuccess?.call(openRequest, new Event('success')));
+        return openRequest;
+      },
+    });
+    try {
+      const first = originIndexedDbAdapter.save({ ...snapshot, updatedAt: 30 });
+      const secondSnapshot = { ...snapshot, updatedAt: 31 };
+      const second = originIndexedDbAdapter.save(secondSnapshot);
+      await vi.waitFor(() => expect(opened[0]?.value?.updatedAt).toBe(30));
+      opened[0].transaction.onabort?.call(opened[0].transaction, new Event('abort'));
+      await expect(first).resolves.toBe('failed');
+      await vi.waitFor(() => expect(opened[1]?.value).toEqual(secondSnapshot));
+      opened[1].request.onsuccess?.call(opened[1].request, new Event('success'));
+      opened[1].transaction.oncomplete?.call(opened[1].transaction, new Event('complete'));
+      await expect(second).resolves.toBe('saved');
+      expect(opened).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not acknowledge persistence until the IndexedDB transaction completes', async () => {
     const tx = { oncomplete: null, onabort: null, onerror: null, error: null } as unknown as IDBTransaction;
     let completed = false;
