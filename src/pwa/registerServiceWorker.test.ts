@@ -204,6 +204,10 @@ describe('PWA controller changes preserve user work', () => {
     app.document.documentElement.dataset.originStorageState = 'degraded';
     app.document.emit('visibilitychange');
     assert.equal(app.reloads(), 0);
+    // Chat send may clear the input while its state snapshot is still queued.
+    app.document.documentElement.dataset.originStorageState = 'saving';
+    app.retry();
+    assert.equal(app.reloads(), 0);
     app.document.documentElement.dataset.originStorageState = 'ready';
     app.document.emit('visibilitychange');
     assert.equal(app.reloads(), 1);
