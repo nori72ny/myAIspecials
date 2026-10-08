@@ -319,12 +319,10 @@ export function validateGroundedResearchSynthesis(
     const normalized = safeHttpsUrl(source.url);
     if (normalized) {
       sourceMap.set(id, normalized);
-      sourceEvidence.set(id, [
-        source.title,
-        compactExcerpt(source.excerpt),
-        evidenceTimestamp(source.retrievedAt) ?? "",
-        evidenceTimestamp(source.revisionTimestamp) ?? "",
-      ].join("\n"));
+      // Retrieval/revision timestamps are transport metadata, not claims in
+      // the source. A date quoted as an event must be present in the actual
+      // cited title/excerpt, not merely in the fetch timestamp.
+      sourceEvidence.set(id, [source.title, compactExcerpt(source.excerpt)].join("\n"));
     }
   });
 
