@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import WorldClassImageV16Panel from './WorldClassImageV16Panel';
 import { readVerifiedWorldClassImageBlobV16 } from '../creative/worldClassImageClientDeliveryV16';
+import { prepareRasterReferenceDataUrlV15 } from '../creative/rasterReferenceEditClientV15';
+vi.mock('../creative/rasterReferenceEditClientV15', () => ({
+  prepareRasterReferenceDataUrlV15: vi.fn(),
+}));
 vi.mock('../creative/worldClassImageClientDeliveryV16', () => ({
   readVerifiedWorldClassImageBlobV16: vi.fn(),
 }));
@@ -138,6 +142,56 @@ describe('world-class image release-gated UI', () => {
     fireEvent.click(screen.getByRole('button', { name: '画像を生成' }));
     await screen.findByRole('alert');
     expect(screen.queryByRole('link', { name: '検証済み画像を保存' })).toBeNull();
+    expect(readVerifiedWorldClassImageBlobV16).not.toHaveBeenCalled();
+  });
+
+  it('only submits a resized reference image through the edit endpoint after consent', async () => {
+    const compressedUrl = 'data:image/webp;base64,' + 'A'.repeat(120);
+    vi.mocked(prepareRasterReferenceDataUrlV15).mockResolvedValue({
+      dataUrl: compressedUrl, mimeType: 'image/webp', width: 320, height: 320, bytes: 90,
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(status(READY))
+      .mockResolvedValueOnce({ ok: false, status: 503 });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<WorldClassImageV16Panel />);
+    await screen.findByRole('button', { name: '画像を生成' });
+    const file = new File([new Uint8Array(100)], 'reference.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText('編集用参照画像'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('高品質画像の指示'), {
+      target: { value: '背景だけ青く変更してください' },
+    });
+    const editButton = screen.getByRole('button', { name: '参照画像を編集' }) as HTMLButtonElement;
+    expect(editButton.disabled).toBe(true);
+    expect(prepareRasterReferenceDataUrlV15).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(editButton);
+    await screen.findByRole('alert');
+    expect(prepareRasterReferenceDataUrlV15).toHaveBeenCalledWith(file);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/creative/v1.6/world-class/edit');
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toMatchObject({
+      prompt: '背景だけ青く変更してください', referenceImages: [compressedUrl],
+      width: 768, height: 768,
+    });
+  });
+
+  it('never sends image bytes externally when reference preparation fails locally', async () => {
+    vi.mocked(prepareRasterReferenceDataUrlV15)
+      .mockRejectedValue(new Error('REFERENCE_IMAGE_CLIENT_PREP_FAILED'));
+    const fetchMock = vi.fn().mockResolvedValueOnce(status(READY));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<WorldClassImageV16Panel />);
+    await screen.findByRole('button', { name: '画像を生成' });
+    const file = new File([new Uint8Array(64)], 'too-large.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText('編集用参照画像'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('高品質画像の指示'), {
+      target: { value: '背景の変更' },
+    });
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: '参照画像を編集' }));
+    await screen.findByRole('alert');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(readVerifiedWorldClassImageBlobV16).not.toHaveBeenCalled();
   });
 
