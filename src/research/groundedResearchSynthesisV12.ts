@@ -291,9 +291,14 @@ function numericTokens(value: string): string[] {
  */
 function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<string>, citedEvidence: string): Set<string> {
   const allowed = new Set<string>();
-  // Bound every numeric group and spacing run: source/answer text is untrusted,
-  // and this matcher must not cause regex denial-of-service on long inputs.
-  const expression = /(?<![0-9.])([0-9]{1,12})(店|店舗|件|人|円)?[ \t]{0,8}([+\-−])[ \t]{0,8}([0-9]{1,12})(店|店舗|件|人|円)?[ \t]{0,8}[=＝][ \t]{0,8}([0-9]{1,12})(店|店舗|件|人|円)?(?![0-9.])/g;
+  // Accept canonical thousands grouping as well as plain integers, but never
+  // match a fragment of malformed punctuation (e.g. "1,20店" => "20店").
+  // Every numeric group and spacing run is bounded against untrusted text.
+  const integer = String.raw`(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})`;
+  const expression = new RegExp(
+    String.raw`(?<![0-9.,])(${integer})(店|店舗|件|人|円)?[ \t]{0,8}([+\-−])[ \t]{0,8}(${integer})(店|店舗|件|人|円)?[ \t]{0,8}[=＝][ \t]{0,8}(${integer})(店|店舗|件|人|円)?(?![0-9.,])`,
+    "g",
+  );
   const sourceMeasures = new Set<string>();
   const measurePattern = /[+-]?[0-9][0-9,]*(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?[ \t]{0,8}(?:店舗|店|件|人|円)/gi;
   for (const measure of citedEvidence.normalize("NFKC").matchAll(measurePattern)) {
@@ -302,21 +307,24 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
   for (const match of unit.normalize("NFKC").matchAll(expression)) {
     const [, leftText, leftUnit = "", operator, rightText, rightUnit = "", resultText, resultUnit = ""] = match;
     if (leftUnit !== rightUnit || leftUnit !== resultUnit) continue;
-    const left = Number(leftText), right = Number(rightText), expected = Number(resultText);
+    const leftToken = leftText.replace(/,/g, "");
+    const rightToken = rightText.replace(/,/g, "");
+    const resultToken = resultText.replace(/,/g, "");
+    const left = Number(leftToken), right = Number(rightToken), expected = Number(resultToken);
     if (![left, right, expected].every(Number.isSafeInteger)) continue;
     if (operator === "+" ? left + right !== expected : left - right !== expected) continue;
     // The numeric scanner preserves "円" but treats counters such as 店/件
     // as ordinary surrounding words. Match its exact normalized token form.
     const numericSuffix = leftUnit === "円" ? "円" : "";
-    if (!evidence.has(`${leftText}${numericSuffix}`) || !evidence.has(`${rightText}${numericSuffix}`)) continue;
+    if (!evidence.has(`${leftToken}${numericSuffix}`) || !evidence.has(`${rightToken}${numericSuffix}`)) continue;
     // Prevent converting unrelated source measures into store counts: if the
     // answer names a unit, each cited operand must explicitly carry that unit.
-    if (leftUnit && (!sourceMeasures.has(`${leftText}${leftUnit}`)
-      || !sourceMeasures.has(`${rightText}${leftUnit}`))) continue;
-    allowed.add(`${resultText}${numericSuffix}`);
+    if (leftUnit && (!sourceMeasures.has(`${leftToken}${leftUnit}`)
+      || !sourceMeasures.has(`${rightToken}${leftUnit}`))) continue;
+    allowed.add(`${resultToken}${numericSuffix}`);
     // Numeric tokenization retains the binary sign of the second operand.
     // It is permitted only inside this specifically verified expression.
-    allowed.add(`${operator === "+" ? "+" : "-"}${rightText}${numericSuffix}`);
+    allowed.add(`${operator === "+" ? "+" : "-"}${rightToken}${numericSuffix}`);
   }
   return allowed;
 }
