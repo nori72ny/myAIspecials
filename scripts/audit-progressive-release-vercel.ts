@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   const projectId = process.env.VERCEL_PROJECT_ID ?? "";
   const teamId = process.env.VERCEL_ORG_ID ?? "";
   const value = await fetchAndAuditOriginVercelChecksV1({ token, projectId, teamId });
-  if (!value.ok) {
+  if (value.ok === false) {
     process.stdout.write(JSON.stringify({
       schemaVersion: "origin.vercel-checks-audit.v1",
       configuredBlockingCheckFound: false,
