@@ -5,8 +5,6 @@ import {
   getCloudflareRasterStatusV15,
 } from './cloudflareRasterImageProviderV15.js';
 import {
-  generateRasterImageV15,
-  getRasterProviderStatusV15,
   readRasterDimensionsV15,
   type RasterReferenceImageV15,
 } from './rasterImageProviderV15.js';
@@ -40,7 +38,8 @@ function evaluationBypassAllowed(env: NodeJS.ProcessEnv): boolean {
   if (!bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_EVAL')) return false;
   const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
   const nodeEnv = env.NODE_ENV?.trim().toLowerCase();
-  return vercelEnv !== 'production' && nodeEnv !== 'production';
+  // Evaluation must never be enabled by an unknown or missing deployment context.
+  return (vercelEnv === 'preview' || vercelEnv === 'development') && nodeEnv !== 'production';
 }
 function fail(res: ExpressResponse, status: number, code: string, message: string) {
   return res.status(status).json({
@@ -155,13 +154,9 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
   const router = Router();
 
   router.get('/api/creative/v1.6/world-class/status', async (_req, res) => {
-    const [cloudflare, pollinations] = await Promise.all([
-      getCloudflareRasterStatusV15(env).catch(() => null),
-      getRasterProviderStatusV15(env).catch(() => null),
-    ]);
+    const cloudflare = await getCloudflareRasterStatusV15(env).catch(() => null);
     const isQualified = qualified(env);
     const primaryReady = Boolean(cloudflare?.ready && cloudflare.zeroCostVerified && !cloudflare.paidFallbackEnabled);
-    const fallbackReady = Boolean(pollinations?.ready && pollinations.zeroCostVerified && !pollinations.paidFallbackEnabled);
     const ready = isQualified && primaryReady;
     const evaluationReady = Boolean(primaryReady && (isQualified || evaluationBypassAllowed(env)));
     return res.status(ready ? 200 : 503).json({
@@ -175,8 +170,9 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
       provider: 'cloudflare-workers-ai-free',
       model: cloudflare?.model ?? '@cf/black-forest-labs/flux-2-klein-9b',
       primaryReady,
-      standardFallbackReady: fallbackReady,
-      standardFallbackProvider: fallbackReady ? 'pollinations-zero-cost' : null,
+      // Standard-tier generation is a separate V1.5 capability, never a V1.6 world-class substitute.
+      standardFallbackReady: false,
+      standardFallbackProvider: null,
       routingPolicy: 'zero-cost-quality-first-v1',
       qualityLoop: 'generate -> free semantic critic -> one bounded repair attempt',
       benchmarkGate: '24-case blind benchmark vs references + independent judges',
@@ -218,7 +214,7 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
     let finalResult: Awaited<ReturnType<typeof generateCloudflareRasterImageV15>> | null = null;
     let finalCritic: Awaited<ReturnType<typeof critiqueCloudflareRasterSemanticV15>> | null = null;
     let attempts = 0;
-    let providerTier: 'world-class-free' | 'standard-free' = 'world-class-free';
+    const providerTier = 'world-class-free' as const;
 
     if (primaryReady) {
       let workingPrompt = compiledPrompt;
@@ -254,42 +250,8 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
         return fail(res, 422, 'WORLD_CLASS_FREE_IMAGE_QUALITY_GATE_FAILED', '無料生成結果が品質基準に達しなかったため返却しません。');
       }
     } else {
-      if (editing) {
-        return fail(res, 503, 'ZERO_COST_EDIT_PROVIDER_UNAVAILABLE', '高品質な完全無料編集プロバイダを確認できません。');
-      }
-      const fallback = await getRasterProviderStatusV15(env).catch(() => null);
-      if (!fallback?.ready || !fallback.zeroCostVerified || fallback.paidFallbackEnabled) {
-        return fail(res, 503, 'ZERO_COST_IMAGE_PROVIDER_UNAVAILABLE', '完全無料と検証済みの画像生成経路を利用できません。');
-      }
-      providerTier = 'standard-free';
-      attempts = 1;
-      try {
-        const standard = await generateRasterImageV15({
-          prompt: compiledPrompt,
-          width: input.width,
-          height: input.height,
-        }, env);
-        res.setHeader('X-Origin-Visual-Verified', 'true');
-        res.setHeader('X-Origin-Visual-Quality-Tier', providerTier);
-        res.setHeader('X-Origin-Visual-Provider', standard.providerId);
-        res.setHeader('X-Origin-Visual-Model', standard.model);
-        res.setHeader('X-Origin-Visual-Prompt-Profile', promptPlan.profile);
-        res.setHeader('X-Origin-Visual-Sha256', standard.sha256);
-        res.setHeader('X-Origin-Visual-Attempts', String(attempts));
-        res.setHeader('X-Origin-Cost-Usd', '0');
-        res.setHeader('X-Origin-Free-Only', 'true');
-        res.setHeader('X-Origin-Paid-Fallback', 'false');
-        res.setHeader('X-Origin-Release-Sha', releaseSha(env));
-        if (qualified(env)) res.setHeader('X-Origin-World-Class-Qualified-Sha', releaseSha(env));
-        else if (evaluationBypassAllowed(env)) res.setHeader('X-Origin-World-Class-Evaluation', 'true');
-        res.setHeader('X-Origin-Secret-Delivery', 'server-only');
-        res.setHeader('Cache-Control', 'no-store');
-        res.setHeader('Content-Type', standard.mimeType);
-        return res.status(200).send(standard.bytes);
-      } catch (error) {
-        const code = error instanceof Error ? error.message : 'ZERO_COST_IMAGE_PROVIDER_FAILED';
-        return fail(res, 503, code, '無料画像生成に失敗しました。課金経路には切り替えません。');
-      }
+      // A standard image must not satisfy a world-class route, including when qualified SHA matches.
+      return fail(res, 503, 'ZERO_COST_WORLD_CLASS_PROVIDER_UNAVAILABLE', '高品質の無料画像プロバイダが利用できません。標準品質への無断切替は行いません。');
     }
 
     res.setHeader('Cache-Control', 'no-store');

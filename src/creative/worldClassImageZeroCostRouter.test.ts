@@ -30,6 +30,8 @@ describe('worldClassImageZeroCostRouter', () => {
       costUsd: 0,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
+      standardFallbackReady: false,
+      standardFallbackProvider: null,
       publicationPolicy: 'exact-sha-qualified-only',
       dailyFreeAllocationPolicy: 'fail-closed-on-provider-free-quota-exhaustion',
     });
@@ -45,9 +47,51 @@ describe('worldClassImageZeroCostRouter', () => {
       .send({ prompt: '高品質な商品広告、文字なし' });
 
     expect(response.status).toBe(503);
-    expect(response.body.code).toBe('ZERO_COST_IMAGE_PROVIDER_UNAVAILABLE');
+    expect(response.body.code).toBe('ZERO_COST_WORLD_CLASS_PROVIDER_UNAVAILABLE');
     expect(response.body.freeOnly).toBe(true);
     expect(response.body.costUsd).toBe(0);
+    expect(response.body.paidFallbackEnabled).toBe(false);
+  });
+
+  it('fails closed when evaluation bypass has no explicit preview or development context', async () => {
+    const response = await request(app({
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
+      ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級な商品広告' });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
+  });
+
+  it('rejects the evaluation bypass when the deployment environment is production', async () => {
+    const response = await request(app({
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
+      ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
+      VERCEL_ENV: 'production',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級な商品広告' });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
+  });
+
+  it('never silently substitutes standard quality even with an exactly qualified SHA', async () => {
+    const response = await request(app({
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'false',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '映画的な商品画像' });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('ZERO_COST_WORLD_CLASS_PROVIDER_UNAVAILABLE');
+    expect(response.headers['x-origin-visual-quality-tier']).toBeUndefined();
     expect(response.body.paidFallbackEnabled).toBe(false);
   });
 
