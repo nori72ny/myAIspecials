@@ -75,3 +75,5 @@ Vercel参考: https://vercel.com/docs/rest-api/checks-v2/list-all-checks-for-a-p
 - The audit evaluates the union of the built-in minimum and all configured required check names. Additional checks that are missing, pending, skipped or neutral fail closed; only one completed-success record qualifies.
 - Local validation: 37 tests pass across both GitHub and Vercel audit suites, including the new regressions and success controls. Targeted TypeScript checking passes. Fresh exact-head CI is still required after commit.
 - This is a read-only evidence evaluator, not enforcement activation. Live branch-protection permissions, Vercel alias hold, independent model evaluation and release approvals remain unverified. No production changes.
+
+**設定の重複検査:** Vercel Checks V2 の GET は `blocks` を省略してプロジェクトの全チェックを取得すること。最初から `blocks=deployment-alias` を指定すると、同名だが `blocks=none` のチェックがサーバー側で除外され、重複に気づかず合格する欠陥を招く。監査は**全チェックの取得後**に名前の一意性・ブロック条件・source identityを検証する。
