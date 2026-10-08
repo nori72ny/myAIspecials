@@ -123,6 +123,45 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(2);
   });
 
+  it('prevents an approval adapter from mutating the approved tool or its dependencies', async () => {
+    const actions = deps();
+    actions.consumeExactApproval = vi.fn(async (_runId, _operationDigest, step) => {
+      expect(Object.isFrozen(step)).toBe(true);
+      expect(Object.isFrozen(step.dependsOn)).toBe(true);
+      if (step.id === 'step-1') {
+        expect(Reflect.set(step, 'toolName', 'file_writer')).toBe(false);
+        expect(Reflect.set(step.dependsOn, '0', 'forged-step')).toBe(false);
+        expect(step.toolName).toBe('web_search_grounding');
+      }
+      return true;
+    });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result.status).toBe('completed');
+    expect(result.completedSteps.map(row => row.toolName)).toEqual(['web_search_grounding', 'document_generator']);
+  });
+
+  it('fails closed when the shared cancellation service returns an unknown state', async () => {
+    const actions = deps();
+    actions.isCancelled = vi.fn(async () => undefined as unknown as boolean);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({ status: 'blocked', verified: false, code: 'AGENT_MULTI_TOOL_STEP_FAILED' });
+    expect(actions.consumeExactApproval).not.toHaveBeenCalled();
+    expect(actions.executeAndVerify).not.toHaveBeenCalled();
+  });
+
+  it('does not allow a terminal verifier to rewrite the already checked evidence digest', async () => {
+    const actions = deps();
+    actions.verifyTrustedTerminal = vi.fn(async (_runId, _operationDigest, _step, outcome) => {
+      expect(Object.isFrozen(outcome)).toBe(true);
+      expect(Reflect.set(outcome, 'evidenceDigest', 'f'.repeat(64))).toBe(false);
+      return true;
+    });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result.status).toBe('completed');
+    expect(result.completedSteps[0]?.evidenceDigest).toBe(digest('step-1'));
+    expect(actions.verifyTrustedTerminal).toHaveBeenCalledTimes(2);
+  });
+
   it('requires independent confirmation of a tool terminal receipt', async () => {
     const actions = deps();
     actions.verifyTrustedTerminal = vi.fn(async () => false);
