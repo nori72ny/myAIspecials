@@ -925,7 +925,17 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
       }
       if (isDirectTouchCommit && artifact) {
         const nextContent = applyDirectTouchEdits(workingContent, data.edits);
-        if (nextContent === workingContent) return;
+        if (nextContent === workingContent) {
+          // A user may type then undo back to the identical content. No new
+          // revision needs saving, but its transient iframe editing marker
+          // must not block future PWA updates forever. Never clear a pending
+          // commit:<id> marker that has not yet been durably persisted.
+          if (document.documentElement.dataset.originDirectTouchPending === 'true') {
+            document.documentElement.dataset.originDirectTouchPending = 'false';
+            window.dispatchEvent(new Event('origin:pwa-safe-apply'));
+          }
+          return;
+        }
         const { revision, revisions, latest: nextRevision } = appendOriginArtifactRevision(artifact, nextContent, 'direct-touch');
         const nextArtifact = { ...artifact, content: nextContent, revision, revisions };
         cleanLoadConfirmed.current = false;
