@@ -80,12 +80,16 @@ export function planAgentToolSequenceV31(goal: string): AgentMultiToolPlanV31 {
   const normalized = goal.trim();
   if (!normalized) return { ok: false, code: 'AGENT_TOOL_SELECTION_AMBIGUOUS' };
 
+  const rawScored = scoreAgentToolsV3(normalized);
   const matched = normalizeMatchedTools(normalized);
-  if (matched.length < 2) return { ok: false, code: 'AGENT_TOOL_SELECTION_AMBIGUOUS' };
+  const collapsedIntoCoding = matched.length === 1
+    && matched[0]?.toolName === 'code_interpreter'
+    && rawScored.some((row) => row.toolName !== 'code_interpreter' && row.score >= 3);
+  if (matched.length < 2 && !collapsedIntoCoding) return { ok: false, code: 'AGENT_TOOL_SELECTION_AMBIGUOUS' };
   if (matched.length > MAX_STEPS) return { ok: false, code: 'AGENT_MULTI_TOOL_PLAN_UNSUPPORTED' };
 
   const tools = matched.map((row) => row.toolName);
-  if (!supportedSequence(tools)) return { ok: false, code: 'AGENT_MULTI_TOOL_PLAN_UNSUPPORTED' };
+  if (!collapsedIntoCoding && !supportedSequence(tools)) return { ok: false, code: 'AGENT_MULTI_TOOL_PLAN_UNSUPPORTED' };
 
   return {
     ok: true,
