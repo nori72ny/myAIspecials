@@ -8,7 +8,7 @@ type ScoredTool = { toolName: ToolName; score: number; reasonCode: string };
 
 const includes = (value: string, pattern: RegExp): boolean => pattern.test(value);
 
-function scoreGoal(goal: string): ScoredTool[] {
+export function scoreAgentToolsV3(goal: string): ScoredTool[] {
   const value = goal.normalize('NFKC').toLowerCase();
   const rows: ScoredTool[] = [];
 
@@ -74,7 +74,7 @@ function scoreGoal(goal: string): ScoredTool[] {
 }
 
 export function selectAgentToolV3(goal: string): AgentToolPlanDecisionV3 {
-  const scored = scoreGoal(goal);
+  const scored = scoreAgentToolsV3(goal);
   const strong = scored.filter(row => row.score >= 3);
 
   if (strong.length > 1) return { ok: false, code: 'AGENT_MULTI_TOOL_PLAN_REQUIRED' };
