@@ -39,6 +39,20 @@ function order(tools: readonly ToolName[]): ToolName[] {
   return PRIORITY.filter((tool) => tools.includes(tool));
 }
 
+
+/**
+ * Mentioning "code", "bug" or "TypeScript" is not permission to edit code.
+ * The low-confidence code interpreter hint becomes a Coding V1.4 action only
+ * for an explicit request to change/debug implementation, never from context alone.
+ */
+function hasExplicitCodingWork(goal: string): boolean {
+  const value = goal.normalize('NFKC').toLowerCase();
+  if (/修正しない|修正せず|修正不要|変更しない|編集しない|実装しない|書き換えない|直さない|修正方法|修正事例|(?:do not|don't|without)\s+(?:fix|modify|edit|change|implement|patch)/.test(value)) return false;
+  return /(?:修正し|修正する|改修し|実装し|変更し|直して|デバッグし|書き換え|修正して|実装して|変更して|コードを書いて|スクリプトを書いて)/.test(value)
+    || /\b(?:fix|repair|modify|refactor|implement|patch|debug)\s+(?:(?:this|the|my|our|a|an)\s+)?(?:code|script|function|bug|bugs|repository|repo|typescript|javascript|python|app)\b/.test(value)
+    || /\b(?:write|generate)\s+(?:(?:the|my|a|an)\s+)?(?:code|script|function|typescript|javascript|python)\b/.test(value);
+}
+
 function normalizeMatchedTools(goal: string): Array<{ toolName: ToolName; reasonCode: string }> {
   const scored = scoreAgentToolsV3(goal);
   const strong = scored.filter((row) => row.score >= 3);
@@ -48,7 +62,7 @@ function normalizeMatchedTools(goal: string): Array<{ toolName: ToolName; reason
   // A trusted Coding V1.4 session already performs repository discovery and final
   // test/typecheck/lint/build verification. Do not manufacture redundant side
   // effects around it merely because the request also says "inspect" or "test".
-  if (scored.some((row) => row.toolName === 'code_interpreter')) {
+  if (hasExplicitCodingWork(goal) && scored.some((row) => row.toolName === 'code_interpreter')) {
     const coding = scored.find((row) => row.toolName === 'code_interpreter');
     if (coding) byTool.set('code_interpreter', { toolName: 'code_interpreter', reasonCode: coding.reasonCode });
     byTool.delete('repository_explorer');
