@@ -25,6 +25,8 @@ alter table public.origin_agent_multitool_runs_v31 enable row level security;
 revoke all on table public.origin_agent_multitool_runs_v31 from public;
 revoke all on table public.origin_agent_multitool_runs_v31 from anon;
 revoke all on table public.origin_agent_multitool_runs_v31 from authenticated;
+-- Revoke default service_role table grants too; GRANT does not undo old grants.
+revoke all on table public.origin_agent_multitool_runs_v31 from service_role;
 grant select, insert on table public.origin_agent_multitool_runs_v31 to service_role;
 
 -- No DELETE, expiration index, update privilege or implicit cleanup function.
