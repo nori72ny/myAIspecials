@@ -81,6 +81,17 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
   });
 
+  it('requires independent confirmation of a tool terminal receipt', async () => {
+    const actions = deps();
+    actions.verifyTrustedTerminal = vi.fn(async () => false);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('AGENT_MULTI_TOOL_TRUSTED_TERMINAL_MISSING');
+    expect(result.completedSteps).toHaveLength(0);
+    expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
+    expect(actions.verifyTrustedTerminal).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects nonzero spend, paid fallback, and empty evidence even when a tool claims success', async () => {
     for (const mutation of [
       { costUsd: 0.01 },
