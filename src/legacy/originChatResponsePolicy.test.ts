@@ -245,4 +245,13 @@ describe("originChatResponsePolicy", () => {
     expect(requiresOriginCurrentInformation(message)).toBe(true);
   });
 
+  it("classifies legitimate additional fresh-fact tasks after huge newline runs", () => {
+    const externalTask = "この文章を要約してください。" + "\n".repeat(20_000) + "最新の料金を調べてください。";
+    expect(requiresOriginGroundedResearch(externalTask)).toBe(true);
+    expect(requiresOriginCurrentInformation(externalTask)).toBe(true);
+    const quotedTask = "この文章を要約してください。『" + "\n".repeat(20_000) + "最新の料金を調べてください。』";
+    expect(requiresOriginGroundedResearch(quotedTask)).toBe(false);
+    expect(requiresOriginCurrentInformation(quotedTask)).toBe(false);
+  });
+
 });
