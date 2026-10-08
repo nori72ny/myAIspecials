@@ -345,6 +345,7 @@ export function validateGroundedResearchSynthesis(
   const bounded = sources.slice(0, 8);
   const sourceMap = new Map<string, string>();
   const sourceEvidence = new Map<string, string>();
+  const sourceDateMetadata = new Map<string, { retrieved: string | null; revised: string | null }>();
   bounded.forEach((source, index) => {
     const id = sourceId(index);
     const normalized = safeHttpsUrl(source.url);
@@ -354,6 +355,10 @@ export function validateGroundedResearchSynthesis(
       // the source. A date quoted as an event must be present in the actual
       // cited title/excerpt, not merely in the fetch timestamp.
       sourceEvidence.set(id, [source.title, compactExcerpt(source.excerpt)].join("\n"));
+      sourceDateMetadata.set(id, {
+        retrieved: evidenceTimestamp(source.retrievedAt)?.slice(0, 10) ?? null,
+        revised: evidenceTimestamp(source.revisionTimestamp)?.slice(0, 10) ?? null,
+      });
     }
   });
 
@@ -403,8 +408,22 @@ export function validateGroundedResearchSynthesis(
     // Compare whole numeric tokens; substring matches can silently change magnitude or sign.
     const supportedNumbers = new Set(numericTokens(evidenceText));
     const verifiedResults = verifiedDerivedArithmeticTokens(unit, supportedNumbers, evidenceText);
+    // Metadata dates prove when we retrieved or revised a record, NOT when
+    // the underlying real-world event happened. Grant only the matching
+    // calendar date for explicit metadata claims, never timestamp hour digits.
+    const explicitlyRetrieved = /(?:取得日|取得日時|参照日|retriev(?:al|ed)\s+(?:date|on))/i.test(unit);
+    const explicitlyRevised = /(?:改訂日|改定日|更新日時|revision\s+date|revised\s+on)/i.test(unit);
+    const makesEventClaim = /(?:開催日|発生日|出来事|イベント|事件|published\s+on|event|occurred)/i.test(unit);
+    const metadataDates = new Set<string>();
+    if (!makesEventClaim) {
+      for (const id of ids) {
+        const metadata = sourceDateMetadata.get(id);
+        if (explicitlyRetrieved && metadata?.retrieved) metadataDates.add(`date:${metadata.retrieved}`);
+        if (explicitlyRevised && metadata?.revised) metadataDates.add(`date:${metadata.revised}`);
+      }
+    }
     for (const token of numericTokens(unit)) {
-      if (!supportedNumbers.has(token) && !verifiedResults.has(token)) {
+      if (!supportedNumbers.has(token) && !verifiedResults.has(token) && !metadataDates.has(token)) {
         return {
           ok: false,
           code: "UNSUPPORTED_NUMERIC_TOKEN",
