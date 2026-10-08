@@ -70,6 +70,8 @@ describe('agent orchestrator v3', () => {
     }));
     const bridge = { start, poll } as unknown as AgentCodingBridgeV3;
     const app = appFor(env, { consume: async () => true }, bridge);
+    const status = await request(app).get('/api/agent/v3/status');
+    expect(status.body.codingBridgeConfigured).toBe(true);
     const goal = 'Repair this code bug.';
     const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
     expect(plan.status).toBe(201);
