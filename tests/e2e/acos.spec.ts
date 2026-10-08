@@ -574,6 +574,39 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     ).toBe('false');
   });
 
+  test('never commits or reloads the preview mid Japanese IME composition', async ({ page }) => {
+    await page.route('**/api/chat', async route => route.fulfill({
+      status: 200, contentType: 'text/plain; charset=utf-8',
+      body: '```html:ime-edit.html\\n<main><p>Original text</p></main>\\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('日本語IME入力の安全性を確認');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await workspace.getByTestId('artifact-action-edit').click();
+    const editable = workspace.getByTitle('プレビュー').contentFrame().locator('[data-origin-direct-touch-index="0"]');
+    await expect(editable).toBeVisible();
+    await editable.evaluate(node => {
+      node.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      node.textContent = '日本語を変換中';
+      node.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', isComposing: true }));
+    });
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.originDirectTouchPending))
+      .toBe('true');
+    // This deliberate wait exceeds the 420ms debounce; a mid-composition
+    // commit would otherwise destroy the user's active conversion buffer.
+    await page.waitForTimeout(600);
+    await expect(page.getByText('更新あり', { exact: true })).toHaveCount(0);
+    await editable.evaluate(node => node.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })));
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('data-origin-srcdoc', /日本語を変換中/);
+    await expect.poll(
+      () => page.evaluate(() => document.documentElement.dataset.originDirectTouchPending),
+      { timeout: 15_000 },
+    ).toBe('false');
+  });
+
   test('assists direct source editing and prevents malformed HTML revisions', async ({ page }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,
