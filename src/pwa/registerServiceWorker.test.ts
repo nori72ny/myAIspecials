@@ -1,9 +1,9 @@
+// @vitest-environment jsdom
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { transpileModule, ModuleKind } from 'typescript';
 import { describe, it } from 'vitest';
-import { JSDOM } from 'jsdom';
 
 type Listener = () => void;
 function eventTarget() {
@@ -28,7 +28,8 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   let announcements = 0;
   const draft = { value: '' };
   // Use the browser DOM selector engine, not a selector-insensitive mock.
-  const editorDocument = new JSDOM('<div id="rich-editor" contenteditable></div><div id="plaintext-editor" contenteditable="plaintext-only"></div><div id="disabled-editor" contenteditable="false"></div>').window.document;
+  const editorDocument = globalThis.document.implementation.createHTMLDocument('PWA editor regression');
+  editorDocument.body.innerHTML = '<div id="rich-editor" contenteditable></div><div id="plaintext-editor" contenteditable="plaintext-only"></div><div id="disabled-editor" contenteditable="false"></div>';
   const richEditor = editorDocument.getElementById('rich-editor')!;
   const plaintextEditor = editorDocument.getElementById('plaintext-editor')!;
   const disabledEditor = editorDocument.getElementById('disabled-editor')!;
@@ -199,6 +200,9 @@ describe('PWA controller changes preserve user work', () => {
     app.document.visibilityState = 'visible';
     app.document.documentElement.dataset.originStorageState = 'hydrating';
     app.retry();
+    assert.equal(app.reloads(), 0);
+    app.document.documentElement.dataset.originStorageState = 'degraded';
+    app.document.emit('visibilitychange');
     assert.equal(app.reloads(), 0);
     app.document.documentElement.dataset.originStorageState = 'ready';
     app.document.emit('visibilitychange');
