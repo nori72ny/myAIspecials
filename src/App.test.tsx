@@ -388,6 +388,19 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('restore-last-known-good')).toHaveProperty('disabled', true);
   });
 
+  it('never applies a Direct Touch commit from the iframe when edit mode is off', () => {
+    const saved: ArtifactBlock[] = [];
+    render(<ArtifactWorkspace artifact={{ ...artifact, content: '<main><p>Read only</p></main>' }}
+      isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => saved.push(next)} />);
+    const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    act(() => window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'unauthorized overwrite' }] },
+    })));
+    expect(saved).toHaveLength(0);
+    expect(document.documentElement.dataset.originDirectTouchPending).not.toMatch(/^commit:/);
+  });
+
   it('stores an approved Direct Touch text delta as an immutable new revision', () => {
     const revisions: ArtifactBlock[] = [];
     render(<ArtifactWorkspace artifact={{ ...artifact, content: '<main><p>Ready</p></main>' }} isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => revisions.push(next)} />);
