@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { chromium } from 'playwright';
 import { readRasterDimensionsV15 } from '../src/creative/rasterImageCriticV15.js';
 import { planImageWorkersFreeShardsV1 } from '../src/release/OriginImageWorkersFreeShardPlanV1.js';
 
@@ -48,6 +49,8 @@ async function main() {
   const modelIds = new Set<string>();
   const shardEvidenceHashes: string[] = [];
   let total = 0;
+  const browser = await chromium.launch({ headless: true });
+  try {
   for (const shard of plan.shards) {
     const dir = path.join(root, 'shard-' + shard.index);
     const [pub, ev, summary, manifest] = await Promise.all([
@@ -128,11 +131,37 @@ async function main() {
       const d = readRasterDimensionsV15(bytes, mime);
       need(d && d.width === item.actualWidth && d.height === item.actualHeight,
         'IMAGE_DIMENSIONS_OR_TYPE_INVALID');
+      // Actual browser decoding; a forged PNG/JPEG/WebP header is not a valid image.
+      const page = await browser.newPage();
+      try {
+        const decoded = await page.evaluate(async ({ imageUrl }) => {
+          const img = new Image();
+          img.src = imageUrl;
+          await img.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = 1;
+          canvas.height = 1;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('CANVAS_UNAVAILABLE');
+          ctx.drawImage(img, 0, 0, 1, 1);
+          ctx.getImageData(0, 0, 1, 1);
+          return { width: img.naturalWidth, height: img.naturalHeight };
+        }, { imageUrl: 'data:' + mime + ';base64,' + bytes.toString('base64') });
+        need(decoded.width === d.width && decoded.height === d.height,
+          'BROWSER_DECODE_DIMENSIONS_MISMATCH');
+      } catch {
+        throw new Error('IMAGE_SHARD_LOCAL_BROWSER_DECODE_FAILED');
+      } finally {
+        await page.close();
+      }
       need(typeof item.modelId === 'string' && item.modelId.length > 0, 'MODEL_MISSING');
       modelIds.add(item.modelId as string);
       total += 1;
     }
     shardEvidenceHashes.push(digest(JSON.stringify(ev)));
+  }
+  } finally {
+    await browser.close();
   }
   need(total === 24 && seenImageHashes.size === 24 && seenDays.size === plan.shards.length
     && seenRunIds.size === plan.shards.length && modelIds.size === 1,
