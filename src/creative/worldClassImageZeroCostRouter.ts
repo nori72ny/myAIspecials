@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Router, type Request, type Response as ExpressResponse } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import {
@@ -228,6 +229,11 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
             height: input.height,
             referenceImages: input.referenceImages,
           }, env);
+          if (editing && input.referenceImages.some((reference) =>
+            createHash('sha256').update(reference.bytes).digest('hex') === finalResult?.sha256)) {
+            // A reference passed through unchanged is NOT evidence that the edit succeeded.
+            return fail(res, 422, 'WORLD_CLASS_FREE_EDIT_UNCHANGED', '元画像が変更されなかったため編集結果として返却しません。');
+          }
           finalCritic = await critiqueCloudflareRasterSemanticV15({
             originalRequest: input.prompt,
             exactText,
@@ -257,6 +263,8 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', finalResult.mimeType);
     res.setHeader('X-Origin-Visual-Verified', 'true');
+    res.setHeader('X-Origin-Visual-Task', editing ? 'edit' : 'generate');
+    res.setHeader('X-Origin-Visual-Reference-Count', String(input.referenceImages.length));
     res.setHeader('X-Origin-Visual-Quality-Tier', providerTier);
     res.setHeader('X-Origin-Visual-Provider', finalResult.providerId);
     res.setHeader('X-Origin-Visual-Model', finalResult.model);
