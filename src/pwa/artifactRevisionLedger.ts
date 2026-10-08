@@ -11,6 +11,9 @@ export type OriginArtifactRevisionEntry = {
 };
 
 export const ORIGIN_ARTIFACT_HISTORY_LIMIT = 64;
+// Keep persisted history within the same finite-size envelope as hydration.
+export const ORIGIN_ARTIFACT_HISTORY_CHAR_BUDGET = 10_000_000;
+export const ORIGIN_ARTIFACT_REVISION_CHAR_LIMIT = 1_000_000;
 
 export function appendOriginArtifactRevision(
   artifact: {
@@ -42,9 +45,25 @@ export function appendOriginArtifactRevision(
     createdAt,
     source,
   };
+  // Both the number of entries AND their aggregate content size must agree
+  // with the durable hydration validator. Otherwise a long editing session
+  // would save a ledger that the next launch silently discards in full.
+  const bounded = [...history.slice(-(ORIGIN_ARTIFACT_HISTORY_LIMIT - 1)), latest];
+  const retained: OriginArtifactRevisionEntry[] = [];
+  let chars = 0;
+  for (let index = bounded.length - 1; index >= 0; index -= 1) {
+    const entry = bounded[index];
+    if (entry.content.length > ORIGIN_ARTIFACT_REVISION_CHAR_LIMIT
+      || chars + entry.content.length > ORIGIN_ARTIFACT_HISTORY_CHAR_BUDGET) break;
+    retained.push(entry);
+    chars += entry.content.length;
+  }
+  retained.reverse();
   return {
     revision,
-    revisions: [...history.slice(-(ORIGIN_ARTIFACT_HISTORY_LIMIT - 1)), latest],
+    // An oversized current artifact is still passed through unchanged; only
+    // its unpersistable undo ledger is omitted instead of being truncated.
+    revisions: retained,
     latest,
   };
 }
