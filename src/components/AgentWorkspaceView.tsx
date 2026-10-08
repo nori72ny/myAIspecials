@@ -139,20 +139,49 @@ function phaseLabel(phase: Phase): string {
 }
 
 function verifiedCodingArtifact(result: CodingBridgeResult): string {
-  const checks = result.verificationChecks
-    .map((check) => `- ${check.kind}: ${check.ok && check.exitCode === 0 && !check.timedOut ? 'PASS' : 'FAIL'}`)
-    .join('\n');
-  const paths = result.diffs.map((diff) => `- ${diff.path} (${diff.kind})`).join('\n') || '- 変更パスなし';
+  const requiredKinds = ['typecheck', 'lint', 'test', 'build'] as const;
+  const checks = requiredKinds.map((kind) => {
+    const check = result.verificationChecks.find((item) => item.kind === kind);
+    return `- ${kind}: ${check?.ok && check.exitCode === 0 && !check.timedOut ? 'PASS' : 'FAIL / no proof'}`;
+  }).join('\n');
+  const summaries = result.diffs.map((diff) => `- ${diff.path} (${diff.kind})`).join('\n') || '- 変更ファイルなし';
+
+  // The trusted server already bounds and sanitizes each preview. Render as
+  // literal text in the workspace <pre>, never as HTML, executable code or a
+  // complete source file. Missing/truncated previews are not task completion.
+  const previews = result.diffs.map((diff, index) => {
+    if (!diff.previewAvailable) {
+      return `### ${index + 1}. ${diff.path}\n\n変更内容のプレビューを取得できません。元ファイルや完全な差分を推測しません。`;
+    }
+    const before = diff.before === null ? '（新規ファイル）' : diff.before;
+    const after = diff.after === null ? '（変更後の内容を取得できません）' : diff.after;
+    const beforeLabel = diff.beforeTruncated ? '変更前（一部省略）' : '変更前';
+    const afterLabel = diff.afterTruncated ? '変更後（一部省略）' : '変更後';
+    return [
+      `### ${index + 1}. ${diff.path}`,
+      `[${beforeLabel}]`,
+      before,
+      `[${afterLabel}]`,
+      after,
+    ].join('\n');
+  }).join('\n\n');
+
   return [
     '# Coding V1.4 検証済み結果',
+    '',
+    '作業環境内でのコード変更と検証が完了しました。GitHubへの反映・本番公開は行っていません。',
     '',
     `Repair rounds: ${result.repairRounds}`,
     '',
     '## Changed paths',
-    paths,
+    summaries,
     '',
     '## Verification',
     checks,
+    '',
+    '## 変更内容のプレビュー',
+    '表示内容は最大サイズが制限された確認用抜粋です。完全なGit差分・デプロイ済みコードを意味しません。',
+    previews || '表示可能な差分はありません。',
     '',
     'Git publish: not authorized',
     'Deploy: not authorized',
