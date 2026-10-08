@@ -116,7 +116,7 @@ function hasJapaneseAdditionalTask(text: string, kind: "research" | "current"): 
 function hasEnglishAdditionalTask(text: string, kind: "research" | "current"): boolean {
   const tokens = text.toLowerCase().match(/[a-z]+(?:'[a-z]+)?|[.!?\n]/g) ?? [];
   const separators = new Set(["and", "also", "additionally", "then", ".", "!", "?", "\n"]);
-  const researchVerbs = new Set(["research", "search", "look", "find", "check", "verify"]);
+  const explicitResearch = new Set(["research", "search", "verify"]);
   const requestVerbs = new Set(["tell", "show", "give", "check", "confirm", "find"]);
   const freshness = new Set(["latest", "current", "today", "today's"]);
   const topics = new Set(["information", "news", "weather", "pricing", "price", "prices", "exchange", "rate", "rates", "status", "results", "result", "version", "versions", "model", "models"]);
@@ -131,7 +131,12 @@ function hasEnglishAdditionalTask(text: string, kind: "research" | "current"): b
       segment.push(token);
     }
     if (kind === "research") {
-      if (segment.slice(0, 6).some(token => researchVerbs.has(token))) return true;
+      const lead = segment.slice(0, 6);
+      if (lead.some(token => explicitResearch.has(token))) return true;
+      if (lead.some((token, offset) => token === "look" && lead[offset + 1] === "up")) return true;
+      if (lead.some((token, offset) => (token === "find" || token === "check")
+        && (lead[offset + 1] === "sources" || lead[offset + 1] === "source"
+          || (lead[offset + 1] === "the" && (lead[offset + 2] === "sources" || lead[offset + 2] === "source"))))) return true;
       continue;
     }
     const firstRequest = segment.findIndex((token, offset) => offset < 6 && requestVerbs.has(token));
