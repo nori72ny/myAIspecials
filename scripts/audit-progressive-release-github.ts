@@ -56,5 +56,8 @@ if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)
     finalProductionAuthorization: false,
     missingExternalGates: ['VERCEL_DEPLOYMENT_CHECKS', 'OWNER_APPROVAL', 'INDEPENDENT_QUALITY', 'ZERO_COST', 'PRODUCTION_SMOKE'],
   }, null, 2));
-  if (!result.githubReadyForFurtherReview) process.exitCode = 2;
+  // Deliberately NEVER exit 0: a GitHub-only audit cannot prove Vercel,
+  // owner-approved exact-SHA production promotion or independent held-out QA.
+  // A separate fully authenticated release controller must handle those gates.
+  process.exitCode = 2;
 }
