@@ -114,7 +114,7 @@ describe('agent orchestrator v3', () => {
     expect(start).toHaveBeenCalledWith(plan.body.runId, goal);
   });
 
-  it('requires authenticated bridge-bound polling and never infers completion', async () => {
+  it('uses the exact bridge capability for polling and never infers completion', async () => {
     const poll = vi.fn(async (runId: string, jobId: string, bridgeToken: string) => ({
       ok: true as const,
       runId,
@@ -130,12 +130,20 @@ describe('agent orchestrator v3', () => {
     const bridge = { start: vi.fn(), poll } as unknown as AgentCodingBridgeV3;
     const app = appFor(env, { consume: async () => true }, bridge);
 
-    const unauthenticated = await request(app).post('/api/agent/v3/coding/status')
+    const missingCapability = await request(app).post('/api/agent/v3/coding/status')
+      .send({ runId: 'run-coding-status', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' });
+    expect(missingCapability.status).toBe(403);
+    expect(missingCapability.body.code).toBe('AGENT_CODING_BRIDGE_TOKEN_REQUIRED');
+    expect(poll).not.toHaveBeenCalled();
+
+    const crossOrigin = await request(app).post('/api/agent/v3/coding/status')
+      .set('Origin', 'https://attacker.example')
       .send({ runId: 'run-coding-status', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
-    expect(unauthenticated.status).toBe(401);
+    expect(crossOrigin.status).toBe(403);
+    expect(crossOrigin.body.code).toBe('CROSS_ORIGIN_REQUEST_BLOCKED');
+    expect(poll).not.toHaveBeenCalled();
 
     const response = await request(app).post('/api/agent/v3/coding/status')
-      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
       .send({ runId: 'run-coding-status', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ status: 'running', verified: false, codingStatus: 'repairing' });
@@ -447,7 +455,7 @@ describe('agent orchestrator v3', () => {
     });
   });
 
-  it('propagates authenticated coding cancellation through the exact bridge binding', async () => {
+  it('propagates coding cancellation through the exact bridge capability', async () => {
     const cancelCoding = vi.fn(async (runId: string, jobId: string, bridgeToken: string) => ({
       ok: true as const,
       runId,
@@ -466,12 +474,13 @@ describe('agent orchestrator v3', () => {
     } as unknown as AgentCodingBridgeV3;
     const app = appFor(env, { consume: async () => true }, bridge);
 
-    const unauthenticated = await request(app).post('/api/agent/v3/coding/cancel')
-      .send({ runId: 'run-cancel-code', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
-    expect(unauthenticated.status).toBe(401);
+    const missingCapability = await request(app).post('/api/agent/v3/coding/cancel')
+      .send({ runId: 'run-cancel-code', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' });
+    expect(missingCapability.status).toBe(403);
+    expect(missingCapability.body.code).toBe('AGENT_CODING_BRIDGE_TOKEN_REQUIRED');
+    expect(cancelCoding).not.toHaveBeenCalled();
 
     const response = await request(app).post('/api/agent/v3/coding/cancel')
-      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
       .send({ runId: 'run-cancel-code', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
