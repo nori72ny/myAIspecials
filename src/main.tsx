@@ -12,6 +12,7 @@ import { getTranslations } from './i18n';
 import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { directTouchRevisionDurablySaved } from './pwa/directTouchDurableUpdateGate';
+import { recoverPersistedArtifactRevisions } from './pwa/recoverPersistedArtifactRevisions';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import './index.css';
 import './ultra-optics.css';
@@ -124,7 +125,34 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
 function loadStoredHistory(): ConversationMessage[] { try { const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY); return raw ? parseImportedHistory(JSON.parse(raw)) : []; } catch { return []; } }
 function loadStoredSessions(): ConversationSession[] { try { const raw = window.localStorage.getItem(SESSION_STORAGE_KEY); if (!raw) return []; const parsed = JSON.parse(raw) as unknown; if (!Array.isArray(parsed)) return []; return parsed.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); } catch { return []; } }
 function loadSessionsFromSnapshot(value: unknown): ConversationSession[] { if (!Array.isArray(value)) return []; return value.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); }
-function parseStoredArtifacts(value: unknown): PersistedArtifact[] { if (!Array.isArray(value)) return []; return value.slice(0, 500).flatMap((candidate) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<PersistedArtifact>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.language !== 'string' || typeof source.content !== 'string' || typeof source.isComplete !== 'boolean' || !source.type || !['code', 'markdown', 'mermaid', 'html'].includes(source.type)) return []; return [{ id: source.id.slice(0, 160), type: source.type, title: source.title.slice(0, 160), language: source.language.slice(0, 48), content: source.content.slice(0, 1_000_000), isComplete: source.isComplete, revision: typeof source.revision === 'number' ? Math.max(1, Math.floor(source.revision)) : undefined, revisions: undefined }]; }); }
+function parseStoredArtifacts(value: unknown): PersistedArtifact[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 500).flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+    const source = candidate as Partial<PersistedArtifact>;
+    if (typeof source.id !== 'string' || typeof source.title !== 'string'
+      || typeof source.language !== 'string' || typeof source.content !== 'string'
+      || typeof source.isComplete !== 'boolean'
+      || !source.type || !['code', 'markdown', 'mermaid', 'html'].includes(source.type)) return [];
+    const content = source.content.slice(0, 1_000_000);
+    // Historical versions were previously dropped on every reload, making
+    // the PWA update appear to erase the artifact's edit/restore history.
+    // The bounded parser accepts only a matching, validated durable history.
+    const revisions = recoverPersistedArtifactRevisions(source.revisions, content);
+    const revision = Number.isSafeInteger(source.revision) && Number(source.revision) >= 1
+      ? Math.min(Number(source.revision), 100_000) : revisions?.length;
+    return [{
+      id: source.id.slice(0, 160),
+      type: source.type,
+      title: source.title.slice(0, 160),
+      language: source.language.slice(0, 48),
+      content,
+      isComplete: source.isComplete,
+      revision,
+      revisions,
+    }];
+  });
+}
 function snapshotFromState(messages: ConversationMessage[], sessions: ConversationSession[], artifacts: PersistedArtifact[]): OriginPersistedSnapshot {
   return {
     version: 1,
