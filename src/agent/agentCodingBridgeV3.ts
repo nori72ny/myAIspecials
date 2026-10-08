@@ -189,17 +189,25 @@ function terminalFailureCode(record: CodingJobPublicRecordV14): string {
 }
 
 function resultIsVerified(result: CodingJobResultV14): boolean {
-  return result.sessionStatus === 'verified'
+  const checks = result?.verificationChecks;
+  const requiredKinds = ['typecheck', 'lint', 'test', 'build'] as const;
+  // Four successful entries are insufficient if two represent the same kind:
+  // every *distinct* final verification is required for a completion claim.
+  return result?.sessionStatus === 'verified'
     && result.freeOnly === true
     && result.costUsd === 0
     && result.gitPublished === false
     && result.deployed === false
-    && result.verificationChecks.length === 4
-    && result.verificationChecks.every(check =>
-      check.ok === true
+    && Number.isInteger(result.repairRounds)
+    && result.repairRounds >= 0
+    && Array.isArray(checks)
+    && checks.length === requiredKinds.length
+    && requiredKinds.every(kind => checks.some(check =>
+      check?.kind === kind
+      && check.ok === true
       && check.exitCode === 0
       && check.timedOut === false
-      && check.attempt === result.repairRounds);
+      && check.attempt === result.repairRounds));
 }
 
 /**
