@@ -399,6 +399,26 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
   });
 
+  it('does not call an already partially executed run entirely cancelled between tools', async () => {
+    const actions = deps();
+    let checks = 0;
+    actions.isCancelled = vi.fn(async () => {
+      checks += 1;
+      // Five checks validate the first step; cancel as the next step begins.
+      return checks >= 6;
+    });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({
+      status: 'blocked', verified: false,
+      code: 'AGENT_MULTI_TOOL_PARTIAL_EFFECTS_RECONCILIATION_REQUIRED',
+      costUsd: null, paidFallbackUsed: null,
+    });
+    expect(result.completedSteps).toHaveLength(1);
+    expect(result.completedSteps[0]?.toolName).toBe('web_search_grounding');
+    expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
+    expect(actions.consumeExactApproval).toHaveBeenCalledTimes(1);
+  });
+
   it('allows acknowledged pre-dispatch cancellation without executing a tool', async () => {
     const actions = deps();
     actions.isCancelled = vi.fn(async () => true);
