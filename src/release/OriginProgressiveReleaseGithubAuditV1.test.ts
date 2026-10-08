@@ -7,6 +7,11 @@ const main = 'a'.repeat(40);
 const good = (): OriginGithubReleaseSnapshotV1 => ({
   pull: { state: 'open', draft: false, head: { sha }, base: { ref: 'main', sha: main }, user: { login: 'author' } },
   main: { protected: true, commit: { sha: main } },
+  mainProtection: {
+    required_status_checks: { strict: true, contexts: [...required] },
+    required_pull_request_reviews: { required_approving_review_count: 1, dismiss_stale_reviews: true },
+    enforce_admins: { enabled: true }, allow_force_pushes: { enabled: false }, allow_deletions: { enabled: false },
+  },
   checks: { total_count: required.length, check_runs: required.map(name => ({ name, status: 'completed', conclusion: 'success' })) },
   reviews: [{ state: 'APPROVED', commit_id: sha, user: { login: 'reviewer' } }],
 });
@@ -18,6 +23,31 @@ describe('live GitHub evidence audit (read-only)', () => {
   it('rejects a currently unprotected main', () => {
     const input = good();
     expect(audit({ ...input, main: { ...input.main!, protected: false } }).blockers).toContain('MAIN_UNPROTECTED');
+  });
+  it('does not accept protected=true unless required reviews and CI are demonstrably enforced', () => {
+    const input = good();
+    expect(audit({ ...input, mainProtection: null }).blockers).toContain('BRANCH_RULES_UNVERIFIED');
+    expect(audit({ ...input, mainProtection: { ...input.mainProtection!, required_pull_request_reviews: null } }).blockers)
+      .toContain('BRANCH_RULES_UNVERIFIED');
+    expect(audit({ ...input, mainProtection: {
+      ...input.mainProtection!, required_pull_request_reviews: { required_approving_review_count: 1, dismiss_stale_reviews: false },
+    } }).blockers).toContain('BRANCH_RULES_UNVERIFIED');
+    expect(audit({ ...input, mainProtection: { ...input.mainProtection!, enforce_admins: { enabled: false } } }).blockers)
+      .toContain('BRANCH_RULES_UNVERIFIED');
+    expect(audit({ ...input, mainProtection: { ...input.mainProtection!, allow_force_pushes: { enabled: true } } }).blockers)
+      .toContain('BRANCH_RULES_UNVERIFIED');
+    expect(audit({ ...input, mainProtection: { ...input.mainProtection!, allow_deletions: { enabled: true } } }).blockers)
+      .toContain('BRANCH_RULES_UNVERIFIED');
+    expect(audit({ ...input, mainProtection: { ...input.mainProtection!, required_status_checks: { strict: true, contexts: required.slice(1) } } }).blockers)
+      .toContain('BRANCH_RULES_UNVERIFIED');
+    expect(audit({ ...input, mainProtection: { ...input.mainProtection!, required_status_checks: { strict: false, contexts: [...required] } } }).blockers)
+      .toContain('BRANCH_RULES_UNVERIFIED');
+  });
+  it('accepts official checks context objects as equivalent to string contexts', () => {
+    const input = good();
+    expect(audit({ ...input, mainProtection: {
+      ...input.mainProtection!, required_status_checks: { strict: true, checks: required.map(context => ({ context })) },
+    } }).blockers).not.toContain('BRANCH_RULES_UNVERIFIED');
   });
   it('rejects draft PRs and a changed main', () => {
     const input = good();
