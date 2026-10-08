@@ -622,7 +622,7 @@ async function main(): Promise<void> {
       expectedTaskDigests: [...shard.taskDigests],
       caseIds: cases.map(item => item.caseId),
       outputSha256s: cases.map(item => item.output.imageSha256),
-      freeOnly: true,
+      freeOnly: cases.every(item => item.costUsd === 0) && totalCostUsd === 0,
       totalCostUsd: Math.round(totalCostUsd * 1_000_000) / 1_000_000,
       // Provider quota telemetry is deliberately NOT fabricated by this runner.
       trustedQuotaUsageVerified: false,
