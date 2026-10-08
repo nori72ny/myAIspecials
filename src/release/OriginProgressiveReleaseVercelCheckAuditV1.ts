@@ -27,6 +27,39 @@ function record(value: unknown): Record<string, unknown> | null {
     ? value as Record<string, unknown> : null;
 }
 
+/**
+ * A name alone is not an authenticated release signal. Vercel's Checks V2
+ * source union requires a concrete integration/webhook/external GitHub check
+ * identity. An empty object or arbitrary sourceKind is NOT sufficient.
+ */
+function hasIdentifiableVercelCheckSource(
+  item: Record<string, unknown>,
+): boolean {
+  const source = record(item.source);
+  if (!source || typeof item.sourceKind !== "string" || item.sourceKind.length === 0) return false;
+  const value = (key: string) =>
+    typeof source[key] === "string" && (source[key] as string).trim().length > 0;
+  if (source.kind === "webhook") {
+    return item.sourceKind === "webhook" && value("webhookId");
+  }
+  if (source.kind === "integration") {
+    return item.sourceKind === "integration" && value("externalResourceId");
+  }
+  if (source.kind === "git-provider") {
+    return item.sourceKind === "git-provider" && source.provider === "github"
+      && value("externalCheckName");
+  }
+  return false;
+}
+
+function explicitlyTargetsProduction(item: Record<string, unknown>): boolean {
+  // Do not infer Production coverage from a missing/empty target list.
+  // Reconcile any provider-wide defaults only after authoritative readback.
+  return Array.isArray(item.targets)
+    && item.targets.every(value => typeof value === "string")
+    && item.targets.includes("production");
+}
+
 export function auditOriginVercelChecksV1(
   payload: unknown,
   projectId: string,
@@ -59,8 +92,8 @@ export function auditOriginVercelChecksV1(
     return c.name === ORIGIN_VERCEL_RELEASE_CHECK_NAME
       && c.blocks === "deployment-alias"
       && typeof c.id === "string" && c.id.length > 0
-      && typeof c.sourceKind === "string" && c.sourceKind.length > 0
-      && record(c.source) !== null;
+      && hasIdentifiableVercelCheckSource(c)
+      && explicitlyTargetsProduction(c);
   }) : null;
   if (!matched || matched.length !== 1) {
     blockers.push("REQUIRED_DEPLOYMENT_ALIAS_CHECK_MISSING");
