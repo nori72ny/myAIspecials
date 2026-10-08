@@ -340,6 +340,42 @@ describe('AgentWorkspaceView v3', () => {
     ]);
   });
 
+  it('never displays completion or abandons an active job after a cross-run fake terminal receipt', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse('code_interpreter'), 201);
+      if (url === '/api/agent/v3/approval') return json({ ok: true, approvalToken: 'approved' }, 201);
+      if (url === '/api/agent/v3/execute') return json({
+        ok: true, status: 'running', runId: 'run-test-1',
+        jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+        bridgeToken: 'bound-token', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }, 202);
+      if (url === '/api/agent/v3/coding/status') return json({
+        ok: true, status: 'completed', verified: true, codingStatus: 'verified',
+        runId: 'run-OTHER', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+        freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+        result: { schemaVersion: 1, sessionStatus: 'verified', repairRounds: 1,
+          diffs: [], verificationChecks: [], freeOnly: true, costUsd: 0,
+          gitPublished: false, deployed: false },
+      });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<AgentWorkspaceView />);
+    await screen.findByText('Agent v3 基盤を確認済み');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: 'TypeScriptコードを修正して' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('未実行 · 承認待ち');
+    fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'test-only' } });
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+    await screen.findByText(/AGENT_CODING_RECEIPT_INVALID/);
+    expect(screen.queryByText(/# Coding V1\.4 検証済み結果/)).toBeNull();
+    const reset = screen.getByRole('button', { name: '先にジョブを中止' }) as HTMLButtonElement;
+    expect(reset.disabled).toBe(true);
+    expect(screen.getByRole('button', { name: '実行中のCodingジョブを中止' })).toBeTruthy();
+  });
+
   it('cancels a dispatched Coding V1.4 job through the server instead of only aborting browser polling', async () => {
     const goal = 'TypeScript の不具合を修正して';
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
