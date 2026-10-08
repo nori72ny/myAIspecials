@@ -213,6 +213,15 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(original.completedSteps[1]?.operationDigest).not.toBe(changed.completedSteps[1]?.operationDigest);
   });
 
+  it('rejects run IDs incompatible with the existing durable consumption store grammar', async () => {
+    const actions = deps();
+    const result = await executeAgentMultiToolSequenceV31('run-invalid_id123', researchToDocument, actions);
+    expect(result).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_RUN_INVALID' });
+    expect(actions.reserveRunOnce).not.toHaveBeenCalled();
+    expect(actions.consumeExactApproval).not.toHaveBeenCalled();
+    expect(actions.executeAndVerify).not.toHaveBeenCalled();
+  });
+
   it('rejects a run without an independently scoped run identifier before any operation', async () => {
     const actions = deps();
     const result = await executeAgentMultiToolSequenceV31('', researchToDocument, actions);
