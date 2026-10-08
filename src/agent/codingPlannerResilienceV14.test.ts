@@ -50,6 +50,34 @@ describe('coding planner resilience', () => {
     expect(execute).toHaveBeenCalledTimes(3);
   });
 
+  it('fails closed after exactly four zero-cost provider calls when no exact unique edit match can be found', async () => {
+    const execute = vi.fn(async () => invalidMatch);
+    const planner = createResilientCodingPlannerV14({
+      env: { OPENROUTER_API_KEY: 'test-only' },
+      execute,
+    });
+
+    await expect(planner(context)).rejects.toThrow('CODING_MODEL_EDIT_MATCH_INVALID');
+    // Initial proposal + one strict correction, then one fresh bounded replan
+    // + its strict correction. Never loop, edit a nearby occurrence or fall back
+    // to an unapproved costed provider.
+    expect(execute).toHaveBeenCalledTimes(4);
+    for (const call of execute.mock.calls) {
+      const request = call[0] as unknown as {
+        messages: { content: string }[];
+        plan: { freeOnly: boolean };
+        requiredTool: { name: string; parameters: { properties: { edits: { items: { properties: { path: { enum: string[] } } } } } } };
+      };
+      expect(request.messages).toHaveLength(1);
+      const payload = JSON.parse(request.messages[0].content);
+      expect(payload.editablePaths).toEqual(['math.js']);
+      expect(payload.creatablePaths).toEqual([]);
+      expect(payload.files[0].content).toBe('a - b');
+      expect(request.plan.freeOnly).toBe(true);
+      expect(request.requiredTool.parameters.properties.edits.items.properties.path.enum).toEqual(['math.js']);
+    }
+  });
+
   it('does not re-plan unrelated planner failures', async () => {
     const failure = Object.assign(new Error('timeout'), { code: 'PROVIDER_TIMEOUT' });
     const execute = vi.fn().mockRejectedValue(failure);
