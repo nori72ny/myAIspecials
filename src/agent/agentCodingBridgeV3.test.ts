@@ -8,6 +8,7 @@ const env = {
   ORIGIN_AGENT_APPROVAL_SECRET: 'a'.repeat(48),
   ORIGIN_CODING_JOB_DATA_KEY: Buffer.alloc(32, 7).toString('base64'),
   ORIGIN_CODING_JOB_OWNER_HMAC_SECRET: 'b'.repeat(48),
+  ORIGIN_RELEASE_SHA: 'a'.repeat(40),
 } as NodeJS.ProcessEnv;
 
 function record(status: CodingJobPublicRecordV14['status']): CodingJobPublicRecordV14 {
@@ -32,6 +33,7 @@ function verifiedResult(): CodingJobResultV14 {
     schemaVersion: 1,
     sessionStatus: 'verified',
     repairRounds: 1,
+    executionEvidence: { sourceRevision: 'a'.repeat(40), workerRunId: '12345', workerRunAttempt: 1 },
     diffs: [{
       path: 'src/example.ts',
       kind: 'created',
@@ -170,6 +172,54 @@ describe('AgentCodingBridgeV3', () => {
     expect(polled.ok).toBe(false);
     expect(polled.status).toBe('blocked');
     if ('code' in polled) expect(polled.code).toBe('AGENT_CODING_VERIFICATION_INCOMPLETE');
+  });
+
+  it.each([
+    ['missing worker execution provenance', (value: CodingJobResultV14) => { delete value.executionEvidence; }],
+    ['wrong source revision', (value: CodingJobResultV14) => { value.executionEvidence = { sourceRevision: 'b'.repeat(40), workerRunId: '12345', workerRunAttempt: 1 }; }],
+    ['empty code diff', (value: CodingJobResultV14) => { value.diffs = []; }],
+    ['different changed path', (value: CodingJobResultV14) => { value.diffs = [{ ...value.diffs[0], path: 'src/wrong.ts' }]; }],
+  ] as const)('rejects apparent final success with %s', async (_name, breakEvidence) => {
+    const created = record('queued');
+    const terminal = record('verified');
+    const bad = verifiedResult();
+    breakEvidence(bad);
+    const store = {
+      create: vi.fn(async () => created),
+      getJob: vi.fn(async () => terminal),
+      requestCancel: vi.fn(async () => terminal),
+    };
+    const results = { get: vi.fn(async () => 'ciphertext') };
+    const dispatch = vi.fn(async () => ({
+      accepted: true as const,
+      jobId: created.jobId,
+      repository: 'nori72ny/myAIspecials' as const,
+      workflow: 'coding-job-worker-v14.yml' as const,
+      ref: 'main' as const,
+    }));
+    const bridge = new AgentCodingBridgeV3(env, store, results, dispatch, () => bad);
+    const started = await bridge.start('run-agent-proof-'+_name.length, 'Repair a bug.');
+    const response = await bridge.poll('run-agent-proof-'+_name.length, started.jobId, started.bridgeToken);
+    expect(response.status).toBe('blocked');
+    expect(response.ok).toBe(false);
+    if ('code' in response) expect(response.code).toBe('AGENT_CODING_VERIFICATION_INCOMPLETE');
+  });
+
+  it('rejects a verified result when the deployment release SHA cannot be determined', async () => {
+    const created = record('queued');
+    const terminal = record('verified');
+    const deploymentWithoutSha = { ...env, ORIGIN_RELEASE_SHA: undefined, VERCEL_GIT_COMMIT_SHA: undefined };
+    const bridge = new AgentCodingBridgeV3(
+      deploymentWithoutSha,
+      { create: async () => created, getJob: async () => terminal, requestCancel: async () => terminal } as any,
+      { get: async () => 'ciphertext' } as any,
+      async () => ({ accepted: true as const, jobId: created.jobId, repository: 'nori72ny/myAIspecials' as const, workflow: 'coding-job-worker-v14.yml' as const, ref: 'main' as const }),
+      () => verifiedResult(),
+    );
+    const started = await bridge.start('run-agent-missing-release', 'Repair a bug.');
+    const response = await bridge.poll('run-agent-missing-release', started.jobId, started.bridgeToken);
+    expect(response.status).toBe('blocked');
+    expect(response.ok).toBe(false);
   });
 
   it('binds polling to the exact run and coding job', async () => {
