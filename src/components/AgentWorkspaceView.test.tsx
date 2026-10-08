@@ -227,7 +227,7 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'owner-agent-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
-    await screen.findByText('# Coding V1.4 検証済み結果');
+    await screen.findByText(/# Coding V1\.4 検証済み結果/);
     expect(screen.getByText(/src\/example\.ts/)).toBeTruthy();
     expect(screen.getByText(/typecheck: PASS/)).toBeTruthy();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
