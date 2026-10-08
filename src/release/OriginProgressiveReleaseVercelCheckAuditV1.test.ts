@@ -43,6 +43,8 @@ describe("Vercel deployment-alias release check configuration audit", () => {
     ["empty production targets", { checks: [{ ...check, targets: [] }] }],
     ["preview-only check", { checks: [{ ...check, targets: ["preview"] }] }],
     ["unspecified target list", { checks: [{ ...check, targets: undefined }] }],
+    ["soft-deleted required check", { checks: [{ ...check, deletedAt: 1790000000000 }] }],
+    ["deleted check with inactive metadata", { checks: [{ ...check, deletedAt: "2026-10-08" }] }],
 
     ["duplicate with nonblocking configuration", { checks: [check, { ...check, id: "chk_other", blocks: "none" }] }],
     ["duplicate with missing source", { checks: [check, { ...check, id: "chk_other", source: undefined }] }],
@@ -148,6 +150,34 @@ describe("Vercel deployment-alias release check configuration audit", () => {
       });
       expect(result.audit.blockers).toContain("REQUIRED_DEPLOYMENT_ALIAS_CHECK_MISSING");
     }
+  });
+
+  it("rejects Vercel responses above 256 KiB, even when Content-Length is hidden", async () => {
+    const testInput = { projectId, teamId, trustedSource, token: "fixture-token-secret" };
+    const oversized = new Response(JSON.stringify({
+      checks: [check], padding: "x".repeat(262_144),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const withoutLength = await fetchAndAuditOriginVercelChecksV1({
+      ...testInput, fetchImpl: (async () => oversized) as typeof fetch,
+    });
+    expect(withoutLength).toEqual({ ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" });
+
+    const wrongLength = await fetchAndAuditOriginVercelChecksV1({
+      ...testInput,
+      fetchImpl: (async () => new Response(JSON.stringify({ checks: [check] }), {
+        headers: { "Content-Length": "999999" },
+      })) as typeof fetch,
+    });
+    expect(wrongLength).toEqual({ ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" });
+
+    const malformedLength = await fetchAndAuditOriginVercelChecksV1({
+      ...testInput,
+      fetchImpl: (async () => new Response(JSON.stringify({ checks: [check] }), {
+        headers: { "Content-Length": "not-a-number" },
+      })) as typeof fetch,
+    });
+    expect(malformedLength).toEqual({ ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" });
+    expect(JSON.stringify([withoutLength, wrongLength, malformedLength])).not.toContain(testInput.token);
   });
 
   it("redacts missing token, HTTP errors, network errors, and malformed responses", async () => {
