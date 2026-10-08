@@ -353,6 +353,23 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.verifyTrustedTerminal).not.toHaveBeenCalled();
   });
 
+  it('rejects non-string evidence hashes without calling untrusted toString after dispatch', async () => {
+    const actions = deps();
+    const coercion = vi.fn(() => digest('step-1'));
+    actions.executeAndVerify = vi.fn(async step => ({
+      terminal: 'verified' as const, toolExecuted: true, verified: true,
+      evidenceDigest: { toString: coercion } as unknown as string,
+      freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+    }));
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({
+      status: 'blocked', verified: false,
+      code: 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED',
+    });
+    expect(coercion).not.toHaveBeenCalled();
+    expect(actions.verifyTrustedTerminal).not.toHaveBeenCalled();
+  });
+
   it('does not accept an unexpected tool result property as a trusted terminal receipt', async () => {
     const actions = deps();
     actions.executeAndVerify = vi.fn(async step => ({
