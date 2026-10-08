@@ -1,5 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { readBoundedWorldClassEvalResponseV1 } from './OriginWorldClassImageEvalBoundedResponseV1.js';
 
 function streamedResponse(chunks: number[], declaredLength?: string) {
@@ -35,6 +37,19 @@ describe('world-class image sealed-eval bounded response reader', () => {
     await expect(readBoundedWorldClassEvalResponseV1(streamedResponse([1], '-1'), 10))
       .rejects.toThrow('RESPONSE_DECLARED_SIZE_INVALID');
   });
+  it('guards both image generation and editing evaluation routes, including error JSON', () => {
+    for (const filename of [
+      'scripts/run-world-class-image-private-heldout-v2.ts',
+      'scripts/run-world-class-image-edit-private-shard-v1.ts',
+    ]) {
+      const runner = readFileSync(resolve(process.cwd(), filename), 'utf8');
+      expect(runner).toContain('readBoundedWorldClassEvalResponseV1(response, ');
+      expect(runner).toContain('readBoundedWorldClassEvalResponseV1(response, 64 * 1024)');
+      expect(runner).not.toContain('response.arrayBuffer()');
+      expect(runner).not.toContain('response.json()');
+    }
+  });
+
   it('supports 64 KiB capped JSON-error responses without loading unbounded error bodies', async () => {
     const bytes = await readBoundedWorldClassEvalResponseV1(streamedResponse([256]), 64 * 1024);
     expect(bytes).toHaveLength(256);
