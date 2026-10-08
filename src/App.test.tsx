@@ -419,6 +419,32 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(artifact.content).toContain('Ready');
   });
 
+  it('releases a no-op Direct Touch input marker without dismissing an unsaved committed revision', () => {
+    delete document.documentElement.dataset.originDirectTouchPending;
+    try {
+      const saved: ArtifactBlock[] = [];
+      render(<ArtifactWorkspace artifact={{ ...artifact, content: '<main><p>Ready</p></main>' }}
+        isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => saved.push(next)} />);
+      fireEvent.click(screen.getByTestId('artifact-action-edit'));
+      const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+      const notify = (type: 'editing' | 'commit') => act(() => window.dispatchEvent(new MessageEvent('message', {
+        source: frame.contentWindow,
+        data: { source: 'ORIGIN_DIRECT_TOUCH', type, edits: type === 'commit' ? [{ index: 0, text: 'Ready' }] : undefined },
+      })));
+      notify('editing');
+      expect(document.documentElement.dataset.originDirectTouchPending).toBe('true');
+      notify('commit');
+      expect(saved).toHaveLength(0);
+      expect(document.documentElement.dataset.originDirectTouchPending).toBe('false');
+      document.documentElement.dataset.originDirectTouchPending = 'commit:artifact-1:v2';
+      notify('commit');
+      expect(saved).toHaveLength(0);
+      expect(document.documentElement.dataset.originDirectTouchPending).toBe('commit:artifact-1:v2');
+    } finally {
+      delete document.documentElement.dataset.originDirectTouchPending;
+    }
+  });
+
   it('blocks PWA updates for real Direct Touch iframe edits but ignores forged messages', () => {
     delete document.documentElement.dataset.originDirectTouchPending;
     try {
