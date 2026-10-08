@@ -40,7 +40,7 @@ async function main() {
     width: Number(v.width), height: Number(v.height),
   })));
   need(plan.planDigest === expectedPlan, 'PLAN_DIGEST_MISMATCH');
-  const frozenPublic = JSON.stringify(one);
+  const frozenPublic = JSON.stringify({ ...one, shardIndex: null });
   const ranks = new Map(publicTasks.map((task, index) => [task.caseId, index]));
   const seenDays = new Set<string>();
   const seenRunIds = new Set<string>();
@@ -56,7 +56,11 @@ async function main() {
       readJson(path.join(dir, 'candidate-summary.json')),
       readJson(path.join(dir, 'shard-manifest.json')),
     ]);
-    need(JSON.stringify(pub) === frozenPublic, 'PUBLIC_TASKS_MUTATED');
+    // Each sanitized public record binds to its own shard index, while the frozen
+    // 24-task corpus metadata must be identical across all twelve daily runs.
+    need(pub.shardIndex === shard.index, 'PUBLIC_SHARD_INDEX_INVALID');
+    need(JSON.stringify({ ...pub, shardIndex: null }) === frozenPublic,
+      'PUBLIC_TASKS_MUTATED');
     for (const x of [ev, summary, manifest]) {
       need(x.candidateSha === sha && x.corpusDigest === corpusDigest
         && x.planDigest === expectedPlan && x.shardIndex === shard.index,
