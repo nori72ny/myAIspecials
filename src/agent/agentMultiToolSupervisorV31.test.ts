@@ -219,6 +219,31 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.verifyTrustedTerminal).toHaveBeenCalledTimes(2);
   });
 
+  it('marks a trusted-verifier outage as unresolved execution, not zero-cost proof', async () => {
+    const actions = deps();
+    actions.verifyTrustedTerminal = vi.fn(async () => {
+      throw new Error('trusted ledger unavailable after tool dispatch');
+    });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({
+      status: 'blocked', verified: false,
+      code: 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED',
+      freeOnly: true, costUsd: null, paidFallbackUsed: null,
+    });
+    expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
+    expect(actions.verifyTrustedTerminal).toHaveBeenCalledTimes(1);
+    expect(result.completedSteps).toHaveLength(0);
+    expect(JSON.stringify(result)).not.toContain('trusted ledger unavailable');
+  });
+
+  it('only reports verified zero-cost on a fully validated completed sequence', async () => {
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, deps());
+    expect(result).toMatchObject({
+      status: 'completed', verified: true, freeOnly: true,
+      costUsd: 0, paidFallbackUsed: false,
+    });
+  });
+
   it('requires independent confirmation of a tool terminal receipt', async () => {
     const actions = deps();
     actions.verifyTrustedTerminal = vi.fn(async () => false);
@@ -401,6 +426,8 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(result.status).toBe('blocked');
     expect(result.code).toBe('AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED');
     expect(result.completedSteps).toHaveLength(0);
+    expect(result.costUsd).toBeNull();
+    expect(result.paidFallbackUsed).toBeNull();
     expect(JSON.stringify(result)).not.toContain('secret provider token');
 
     const ambiguous = await executeAgentMultiToolSequenceV31('run-supervisor-1', 'いい感じに進めて', actions);
