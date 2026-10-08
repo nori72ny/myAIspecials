@@ -112,6 +112,37 @@ function snapshotExactParams(params: unknown): unknown {
   return freeze(immutable);
 }
 
+/**
+ * Only plain, exact-shape data records can become verified tool receipts.
+ * Spreading a tool-supplied object directly would run getters/Proxy traps
+ * after dispatch, while the result is being admitted as proof of completion.
+ */
+function snapshotTerminalOutcome(candidate: unknown): AgentMultiToolStepOutcomeV31 | null {
+  if (!candidate || typeof candidate !== 'object' || nodeUtilTypes.isProxy(candidate)) return null;
+  const prototype = Object.getPrototypeOf(candidate);
+  if (prototype !== Object.prototype && prototype !== null) return null;
+  const required = [
+    'terminal', 'toolExecuted', 'verified', 'evidenceDigest',
+    'freeOnly', 'costUsd', 'paidFallbackUsed',
+  ] as const;
+  const keys = Reflect.ownKeys(candidate);
+  if (keys.length !== required.length
+    || keys.some(key => typeof key !== 'string' || !required.includes(key as typeof required[number])))
+    return null;
+  const descriptors = Object.getOwnPropertyDescriptors(candidate);
+  if (required.some(key => !descriptors[key] || !('value' in descriptors[key]))) return null;
+  const field = (key: typeof required[number]): unknown => descriptors[key]!.value as unknown;
+  return Object.freeze({
+    terminal: field('terminal') as AgentMultiToolStepOutcomeV31['terminal'],
+    toolExecuted: field('toolExecuted') as boolean,
+    verified: field('verified') as boolean,
+    evidenceDigest: field('evidenceDigest') as string,
+    freeOnly: field('freeOnly') as boolean,
+    costUsd: field('costUsd') as number,
+    paidFallbackUsed: field('paidFallbackUsed') as boolean,
+  });
+}
+
 function snapshotExactStep(step: AgentMultiToolStepV31): AgentMultiToolStepV31 {
   // The approved operation includes the tool identity and its dependency boundary.
   // Adapters must not be able to swap a read action for a write after approval.
@@ -203,15 +234,22 @@ export async function executeAgentMultiToolSequenceV31(
         // Never call it safely retryable or invent a confirmed terminal failure.
         return finish('blocked', 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED', completed);
       }
-      if (!rawOutcome || typeof rawOutcome !== 'object')
+      let outcome: AgentMultiToolStepOutcomeV31 | null;
+      try {
+        outcome = snapshotTerminalOutcome(rawOutcome);
+      } catch {
         return finish('blocked', 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED', completed);
-      const outcome = Object.freeze({ ...rawOutcome });
+      }
+      if (!outcome)
+        return finish('blocked', 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED', completed);
       // Dispatch may already have committed a side effect. A concurrent cancellation
       // request is not evidence of terminal cancellation. Block and reconcile
       // against the durable job receipt before any retry or downstream step.
       if (await readVerifiedCancellationState(deps, runId))
         return finish('blocked', 'AGENT_MULTI_TOOL_CANCEL_DISPATCH_RECONCILIATION_REQUIRED', completed);
-      if (outcome?.terminal !== 'verified' || outcome.toolExecuted !== true || outcome.verified !== true
+      if (outcome.terminal !== 'verified')
+        return finish('blocked', 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED', completed);
+      if (outcome.toolExecuted !== true || outcome.verified !== true
         || !SHA256.test(outcome.evidenceDigest ?? '') || /^0{64}$/.test(outcome.evidenceDigest)
         || outcome.freeOnly !== true || outcome.costUsd !== 0 || outcome.paidFallbackUsed !== false)
         return finish('blocked', 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED', completed);
