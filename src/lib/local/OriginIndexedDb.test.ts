@@ -91,6 +91,46 @@ describe('OriginIndexedDb migration boundary', () => {
     }
   });
 
+  it('serializes overlapping saves so a stale snapshot cannot finish after a newer one', async () => {
+    const opened: { request: IDBRequest; transaction: IDBTransaction; snapshot: OriginPersistedSnapshot | null }[] = [];
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        let written: OriginPersistedSnapshot | null = null;
+        const putRequest = { onsuccess: null, onerror: null, error: null } as unknown as IDBRequest;
+        const transaction = {
+          oncomplete: null, onabort: null, onerror: null, error: null,
+          objectStore: () => ({ put: (value: OriginPersistedSnapshot) => { written = value; return putRequest; } }),
+        } as unknown as IDBTransaction;
+        const db = { transaction: () => transaction, close: () => undefined };
+        const openRequest = { result: db, onsuccess: null, onerror: null, onblocked: null, onupgradeneeded: null } as unknown as IDBOpenDBRequest;
+        const item = { request: putRequest, transaction, get snapshot() { return written; } };
+        opened.push(item);
+        queueMicrotask(() => openRequest.onsuccess?.call(openRequest, new Event('success')));
+        return openRequest;
+      },
+    });
+    try {
+      const earlier = { ...snapshot, updatedAt: 20 };
+      const later = { ...snapshot, updatedAt: 21, messages: [{ id: 'newest' }] };
+      const first = originIndexedDbAdapter.save(earlier);
+      const second = originIndexedDbAdapter.save(later);
+      await vi.waitFor(() => expect(opened[0]?.snapshot).toEqual(earlier));
+      expect(opened).toHaveLength(1);
+      opened[0].request.onsuccess?.call(opened[0].request, new Event('success'));
+      await Promise.resolve();
+      expect(opened).toHaveLength(1);
+      opened[0].transaction.oncomplete?.call(opened[0].transaction, new Event('complete'));
+      await expect(first).resolves.toBe('saved');
+      await vi.waitFor(() => expect(opened[1]?.snapshot).toEqual(later));
+      opened[1].request.onsuccess?.call(opened[1].request, new Event('success'));
+      opened[1].transaction.oncomplete?.call(opened[1].transaction, new Event('complete'));
+      await expect(second).resolves.toBe('saved');
+      expect(opened).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not acknowledge persistence until the IndexedDB transaction completes', async () => {
     const tx = { oncomplete: null, onabort: null, onerror: null, error: null } as unknown as IDBTransaction;
     let completed = false;
