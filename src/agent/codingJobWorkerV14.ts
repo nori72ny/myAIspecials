@@ -1,6 +1,6 @@
 import { decryptCodingJobPayloadV14 } from './codingJobCryptoV14.js';
 import { createCodingNavigatorV14 } from './codingNavigatorV14.js';
-import { createCodingPlannerV14 } from './codingPlannerV14.js';
+import { createResilientCodingPlannerV14 } from './codingPlannerResilienceV14.js';
 import { runCodingSessionV14, type CodingCheck, type CodingSessionRequest, type CodingSessionResult } from './codingSessionV14.js';
 import { encryptCodingJobResultV14, type CodingJobResultV14 } from './codingJobResultV14.js';
 import type { PostgresCodingJobResultStoreV14 } from './codingJobResultStoreV14.js';
@@ -121,7 +121,10 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
 
     const modelOptions = { env: deps.env, execute: deps.execute };
     const navigator = createCodingNavigatorV14(target.root, modelOptions);
-    const planner = createCodingPlannerV14(modelOptions);
+    // Align the hosted worker with the already-tested bounded planner path:
+    // an absent/non-unique edit search may receive one fresh plan after the
+    // strict parser's existing correction. Provider failures still fail closed.
+    const planner = createResilientCodingPlannerV14(modelOptions);
     const request: CodingSessionRequest = {
       root: target.root,
       goal: payload.goal,
