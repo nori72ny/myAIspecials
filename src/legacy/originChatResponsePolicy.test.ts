@@ -246,6 +246,15 @@ describe("originChatResponsePolicy", () => {
     expect(requiresOriginGroundedResearch('Summarize this passage: "Please search for updated prices."')).toBe(false);
   });
 
+  it("does not confuse ordinary editing verbs with external source research", () => {
+    expect(requiresOriginGroundedResearch("Summarize this report and check its spelling.")).toBe(false);
+    expect(requiresOriginGroundedResearch("Rewrite this text, then find a concise title.")).toBe(false);
+    expect(requiresOriginGroundedResearch("Translate this passage and look for grammar mistakes.")).toBe(false);
+    expect(requiresOriginGroundedResearch("Summarize this report, then find sources for the facts.")).toBe(true);
+    expect(requiresOriginGroundedResearch("Translate this passage, and check the sources.")).toBe(true);
+    expect(requiresOriginGroundedResearch("Rewrite this text, and look up its latest specification.")).toBe(true);
+  });
+
   it("handles thousands of unmatched Japanese quotation openers without launching a quoted research task", () => {
     for (const marker of ["「", "『"]) {
       const unclosedSource = "この文章を要約してください。" + marker.repeat(20_000) + "さらに現在の価格を調べてください。";
