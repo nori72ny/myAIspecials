@@ -14,7 +14,13 @@ async function main(): Promise<void> {
   const token = process.env.VERCEL_TOKEN ?? "";
   const projectId = process.env.VERCEL_PROJECT_ID ?? "";
   const teamId = process.env.VERCEL_ORG_ID ?? "";
-  const value = await fetchAndAuditOriginVercelChecksV1({ token, projectId, teamId });
+  // These references must be pinned in independently controlled, protected
+  // environment configuration, not fetched from the candidate PR checkout.
+  const kind = process.env.VERCEL_RELEASE_CHECK_SOURCE_KIND;
+  const trustedSource = kind === "webhook" || kind === "integration" || kind === "git-provider"
+    ? { kind, identity: process.env.VERCEL_RELEASE_CHECK_SOURCE_ID ?? "" }
+    : undefined;
+  const value = await fetchAndAuditOriginVercelChecksV1({ token, projectId, teamId, trustedSource });
   if (value.ok === false) {
     process.stdout.write(JSON.stringify({
       schemaVersion: "origin.vercel-checks-audit.v1",
