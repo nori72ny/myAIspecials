@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { transpileModule, ModuleKind } from 'typescript';
 import { describe, it } from 'vitest';
+import { JSDOM } from 'jsdom';
 
 type Listener = () => void;
 function eventTarget() {
@@ -26,7 +27,12 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   let activations = 0;
   let announcements = 0;
   const draft = { value: '' };
-  const richEditor = { textContent: '' };
+  // Use the browser DOM selector engine, not a selector-insensitive mock.
+  const editorDocument = new JSDOM('<div id="rich-editor" contenteditable></div><div id="plaintext-editor" contenteditable="plaintext-only"></div><div id="disabled-editor" contenteditable="false"></div>').window.document;
+  const richEditor = editorDocument.getElementById('rich-editor')!;
+  const plaintextEditor = editorDocument.getElementById('plaintext-editor')!;
+  const disabledEditor = editorDocument.getElementById('disabled-editor')!;
+  let directTouchMode = false;
   const files = { files: [] as unknown[] };
   const busy = { value: false };
   const timers: Listener[] = [];
@@ -53,8 +59,8 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     ...eventTarget(),
     visibilityState: 'visible',
     documentElement: { dataset: { originStorageState: 'ready' } },
-    querySelectorAll: (selector: string) => selector.includes('file') ? [files] : selector.includes('contenteditable') ? [richEditor] : [draft],
-    querySelector: () => busy.value ? {} : null,
+    querySelectorAll: (selector: string) => selector.includes('file') ? [files] : selector.includes('contenteditable') ? Array.from(editorDocument.querySelectorAll(selector)) : [draft],
+    querySelector: (selector: string) => selector === '[data-testid="artifact-direct-touch-status"]' ? (directTouchMode ? {} : null) : busy.value ? {} : null,
   };
   const window = {
     ...eventTarget(),
@@ -84,7 +90,8 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   await Promise.resolve();
   await Promise.resolve();
   return {
-    draft, richEditor, files, busy, document, window, registration,
+    draft, richEditor, plaintextEditor, disabledEditor, files, busy, document, window, registration,
+    setDirectTouchMode: (value: boolean) => { directTouchMode = value; },
     reloads: () => reloads,
     activations: () => activations,
     announcements: () => announcements,
@@ -224,6 +231,44 @@ describe('PWA controller changes preserve user work', () => {
     app.flushTimers();
     assert.equal(app.activations(), 1);
     app.changeController();
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('checks the actual DOM semantics for bare and plaintext-only contenteditable drafts', async () => {
+    const app = await launch(true);
+    app.richEditor.textContent = '  ';
+    app.installWaiting();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.richEditor.textContent = '';
+    app.plaintextEditor.textContent = '日本語変換';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.plaintextEditor.textContent = '';
+    app.disabledEditor.textContent = 'Not editable';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 1);
+  });
+
+  it('defers updates throughout Direct Touch iframe editing and until parent acknowledgement', async () => {
+    const app = await launch(true);
+    app.setDirectTouchMode(true);
+    app.installWaiting();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.setDirectTouchMode(false);
+    app.document.documentElement.dataset.originDirectTouchPending = 'true';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.changeController();
+    assert.equal(app.reloads(), 0);
+    app.document.documentElement.dataset.originDirectTouchPending = 'false';
+    app.window.emit('origin:pwa-safe-apply');
+    app.flushTimers();
+    assert.equal(app.activations(), 1);
     assert.equal(app.reloads(), 1);
   });
 
