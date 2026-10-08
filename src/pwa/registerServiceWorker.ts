@@ -3,14 +3,22 @@ const SAFE_APPLY_RETRY_INTERVAL_MS = 5000;
 const UPDATE_RELOAD_GUARD_KEY = 'origin:pwa-update-reload';
 const SAFE_APPLY_DELAY_MS = 1500;
 
+// An IME composition may not yet appear in an input's value. A new service
+// worker must never activate or reload the page in the middle of conversion.
+let activeCompositionCount = 0;
+
 function announceUpdateReady() {
   window.dispatchEvent(new CustomEvent('origin:pwa-update-ready'));
 }
 
 function hasUnsavedUserWork(): boolean {
-  if (document.visibilityState !== 'visible') return true;
+  if (document.visibilityState !== 'visible' || activeCompositionCount > 0) return true;
   const textInputs = Array.from(document.querySelectorAll('textarea, input[type="text"], input[type="search"]'));
   if (textInputs.some((element) => (element as HTMLInputElement | HTMLTextAreaElement).value.length > 0)) return true;
+  // Drafts in accessible rich-text editors must be treated like textarea drafts.
+  // Preserve even whitespace-only content; it may be intentional user input.
+  const richEditors = Array.from(document.querySelectorAll('[contenteditable="true"], [contenteditable="plaintext-only"]'));
+  if (richEditors.some((element) => (element.textContent?.length ?? 0) > 0)) return true;
   if (document.documentElement.dataset.originStorageState === 'hydrating') return true;
   if (document.querySelector('[data-testid="origin-thinking"], [aria-busy="true"]')) return true;
   const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
@@ -32,6 +40,10 @@ export function registerOriginServiceWorker(): void {
   }
 
   sessionStorage.removeItem(UPDATE_RELOAD_GUARD_KEY);
+
+  // Capture phase observes text conversion even when an editor intercepts events.
+  document.addEventListener('compositionstart', () => { activeCompositionCount += 1; }, true);
+  document.addEventListener('compositionend', () => { activeCompositionCount = Math.max(0, activeCompositionCount - 1); }, true);
 
   window.addEventListener('load', () => {
     // A first install calls clients.claim(), but the current page is already fresh.
