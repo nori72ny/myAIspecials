@@ -49,6 +49,14 @@ const requestResult = <T>(request: IDBRequest<T>) => new Promise<T>((resolve, re
   request.onerror = () => reject(request.error ?? new Error('indexeddb-request-failed'));
 });
 
+// An IDBRequest success can precede a failed transaction. Only the full
+// transaction completion is evidence that this snapshot was committed.
+export const awaitOriginIdbCommit = (transaction: IDBTransaction): Promise<void> => new Promise((resolve, reject) => {
+  transaction.oncomplete = () => resolve();
+  transaction.onabort = () => reject(transaction.error ?? new Error('indexeddb-aborted'));
+  transaction.onerror = () => reject(transaction.error ?? new Error('indexeddb-transaction-error'));
+});
+
 export const originIndexedDbAdapter: OriginStorageAdapter = {
   async load() {
     let database: IDBDatabase | null = null;
