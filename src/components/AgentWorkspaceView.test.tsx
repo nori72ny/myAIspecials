@@ -11,7 +11,7 @@ vi.mock('../agent/indexedDbCheckpointStore', () => ({
   saveCheckpointToIndexedDB,
 }));
 
-import AgentWorkspaceView, { isConfirmedCodingCancellationReceipt, isVerifiedCodingReceipt, verifiedCodingArtifact } from './AgentWorkspaceView';
+import AgentWorkspaceView, { isConfirmedCodingCancelAcknowledgement, isConfirmedCodingCancellationReceipt, isVerifiedCodingReceipt, verifiedCodingArtifact } from './AgentWorkspaceView';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -430,6 +430,27 @@ describe('AgentWorkspaceView v3', () => {
     expect(screen.getByRole('button', { name: '実行計画を作る' })).toBeTruthy();
   });
 
+  it('rejects forged or cross-run cancellation acknowledgements and preserves zero-spend scope', () => {
+    const correct = {
+      ok: true, runId: 'run-test-1', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+      status: 'cancelled', codingStatus: 'cancelled', cancelRequested: true,
+      freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+    };
+    const check = (receipt: typeof correct) => isConfirmedCodingCancelAcknowledgement(
+      receipt, correct.runId, correct.jobId,
+    );
+    expect(check(correct)).toBe(true);
+    expect(check({ ...correct, status: 'cancelling', codingStatus: 'running' })).toBe(true);
+    expect(check({ ...correct, runId: 'run-other' })).toBe(false);
+    expect(check({ ...correct, jobId: 'coding-BBBBBBBBBBBBBBBBBBBBBB' })).toBe(false);
+    expect(check({ ...correct, cancelRequested: false })).toBe(false);
+    expect(check({ ...correct, status: 'completed' })).toBe(false);
+    expect(check({ ...correct, codingStatus: 'verified' })).toBe(false);
+    expect(check({ ...correct, paidFallbackUsed: true })).toBe(false);
+    expect(check({ ...correct, freeOnly: false })).toBe(false);
+    expect(check({ ...correct, costUsd: 1 })).toBe(false);
+  });
+
   it('cancels a dispatched Coding V1.4 job through the server instead of only aborting browser polling', async () => {
     const goal = 'TypeScript の不具合を修正して';
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -454,7 +475,11 @@ describe('AgentWorkspaceView v3', () => {
           jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
           bridgeToken: 'scoped-bridge-token',
         });
-        return json({ ok: true, status: 'cancelled', codingStatus: 'cancelled', cancelRequested: true });
+        return json({
+          ok: true, runId: 'run-test-1', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+          status: 'cancelled', codingStatus: 'cancelled', cancelRequested: true,
+          freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+        });
       }
       throw new Error(`unexpected request: ${url}`);
     });
