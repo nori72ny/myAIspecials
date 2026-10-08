@@ -121,6 +121,28 @@ describe('V1.6 image editing strict reference integrity', () => {
     expect(mocks.critique).not.toHaveBeenCalled();
   });
 
+  it('rejects spoofed reference-image MIME before provider calls or quota use', async () => {
+    const source = image(31);
+    const badMime = body(source);
+    badMime.referenceImages = ['data:image/webp;base64,' + source.toString('base64')];
+    const res = await request(app()).post('/api/creative/v1.6/world-class/edit')
+      .send(badMime);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('WORLD_CLASS_REFERENCE_MIME_MISMATCH');
+    expect(mocks.providerStatus).not.toHaveBeenCalled();
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
+  it('rejects noncanonical reference base64 before any Cloudflare request', async () => {
+    const source = image(41);
+    const ref = 'data:image/png;base64,' + source.toString('base64').replace(/=+$/, '');
+    const res = await request(app()).post('/api/creative/v1.6/world-class/edit')
+      .send({ ...body(source), referenceImages: [ref] });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_WORLD_CLASS_REFERENCE_IMAGE');
+    expect(mocks.providerStatus).not.toHaveBeenCalled();
+  });
+
   it('does not accept an unmodified source as a successful edit', async () => {
     const original = image(12);
     mocks.generate.mockResolvedValue(result(original));

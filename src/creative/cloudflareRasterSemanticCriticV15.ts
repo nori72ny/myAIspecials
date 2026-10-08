@@ -1,5 +1,6 @@
 import { getCloudflareRasterStatusV15 } from './cloudflareRasterImageProviderV15.js';
 import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
+import { readBoundedCloudflareRasterJsonV15 } from './cloudflareRasterResponseLimitV15.js';
 import type { RasterImageResultV15 } from './rasterImageProviderV15.js';
 
 const API_ORIGIN = 'https://api.cloudflare.com';
@@ -73,13 +74,12 @@ function credentials(env: NodeJS.ProcessEnv) {
 }
 
 async function timedFetch(url: string, init: RequestInit, fetchImpl: typeof fetch) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    return await fetchImpl(url, { ...init, signal: controller.signal, redirect: 'error', cache: 'no-store' });
-  } finally {
-    clearTimeout(timer);
-  }
+  // Keep the deadline active through the JSON body's streamed read, not just
+  // until the upstream AI endpoint returns HTTP headers.
+  return fetchImpl(url, {
+    ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    redirect: 'error', cache: 'no-store',
+  });
 }
 
 function axisScore(value: unknown): number | null {
@@ -195,7 +195,8 @@ export async function critiqueCloudflareRasterSemanticV15(
     throw new Error(failure.code);
   }
 
-  const body = await response.json().catch(() => null) as CloudflareEnvelope | null;
+  const body = await readBoundedCloudflareRasterJsonV15(response, 64 * 1024)
+    .catch(() => null) as CloudflareEnvelope | null;
   if (!body || body.success !== true || !body.result || typeof body.result !== 'object' || Array.isArray(body.result)) {
     throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   }

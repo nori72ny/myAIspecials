@@ -75,10 +75,27 @@ function dataUriReference(value: string): RasterReferenceImageV15 {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
   if (!match) throw new Error('INVALID_WORLD_CLASS_REFERENCE_IMAGE');
   const mimeType = match[1] as RasterReferenceImageV15['mimeType'];
+  // Limit encoded bytes before allocating and require canonical base64.
+  if (!match[2] || match[2].length > Math.ceil(MAX_REFERENCE_IMAGE_BYTES * 4 / 3) + 4) {
+    throw new Error('WORLD_CLASS_REFERENCE_BYTES_EXCEEDED');
+  }
   const bytes = Buffer.from(match[2], 'base64');
+  if (bytes.toString('base64') !== match[2]) {
+    throw new Error('INVALID_WORLD_CLASS_REFERENCE_IMAGE');
+  }
   if (bytes.length < 64 || bytes.length > MAX_REFERENCE_IMAGE_BYTES) {
     throw new Error('WORLD_CLASS_REFERENCE_BYTES_EXCEEDED');
   }
+  // readRasterDimensionsV15 parses pixel dimensions but does not enforce
+  // MIME/signature agreement for every format. Never send mislabelled bytes.
+  const signatureValid = mimeType === 'image/png'
+    ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    : mimeType === 'image/jpeg'
+      ? bytes[0] === 0xff && bytes[1] === 0xd8
+        && bytes[bytes.length - 2] === 0xff && bytes[bytes.length - 1] === 0xd9
+      : bytes.subarray(0, 4).toString('ascii') === 'RIFF'
+        && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+  if (!signatureValid) throw new Error('WORLD_CLASS_REFERENCE_MIME_MISMATCH');
   const size = readRasterDimensionsV15(bytes, mimeType);
   if (!size || size.width >= 512 || size.height >= 512) {
     throw new Error('WORLD_CLASS_REFERENCE_DIMENSION_OUT_OF_BOUNDS');
