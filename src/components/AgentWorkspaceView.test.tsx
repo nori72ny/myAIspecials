@@ -451,6 +451,40 @@ describe('AgentWorkspaceView v3', () => {
     expect(check({ ...correct, costUsd: 1 })).toBe(false);
   });
 
+  it('keeps the active job tracked when a forged cancellation acknowledgement belongs to a different run', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse('code_interpreter'), 201);
+      if (url === '/api/agent/v3/approval') return json({ ok: true, approvalToken: 'approved' }, 201);
+      if (url === '/api/agent/v3/execute') return json({
+        ok: true, status: 'running', runId: 'run-test-1',
+        jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+        bridgeToken: 'bound-token', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }, 202);
+      if (url === '/api/agent/v3/coding/status') return new Promise<Response>(() => undefined);
+      if (url === '/api/agent/v3/coding/cancel') return json({
+        ok: true, status: 'cancelled', codingStatus: 'cancelled',
+        runId: 'run-another-user', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+        cancelRequested: true, freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+      });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<AgentWorkspaceView />);
+    await screen.findByText('Agent v3 基盤を確認済み');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: 'TypeScriptのコードを修正' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('未実行 · 承認待ち');
+    fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'test-only' } });
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+    fireEvent.click(await screen.findByRole('button', { name: '実行中のCodingジョブを中止' }));
+    await screen.findByText(/AGENT_CODING_CANCEL_RECEIPT_INVALID/);
+    expect(screen.getByRole('button', { name: '実行中のCodingジョブを中止' })).toBeTruthy();
+    expect((screen.getByRole('button', { name: '先にジョブを中止' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/Codingジョブはサーバー側で中止されました/)).toBeNull();
+  });
+
   it('cancels a dispatched Coding V1.4 job through the server instead of only aborting browser polling', async () => {
     const goal = 'TypeScript の不具合を修正して';
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
