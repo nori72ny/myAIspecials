@@ -938,7 +938,7 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
     };
     window.addEventListener('message', onSandboxMessage);
     return () => window.removeEventListener('message', onSandboxMessage);
-  }, [artifact, workingContent]);
+  }, [artifact, workingContent, isDirectEditing]);
   const postPresentationCommand = (type: 'presentation-start' | 'presentation-exit' | 'presentation-next' | 'presentation-prev') => previewRef.current?.contentWindow?.postMessage({ source: 'ORIGIN_PRESENTATION', type }, '*');
   useEffect(() => {
     if (!isPresentation) { postPresentationCommand('presentation-exit'); return; }
