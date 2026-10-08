@@ -291,7 +291,9 @@ function numericTokens(value: string): string[] {
  */
 function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<string>, citedEvidence: string): Set<string> {
   const allowed = new Set<string>();
-  const expression = /(?<![\d.])(\d{1,12})(店|店舗|件|人|円)?\s*([+\-−])\s*(\d{1,12})(店|店舗|件|人|円)?\s*[=＝]\s*(\d{1,12})(店|店舗|件|人|円)?(?![\d.])/g;
+  // Bound every numeric group and spacing run: source/answer text is untrusted,
+  // and this matcher must not cause regex denial-of-service on long inputs.
+  const expression = /(?<![0-9.])([0-9]{1,12})(店|店舗|件|人|円)?[ \t]{0,8}([+\-−])[ \t]{0,8}([0-9]{1,12})(店|店舗|件|人|円)?[ \t]{0,8}[=＝][ \t]{0,8}([0-9]{1,12})(店|店舗|件|人|円)?(?![0-9.])/g;
   for (const match of unit.normalize("NFKC").matchAll(expression)) {
     const [, leftText, leftUnit = "", operator, rightText, rightUnit = "", resultText, resultUnit = ""] = match;
     if (leftUnit !== rightUnit || leftUnit !== resultUnit) continue;
