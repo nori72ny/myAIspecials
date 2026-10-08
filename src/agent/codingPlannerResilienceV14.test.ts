@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createResilientCodingPlannerV14 } from './codingPlannerResilienceV14.js';
 import type { CodingContext } from './codingSessionV14.js';
-import type { OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
+import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import { DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, ORIGIN_OPENROUTER_FREE_MODEL } from '../lib/orchestration/OriginExecutionPolicy.js';
 
 const context: CodingContext = {
@@ -51,7 +51,7 @@ describe('coding planner resilience', () => {
   });
 
   it('fails closed after exactly four zero-cost provider calls when no exact unique edit match can be found', async () => {
-    const execute = vi.fn(async () => invalidMatch);
+    const execute = vi.fn(async (_request: OriginProviderExecutionRequest, _env: NodeJS.ProcessEnv) => invalidMatch);
     const planner = createResilientCodingPlannerV14({
       env: { OPENROUTER_API_KEY: 'test-only' },
       execute,
