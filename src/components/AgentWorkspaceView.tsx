@@ -68,6 +68,10 @@ type AgentExecutionResponse = {
   ok?: boolean;
   code?: string;
   status?: string;
+  runId?: string;
+  freeOnly?: boolean;
+  costUsd?: number;
+  paidFallbackUsed?: boolean;
   artifact?: string;
   checkpoint?: CheckpointState;
   jobId?: string;
@@ -136,6 +140,39 @@ function phaseLabel(phase: Phase): string {
   if (phase === 'completed') return '完了';
   if (phase === 'failed') return '安全に停止';
   return '待機中';
+}
+
+/**
+ * The server validates the encrypted durable worker outcome, but a damaged,
+ * stale or mismatched HTTP receipt must also be rejected by the UI. Do not
+ * infer terminal success from status=completed alone or from four check labels.
+ */
+export function isVerifiedCodingReceipt(receipt: AgentExecutionResponse, runId: string, jobId: string): boolean {
+  if (receipt?.ok !== true || receipt.status !== 'completed' || receipt.verified !== true
+    || receipt.codingStatus !== 'verified' || receipt.runId !== runId || receipt.jobId !== jobId
+    || receipt.freeOnly !== true || receipt.costUsd !== 0 || receipt.paidFallbackUsed !== false) return false;
+  const result = receipt.result;
+  if (!result || result.schemaVersion !== 1 || result.sessionStatus !== 'verified'
+    || !Number.isInteger(result.repairRounds) || result.repairRounds < 0 || result.repairRounds > 3
+    || result.freeOnly !== true || result.costUsd !== 0 || result.gitPublished !== false || result.deployed !== false) return false;
+  if (!Array.isArray(result.diffs) || result.diffs.length < 1 || result.diffs.length > 12) return false;
+  const paths = new Set<string>();
+  for (const diff of result.diffs) {
+    if (!diff || typeof diff.path !== 'string' || !diff.path || paths.has(diff.path)
+      || !['created', 'modified'].includes(diff.kind)
+      || typeof diff.beforeTruncated !== 'boolean' || typeof diff.afterTruncated !== 'boolean'
+      || typeof diff.previewAvailable !== 'boolean'
+      || !(diff.before === null || typeof diff.before === 'string')
+      || !(diff.after === null || typeof diff.after === 'string')) return false;
+    paths.add(diff.path);
+  }
+  const checks = result.verificationChecks;
+  const required = ['typecheck', 'lint', 'test', 'build'];
+  return Array.isArray(checks) && checks.length === 4
+    && new Set(checks.map(check => check?.kind)).size === 4
+    && required.every(kind => checks.some(check => check.kind === kind
+      && check.ok === true && check.exitCode === 0 && check.timedOut === false
+      && check.attempt === result.repairRounds));
 }
 
 export function verifiedCodingArtifact(result: CodingBridgeResult): string {
@@ -415,7 +452,10 @@ export default function AgentWorkspaceView() {
           if (!pollResponse.ok || poll.ok !== true) {
             throw new Error(poll.code ?? 'AGENT_CODING_STATUS_FAILED');
           }
-          if (poll.status === 'completed' && poll.verified === true && poll.result) {
+          if (poll.status === 'completed') {
+            if (!isVerifiedCodingReceipt(poll, plan.runId, result.jobId) || !poll.result) {
+              throw new Error('AGENT_CODING_RECEIPT_INVALID');
+            }
             setArtifact(verifiedCodingArtifact(poll.result));
             setPhase('completed');
             setActiveCoding(null);
