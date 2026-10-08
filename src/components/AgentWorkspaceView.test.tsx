@@ -37,6 +37,7 @@ function readyStatus() {
     freeOnly: true,
     costUsd: 0,
     paidFallbackEnabled: false,
+    codingBridgeConfigured: true,
     secretDelivery: 'server-only',
   };
 }
@@ -142,8 +143,15 @@ describe('AgentWorkspaceView v3', () => {
     ]);
   });
 
-  it('cannot override a different server-planned tool in the workspace UI', async () => {
+  it('runs a server-planned coding task asynchronously and waits for verified four-check evidence', async () => {
     const goal = 'このTypeScriptコードのバグを分析して';
+    const verificationChecks = ['typecheck', 'lint', 'test', 'build'].map((kind) => ({
+      kind,
+      ok: true,
+      exitCode: 0,
+      timedOut: false,
+      attempt: 1,
+    }));
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === '/api/agent/v3/status') return json(readyStatus());
@@ -151,14 +159,59 @@ describe('AgentWorkspaceView v3', () => {
       if (url === '/api/agent/v3/approval') {
         const body = JSON.parse(String(init?.body));
         expect(body.toolName).toBe('code_interpreter');
-        expect(body.params).toEqual({ code: goal });
+        expect(body.params).toEqual({ goal });
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
         return json({ ok: true, approvalToken: 'signed-approval-token' }, 201);
       }
       if (url === '/api/agent/v3/execute') {
         const body = JSON.parse(String(init?.body));
         expect(body.toolName).toBe('code_interpreter');
-        expect(body.params).toEqual({ code: goal });
-        return json({ ok: true, status: 'completed', artifact: '// verified analysis' });
+        expect(body.params).toEqual({ goal });
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
+        return json({
+          ok: true,
+          status: 'running',
+          runId: 'run-test-1',
+          jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+          bridgeToken: 'bridge-token',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+        }, 202);
+      }
+      if (url === '/api/agent/v3/coding/status') {
+        expect(new Headers(init?.headers).get('authorization')).toBeNull();
+        expect(JSON.parse(String(init?.body))).toEqual({
+          runId: 'run-test-1',
+          jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+          bridgeToken: 'bridge-token',
+        });
+        return json({
+          ok: true,
+          status: 'completed',
+          codingStatus: 'verified',
+          verified: true,
+          result: {
+            schemaVersion: 1,
+            sessionStatus: 'verified',
+            repairRounds: 1,
+            diffs: [{
+              path: 'src/example.ts',
+              kind: 'modified',
+              before: 'old',
+              after: 'new',
+              beforeTruncated: false,
+              afterTruncated: false,
+              previewAvailable: true,
+            }],
+            verificationChecks,
+            freeOnly: true,
+            costUsd: 0,
+            gitPublished: false,
+            deployed: false,
+          },
+        });
       }
       throw new Error(`unexpected request: ${url}`);
     });
@@ -170,11 +223,20 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
     expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('code_interpreter');
-    expect(screen.queryByRole('combobox')).toBeNull();
 
     fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'owner-agent-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
-    await screen.findByText('// verified analysis');
+
+    await screen.findByText('# Coding V1.4 検証済み結果');
+    expect(screen.getByText(/src\/example\.ts/)).toBeTruthy();
+    expect(screen.getByText(/typecheck: PASS/)).toBeTruthy();
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      '/api/agent/v3/status',
+      '/api/agent/v3/plan',
+      '/api/agent/v3/approval',
+      '/api/agent/v3/execute',
+      '/api/agent/v3/coding/status',
+    ]);
   });
 
   it('fails closed when owner approval authentication is rejected', async () => {
