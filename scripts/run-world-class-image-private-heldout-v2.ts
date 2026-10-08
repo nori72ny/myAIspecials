@@ -11,6 +11,7 @@ import { createWorldClassImageV16Router } from '../src/creative/worldClassImageV
 import { readRasterDimensionsV15 } from '../src/creative/rasterImageCriticV15.js';
 import { scoreRasterPixelsV15 } from '../src/creative/rasterTechnicalCriticV15.js';
 import { critiqueCloudflareRasterSemanticV15 } from '../src/creative/cloudflareRasterSemanticCriticV15.js';
+import { planImageWorkersFreeShardsV1 } from '../src/release/OriginImageWorkersFreeShardPlanV1.js';
 import type { ImageBenchmarkOutputV15, ImageTechnicalEvidenceV15 } from '../src/release/OriginImageBlindBenchmarkV15.js';
 import {
   validateImagePrivateCorpusV1,
@@ -399,6 +400,12 @@ async function evaluateCase(
 async function main(): Promise<void> {
   const candidateSha = requiredEnv('ORIGIN_IMAGE_CANDIDATE_SHA').toLowerCase();
   const expectedCorpusId = requiredEnv('ORIGIN_IMAGE_CORPUS_ID');
+  const shardIndexText = requiredEnv('ORIGIN_IMAGE_SHARD_INDEX');
+  const expectedPlanDigest = requiredEnv('ORIGIN_IMAGE_SHARD_PLAN_DIGEST').toLowerCase();
+  if (!/^(?:0|[1-9][0-9]?)$/.test(shardIndexText) || !/^[a-f0-9]{64}$/.test(expectedPlanDigest)) {
+    throw new Error('WORLD_CLASS_IMAGE_PRIVATE_SHARD_INPUT_INVALID');
+  }
+  const shardIndex = Number(shardIndexText);
   requiredEnv('CLOUDFLARE_ACCOUNT_ID');
   requiredEnv('CLOUDFLARE_API_TOKEN');
 
@@ -479,10 +486,20 @@ async function main(): Promise<void> {
     const cases: CandidateCaseEvidence[] = [];
     const runBlockers: string[] = [];
     const corpusDigest = sha256(raw);
+    const plan = planImageWorkersFreeShardsV1(candidateSha, corpusDigest, corpus.tasks);
+    if (plan.planDigest !== expectedPlanDigest || !plan.shards[shardIndex]) {
+      throw new Error('WORLD_CLASS_IMAGE_PRIVATE_SHARD_PLAN_MISMATCH');
+    }
+    const shard = plan.shards[shardIndex];
+    const chosenCaseIds = new Set(shard.caseIds);
+    if (chosenCaseIds.size !== shard.caseIds.length || shard.caseIds.length > 2) {
+      throw new Error('WORLD_CLASS_IMAGE_PRIVATE_SHARD_CASE_SET_INVALID');
+    }
     let totalCostUsd = 0;
 
     await fs.mkdir(imagesDir, { recursive: true });
     for (const [caseIndex, task] of corpus.tasks.entries()) {
+      if (!chosenCaseIds.has(task.caseId)) continue;
       const item = await evaluateCase(
         baseUrl,
         browser,
@@ -501,8 +518,10 @@ async function main(): Promise<void> {
       }
     }
 
-    if (cases.length !== corpus.tasks.length) {
-      runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_INCOMPLETE_CASE_SET');
+    if (cases.length !== shard.caseIds.length
+      || cases.some((item, index) => item.caseId !== shard.caseIds[index]
+        || item.taskDigest !== shard.taskDigests[index])) {
+      runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_INCOMPLETE_SHARD_CASE_SET');
     }
 
     const identities = new Set(
@@ -522,6 +541,10 @@ async function main(): Promise<void> {
       candidateSha,
       executionBudgetMs: corpus.executionBudgetMs,
       dimensionPolicy: 'provider-native-1k-nearest-supported-ratio-within-3pct',
+      evaluationMode: 'single-free-shard',
+      planDigest: plan.planDigest,
+      shardIndex,
+      fullCorpusCases: 24,
       tasks: corpus.tasks.map((task) => ({
         caseId: task.caseId,
         family: task.family,
@@ -541,6 +564,10 @@ async function main(): Promise<void> {
       candidateSha,
       evaluatorSha: candidateSha,
       originSystemId: 'origin-world-class-zero-cost',
+      evaluationMode: 'single-free-shard',
+      planDigest: plan.planDigest,
+      shardIndex,
+      fullCorpusCases: 24,
       executionBudgetMs: corpus.executionBudgetMs,
       providerIdentities: [...identities],
       maxImageCostUsd: 0,
@@ -562,6 +589,9 @@ async function main(): Promise<void> {
       corpusDigest,
       candidateSha,
       attempted: cases.length,
+      evaluationMode: 'single-free-shard',
+      planDigest: plan.planDigest,
+      shardIndex,
       completed,
       technicallyPassed,
       providerIdentityCount: identities.size,
@@ -576,11 +606,40 @@ async function main(): Promise<void> {
         })),
     }, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
 
+    await fs.writeFile(path.join(outputRoot, 'shard-manifest.json'), JSON.stringify({
+      schemaVersion: 'origin.image-workers-free-shard-manifest.v1',
+      candidateSha,
+      corpusId: corpus.corpusId,
+      corpusDigest,
+      planDigest: plan.planDigest,
+      shardIndex,
+      expectedCaseIds: [...shard.caseIds],
+      expectedTaskDigests: [...shard.taskDigests],
+      caseIds: cases.map(item => item.caseId),
+      outputSha256s: cases.map(item => item.output.imageSha256),
+      freeOnly: true,
+      totalCostUsd: Math.round(totalCostUsd * 1_000_000) / 1_000_000,
+      // Provider quota telemetry is deliberately NOT fabricated by this runner.
+      trustedQuotaUsageVerified: false,
+      trustedProvenanceVerified: false,
+      blindBenchmarkPassed: false,
+      productionQualified: false,
+      githubRunId: process.env.GITHUB_RUN_ID || null,
+      utcDay: new Date().toISOString().slice(0, 10),
+      blockers: [...new Set(runBlockers)],
+    }, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+
+    if (runBlockers.length > 0 || cases.some(item => item.failureCode !== null)) {
+      throw new Error('WORLD_CLASS_IMAGE_PRIVATE_SHARD_FAILED');
+    }
+
     process.stdout.write(JSON.stringify({
-      event: 'world-class-image-private-round-completed',
+      event: 'world-class-image-private-shard-completed',
       corpusId: corpus.corpusId,
       corpusDigest,
       candidateSha,
+      planDigest: plan.planDigest,
+      shardIndex,
       attempted: cases.length,
       completed,
       technicallyPassed,
