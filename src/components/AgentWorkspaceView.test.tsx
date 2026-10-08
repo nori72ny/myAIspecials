@@ -446,6 +446,10 @@ describe('AgentWorkspaceView v3', () => {
     expect(check({ ...correct, cancelRequested: false })).toBe(false);
     expect(check({ ...correct, status: 'completed' })).toBe(false);
     expect(check({ ...correct, codingStatus: 'verified' })).toBe(false);
+    expect(check({ ...correct, status: 'cancelling', codingStatus: 'verified' })).toBe(false);
+    expect(check({ ...correct, status: 'cancelling', codingStatus: 'blocked' })).toBe(false);
+    expect(check({ ...correct, status: 'cancelling', codingStatus: 'failed' })).toBe(false);
+    expect(check({ ...correct, status: 'cancelling', codingStatus: 'unknown' })).toBe(false);
     expect(check({ ...correct, paidFallbackUsed: true })).toBe(false);
     expect(check({ ...correct, freeOnly: false })).toBe(false);
     expect(check({ ...correct, costUsd: 1 })).toBe(false);
