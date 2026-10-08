@@ -44,6 +44,29 @@ describe('PWA bounded version ledger', () => {
     expect(next.revisions.at(-1)?.source).toBe('restore');
   });
 
+  it('keeps a reloadable 10-million-character suffix after repeated large edits', () => {
+    const big = 'x'.repeat(900_000);
+    let state = { id: 'budget', content: big, revision: 1 };
+    let history: ReturnType<typeof append>['revisions'] = [];
+    for (let i = 2; i <= 16; i++) {
+      const next = append({ ...state, ...(history.length ? { revisions: history } : {}) }, big, 'direct-touch', i);
+      state = { id: state.id, content: big, revision: next.revision };
+      history = next.revisions;
+      expect(history.reduce((chars, item) => chars + item.content.length, 0)).toBeLessThanOrEqual(10_000_000);
+    }
+    expect(state.revision).toBe(16);
+    expect(history).toHaveLength(11);
+    expect(history.at(-1)?.id).toBe('budget:v16');
+    expect(history[0].id).toBe('budget:v6');
+  });
+
+  it('does not fabricate a truncated revision when the newest content exceeds the persistence cap', () => {
+    const content = 'x'.repeat(1_000_001);
+    const next = append(sample('too-large'), content, 'direct-touch', 1);
+    expect(next.latest.content).toBe(content);
+    expect(next.revisions).toEqual([]);
+  });
+
   it('infers the next sequence from the latest stored version ID when counter is missing', () => {
     const base = { ...sample('abc'), revisions: [
       { id: 'abc:v77', content: 'old', createdAt: 1, source: 'generated' as const },
