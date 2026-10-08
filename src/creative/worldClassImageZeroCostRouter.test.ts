@@ -66,6 +66,36 @@ describe('worldClassImageZeroCostRouter', () => {
     expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
   });
 
+  it.each(['development', 'staging', 'production'] as const)(
+    'rejects the evaluation bypass for non-test NODE_ENV=%s on a preview deployment',
+    async (nodeEnv) => {
+      const response = await request(app({
+        VERCEL_GIT_COMMIT_SHA: SHA,
+        ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
+        ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
+        VERCEL_ENV: 'preview',
+        NODE_ENV: nodeEnv,
+      }))
+        .post('/api/creative/v1.6/world-class/generate')
+        .send({ prompt: '写真風の画像' });
+      expect(response.status).toBe(503);
+      expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
+    },
+  );
+
+  it('requires a valid exact candidate SHA even in a sealed test evaluator', async () => {
+    const response = await request(app({
+      ORIGIN_RELEASE_SHA: 'invalid-or-missing-sha',
+      ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
+      NODE_ENV: 'test',
+      VERCEL_ENV: 'preview',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級商品の広告写真' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
+  });
+
   it('rejects the evaluation bypass when the deployment environment is production', async () => {
     const response = await request(app({
       VERCEL_GIT_COMMIT_SHA: SHA,

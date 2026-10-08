@@ -40,8 +40,11 @@ function evaluationBypassAllowed(env: NodeJS.ProcessEnv): boolean {
   if (!bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_EVAL')) return false;
   const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
   const nodeEnv = env.NODE_ENV?.trim().toLowerCase();
-  // Evaluation must never be enabled by an unknown or missing deployment context.
-  return (vercelEnv === 'preview' || vercelEnv === 'development') && nodeEnv !== 'production';
+  // Never accept the bypass in a generally accessible Preview/Development app.
+  // Sealed image shard evaluators explicitly use NODE_ENV=test and pin a real SHA.
+  return releaseSha(env) !== 'unknown'
+    && nodeEnv === 'test'
+    && (vercelEnv === 'preview' || vercelEnv === 'development');
 }
 function fail(res: ExpressResponse, status: number, code: string, message: string) {
   return res.status(status).json({
