@@ -512,6 +512,74 @@ describe("groundedResearchSynthesisV12", () => {
     expect(validateGroundedResearchSynthesis("1. Employees: 3.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
   });
 
+  it("accepts a fully cited Markdown price-comparison table", () => {
+    const table = [
+      "## 料金比較",
+      "| 項目 | 料金 | 根拠 |",
+      "| :--- | ---: | :--- |",
+      "| A | 100円 | [S1](https://example.com/one) |",
+      "| B | 120円 | [S2](https://example.org/two) |",
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(table, sources)).toEqual({
+      ok: true, usedSourceIds: ["S1", "S2"],
+    });
+  });
+
+  it("accepts a fully cited Markdown table without outer pipes", () => {
+    const table = [
+      "項目 | 料金 | 根拠",
+      "--- | --- | ---",
+      "A | 100円 | [S1](https://example.com/one)",
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(table, sources.slice(0, 1))).toEqual({
+      ok: true, usedSourceIds: ["S1"],
+    });
+  });
+
+  it("requires citations on every factual Markdown table data row", () => {
+    const table = [
+      "| 項目 | 料金 |",
+      "| --- | --- |",
+      "| A | 100円 |",
+      "| B | 120円 [S2](https://example.org/two) |",
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(table, sources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNCITED_FACTUAL_UNIT" }),
+    );
+  });
+
+  it("rejects invented numbers inside a cited Markdown table data row", () => {
+    const table = [
+      "| 項目 | 料金 |",
+      "| --- | --- |",
+      "| A | 999円 [S1](https://example.com/one) |",
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(table, sources.slice(0, 1))).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+  });
+
+  it("accepts ordinary textual headings above grounded factual claims", () => {
+    expect(validateGroundedResearchSynthesis(
+      "## 料金比較\n料金は100円です。[S1](https://example.com/one)",
+      sources.slice(0, 1),
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("does not exempt an uncited numerical Markdown heading", () => {
+    expect(validateGroundedResearchSynthesis(
+      "## 999店に増加\n料金は100円です。[S1](https://example.com/one)",
+      sources.slice(0, 1),
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNCITED_FACTUAL_UNIT" }));
+  });
+
+  it("rejects an unsupported number even when a Markdown heading cites a real source", () => {
+    expect(validateGroundedResearchSynthesis(
+      "## 999店に増加 [S1](https://example.com/one)\n料金は100円です。[S1](https://example.com/one)",
+      sources.slice(0, 1),
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
   it("does not approve an answer when no source was retrieved", () => {
     expect(validateGroundedResearchSynthesis("## Summary", [])).toEqual(
       expect.objectContaining({ ok: false, code: "INSUFFICIENT_SOURCE_COVERAGE" }),
