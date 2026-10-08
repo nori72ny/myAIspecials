@@ -384,6 +384,26 @@ describe("groundedResearchSynthesisV12", () => {
     )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
   });
 
+  it.each([
+    ["料金は1,20円です。[S1](https://example.com/one)", "料金は120円です。"],
+    ["費用は¥1,20です。[S1](https://example.com/one)", "費用は¥120です。"],
+    ["店舗数は1,20店です。[S1](https://example.com/one)", "店舗数は120店です。"],
+    ["達成率は1,2%です。[S1](https://example.com/one)", "達成率は12%です。"],
+    ["予算は1,20万円です。[S1](https://example.com/one)", "予算は120万円です。"],
+  ])("rejects malformed grouped factual quantity: %s", (answer, excerpt) => {
+    const evidence = [{ ...sources[0], title: "数値資料", excerpt }];
+    expect(validateGroundedResearchSynthesis(answer, evidence)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+  });
+
+  it("retains canonical comma-grouped quantities with matching citation evidence", () => {
+    const evidence = [{ ...sources[0], excerpt: "収入は1,200円です。" }];
+    expect(validateGroundedResearchSynthesis(
+      "収入は1,200円です。[S1](https://example.com/one)", evidence,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
   it("rejects malformed comma grouping instead of matching a numeric fragment", () => {
     const evidence = [{ ...sources[0], excerpt: "店舗は120店と350店。" }];
     expect(validateGroundedResearchSynthesis(
