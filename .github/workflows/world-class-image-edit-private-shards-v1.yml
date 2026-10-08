@@ -270,8 +270,8 @@ jobs:
               || m.sourceImageSha256s[i]!==e.cases[i].sourceImageSha256
               || m.instructionSha256s[i]!==e.cases[i].instructionSha256)) process.exit(32);
           NODE
-          test -z "$(find test-results/image-private-world-class-edit -type f \\
-            \\( -name '*corpus*' -o -name '*prompt*' -o -name '*source*' -o -name '*instruction*' \\) -print)"
+          test -z "$(find test-results/image-private-world-class-edit -type f \
+            \( -name '*corpus*' -o -name '*prompt*' -o -name '*source*' -o -name '*instruction*' \) -print)"
 
       - name: Upload sanitized shard images and evidence for independent review
         if: always()
