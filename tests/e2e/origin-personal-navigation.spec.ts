@@ -204,6 +204,80 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     });
   }
 
+  test('shows verified Coding before/after previews in Agent at 390px without overflow or false deployment', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/agent/v3/**', async route => {
+      const url = new URL(route.request().url());
+      const path = url.pathname;
+      let status = 200;
+      let body: unknown = { ok: false, code: 'UNEXPECTED_TEST_ROUTE' };
+      if (path.endsWith('/status') && !path.includes('/coding/')) {
+        body = {
+          ok: true, ready: true, approvalSigningConfigured: true,
+          replayProtectionConfigured: true, replayProtection: 'shared-atomic',
+          freeOnly: true, costUsd: 0, paidFallbackEnabled: false,
+          codingBridgeConfigured: true,
+        };
+      } else if (path.endsWith('/plan')) {
+        status = 201;
+        body = {
+          ok: true, runId: 'run-mobile-agent', planToken: 'plan-test-token',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          selectedTool: 'code_interpreter',
+          plan: [{ id: 'step-1', title: '修正計画' }],
+        };
+      } else if (path.endsWith('/approval')) {
+        status = 201;
+        body = { ok: true, approvalToken: 'approval-test-token' };
+      } else if (path.endsWith('/execute')) {
+        status = 202;
+        body = {
+          ok: true, status: 'running',
+          jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+          bridgeToken: 'bridge-test-token',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        };
+      } else if (path.endsWith('/coding/status')) {
+        body = {
+          ok: true, status: 'completed', verified: true,
+          result: {
+            schemaVersion: 1, sessionStatus: 'verified', repairRounds: 1,
+            diffs: [{
+              path: 'src/example.ts', kind: 'modified',
+              before: 'const total = a - b;', after: 'const total = a + b;',
+              beforeTruncated: false, afterTruncated: false,
+              previewAvailable: true,
+            }],
+            verificationChecks: ['typecheck', 'lint', 'test', 'build'].map(kind => ({
+              kind, ok: true, exitCode: 0, timedOut: false, attempt: 1,
+            })),
+            freeOnly: true, costUsd: 0, gitPublished: false, deployed: false,
+          },
+        };
+      }
+      await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+
+    await page.goto('/');
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: 'エージェントに任せる', exact: true }).click();
+    await page.getByLabel('達成したいこと', { exact: true }).fill('TypeScriptコードのバグを修正してテスト');
+    await page.getByRole('button', { name: '実行計画を作る' }).click();
+    await expect(page.getByText('未実行 · 承認待ち')).toBeVisible();
+    await page.getByText('実行に必要な認証').click();
+    await page.getByLabel('Agent認証キー').fill('test-only-local-operator');
+    await page.getByRole('button', { name: '承認して実行' }).click();
+
+    const output = page.getByText(/# Coding V1\\.4 検証済み結果/);
+    await expect(output).toBeVisible();
+    await expect(output).toContainText('const total = a - b;');
+    await expect(output).toContainText('const total = a + b;');
+    await expect(output).toContainText('typecheck: PASS');
+    await expect(output).toContainText('build: PASS');
+    await expect(output).toContainText('Deploy: not authorized');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
   test('opens HTML artifacts as finished previews instead of source code', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/chat', route => route.fulfill({
