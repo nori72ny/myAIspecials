@@ -81,6 +81,22 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
   });
 
+  it('requires one-time use of each exact operation approval', async () => {
+    const actions = deps();
+    const seen = new Set<string>();
+    actions.consumeExactApproval = vi.fn(async (_runId, operation) => {
+      if (seen.has(operation)) return false;
+      seen.add(operation);
+      return true;
+    });
+    const first = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    const second = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(first.status).toBe('completed');
+    expect(second.code).toBe('AGENT_MULTI_TOOL_APPROVAL_REQUIRED');
+    expect(second.completedSteps).toHaveLength(0);
+    expect(actions.executeAndVerify).toHaveBeenCalledTimes(2);
+  });
+
   it('requires independent confirmation of a tool terminal receipt', async () => {
     const actions = deps();
     actions.verifyTrustedTerminal = vi.fn(async () => false);
