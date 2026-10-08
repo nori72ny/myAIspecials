@@ -77,6 +77,25 @@ function canonicalParams(value: unknown): string {
   return encoded;
 }
 
+function snapshotExactParams(params: unknown): unknown {
+  // Normalize and copy the approved exact-operation arguments before approval.
+  // A planner/provider must not swap a mutable parameter object after approval.
+  const serialized = canonicalParams(params);
+  const immutable = JSON.parse(serialized) as unknown;
+  const freeze = (value: unknown): unknown => {
+    if (value !== null && typeof value === 'object') {
+      if (Array.isArray(value)) {
+        for (const child of value) freeze(child);
+      } else {
+        for (const child of Object.values(value)) freeze(child);
+      }
+      Object.freeze(value);
+    }
+    return value;
+  };
+  return freeze(immutable);
+}
+
 function approvalBinding(runId: string, goalDigest: string, step: AgentMultiToolStepV31, params: unknown, prior: readonly AgentMultiToolVerifiedStepV31[]): string {
   return createHash('sha256')
     .update('origin.multi-tool.exact-operation.v31\0', 'utf8')
@@ -128,7 +147,7 @@ export async function executeAgentMultiToolSequenceV31(
     try {
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       const prior = Object.freeze(completed.map(row => Object.freeze({ ...row })));
-      const params = await deps.prepareParams(step, prior);
+      const params = snapshotExactParams(await deps.prepareParams(step, prior));
       const operationDigest = approvalBinding(runId, goalDigest, step, params, prior);
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       if (await deps.consumeExactApproval(runId, operationDigest, step) !== true)
