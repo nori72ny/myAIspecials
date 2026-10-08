@@ -15,6 +15,7 @@ import {
   decryptCodingJobResultV14,
   type CodingJobResultV14,
 } from './codingJobResultV14.js';
+import { validCodingJobExecutionEvidenceV14 } from './codingJobExecutionEvidenceV14.js';
 import type { PostgresCodingJobResultStoreV14 } from './codingJobResultStoreV14.js';
 import type {
   CodingJobPublicRecordV14,
@@ -188,18 +189,37 @@ function terminalFailureCode(record: CodingJobPublicRecordV14): string {
   return 'AGENT_CODING_NOT_VERIFIED';
 }
 
-function resultIsVerified(result: CodingJobResultV14): boolean {
+function resultIsVerified(
+  result: CodingJobResultV14,
+  record: CodingJobPublicRecordV14,
+  env: NodeJS.ProcessEnv,
+): boolean {
   const checks = result?.verificationChecks;
   const requiredKinds = ['typecheck', 'lint', 'test', 'build'] as const;
-  // Four successful entries are insufficient if two represent the same kind:
-  // every *distinct* final verification is required for a completion claim.
+  const releaseSha = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA;
+  const actualPaths = record?.changedPaths;
+  const diffs = result?.diffs;
+  // A Coding job does not prove a code change merely by passing checks.
+  // The final encrypted result must identify the same changed paths as the
+  // durable job record and must be produced by the exact released checkout.
   return result?.sessionStatus === 'verified'
     && result.freeOnly === true
     && result.costUsd === 0
     && result.gitPublished === false
     && result.deployed === false
+    && typeof releaseSha === 'string'
+    && /^[0-9a-f]{40}$/i.test(releaseSha)
+    && validCodingJobExecutionEvidenceV14(result.executionEvidence)
+    && result.executionEvidence.sourceRevision === releaseSha.toLowerCase()
     && Number.isInteger(result.repairRounds)
     && result.repairRounds >= 0
+    && Array.isArray(actualPaths)
+    && actualPaths.length > 0
+    && Array.isArray(diffs)
+    && diffs.length === actualPaths.length
+    && new Set(actualPaths).size === actualPaths.length
+    && new Set(diffs.map(diff => diff?.path)).size === diffs.length
+    && diffs.every(diff => actualPaths.includes(diff.path))
     && Array.isArray(checks)
     && checks.length === requiredKinds.length
     && requiredKinds.every(kind => checks.some(check =>
@@ -423,7 +443,7 @@ export class AgentCodingBridgeV3 {
           paidFallbackUsed: false,
         };
       }
-      if (!resultIsVerified(result)) {
+      if (!resultIsVerified(result, record, this.env)) {
         return {
           ok: false,
           runId,
