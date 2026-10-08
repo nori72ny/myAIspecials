@@ -46,6 +46,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       credentialSeparationConfigured: authorizationMode === 'agent-operator',
       replayProtectionConfigured,
       replayProtection: replayProtectionConfigured ? 'shared-atomic' : 'unavailable',
+      codingBridgeConfigured: Boolean(codingBridge),
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
@@ -64,6 +65,9 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const selected = selectAgentToolV3(goal.trim());
     if ('code' in selected) {
       return res.status(422).json({ ok: false, code: selected.code, protocolVersion: 3 });
+    }
+    if (selected.toolName === 'code_interpreter' && !codingBridge) {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
     }
     const run = new AgentRunSession();
     run.transition('planning');
@@ -100,6 +104,9 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!plan || plan.runId !== runId) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_INVALID' });
     if (!isToolName(plan.plannedTool) || plan.plannedTool !== toolName) {
       return res.status(403).json({ ok: false, code: 'AGENT_PLAN_TOOL_MISMATCH' });
+    }
+    if (toolName === 'code_interpreter' && !codingBridge) {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
     }
     if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
     if (toolName === 'code_interpreter') {
@@ -180,6 +187,25 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         if (!res.headersSent) return res.status(state.ok ? 200 : 422).json({ protocolVersion: 3, ...state });
       } catch {
         if (!res.headersSent) return res.status(503).json({ ok: false, code: 'AGENT_CODING_STATUS_UNAVAILABLE', protocolVersion: 3, runId });
+      }
+    })();
+    return undefined;
+  });
+
+  router.post('/api/agent/v3/coding/cancel', (req, res) => {
+    if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
+    if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
+    if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
+    const { runId, jobId, bridgeToken } = req.body ?? {};
+    if (typeof runId !== 'string' || !runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    if (typeof jobId !== 'string' || !jobId.startsWith('coding-')) return res.status(400).json({ ok: false, code: 'INVALID_CODING_JOB_ID' });
+    if (typeof bridgeToken !== 'string') return res.status(403).json({ ok: false, code: 'AGENT_CODING_BRIDGE_TOKEN_REQUIRED' });
+    void (async () => {
+      try {
+        const state = await codingBridge.cancel(runId, jobId, bridgeToken);
+        if (!res.headersSent) return res.status(state.ok ? 200 : 422).json({ protocolVersion: 3, ...state });
+      } catch {
+        if (!res.headersSent) return res.status(503).json({ ok: false, code: 'AGENT_CODING_CANCEL_UNAVAILABLE', protocolVersion: 3, runId });
       }
     })();
     return undefined;
