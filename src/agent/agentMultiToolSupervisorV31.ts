@@ -114,13 +114,14 @@ export async function executeAgentMultiToolSequenceV31(
       return finish('blocked', 'AGENT_MULTI_TOOL_DEPENDENCY_INVALID', completed);
     try {
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
-      const params = await deps.prepareParams(step, completed);
-      const operationDigest = approvalBinding(step, params, completed);
+      const prior = Object.freeze(completed.map(row => Object.freeze({ ...row })));
+      const params = await deps.prepareParams(step, prior);
+      const operationDigest = approvalBinding(step, params, prior);
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       if (await deps.verifyExactApproval(operationDigest, step) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED', completed);
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
-      const outcome = await deps.executeAndVerify(step, params, completed);
+      const outcome = await deps.executeAndVerify(step, params, prior);
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       if (outcome?.terminal !== 'verified' || outcome.toolExecuted !== true || outcome.verified !== true
         || !SHA256.test(outcome.evidenceDigest ?? '') || /^0{64}$/.test(outcome.evidenceDigest)
