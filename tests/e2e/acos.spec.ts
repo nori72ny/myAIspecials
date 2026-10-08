@@ -541,6 +541,39 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
   });
 
+  test('preserves edits to two Direct Touch fields in one debounced revision', async ({ page }) => {
+    await page.route('**/api/chat', async route => route.fulfill({
+      status: 200, contentType: 'text/plain; charset=utf-8',
+      body: '```html:multi-edit.html\\n<main><p>First original</p><p>Second original</p></main>\\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('2か所の文字を編集する');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await workspace.getByTestId('artifact-action-edit').click();
+    const frame = workspace.getByTitle('プレビュー');
+    const body = frame.contentFrame().locator('body');
+    await expect(body.locator('[data-origin-direct-touch-index="1"]')).toBeVisible();
+    // Dispatch both authentic DOM input events in one frame evaluation; this
+    // proves that the iframe's debounce sends a single combined edit batch.
+    await body.evaluate(node => {
+      for (const [index, text] of [['0', 'First updated'], ['1', 'Second updated']]) {
+        const editable = node.querySelector(`[data-origin-direct-touch-index="${index}"]`);
+        if (!editable) throw new Error(`missing edit target ${index}`);
+        editable.textContent = text;
+        editable.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+      }
+    });
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(frame).toHaveAttribute('data-origin-srcdoc', /First updated/);
+    await expect(frame).toHaveAttribute('data-origin-srcdoc', /Second updated/);
+    await expect.poll(
+      () => page.evaluate(() => document.documentElement.dataset.originDirectTouchPending),
+      { timeout: 15_000 },
+    ).toBe('false');
+  });
+
   test('assists direct source editing and prevents malformed HTML revisions', async ({ page }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,
