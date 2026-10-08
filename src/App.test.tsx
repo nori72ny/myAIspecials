@@ -406,6 +406,33 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(artifact.content).toContain('Ready');
   });
 
+  it('blocks PWA updates for real Direct Touch iframe edits but ignores forged messages', () => {
+    delete document.documentElement.dataset.originDirectTouchPending;
+    try {
+      const revisions: ArtifactBlock[] = [];
+      render(<ArtifactWorkspace artifact={{ ...artifact, content: '<main><p>Ready</p></main>' }} isOpen language="ja" onClose={() => undefined} onArtifactRevision={(next) => revisions.push(next)} />);
+      fireEvent.click(screen.getByTestId('artifact-action-edit'));
+      const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+      const send = (source: MessageEventSource | null, type: 'editing' | 'commit') => {
+        act(() => window.dispatchEvent(new MessageEvent('message', { source, data: {
+          source: 'ORIGIN_DIRECT_TOUCH', type, edits: type === 'commit' ? [{ index: 0, text: '保存待ちの編集' }] : undefined,
+        } })));
+      };
+      send(window, 'editing');
+      expect(document.documentElement.dataset.originDirectTouchPending).toBeUndefined();
+      send(frame.contentWindow, 'editing');
+      expect(document.documentElement.dataset.originDirectTouchPending).toBe('true');
+      send(frame.contentWindow, 'commit');
+      expect(revisions).toHaveLength(1);
+      expect(revisions[0].content).toContain('保存待ちの編集');
+      expect(document.documentElement.dataset.originDirectTouchPending).toBe('commit:artifact-1:v2');
+      send(window, 'editing');
+      expect(document.documentElement.dataset.originDirectTouchPending).toBe('commit:artifact-1:v2');
+    } finally {
+      delete document.documentElement.dataset.originDirectTouchPending;
+    }
+  });
+
   it('completes non-void HTML closing tags without duplicating existing or self-closing tags', () => {
     expect(completeArtifactClosingTag('<main><article>', 15)).toEqual({ content: '<main><article></article>', cursor: 15, completed: true });
     expect(completeArtifactClosingTag('<img>', 5).completed).toBe(false);
