@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
+import { planImageEditFreeShardsV1 } from '../src/release/OriginImageEditFreeShardPlanV1.js';
 
 import {
   validateImageEditPrivateCorpusV1,
@@ -23,11 +24,23 @@ try {
 const blockers = validateImageEditPrivateCorpusV1(corpus);
 if (blockers.length) throw new Error('IMAGE_EDIT_PRIVATE_CORPUS_VALIDATION_FAILED');
 
+const corpusDigest = createHash('sha256').update(raw).digest('hex');
+const plan = planImageEditFreeShardsV1(corpus.candidateSha, corpusDigest, corpus.tasks.map(t => ({
+  caseId: t.caseId, family: t.family, turnIndex: t.turnIndex,
+  instructionSha256: t.instructionSha256, sourceImageSha256: t.sourceImageSha256,
+  width: t.width, height: t.height,
+})));
+
 process.stdout.write(JSON.stringify({
   schemaVersion: 'origin.image-edit-private-corpus-metadata.v1',
   corpusId: corpus.corpusId,
-  corpusDigest: createHash('sha256').update(raw).digest('hex'),
+  corpusDigest,
   candidateSha: corpus.candidateSha.toLowerCase(),
   executionBudgetMs: corpus.executionBudgetMs,
   taskCount: corpus.tasks.length,
+  editShardPlanDigest: plan.planDigest,
+  editShardCount: plan.shards.length,
+  editShards: plan.shards.map(({ index, caseIds, instructionSha256s, sourceImageSha256s }) => ({
+    index, caseIds, instructionSha256s, sourceImageSha256s,
+  })),
 }) + '\n');
