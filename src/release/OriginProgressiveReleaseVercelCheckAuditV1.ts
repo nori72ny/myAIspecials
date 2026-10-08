@@ -43,13 +43,25 @@ function record(value: unknown): Record<string, unknown> | null {
  * source union requires a concrete integration/webhook/external GitHub check
  * identity. An empty object or arbitrary sourceKind is NOT sufficient.
  */
+function isValidTrustedVercelSource(
+  value: OriginVercelTrustedCheckSourceV1 | undefined,
+): value is OriginVercelTrustedCheckSourceV1 {
+  if (!value || typeof value.identity !== "string") return false;
+  // GitHub check display names legitimately contain spaces and ampersands.
+  // Opaque webhook/integration identifiers remain restricted to safe ID chars.
+  return value.kind === "git-provider"
+    ? /^[A-Za-z0-9][A-Za-z0-9 _./:&()+-]{3,159}$/.test(value.identity)
+      && value.identity.trim() === value.identity
+    : (value.kind === "webhook" || value.kind === "integration")
+      && /^[A-Za-z0-9_.:-]{4,160}$/.test(value.identity);
+}
+
 function hasIdentifiableVercelCheckSource(
   item: Record<string, unknown>,
   expected: OriginVercelTrustedCheckSourceV1 | undefined,
 ): boolean {
   const source = record(item.source);
-  if (!source || !expected || typeof expected.identity !== "string"
-    || !/^[A-Za-z0-9_.:-]{4,160}$/.test(expected.identity)
+  if (!source || !isValidTrustedVercelSource(expected)
     || typeof item.sourceKind !== "string") return false;
   if (source.kind === "webhook") {
     return expected.kind === "webhook" && item.sourceKind === "webhook"
@@ -96,8 +108,7 @@ export function auditOriginVercelChecksV1(
         && typeof check.blocks === "string";
     });
   if (!complete) blockers.push("VERCEL_CHECK_API_EVIDENCE_MISSING");
-  if (!trustedSource || !/^[A-Za-z0-9_.:-]{4,160}$/.test(trustedSource.identity ?? "")
-    || !["webhook", "integration", "git-provider"].includes(trustedSource.kind)) {
+  if (!isValidTrustedVercelSource(trustedSource)) {
     blockers.push("TRUSTED_CHECK_SOURCE_NOT_CONFIGURED");
   }
 
