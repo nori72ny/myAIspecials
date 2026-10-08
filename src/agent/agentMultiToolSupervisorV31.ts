@@ -30,14 +30,14 @@ export type AgentMultiToolSupervisorDepsV31 = {
   /** Atomically consume a single-use approval bound to this run and exact operation. */
   consumeExactApproval: (runId: string, operationDigest: string, step: AgentMultiToolStepV31) => Promise<boolean>;
   /** Must block until terminal verified tool evidence; dispatch/running is NOT success. */
-  executeAndVerify: (step: AgentMultiToolStepV31, params: unknown, prior: readonly AgentMultiToolVerifiedStepV31[]) => Promise<AgentMultiToolStepOutcomeV31>;
+  executeAndVerify: (step: AgentMultiToolStepV31, params: unknown, prior: readonly AgentMultiToolVerifiedStepV31[], context: Readonly<{ runId: string; operationDigest: string }>) => Promise<AgentMultiToolStepOutcomeV31>;
   /** A distinct trusted evidence reader must independently confirm the terminal record
    * binds to the same run, exact operation, job/result and $0 status.
    * Never trust only a tool's own claimed 'verified' flag or digest.
    */
   verifyTrustedTerminal: (runId: string, operationDigest: string, step: AgentMultiToolStepV31, outcome: AgentMultiToolStepOutcomeV31) => Promise<boolean>;
   /** Shared store / cancellation service, not merely a browser AbortController. */
-  isCancelled: () => Promise<boolean>;
+  isCancelled: (runId: string) => Promise<boolean>;
 };
 
 export type AgentMultiToolSupervisorResultV31 = {
@@ -108,8 +108,8 @@ function snapshotExactStep(step: AgentMultiToolStepV31): AgentMultiToolStepV31 {
   });
 }
 
-async function readVerifiedCancellationState(deps: AgentMultiToolSupervisorDepsV31): Promise<boolean> {
-  const state = await deps.isCancelled();
+async function readVerifiedCancellationState(deps: AgentMultiToolSupervisorDepsV31, runId: string): Promise<boolean> {
+  const state = await deps.isCancelled(runId);
   // An unavailable/ill-formed shared cancellation receipt is NOT "not cancelled".
   if (state !== true && state !== false) throw new Error('AGENT_MULTI_TOOL_CANCEL_STATE_UNVERIFIED');
   return state;
@@ -164,23 +164,23 @@ export async function executeAgentMultiToolSequenceV31(
       || (i > 0 && step.dependsOn[0] !== completed[i - 1]?.stepId))
       return finish('blocked', 'AGENT_MULTI_TOOL_DEPENDENCY_INVALID', completed);
     try {
-      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       const prior = Object.freeze(completed.map(row => Object.freeze({ ...row })));
       const params = snapshotExactParams(await deps.prepareParams(step, prior));
       const operationDigest = approvalBinding(runId, goalDigest, step, params, prior);
-      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       if (await deps.consumeExactApproval(runId, operationDigest, step) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED', completed);
-      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
-      const outcome = Object.freeze({ ...(await deps.executeAndVerify(step, params, prior)) });
-      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      const outcome = Object.freeze({ ...(await deps.executeAndVerify(step, params, prior, Object.freeze({ runId, operationDigest }))) });
+      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       if (outcome?.terminal !== 'verified' || outcome.toolExecuted !== true || outcome.verified !== true
         || !SHA256.test(outcome.evidenceDigest ?? '') || /^0{64}$/.test(outcome.evidenceDigest)
         || outcome.freeOnly !== true || outcome.costUsd !== 0 || outcome.paidFallbackUsed !== false)
         return finish('blocked', 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED', completed);
       if (await deps.verifyTrustedTerminal(runId, operationDigest, step, outcome) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_TRUSTED_TERMINAL_MISSING', completed);
-      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       completed.push({
         stepId: step.id,
         toolName: step.toolName,
