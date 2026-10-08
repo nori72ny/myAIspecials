@@ -325,6 +325,13 @@ describe("groundedResearchSynthesisV12", () => {
     )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
   });
 
+  it("rejects arithmetic with an invented unit even when the numbers are cited", () => {
+    const evidence = [{ ...sources[0], excerpt: "135人と120人が対象です。" }];
+    expect(validateGroundedResearchSynthesis(
+      "135店 − 120店 = 15店。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
   it("rejects a correct equation when one operand lacks cited evidence", () => {
     const evidence = [{ ...sources[0], excerpt: "今月は135店のみ。" }];
     expect(validateGroundedResearchSynthesis(
