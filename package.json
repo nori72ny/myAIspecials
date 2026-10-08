@@ -33,6 +33,7 @@
     "eval:world-class-quality": "tsx scripts/evaluate-trusted-world-class-quality-gate-v2.ts",
     "eval:image-blind-quality": "tsx scripts/evaluate-image-blind-quality-v15.ts",
     "eval:heldout-agent": "tsx scripts/evaluate-general-agent-heldout-v2.ts",
+    "eval:agent-frontier-24": "tsx scripts/score-agent-frontier-task-24-v3.ts",
     "eval:heldout-agent:trusted": "tsx scripts/evaluate-general-agent-heldout-trusted-v2.ts",
     "eval:artifact-blind-quality": "tsx scripts/evaluate-artifact-blind-quality-v1.ts",
     "qualify:raster-live": "tsx scripts/qualify-raster-live-v15.ts",
