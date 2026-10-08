@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import type { QueryResult } from 'pg';
 import {
@@ -72,6 +73,25 @@ describe('PostgreSQL V3.1 durable run reservation (schema not deployed)', () => 
     const store = new PostgresAgentMultiToolRunLedgerV31({ query } as unknown as AgentMultiToolLedgerSqlV31);
     await expect(store.reserveRunOnce(RUN, HASH)).rejects.toThrow('database timeout after INSERT');
     expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('review-only ledger SQL denies browser roles, enables RLS and has no TTL cleanup', async () => {
+    const sql = await readFile(
+      new URL('../../docs/AGENT_MULTITOOL_V31_RUN_LEDGER_SCHEMA_REVIEW.sql', import.meta.url),
+      'utf8',
+    );
+    expect(sql).toContain('REVIEW-ONLY DRAFT');
+    expect(sql).toContain('create table if not exists public.origin_agent_multitool_runs_v31');
+    expect(sql).toContain('run_id text primary key');
+    expect(sql).toContain('goal_digest text not null');
+    expect(sql).toContain('enable row level security');
+    expect(sql).toContain('from public;');
+    expect(sql).toContain('from anon;');
+    expect(sql).toContain('from authenticated;');
+    expect(sql).toContain('grant select, insert on table public.origin_agent_multitool_runs_v31 to service_role;');
+    expect(sql).not.toMatch(/^\\s*delete\\s+from/im);
+    expect(sql).not.toMatch(/^\\s*grant\\s+.*\\s+to\\s+(?:anon|authenticated)\\b/im);
+    expect(sql).not.toContain('expires_at');
   });
 
   it('stays disabled unless explicitly opted in with server-side PostgreSQL credentials', () => {
