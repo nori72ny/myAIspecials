@@ -11,6 +11,7 @@ import {
 } from './rasterImageProviderV15.js';
 import { critiqueCloudflareRasterSemanticV15 } from './cloudflareRasterSemanticCriticV15.js';
 import { compileWorldClassImagePromptV16 } from './worldClassImagePromptCompilerV16.js';
+import { buildWorldClassImageRepairPromptV16 } from './worldClassImageRepairPromptV16.js';
 
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 const EXACT_WORLD_CLASS_MODEL_V16 = '@cf/black-forest-labs/flux-2-klein-9b';
@@ -160,17 +161,6 @@ function boundedCompiledPrompt(original: string, compiled: string, editing: bool
   ].filter(Boolean).join('\n');
 }
 
-function remediationPrompt(original: string, issues: readonly string[], summary: string): string {
-  const feedback = [summary, ...issues].map((value) => value.trim()).filter(Boolean).slice(0, 8);
-  return [
-    original,
-    '',
-    'QUALITY REPAIR:',
-    'Regenerate from scratch while preserving every explicit user instruction.',
-    ...feedback.map((item) => `- Correct this visible defect: ${item}`),
-    '- Do not add new subjects, text, logos, or decorative elements that were not requested.',
-  ].join('\n');
-}
 
 export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
@@ -279,11 +269,17 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
           const code = error instanceof Error ? error.message : 'ZERO_COST_IMAGE_PROVIDER_FAILED';
           return fail(res, 503, code, '無料画像生成枠または無料品質検査を利用できません。課金経路には切り替えません。');
         }
+        if (!finalCritic.safetyPassed) {
+          // An unsafe output must never consume another free inference attempt.
+          return fail(res, 422, 'WORLD_CLASS_FREE_IMAGE_SAFETY_GATE_FAILED',
+            '画像の安全性検査に合格しなかったため返却・再生成しません。');
+        }
         if (finalCritic.passed) break;
         if (attempt < maxAttempts) {
-          const repaired = remediationPrompt(input.prompt, finalCritic.issues, finalCritic.summary);
-          const repairPlan = compileWorldClassImagePromptV16(repaired, editing);
-          workingPrompt = boundedCompiledPrompt(repaired, repairPlan.prompt, editing);
+          // Do not promote raw model-authored critique text to a privileged prompt.
+          workingPrompt = buildWorldClassImageRepairPromptV16(
+            input.prompt, finalCritic.issues, editing,
+          );
         }
       }
 
