@@ -105,10 +105,14 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
   // A prior COMMENTED review or an approval on an old SHA is not a release review.
   // GitHub response identity is used; any owner visual approval is separately verified.
   const reviewed = candidateSha !== null && Array.isArray(reviews)
+    && typeof pull?.user?.login === 'string' && pull.user.login.length > 0
+    // An outstanding request for changes blocks promotion, even if there is
+    // another earlier approval on the exact commit.
+    && !reviews.some(review => review?.state === 'CHANGES_REQUESTED')
     && reviews.some(review => review?.state === 'APPROVED'
       && review.commit_id === candidateSha
       && Boolean(review.user?.login)
-      && review.user?.login !== pull?.user?.login);
+      && review.user?.login !== pull.user!.login);
   if (!reviewed) blockers.push('EXACT_HEAD_REVIEW_MISSING');
 
   return Object.freeze({
