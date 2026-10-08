@@ -75,11 +75,31 @@ describe("Vercel deployment-alias release check configuration audit", () => {
     }
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(
-      `https://api.vercel.com/v2/projects/${projectId}/checks?teamId=${teamId}&blocks=deployment-alias`,
+      `https://api.vercel.com/v2/projects/${projectId}/checks?teamId=${teamId}`,
     );
     expect(calls[0].init.method).toBe("GET");
     expect(calls[0].init.redirect).toBe("error");
     expect(JSON.stringify(result)).not.toContain("fake-test-token-secret");
+  });
+
+  it("rejects duplicate named checks across DIFFERENT block stages from unfiltered API", async () => {
+    const fakeFetch = (async (url: URL | RequestInfo): Promise<Response> => {
+      // The Vercel blocks filter would hide this wrong-stage duplicate.
+      expect(String(url)).not.toContain("blocks=");
+      return new Response(JSON.stringify({
+        checks: [check, { ...check, id: "chk_nonblocking", blocks: "none" }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
+    const result = await fetchAndAuditOriginVercelChecksV1({
+      projectId, teamId, token: "fixture-token-should-never-be-logged", fetchImpl: fakeFetch,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.audit).toMatchObject({
+        configuredBlockingCheckFound: false, releaseAuthorized: false,
+      });
+      expect(result.audit.blockers).toContain("REQUIRED_DEPLOYMENT_ALIAS_CHECK_MISSING");
+    }
   });
 
   it("redacts missing token, HTTP errors, network errors, and malformed responses", async () => {
