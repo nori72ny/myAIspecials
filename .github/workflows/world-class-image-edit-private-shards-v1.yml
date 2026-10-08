@@ -16,7 +16,7 @@ on:
         required: true
         type: string
       shard_index:
-        description: Precommitted shard index (0 through 11)
+        description: Precommitted edit shard index (0 through 7)
         required: true
         type: number
 
