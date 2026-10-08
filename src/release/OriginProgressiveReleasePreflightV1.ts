@@ -77,53 +77,58 @@ const validFeature = (s: unknown): s is string => typeof s === 'string'
 export function evaluateOriginProgressiveReleasePreflightV1(
   evidence: OriginProgressiveReleaseEvidenceV1,
 ): OriginProgressiveReleaseVerdictV1 {
+  // A malformed, missing or array-shaped attestation must return BLOCKED rather
+  // than throwing. This routine never authenticates evidence on its own.
+  const input: OriginProgressiveReleaseEvidenceV1 = evidence
+    && typeof evidence === 'object' && !Array.isArray(evidence)
+    ? evidence : {} as OriginProgressiveReleaseEvidenceV1;
   const blockers: OriginProgressiveReleaseBlocker[] = [];
-  if (!validFeature(evidence.featureId)
-    || (evidence.kind !== 'new-feature' && evidence.kind !== 'published-feature-update')) {
+  if (!validFeature(input.featureId)
+    || (input.kind !== 'new-feature' && input.kind !== 'published-feature-update')) {
     blockers.push('INVALID_SINGLE_FEATURE_SCOPE');
   }
-  if (evidence.singleFeatureDiffVerified !== true) blockers.push('FEATURE_DIFF_SCOPE_UNVERIFIED');
-  if (!validSha(evidence.candidateSha)
-    || !validSha(evidence.currentHeadSha)
-    || !validSha(evidence.baseMainSha)
-    || !validSha(evidence.currentMainSha)
-    || evidence.candidateSha !== evidence.currentHeadSha
-    || evidence.baseMainSha !== evidence.currentMainSha) {
+  if (input.singleFeatureDiffVerified !== true) blockers.push('FEATURE_DIFF_SCOPE_UNVERIFIED');
+  if (!validSha(input.candidateSha)
+    || !validSha(input.currentHeadSha)
+    || !validSha(input.baseMainSha)
+    || !validSha(input.currentMainSha)
+    || input.candidateSha !== input.currentHeadSha
+    || input.baseMainSha !== input.currentMainSha) {
     blockers.push('EXACT_HEAD_MISMATCH');
   }
-  if (evidence.mainProtected !== true) blockers.push('UNPROTECTED_MAIN');
-  if (evidence.requiredChecksAndReviewEnforced !== true
-    || evidence.productionDomainHeldUntilChecksPass !== true) {
+  if (input.mainProtected !== true) blockers.push('UNPROTECTED_MAIN');
+  if (input.requiredChecksAndReviewEnforced !== true
+    || input.productionDomainHeldUntilChecksPass !== true) {
     blockers.push('PREPUBLISH_GATE_NOT_ENFORCED');
   }
-  if (evidence.exactHeadRequiredChecksGreen !== true) blockers.push('EXACT_HEAD_CI_NOT_GREEN');
-  if (evidence.reviewedHeadSha !== evidence.candidateSha || !validSha(evidence.reviewedHeadSha)) {
+  if (input.exactHeadRequiredChecksGreen !== true) blockers.push('EXACT_HEAD_CI_NOT_GREEN');
+  if (input.reviewedHeadSha !== input.candidateSha || !validSha(input.reviewedHeadSha)) {
     blockers.push('CODE_REVIEW_NOT_CURRENT');
   }
-  if (!evidence.ownerApproval
-    || evidence.ownerApproval.identityVerified !== true
-    || evidence.ownerApproval.headSha !== evidence.candidateSha
-    || evidence.ownerApproval.featureId !== evidence.featureId
-    || evidence.ownerApproval.kind !== evidence.kind) blockers.push('OWNER_APPROVAL_MISSING');
-  if (evidence.uiChanged !== false && evidence.uiChanged !== true) {
+  if (!input.ownerApproval
+    || input.ownerApproval.identityVerified !== true
+    || input.ownerApproval.headSha !== input.candidateSha
+    || input.ownerApproval.featureId !== input.featureId
+    || input.ownerApproval.kind !== input.kind) blockers.push('OWNER_APPROVAL_MISSING');
+  if (input.uiChanged !== false && input.uiChanged !== true) {
     blockers.push('OWNER_VISUAL_APPROVAL_MISSING');
-  } else if (evidence.uiChanged && evidence.ownerVisualApprovedHeadSha !== evidence.candidateSha) {
+  } else if (input.uiChanged && input.ownerVisualApprovedHeadSha !== input.candidateSha) {
     blockers.push('OWNER_VISUAL_APPROVAL_MISSING');
   }
-  if (evidence.capabilityQualityQualified !== true || evidence.regressionAndDeviceTestsPassed !== true) {
+  if (input.capabilityQualityQualified !== true || input.regressionAndDeviceTestsPassed !== true) {
     blockers.push('QUALITY_EVIDENCE_MISSING');
   }
-  if (evidence.zeroCostVerified !== true || evidence.freeOnlyVerified !== true
-    || evidence.actualCostUsd !== 0 || !Number.isFinite(evidence.actualCostUsd)
-    || evidence.paidFallbackDisabled !== true
-    || evidence.noNewPrivilegesOrSecrets !== true) blockers.push('SAFETY_EVIDENCE_MISSING');
-  if (evidence.rollbackReady !== true || evidence.productionSmokeReady !== true) {
+  if (input.zeroCostVerified !== true || input.freeOnlyVerified !== true
+    || input.actualCostUsd !== 0 || !Number.isFinite(input.actualCostUsd)
+    || input.paidFallbackDisabled !== true
+    || input.noNewPrivilegesOrSecrets !== true) blockers.push('SAFETY_EVIDENCE_MISSING');
+  if (input.rollbackReady !== true || input.productionSmokeReady !== true) {
     blockers.push('POST_RELEASE_VERIFICATION_UNAVAILABLE');
   }
   return Object.freeze({
     schemaVersion: 'origin.progressive-release-preflight.v1',
-    featureId: typeof evidence.featureId === 'string' ? evidence.featureId : '',
-    candidateSha: typeof evidence.candidateSha === 'string' ? evidence.candidateSha : '',
+    featureId: typeof input.featureId === 'string' ? input.featureId : '',
+    candidateSha: typeof input.candidateSha === 'string' ? input.candidateSha : '',
     canPublish: blockers.length === 0,
     blockers: Object.freeze(blockers),
   });
