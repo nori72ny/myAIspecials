@@ -56,7 +56,15 @@ describe('V1.6 world-class image edit Free-only private shard runner', () => {
       .toBeLessThan(workflow.indexOf('Verify 16-case private edit corpus and immutable shard plan'));
     expect(workflow.indexOf('Verify 16-case private edit corpus and immutable shard plan'))
       .toBeLessThan(workflow.indexOf('Mark exactly one edit shard started before any image inference'));
-    expect(inspect).not.toContain('sourceImageDataUrl');
+    // The inspector must decode the private source in-process; only the public
+    // metadata payload must exclude raw images and the edit instruction.
+    expect(inspect).toContain('task.sourceImageDataUrl');
+    const publicPayload = inspect.split('process.stdout.write(JSON.stringify({')[1];
+    expect(publicPayload).toBeDefined();
+    expect(publicPayload).not.toContain('sourceImageDataUrl');
+    expect(publicPayload).not.toContain('t.instruction,');
+    expect(publicPayload).toContain('sourceImageSha256s');
+    expect(publicPayload).toContain('instructionSha256s');
   });
 
   it('limits account-wide daily quota shared with image generation, preserving real release gates', () => {
