@@ -298,11 +298,14 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
     const left = Number(leftText), right = Number(rightText), expected = Number(resultText);
     if (![left, right, expected].every(Number.isSafeInteger)) continue;
     if (operator === "+" ? left + right !== expected : left - right !== expected) continue;
-    if (!evidence.has(`${leftText}${leftUnit}`) || !evidence.has(`${rightText}${rightUnit}`)) continue;
-    allowed.add(`${resultText}${resultUnit}`);
+    // The numeric scanner preserves "円" but treats counters such as 店/件
+    // as ordinary surrounding words. Match its exact normalized token form.
+    const numericSuffix = leftUnit === "円" ? "円" : "";
+    if (!evidence.has(`${leftText}${numericSuffix}`) || !evidence.has(`${rightText}${numericSuffix}`)) continue;
+    allowed.add(`${resultText}${numericSuffix}`);
     // Numeric tokenization retains the binary sign of the second operand.
     // It is permitted only inside this specifically verified expression.
-    allowed.add(`${operator === "+" ? "+" : "-"}${rightText}${rightUnit}`);
+    allowed.add(`${operator === "+" ? "+" : "-"}${rightText}${numericSuffix}`);
   }
   return allowed;
 }
