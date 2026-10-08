@@ -174,7 +174,8 @@ const prepareDirectTouchMarkup = (content: string) => {
   targets.forEach((target, index) => {
     target.setAttribute('data-origin-direct-touch-index', String(index));
     target.setAttribute('contenteditable', 'plaintext-only');
-    target.setAttribute('oninput', `window.clearTimeout(window.__originDirectTouchTimer);var node=this;window.__originDirectTouchTimer=window.setTimeout(function(){try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'commit',edits:[{index:${index},text:String(node.textContent||'')}],timestamp:Date.now()},'*')}catch(_){ }},420);`);
+    target.setAttribute('oncompositionstart', `try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }`);
+    target.setAttribute('oninput', `try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }window.clearTimeout(window.__originDirectTouchTimer);var node=this;window.__originDirectTouchTimer=window.setTimeout(function(){try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'commit',edits:[{index:${index},text:String(node.textContent||'')}],timestamp:Date.now()},'*')}catch(_){ }},420);`);
     target.spellcheck = true;
   });
   return documentModel.body.innerHTML;
@@ -865,6 +866,16 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   const previewRef = useRef<HTMLIFrameElement>(null);
   const codeEditorRef = useRef<HTMLTextAreaElement>(null);
   const cleanLoadConfirmed = useRef(false);
+  const pendingDirectTouchRevision = useRef<string | null>(null);
+  useEffect(() => {
+    // A Direct Touch commit is not acknowledged until the revised artifact is
+    // reflected back through the owning app. Remain fail-closed if that fails.
+    if (pendingDirectTouchRevision.current !== null && artifact?.content === pendingDirectTouchRevision.current) {
+      pendingDirectTouchRevision.current = null;
+      document.documentElement.dataset.originDirectTouchPending = 'false';
+      window.dispatchEvent(new Event('origin:pwa-safe-apply'));
+    }
+  }, [artifact?.content]);
   const setLastKnownGood = (snapshot: ArtifactBlock | null) => { if (snapshot === null || cleanLoadConfirmed.current) setLastKnownGoodState(snapshot); };
   useEffect(() => { const updateFullscreen = () => { const active = document.fullscreenElement === workspaceRef.current; setIsFullscreen(active); if (!active) setIsPresentation(false); }; document.addEventListener('fullscreenchange', updateFullscreen); return () => document.removeEventListener('fullscreenchange', updateFullscreen); }, []);
   useEffect(() => { cleanLoadConfirmed.current = false; setActiveTab(artifactPrefersPreview(artifact) ? 'preview' : 'code'); setCopied(false); setShared(false); setIsPresentation(false); setPresentationSlideIndex(0); setPreviewViewport('fluid'); setIsDirectEditing(false); setSandboxError(null); setLastKnownGood(null); setIsExportMenuOpen(false); setIsDetailsMenuOpen(false); }, [artifact?.id]);
@@ -910,8 +921,13 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
       if (!event.data || typeof event.data !== 'object') return;
       const data = event.data as { source?: string; type?: string; message?: string; edits?: unknown; timestamp?: number };
       const isBoundaryMessage = data.source === 'ORIGIN_SANDBOX_BOUNDARY' && (data.type === 'ready' || data.type === 'runtime-error');
+      const isDirectTouchEditing = data.source === 'ORIGIN_DIRECT_TOUCH' && data.type === 'editing' && isDirectEditing;
       const isDirectTouchCommit = data.source === 'ORIGIN_DIRECT_TOUCH' && data.type === 'commit' && isDirectTouchEdits(data.edits);
-      if (!isBoundaryMessage && !isDirectTouchCommit) return;
+      if (!isBoundaryMessage && !isDirectTouchCommit && !isDirectTouchEditing) return;
+      if (isDirectTouchEditing) {
+        document.documentElement.dataset.originDirectTouchPending = 'true';
+        return;
+      }
       if (data.source === 'ORIGIN_SANDBOX_BOUNDARY') {
         if (data.type === 'runtime-error') { cleanLoadConfirmed.current = false; setSandboxError(data.message || 'Unknown runtime error'); }
         if (data.type === 'ready' && artifact && typeof data.timestamp === 'number') { cleanLoadConfirmed.current = true; setLastKnownGood({ ...artifact, content: workingContent }); }
@@ -924,6 +940,9 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
         const nextArtifact = { ...artifact, content: nextContent, revision: priorRevisions.length + 1, revisions: [...priorRevisions, nextRevision] };
         cleanLoadConfirmed.current = false;
         setWorkingContent(nextContent);
+        pendingDirectTouchRevision.current = nextContent;
+        // The last edit is held until the parent's artifact state accepts it.
+        document.documentElement.dataset.originDirectTouchPending = 'true';
         onArtifactRevision?.(nextArtifact);
       }
     };
