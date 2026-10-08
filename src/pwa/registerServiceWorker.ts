@@ -24,7 +24,8 @@ function hasUnsavedUserWork(): boolean {
   // Preserve even whitespace-only content; it may be intentional user input.
   const richEditors = Array.from(document.querySelectorAll('[contenteditable]:not([contenteditable="false"])'));
   if (richEditors.some((element) => (element.textContent?.length ?? 0) > 0)) return true;
-  if (document.documentElement.dataset.originStorageState === 'hydrating') return true;
+  // Failed/unfinished local persistence is not a safe reload boundary.
+  if (document.documentElement.dataset.originStorageState !== 'ready') return true;
   if (document.querySelector('[data-testid="origin-thinking"], [aria-busy="true"]')) return true;
   const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
   if (fileInputs.some((element) => (element as HTMLInputElement).files?.length)) return true;
