@@ -11,6 +11,9 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     '3850b924340bf3e2d4e24de94db0b7b27f75ed1a',
     // Reviewed MCP SDK 1.32.1 security update; preserve exact-content checks.
     'af43541852474fb8a1a1e4fffbb745b4ab601237',
+    // Independently reviewed Handlebars 4.7.10 lockfile update on PR #930/#922.
+    // Keep exact Git blob verification; never allow generic/transitive wildcards.
+    'd3533d98f80338f81975863d08935aeb867b0e9b',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
