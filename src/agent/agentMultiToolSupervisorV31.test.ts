@@ -36,9 +36,43 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(result.completedSteps[0]?.operationDigest).not.toBe(result.completedSteps[1]?.operationDigest);
     expect(actions.consumeExactApproval).toHaveBeenCalledTimes(2);
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(2);
+    expect(actions.isCancelled).toHaveBeenCalledWith('run-supervisor-1');
+    expect(actions.executeAndVerify).toHaveBeenNthCalledWith(1,
+      expect.objectContaining({ id: 'step-1', toolName: 'web_search_grounding' }),
+      expect.anything(),
+      [],
+      { runId: 'run-supervisor-1', operationDigest: result.completedSteps[0]?.operationDigest },
+    );
     expect(actions.prepareParams).toHaveBeenNthCalledWith(2,
       expect.objectContaining({ id: 'step-2' }),
       [expect.objectContaining({ stepId: 'step-1', evidenceDigest: digest('step-1') })]);
+  });
+
+  it('binds each cancellation check and verified execution attempt to its exact run', async () => {
+    const actions = deps();
+    const approvals = new Set<string>();
+    actions.isCancelled = vi.fn(async run => {
+      expect(run).toBe('run-supervisor-1');
+      return false;
+    });
+    actions.consumeExactApproval = vi.fn(async (run, operation) => {
+      expect(run).toBe('run-supervisor-1');
+      approvals.add(operation);
+      return true;
+    });
+    actions.executeAndVerify = vi.fn(async (step, _params, _prior, context) => {
+      expect(Object.isFrozen(context)).toBe(true);
+      expect(context.runId).toBe('run-supervisor-1');
+      expect(approvals.has(context.operationDigest)).toBe(true);
+      return {
+        terminal: 'verified' as const, toolExecuted: true, verified: true,
+        evidenceDigest: digest(step.id), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+      };
+    });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result.status).toBe('completed');
+    expect(actions.executeAndVerify).toHaveBeenCalledTimes(2);
+    expect(actions.isCancelled).toHaveBeenCalled();
   });
 
   it('binds every exact approval to one run and goal so a token cannot be replayed for a different request', async () => {
