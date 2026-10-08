@@ -228,7 +228,7 @@ export async function executeAgentMultiToolSequenceV31(
   goal: string,
   deps: AgentMultiToolSupervisorDepsV31,
 ): Promise<AgentMultiToolSupervisorResultV31> {
-  if (typeof runId !== 'string' || !/^run-[A-Za-z0-9_-]{8,80}$/.test(runId))
+  if (typeof runId !== 'string' || !/^run-[A-Za-z0-9-]{8,80}$/.test(runId))
     return finish('blocked', 'AGENT_MULTI_TOOL_RUN_INVALID', []);
   if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000)
     return finish('blocked', 'AGENT_MULTI_TOOL_GOAL_INVALID', []);
