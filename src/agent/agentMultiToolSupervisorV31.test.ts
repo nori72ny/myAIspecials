@@ -97,6 +97,29 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(2);
   });
 
+  it('passes only immutable cloned parameters to a tool after their approval is consumed', async () => {
+    const actions = deps();
+    const shared = { action: 'original', details: { content: 'approved' } };
+    actions.prepareParams = vi.fn(async () => shared);
+    actions.consumeExactApproval = vi.fn(async () => {
+      shared.action = 'changed-after-approval';
+      shared.details.content = 'not-approved';
+      return true;
+    });
+    actions.executeAndVerify = vi.fn(async (step, params) => {
+      expect(params).toMatchObject({ action: 'original', details: { content: 'approved' } });
+      expect(Object.isFrozen(params)).toBe(true);
+      expect(Object.isFrozen((params as { details: object }).details)).toBe(true);
+      return {
+        terminal: 'verified' as const, toolExecuted: true, verified: true,
+        evidenceDigest: digest(step.id), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+      };
+    });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result.status).toBe('completed');
+    expect(actions.executeAndVerify).toHaveBeenCalledTimes(2);
+  });
+
   it('requires independent confirmation of a tool terminal receipt', async () => {
     const actions = deps();
     actions.verifyTrustedTerminal = vi.fn(async () => false);
