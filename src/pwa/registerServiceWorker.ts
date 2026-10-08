@@ -17,7 +17,7 @@ function hasUnsavedUserWork(): boolean {
   if (textInputs.some((element) => (element as HTMLInputElement | HTMLTextAreaElement).value.length > 0)) return true;
   // Drafts in accessible rich-text editors must be treated like textarea drafts.
   // Preserve even whitespace-only content; it may be intentional user input.
-  const richEditors = Array.from(document.querySelectorAll('[contenteditable="true"], [contenteditable="plaintext-only"]'));
+  const richEditors = Array.from(document.querySelectorAll('[contenteditable]:not([contenteditable="false"])'));
   if (richEditors.some((element) => (element.textContent?.length ?? 0) > 0)) return true;
   if (document.documentElement.dataset.originStorageState === 'hydrating') return true;
   if (document.querySelector('[data-testid="origin-thinking"], [aria-busy="true"]')) return true;
