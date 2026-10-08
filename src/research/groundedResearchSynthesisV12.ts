@@ -284,6 +284,29 @@ function numericTokens(value: string): string[] {
   return [...new Set([...dates, ...numbers])];
 }
 
+/**
+ * Permit only a visibly shown, exactly correct, safe-integer + / − result.
+ * Both operands must appear as whole numeric tokens in this unit's cited
+ * evidence. This does not authorize unsourced estimates or unshown arithmetic.
+ */
+function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<string>): Set<string> {
+  const allowed = new Set<string>();
+  const expression = /(?<![\d.])(\d{1,12})(店|店舗|件|人|円)?\s*([+\-−])\s*(\d{1,12})(店|店舗|件|人|円)?\s*[=＝]\s*(\d{1,12})(店|店舗|件|人|円)?(?![\d.])/g;
+  for (const match of unit.normalize("NFKC").matchAll(expression)) {
+    const [, leftText, leftUnit = "", operator, rightText, rightUnit = "", resultText, resultUnit = ""] = match;
+    if (leftUnit !== rightUnit || leftUnit !== resultUnit) continue;
+    const left = Number(leftText), right = Number(rightText), expected = Number(resultText);
+    if (![left, right, expected].every(Number.isSafeInteger)) continue;
+    if (operator === "+" ? left + right !== expected : left - right !== expected) continue;
+    if (!evidence.has(`${leftText}${leftUnit}`) || !evidence.has(`${rightText}${rightUnit}`)) continue;
+    allowed.add(`${resultText}${resultUnit}`);
+    // Numeric tokenization retains the binary sign of the second operand.
+    // It is permitted only inside this specifically verified expression.
+    allowed.add(`${operator === "+" ? "+" : "-"}${rightText}${rightUnit}`);
+  }
+  return allowed;
+}
+
 function citedSourceIds(value: string): string[] {
   const ids = new Set<string>();
   CITATION_PATTERN.lastIndex = 0;
@@ -371,8 +394,9 @@ export function validateGroundedResearchSynthesis(
     const evidenceText = ids.map((id) => sourceEvidence.get(id) ?? "").join("\n");
     // Compare whole numeric tokens; substring matches can silently change magnitude or sign.
     const supportedNumbers = new Set(numericTokens(evidenceText));
+    const verifiedResults = verifiedDerivedArithmeticTokens(unit, supportedNumbers);
     for (const token of numericTokens(unit)) {
-      if (!supportedNumbers.has(token)) {
+      if (!supportedNumbers.has(token) && !verifiedResults.has(token)) {
         return {
           ok: false,
           code: "UNSUPPORTED_NUMERIC_TOKEN",
