@@ -112,7 +112,7 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
     && reviews.some(review => review?.state === 'APPROVED'
       && review.commit_id === candidateSha
       && Boolean(review.user?.login)
-      && review.user?.login !== pull.user!.login);
+      && review.user?.login !== pull?.user?.login);
   if (!reviewed) blockers.push('EXACT_HEAD_REVIEW_MISSING');
 
   return Object.freeze({
