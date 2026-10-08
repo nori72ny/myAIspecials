@@ -356,7 +356,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
   it('rejects non-string evidence hashes without calling untrusted toString after dispatch', async () => {
     const actions = deps();
     const coercion = vi.fn(() => digest('step-1'));
-    actions.executeAndVerify = vi.fn(async step => ({
+    actions.executeAndVerify = vi.fn(async () => ({
       terminal: 'verified' as const, toolExecuted: true, verified: true,
       evidenceDigest: { toString: coercion } as unknown as string,
       freeOnly: true, costUsd: 0, paidFallbackUsed: false,
