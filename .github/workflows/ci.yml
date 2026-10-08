@@ -59,6 +59,17 @@ jobs:
       run: npm run build
     - name: Run unit tests
       run: npm run test
+    - name: Prepare immutable code review packet
+      if: matrix.node-version == '22.x'
+      run: npm run eval:prepare
+    - name: Upload code review packet
+      if: matrix.node-version == '22.x'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: code-review-packet-${{ github.sha }}
+        path: results/code-review/
+        retention-days: 30
+        if-no-files-found: error
     - name: Cache Playwright Browsers
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
       with:
