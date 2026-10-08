@@ -3,6 +3,8 @@
  * Stored IndexedDB values are untrusted and may predate this schema.
  * Invalid or excessive histories are dropped, never executed.
  */
+import { ORIGIN_ARTIFACT_HISTORY_LIMIT } from './artifactRevisionLedger';
+
 export type RecoveredArtifactRevision = {
   id: string;
   content: string;
@@ -10,7 +12,6 @@ export type RecoveredArtifactRevision = {
   source: 'generated' | 'direct-touch' | 'restore';
 };
 
-const MAX_REVISIONS = 64;
 const MAX_CONTENT_CHARS = 1_000_000;
 const MAX_HISTORY_CHARS = 10_000_000;
 
@@ -18,11 +19,13 @@ export function recoverPersistedArtifactRevisions(
   stored: unknown,
   currentContent: string,
 ): readonly RecoveredArtifactRevision[] | undefined {
-  if (!Array.isArray(stored) || stored.length === 0 || stored.length > MAX_REVISIONS) return undefined;
+  if (!Array.isArray(stored) || stored.length === 0) return undefined;
   let size = 0;
   const ids = new Set<string>();
   const revisions: RecoveredArtifactRevision[] = [];
-  for (const item of stored) {
+  // A legacy snapshot may contain hundreds of historical edits. Keep the
+  // newest bounded window instead of discarding the entire undo ledger.
+  for (const item of stored.slice(-ORIGIN_ARTIFACT_HISTORY_LIMIT)) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined;
     const value = item as Record<string, unknown>;
     if (typeof value.id !== 'string' || value.id.length < 1 || value.id.length > 160
