@@ -9,6 +9,7 @@ const main = 'a'.repeat(40);
 const valid = (): OriginProgressiveReleaseEvidenceV1 => ({
   featureId: 'pwa-safe-update',
   kind: 'published-feature-update',
+  singleFeatureDiffVerified: true,
   candidateSha: sha,
   currentHeadSha: sha,
   baseMainSha: main,
@@ -18,10 +19,14 @@ const valid = (): OriginProgressiveReleaseEvidenceV1 => ({
   productionDomainHeldUntilChecksPass: true,
   exactHeadRequiredChecksGreen: true,
   reviewedHeadSha: sha,
+  uiChanged: false,
+  ownerVisualApprovedHeadSha: null,
   ownerApproval: { featureId: 'pwa-safe-update', kind: 'published-feature-update', headSha: sha, identityVerified: true },
   capabilityQualityQualified: true,
   regressionAndDeviceTestsPassed: true,
   zeroCostVerified: true,
+  freeOnlyVerified: true,
+  actualCostUsd: 0,
   paidFallbackDisabled: true,
   noNewPrivilegesOrSecrets: true,
   rollbackReady: true,
@@ -47,6 +52,10 @@ describe('Origin Progressive Release Preflight V1', () => {
 
   it.each([
     ['unprotected main', { mainProtected: false }, 'UNPROTECTED_MAIN'],
+    ['multiple features in changed-file scope', { singleFeatureDiffVerified: false }, 'FEATURE_DIFF_SCOPE_UNVERIFIED'],
+    ['UI change without owner visual approval', { uiChanged: true }, 'OWNER_VISUAL_APPROVAL_MISSING'],
+    ['visual signoff on stale SHA', { uiChanged: true, ownerVisualApprovedHeadSha: main }, 'OWNER_VISUAL_APPROVAL_MISSING'],
+    ['unknown UI-change classification', { uiChanged: undefined }, 'OWNER_VISUAL_APPROVAL_MISSING'],
     ['unenforced required checks', { requiredChecksAndReviewEnforced: false }, 'PREPUBLISH_GATE_NOT_ENFORCED'],
     ['auto-promoted domain without deployment hold', { productionDomainHeldUntilChecksPass: false }, 'PREPUBLISH_GATE_NOT_ENFORCED'],
     ['failed or pending CI', { exactHeadRequiredChecksGreen: false }, 'EXACT_HEAD_CI_NOT_GREEN'],
@@ -56,6 +65,9 @@ describe('Origin Progressive Release Preflight V1', () => {
     ['missing held-out quality', { capabilityQualityQualified: false }, 'QUALITY_EVIDENCE_MISSING'],
     ['device regression', { regressionAndDeviceTestsPassed: false }, 'QUALITY_EVIDENCE_MISSING'],
     ['cost unverified', { zeroCostVerified: false }, 'SAFETY_EVIDENCE_MISSING'],
+    ['free-only not attested', { freeOnlyVerified: false }, 'SAFETY_EVIDENCE_MISSING'],
+    ['actual paid charge', { actualCostUsd: 0.01 }, 'SAFETY_EVIDENCE_MISSING'],
+    ['non-finite cost', { actualCostUsd: Number.NaN }, 'SAFETY_EVIDENCE_MISSING'],
     ['paid fallback', { paidFallbackDisabled: false }, 'SAFETY_EVIDENCE_MISSING'],
     ['privilege expansion', { noNewPrivilegesOrSecrets: false }, 'SAFETY_EVIDENCE_MISSING'],
     ['no rollback', { rollbackReady: false }, 'POST_RELEASE_VERIFICATION_UNAVAILABLE'],
@@ -66,6 +78,13 @@ describe('Origin Progressive Release Preflight V1', () => {
     const report = evaluate({ ...valid(), ...mutation });
     expect(report.canPublish).toBe(false);
     expect(report.blockers).toContain(reason);
+  });
+
+  it('requires a visual approval on the exact SHA for UI-changing updates', () => {
+    const input = valid();
+    expect(evaluate({ ...input, uiChanged: true, ownerVisualApprovedHeadSha: sha }).canPublish).toBe(true);
+    expect(evaluate({ ...input, uiChanged: true, ownerVisualApprovedHeadSha: main }).canPublish).toBe(false);
+    expect(evaluate({ ...input, uiChanged: true, ownerVisualApprovedHeadSha: null }).canPublish).toBe(false);
   });
 
   it('forbids a superseded approval even when CI, model quality and safety all pass', () => {
@@ -81,7 +100,7 @@ describe('Origin Progressive Release Preflight V1', () => {
 
   it('never accepts malformed strings in place of verified evidence booleans', () => {
     const input = valid();
-    const report = evaluate({ ...input, mainProtected: 'true', zeroCostVerified: 'true' } as unknown as OriginProgressiveReleaseEvidenceV1);
+    const report = evaluate({ ...input, mainProtected: 'true', zeroCostVerified: 'true', actualCostUsd: '0' } as unknown as OriginProgressiveReleaseEvidenceV1);
     expect(report.canPublish).toBe(false);
     expect(report.blockers).toEqual(expect.arrayContaining(['UNPROTECTED_MAIN', 'SAFETY_EVIDENCE_MISSING']));
   });
