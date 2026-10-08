@@ -134,17 +134,31 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
     blockers.push('REQUIRED_CI_NOT_GREEN');
   }
 
-  // A prior COMMENTED review or an approval on an old SHA is not a release review.
-  // GitHub response identity is used; any owner visual approval is separately verified.
+  // GitHub reviews are returned oldest-first. A subsequent approval from
+  // the SAME reviewer resolves that reviewer's earlier change request, but
+  // another reviewer's outstanding request must still block. Comments do not
+  // override an outstanding decision. Missing identities fail closed.
+  const latestDecisiveReview = new Map<string, { state: string; commit_id: string | null }>();
+  let unidentifiedChangeRequest = false;
+  if (Array.isArray(reviews)) {
+    for (const review of reviews) {
+      if (!review || (review.state !== 'APPROVED' && review.state !== 'CHANGES_REQUESTED'
+        && review.state !== 'DISMISSED')) continue;
+      const author = review.user?.login;
+      if (typeof author !== 'string' || author.length === 0) {
+        if (review.state === 'CHANGES_REQUESTED') unidentifiedChangeRequest = true;
+        continue;
+      }
+      latestDecisiveReview.set(author, { state: review.state, commit_id: review.commit_id });
+    }
+  }
+  const anyChangesRequested = unidentifiedChangeRequest || [...latestDecisiveReview.values()]
+    .some(review => review.state === 'CHANGES_REQUESTED');
   const reviewed = candidateSha !== null && Array.isArray(reviews)
     && typeof pull?.user?.login === 'string' && pull.user.login.length > 0
-    // An outstanding request for changes blocks promotion, even if there is
-    // another earlier approval on the exact commit.
-    && !reviews.some(review => review?.state === 'CHANGES_REQUESTED')
-    && reviews.some(review => review?.state === 'APPROVED'
-      && review.commit_id === candidateSha
-      && Boolean(review.user?.login)
-      && review.user?.login !== pull?.user?.login);
+    && !anyChangesRequested
+    && [...latestDecisiveReview].some(([reviewer, review]) => review.state === 'APPROVED'
+      && review.commit_id === candidateSha && reviewer !== pull?.user?.login);
   if (!reviewed) blockers.push('EXACT_HEAD_REVIEW_MISSING');
 
   return Object.freeze({
