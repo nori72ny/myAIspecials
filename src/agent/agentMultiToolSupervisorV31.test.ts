@@ -132,7 +132,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
       evidenceDigest: digest('not-terminal'), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
     }));
     const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
-    expect(result).toMatchObject({ status: 'blocked', verified: false, code: 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED' });
+    expect(result).toMatchObject({ status: 'blocked', verified: false, code: 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED' });
     expect(result.completedSteps).toHaveLength(0);
     expect(actions.consumeExactApproval).toHaveBeenCalledTimes(1);
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
@@ -290,6 +290,57 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     });
     expect(result.completedSteps).toHaveLength(0);
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an accessor-backed tool receipt without running its getter after dispatch', async () => {
+    const actions = deps();
+    const getter = vi.fn(() => { throw new Error('unsafe receipt getter'); });
+    actions.executeAndVerify = vi.fn(async step => {
+      const receipt = {
+        terminal: 'verified' as const, toolExecuted: true, verified: true,
+        evidenceDigest: digest(step.id), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+      };
+      Object.defineProperty(receipt, 'evidenceDigest', { enumerable: true, get: getter });
+      return receipt;
+    });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({
+      status: 'blocked', verified: false,
+      code: 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED',
+    });
+    expect(getter).not.toHaveBeenCalled();
+    expect(actions.verifyTrustedTerminal).not.toHaveBeenCalled();
+  });
+
+  it('rejects Proxy tool receipts without running enumeration traps', async () => {
+    const actions = deps();
+    const trap = vi.fn(() => { throw new Error('unsafe receipt enumeration'); });
+    actions.executeAndVerify = vi.fn(async step => new Proxy({
+      terminal: 'verified' as const, toolExecuted: true, verified: true,
+      evidenceDigest: digest(step.id), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+    }, { ownKeys: trap }));
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({
+      status: 'blocked', verified: false,
+      code: 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED',
+    });
+    expect(trap).not.toHaveBeenCalled();
+    expect(actions.verifyTrustedTerminal).not.toHaveBeenCalled();
+  });
+
+  it('does not accept an unexpected tool result property as a trusted terminal receipt', async () => {
+    const actions = deps();
+    actions.executeAndVerify = vi.fn(async step => ({
+      terminal: 'verified' as const, toolExecuted: true, verified: true,
+      evidenceDigest: digest(step.id), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+      unsolicited: 'provider-supplied-extra',
+    }));
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({
+      status: 'blocked', verified: false,
+      code: 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED',
+    });
+    expect(actions.verifyTrustedTerminal).not.toHaveBeenCalled();
   });
 
   it('requires reconciliation when dispatch returns no trustworthy receipt', async () => {
