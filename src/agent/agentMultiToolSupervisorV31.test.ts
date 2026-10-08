@@ -24,7 +24,7 @@ function deps(): AgentMultiToolSupervisorDepsV31 {
 describe('Agent V3.1 bounded multi-tool supervisor', () => {
   it('runs a supported two-step plan only with approval and verified terminal evidence for each operation', async () => {
     const actions = deps();
-    const result = await executeAgentMultiToolSequenceV31(researchToDocument, actions);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result).toMatchObject({
       status: 'completed', verified: true, code: 'AGENT_MULTI_TOOL_ALL_STEPS_VERIFIED',
       freeOnly: true, costUsd: 0, paidFallbackUsed: false,
@@ -40,11 +40,28 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
       [expect.objectContaining({ stepId: 'step-1', evidenceDigest: digest('step-1') })]);
   });
 
+  it('binds every exact approval to one run and goal so a token cannot be replayed for a different request', async () => {
+    const first = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, deps());
+    const second = await executeAgentMultiToolSequenceV31('run-supervisor-2', researchToDocument, deps());
+    expect(first.status).toBe('completed');
+    expect(second.status).toBe('completed');
+    expect(first.completedSteps[0]?.operationDigest).not.toBe(second.completedSteps[0]?.operationDigest);
+    expect(first.completedSteps[0]?.evidenceDigest).toBe(second.completedSteps[0]?.evidenceDigest);
+  });
+
+  it('rejects a run without an independently scoped run identifier before any operation', async () => {
+    const actions = deps();
+    const result = await executeAgentMultiToolSequenceV31('', researchToDocument, actions);
+    expect(result).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_RUN_INVALID' });
+    expect(actions.prepareParams).not.toHaveBeenCalled();
+    expect(actions.executeAndVerify).not.toHaveBeenCalled();
+  });
+
   it('never proceeds to a side-effecting second step without separate exact-operation approval', async () => {
     const actions = deps();
     let called = 0;
     actions.verifyExactApproval = vi.fn(async () => ++called === 1);
-    const result = await executeAgentMultiToolSequenceV31(researchToDocument, actions);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result).toMatchObject({ status: 'blocked', verified: false, code: 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED' });
     expect(result.completedSteps).toHaveLength(1);
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
@@ -56,7 +73,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
       terminal: 'running' as const, toolExecuted: true, verified: false,
       evidenceDigest: digest('not-terminal'), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
     }));
-    const result = await executeAgentMultiToolSequenceV31(researchToDocument, actions);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result).toMatchObject({ status: 'blocked', verified: false, code: 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED' });
     expect(result.completedSteps).toHaveLength(0);
     expect(actions.verifyExactApproval).toHaveBeenCalledTimes(1);
@@ -76,7 +93,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
         evidenceDigest: digest(step.id), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
         ...mutation,
       }));
-      const result = await executeAgentMultiToolSequenceV31(researchToDocument, actions);
+      const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
       expect(result).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED' });
       expect(result.completedSteps).toHaveLength(0);
     }
@@ -93,7 +110,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
       };
     });
     actions.isCancelled = vi.fn(async () => executed > 0);
-    const result = await executeAgentMultiToolSequenceV31(researchToDocument, actions);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result.status).toBe('cancelled');
     expect(result.verified).toBe(false);
     expect(result.completedSteps).toHaveLength(0);
@@ -103,7 +120,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
   it('fails closed for dangerous operation parameters without invoking the tool', async () => {
     const actions = deps();
     actions.prepareParams = vi.fn(async () => JSON.parse('{"__proto__":{"admin":true}}'));
-    const result = await executeAgentMultiToolSequenceV31(researchToDocument, actions);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_STEP_FAILED' });
     expect(actions.verifyExactApproval).not.toHaveBeenCalled();
     expect(actions.executeAndVerify).not.toHaveBeenCalled();
@@ -112,12 +129,12 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
   it('never leaks an adapter exception or invents a tool plan for unsupported requests', async () => {
     const actions = deps();
     actions.executeAndVerify = vi.fn(async () => { throw new Error('secret provider token 123'); });
-    const result = await executeAgentMultiToolSequenceV31(researchToDocument, actions);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result.status).toBe('blocked');
     expect(result.code).toBe('AGENT_MULTI_TOOL_STEP_FAILED');
     expect(JSON.stringify(result)).not.toContain('secret provider token');
 
-    const ambiguous = await executeAgentMultiToolSequenceV31('いい感じに進めて', actions);
+    const ambiguous = await executeAgentMultiToolSequenceV31('run-supervisor-1', 'いい感じに進めて', actions);
     expect(ambiguous).toMatchObject({ status: 'blocked', verified: false, code: 'AGENT_MULTI_TOOL_PLAN_UNSUPPORTED' });
   });
 });
