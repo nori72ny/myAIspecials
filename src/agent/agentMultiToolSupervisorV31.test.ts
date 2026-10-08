@@ -53,7 +53,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
   it('does not call dispatch/running an achieved outcome or start a dependent step', async () => {
     const actions = deps();
     actions.executeAndVerify = vi.fn(async () => ({
-      terminal: 'running', toolExecuted: true, verified: false,
+      terminal: 'running' as const, toolExecuted: true, verified: false,
       evidenceDigest: digest('not-terminal'), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
     }));
     const result = await executeAgentMultiToolSequenceV31(researchToDocument, actions);
