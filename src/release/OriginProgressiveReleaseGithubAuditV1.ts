@@ -31,6 +31,14 @@ export interface OriginGithubReleaseSnapshotV1 {
     readonly protected: boolean;
     readonly commit: { readonly sha: string };
   } | null;
+  /** Effective main branch protection details from the authenticated GitHub API. */
+  readonly mainProtection: {
+    readonly required_status_checks?: { readonly strict?: boolean; readonly contexts?: readonly string[]; readonly checks?: readonly { readonly context?: string }[] } | null;
+    readonly required_pull_request_reviews?: { readonly required_approving_review_count?: number; readonly dismiss_stale_reviews?: boolean } | null;
+    readonly enforce_admins?: { readonly enabled?: boolean } | null;
+    readonly allow_force_pushes?: { readonly enabled?: boolean } | null;
+    readonly allow_deletions?: { readonly enabled?: boolean } | null;
+  } | null;
   readonly checks: {
     readonly total_count: number;
     readonly check_runs: readonly {
@@ -51,6 +59,7 @@ export type OriginGithubReleaseBlockerV1 =
   | 'PR_NOT_READY'
   | 'CANDIDATE_MAIN_MISMATCH'
   | 'MAIN_UNPROTECTED'
+  | 'BRANCH_RULES_UNVERIFIED'
   | 'REQUIRED_CI_NOT_GREEN'
   | 'EXACT_HEAD_REVIEW_MISSING';
 
@@ -64,6 +73,28 @@ export interface OriginGithubReleaseAuditV1 {
 }
 
 const validSha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
+
+// A protected=true summary flag alone does not attest enforced CI, reviews,
+// stale-approval dismissal or admin coverage. Missing 403 responses fail closed.
+function verifiedMainBranchRules(protection: OriginGithubReleaseSnapshotV1['mainProtection']): boolean {
+  if (!protection || typeof protection !== 'object' || Array.isArray(protection)) return false;
+  const rules = protection.required_status_checks;
+  const reviews = protection.required_pull_request_reviews;
+  if (!rules || rules.strict !== true || !reviews
+    || !Number.isInteger(reviews.required_approving_review_count)
+    || (reviews.required_approving_review_count ?? 0) < 1
+    || reviews.dismiss_stale_reviews !== true
+    || protection.enforce_admins?.enabled !== true
+    || protection.allow_force_pushes?.enabled !== false
+    || protection.allow_deletions?.enabled !== false) return false;
+  const contexts = Array.isArray(rules.contexts) ? rules.contexts : [];
+  const checks = Array.isArray(rules.checks) ? rules.checks : [];
+  const required = new Set([
+    ...contexts.filter((c): c is string => typeof c === 'string'),
+    ...checks.map(c => c?.context).filter((c): c is string => typeof c === 'string'),
+  ]);
+  return REQUIRED_ORIGIN_RELEASE_CHECKS_V1.every(name => required.has(name));
+}
 
 export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSnapshotV1): OriginGithubReleaseAuditV1 {
   const pull = input?.pull;
@@ -90,6 +121,7 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
     blockers.push('CANDIDATE_MAIN_MISMATCH');
   }
   if (main?.protected !== true) blockers.push('MAIN_UNPROTECTED');
+  if (!verifiedMainBranchRules(input?.mainProtection)) blockers.push('BRANCH_RULES_UNVERIFIED');
 
   // Duplicate check names from old reruns must not be silently considered valid.
   // Every required result must appear once, be completed, and have conclusion success.
