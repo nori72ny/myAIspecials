@@ -71,10 +71,12 @@ function canonicalParams(value: unknown): string {
   return encoded;
 }
 
-function approvalBinding(step: AgentMultiToolStepV31, params: unknown, prior: readonly AgentMultiToolVerifiedStepV31[]): string {
+function approvalBinding(runId: string, goalDigest: string, step: AgentMultiToolStepV31, params: unknown, prior: readonly AgentMultiToolVerifiedStepV31[]): string {
   return createHash('sha256')
     .update('origin.multi-tool.exact-operation.v31\0', 'utf8')
     .update(JSON.stringify({
+      runId,
+      goalDigest,
       stepId: step.id,
       toolName: step.toolName,
       params: canonicalParams(params),
@@ -94,12 +96,17 @@ function finish(status: AgentMultiToolSupervisorResultV31['status'], code: strin
  * permissive test adapters for production.
  */
 export async function executeAgentMultiToolSequenceV31(
+  runId: string,
   goal: string,
   deps: AgentMultiToolSupervisorDepsV31,
 ): Promise<AgentMultiToolSupervisorResultV31> {
+  if (typeof runId !== 'string' || !/^run-[A-Za-z0-9_-]{8,80}$/.test(runId))
+    return finish('blocked', 'AGENT_MULTI_TOOL_RUN_INVALID', []);
   if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000)
     return finish('blocked', 'AGENT_MULTI_TOOL_GOAL_INVALID', []);
-  const plan = planAgentToolSequenceV31(goal.trim());
+  const normalizedGoal = goal.trim();
+  const goalDigest = createHash('sha256').update(normalizedGoal, 'utf8').digest('hex');
+  const plan = planAgentToolSequenceV31(normalizedGoal);
   if (!plan.ok || plan.version !== AGENT_MULTI_TOOL_PLAN_VERSION_V31
     || plan.bounded !== true || plan.steps.length < 1 || plan.steps.length > 3)
     return finish('blocked', 'AGENT_MULTI_TOOL_PLAN_UNSUPPORTED', []);
@@ -116,7 +123,7 @@ export async function executeAgentMultiToolSequenceV31(
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       const prior = Object.freeze(completed.map(row => Object.freeze({ ...row })));
       const params = await deps.prepareParams(step, prior);
-      const operationDigest = approvalBinding(step, params, prior);
+      const operationDigest = approvalBinding(runId, goalDigest, step, params, prior);
       if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       if (await deps.verifyExactApproval(operationDigest, step) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED', completed);
