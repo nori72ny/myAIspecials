@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { checkOriginAqCredentialBoundary } from "./aq-provider-credential-guard.js";
 import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from "../src/lib/orchestration/OriginFreeModelCatalog.js";
 import {
   createOriginAnswerQualityFrozenCorpus,
@@ -204,6 +205,18 @@ function sanitizedResult(
 }
 
 async function main(): Promise<void> {
+  // The existing benchmark server inherits process.env, including provider
+  // credentials. An unreviewed PR checkout MUST NOT be evaluated this way.
+  // Trusted per-case proxy isolation is required before any premerge live AQ.
+  const credentialBoundary = checkOriginAqCredentialBoundary({
+    baselineSha: requiredEnv("ORIGIN_AQ_BASELINE_SHA"),
+    candidateSha: requiredEnv("ORIGIN_AQ_CANDIDATE_SHA"),
+    env: process.env,
+  });
+  if (!credentialBoundary.ok) {
+    throw new Error(credentialBoundary.code);
+  }
+
   const baselineRoot = await fs.realpath(requiredEnv("ORIGIN_AQ_BASELINE_ROOT"));
   const candidateRoot = await fs.realpath(requiredEnv("ORIGIN_AQ_CANDIDATE_ROOT"));
   const baselineSha = requiredEnv("ORIGIN_AQ_BASELINE_SHA");
