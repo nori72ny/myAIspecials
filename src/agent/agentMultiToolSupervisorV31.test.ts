@@ -13,7 +13,8 @@ function deps(): AgentMultiToolSupervisorDepsV31 {
   return {
     isCancelled: vi.fn(async () => false),
     prepareParams: vi.fn(async (step, prior) => ({ action: step.toolName, evidence: prior.map(row => row.evidenceDigest) })),
-    verifyExactApproval: vi.fn(async () => true),
+    consumeExactApproval: vi.fn(async () => true),
+    verifyTrustedTerminal: vi.fn(async () => true),
     executeAndVerify: vi.fn(async step => ({
       terminal: 'verified' as const, toolExecuted: true, verified: true,
       evidenceDigest: digest(step.id), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
@@ -33,7 +34,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(result.completedSteps[0]?.evidenceDigest).toBe(digest('step-1'));
     expect(result.completedSteps[0]?.operationDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(result.completedSteps[0]?.operationDigest).not.toBe(result.completedSteps[1]?.operationDigest);
-    expect(actions.verifyExactApproval).toHaveBeenCalledTimes(2);
+    expect(actions.consumeExactApproval).toHaveBeenCalledTimes(2);
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(2);
     expect(actions.prepareParams).toHaveBeenNthCalledWith(2,
       expect.objectContaining({ id: 'step-2' }),
@@ -60,7 +61,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
   it('never proceeds to a side-effecting second step without separate exact-operation approval', async () => {
     const actions = deps();
     let called = 0;
-    actions.verifyExactApproval = vi.fn(async () => ++called === 1);
+    actions.consumeExactApproval = vi.fn(async () => ++called === 1);
     const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result).toMatchObject({ status: 'blocked', verified: false, code: 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED' });
     expect(result.completedSteps).toHaveLength(1);
@@ -76,7 +77,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result).toMatchObject({ status: 'blocked', verified: false, code: 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED' });
     expect(result.completedSteps).toHaveLength(0);
-    expect(actions.verifyExactApproval).toHaveBeenCalledTimes(1);
+    expect(actions.consumeExactApproval).toHaveBeenCalledTimes(1);
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
   });
 
@@ -122,7 +123,7 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     actions.prepareParams = vi.fn(async () => JSON.parse('{"__proto__":{"admin":true}}'));
     const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_STEP_FAILED' });
-    expect(actions.verifyExactApproval).not.toHaveBeenCalled();
+    expect(actions.consumeExactApproval).not.toHaveBeenCalled();
     expect(actions.executeAndVerify).not.toHaveBeenCalled();
   });
 
