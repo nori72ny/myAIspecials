@@ -124,7 +124,14 @@ function approvalBinding(runId: string, goalDigest: string, step: AgentMultiTool
       stepId: step.id,
       toolName: step.toolName,
       params: canonicalParams(params),
-      prior: prior.map(row => ({ stepId: row.stepId, evidenceDigest: row.evidenceDigest })),
+      // Bind the complete verified predecessor operation, not just its output.
+      // Different approved inputs can produce identical output digests.
+      prior: prior.map(row => ({
+        stepId: row.stepId,
+        toolName: row.toolName,
+        evidenceDigest: row.evidenceDigest,
+        operationDigest: row.operationDigest,
+      })),
     }), 'utf8')
     .digest('hex');
 }
