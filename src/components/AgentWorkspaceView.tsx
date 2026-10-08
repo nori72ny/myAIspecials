@@ -138,7 +138,7 @@ function phaseLabel(phase: Phase): string {
   return '待機中';
 }
 
-function verifiedCodingArtifact(result: CodingBridgeResult): string {
+export function verifiedCodingArtifact(result: CodingBridgeResult): string {
   const requiredKinds = ['typecheck', 'lint', 'test', 'build'] as const;
   const checks = requiredKinds.map((kind) => {
     const check = result.verificationChecks.find((item) => item.kind === kind);
