@@ -63,7 +63,7 @@ jobs:
           test -z "$(git status --porcelain)"
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PLAN_DIGEST" =~ ^[0-9a-f]{64}$ ]]
-          [[ "$SHARD_INDEX" =~ ^(0|[1-9]|10|11)$ ]]
+          [[ "$SHARD_INDEX" =~ ^[0-7]$ ]]
           # One-shot markers are retained 90 days. A 31-day candidate age cap
           # prevents old SHA/corpus replay after artifact retention expires.
           node -e "const {execFileSync}=require('node:child_process'); const stamp=execFileSync('git',['show','-s','--format=%cI','HEAD'],{encoding:'utf8'}).trim(); const age=Date.now()-Date.parse(stamp); if(!Number.isFinite(age)||age<0||age>=31*86400000) process.exit(43)"
