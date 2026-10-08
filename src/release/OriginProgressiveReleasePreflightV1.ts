@@ -47,6 +47,10 @@ export interface OriginProgressiveReleaseEvidenceV1 {
   } | null;
   /** Domain-specific, independently qualified; a skipped held-out is false. */
   readonly capabilityQualityQualified: boolean;
+  /** Exact evaluated candidate HEAD, bound to trusted independent quality evidence.
+   * A successful main-only benchmark for some other SHA never qualifies this PR.
+   * Never populate from PR comments, browser state, or unverifiable metadata. */
+  readonly capabilityQualityEvidenceCandidateSha: string;
   readonly regressionAndDeviceTestsPassed: boolean;
   readonly zeroCostVerified: boolean;
   readonly freeOnlyVerified: boolean;
@@ -115,7 +119,10 @@ export function evaluateOriginProgressiveReleasePreflightV1(
   } else if (input.uiChanged && input.ownerVisualApprovedHeadSha !== input.candidateSha) {
     blockers.push('OWNER_VISUAL_APPROVAL_MISSING');
   }
-  if (input.capabilityQualityQualified !== true || input.regressionAndDeviceTestsPassed !== true) {
+  if (input.capabilityQualityQualified !== true
+    || !validSha(input.capabilityQualityEvidenceCandidateSha)
+    || input.capabilityQualityEvidenceCandidateSha !== input.candidateSha
+    || input.regressionAndDeviceTestsPassed !== true) {
     blockers.push('QUALITY_EVIDENCE_MISSING');
   }
   if (input.zeroCostVerified !== true || input.freeOnlyVerified !== true
