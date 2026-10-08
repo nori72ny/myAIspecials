@@ -176,7 +176,9 @@ const prepareDirectTouchMarkup = (content: string) => {
     target.setAttribute('data-origin-direct-touch-index', String(index));
     target.setAttribute('contenteditable', 'plaintext-only');
     target.setAttribute('oncompositionstart', `try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }`);
-    const onEditFinalized = `try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }window.clearTimeout(window.__originDirectTouchTimer);var node=this;window.__originDirectTouchTimer=window.setTimeout(function(){try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'commit',edits:[{index:${index},text:String(node.textContent||'')}],timestamp:Date.now()},'*')}catch(_){ }},420);`;
+    // Coalesce all edited targets into one revision. One timer per iframe must
+    // never discard the prior target when a user quickly edits another field.
+    const onEditFinalized = `try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }var pending=window.__originDirectTouchEdits||(window.__originDirectTouchEdits=Object.create(null));pending[${index}]=String(this.textContent||'');window.clearTimeout(window.__originDirectTouchTimer);window.__originDirectTouchTimer=window.setTimeout(function(){var batch=window.__originDirectTouchEdits||Object.create(null);window.__originDirectTouchEdits=Object.create(null);var edits=Object.keys(batch).map(function(key){return{index:Number(key),text:String(batch[key])}});try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'commit',edits:edits,timestamp:Date.now()},'*')}catch(_){ }},420);`;
     target.setAttribute('oninput', onEditFinalized);
     // IME composition may be cancelled without producing a follow-up input.
     // Reconcile the current text even on compositionend to clear the
