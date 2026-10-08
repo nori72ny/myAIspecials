@@ -176,7 +176,12 @@ const prepareDirectTouchMarkup = (content: string) => {
     target.setAttribute('data-origin-direct-touch-index', String(index));
     target.setAttribute('contenteditable', 'plaintext-only');
     target.setAttribute('oncompositionstart', `try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }`);
-    target.setAttribute('oninput', `try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }window.clearTimeout(window.__originDirectTouchTimer);var node=this;window.__originDirectTouchTimer=window.setTimeout(function(){try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'commit',edits:[{index:${index},text:String(node.textContent||'')}],timestamp:Date.now()},'*')}catch(_){ }},420);`);
+    const onEditFinalized = `try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }window.clearTimeout(window.__originDirectTouchTimer);var node=this;window.__originDirectTouchTimer=window.setTimeout(function(){try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'commit',edits:[{index:${index},text:String(node.textContent||'')}],timestamp:Date.now()},'*')}catch(_){ }},420);`;
+    target.setAttribute('oninput', onEditFinalized);
+    // IME composition may be cancelled without producing a follow-up input.
+    // Reconcile the current text even on compositionend to clear the
+    // transient edit marker after the same safe debounce/commit pathway.
+    target.setAttribute('oncompositionend', onEditFinalized);
     target.spellcheck = true;
   });
   return documentModel.body.innerHTML;
