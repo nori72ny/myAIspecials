@@ -30,6 +30,8 @@
 
 - Vercelで承認済み Production の新SHAが有効になったとき、Service WorkerはSHAに基づく別キャッシュを使い、定期的に `registration.update()` を確認。
 - 入力中、添付、履歴hydration、推論中、画面非表示、**IME変換中、contenteditable draft** は waiting worker の適用と自動reloadを延期。下書きがなくなった後に一度だけ再読み込み。
+- **Direct Touch のiframe編集**は親DOMから直接参照できない。編集中の表示を親側で検知し、iframeのinput・IME開始を即時通知する。420ms debounce中は更新禁止。commit後もReact stateの反映だけでは解除せず、**対象revisionを含むスナップショットのIndexedDB saveが `saved` で成功し、後続編集に置き換わっていない**ことを確認して更新を再試行する。保存失敗・容量超過・旧世代書込みはfail-closed。
+- ストレージ `degraded` / 未初期化も更新禁止とし、下書き消失の可能性を成功扱いにしない。iframeからの通知は現在のpreview windowに紐づけ、外部フレームの無関係なメッセージでは更新の安全判定を変えない。
 - これは **端末への安全な版反映** の対策。Productionへ何を出してよいかの承認・品質ゲートを代替しない。
 
 ## 当面の運用
