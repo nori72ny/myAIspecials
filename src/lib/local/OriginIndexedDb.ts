@@ -57,6 +57,9 @@ export const awaitOriginIdbCommit = (transaction: IDBTransaction): Promise<void>
   transaction.onerror = () => reject(transaction.error ?? new Error('indexeddb-transaction-error'));
 });
 
+// One write queue per application tab; never treat a queued write as durable.
+let priorOriginLocalSave: Promise<void> = Promise.resolve();
+
 export const originIndexedDbAdapter: OriginStorageAdapter = {
   async load() {
     let database: IDBDatabase | null = null;
@@ -69,20 +72,26 @@ export const originIndexedDbAdapter: OriginStorageAdapter = {
       database?.close();
     }
   },
-  async save(snapshot) {
-    let database: IDBDatabase | null = null;
-    try {
-      database = await openOriginDatabase();
-      const transaction = database.transaction(ORIGIN_LOCAL_STORE, 'readwrite');
-      const put = transaction.objectStore(ORIGIN_LOCAL_STORE).put(snapshot, ORIGIN_LOCAL_SNAPSHOT_KEY);
-      const committed = awaitOriginIdbCommit(transaction);
-      await Promise.all([requestResult(put), committed]);
-      return 'saved';
-    } catch (error) {
-      return isQuotaExceeded(error) ? 'quota' : typeof indexedDB === 'undefined' ? 'unavailable' : 'failed';
-    } finally {
-      database?.close();
-    }
+  save(snapshot) {
+    // Serialize saves from this tab. Overlapping IndexedDB opens can otherwise
+    // reorder older/newer snapshots and overwrite a later user edit.
+    const saving = priorOriginLocalSave.then(async (): Promise<OriginStorageWriteResult> => {
+      let database: IDBDatabase | null = null;
+      try {
+        database = await openOriginDatabase();
+        const transaction = database.transaction(ORIGIN_LOCAL_STORE, 'readwrite');
+        const put = transaction.objectStore(ORIGIN_LOCAL_STORE).put(snapshot, ORIGIN_LOCAL_SNAPSHOT_KEY);
+        const committed = awaitOriginIdbCommit(transaction);
+        await Promise.all([requestResult(put), committed]);
+        return 'saved';
+      } catch (error) {
+        return isQuotaExceeded(error) ? 'quota' : typeof indexedDB === 'undefined' ? 'unavailable' : 'failed';
+      } finally {
+        database?.close();
+      }
+    });
+    priorOriginLocalSave = saving.then(() => undefined, () => undefined);
+    return saving;
   },
 };
 
