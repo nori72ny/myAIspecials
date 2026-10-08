@@ -6,7 +6,8 @@
  * production domain during an intentional negative-path test.
  *
  * Vercel documented API: GET /v2/projects/{projectIdOrName}/checks
- * with teamId and blocks=deployment-alias.
+ * with teamId and NO blocks filter. The audit must inspect all check
+ * stages or a nonblocking same-name duplicate could disappear server-side.
  */
 export const ORIGIN_VERCEL_RELEASE_CHECK_NAME = "ORIGIN Exact-SHA Release Gate" as const;
 
@@ -94,7 +95,8 @@ export async function fetchAndAuditOriginVercelChecksV1(input: {
     `https://api.vercel.com/v2/projects/${input.projectId}/checks`,
   );
   url.searchParams.set("teamId", input.teamId);
-  url.searchParams.set("blocks", "deployment-alias");
+  // Never prefilter by blocking stage: a same-name but nonblocking duplicate
+  // must be visible so the release gate can reject ambiguous configuration.
   try {
     const response = await (input.fetchImpl ?? fetch)(url, {
       method: "GET",
