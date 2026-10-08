@@ -73,3 +73,36 @@ export function checkOriginAqCredentialBoundary(
   }
   return { ok: true, hasLiveProviderKey: true };
 }
+
+/** The legacy benchmark runs both server processes in the trusted job.
+ * Never forward arbitrary GitHub, DB, cloud, or application env variables
+ * to their build or runtime; permit only the single reviewed free provider key
+ * for runtime, and never for a build. This is not an isolation boundary for
+ * arbitrary PR code and must not be used to authorize a premerge evaluation.
+ */
+export function createOriginAqChildEnvironment(
+  source: Readonly<Record<string, string | undefined>>,
+  target: { readonly sha: string; readonly phase: "build" | "runtime"; readonly port?: number },
+): NodeJS.ProcessEnv {
+  if (!SHA40.test(target.sha)
+    || (target.phase === "runtime" && (!Number.isInteger(target.port) || Number(target.port) < 1024 || Number(target.port) > 65535))
+    || (target.phase === "build" && target.port !== undefined)) {
+    throw new Error("AQ_CHILD_ENV_TARGET_INVALID");
+  }
+  const clean: NodeJS.ProcessEnv = {
+    NODE_ENV: "production",
+    ORIGIN_RELEASE_SHA: target.sha,
+  };
+  // Fixed allowlist excludes sensitive CI or customer credentials by default.
+  for (const key of ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TZ", "CI"] as const) {
+    const value = source[key];
+    if (typeof value === "string" && value.length > 0) clean[key] = value;
+  }
+  if (target.phase === "runtime") {
+    clean.PORT = String(target.port);
+    if (typeof source.OPENROUTER_API_KEY === "string" && source.OPENROUTER_API_KEY.length > 0) {
+      clean.OPENROUTER_API_KEY = source.OPENROUTER_API_KEY;
+    }
+  }
+  return clean;
+}
