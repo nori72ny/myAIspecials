@@ -866,16 +866,6 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   const previewRef = useRef<HTMLIFrameElement>(null);
   const codeEditorRef = useRef<HTMLTextAreaElement>(null);
   const cleanLoadConfirmed = useRef(false);
-  const pendingDirectTouchRevision = useRef<string | null>(null);
-  useEffect(() => {
-    // A Direct Touch commit is not acknowledged until the revised artifact is
-    // reflected back through the owning app. Remain fail-closed if that fails.
-    if (pendingDirectTouchRevision.current !== null && artifact?.content === pendingDirectTouchRevision.current) {
-      pendingDirectTouchRevision.current = null;
-      document.documentElement.dataset.originDirectTouchPending = 'false';
-      window.dispatchEvent(new Event('origin:pwa-safe-apply'));
-    }
-  }, [artifact?.content]);
   const setLastKnownGood = (snapshot: ArtifactBlock | null) => { if (snapshot === null || cleanLoadConfirmed.current) setLastKnownGoodState(snapshot); };
   useEffect(() => { const updateFullscreen = () => { const active = document.fullscreenElement === workspaceRef.current; setIsFullscreen(active); if (!active) setIsPresentation(false); }; document.addEventListener('fullscreenchange', updateFullscreen); return () => document.removeEventListener('fullscreenchange', updateFullscreen); }, []);
   useEffect(() => { cleanLoadConfirmed.current = false; setActiveTab(artifactPrefersPreview(artifact) ? 'preview' : 'code'); setCopied(false); setShared(false); setIsPresentation(false); setPresentationSlideIndex(0); setPreviewViewport('fluid'); setIsDirectEditing(false); setSandboxError(null); setLastKnownGood(null); setIsExportMenuOpen(false); setIsDetailsMenuOpen(false); }, [artifact?.id]);
@@ -940,9 +930,9 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
         const nextArtifact = { ...artifact, content: nextContent, revision: priorRevisions.length + 1, revisions: [...priorRevisions, nextRevision] };
         cleanLoadConfirmed.current = false;
         setWorkingContent(nextContent);
-        pendingDirectTouchRevision.current = nextContent;
-        // The last edit is held until the parent's artifact state accepts it.
-        document.documentElement.dataset.originDirectTouchPending = 'true';
+        // A React state update is not durable: IndexedDB writes are debounced.
+        // Only the production persistence layer may release this exact revision.
+        document.documentElement.dataset.originDirectTouchPending = `commit:${nextRevision.id}`;
         onArtifactRevision?.(nextArtifact);
       }
     };
