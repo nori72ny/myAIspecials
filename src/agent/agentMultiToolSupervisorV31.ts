@@ -209,6 +209,14 @@ function finish(status: AgentMultiToolSupervisorResultV31['status'], code: strin
   });
 }
 
+function finishBeforeDispatchCancellation(completed: AgentMultiToolVerifiedStepV31[]): AgentMultiToolSupervisorResultV31 {
+  // Cancellation stops new tools, but cannot undo already verified side effects.
+  // A partially executed run must be reconciled before any retry or completion claim.
+  return completed.length > 0
+    ? finish('blocked', 'AGENT_MULTI_TOOL_PARTIAL_EFFECTS_RECONCILIATION_REQUIRED', completed)
+    : finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+}
+
 /**
  * Internal-only bounded supervisor. It grants no approval, registers no HTTP
  * route, and does not have provider or filesystem authority of its own.
@@ -251,14 +259,14 @@ export async function executeAgentMultiToolSequenceV31(
       || (i > 0 && step.dependsOn[0] !== completed[i - 1]?.stepId))
       return finish('blocked', 'AGENT_MULTI_TOOL_DEPENDENCY_INVALID', completed);
     try {
-      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps, runId)) return finishBeforeDispatchCancellation(completed);
       const prior = Object.freeze(completed.map(row => Object.freeze({ ...row })));
       const params = snapshotExactParams(await deps.prepareParams(step, prior));
       const operationDigest = approvalBinding(runId, goalDigest, step, params, prior);
-      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps, runId)) return finishBeforeDispatchCancellation(completed);
       if (await deps.consumeExactApproval(runId, operationDigest, step) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED', completed);
-      if (await readVerifiedCancellationState(deps, runId)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps, runId)) return finishBeforeDispatchCancellation(completed);
       let rawOutcome: AgentMultiToolStepOutcomeV31;
       try {
         rawOutcome = await deps.executeAndVerify(step, params, prior, Object.freeze({ runId, operationDigest }));
