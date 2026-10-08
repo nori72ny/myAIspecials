@@ -314,6 +314,18 @@ describe("groundedResearchSynthesisV12", () => {
     expect(validateGroundedResearchSynthesis("開催日は2026年10月24日。[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
   });
 
+  it("does not mistake a retrieval timestamp for evidence of an event date", () => {
+    const evidence = [{
+      ...sources[0],
+      excerpt: "The date of the event is not specified.",
+      retrievedAt: "2026-10-24T08:00:00.000Z",
+      revisionTimestamp: "2026-10-24T09:00:00.000Z",
+    }];
+    expect(validateGroundedResearchSynthesis(
+      "The event occurred on 2026-10-24.[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
   it("accepts an intact ISO date", () => {
     const evidence = [{ ...sources[0], excerpt: "Event: 2026-10-24." }];
     expect(validateGroundedResearchSynthesis("Event: 2026-10-24.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
