@@ -11,6 +11,8 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     '3850b924340bf3e2d4e24de94db0b7b27f75ed1a',
     // Reviewed MCP SDK 1.32.1 security update; preserve exact-content checks.
     'af43541852474fb8a1a1e4fffbb745b4ab601237',
+    // Scoped js-yaml 4.3.2 security update removes vulnerable sprintf-js.
+    'b7c6117fb6f06c914521e347efe2d5ecd23d42cb',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
