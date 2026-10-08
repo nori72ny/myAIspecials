@@ -4,7 +4,7 @@ import { createResilientCodingPlannerV14 } from './codingPlannerResilienceV14.js
 import { runCodingSessionV14, type CodingCheck, type CodingSessionRequest, type CodingSessionResult } from './codingSessionV14.js';
 import { encryptCodingJobResultV14, type CodingJobResultV14 } from './codingJobResultV14.js';
 import type { PostgresCodingJobResultStoreV14 } from './codingJobResultStoreV14.js';
-import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
+import { executeOriginProvider, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import type { CodingJobCompletionStatusV14, CodingJobLeaseV14, CodingJobPublicRecordV14, PostgresCodingJobStoreV14 } from './supabaseCodingJobStoreV14.js';
 
 const DEFAULT_WORKER_LEASE_SECONDS = 120;
@@ -119,7 +119,16 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
       return { jobId, state: 'retryable', code: 'CODING_WORKER_PRIVATE_STAGE_BLOCKED' };
     }
 
-    const modelOptions = { env: deps.env, execute: deps.execute };
+    // Check durable cancellation/lease status at *each* provider boundary,
+    // including correction and the one bounded fresh exact-match replan.
+    const providerExecute = deps.execute ?? executeOriginProvider;
+    const checkedExecute = async (request: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv): Promise<OriginProviderExecutionResult> => {
+      await heartbeat();
+      const response = await providerExecute(request, env);
+      await heartbeat();
+      return response;
+    };
+    const modelOptions = { env: deps.env, execute: checkedExecute };
     const navigator = createCodingNavigatorV14(target.root, modelOptions);
     // Align the hosted worker with the already-tested bounded planner path:
     // an absent/non-unique edit search may receive one fresh plan after the
