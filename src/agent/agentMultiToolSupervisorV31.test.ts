@@ -306,6 +306,19 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects a proxy before invoking property enumeration traps prior to approval', async () => {
+    const actions = deps();
+    const ownKeysTrap = vi.fn(() => ['action']);
+    actions.prepareParams = vi.fn(async () => new Proxy({ action: 'research' }, {
+      ownKeys: ownKeysTrap,
+    }));
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_STEP_FAILED' });
+    expect(ownKeysTrap).not.toHaveBeenCalled();
+    expect(actions.consumeExactApproval).not.toHaveBeenCalled();
+    expect(actions.executeAndVerify).not.toHaveBeenCalled();
+  });
+
   it('rejects accessor-backed parameters without evaluating a getter before approval', async () => {
     const actions = deps();
     const readGetter = vi.fn(() => { throw new Error('unapproved getter execution'); });
