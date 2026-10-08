@@ -204,6 +204,19 @@ describe('V1.6 image editing strict reference integrity', () => {
     expect(mocks.generate).toHaveBeenCalledTimes(2);
   });
 
+  it('retains fullwidth advertising price in both model prompt and semantic critic exact-copy list', async () => {
+    const original = '広告価格￥４，９８０ は「全角ＡＢＣ」のまま';
+    mocks.generate.mockResolvedValue(result(image(104)));
+    const response = await request(app()).post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: original, width: 256, height: 256 });
+    expect(response.status).toBe(200);
+    expect(String(mocks.generate.mock.calls[0]?.[0]?.prompt)).toContain(original);
+    const critic = mocks.critique.mock.calls[0]?.[0];
+    expect(critic.originalRequest).toBe(original);
+    expect(critic.exactText).toContain('￥４，９８０');
+    expect(critic.exactText).toContain('全角ＡＢＣ');
+  });
+
   it('does not accept an unmodified source as a successful edit', async () => {
     const original = image(12);
     mocks.generate.mockResolvedValue(result(original));
