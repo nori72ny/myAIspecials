@@ -88,6 +88,31 @@ export type AgentCodingBridgePollV3 =
       paidFallbackUsed: false;
     };
 
+export type AgentCodingBridgeCancelV3 =
+  | {
+      ok: true;
+      runId: string;
+      jobId: string;
+      status: 'cancelling' | 'cancelled';
+      codingStatus: CodingJobPublicRecordV14['status'];
+      cancelRequested: true;
+      freeOnly: true;
+      costUsd: 0;
+      paidFallbackUsed: false;
+    }
+  | {
+      ok: false;
+      runId: string;
+      jobId: string;
+      status: 'blocked';
+      codingStatus: CodingJobPublicRecordV14['status'] | 'unavailable';
+      cancelRequested: false;
+      code: string;
+      freeOnly: true;
+      costUsd: 0;
+      paidFallbackUsed: false;
+    };
+
 type BridgePayload = {
   v: 1;
   runId: string;
@@ -220,6 +245,99 @@ export class AgentCodingBridgeV3 {
       status: 'running',
       bridgeToken: capability.token,
       expiresAt: new Date(capability.expiresAt).toISOString(),
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+    };
+  }
+
+  async cancel(
+    runId: string,
+    jobId: string,
+    bridgeToken: string,
+    now = Date.now(),
+  ): Promise<AgentCodingBridgeCancelV3> {
+    if (!verifyBridgeToken(bridgeToken, runId, jobId, this.env, now)) {
+      return {
+        ok: false,
+        runId,
+        jobId,
+        status: 'blocked',
+        codingStatus: 'unavailable',
+        cancelRequested: false,
+        code: 'AGENT_CODING_BRIDGE_TOKEN_INVALID',
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+      };
+    }
+
+    const ownerHash = hashCodingJobOwnerV14(CODING_JOB_OPERATOR_OWNER_BINDING_V14, this.env);
+    const current = await this.jobStore.getJob(jobId, ownerHash);
+    if (!current) {
+      return {
+        ok: false,
+        runId,
+        jobId,
+        status: 'blocked',
+        codingStatus: 'unavailable',
+        cancelRequested: false,
+        code: 'AGENT_CODING_JOB_NOT_FOUND',
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+      };
+    }
+    if (current.status === 'cancelled') {
+      return {
+        ok: true,
+        runId,
+        jobId,
+        status: 'cancelled',
+        codingStatus: 'cancelled',
+        cancelRequested: true,
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+      };
+    }
+    if (current.status === 'verified' || current.status === 'blocked' || current.status === 'failed') {
+      return {
+        ok: false,
+        runId,
+        jobId,
+        status: 'blocked',
+        codingStatus: current.status,
+        cancelRequested: false,
+        code: 'AGENT_CODING_ALREADY_TERMINAL',
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+      };
+    }
+
+    const cancelled = await this.jobStore.requestCancel(jobId, ownerHash);
+    if (!cancelled || cancelled.cancelRequested !== true) {
+      return {
+        ok: false,
+        runId,
+        jobId,
+        status: 'blocked',
+        codingStatus: cancelled?.status ?? 'unavailable',
+        cancelRequested: false,
+        code: 'AGENT_CODING_CANCEL_FAILED',
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+      };
+    }
+    return {
+      ok: true,
+      runId,
+      jobId,
+      status: cancelled.status === 'cancelled' ? 'cancelled' : 'cancelling',
+      codingStatus: cancelled.status,
+      cancelRequested: true,
       freeOnly: true,
       costUsd: 0,
       paidFallbackUsed: false,
