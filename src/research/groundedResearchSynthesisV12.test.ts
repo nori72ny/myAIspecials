@@ -304,6 +304,44 @@ describe("groundedResearchSynthesisV12", () => {
     expect(validateGroundedResearchSynthesis("Balance is -100.5.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
   });
 
+  it("accepts exactly verified store growth arithmetic using cited values", () => {
+    const evidence = [{ ...sources[0], excerpt: "前月は120店、今月は135店。" }];
+    expect(validateGroundedResearchSynthesis(
+      "純増は135店 − 120店 = 15店です。[S1](https://example.com/one)", evidence,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("rejects an incorrect store-growth result despite real cited operands", () => {
+    const evidence = [{ ...sources[0], excerpt: "前月は120店、今月は135店。" }];
+    expect(validateGroundedResearchSynthesis(
+      "純増は135店 − 120店 = 16店です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects unsupported derived numbers without an explicit verifiable formula", () => {
+    const evidence = [{ ...sources[0], excerpt: "前月は120店、今月は135店。" }];
+    expect(validateGroundedResearchSynthesis(
+      "純増は15店です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects a correct equation when one operand lacks cited evidence", () => {
+    const evidence = [{ ...sources[0], excerpt: "今月は135店のみ。" }];
+    expect(validateGroundedResearchSynthesis(
+      "135店 − 120店 = 15店。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("allows verified addition of counts but disallows mixed units", () => {
+    const evidence = [{ ...sources[0], excerpt: "第一部門は120件、第二部門は15件。" }];
+    expect(validateGroundedResearchSynthesis(
+      "120件 + 15件 = 135件。[S1](https://example.com/one)", evidence,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+    expect(validateGroundedResearchSynthesis(
+      "120件 + 15店 = 135件。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
   it("rejects an ISO date assembled from distinct evidence dates", () => {
     const evidence = [{ ...sources[0], excerpt: "Events: 2026-09-20 and 2025-10-24." }];
     expect(validateGroundedResearchSynthesis("Event: 2026-10-24.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
