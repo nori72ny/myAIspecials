@@ -20,7 +20,7 @@ export function buildWorldClassImageRepairPromptV16(
   criticIssues: readonly string[],
   editing: boolean,
 ): string {
-  const original = originalUserInstruction.normalize('NFKC').trim();
+  const original = originalUserInstruction.trim();
   if (!original || original.length > 1400) throw new Error('WORLD_CLASS_IMAGE_REPAIR_ORIGINAL_INVALID');
   const known = [...new Set(criticIssues)].filter(issue => Object.hasOwn(REPAIR_HINTS, issue));
   const mandatory = [

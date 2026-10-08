@@ -109,7 +109,7 @@ function parse(body: unknown, editing: boolean): ParsedRequest {
   const row = body as Record<string, unknown>;
   const allowed = new Set(editing ? ['prompt', 'width', 'height', 'referenceImages'] : ['prompt', 'width', 'height']);
   if (Object.keys(row).some((key) => !allowed.has(key))) throw new Error('INVALID_WORLD_CLASS_IMAGE_FIELD');
-  const prompt = typeof row.prompt === 'string' ? row.prompt.normalize('NFKC').trim() : '';
+  const prompt = typeof row.prompt === 'string' ? row.prompt.trim() : '';
   if (!prompt || prompt.length > 1400) throw new Error('INVALID_WORLD_CLASS_IMAGE_PROMPT');
   if ((row.width === undefined) !== (row.height === undefined)) throw new Error('INVALID_WORLD_CLASS_IMAGE_DIMENSION_PAIR');
   const width = row.width;
@@ -143,7 +143,7 @@ function exactTextCandidates(prompt: string): string[] {
     const value = match[1]?.trim();
     if (value) values.add(value);
   }
-  for (const match of prompt.matchAll(/(?:¥|￥|\$)\s?[\d,.]+(?:円)?/g)) values.add(match[0].trim());
+  for (const match of prompt.matchAll(/(?:¥|￥|\$)\s?[0-9０-９,，.．]+(?:円)?/g)) values.add(match[0].trim());
   return [...values].slice(0, 8);
 }
 
