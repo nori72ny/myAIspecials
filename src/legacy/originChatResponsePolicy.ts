@@ -108,6 +108,41 @@ function hasJapaneseAdditionalTask(text: string, kind: "research" | "current"): 
   return false;
 }
 
+/**
+ * Detect English follow-up tasks without overlapping wildcard regexes on raw
+ * user input. Tokenization and bounded forward scans are linear in length,
+ * including adversarial runs of newlines or punctuation.
+ */
+function hasEnglishAdditionalTask(text: string, kind: "research" | "current"): boolean {
+  const tokens = text.toLowerCase().match(/[a-z]+(?:'[a-z]+)?|[.!?\n]/g) ?? [];
+  const separators = new Set(["and", "also", "additionally", "then", ".", "!", "?", "\n"]);
+  const researchVerbs = new Set(["research", "search", "look", "find", "check", "verify"]);
+  const requestVerbs = new Set(["tell", "show", "give", "check", "confirm", "find"]);
+  const freshness = new Set(["latest", "current", "today", "today's"]);
+  const topics = new Set(["information", "news", "weather", "pricing", "price", "prices", "exchange", "rate", "rates", "status", "results", "result", "version", "versions", "model", "models"]);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const marker = tokens[index];
+    if (!separators.has(marker) && !(marker === "in" && tokens[index + 1] === "addition")) continue;
+    const segment: string[] = [];
+    const first = marker === "in" ? index + 2 : index + 1;
+    for (let next = first; next < tokens.length && next < first + 24; next += 1) {
+      const token = tokens[next];
+      if (token === "." || token === "!" || token === "?" || token === "\n") break;
+      segment.push(token);
+    }
+    if (kind === "research") {
+      if (segment.slice(0, 6).some(token => researchVerbs.has(token))) return true;
+      continue;
+    }
+    const firstRequest = segment.findIndex((token, offset) => offset < 6 && requestVerbs.has(token));
+    if (firstRequest < 0) continue;
+    const firstFreshness = segment.findIndex((token, offset) => offset > firstRequest && offset <= firstRequest + 12 && freshness.has(token));
+    if (firstFreshness < 0) continue;
+    if (segment.some((token, offset) => offset > firstFreshness && offset <= firstFreshness + 8 && topics.has(token))) return true;
+  }
+  return false;
+}
+
 function isTransformOnlyRequest(message: string): boolean {
   const transformsSuppliedContent = /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録|調査結果|リサーチ結果).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
     || /\b(?:summari[sz]e|shorten|rewrite|translate|proofread|reformat)\b.{0,48}\b(?:this|following|provided|text|passage|document|research\s+(?:result|report|brief))\b/is.test(message);
@@ -117,10 +152,9 @@ function isTransformOnlyRequest(message: string): boolean {
   // transformation shortcut. Quoted/fenced source text is not a task request.
   const requestText = withoutQuotedSourceText(message);
   const additionalResearch = hasJapaneseAdditionalTask(requestText, "research")
-    || /\b(?:and(?:\s+also)?|also|additionally|in\s+addition|then)\s+(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify)\b/i.test(requestText)
-    || /(?:^|[.!?\n])\s*(?:[-*]\s+|\d+[.)]\s+)?(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify\s+(?:the\s+)?sources?)\b/i.test(requestText);
+    || hasEnglishAdditionalTask(requestText, "research");
   const additionalCurrentFacts = hasJapaneseAdditionalTask(requestText, "current")
-    || /(?:\b(?:and(?:\s+also)?|also|additionally|then)\s+|[.!?\n]\s*)(?:please\s+)?(?:tell|show|give|check|confirm|find)\b[^.!?\n]{0,48}\b(?:latest|current|today'?s?)\b[^.!?\n]{0,32}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|versions?|models?)\b/i.test(requestText);
+    || hasEnglishAdditionalTask(requestText, "current");
   return !additionalResearch && !additionalCurrentFacts;
 }
 
