@@ -102,15 +102,28 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects an active paid Workers subscription even when the usage-model field is ambiguous', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(json({}))
-      .mockResolvedValueOnce(json([{ state: 'Paid', rate_plan: { id: 'workers_paid', public_name: 'Workers Paid' } }])) as unknown as typeof fetch;
+  it.each([{}, { default_usage_model: '' }, { default_usage_model: null }, { default_usage_model: 'unknown' }])(
+    'fails closed on missing or unrecognized Workers usage proof',
+    async (settings) => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(json(settings)) as unknown as typeof fetch;
+      await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+        ready: false,
+        zeroCostVerified: false,
+        reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
+  it('rejects paid Workers subscriptions even if usage model is bundled', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([{ state: 'Paid', rate_plan: { id: 'workers_paid', public_name: 'Workers Paid' } }])) as unknown as typeof fetch;
     await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
       ready: false,
       reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED',
     });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('rejects any active Workers subscription with a positive billed price even when its label contains free', async () => {
