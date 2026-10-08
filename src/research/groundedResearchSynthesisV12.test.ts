@@ -490,3 +490,22 @@ describe("groundedResearchSynthesisV12", () => {
   });
 
 });
+
+describe("derived arithmetic source measure boundaries", () => {
+  it.each([
+    ["従業員は12人、店舗は112店。追加出店は3店。", false],
+    ["従業員は12人、店舗は0.12店。追加出店は3店。", false],
+    ["店舗数の変化は-12店。従業員12人。追加出店は3店。", false],
+    ["店舗は12店。追加出店は3店。", true],
+    ["店舗は12 店。追加出店は3 店。", true],
+  ])("validates whole source measures: %s", (excerpt, expectedOk) => {
+    const result = validateGroundedResearchSynthesis(
+      "合計は12店+3店=15店です。[S1](https://example.com/one)",
+      [{ ...sources[0], title: "店舗資料", excerpt }],
+    );
+    expect(result.ok).toBe(expectedOk);
+    if (!expectedOk) {
+      expect(result).toMatchObject({ code: "UNSUPPORTED_NUMERIC_TOKEN" });
+    }
+  });
+});
