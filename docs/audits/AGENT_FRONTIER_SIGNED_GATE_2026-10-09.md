@@ -27,7 +27,7 @@ The evaluator prepares a private one-shot ledger outside the repository, signs i
 npm run eval:agent-frontier-24 -- /secure/evaluator/ledger.json
 ```
 
-This command prints aggregate scores and safe blocker codes only. Exit 0 means the **signed 24-task scoring gate** passed; exit 1 means a measured or trust constraint failed; exit 2 means input or evaluator configuration could not be validated. Never upload the hidden ledger or signing key to a public PR, screenshot, artifact or job log.
+This command prints aggregate scores and safe blocker codes only. Exit 0 means the **signed 24-task scoring gate** passed; exit 1 means scoring or trust configuration failed; exit 2 means the input file could not be read or decoded. An absent evaluator trust anchor returns a failed score, never a release pass. Never upload the hidden ledger or signing key to a public PR, screenshot, artifact or job log.
 
 ## Promotion is still separate
 
