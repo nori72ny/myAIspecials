@@ -261,10 +261,50 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     });
     actions.isCancelled = vi.fn(async () => executed > 0);
     const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
-    expect(result.status).toBe('cancelled');
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('AGENT_MULTI_TOOL_CANCEL_DISPATCH_RECONCILIATION_REQUIRED');
     expect(result.verified).toBe(false);
     expect(result.completedSteps).toHaveLength(0);
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows acknowledged pre-dispatch cancellation without executing a tool', async () => {
+    const actions = deps();
+    actions.isCancelled = vi.fn(async () => true);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({ status: 'cancelled', verified: false, code: 'AGENT_MULTI_TOOL_CANCELLED' });
+    expect(actions.consumeExactApproval).not.toHaveBeenCalled();
+    expect(actions.executeAndVerify).not.toHaveBeenCalled();
+  });
+
+  it('does not misreport cancellation after trusted terminal verification as confirmed cancellation', async () => {
+    const actions = deps();
+    let verifiedTerminal = false;
+    actions.isCancelled = vi.fn(async () => verifiedTerminal);
+    actions.verifyTrustedTerminal = vi.fn(async () => { verifiedTerminal = true; return true; });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({
+      status: 'blocked',
+      code: 'AGENT_MULTI_TOOL_CANCEL_DISPATCH_RECONCILIATION_REQUIRED',
+      verified: false,
+    });
+    expect(result.completedSteps).toHaveLength(0);
+    expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects accessor-backed parameters without evaluating a getter before approval', async () => {
+    const actions = deps();
+    const readGetter = vi.fn(() => { throw new Error('unapproved getter execution'); });
+    actions.prepareParams = vi.fn(async () => {
+      const params = Object.create(null) as Record<string, unknown>;
+      Object.defineProperty(params, 'action', { enumerable: true, get: readGetter });
+      return params;
+    });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_STEP_FAILED' });
+    expect(readGetter).not.toHaveBeenCalled();
+    expect(actions.consumeExactApproval).not.toHaveBeenCalled();
+    expect(actions.executeAndVerify).not.toHaveBeenCalled();
   });
 
   it('fails closed for dangerous operation parameters without invoking the tool', async () => {
