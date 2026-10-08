@@ -213,7 +213,7 @@ async function main(): Promise<void> {
     candidateSha: requiredEnv("ORIGIN_AQ_CANDIDATE_SHA"),
     env: process.env,
   });
-  if (!credentialBoundary.ok) {
+  if (credentialBoundary.ok === false) {
     throw new Error(credentialBoundary.code);
   }
 
