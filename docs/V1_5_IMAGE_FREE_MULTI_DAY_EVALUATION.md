@@ -27,6 +27,14 @@ The immutable planner retains **all 24 held-out cases, eight families × three c
 7. Construct the normal 24-case technical-and-blind packet with **three fixed competitor references and at least two independent blind judges**, plus a separate **16-case editing benchmark**. Apply all current exact-head and held-out publication thresholds. Missing/worse/unknown quality is a blocking result, not a pass.
 8. Verify all exact-head CI, independent audits, real desktop/mobile UI and Android keyboard checks, output visual fidelity and the owner's required visual and explicit release approvals. Then—and only then—merge/deploy an approved exact commit and run Production smoke tests. Do not label `world-class` merely because a provider or local digest check passed.
 
+## Authenticating the 12-day image artifacts (still unexecuted)
+
+The manual `.github/workflows/world-class-image-private-collect-v1.yml` workflow is read-only, main-only, exact-SHA-bound, and requires the precommitted corpus+plan digests. It calls `scripts/collect-world-class-image-free-shards-v1.ts`, which uses GitHub's authenticated API to confirm **12 successful distinct workflow-dispatch runs** on the same exact candidate SHA and main branch, all from the frozen per-shard workflow, with distinct UTC days, one-shot markers and non-expired named artifacts. It obtains only those named artifacts with `gh run download` into 12 separate directories. The offline `npm run eval:image-private-shards-verify` then verifies the **24 actual image files** against the original sealed case digests, reference-free task metadata, provider identity and zero-cost/semantic/technical flags.
+
+An accepted GitHub artifact **does not establish Cloudflare billing usage**. The trusted collector deliberately reports `cloudflareFreeQuotaIndependentlyVerified=false`. Likewise the local hash verifier never sets independent blind image quality or owner approval to true. Only a separate trusted full 24-case blind comparison and approved release gate can qualify the product.
+
+This workflow is not callable on the draft branch without default-branch workflow registration. Do not weaken that rule, merge unfinished changes or expose sealed corpus secrets merely to make evaluation easier.
+
 ## Separate high-quality image-edit qualification (still unexecuted)
 
 V1.5's sealed 16-case edit runner targets `/api/creative/v1.5/raster/edit`; it **cannot** qualify the newer V1.6 high-quality edit API. Reusing its pass as a V1.6 pass is forbidden.
