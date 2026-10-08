@@ -4,6 +4,7 @@ import { Menu, Plus, Settings } from 'lucide-react';
 import OriginAnswerMarkdown from './components/personal/OriginAnswerMarkdown';
 import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
+import { appendOriginArtifactRevision } from './pwa/artifactRevisionLedger';
 import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
 import { composeRasterTypographyOverlayV15 } from './creative/localRasterTypographyV15';
@@ -925,9 +926,8 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
       if (isDirectTouchCommit && artifact) {
         const nextContent = applyDirectTouchEdits(workingContent, data.edits);
         if (nextContent === workingContent) return;
-        const priorRevisions = artifact.revisions ?? [{ id: `${artifact.id}:v1`, content: artifact.content, createdAt: 0, source: 'generated' as const }];
-        const nextRevision = { id: `${artifact.id}:v${priorRevisions.length + 1}`, content: nextContent, createdAt: Date.now(), source: 'direct-touch' as const };
-        const nextArtifact = { ...artifact, content: nextContent, revision: priorRevisions.length + 1, revisions: [...priorRevisions, nextRevision] };
+        const { revision, revisions, latest: nextRevision } = appendOriginArtifactRevision(artifact, nextContent, 'direct-touch');
+        const nextArtifact = { ...artifact, content: nextContent, revision, revisions };
         cleanLoadConfirmed.current = false;
         setWorkingContent(nextContent);
         // A React state update is not durable: IndexedDB writes are debounced.
@@ -1035,9 +1035,8 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   };
   const restorePreviousVersion = () => {
     if (!artifact || !priorRevision) return;
-    const history = artifact.revisions ?? [{ id: `${artifact.id}:v1`, content: artifact.content, createdAt: 0, source: 'generated' as const }];
-    const nextRevision = { id: `${artifact.id}:v${history.length + 1}`, content: priorRevision.content, createdAt: Date.now(), source: 'restore' as const };
-    const nextArtifact: ArtifactBlock = { ...artifact, content: priorRevision.content, revision: history.length + 1, revisions: [...history, nextRevision] };
+    const { revision, revisions } = appendOriginArtifactRevision(artifact, priorRevision.content, 'restore');
+    const nextArtifact: ArtifactBlock = { ...artifact, content: priorRevision.content, revision, revisions };
     cleanLoadConfirmed.current = false;
     setWorkingContent(priorRevision.content);
     setIsDiffInspectorOpen(false);
@@ -1049,10 +1048,9 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   const commitCodeRevision = () => {
     if (!syntaxResult.valid) { setActiveTab('code'); codeEditorRef.current?.focus(); return false; }
     if (workingContent !== artifact.content) {
-      const history = artifact.revisions ?? [{ id: `${artifact.id}:v1`, content: artifact.content, createdAt: 0, source: 'generated' as const }];
-      const revision: ArtifactRevision = { id: `${artifact.id}:v${history.length + 1}`, content: workingContent, createdAt: Date.now(), source: 'direct-touch' };
+      const { revision, revisions } = appendOriginArtifactRevision(artifact, workingContent, 'direct-touch');
       cleanLoadConfirmed.current = false;
-      onArtifactRevision?.({ ...artifact, content: workingContent, revision: history.length + 1, revisions: [...history, revision] });
+      onArtifactRevision?.({ ...artifact, content: workingContent, revision, revisions });
     }
     setIsDirectEditing(false);
     setActiveTab(isRenderable ? 'preview' : 'code');
