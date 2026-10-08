@@ -11,7 +11,7 @@ vi.mock('../agent/indexedDbCheckpointStore', () => ({
   saveCheckpointToIndexedDB,
 }));
 
-import AgentWorkspaceView, { isVerifiedCodingReceipt, verifiedCodingArtifact } from './AgentWorkspaceView';
+import AgentWorkspaceView, { isConfirmedCodingCancellationReceipt, isVerifiedCodingReceipt, verifiedCodingArtifact } from './AgentWorkspaceView';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -374,6 +374,60 @@ describe('AgentWorkspaceView v3', () => {
     const reset = screen.getByRole('button', { name: '先にジョブを中止' }) as HTMLButtonElement;
     expect(reset.disabled).toBe(true);
     expect(screen.getByRole('button', { name: '実行中のCodingジョブを中止' })).toBeTruthy();
+  });
+
+  it('treats only the matching trusted server terminal as a confirmed cancellation', () => {
+    const valid = {
+      ok: false, status: 'blocked', codingStatus: 'cancelled',
+      code: 'AGENT_CODING_CANCELLED', runId: 'run-test-1',
+      jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+      verified: false, freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+    };
+    const confirmation = (body: typeof valid) =>
+      isConfirmedCodingCancellationReceipt(body, 'run-test-1', 'coding-AAAAAAAAAAAAAAAAAAAAAA');
+    expect(confirmation(valid)).toBe(true);
+    expect(confirmation({ ...valid, runId: 'run-other' })).toBe(false);
+    expect(confirmation({ ...valid, jobId: 'coding-BBBBBBBBBBBBBBBBBBBBBB' })).toBe(false);
+    expect(confirmation({ ...valid, status: 'running' })).toBe(false);
+    expect(confirmation({ ...valid, codingStatus: 'verified' })).toBe(false);
+    expect(confirmation({ ...valid, verified: true })).toBe(false);
+    expect(confirmation({ ...valid, paidFallbackUsed: true })).toBe(false);
+    expect(confirmation({ ...valid, costUsd: 0.01 })).toBe(false);
+    expect(confirmation({ ...valid, code: 'AGENT_CODING_RESULT_INVALID' })).toBe(false);
+  });
+
+  it('releases the active job lock only after the exact server cancellation terminal is observed', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse('code_interpreter'), 201);
+      if (url === '/api/agent/v3/approval') return json({ ok: true, approvalToken: 'approved' }, 201);
+      if (url === '/api/agent/v3/execute') return json({
+        ok: true, status: 'running',
+        runId: 'run-test-1', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+        bridgeToken: 'bound-token', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+      }, 202);
+      if (url === '/api/agent/v3/coding/status') return json({
+        ok: false, status: 'blocked', codingStatus: 'cancelled',
+        code: 'AGENT_CODING_CANCELLED',
+        runId: 'run-test-1', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+        verified: false, freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+      }, 409);
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<AgentWorkspaceView />);
+    await screen.findByText('Agent v3 基盤を確認済み');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: 'TypeScriptコードを修正して' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('未実行 · 承認待ち');
+    fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'test-only' } });
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+    await screen.findByText(/Codingジョブの中止をサーバーの終端状態で確認しました/);
+    expect(screen.queryByText(/# Coding V1\.4 検証済み結果/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '実行中のCodingジョブを中止' })).toBeNull();
+    expect(screen.getByRole('button', { name: '実行計画を作る' })).toBeTruthy();
   });
 
   it('cancels a dispatched Coding V1.4 job through the server instead of only aborting browser polling', async () => {
