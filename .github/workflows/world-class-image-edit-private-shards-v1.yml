@@ -1,0 +1,283 @@
+name: World-class image private free edit shards V1
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact evaluated main SHA (40 hex characters)
+        required: true
+        type: string
+      corpus_id:
+        description: Sealed evaluator-owned 24-case corpus ID
+        required: true
+        type: string
+      plan_digest:
+        description: Precommitted exact shard-plan SHA-256
+        required: true
+        type: string
+      shard_index:
+        description: Precommitted shard index (0 through 11)
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  actions: read
+
+# An account's daily Workers Free allowance is shared; never run two benchmark shards simultaneously.
+concurrency:
+  group: origin-private-image-free-account-shards
+  cancel-in-progress: false
+
+jobs:
+  shard:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - name: Checkout immutable main SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify exact SHA, manual-only scope and shard inputs
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PLAN_DIGEST: ${{ inputs.plan_digest }}
+          SHARD_INDEX: ${{ inputs.shard_index }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PLAN_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$SHARD_INDEX" =~ ^(0|[1-9]|10|11)$ ]]
+          # One-shot markers are retained 90 days. A 31-day candidate age cap
+          # prevents old SHA/corpus replay after artifact retention expires.
+          node -e "const {execFileSync}=require('node:child_process'); const stamp=execFileSync('git',['show','-s','--format=%cI','HEAD'],{encoding:'utf8'}).trim(); const age=Date.now()-Date.parse(stamp); if(!Number.isFinite(age)||age<0||age>=31*86400000) process.exit(43)"
+
+      - name: Verify Free plan and model readiness without consuming image quota
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ORIGIN_CLOUDFLARE_IMAGE_MODEL: '@cf/black-forest-labs/flux-2-klein-9b'
+          ORIGIN_IMAGE_EDIT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          node --import tsx scripts/preflight-world-class-image-v16.ts
+
+      - name: Verify 16-case private edit corpus and immutable shard plan
+        id: metadata
+        shell: bash
+        env:
+          ORIGIN_IMAGE_EDIT_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_IMAGE_EDIT_PRIVATE_CORPUS_GZIP_B64 }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CORPUS_ID: ${{ inputs.corpus_id }}
+          PLAN_DIGEST: ${{ inputs.plan_digest }}
+          SHARD_INDEX: ${{ inputs.shard_index }}
+        run: |
+          set -euo pipefail
+          test -n "$ORIGIN_IMAGE_EDIT_PRIVATE_CORPUS_GZIP_B64"
+          metadata="$(node --import tsx scripts/inspect-image-edit-private-corpus-v1.ts)"
+          METADATA="$metadata" node <<'NODE' >> "$GITHUB_OUTPUT"
+          const m=JSON.parse(process.env.METADATA||'{}');
+          const i=Number(process.env.SHARD_INDEX);
+          if(m.candidateSha!==process.env.CANDIDATE_SHA || m.corpusId!==process.env.CORPUS_ID
+            || m.taskCount!==16 || m.editShardCount!==8
+            || m.editShardPlanDigest!==process.env.PLAN_DIGEST
+            || !Number.isInteger(i) || !m.editShards?.[i] || m.editShards[i].index!==i
+            || m.editShards[i].caseIds.length<1 || m.editShards[i].caseIds.length>2) process.exit(39);
+          console.log('corpus_digest='+m.corpusDigest);
+          console.log('utc_day='+new Date().toISOString().slice(0,10));
+          NODE
+
+      - name: Refuse duplicate shard or second shard on the same UTC day
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORPUS_DIGEST: ${{ steps.metadata.outputs.corpus_digest }}
+          UTC_DAY: ${{ steps.metadata.outputs.utc_day }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          SHARD_INDEX: ${{ inputs.shard_index }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const prefix='origin-image-free-edit-shard-started-'+process.env.CANDIDATE_SHA+'-'+process.env.CORPUS_DIGEST+'-';
+          const day=process.env.UTC_DAY;
+          const shard=Number(process.env.SHARD_INDEX);
+          async function verify() {
+            // One UTC-day Free account lock shared by generation and edit evaluations.
+            const lock='origin-image-ai-free-account-day-'+day;
+            const url='https://api.github.com/repos/'+process.env.GITHUB_REPOSITORY
+              +'/actions/artifacts?name='+encodeURIComponent(lock)+'&per_page=5';
+            const checked=await fetch(url,{
+              headers:{ Authorization:'Bearer '+process.env.GH_TOKEN,
+                Accept:'application/vnd.github+json' },
+              signal:AbortSignal.timeout(20000),
+            });
+            if(!checked.ok) throw new Error('IMAGE_SHARD_DAILY_LOCK_LOOKUP_FAILED');
+            const locks=await checked.json();
+            if(!Array.isArray(locks.artifacts) || locks.total_count!==0){
+              throw new Error('IMAGE_SHARD_ACCOUNT_DAY_ALREADY_CONSUMED');
+            }
+            for(let i=0;i<8;i++){
+              const name=prefix+i;
+              const url='https://api.github.com/repos/'+process.env.GITHUB_REPOSITORY
+                +'/actions/artifacts?name='+encodeURIComponent(name)+'&per_page=10';
+              const response=await fetch(url,{
+                headers:{
+                  Authorization:'Bearer '+process.env.GH_TOKEN,
+                  Accept:'application/vnd.github+json',
+                },
+                signal:AbortSignal.timeout(20000),
+              });
+              if(!response.ok) throw new Error('IMAGE_SHARD_MARKER_LOOKUP_FAILED');
+              const data=await response.json();
+              if(!Array.isArray(data.artifacts) || data.total_count>10){
+                throw new Error('IMAGE_SHARD_MARKER_RESULT_INCOMPLETE');
+              }
+              for(const artifact of data.artifacts){
+                if(artifact.name!==name) continue;
+                // One-shot even if a prior attempt failed; never use a sealed case again.
+                if(i===shard) throw new Error('IMAGE_SHARD_ALREADY_ATTEMPTED');
+                // GitHub's own upload timestamp, not a self-reported local receipt timestamp.
+                if(typeof artifact.created_at!=='string' || artifact.created_at.slice(0,10)===day){
+                  throw new Error('IMAGE_SHARD_UTC_DAY_ALREADY_USED');
+                }
+              }
+            }
+          }
+          verify().catch(error=>{
+            process.stderr.write((/^IMAGE_SHARD_[A-Z_]+$/.test(error?.message||'')
+              ? error.message : 'IMAGE_SHARD_MARKER_LOOKUP_FAILED')+'\n');
+            process.exitCode=1;
+          });
+          NODE
+
+      - name: Mark exactly one edit shard started before any image inference
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CORPUS_DIGEST: ${{ steps.metadata.outputs.corpus_digest }}
+          PLAN_DIGEST: ${{ inputs.plan_digest }}
+          SHARD_INDEX: ${{ inputs.shard_index }}
+          UTC_DAY: ${{ steps.metadata.outputs.utc_day }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          node <<'NODE'
+          const fs=require('node:fs');
+          fs.writeFileSync('test-results/image-free-edit-shard-started.json',JSON.stringify({
+            schemaVersion:'origin.image-free-edit-shard-started.v1',
+            candidateSha:process.env.CANDIDATE_SHA,
+            corpusDigest:process.env.CORPUS_DIGEST,
+            planDigest:process.env.PLAN_DIGEST,
+            shardIndex:Number(process.env.SHARD_INDEX),
+            utcDay:process.env.UTC_DAY,
+            workflowRunId:process.env.GITHUB_RUN_ID,
+            started:true,
+          },null,2)+'\n');
+          NODE
+
+      - name: Persist one-shot marker before image inference
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-image-free-edit-shard-started-${{ inputs.candidate_sha }}-${{ steps.metadata.outputs.corpus_digest }}-${{ inputs.shard_index }}
+          path: test-results/image-free-edit-shard-started.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Reserve shared Workers Free account day before inference
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-image-ai-free-account-day-${{ steps.metadata.outputs.utc_day }}
+          path: test-results/image-free-edit-shard-started.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Install Chromium for independent pixel decoding
+        run: npx playwright install --with-deps chromium
+
+      - name: Reject UTC day rollover after uploading the start marker
+        shell: bash
+        env:
+          UTC_DAY: ${{ steps.metadata.outputs.utc_day }}
+        run: |
+          set -euo pipefail
+          test "$(date -u +%F)" = "$UTC_DAY"
+
+      - name: Execute only the sealed two-case edit shard via V1.6 release route
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ORIGIN_IMAGE_EDIT_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_IMAGE_EDIT_PRIVATE_CORPUS_GZIP_B64 }}
+          ORIGIN_IMAGE_EDIT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ORIGIN_IMAGE_EDIT_CORPUS_ID: ${{ inputs.corpus_id }}
+          ORIGIN_IMAGE_EDIT_SHARD_PLAN_DIGEST: ${{ inputs.plan_digest }}
+          ORIGIN_IMAGE_EDIT_SHARD_INDEX: ${{ inputs.shard_index }}
+          ORIGIN_IMAGE_EDIT_SHARD_UTC_DAY: ${{ steps.metadata.outputs.utc_day }}
+          ORIGIN_CLOUDFLARE_IMAGE_MODEL: '@cf/black-forest-labs/flux-2-klein-9b'
+          ORIGIN_IMAGE_ZERO_COST_MAX_ATTEMPTS: '2'
+          ORIGIN_IMAGE_EDIT_OUTPUT_DIR: ${{ github.workspace }}/test-results/image-private-world-class-edit
+        run: npm run eval:image-edit-private-world-class-shard
+
+      - name: Verify complete Free-only V1.6 edit evidence
+        shell: bash
+        env:
+          SHARD_INDEX: ${{ inputs.shard_index }}
+          PLAN_DIGEST: ${{ inputs.plan_digest }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const dir='test-results/image-private-world-class-edit/';
+          const m=JSON.parse(fs.readFileSync(dir+'shard-manifest.json','utf8'));
+          const e=JSON.parse(fs.readFileSync(dir+'candidate-evidence.json','utf8'));
+          const s=JSON.parse(fs.readFileSync(dir+'candidate-summary.json','utf8'));
+          if(m.candidateSha!==process.env.CANDIDATE_SHA
+            || m.planDigest!==process.env.PLAN_DIGEST
+            || m.shardIndex!==Number(process.env.SHARD_INDEX)
+            || m.totalCostUsd!==0 || m.paidFallbackEnabled!==false
+            || m.productionQualified!==false || m.independentBlindEditQualityPassed!==false) process.exit(30);
+          if(e.candidateSha!==process.env.CANDIDATE_SHA
+            || e.planDigest!==process.env.PLAN_DIGEST
+            || e.totalCostUsd!==0 || e.productionQualified!==false
+            || !Array.isArray(e.cases) || e.cases.length<1 || e.cases.length>2
+            || e.cases.some(c=>c.executionStatus!=='completed'
+              || c.failureCode!==null || c.identicalToSource!==false
+              || c.structuralCriticPassed!==true || c.deliveryIntegrityPassed!==true
+              || c.providerId!=='cloudflare-workers-ai-free')
+            || e.blockers?.length || s.blockers?.length || s.attempted!==e.cases.length
+            || s.technicallyQualified!==e.cases.length || s.completed!==e.cases.length) process.exit(31);
+          if(m.caseIds.length!==e.cases.length
+            || m.caseIds.some((id,i)=>id!==e.cases[i].caseId
+              || m.sourceImageSha256s[i]!==e.cases[i].sourceImageSha256
+              || m.instructionSha256s[i]!==e.cases[i].instructionSha256)) process.exit(32);
+          NODE
+          test -z "$(find test-results/image-private-world-class-edit -type f \\
+            \\( -name '*corpus*' -o -name '*prompt*' -o -name '*source*' -o -name '*instruction*' \\) -print)"
+
+      - name: Upload sanitized shard images and evidence for independent review
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-image-free-edit-shard-output-${{ inputs.candidate_sha }}-${{ inputs.shard_index }}-${{ github.run_id }}
+          path: test-results/image-private-world-class-edit/
+          retention-days: 90
+          if-no-files-found: ignore
