@@ -25,7 +25,7 @@ function receipt(index: number): ImageWorkersFreeShardReceiptV1 {
     freePlanVerified: true as const, totalCostUsd: 0 as const,
     claimedGenerationNeurons: 5000, claimedQuotaAvailableBeforeNeurons: 9500,
     cases: shard.caseIds.map((caseId, i) => ({
-      caseId, taskDigest: shard.taskDigests[i], outputSha256: 'c'.repeat(64),
+      caseId, taskDigest: shard.taskDigests[i], outputSha256: (index * 2 + i + 100).toString(16).padStart(64, '0'),
       providerId: 'cloudflare-workers-ai-free' as const, costUsd: 0 as const,
       technicalPassed: true as const, semanticPassed: true as const, outputCompleted: true as const,
     })),
@@ -68,6 +68,19 @@ describe('Workers Free image shard evidence continuity (metadata only)', () => {
     const altered = allReceipts();
     altered[0] = resign({ ...altered[0], cases: [{ ...altered[0].cases[0], taskDigest: 'e'.repeat(64) }, altered[0].cases[1]] });
     expect(inspectImageWorkersFreeShardsV1(plan, altered, reviewTime).blockers).toContain('shard-0:CASE_ORDER_OR_DIGEST_MISMATCH');
+  });
+
+  it('rejects reused image bytes even when the receipt is rehashed', () => {
+    const packet = allReceipts();
+    packet[1] = resign({
+      ...packet[1],
+      cases: [
+        { ...packet[1].cases[0], outputSha256: packet[0].cases[0].outputSha256 },
+        packet[1].cases[1],
+      ],
+    });
+    expect(inspectImageWorkersFreeShardsV1(plan, packet, reviewTime).blockers)
+      .toContain('shard-1:DUPLICATE_OUTPUT_SHA');
   });
 
   it('rejects paid, broken, quota-overspent, future and stale claims', () => {
