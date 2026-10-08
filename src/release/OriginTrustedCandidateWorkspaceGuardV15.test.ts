@@ -79,6 +79,23 @@ describe('trusted candidate workspace guard', () => {
       .rejects.toThrow('TRUSTED_CANDIDATE_VERIFICATION_CONFIG_SET_MISMATCH');
   });
 
+  it('pins the officially verified Handlebars 4.7.10 tarball SHA-512 in the trusted lockfile', async () => {
+    const locked = JSON.parse(await readFile(path.resolve(process.cwd(), 'package-lock.json'), 'utf8'));
+    expect(locked.packages['node_modules/handlebars']).toMatchObject({
+      version: '4.7.10',
+      integrity: 'sha512-P5VJMVM7qgBn6vjXMw8WG9uVI+ncf2pi72j4de4yz5ZULLj2RGqLYaKOYGsgyrViQ0tePOVlN1tDCCXXtFqXKg==',
+    });
+    const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-handlebars-pin-'));
+    await seedTrustedVerificationBaseline(root);
+    await expect(assertTrustedCandidateVerificationBaselineV15(root)).resolves.toBeUndefined();
+    const file = path.join(root, 'package-lock.json');
+    const modified = JSON.parse(await readFile(file, 'utf8'));
+    modified.packages['node_modules/handlebars'].integrity = 'sha512-FAKE';
+    await writeFile(file, JSON.stringify(modified, null, 2) + '\\n');
+    await expect(assertTrustedCandidateVerificationBaselineV15(root))
+      .rejects.toThrow('TRUSTED_CANDIDATE_VERIFICATION_BASELINE_MISMATCH');
+  });
+
   it('rejects a modified lockfile even when its JSON remains valid', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-lock-tamper-'));
     await seedTrustedVerificationBaseline(root);

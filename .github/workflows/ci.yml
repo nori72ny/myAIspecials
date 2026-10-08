@@ -45,7 +45,10 @@ jobs:
     - name: Inspect patched Handlebars tarball checksum from official npm registry
       run: |
         set -euo pipefail
-        npm view handlebars@4.7.10 dist.integrity
+        actual="$(npm view handlebars@4.7.10 dist.integrity)"
+        test "$actual" = 'sha512-P5VJMVM7qgBn6vjXMw8WG9uVI+ncf2pi72j4de4yz5ZULLj2RGqLYaKOYGsgyrViQ0tePOVlN1tDCCXXtFqXKg=='
+        npm pkg get overrides.handlebars | grep -F '4.7.10' >/dev/null
+        node -e 'const p=require("./package-lock.json").packages["node_modules/handlebars"]; if (p.version!=="4.7.10" || p.integrity!=="sha512-P5VJMVM7qgBn6vjXMw8WG9uVI+ncf2pi72j4de4yz5ZULLj2RGqLYaKOYGsgyrViQ0tePOVlN1tDCCXXtFqXKg==") process.exit(33)'
     - name: Install dependencies (Clean Install)
       run: npm ci
     - name: Run production dependency security audit
