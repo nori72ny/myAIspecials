@@ -8,6 +8,7 @@
  */
 import {
   fetchAndAuditOriginVercelChecksV1,
+  type OriginVercelTrustedCheckSourceV1,
 } from "../src/release/OriginProgressiveReleaseVercelCheckAuditV1.js";
 
 async function main(): Promise<void> {
@@ -17,7 +18,8 @@ async function main(): Promise<void> {
   // These references must be pinned in independently controlled, protected
   // environment configuration, not fetched from the candidate PR checkout.
   const kind = process.env.VERCEL_RELEASE_CHECK_SOURCE_KIND;
-  const trustedSource = kind === "webhook" || kind === "integration" || kind === "git-provider"
+  const trustedSource: OriginVercelTrustedCheckSourceV1 | undefined =
+    kind === "webhook" || kind === "integration" || kind === "git-provider"
     ? { kind, identity: process.env.VERCEL_RELEASE_CHECK_SOURCE_ID ?? "" }
     : undefined;
   const value = await fetchAndAuditOriginVercelChecksV1({ token, projectId, teamId, trustedSource });
