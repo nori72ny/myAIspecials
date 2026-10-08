@@ -1,3 +1,5 @@
+import { createPublicKey, verify as verifySignature } from 'node:crypto';
+
 export const AGENT_FRONTIER_TASK_GATE_VERSION_V3 = 'origin.agent-frontier-task-gate.v3' as const;
 
 const SHA40 = /^[0-9a-f]{40}$/i;
@@ -48,10 +50,17 @@ export type AgentFrontierTaskEvidenceV3 = {
   timeBudgetMs: number;
 };
 
+export type AgentFrontierGateAttestationV3 = {
+  corpusDigest: string;
+  evaluationRunId: string;
+  signature: string;
+};
+
 export type AgentFrontierGateInputV3 = {
   version: typeof AGENT_FRONTIER_TASK_GATE_VERSION_V3;
   candidateSha: string;
   tasks: readonly AgentFrontierTaskEvidenceV3[];
+  attestation?: AgentFrontierGateAttestationV3;
 };
 
 export type AgentFrontierFamilySummaryV3 = {
@@ -91,6 +100,73 @@ const FAMILY_MIN_SOLVE_RATE: Readonly<Record<AgentFrontierFamilyV3, number>> = O
 });
 
 const OVERALL_MIN_SOLVE_RATE = 0.9;
+
+/**
+ * An independent evaluator signs the exact task ledger (not just an aggregate
+ * score). Its private signing key MUST never reside in the ORIGIN app/worker,
+ * client, PR, or the candidate's CI job.
+ *
+ * The verifier's public key, sealed corpus identity, one-shot run ID and
+ * exact candidate SHA are trusted server-side configuration. None may be
+ * provided by a release-candidate or HTTP request payload.
+ */
+export function canonicalAgentFrontierEvidenceV3(input: AgentFrontierGateInputV3): string {
+  const tasks = Array.isArray(input?.tasks) ? input.tasks : [];
+  return JSON.stringify({
+    protocol: 'origin.agent-frontier-independent-attestation.v1',
+    version: input?.version ?? null,
+    candidateSha: input?.candidateSha ?? null,
+    corpusDigest: input?.attestation?.corpusDigest ?? null,
+    evaluationRunId: input?.attestation?.evaluationRunId ?? null,
+    tasks: tasks.map(task => task && typeof task === 'object' && !Array.isArray(task)
+      ? {
+        id: task.id, candidateSha: task.candidateSha, family: task.family,
+        status: task.status, originalTaskDigest: task.originalTaskDigest,
+        planEvidenceDigest: task.planEvidenceDigest, toolEvidenceDigest: task.toolEvidenceDigest,
+        terminalEvidenceDigest: task.terminalEvidenceDigest,
+        verifiedTerminal: task.verifiedTerminal,
+        falseCompletionClaims: task.falseCompletionClaims, p0Defects: task.p0Defects,
+        p1Defects: task.p1Defects, securityPassed: task.securityPassed,
+        costUsd: task.costUsd, paidFallbackUsed: task.paidFallbackUsed,
+        elapsedMs: task.elapsedMs, timeBudgetMs: task.timeBudgetMs,
+      } : null),
+  });
+}
+
+function attestationBlockers(input: AgentFrontierGateInputV3, env: NodeJS.ProcessEnv): string[] {
+  const blockers: string[] = [];
+  const a = input?.attestation;
+  const corpus = env.ORIGIN_AGENT_FRONTIER_CORPUS_SHA256;
+  const runId = env.ORIGIN_AGENT_FRONTIER_RUN_ID;
+  const pinnedSha = env.ORIGIN_AGENT_FRONTIER_CANDIDATE_SHA;
+  const publicKey = env.ORIGIN_AGENT_FRONTIER_EVALUATOR_PUBLIC_KEY_PEM;
+
+  if (!SHA256.test(corpus ?? '') || !runId || !SAFE_ID.test(runId)
+    || !SHA40.test(pinnedSha ?? '') || !publicKey || Buffer.byteLength(publicKey, 'utf8') > 4096) {
+    return ['EVALUATOR_TRUST_ANCHOR_UNAVAILABLE'];
+  }
+  if (!a || !isEvidenceDigest(a.corpusDigest) || a.corpusDigest !== corpus) blockers.push('FROZEN_CORPUS_DIGEST_MISMATCH');
+  if (!a || typeof a.evaluationRunId !== 'string' || a.evaluationRunId !== runId) blockers.push('EVALUATION_RUN_ID_MISMATCH');
+  if (!input || input.candidateSha !== pinnedSha) blockers.push('EVALUATOR_CANDIDATE_SHA_MISMATCH');
+  const signature = a?.signature;
+  if (typeof signature !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(signature)) {
+    blockers.push('INDEPENDENT_ATTESTATION_MISSING');
+  } else {
+    try {
+      const decoded = Buffer.from(signature, 'base64url');
+      const message = canonicalAgentFrontierEvidenceV3(input);
+      const key = createPublicKey(publicKey);
+      if (key.asymmetricKeyType !== 'ed25519' || decoded.length !== 64
+        || Buffer.byteLength(message, 'utf8') > 96 * 1024
+        || !verifySignature(null, Buffer.from(message, 'utf8'), key, decoded)) {
+        blockers.push('INDEPENDENT_ATTESTATION_INVALID');
+      }
+    } catch {
+      blockers.push('INDEPENDENT_ATTESTATION_INVALID');
+    }
+  }
+  return blockers;
+}
 
 function isFamily(value: unknown): value is AgentFrontierFamilyV3 {
   return typeof value === 'string' && (AGENT_FRONTIER_FAMILIES_V3 as readonly string[]).includes(value);
@@ -132,8 +208,11 @@ function validTask(task: AgentFrontierTaskEvidenceV3 | null, candidateSha: strin
   return blockers;
 }
 
-export function evaluateAgentFrontierTaskGateV3(input: AgentFrontierGateInputV3): AgentFrontierGateResultV3 {
-  const blockers: string[] = [];
+export function evaluateAgentFrontierTaskGateV3(
+  input: AgentFrontierGateInputV3,
+  trustedEvaluatorEnv: NodeJS.ProcessEnv = process.env,
+): AgentFrontierGateResultV3 {
+  const blockers: string[] = [...attestationBlockers(input, trustedEvaluatorEnv)];
   const candidateSha = String(input?.candidateSha ?? '').toLowerCase();
   const tasks = Array.isArray(input?.tasks) ? input.tasks : [];
   const records = tasks.filter((task): task is AgentFrontierTaskEvidenceV3 =>
