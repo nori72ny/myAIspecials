@@ -42,6 +42,10 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
+    - name: Inspect patched Handlebars tarball checksum from official npm registry
+      run: |
+        set -euo pipefail
+        npm view handlebars@4.7.10 dist.integrity
     - name: Install dependencies (Clean Install)
       run: npm ci
     - name: Run production dependency security audit
