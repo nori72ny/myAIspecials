@@ -39,8 +39,8 @@ describe('World-class image private held-out runner V2', () => {
     expect(workflow).toContain('if(evidence.totalCostUsd!==0 || summary.totalCostUsd!==0) process.exit(31)');
     expect(workflow).toContain('evidence.cases.some((c)=>c.costUsd!==0)');
     expect(workflow).toContain("startsWith('cloudflare-workers-ai-free::')");
-    expect(runner).toContain('const maxImageCostUsd = 0');
-    expect(runner).toContain('const maxTotalCostUsd = 0');
+    expect(runner).toContain('maxImageCostUsd: 0');
+    expect(runner).toContain('maxTotalCostUsd: 0');
     expect(runner).toContain('WORLD_CLASS_IMAGE_PRIVATE_NONZERO_COST');
     expect(runner).not.toContain('OPENROUTER_API_KEY');
   });

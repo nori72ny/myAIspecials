@@ -406,9 +406,6 @@ async function main(): Promise<void> {
     throw new Error('WORLD_CLASS_IMAGE_PRIVATE_CANDIDATE_SHA_INVALID');
   }
 
-  const maxImageCostUsd = 0;
-  const maxTotalCostUsd = 0;
-
   const runtimeEnv: NodeJS.ProcessEnv = {
     ...process.env,
     ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'true',
