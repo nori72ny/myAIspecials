@@ -23,6 +23,7 @@ const valid = (): OriginProgressiveReleaseEvidenceV1 => ({
   ownerVisualApprovedHeadSha: null,
   ownerApproval: { featureId: 'pwa-safe-update', kind: 'published-feature-update', headSha: sha, identityVerified: true },
   capabilityQualityQualified: true,
+  capabilityQualityEvidenceCandidateSha: sha,
   regressionAndDeviceTestsPassed: true,
   zeroCostVerified: true,
   freeOnlyVerified: true,
@@ -63,6 +64,9 @@ describe('Origin Progressive Release Preflight V1', () => {
     ['unreviewed PR', { reviewedHeadSha: null }, 'CODE_REVIEW_NOT_CURRENT'],
     ['missing owner approval', { ownerApproval: null }, 'OWNER_APPROVAL_MISSING'],
     ['missing held-out quality', { capabilityQualityQualified: false }, 'QUALITY_EVIDENCE_MISSING'],
+    ['quality tested on previous main, not candidate PR', { capabilityQualityEvidenceCandidateSha: main }, 'QUALITY_EVIDENCE_MISSING'],
+    ['missing bound quality source SHA', { capabilityQualityEvidenceCandidateSha: undefined }, 'QUALITY_EVIDENCE_MISSING'],
+    ['malformed bound quality SHA', { capabilityQualityEvidenceCandidateSha: 'main' }, 'QUALITY_EVIDENCE_MISSING'],
     ['device regression', { regressionAndDeviceTestsPassed: false }, 'QUALITY_EVIDENCE_MISSING'],
     ['cost unverified', { zeroCostVerified: false }, 'SAFETY_EVIDENCE_MISSING'],
     ['free-only not attested', { freeOnlyVerified: false }, 'SAFETY_EVIDENCE_MISSING'],
@@ -78,6 +82,18 @@ describe('Origin Progressive Release Preflight V1', () => {
     const report = evaluate({ ...valid(), ...mutation });
     expect(report.canPublish).toBe(false);
     expect(report.blockers).toContain(reason);
+  });
+
+  it('never substitutes main-only AQ 40-case success for the candidate exact-head quality result', () => {
+    const candidate = valid();
+    const staleQuality = evaluate({
+      ...candidate,
+      capabilityQualityQualified: true,
+      capabilityQualityEvidenceCandidateSha: candidate.currentMainSha,
+    });
+    expect(staleQuality.canPublish).toBe(false);
+    expect(staleQuality.blockers).toContain('QUALITY_EVIDENCE_MISSING');
+    expect(evaluate(candidate).blockers).not.toContain('QUALITY_EVIDENCE_MISSING');
   });
 
   it('requires a visual approval on the exact SHA for UI-changing updates', () => {
