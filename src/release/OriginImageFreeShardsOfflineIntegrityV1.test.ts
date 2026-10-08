@@ -22,6 +22,10 @@ describe('sealed Free image shard offline integrity verifier', () => {
     expect(script).toContain('await fs.readFile(imgPath)');
     expect(script).toContain("digest(bytes) === outputHash");
     expect(script).toContain('readRasterDimensionsV15(bytes, mime)');
+    expect(script).toContain("const browser = await chromium.launch({ headless: true })");
+    expect(script).toContain('await img.decode()');
+    expect(script).toContain('BROWSER_DECODE_DIMENSIONS_MISMATCH');
+    expect(script).toContain('await browser.close()');
     expect(script).toContain('seenImageHashes.size === 24');
     expect(script).toContain('total === 24');
     expect(script).toContain('Object.values(t).every(v => v === true)');
