@@ -59,7 +59,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   const document = {
     ...eventTarget(),
     visibilityState: 'visible',
-    documentElement: { dataset: { originStorageState: 'ready' } },
+    documentElement: { dataset: { originStorageState: 'ready', originDirectTouchPending: 'false' } },
     querySelectorAll: (selector: string) => selector.includes('file') ? [files] : selector.includes('contenteditable') ? Array.from(editorDocument.querySelectorAll(selector)) : [draft],
     querySelector: (selector: string) => selector === '[data-testid="artifact-direct-touch-status"]' ? (directTouchMode ? {} : null) : busy.value ? {} : null,
   };
