@@ -586,8 +586,12 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('start-request-button').click();
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible({ timeout: 15_000 });
+    // A read-only preview must reject Direct Touch commits. Exercise the real
+    // UI privilege boundary rather than bypassing edit-mode activation.
+    await workspace.getByTestId('artifact-action-edit').click();
     const preview = workspace.getByTitle('プレビュー');
     const sandbox = preview.contentFrame();
+    await expect(sandbox.locator('[data-origin-direct-touch="true"]')).toBeVisible();
     await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Updated visual text' }], timestamp: Date.now() }, '*'));
     await expect(page.getByText('更新あり', { exact: true })).toBeVisible();
     await page.getByTestId('artifact-action-details').click();
