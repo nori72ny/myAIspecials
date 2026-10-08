@@ -48,6 +48,14 @@ describe('V1.6 world-class image edit Free-only private shard runner', () => {
     expect(source).toContain('statusBody?.model !== plan.model');
     expect(source).toContain('item.modelId !== plan.model');
     expect(inspect).toContain('editShardCount: plan.shards.length');
+    expect(inspect).toContain("ORIGIN_IMAGE_EDIT_SOURCE_BROWSER_PREFLIGHT === 'true'");
+    expect(inspect).toContain('await image.decode()');
+    expect(inspect).toContain('IMAGE_EDIT_PRIVATE_SOURCE_PREFLIGHT_DECODE_FAILED');
+    expect(workflow).toContain("ORIGIN_IMAGE_EDIT_SOURCE_BROWSER_PREFLIGHT: 'true'");
+    expect(workflow.indexOf('Install Chromium for independent pixel decoding'))
+      .toBeLessThan(workflow.indexOf('Verify 16-case private edit corpus and immutable shard plan'));
+    expect(workflow.indexOf('Verify 16-case private edit corpus and immutable shard plan'))
+      .toBeLessThan(workflow.indexOf('Mark exactly one edit shard started before any image inference'));
     expect(inspect).not.toContain('sourceImageDataUrl');
   });
 

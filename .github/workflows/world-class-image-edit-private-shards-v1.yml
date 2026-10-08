@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       corpus_id:
-        description: Sealed evaluator-owned 24-case corpus ID
+        description: Sealed evaluator-owned 16-case edit corpus ID
         required: true
         type: string
       plan_digest:
@@ -81,11 +81,15 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           node --import tsx scripts/preflight-world-class-image-v16.ts
 
+      - name: Install Chromium for independent pixel decoding
+        run: npx playwright install --with-deps chromium
+
       - name: Verify 16-case private edit corpus and immutable shard plan
         id: metadata
         shell: bash
         env:
           ORIGIN_IMAGE_EDIT_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_IMAGE_EDIT_PRIVATE_CORPUS_GZIP_B64 }}
+          ORIGIN_IMAGE_EDIT_SOURCE_BROWSER_PREFLIGHT: 'true'
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           CORPUS_ID: ${{ inputs.corpus_id }}
           PLAN_DIGEST: ${{ inputs.plan_digest }}
@@ -209,9 +213,6 @@ jobs:
           path: test-results/image-free-edit-shard-started.json
           retention-days: 90
           if-no-files-found: error
-
-      - name: Install Chromium for independent pixel decoding
-        run: npx playwright install --with-deps chromium
 
       - name: Reject UTC day rollover after uploading the start marker
         shell: bash
