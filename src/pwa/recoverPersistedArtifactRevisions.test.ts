@@ -26,9 +26,17 @@ describe('PWA durable artifact revisions', () => {
       expect(recover(value, '<main>編集済み</main>')).toBeUndefined();
     }
   });
-  it('limits snapshots to bounded revision counts and content sizes', () => {
-    const oversized = Array.from({ length: 65 }, (_, i) => ({ ...history[1], id: `demo:v${i}` }));
-    expect(recover(oversized, '<main>編集済み</main>')).toBeUndefined();
+  it('retains only the newest 64 entries from an older oversized saved history', () => {
+    const legacy = Array.from({ length: 101 }, (_, i) => ({
+      ...history[1], id: `demo:v${i + 1}`, content: i === 100 ? '<main>最新</main>' : '<main>過去</main>',
+    }));
+    const restored = recover(legacy, '<main>最新</main>');
+    expect(restored).toHaveLength(64);
+    expect(restored?.[0].id).toBe('demo:v38');
+    expect(restored?.at(-1)?.id).toBe('demo:v101');
+  });
+  it('rejects oversized individual revisions and invalid last content', () => {
     expect(recover([{ ...history[1], content: 'X'.repeat(1_000_001) }], '<main>編集済み</main>')).toBeUndefined();
+    expect(recover(history, 'different')).toBeUndefined();
   });
 });
