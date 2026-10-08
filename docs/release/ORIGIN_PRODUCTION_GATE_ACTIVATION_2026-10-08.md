@@ -58,3 +58,12 @@ Vercel公式の `GET /v2/projects/{projectIdOrName}/checks` API で
 
 Vercel参考: https://vercel.com/docs/rest-api/checks-v2/list-all-checks-for-a-project
 
+
+## 2026-10-09 continuation: duplicate evidence and dependency repair
+
+- Reproduced a configuration-audit false positive: a valid named blocking check plus a same-name nonblocking or incomplete-source check was incorrectly reported as unambiguous. Count all same-name records before configuration validation. Three regression cases now reject these payloads; the valid single-check control still passes and release authorization remains false.
+- Exact previous head `fecc9a399d1698b7d0dc98bdaaee9b75b7ffd8cd` failed Production CI run 37838178444 on both Node 22/24 at the all-dependency security audit. The build/unit/E2E steps in those jobs were skipped, not successful. ACOS, CodeQL, OpenSSF and the three artifact-isolation jobs succeeded.
+- Failure log identifies development dependency Handlebars 4.7.9 as critical (GHSA-xw65-4hp5-5hc7, GHSA-8r5x-fm3f-whwj, GHSA-p8wg-vrv2-v86f). Update only the Handlebars lock entry to upstream 4.7.10, including its published integrity and minimist range. Do not lower the audit threshold or use audit fix --force.
+- These edits require fresh exact-head CI; previous results do not qualify the new commit. PR #930 remains at `fa12767533462baa3a0e8cd75804f746acf2774d`, with four successful engineering workflows, but its skipped live AQ workflow does not constitute measured answer quality.
+- Remaining release blockers are unchanged: real candidate/baseline model-output evaluation, independent exact-head review and applicable owner approval, effective GitHub/Vercel enforcement and a negative-path proof, and actual zero-cost evidence. No main merge, production alias change, secret changes or paid model execution is authorized by these repairs.
+- Local verification: all 18 Vercel-audit unit tests pass; npm ci succeeds; all-dependency audit exits 0 at the unchanged high threshold (0 high/critical, 21 existing moderate findings remain). The pre-fix module reproduced all three duplicate false positives.

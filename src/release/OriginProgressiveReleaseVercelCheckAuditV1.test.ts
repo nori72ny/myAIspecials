@@ -35,6 +35,9 @@ describe("Vercel deployment-alias release check configuration audit", () => {
     ["wrong block stage", { checks: [{ ...check, blocks: "deployment-start" }] }],
     ["missing trusted source", { checks: [{ ...check, source: undefined }] }],
     ["missing source kind", { checks: [{ ...check, sourceKind: undefined }] }],
+    ["duplicate with nonblocking configuration", { checks: [check, { ...check, id: "chk_other", blocks: "none" }] }],
+    ["duplicate with missing source", { checks: [check, { ...check, id: "chk_other", source: undefined }] }],
+    ["duplicate with missing source kind", { checks: [check, { ...check, id: "chk_other", sourceKind: undefined }] }],
     ["duplicate exact gate", { checks: [check, { ...check, id: "chk_duplicate" }] }],
   ])("blocks missing or ambiguous production check: %s", (_label, payload) => {
     const audit = auditOriginVercelChecksV1(payload, projectId);

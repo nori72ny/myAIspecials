@@ -48,7 +48,12 @@ export function auditOriginVercelChecksV1(
     });
   if (!complete) blockers.push("VERCEL_CHECK_API_EVIDENCE_MISSING");
 
-  const matched = complete && rows !== null ? rows.filter(item => {
+  const named = complete && rows !== null
+    ? rows.filter(item => record(item)!.name === ORIGIN_VERCEL_RELEASE_CHECK_NAME)
+    : null;
+  // Count all same-name checks BEFORE validating their configuration. Otherwise
+  // a malformed/nonblocking duplicate disappears and an ambiguous gate passes.
+  const matched = named?.length === 1 ? named.filter(item => {
     const c = record(item)!;
     return c.name === ORIGIN_VERCEL_RELEASE_CHECK_NAME
       && c.blocks === "deployment-alias"
