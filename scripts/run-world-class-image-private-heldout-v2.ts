@@ -342,7 +342,8 @@ async function evaluateCase(
     deliveryIntegrityPassed,
   };
 
-  const passed = Object.values(technical).every(Boolean);
+  // Safety clearance is insufficient: content fidelity and text/composition critique must pass.
+  const passed = Object.values(technical).every(Boolean) && semantic?.passed === true;
   if (!Number.isInteger(caseIndex) || caseIndex < 0 || caseIndex >= 24) {
     throw new Error('WORLD_CLASS_IMAGE_PRIVATE_CASE_INDEX_INVALID');
   }
@@ -354,6 +355,7 @@ async function evaluateCase(
     && dimensionsValid
     && technicalCriticPassed
     && semantic?.safetyPassed === true
+    && semantic?.passed === true
     && deliveryIntegrityPassed;
 
   if (networkWriteSafe) {
@@ -386,7 +388,9 @@ async function evaluateCase(
       : (semanticFailureCode
         ?? (semantic?.safetyPassed === false
           ? 'WORLD_CLASS_IMAGE_PRIVATE_OUTPUT_SAFETY_FAILED'
-          : 'WORLD_CLASS_IMAGE_PRIVATE_TECHNICAL_VALIDATION_FAILED')),
+          : semantic?.passed === false
+            ? 'WORLD_CLASS_IMAGE_PRIVATE_SEMANTIC_QUALITY_FAILED'
+            : 'WORLD_CLASS_IMAGE_PRIVATE_TECHNICAL_VALIDATION_FAILED')),
     providerId,
     modelId,
     costUsd: Number.isFinite(costUsd) ? costUsd : null,
@@ -580,7 +584,8 @@ async function main(): Promise<void> {
     const completed = cases.filter((item) => item.output.executionStatus === 'completed').length;
     const technicallyPassed = cases.filter(
       (item) => item.output.executionStatus === 'completed'
-        && Object.values(item.output.technical).every(Boolean),
+        && Object.values(item.output.technical).every(Boolean)
+        && item.semantic?.passed === true,
     ).length;
 
     await fs.writeFile(path.join(outputRoot, 'candidate-summary.json'), JSON.stringify({
