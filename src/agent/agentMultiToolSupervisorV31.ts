@@ -133,6 +133,8 @@ function snapshotTerminalOutcome(candidate: unknown): AgentMultiToolStepOutcomeV
   const descriptors = Object.getOwnPropertyDescriptors(candidate);
   if (required.some(key => !descriptors[key] || !('value' in descriptors[key]))) return null;
   const field = (key: typeof required[number]): unknown => descriptors[key]!.value as unknown;
+  // Do not let RegExp.test coerce attacker-supplied objects via toString().
+  if (typeof field('evidenceDigest') !== 'string') return null;
   return Object.freeze({
     terminal: field('terminal') as AgentMultiToolStepOutcomeV31['terminal'],
     toolExecuted: field('toolExecuted') as boolean,
@@ -258,7 +260,8 @@ export async function executeAgentMultiToolSequenceV31(
       if (outcome.terminal !== 'verified')
         return finish('blocked', 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED', completed);
       if (outcome.toolExecuted !== true || outcome.verified !== true
-        || !SHA256.test(outcome.evidenceDigest ?? '') || /^0{64}$/.test(outcome.evidenceDigest)
+        || typeof outcome.evidenceDigest !== 'string'
+        || !SHA256.test(outcome.evidenceDigest) || /^0{64}$/.test(outcome.evidenceDigest)
         || outcome.freeOnly !== true || outcome.costUsd !== 0 || outcome.paidFallbackUsed !== false)
         return finish('blocked', 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED', completed);
       let trustedTerminal: boolean;
