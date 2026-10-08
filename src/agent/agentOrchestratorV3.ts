@@ -13,7 +13,7 @@ import { issueApprovalCapability, issuePlanCapability, latestApprovalExpiryForPl
 import { selectAgentToolV3 } from './agentToolPlannerV3.js';
 import { agentOperatorAuthorizationModeV3, agentOperatorConfiguredV3, authenticateAgentOperatorV3 } from './agentOperatorAuthV3.js';
 import { AgentCodingBridgeV3 } from './agentCodingBridgeV3.js';
-import { createOriginChatRateLimiter } from '../server/originSecurity.js';
+import { createOriginChatRateLimiter, requireSafeOriginChatRequest } from '../server/originSecurity.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
 const isToolName = (value: unknown): value is ToolName => typeof value === 'string' && TOOL_NAMES.includes(value as ToolName);
@@ -31,7 +31,7 @@ export interface AgentRunConsumptionStore {
 
 export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, codingBridge?: AgentCodingBridgeV3): Router {
   const router = express.Router();
-  router.use('/api/agent/v3/coding', createOriginChatRateLimiter(Date.now, ['POST']));
+  router.use('/api/agent/v3/coding', requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ['POST']));
 
   router.get('/api/agent/v3/status', (_req, res) => {
     const approvalSigningConfigured = v3CapabilityConfigured(env);
@@ -176,8 +176,6 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   });
 
   router.post('/api/agent/v3/coding/status', (req, res) => {
-    if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
-    if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
     if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
     const { runId, jobId, bridgeToken } = req.body ?? {};
     if (typeof runId !== 'string' || !runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
@@ -195,8 +193,6 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   });
 
   router.post('/api/agent/v3/coding/cancel', (req, res) => {
-    if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
-    if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
     if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
     const { runId, jobId, bridgeToken } = req.body ?? {};
     if (typeof runId !== 'string' || !runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
