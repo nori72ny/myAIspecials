@@ -517,6 +517,30 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
   });
 
+  test('commits a real Direct Touch contenteditable keystroke only after durable browser storage', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200, contentType: 'text/plain; charset=utf-8',
+      body: '```html:pwa-real-input.html\\n<main><p>Original input</p></main>\\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('編集結果の保存を検証');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await workspace.getByTestId('artifact-action-edit').click();
+    const editable = workspace.getByTitle('プレビュー').contentFrame().locator('[data-origin-direct-touch-index="0"]');
+    await expect(editable).toHaveAttribute('contenteditable', 'plaintext-only');
+    // Real user text input, not a test-fabricated parent.postMessage.
+    await editable.fill('Updated by real input');
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('data-origin-srcdoc', /Updated by real input/);
+    await expect.poll(
+      () => page.evaluate(() => document.documentElement.dataset.originDirectTouchPending),
+      { timeout: 15_000 },
+    ).toBe('false');
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
+  });
+
   test('assists direct source editing and prevents malformed HTML revisions', async ({ page }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,
