@@ -267,6 +267,12 @@ describe('PWA controller changes preserve user work', () => {
     app.retry();
     app.flushTimers();
     assert.equal(app.activations(), 0);
+    // A queued commit remains unsaved until the matching IndexedDB snapshot
+    // actually completes, even if direct editing mode has been closed.
+    app.document.documentElement.dataset.originDirectTouchPending = 'commit:artifact-1:v2';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
     app.changeController();
     assert.equal(app.reloads(), 0);
     app.document.documentElement.dataset.originDirectTouchPending = 'false';
