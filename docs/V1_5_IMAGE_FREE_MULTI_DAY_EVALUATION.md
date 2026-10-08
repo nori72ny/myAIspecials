@@ -27,6 +27,16 @@ The immutable planner retains **all 24 held-out cases, eight families × three c
 7. Construct the normal 24-case technical-and-blind packet with **three fixed competitor references and at least two independent blind judges**, plus a separate **16-case editing benchmark**. Apply all current exact-head and held-out publication thresholds. Missing/worse/unknown quality is a blocking result, not a pass.
 8. Verify all exact-head CI, independent audits, real desktop/mobile UI and Android keyboard checks, output visual fidelity and the owner's required visual and explicit release approvals. Then—and only then—merge/deploy an approved exact commit and run Production smoke tests. Do not label `world-class` merely because a provider or local digest check passed.
 
+## Separate high-quality image-edit qualification (still unexecuted)
+
+V1.5's sealed 16-case edit runner targets `/api/creative/v1.5/raster/edit`; it **cannot** qualify the newer V1.6 high-quality edit API. Reusing its pass as a V1.6 pass is forbidden.
+
+The V1.6 `/api/creative/v1.6/world-class/edit` router now rejects a returned image whose SHA-256 matches any unchanged source/reference image, before semantic critique, and labels task and reference count on successful outputs. This only proves a non-identical output, **not** preservation of people/products/background or accurate local edits.
+
+`src/release/OriginImageEditFreeShardPlanV1.ts` freezes the existing eight image-edit task families (16 cases total) into eight conservative two-case per-UTC-day Free-only shards. It binds candidate SHA, original corpus digest, task ID, edit instruction SHA-256 and source image SHA-256. It does **not** send requests or assert quality passes; the V1.6 sealed source-aware editing runner, authenticated image/reference comparison, independent image-edit judges and actual 8-day execution remain mandatory.
+
+The same Cloudflare Free allowance is **account-wide**. V1.6 generation and V1.6 editing cannot each spend a fresh daily 10,000 Neurons on the same UTC day; serialized daily quota coordination and a genuine provider usage check are still required.
+
 ## Fail-closed release interpretation
 
 Even when the local 24-image aggregator succeeds, it intentionally returns:
