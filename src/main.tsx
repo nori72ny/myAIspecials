@@ -11,6 +11,7 @@ import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
 import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
+import { directTouchRevisionDurablySaved } from './pwa/directTouchDurableUpdateGate';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import './index.css';
 import './ultra-optics.css';
@@ -191,15 +192,15 @@ function PersonalReleaseRoot() {
     if (!isHydrated || storageReadFailed) return;
     const snapshot = snapshotFromState(messages, sessions, artifacts);
     const pendingRevision = document.documentElement.dataset.originDirectTouchPending;
-    // A matching revision must be included in the exact snapshot persisted here.
     // Neither React state acceptance nor elapsed debounce time is durable proof.
-    const revisionRecorded = Boolean(pendingRevision?.startsWith('commit:')
-      && artifacts.some((artifact) => artifact.revisions?.some((revision) => revision.id === pendingRevision.slice(7))));
+    // Match the last committed revision to the snapshot that actually saves.
     const timer = window.setTimeout(() => {
       void originIndexedDbAdapter.save(snapshot).then((result) => {
         setStorageHealth(result === 'saved' ? 'ready' : result);
-        if (result === 'saved' && revisionRecorded
-          && document.documentElement.dataset.originDirectTouchPending === pendingRevision) {
+        if (directTouchRevisionDurablySaved(
+          pendingRevision, document.documentElement.dataset.originDirectTouchPending,
+          artifacts, result,
+        )) {
           document.documentElement.dataset.originDirectTouchPending = 'false';
           window.dispatchEvent(new Event('origin:pwa-safe-apply'));
         }
