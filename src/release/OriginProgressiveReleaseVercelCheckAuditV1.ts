@@ -48,14 +48,14 @@ export function auditOriginVercelChecksV1(
     });
   if (!complete) blockers.push("VERCEL_CHECK_API_EVIDENCE_MISSING");
 
-  const matched = complete && rows !== null && rows.filter(item => {
+  const matched = complete && rows !== null ? rows.filter(item => {
     const c = record(item)!;
     return c.name === ORIGIN_VERCEL_RELEASE_CHECK_NAME
       && c.blocks === "deployment-alias"
       && typeof c.id === "string" && c.id.length > 0
       && typeof c.sourceKind === "string" && c.sourceKind.length > 0
       && record(c.source) !== null;
-  });
+  }) : null;
   if (!matched || matched.length !== 1) {
     blockers.push("REQUIRED_DEPLOYMENT_ALIAS_CHECK_MISSING");
   }
@@ -63,7 +63,7 @@ export function auditOriginVercelChecksV1(
   return Object.freeze({
     schemaVersion: "origin.vercel-checks-audit.v1",
     projectId,
-    configuredBlockingCheckFound: matched !== false && matched !== null && Boolean(matched?.length === 1),
+    configuredBlockingCheckFound: Array.isArray(matched) && matched.length === 1,
     releaseAuthorized: false,
     blockers: Object.freeze(blockers),
   });
