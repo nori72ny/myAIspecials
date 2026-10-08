@@ -46,9 +46,10 @@ export type AgentMultiToolSupervisorResultV31 = {
   verified: boolean;
   code: string;
   completedSteps: readonly AgentMultiToolVerifiedStepV31[];
+  /** Free-only is the intended policy. Blocked/cancelled attempts have no verified spend receipt. */
   freeOnly: true;
-  costUsd: 0;
-  paidFallbackUsed: false;
+  costUsd: 0 | null;
+  paidFallbackUsed: false | null;
 };
 
 const SHA256 = /^[a-f0-9]{64}$/i;
@@ -184,7 +185,14 @@ function approvalBinding(runId: string, goalDigest: string, step: AgentMultiTool
 }
 
 function finish(status: AgentMultiToolSupervisorResultV31['status'], code: string, completedSteps: AgentMultiToolVerifiedStepV31[]): AgentMultiToolSupervisorResultV31 {
-  return { status, verified: status === 'completed', code, completedSteps, freeOnly: true, costUsd: 0, paidFallbackUsed: false };
+  // Never report observed "$0" or "no paid fallback" for an uncertain execution.
+  // These claims require every tool step to have trusted terminal cost evidence.
+  const allVerified = status === 'completed';
+  return {
+    status, verified: allVerified, code, completedSteps,
+    freeOnly: true, costUsd: allVerified ? 0 : null,
+    paidFallbackUsed: allVerified ? false : null,
+  };
 }
 
 /**
@@ -253,7 +261,14 @@ export async function executeAgentMultiToolSequenceV31(
         || !SHA256.test(outcome.evidenceDigest ?? '') || /^0{64}$/.test(outcome.evidenceDigest)
         || outcome.freeOnly !== true || outcome.costUsd !== 0 || outcome.paidFallbackUsed !== false)
         return finish('blocked', 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED', completed);
-      if (await deps.verifyTrustedTerminal(runId, operationDigest, step, outcome) !== true)
+      let trustedTerminal: boolean;
+      try {
+        trustedTerminal = await deps.verifyTrustedTerminal(runId, operationDigest, step, outcome);
+      } catch {
+        // Verifier outages after dispatch do not prove the effect was rolled back.
+        return finish('blocked', 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED', completed);
+      }
+      if (trustedTerminal !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_TRUSTED_TERMINAL_MISSING', completed);
       // A late cancel after verified execution cannot be represented as an
       // acknowledged cancelled job without reconciling the committed effect.
