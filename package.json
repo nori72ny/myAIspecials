@@ -54,6 +54,7 @@
     "eval:image-private-shards-verify": "tsx scripts/verify-world-class-image-private-shards-v1.ts",
     "inspect:image-edit-private-corpus": "tsx scripts/inspect-image-edit-private-corpus-v1.ts",
     "eval:image-edit-private": "tsx scripts/run-image-edit-private-heldout-v1.ts",
+    "eval:image-edit-private-world-class-shard": "tsx scripts/run-world-class-image-edit-private-shard-v1.ts",
     "eval:aq-budgeted-day": "tsx scripts/run-aq-budgeted-day.ts"
   },
   "dependencies": {
