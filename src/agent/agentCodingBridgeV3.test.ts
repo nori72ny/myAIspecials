@@ -146,6 +146,32 @@ describe('AgentCodingBridgeV3', () => {
     if ('code' in polled) expect(polled.code).toBe('AGENT_CODING_VERIFICATION_INCOMPLETE');
   });
 
+  it('rejects four green checks when the build kind was replaced by a duplicate test', async () => {
+    const created = record('queued');
+    const terminal = record('verified');
+    const misleading = verifiedResult();
+    misleading.verificationChecks[3] = { ...misleading.verificationChecks[2] };
+    const jobStore = {
+      create: vi.fn(async () => created),
+      getJob: vi.fn(async () => terminal),
+      requestCancel: vi.fn(async () => terminal),
+    };
+    const resultStore = { get: vi.fn(async () => 'ciphertext') };
+    const dispatch = vi.fn(async () => ({
+      accepted: true as const,
+      jobId: created.jobId,
+      repository: 'nori72ny/myAIspecials' as const,
+      workflow: 'coding-job-worker-v14.yml' as const,
+      ref: 'main' as const,
+    }));
+    const bridge = new AgentCodingBridgeV3(env, jobStore, resultStore, dispatch, () => misleading);
+    const started = await bridge.start('run-agent-duplicate', 'Repair the bug.');
+    const polled = await bridge.poll('run-agent-duplicate', started.jobId, started.bridgeToken);
+    expect(polled.ok).toBe(false);
+    expect(polled.status).toBe('blocked');
+    if ('code' in polled) expect(polled.code).toBe('AGENT_CODING_VERIFICATION_INCOMPLETE');
+  });
+
   it('binds polling to the exact run and coding job', async () => {
     const created = record('queued');
     const jobStore = {
