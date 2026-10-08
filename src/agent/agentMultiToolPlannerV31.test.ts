@@ -30,6 +30,24 @@ describe('Agent v3.1 bounded multi-tool planner', () => {
     expect(plan.steps.map((step) => step.toolName)).toEqual(['code_interpreter']);
   });
 
+
+  it('keeps read-only research about source code from becoming a Coding V1.4 write operation', () => {
+    const plan = planAgentToolSequenceV31('最新のTypeScriptコードを調べて提案書を作って');
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.steps.map(step => step.toolName)).toEqual(['web_search_grounding', 'document_generator']);
+  });
+
+  it('does not interpret code mentioned in repo inspection/tests as permission to modify code', () => {
+    const plan = planAgentToolSequenceV31('このリポジトリのコードを確認してテストして');
+    expect(plan).toEqual({ ok: false, code: 'AGENT_MULTI_TOOL_PLAN_UNSUPPORTED' });
+  });
+
+  it('fails closed on an explicit instruction NOT to fix a code bug', () => {
+    const plan = planAgentToolSequenceV31('このリポジトリのバグを修正しないでテストして');
+    expect(plan).toEqual({ ok: false, code: 'AGENT_MULTI_TOOL_PLAN_UNSUPPORTED' });
+  });
+
   it('fails closed for an unsupported side-effect combination', () => {
     expect(planAgentToolSequenceV31('提案書と画像を同時に作って')).toEqual({
       ok: false,
