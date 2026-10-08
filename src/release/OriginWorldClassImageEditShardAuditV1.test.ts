@@ -34,6 +34,7 @@ describe('V1.6 private editing trusted eight-shard receipt integrity', () => {
     expect(audit).toContain('!seenImages.has(imageSha)');
     expect(audit).toContain('await img.decode()');
     expect(audit).toContain('total === 16');
+    expect(audit).toContain('EDIT_EXACT_9B_MODEL_REQUIRED');
   });
   it('keeps actual editing locality and visual quality unqualified until blinded comparison', () => {
     expect(audit).toContain('sourcePreservationBlindlyEvaluated: false');

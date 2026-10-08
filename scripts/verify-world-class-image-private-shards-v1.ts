@@ -154,7 +154,7 @@ async function main() {
       } finally {
         await page.close();
       }
-      need(typeof item.modelId === 'string' && item.modelId.length > 0, 'MODEL_MISSING');
+      need(item.modelId === '@cf/black-forest-labs/flux-2-klein-9b', 'EXACT_9B_MODEL_REQUIRED');
       modelIds.add(item.modelId as string);
       total += 1;
     }

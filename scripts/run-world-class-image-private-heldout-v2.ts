@@ -465,6 +465,7 @@ async function main(): Promise<void> {
       || statusBody?.primaryReady !== true
       || statusBody?.releaseSha !== candidateSha
       || statusBody?.provider !== 'cloudflare-workers-ai-free'
+      || statusBody?.model !== '@cf/black-forest-labs/flux-2-klein-9b'
       || statusBody?.freeOnly !== true
       || statusBody?.costUsd !== 0
       || statusBody?.paidFallbackEnabled !== false
@@ -523,6 +524,9 @@ async function main(): Promise<void> {
         runtimeEnv,
       );
       cases.push(item);
+      if (item.providerId !== 'cloudflare-workers-ai-free' || item.modelId !== '@cf/black-forest-labs/flux-2-klein-9b') {
+        runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_EXACT_MODEL_DRIFT:' + item.caseId);
+      }
       if (item.costUsd !== null) totalCostUsd += item.costUsd;
       if (item.costUsd !== 0) runBlockers.push(`WORLD_CLASS_IMAGE_PRIVATE_NONZERO_COST:${item.caseId}`);
       if (item.output.durationMs > corpus.executionBudgetMs) {

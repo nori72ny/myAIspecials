@@ -40,6 +40,8 @@ describe('V1.6 world-class image edit Free-only private shard runner', () => {
     expect(source).toContain('item.sourceImageSha256 !== shard.sourceImageSha256s[index]');
     expect(source).toContain('IMAGE_EDIT_FREE_SHARD_UTC_DAY_ROLLOVER');
     expect(source).toContain('cases.length !== shard.caseIds.length');
+    expect(source).toContain('statusBody?.model !== plan.model');
+    expect(source).toContain('item.modelId !== plan.model');
     expect(inspect).toContain('editShardCount: plan.shards.length');
     expect(inspect).not.toContain('sourceImageDataUrl');
   });

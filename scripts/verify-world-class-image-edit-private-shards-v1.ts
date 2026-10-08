@@ -182,8 +182,8 @@ async function verify() {
         } finally {
           await page.close();
         }
-        requireValid(typeof item.modelId === 'string' && item.modelId.length > 0,
-          'EDIT_PROVIDER_MODEL_MISSING');
+        requireValid(item.modelId === '@cf/black-forest-labs/flux-2-klein-9b',
+          'EDIT_EXACT_9B_MODEL_REQUIRED');
         models.add(item.modelId as string);
         total++;
       }

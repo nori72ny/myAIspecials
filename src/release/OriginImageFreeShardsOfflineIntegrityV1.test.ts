@@ -27,6 +27,7 @@ describe('sealed Free image shard offline integrity verifier', () => {
     expect(script).toContain('BROWSER_DECODE_DIMENSIONS_MISMATCH');
     expect(script).toContain('await browser.close()');
     expect(script).toContain('seenImageHashes.size === 24');
+    expect(script).toContain('EXACT_9B_MODEL_REQUIRED');
     expect(script).toContain('total === 24');
     expect(script).toContain('Object.values(t).every(v => v === true)');
     expect(script).toContain('s?.passed === true && s.safetyPassed === true');

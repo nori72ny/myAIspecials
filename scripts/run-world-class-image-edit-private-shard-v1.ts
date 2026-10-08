@@ -298,6 +298,7 @@ async function main(): Promise<void> {
       || statusBody?.primaryReady !== true
       || statusBody?.releaseSha !== candidateSha
       || statusBody?.provider !== 'cloudflare-workers-ai-free'
+      || statusBody?.model !== plan.model
       || statusBody?.freeOnly !== true
       || statusBody?.costUsd !== 0
       || statusBody?.paymentMethodRequired !== false
@@ -312,6 +313,9 @@ async function main(): Promise<void> {
       if (!selectedIds.has(task.caseId)) continue;
       const item = await evaluateEditCase(baseUrl, task, caseIndex, corpus.executionBudgetMs, imagesDir, candidateSha);
       cases.push(item);
+      if (item.providerId !== 'cloudflare-workers-ai-free' || item.modelId !== plan.model) {
+        runBlockers.push('IMAGE_EDIT_FREE_SHARD_EXACT_MODEL_DRIFT:' + item.caseId);
+      }
       if (item.durationMs > corpus.executionBudgetMs) runBlockers.push(`IMAGE_EDIT_PRIVATE_EXECUTION_BUDGET_EXCEEDED:${item.caseId}`);
       if (item.executionStatus !== 'completed') runBlockers.push(`IMAGE_EDIT_PRIVATE_EXECUTION_NOT_COMPLETED:${item.caseId}`);
       if (item.identicalToSource) runBlockers.push(`IMAGE_EDIT_PRIVATE_IDENTICAL_FALSE_EDIT:${item.caseId}`);
