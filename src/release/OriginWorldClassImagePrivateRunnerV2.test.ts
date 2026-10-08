@@ -25,6 +25,15 @@ describe('World-class image private held-out runner V2', () => {
     expect(workflow).not.toContain('OPENROUTER_API_KEY');
   });
 
+  it('fails before Cloudflare inference when 24-case Free quota cannot fit into one day', () => {
+    const budgetGuard = workflow.indexOf('Block unsafe one-day 24-case FLUX 9B Free benchmark');
+    const providerProbe = workflow.indexOf('Prove Cloudflare Free image readiness before sealed corpus access');
+    expect(budgetGuard).toBeGreaterThan(0);
+    expect(providerProbe).toBeGreaterThan(budgetGuard);
+    expect(workflow).toContain('monolithicImageFreePlanIsSafeV1(24)');
+    expect(workflow).toContain('WORLD_CLASS_IMAGE_PRIVATE_MULTI_DAY_SHARDING_REQUIRED');
+  });
+
   it('proves Cloudflare Free readiness before the sealed corpus is inspected', () => {
     const provider = workflow.indexOf('Prove Cloudflare Free image readiness before sealed corpus access');
     const corpus = workflow.indexOf('Verify sealed corpus metadata only after provider preflight');

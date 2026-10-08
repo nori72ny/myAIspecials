@@ -55,6 +55,20 @@ jobs:
           test -z "$(git status --porcelain)"
           node -e "process.stdout.write('zero-cost-only\n')"
 
+      - name: Block unsafe one-day 24-case FLUX 9B Free benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The old one-shot benchmark would exhaust Workers Free and permanently burn its corpus marker.
+          # Shard execution and immutable multi-day aggregation must be installed before enabling real inference.
+          node --import tsx --input-type=module <<'NODE'
+          import { monolithicImageFreePlanIsSafeV1 } from './src/release/OriginImageWorkersFreeShardPlanV1.ts';
+          if (!monolithicImageFreePlanIsSafeV1(24)) {
+            console.error('WORLD_CLASS_IMAGE_PRIVATE_MULTI_DAY_SHARDING_REQUIRED');
+            process.exit(42);
+          }
+          NODE
+
       - name: Prove Cloudflare Free image readiness before sealed corpus access
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
