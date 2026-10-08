@@ -96,6 +96,25 @@ function snapshotExactParams(params: unknown): unknown {
   return freeze(immutable);
 }
 
+function snapshotExactStep(step: AgentMultiToolStepV31): AgentMultiToolStepV31 {
+  // The approved operation includes the tool identity and its dependency boundary.
+  // Adapters must not be able to swap a read action for a write after approval.
+  return Object.freeze({
+    id: step.id,
+    toolName: step.toolName,
+    reasonCode: step.reasonCode,
+    dependsOn: Object.freeze([...step.dependsOn]),
+    approvalBoundary: step.approvalBoundary,
+  });
+}
+
+async function readVerifiedCancellationState(deps: AgentMultiToolSupervisorDepsV31): Promise<boolean> {
+  const state = await deps.isCancelled();
+  // An unavailable/ill-formed shared cancellation receipt is NOT "not cancelled".
+  if (state !== true && state !== false) throw new Error('AGENT_MULTI_TOOL_CANCEL_STATE_UNVERIFIED');
+  return state;
+}
+
 function approvalBinding(runId: string, goalDigest: string, step: AgentMultiToolStepV31, params: unknown, prior: readonly AgentMultiToolVerifiedStepV31[]): string {
   return createHash('sha256')
     .update('origin.multi-tool.exact-operation.v31\0', 'utf8')
@@ -138,30 +157,30 @@ export async function executeAgentMultiToolSequenceV31(
 
   const completed: AgentMultiToolVerifiedStepV31[] = [];
   for (let i = 0; i < plan.steps.length; i += 1) {
-    const step = plan.steps[i];
+    const step = snapshotExactStep(plan.steps[i]);
     if (step.id !== `step-${i + 1}`
       || step.approvalBoundary !== 'exact-operation'
       || step.dependsOn.length !== (i === 0 ? 0 : 1)
       || (i > 0 && step.dependsOn[0] !== completed[i - 1]?.stepId))
       return finish('blocked', 'AGENT_MULTI_TOOL_DEPENDENCY_INVALID', completed);
     try {
-      if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       const prior = Object.freeze(completed.map(row => Object.freeze({ ...row })));
       const params = snapshotExactParams(await deps.prepareParams(step, prior));
       const operationDigest = approvalBinding(runId, goalDigest, step, params, prior);
-      if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       if (await deps.consumeExactApproval(runId, operationDigest, step) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_APPROVAL_REQUIRED', completed);
-      if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
-      const outcome = await deps.executeAndVerify(step, params, prior);
-      if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      const outcome = Object.freeze({ ...(await deps.executeAndVerify(step, params, prior)) });
+      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       if (outcome?.terminal !== 'verified' || outcome.toolExecuted !== true || outcome.verified !== true
         || !SHA256.test(outcome.evidenceDigest ?? '') || /^0{64}$/.test(outcome.evidenceDigest)
         || outcome.freeOnly !== true || outcome.costUsd !== 0 || outcome.paidFallbackUsed !== false)
         return finish('blocked', 'AGENT_MULTI_TOOL_TERMINAL_NOT_VERIFIED', completed);
       if (await deps.verifyTrustedTerminal(runId, operationDigest, step, outcome) !== true)
         return finish('blocked', 'AGENT_MULTI_TOOL_TRUSTED_TERMINAL_MISSING', completed);
-      if (await deps.isCancelled()) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
+      if (await readVerifiedCancellationState(deps)) return finish('cancelled', 'AGENT_MULTI_TOOL_CANCELLED', completed);
       completed.push({
         stepId: step.id,
         toolName: step.toolName,
