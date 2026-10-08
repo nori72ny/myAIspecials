@@ -233,6 +233,20 @@ describe("groundedResearchSynthesisV12", () => {
     )).toEqual({ ok: true, usedSourceIds: ["S1"] });
   });
 
+  it("distinguishes a source revision date from the real-world event date", () => {
+    const cited = [{
+      ...sources[0],
+      excerpt: "開催日は不明です。",
+      revisionTimestamp: "2026-10-24T09:00:00.000Z",
+    }];
+    expect(validateGroundedResearchSynthesis(
+      "資料の改訂日は2026-10-24です。[S1](https://example.com/one)", cited,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+    expect(validateGroundedResearchSynthesis(
+      "イベント開催日は2026-10-24です。[S1](https://example.com/one)", cited,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
   it("rejects an unsupported date despite valid retrieval metadata", () => {
     expect(validateGroundedResearchSynthesis(
       "資料の取得日は2027-10-31です。[S1](https://example.com/one)",
