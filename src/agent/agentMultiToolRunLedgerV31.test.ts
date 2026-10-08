@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { QueryResult } from 'pg';
 import {
@@ -77,7 +78,7 @@ describe('PostgreSQL V3.1 durable run reservation (schema not deployed)', () => 
 
   it('review-only ledger SQL denies browser roles, enables RLS and has no TTL cleanup', async () => {
     const sql = await readFile(
-      new URL('../../docs/AGENT_MULTITOOL_V31_RUN_LEDGER_SCHEMA_REVIEW.sql', import.meta.url),
+      path.resolve(process.cwd(), 'docs/AGENT_MULTITOOL_V31_RUN_LEDGER_SCHEMA_REVIEW.sql'),
       'utf8',
     );
     expect(sql).toContain('REVIEW-ONLY DRAFT');
