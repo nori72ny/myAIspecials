@@ -11,6 +11,7 @@ import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsu
 import { createCodingDatabaseStoresFromEnvV14 } from "../agent/codingDatabaseStoresV14.js";
 import { createCodingJobV14Router } from "../agent/codingJobRouterV14.js";
 import { AgentCodingBridgeV3 } from "../agent/agentCodingBridgeV3.js";
+import { agentCodingBridgeEnabledV3 } from "../agent/agentCodingBridgeConfigV3.js";
 import { createCodingJobSmokeV14Router } from "../agent/codingJobSmokeRouterV14.js";
 import { createGroundedResearchV11Router } from "../research/groundedResearchV11Router.js";
 import { createArtifactV12Router } from "../artifacts/artifactV12Router.js";
@@ -59,7 +60,7 @@ export function createOriginApp(
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
   const webPublicationStore = createWebPublicationStoreFromEnv(env);
   const codingStores = createCodingDatabaseStoresFromEnvV14(env);
-  const agentCodingBridge = codingStores.jobStore && codingStores.resultStore
+  const agentCodingBridge = agentCodingBridgeEnabledV3(env) && codingStores.jobStore && codingStores.resultStore
     ? new AgentCodingBridgeV3(env, codingStores.jobStore, codingStores.resultStore)
     : undefined;
   app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore, agentCodingBridge));
