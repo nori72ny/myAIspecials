@@ -5,9 +5,9 @@ Status: **NOT ACTIVE / DO NOT MERGE** (2026-10-08 JST). This is an activation ru
 ## Verified current state
 
 - Production is Vercel project `origin-personal`, with latest inspected main/deployment SHA `437f4f0a5c66c0d9add7f65e72369f9787931f7a`.
-- The GitHub `main` API reported `protected: false`, and `vercel.json` enables automatic Git deployments for `main`.
+- Earlier on 2026-10-08, GitHub `main` reported `protected: false`; a subsequent read at ~13:34 JST reported **`protected: true`**, with the same production SHA. The effective rules are **NOT VERIFIED**: `GET /branches/main/protection` returned HTTP 403 `Resource not accessible by integration`, and the available rulesets listing exposed no enforceable details. Do not infer required status checks, non-author review, stale-review dismissal, admin enforcement or direct-push prevention from `protected: true` alone. `vercel.json` still enables automatic Git deployments for `main`.
 - Consequently PR CI success **alone** cannot prevent Vercel from assigning the live domain to an unqualified main commit.
-- PR #920 contains the PWA unsaved-edit/IndexedDB-save guard; PR #922 contains read-only release predicates and a live GitHub API auditor. Neither is deployed or has the ability to enforce Vercel settings.
+- PR #920 contains the PWA unsaved-edit/IndexedDB-save guard; PR #922 contains read-only release predicates and a live GitHub API auditor. The auditor now independently fetches protection details, and **denies approval when the endpoint is missing, 403, incomplete or lacks exact enforced checks and reviews**. Neither is deployed or has the ability to enforce Vercel settings.
 
 ## Mandatory infrastructure activation, in this order
 
