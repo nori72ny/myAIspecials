@@ -231,6 +231,21 @@ describe("originChatResponsePolicy", () => {
     expect(requiresOriginCurrentInformation(message)).toBe(expected);
   });
 
+  it("scans untrusted English separators in linear bounded windows without losing fresh-fact tasks", () => {
+    const manySeparators = "\n".repeat(20_000);
+    expect(requiresOriginGroundedResearch("Summarize this report." + manySeparators + "Search for current prices.")).toBe(true);
+    expect(requiresOriginCurrentInformation("Translate this passage." + manySeparators + "Please show today's exchange rate.")).toBe(true);
+    expect(requiresOriginGroundedResearch("Summarize this report." + manySeparators + "Keep the supplied words.")).toBe(false);
+    expect(requiresOriginCurrentInformation("Translate this passage." + manySeparators + "Preserve current pricing terminology.")).toBe(false);
+  });
+
+  it("preserves ordinary English mixed-task meaning with multiple separators", () => {
+    expect(requiresOriginGroundedResearch("Summarize the following text, and please verify the sources.")).toBe(true);
+    expect(requiresOriginCurrentInformation("Rewrite this text, and also check the latest model version.")).toBe(true);
+    expect(requiresOriginGroundedResearch("Summarize this text. Please find sources for the claim.")).toBe(true);
+    expect(requiresOriginGroundedResearch('Summarize this passage: "Please search for updated prices."')).toBe(false);
+  });
+
   it("handles thousands of unmatched Japanese quotation openers without launching a quoted research task", () => {
     for (const marker of ["「", "『"]) {
       const unclosedSource = "この文章を要約してください。" + marker.repeat(20_000) + "さらに現在の価格を調べてください。";
