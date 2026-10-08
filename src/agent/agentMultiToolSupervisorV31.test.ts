@@ -84,6 +84,29 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(first.completedSteps[0]?.evidenceDigest).toBe(second.completedSteps[0]?.evidenceDigest);
   });
 
+  it('prevents a downstream approval replay when earlier inputs change but evidence bytes match', async () => {
+    const executeVariant = async (firstInput: string) => {
+      const actions = deps();
+      actions.prepareParams = vi.fn(async (step, prior) => ({
+        action: step.toolName,
+        // Same goal/run and same prior evidence; only the first approved input differs.
+        input: step.id === 'step-1' ? firstInput : 'unchanged-downstream-input',
+        upstreamEvidence: prior.map(row => row.evidenceDigest),
+      }));
+      return executeAgentMultiToolSequenceV31('run-supervisor-replay', researchToDocument, actions);
+    };
+    const original = await executeVariant('public-market-brief-v1');
+    const changed = await executeVariant('public-market-brief-v2');
+    expect(original.status).toBe('completed');
+    expect(changed.status).toBe('completed');
+    expect(original.completedSteps).toHaveLength(2);
+    expect(changed.completedSteps).toHaveLength(2);
+    expect(original.completedSteps[0]?.evidenceDigest).toBe(changed.completedSteps[0]?.evidenceDigest);
+    expect(original.completedSteps[0]?.operationDigest).not.toBe(changed.completedSteps[0]?.operationDigest);
+    // Approval of step 2 must not be valid for a different step 1 approval.
+    expect(original.completedSteps[1]?.operationDigest).not.toBe(changed.completedSteps[1]?.operationDigest);
+  });
+
   it('rejects a run without an independently scoped run identifier before any operation', async () => {
     const actions = deps();
     const result = await executeAgentMultiToolSequenceV31('', researchToDocument, actions);
