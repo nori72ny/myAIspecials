@@ -56,6 +56,58 @@ function withoutQuotedSourceText(message: string): string {
   return result.join("");
 }
 
+/**
+ * Scan task separators literally with bounded windows. Repeated newlines must
+ * not create a new regex starting position with overlapping wildcard searches.
+ */
+function hasJapaneseAdditionalTask(text: string, kind: "research" | "current"): boolean {
+  const separators = ["それとは別に", "そのうえで", "その上で", "あわせて", "併せて", "さらに", "加えて", "また", "、", "，", "。", "！", "？", "\n"];
+  const researchVerbs = ["検索して", "検索する", "調査して", "調査する", "リサーチして", "リサーチする", "調べて", "調べる"];
+  const sourceTerms = ["出典", "一次情報", "公開情報"];
+  const currentWords = ["最新", "今日", "現在"];
+  const factKinds = ["バージョン", "ニュース", "モデル", "レート", "情報", "天気", "料金", "価格", "株価", "相場", "仕様", "状況", "結果", "為替"];
+  const askWords = ["教え", "確認", "調べ", "示し", "提示"];
+  for (let index = 0; index < text.length; index += 1) {
+    for (const sep of separators) {
+      if (!text.startsWith(sep, index)) continue;
+      const span = text.slice(index + sep.length, index + sep.length + 100);
+      if (kind === "research") {
+        if (researchVerbs.some(verb => { const at = span.indexOf(verb); return at >= 0 && at <= 80; })) return true;
+        for (const source of sourceTerms) {
+          let at = span.indexOf(source);
+          while (at >= 0 && at <= 80) {
+            const near = span.slice(at + source.length, at + source.length + 16);
+            if (near.includes("確認")) return true;
+            at = span.indexOf(source, at + 1);
+          }
+        }
+        continue;
+      }
+      for (const word of currentWords) {
+        let at = span.indexOf(word);
+        while (at >= 0 && at <= 80) {
+          const after = span.slice(at + word.length).replace(/^の/, "");
+          const firstBoundary = [..."。！？\n"].reduce((pos, ch) => {
+            const found = after.indexOf(ch);
+            return found < 0 ? pos : Math.min(pos, found);
+          }, after.length);
+          const phrase = after.slice(0, firstBoundary);
+          for (const topic of factKinds) {
+            let found = phrase.indexOf(topic);
+            while (found >= 0 && found <= 16) {
+              const next = phrase.slice(found + topic.length, found + topic.length + 24);
+              if (askWords.some(ask => next.includes(ask))) return true;
+              found = phrase.indexOf(topic, found + 1);
+            }
+          }
+          at = span.indexOf(word, at + 1);
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function isTransformOnlyRequest(message: string): boolean {
   const transformsSuppliedContent = /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録|調査結果|リサーチ結果).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
     || /\b(?:summari[sz]e|shorten|rewrite|translate|proofread|reformat)\b.{0,48}\b(?:this|following|provided|text|passage|document|research\s+(?:result|report|brief))\b/is.test(message);
@@ -64,10 +116,10 @@ function isTransformOnlyRequest(message: string): boolean {
   // An explicit additional research task must not be suppressed by the
   // transformation shortcut. Quoted/fenced source text is not a task request.
   const requestText = withoutQuotedSourceText(message);
-  const additionalResearch = /(?:また|さらに|加えて|併せて|あわせて|その上で|そのうえで|それとは別に|[、，。！？\n]).{0,80}(?:検索(?:して|する)|調査(?:して|する)|リサーチ(?:して|する)|調べ(?:て|る)|(?:出典|一次情報|公開情報).{0,16}確認)/s.test(requestText)
+  const additionalResearch = hasJapaneseAdditionalTask(requestText, "research")
     || /\b(?:and(?:\s+also)?|also|additionally|in\s+addition|then)\s+(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify)\b/i.test(requestText)
     || /(?:^|[.!?\n])\s*(?:[-*]\s+|\d+[.)]\s+)?(?:please\s+)?(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?|verify\s+(?:the\s+)?sources?)\b/i.test(requestText);
-  const additionalCurrentFacts = /(?:また|さらに|加えて|併せて|あわせて|その上で|そのうえで|それとは別に|[、，。！？\n]).{0,80}(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)[^。！？\n]{0,24}(?:教え|確認|調べ|示し|提示)/s.test(requestText)
+  const additionalCurrentFacts = hasJapaneseAdditionalTask(requestText, "current")
     || /(?:\b(?:and(?:\s+also)?|also|additionally|then)\s+|[.!?\n]\s*)(?:please\s+)?(?:tell|show|give|check|confirm|find)\b[^.!?\n]{0,48}\b(?:latest|current|today'?s?)\b[^.!?\n]{0,32}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|versions?|models?)\b/i.test(requestText);
   return !additionalResearch && !additionalCurrentFacts;
 }
