@@ -16,7 +16,10 @@ function hasUnsavedUserWork(): boolean {
   // Direct Touch editors live in an opaque-origin iframe. The top document cannot
   // query their contenteditable fields. Block the entire editing session and
   // any in-flight iframe edits until the parent acknowledges their revision.
-  if (document.documentElement.dataset.originDirectTouchPending === 'true'
+  // Any non-cleared marker, including a queued commit:<revision>, is unsafe.
+  // Only the matching successful IndexedDB save may set it to "false".
+  const directTouchPending = document.documentElement.dataset.originDirectTouchPending;
+  if ((directTouchPending !== undefined && directTouchPending !== 'false')
     || document.querySelector('[data-testid="artifact-direct-touch-status"]')) return true;
   const textInputs = Array.from(document.querySelectorAll('textarea, input[type="text"], input[type="search"]'));
   if (textInputs.some((element) => (element as HTMLInputElement | HTMLTextAreaElement).value.length > 0)) return true;
