@@ -522,6 +522,10 @@ export default function AgentWorkspaceView() {
   }, [activeCoding, codingCancelPending]);
 
   const resetPlan = () => {
+    if (activeCoding) {
+      setLog((current) => [...current, 'Codingジョブの終端確認ができるまで計画を破棄できません。先にサーバー側の中止状態を確認してください。']);
+      return;
+    }
     abortRef.current?.abort();
     abortRef.current = null;
     setPlan(null);
@@ -593,7 +597,7 @@ export default function AgentWorkspaceView() {
               className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-200">
               承認して実行
             </button>
-            <button type="button" onClick={resetPlan} disabled={phase === 'executing'} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{phase === 'executing' ? '実行中' : '計画を破棄'}</button>
+            <button type="button" onClick={resetPlan} disabled={phase === 'executing' || Boolean(activeCoding)} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{activeCoding ? '先にジョブを中止' : phase === 'executing' ? '実行中' : '計画を破棄'}</button>
           </div>
           {activeCoding && <button type="button" onClick={() => void cancelActiveCoding()} disabled={codingCancelPending}
             className="origin-secondary-button mt-3 min-h-11 w-full rounded-xl border border-amber-300 px-4 text-sm font-semibold disabled:opacity-50"
