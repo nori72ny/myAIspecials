@@ -170,7 +170,7 @@ export function isVerifiedCodingReceipt(receipt: AgentExecutionResponse, runId: 
   const required = ['typecheck', 'lint', 'test', 'build'];
   return Array.isArray(checks) && checks.length === 4
     && new Set(checks.map(check => check?.kind)).size === 4
-    && required.every(kind => checks.some(check => check.kind === kind
+    && required.every(kind => checks.some(check => check?.kind === kind
       && check.ok === true && check.exitCode === 0 && check.timedOut === false
       && check.attempt === result.repairRounds));
 }
