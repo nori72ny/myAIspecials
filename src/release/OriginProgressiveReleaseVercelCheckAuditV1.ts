@@ -10,6 +10,46 @@
  * stages or a nonblocking same-name duplicate could disappear server-side.
  */
 export const ORIGIN_VERCEL_RELEASE_CHECK_NAME = "ORIGIN Exact-SHA Release Gate" as const;
+/** Upper bound on *raw bytes* parsed from an authenticated upstream response.
+ * Keep independent of the maximum check-row count: a single malicious/invalid
+ * nested entry could otherwise exhaust memory before post-parse validation.
+ */
+const MAX_VERCEL_CHECK_RESPONSE_BYTES = 256 * 1024;
+
+async function readBoundedVercelCheckPayload(response: Response): Promise<unknown> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength !== null
+    && (!/^(?:0|[1-9][0-9]{0,6})$/.test(declaredLength)
+      || Number(declaredLength) > MAX_VERCEL_CHECK_RESPONSE_BYTES)) {
+    throw new Error("VERCEL_CHECK_RESPONSE_TOO_LARGE");
+  }
+  const body = response.body;
+  if (!body) throw new Error("VERCEL_CHECK_RESPONSE_MISSING");
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_VERCEL_CHECK_RESPONSE_BYTES) {
+        throw new Error("VERCEL_CHECK_RESPONSE_TOO_LARGE");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+}
+
 
 /**
  * Inject ONLY from protected and independently approved server-side config.
@@ -123,7 +163,9 @@ export function auditOriginVercelChecksV1(
       && c.blocks === "deployment-alias"
       && typeof c.id === "string" && c.id.length > 0
       && hasIdentifiableVercelCheckSource(c, trustedSource)
-      && explicitlyTargetsProduction(c);
+      && explicitlyTargetsProduction(c)
+      // A removed check may still appear in a stale/full API response.
+      && (c.deletedAt === undefined || c.deletedAt === null);
   }) : null;
   if (!matched || matched.length !== 1) {
     blockers.push("REQUIRED_DEPLOYMENT_ALIAS_CHECK_MISSING");
@@ -173,7 +215,7 @@ export async function fetchAndAuditOriginVercelChecksV1(input: {
     });
     if (!response.ok) return { ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" };
     // Never return the raw response, request token, or arbitrary error text.
-    const payload = await response.json() as unknown;
+    const payload = await readBoundedVercelCheckPayload(response);
     return { ok: true, audit: auditOriginVercelChecksV1(payload, input.projectId, input.trustedSource) };
   } catch {
     return { ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" };
