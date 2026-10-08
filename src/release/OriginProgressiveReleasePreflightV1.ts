@@ -58,9 +58,12 @@ export interface OriginProgressiveReleaseVerdictV1 {
 }
 
 const validSha = (sha: unknown): sha is string => typeof sha === 'string' && /^[0-9a-f]{40}$/.test(sha);
+// Broad selectors must never authorize multi-feature or whole-product releases.
+const RESERVED_FEATURE_SCOPES = new Set(['all', 'any', 'main', 'production', 'release', 'features', 'everything']);
 const validFeature = (s: unknown): s is string => typeof s === 'string'
   && /^[a-z][a-z0-9-]{1,63}$/.test(s)
-  && !s.includes('--');
+  && !s.includes('--')
+  && !RESERVED_FEATURE_SCOPES.has(s);
 
 export function evaluateOriginProgressiveReleasePreflightV1(
   evidence: OriginProgressiveReleaseEvidenceV1,
