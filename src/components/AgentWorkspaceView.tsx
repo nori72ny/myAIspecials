@@ -10,6 +10,7 @@ type AgentCapability = {
   freeOnly: boolean;
   costUsd: number;
   paidFallbackEnabled: boolean;
+  codingBridgeConfigured?: boolean;
 };
 
 const tools = [
@@ -35,12 +36,46 @@ type AgentPlan = {
   plan: AgentPlanStep[];
 };
 
+type CodingVerificationCheck = {
+  kind: 'test' | 'typecheck' | 'lint' | 'build';
+  ok: boolean;
+  exitCode: number | null;
+  timedOut: boolean;
+  attempt: number;
+};
+
+type CodingBridgeResult = {
+  schemaVersion: 1;
+  sessionStatus: 'verified' | 'blocked' | 'repair_limit';
+  repairRounds: number;
+  diffs: Array<{
+    path: string;
+    kind: 'modified' | 'created';
+    before: string | null;
+    after: string | null;
+    beforeTruncated: boolean;
+    afterTruncated: boolean;
+    previewAvailable: boolean;
+  }>;
+  verificationChecks: CodingVerificationCheck[];
+  freeOnly: true;
+  costUsd: 0;
+  gitPublished: false;
+  deployed: false;
+};
+
 type AgentExecutionResponse = {
   ok?: boolean;
   code?: string;
   status?: string;
   artifact?: string;
   checkpoint?: CheckpointState;
+  jobId?: string;
+  bridgeToken?: string;
+  expiresAt?: string;
+  codingStatus?: string;
+  verified?: boolean;
+  result?: CodingBridgeResult;
 };
 
 type Phase = 'idle' | 'planning' | 'awaiting_approval' | 'executing' | 'completed' | 'failed';
@@ -76,7 +111,7 @@ function verificationKindFromGoal(goal: string): VerificationKind | null {
 }
 
 function paramsFor(tool: AgentTool, goal: string): Record<string, unknown> | null {
-  if (tool === 'code_interpreter') return { code: goal };
+  if (tool === 'code_interpreter') return { goal };
   if (tool === 'document_generator') return { content: goal };
   if (tool === 'image_prompt_compiler') return { prompt: goal };
   if (tool === 'web_search_grounding') return null;
@@ -101,6 +136,39 @@ function phaseLabel(phase: Phase): string {
   if (phase === 'completed') return '完了';
   if (phase === 'failed') return '安全に停止';
   return '待機中';
+}
+
+function verifiedCodingArtifact(result: CodingBridgeResult): string {
+  const checks = result.verificationChecks
+    .map((check) => `- ${check.kind}: ${check.ok && check.exitCode === 0 && !check.timedOut ? 'PASS' : 'FAIL'}`)
+    .join('\n');
+  const paths = result.diffs.map((diff) => `- ${diff.path} (${diff.kind})`).join('\n') || '- 変更パスなし';
+  return [
+    '# Coding V1.4 検証済み結果',
+    '',
+    `Repair rounds: ${result.repairRounds}`,
+    '',
+    '## Changed paths',
+    paths,
+    '',
+    '## Verification',
+    checks,
+    '',
+    'Git publish: not authorized',
+    'Deploy: not authorized',
+    'Cost: $0',
+  ].join('\n');
+}
+
+function waitForCodingPoll(signal: AbortSignal, delayMs = 2500): Promise<void> {
+  if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(resolve, delayMs);
+    signal.addEventListener('abort', () => {
+      window.clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  });
 }
 
 export default function AgentWorkspaceView() {
@@ -131,6 +199,7 @@ export default function AgentWorkspaceView() {
           freeOnly: data.freeOnly === true,
           costUsd: typeof data.costUsd === 'number' ? data.costUsd : -1,
           paidFallbackEnabled: data.paidFallbackEnabled === true,
+          codingBridgeConfigured: data.codingBridgeConfigured === true,
         });
       })
       .catch(() => setCapability(null))
@@ -270,6 +339,66 @@ export default function AgentWorkspaceView() {
         signal: controller.signal,
       });
       const result = await executeResponse.json() as AgentExecutionResponse;
+
+      if (plan.selectedTool === 'code_interpreter') {
+        if (
+          executeResponse.status !== 202
+          || result.ok !== true
+          || result.status !== 'running'
+          || typeof result.jobId !== 'string'
+          || typeof result.bridgeToken !== 'string'
+          || typeof result.expiresAt !== 'string'
+        ) {
+          throw new Error(result.code ?? 'AGENT_CODING_DISPATCH_FAILED');
+        }
+
+        if (credentialInputRef.current) credentialInputRef.current.value = '';
+        setArtifact([
+          '# Coding V1.4',
+          '',
+          'コード変更ジョブを開始しました。',
+          '検証済みの終端結果が届くまで完了扱いにはしません。',
+          '',
+          `Job: ${result.jobId}`,
+        ].join('\n'));
+        setLog((current) => [...current, `Coding V1.4 job started: ${result.jobId}`, 'typecheck / lint / test / build の検証完了を待っています。']);
+
+        const expiresAt = Date.parse(result.expiresAt);
+        if (!Number.isFinite(expiresAt)) throw new Error('AGENT_CODING_BRIDGE_EXPIRY_INVALID');
+        let lastStatus = '';
+        while (Date.now() < expiresAt) {
+          const pollResponse = await fetch('/api/agent/v3/coding/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({
+              runId: plan.runId,
+              jobId: result.jobId,
+              bridgeToken: result.bridgeToken,
+            }),
+            signal: controller.signal,
+          });
+          const poll = await pollResponse.json() as AgentExecutionResponse;
+          if (!pollResponse.ok || poll.ok !== true) {
+            throw new Error(poll.code ?? 'AGENT_CODING_STATUS_FAILED');
+          }
+          if (poll.status === 'completed' && poll.verified === true && poll.result) {
+            setArtifact(verifiedCodingArtifact(poll.result));
+            setPhase('completed');
+            setLog((current) => [...current, 'Coding V1.4 の最終4検証が完了しました。完了状態へ移行します。']);
+            setPlan(null);
+            return;
+          }
+          if (poll.status !== 'running') throw new Error(poll.code ?? 'AGENT_CODING_TERMINAL_UNVERIFIED');
+          if (poll.codingStatus && poll.codingStatus !== lastStatus) {
+            lastStatus = poll.codingStatus;
+            setLog((current) => [...current, `Coding status: ${poll.codingStatus}`]);
+          }
+          await waitForCodingPoll(controller.signal);
+        }
+        throw new Error('AGENT_CODING_BRIDGE_EXPIRED');
+      }
+
       if (!executeResponse.ok || result.ok !== true || result.status !== 'completed' || typeof result.artifact !== 'string') {
         throw new Error(result.code ?? 'AGENT_EXECUTION_FAILED');
       }
@@ -361,7 +490,7 @@ export default function AgentWorkspaceView() {
               className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-200">
               承認して実行
             </button>
-            <button type="button" onClick={resetPlan} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">計画を破棄</button>
+            <button type="button" onClick={resetPlan} disabled={phase === 'executing'} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{phase === 'executing' ? '実行中' : '計画を破棄'}</button>
           </div>
         </section>}
 
@@ -371,6 +500,7 @@ export default function AgentWorkspaceView() {
           {capability && <div className="mt-2 space-y-1 text-slate-500">
             <p>Approval signing: {capability.approvalSigningConfigured ? 'ready' : 'unavailable'}</p>
             <p>Replay protection: {capability.replayProtectionConfigured ? capability.replayProtection : 'unavailable'}</p>
+            <p>Coding bridge: {capability.codingBridgeConfigured ? 'available' : 'disabled'}</p>
           </div>}
         </details>
 
