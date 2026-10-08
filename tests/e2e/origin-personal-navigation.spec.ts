@@ -268,7 +268,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByLabel('Agent認証キー').fill('test-only-local-operator');
     await page.getByRole('button', { name: '承認して実行' }).click();
 
-    const output = page.getByText(/# Coding V1\\.4 検証済み結果/);
+    const output = page.getByText(/# Coding V1\.4 検証済み結果/);
     await expect(output).toBeVisible();
     await expect(output).toContainText('const total = a - b;');
     await expect(output).toContainText('const total = a + b;');
