@@ -45,6 +45,12 @@ The V1.6 `/api/creative/v1.6/world-class/edit` router now rejects a returned ima
 
 The same Cloudflare Free allowance is **account-wide**. Both manual evaluation workflows share one serialized concurrency group and check/upload the same `origin-image-ai-free-account-day-YYYY-MM-DD` artifact **before inference**, so only one benchmark shard is permitted on that UTC day. This is an accounting lock for these GitHub workflows only: ordinary Production traffic and other Cloudflare clients are outside it. A genuine provider usage check remains required.
 
+## Verifying all 16 actual V1.6 editing results (still unexecuted)
+
+The main-only, manual `.github/workflows/world-class-image-edit-private-collect-v1.yml` now runs the separate **eight-run authenticated GitHub collector**, `scripts/collect-world-class-image-edit-free-shards-v1.ts`, then the `npm run eval:image-edit-private-shards-verify` offline auditor. This checks: the same precommitted candidate SHA and sealed edit corpus SHA, one valid origin run per shard, eight distinct UTC dates, exact source and instruction digests, all 16 final output-image byte hashes, uniqueness, dimensions and actual Chromium image decoding, the V1.6 Cloudflare Free-only route and zero-cost case metadata.
+
+**Local technical integrity is not image-edit fidelity.** The auditor cannot establish whether faces, products or unchanged regions were preserved, or that the requested edit looks correct. Its report *always* sets source preservation blind-evaluation, independent blind edit quality, live provider usage, Owner approval, and production qualification to false. Those require authenticated external evidence and visual comparison against the three fixed reference systems by at least two independent judges.
+
 ## Fail-closed release interpretation
 
 Even when the local 24-image aggregator succeeds, it intentionally returns:

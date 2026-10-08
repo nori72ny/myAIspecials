@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       plan_digest:
-        description: Frozen 12-shard plan SHA-256
+        description: Frozen eight-shard edit plan SHA-256
         required: true
         type: string
 
@@ -21,7 +21,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: origin-world-class-image-free-authenticated-collector
+  group: origin-world-class-image-free-authenticated-edit-collector
   cancel-in-progress: false
 
 jobs:
@@ -60,7 +60,7 @@ jobs:
           [[ "$CORPUS_DIGEST" =~ ^[a-f0-9]{64}$ ]]
           [[ "$PLAN_DIGEST" =~ ^[a-f0-9]{64}$ ]]
 
-      - name: Authenticate and download exactly 12 successful shard artifacts
+      - name: Authenticate and download exactly eight successful edit shard artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           ORIGIN_IMAGE_EDIT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
