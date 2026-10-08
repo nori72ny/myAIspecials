@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { prepareRasterReferenceDataUrlV15 } from '../creative/rasterReferenceEditClientV15';
+import { readVerifiedWorldClassImageBlobV16 } from '../creative/worldClassImageClientDeliveryV16';
 
 const MODEL = '@cf/black-forest-labs/flux-2-klein-9b';
 const PROVIDER = 'cloudflare-workers-ai-free';
-const IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 const FULL_SHA = /^[a-f0-9]{40}$/i;
 const IMAGE_HASH = /^[a-f0-9]{64}$/i;
 type ImageStatus = {
@@ -48,19 +48,8 @@ async function checkedImage(response: Response, status: ImageStatus, editing: bo
     || response.headers.get('x-origin-world-class-qualified-sha') !== status.releaseSha) {
     throw new Error('公開済みの無料9B画像モデルと出力の検証証拠が一致しません。');
   }
-  const declared = Number(response.headers.get('content-length') ?? '0');
-  if (!Number.isFinite(declared) || declared < 0 || declared > IMAGE_MAX_BYTES) {
-    throw new Error('受信画像のサイズが上限を超えています。');
-  }
-  const blob = await response.blob();
-  if (blob.size < 64 || blob.size > IMAGE_MAX_BYTES) {
-    throw new Error('受信画像のサイズが正しくありません。');
-  }
-  if (!globalThis.crypto?.subtle) throw new Error('この端末では画像の整合性を検証できません。');
-  const hashBytes = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', await blob.arrayBuffer()));
-  const actual = Array.from(hashBytes, (part) => part.toString(16).padStart(2, '0')).join('');
-  if (actual !== sha.toLowerCase()) throw new Error('生成画像のSHA-256検証に失敗しました。');
-  return new Blob([blob], { type: mime });
+  return readVerifiedWorldClassImageBlobV16(response, mime, sha);
+
 }
 
 /** Build-time UI flag alone never authorizes inference; the V1.6 server remains the release gate. */
@@ -97,6 +86,8 @@ export default function WorldClassImageV16Panel() {
     if (!allowed || !status) return;
     setBusy(true);
     setError('');
+    setImageUrl('');
+    setDownloadName('');
     try {
       const editing = selected !== null;
       const source = selected ? await prepareRasterReferenceDataUrlV15(selected) : null;
