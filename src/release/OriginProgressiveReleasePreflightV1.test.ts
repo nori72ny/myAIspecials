@@ -75,7 +75,7 @@ describe('Origin Progressive Release Preflight V1', () => {
     expect(evaluate({ ...input, ownerApproval: { ...input.ownerApproval!, featureId: 'another-feature' } }).blockers).toContain('OWNER_APPROVAL_MISSING');
   });
 
-  it.each(['all', 'pwa-safe-update,agent', '', 'pwa--safe', 'PWA', '../pwa'])('rejects feature scope %j', featureId => {
+  it.each(['all', 'any', 'main', 'production', 'release', 'features', 'everything', 'pwa-safe-update,agent', '', 'pwa--safe', 'PWA', '../pwa'])('rejects feature scope %j', featureId => {
     expect(evaluate({ ...valid(), featureId }).blockers).toContain('INVALID_SINGLE_FEATURE_SCOPE');
   });
 
