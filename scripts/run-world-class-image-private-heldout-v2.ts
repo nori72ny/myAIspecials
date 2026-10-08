@@ -404,6 +404,11 @@ async function evaluateCase(
 async function main(): Promise<void> {
   const candidateSha = requiredEnv('ORIGIN_IMAGE_CANDIDATE_SHA').toLowerCase();
   const expectedCorpusId = requiredEnv('ORIGIN_IMAGE_CORPUS_ID');
+  const pinnedUtcDay = requiredEnv('ORIGIN_IMAGE_SHARD_UTC_DAY');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pinnedUtcDay)
+    || new Date().toISOString().slice(0, 10) !== pinnedUtcDay) {
+    throw new Error('WORLD_CLASS_IMAGE_PRIVATE_UTC_DAY_MISMATCH');
+  }
   const shardIndexText = requiredEnv('ORIGIN_IMAGE_SHARD_INDEX');
   const expectedPlanDigest = requiredEnv('ORIGIN_IMAGE_SHARD_PLAN_DIGEST').toLowerCase();
   if (!/^(?:0|[1-9][0-9]?)$/.test(shardIndexText) || !/^[a-f0-9]{64}$/.test(expectedPlanDigest)) {
@@ -487,6 +492,9 @@ async function main(): Promise<void> {
     if (corpus.candidateSha.toLowerCase() !== candidateSha) blockers.push('WORLD_CLASS_IMAGE_PRIVATE_CORPUS_SHA_MISMATCH');
     if (blockers.length) throw new Error('WORLD_CLASS_IMAGE_PRIVATE_CORPUS_VALIDATION_FAILED');
 
+    if (new Date().toISOString().slice(0, 10) !== pinnedUtcDay) {
+      throw new Error('WORLD_CLASS_IMAGE_PRIVATE_UTC_DAY_ROLLOVER');
+    }
     const cases: CandidateCaseEvidence[] = [];
     const runBlockers: string[] = [];
     const corpusDigest = sha256(raw);
@@ -522,6 +530,9 @@ async function main(): Promise<void> {
       }
     }
 
+    if (new Date().toISOString().slice(0, 10) !== pinnedUtcDay) {
+      runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_UTC_DAY_ROLLOVER');
+    }
     if (cases.length !== shard.caseIds.length
       || cases.some((item, index) => item.caseId !== shard.caseIds[index]
         || item.taskDigest !== shard.taskDigests[index])) {
@@ -630,7 +641,7 @@ async function main(): Promise<void> {
       blindBenchmarkPassed: false,
       productionQualified: false,
       githubRunId: process.env.GITHUB_RUN_ID || null,
-      utcDay: new Date().toISOString().slice(0, 10),
+      utcDay: pinnedUtcDay,
       blockers: [...new Set(runBlockers)],
     }, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
 
