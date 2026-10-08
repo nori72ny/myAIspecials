@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isQuotaExceeded, migrateOriginLegacySnapshot, type OriginPersistedSnapshot, type OriginStorageAdapter } from './OriginIndexedDb';
+import { awaitOriginIdbCommit, isQuotaExceeded, migrateOriginLegacySnapshot, type OriginPersistedSnapshot, type OriginStorageAdapter } from './OriginIndexedDb';
 
 const snapshot: OriginPersistedSnapshot = { version: 1, messages: [{ id: 'm-1', role: 'user', content: 'persist me' }], sessions: [], artifacts: [{ id: 'a-1', content: '<main>artifact</main>' }], updatedAt: 1 };
 
@@ -61,6 +61,24 @@ describe('OriginIndexedDb migration boundary', () => {
     await expect(migrateOriginLegacySnapshot(adapter, legacy, removeLegacy)).resolves.toEqual({ snapshot: legacy, source: 'memory', writeResult: 'failed', readFailed: true });
     expect(adapter.save).not.toHaveBeenCalled();
     expect(removeLegacy).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge persistence until the IndexedDB transaction completes', async () => {
+    const tx = { oncomplete: null, onabort: null, onerror: null, error: null } as unknown as IDBTransaction;
+    let completed = false;
+    const saved = awaitOriginIdbCommit(tx).then(() => { completed = true; });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    tx.oncomplete?.call(tx, new Event('complete'));
+    await saved;
+    expect(completed).toBe(true);
+  });
+
+  it('treats a late transaction abort as a failed write, never a saved snapshot', async () => {
+    const tx = { oncomplete: null, onabort: null, onerror: null, error: null } as unknown as IDBTransaction;
+    const pending = awaitOriginIdbCommit(tx);
+    tx.onabort?.call(tx, new Event('abort'));
+    await expect(pending).rejects.toThrow('indexeddb-aborted');
   });
 
   it('recognizes platform quota errors without exposing them to the UI', () => {
