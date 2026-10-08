@@ -99,6 +99,22 @@ describe('live GitHub evidence audit (read-only)', () => {
     ] }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
   });
 
+  it('never accepts a case-variant PR author as an independent reviewer', () => {
+    const input = good();
+    const pull = { ...input.pull!, user: { login: 'Alice' } };
+    const reviews = [{ state: 'APPROVED', commit_id: sha, user: { login: 'alice' } }];
+    expect(audit({ ...input, pull, reviews }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+  });
+
+  it('normalizes reviewer logins across a later change request', () => {
+    const input = good();
+    const reviews = [
+      { state: 'APPROVED', commit_id: sha, user: { login: 'Reviewer' } },
+      { state: 'CHANGES_REQUESTED', commit_id: sha, user: { login: 'reviewer' } },
+    ];
+    expect(audit({ ...input, reviews }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+  });
+
   it('rejects a missing PR author identity instead of trusting a nonempty reviewer', () => {
     const snapshot = good();
     const pull = { ...snapshot.pull!, user: undefined };
