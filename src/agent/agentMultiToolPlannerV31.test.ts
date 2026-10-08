@@ -5,7 +5,7 @@ describe('Agent v3.1 bounded multi-tool planner', () => {
   it.each([
     ['最新市場を調べて、その結果から提案書を作って', ['web_search_grounding', 'document_generator']],
     ['最新の仕様を調べて、このTypeScriptコードのバグを修正して', ['web_search_grounding', 'code_interpreter']],
-    ['このリポジトリを確認してバグを修正して', ['repository_explorer', 'code_interpreter']],
+    ['このリポジトリを確認してバグを修正して', ['code_interpreter']],
     ['このファイルを読んで編集して', ['file_reader', 'file_writer']],
     ['このファイルを編集してテストして', ['file_writer', 'verification_runner']],
     ['このファイルを読んで編集してテストして', ['file_reader', 'file_writer', 'verification_runner']],
