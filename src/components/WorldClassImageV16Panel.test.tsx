@@ -195,6 +195,29 @@ describe('world-class image release-gated UI', () => {
     expect(readVerifiedWorldClassImageBlobV16).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['portrait-4x5', 1024, 1280],
+    ['story-tall', 768, 1280],
+    ['landscape-4x3', 1024, 768],
+  ] as const)('sends exact %s aspect-ratio dimensions to the generation provider', async (preset, width, height) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(status(READY))
+      .mockResolvedValueOnce({ ok: false, status: 503 });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<WorldClassImageV16Panel />);
+    await screen.findByRole('button', { name: '画像を生成' });
+    fireEvent.change(screen.getByLabelText('高品質画像のサイズ'), { target: { value: preset } });
+    fireEvent.change(screen.getByLabelText('高品質画像の指示'), {
+      target: { value: '製品広告の画像' },
+    });
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: '画像を生成' }));
+    await screen.findByRole('alert');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body)))
+      .toMatchObject({ width, height, prompt: '製品広告の画像' });
+  });
+
   it('is disabled by a build-time flag until the owner explicitly exposes the UI', () => {
     const workspace = readFileSync(resolve(process.cwd(), 'src/components/CreativeWorkspaceV15.tsx'), 'utf8');
     expect(workspace).toContain("import.meta.env.VITE_WORLD_CLASS_IMAGE_UI_ENABLED === 'true'");

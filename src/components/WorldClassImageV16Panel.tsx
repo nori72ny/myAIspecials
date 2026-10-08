@@ -6,6 +6,15 @@ const MODEL = '@cf/black-forest-labs/flux-2-klein-9b';
 const PROVIDER = 'cloudflare-workers-ai-free';
 const FULL_SHA = /^[a-f0-9]{40}$/i;
 const IMAGE_HASH = /^[a-f0-9]{64}$/i;
+const IMAGE_SIZES = {
+  'square-512': { width: 512, height: 512 },
+  'square-768': { width: 768, height: 768 },
+  'square-1024': { width: 1024, height: 1024 },
+  'portrait-4x5': { width: 1024, height: 1280 },
+  'story-tall': { width: 768, height: 1280 },
+  'landscape-4x3': { width: 1024, height: 768 },
+} as const;
+type ImageSizePreset = keyof typeof IMAGE_SIZES;
 type ImageStatus = {
   ready?: boolean; qualified?: boolean; primaryReady?: boolean;
   model?: string; provider?: string; releaseSha?: string; qualifiedSha?: string;
@@ -57,7 +66,7 @@ export default function WorldClassImageV16Panel() {
   const [status, setStatus] = useState<ImageStatus | null>(null);
   const [readiness, setReadiness] = useState<'checking' | 'ready' | 'unavailable'>('checking');
   const [prompt, setPrompt] = useState('');
-  const [size, setSize] = useState(768);
+  const [size, setSize] = useState<ImageSizePreset>('square-768');
   const [selected, setSelected] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -93,7 +102,7 @@ export default function WorldClassImageV16Panel() {
       const source = selected ? await prepareRasterReferenceDataUrlV15(selected) : null;
       const endpoint = editing ? 'edit' : 'generate';
       const body = {
-        prompt: prompt.trim(), width: size, height: size,
+        prompt: prompt.trim(), ...IMAGE_SIZES[size],
         ...(source ? { referenceImages: [source.dataUrl] } : {}),
       };
       const response = await fetch('/api/creative/v1.6/world-class/' + endpoint, {
@@ -125,9 +134,14 @@ export default function WorldClassImageV16Panel() {
             className="min-h-24 w-full min-w-0 rounded-xl border border-slate-300 bg-white p-3 text-base text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
         </label>
         <label className="grid content-start gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">出力サイズ
-          <select aria-label="高品質画像のサイズ" value={size} onChange={(event) => setSize(Number(event.target.value))}
+          <select aria-label="高品質画像のサイズ" value={size} onChange={(event) => setSize(event.target.value as ImageSizePreset)}
             className="min-h-12 rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
-            <option value={512}>512 × 512</option><option value={768}>768 × 768</option><option value={1024}>1024 × 1024</option>
+            <option value="square-512">正方形 512 × 512</option>
+            <option value="square-768">正方形 768 × 768</option>
+            <option value="square-1024">正方形 1024 × 1024</option>
+            <option value="portrait-4x5">SNS縦長 1024 × 1280（4:5）</option>
+            <option value="story-tall">ストーリー縦長 768 × 1280</option>
+            <option value="landscape-4x3">横長 1024 × 768</option>
           </select>
         </label>
       </div>
