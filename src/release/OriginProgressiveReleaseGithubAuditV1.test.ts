@@ -71,6 +71,34 @@ describe('live GitHub evidence audit (read-only)', () => {
     }];
     expect(audit({ ...snapshot, reviews }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
   });
+  it('accepts a later exact-head approval by the same reviewer after their earlier change request', () => {
+    const input = good();
+    const reviews = [
+      { state: 'CHANGES_REQUESTED', commit_id: sha, user: { login: 'reviewer' } },
+      { state: 'COMMENTED', commit_id: sha, user: { login: 'reviewer' } },
+      { state: 'APPROVED', commit_id: sha, user: { login: 'reviewer' } },
+    ];
+    expect(audit({ ...input, reviews }).blockers).not.toContain('EXACT_HEAD_REVIEW_MISSING');
+  });
+  it('does not let a mere comment override outstanding changes or a different reviewer veto', () => {
+    const input = good();
+    expect(audit({ ...input, reviews: [
+      { state: 'CHANGES_REQUESTED', commit_id: sha, user: { login: 'reviewer' } },
+      { state: 'COMMENTED', commit_id: sha, user: { login: 'reviewer' } },
+    ] }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+    expect(audit({ ...input, reviews: [
+      { state: 'CHANGES_REQUESTED', commit_id: sha, user: { login: 'reviewer-2' } },
+      { state: 'APPROVED', commit_id: sha, user: { login: 'reviewer' } },
+    ] }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+  });
+  it('a later change request invalidates an earlier approval from the same reviewer', () => {
+    const input = good();
+    expect(audit({ ...input, reviews: [
+      { state: 'APPROVED', commit_id: sha, user: { login: 'reviewer' } },
+      { state: 'CHANGES_REQUESTED', commit_id: sha, user: { login: 'reviewer' } },
+    ] }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+  });
+
   it('rejects a missing PR author identity instead of trusting a nonempty reviewer', () => {
     const snapshot = good();
     const pull = { ...snapshot.pull!, user: undefined };
