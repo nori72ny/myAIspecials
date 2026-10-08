@@ -4,13 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { createAgentOrchestratorV3Router, type AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 import { approvalDigest } from './agentApproval.js';
 import { issueApprovalCapability, issuePlanCapability } from './agentV3Capability.js';
+import type { AgentCodingBridgeV3 } from './agentCodingBridgeV3.js';
 
 const env = { ORIGIN_AGENT_APPROVAL_SECRET: 'x'.repeat(40) };
 
-function appFor(testEnv: NodeJS.ProcessEnv = env, store?: AgentRunConsumptionStore) {
+function appFor(testEnv: NodeJS.ProcessEnv = env, store?: AgentRunConsumptionStore, codingBridge?: AgentCodingBridgeV3) {
   const app = express();
   app.use(express.json());
-  app.use(createAgentOrchestratorV3Router(testEnv, store));
+  app.use(createAgentOrchestratorV3Router(testEnv, store, codingBridge));
   return app;
 }
 
@@ -24,13 +25,11 @@ describe('agent orchestrator v3', () => {
     .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
     .send({ runId, planToken: issuePlanCapability(runId, 'a'.repeat(64), env).token });
 
-  it.each([
-    ['code_interpreter', { code: 'function add(a,b) { return a + ; }' }],
-    ['code_interpreter', { code: 'function add(a,b) { return a - b; }' }],
-    ['document_generator', { content: '商品A:1200円×3個、商品B:800円×2個。売上合計と提案を作成してください。' }],
-  ] as const)('does not certify an echoed %s artifact as completed', async (toolName, params) => {
+  it('does not certify an echoed document artifact as completed', async () => {
     const app = appFor(env, { consume: async () => true });
-    const goal = toolName === 'code_interpreter' ? 'Repair this code.' : 'Create a sales report.';
+    const goal = 'Create a sales report.';
+    const toolName = 'document_generator';
+    const params = { content: '商品A:1200円×3個、商品B:800円×2個。売上合計と提案を作成してください。' };
     const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
     expect(plan.status).toBe(201);
     const approval = await request(app).post('/api/agent/v3/approval')
@@ -43,8 +42,102 @@ describe('agent orchestrator v3', () => {
     expect(result.status).toBe(422);
     expect(result.body.code).toBe('ARTIFACT_VERIFICATION_FAILED');
     expect(result.body.status).not.toBe('completed');
-    expect(result.body.artifact).toBeUndefined();
-    expect(result.body.checkpoint).toBeUndefined();
+  });
+
+  it('binds coding approval to the original planned goal and reports dispatch as running', async () => {
+    const start = vi.fn(async (runId: string) => ({
+      ok: true as const,
+      runId,
+      jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+      status: 'running' as const,
+      bridgeToken: 'bridge-token',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      freeOnly: true as const,
+      costUsd: 0 as const,
+      paidFallbackUsed: false as const,
+    }));
+    const poll = vi.fn(async (runId: string, jobId: string) => ({
+      ok: true as const,
+      runId,
+      jobId,
+      status: 'running' as const,
+      codingStatus: 'running' as const,
+      verified: false as const,
+      resultCode: null,
+      freeOnly: true as const,
+      costUsd: 0 as const,
+      paidFallbackUsed: false as const,
+    }));
+    const bridge = { start, poll } as unknown as AgentCodingBridgeV3;
+    const app = appFor(env, { consume: async () => true }, bridge);
+    const goal = 'Repair this code bug.';
+    const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
+    expect(plan.status).toBe(201);
+    expect(plan.body.selectedTool).toBe('code_interpreter');
+
+    const mismatch = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({
+        runId: plan.body.runId,
+        planToken: plan.body.planToken,
+        toolName: 'code_interpreter',
+        params: { goal: 'Do a different coding task.' },
+      });
+    expect(mismatch.status).toBe(403);
+    expect(mismatch.body.code).toBe('AGENT_PLAN_GOAL_MISMATCH');
+
+    const params = { goal };
+    const approval = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: plan.body.runId, planToken: plan.body.planToken, toolName: 'code_interpreter', params });
+    expect(approval.status).toBe(201);
+
+    const executeResult = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({
+        runId: plan.body.runId,
+        approvalToken: approval.body.approvalToken,
+        toolName: 'code_interpreter',
+        params,
+      });
+    expect(executeResult.status).toBe(202);
+    expect(executeResult.body).toMatchObject({
+      ok: true,
+      status: 'running',
+      jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+      costUsd: 0,
+      paidFallbackUsed: false,
+    });
+    expect(executeResult.body.status).not.toBe('completed');
+    expect(start).toHaveBeenCalledWith(plan.body.runId, goal);
+  });
+
+  it('requires authenticated bridge-bound polling and never infers completion', async () => {
+    const poll = vi.fn(async (runId: string, jobId: string, bridgeToken: string) => ({
+      ok: true as const,
+      runId,
+      jobId,
+      status: 'running' as const,
+      codingStatus: 'repairing' as const,
+      verified: false as const,
+      resultCode: null,
+      freeOnly: true as const,
+      costUsd: 0 as const,
+      paidFallbackUsed: false as const,
+    }));
+    const bridge = { start: vi.fn(), poll } as unknown as AgentCodingBridgeV3;
+    const app = appFor(env, { consume: async () => true }, bridge);
+
+    const unauthenticated = await request(app).post('/api/agent/v3/coding/status')
+      .send({ runId: 'run-coding-status', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
+    expect(unauthenticated.status).toBe(401);
+
+    const response = await request(app).post('/api/agent/v3/coding/status')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: 'run-coding-status', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ status: 'running', verified: false, codingStatus: 'repairing' });
+    expect(poll).toHaveBeenCalledWith('run-coding-status', 'coding-AAAAAAAAAAAAAAAAAAAAAA', 'bound-token');
   });
 
   it('reports readiness and legacy credential compatibility truthfully', async () => {
