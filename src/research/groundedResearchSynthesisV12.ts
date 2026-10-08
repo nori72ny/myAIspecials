@@ -16,7 +16,7 @@ export type GroundedResearchSynthesisValidation =
 type SynthesisSource = Pick<
   OriginResearchSource,
   "title" | "url" | "excerpt" | "domain" | "evidenceLevel" | "freshness" | "sourceType" | "sourceAuthority"
->;
+> & Partial<Pick<OriginResearchSource, "retrievedAt" | "revisionTimestamp">>;
 
 const CITATION_PATTERN = /\[S(\d+)\]\((https:\/\/[^)\s]+)\)/g;
 const URL_PATTERN = /https:\/\/[^\s)]+/g;
@@ -35,6 +35,15 @@ function safeHttpsUrl(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+
+function evidenceTimestamp(value: string | undefined): string | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)) return null;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return null;
+  const normalized = new Date(time).toISOString();
+  return normalized.slice(0, 19) === value.slice(0, 19) ? normalized : null;
 }
 
 function compactExcerpt(value: string): string {
@@ -152,6 +161,7 @@ export function buildGroundedResearchSynthesisInstruction(
       "Answer the user's actual question first, then explain the strongest supporting evidence, conflicts, and uncertainty.",
       "Every factual paragraph or bullet must include one or more exact inline citations copied from the packet, for example [S1](https://example.com/).",
       "Never invent a source ID, URL, date, number, product name, organization, or quotation.",
+      "retrievedAt is the retrieval time; revisionTimestamp is the source revision time, not its publication date or the date of an event. Recent editing does not prove the facts are current. If a date is absent, leave it unknown.",
       "Treat sourceAuthority=official-domain-match only as a deterministic match to the user's requested official-domain constraint; it is not independent proof that the content is true or authoritative.",
       "Treat sourceAuthority=secondary-reference as secondary reference material. Never upgrade it to a primary source.",
       "Do not call a source official, primary, authoritative, verified, or true unless that status is explicitly supported by sourceAuthority in the evidence packet.",
@@ -169,6 +179,7 @@ export function buildGroundedResearchSynthesisInstruction(
     "ユーザーの質問への答えを最初に示し、その後に主要根拠・相違点・不確実性を整理してください。",
     "事実を含む各段落・箇条書きには、証拠パケットにある完全一致のインライン引用を1つ以上付けてください。例: [S1](https://example.com/)",
     "ソースID、URL、日付、数値、製品名、組織名、引用文を捏造しないでください。",
+    "retrievedAt は取得日時、revisionTimestamp はソース改訂日時です。公開日や出来事の日付と混同しないでください。最近の編集だけで内容が最新とは断定せず、日時がない場合は不明としてください。",
     "sourceAuthority=official-domain-match は、ユーザーが指定した公式ドメイン条件とホスト名が決定的に一致したことだけを意味し、内容の真実性や権威性の独立証明ではありません。",
     "sourceAuthority=secondary-reference は二次参照資料として扱い、一次情報へ格上げしないでください。",
     "証拠パケットの sourceAuthority で裏付けられていない限り、公式・一次情報・権威ある・検証済み・真実などと断定しないでください。",
@@ -199,6 +210,8 @@ export function buildGroundedResearchSynthesisPrompt(
       `domain_json: ${JSON.stringify(domain)}`,
       `evidenceLevel_json: ${JSON.stringify(source.evidenceLevel)}`,
       `freshness_json: ${JSON.stringify(source.freshness)}`,
+      `retrievedAt_json: ${JSON.stringify(evidenceTimestamp(source.retrievedAt))}`,
+      `revisionTimestamp_json: ${JSON.stringify(evidenceTimestamp(source.revisionTimestamp))}`,
       `sourceAuthority_json: ${JSON.stringify(source.sourceAuthority ?? (source.sourceType === "encyclopedia" ? "secondary-reference" : "unclassified"))}`,
       `excerpt_json: ${JSON.stringify(compactExcerpt(source.excerpt))}`,
       `citation_token: [${id}](${source.url})`,
@@ -251,18 +264,24 @@ export function buildGroundedResearchSynthesisPrompt(
   ].filter(Boolean).join("\n");
 }
 
-function normalizedEvidenceText(value: string): string {
-  return value.normalize("NFKC").toLowerCase().replace(/[\s,，]/g, "");
-}
-
 function numericTokens(value: string): string[] {
-  const withoutCitations = value.replace(CITATION_PATTERN, " ");
-  const matches = withoutCitations.normalize("NFKC").match(/(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
-  return [...new Set(matches.map((token) => token.replace(/[\s,，]/g, "").toLowerCase()).filter((token) => {
-    const digits = token.match(/\d/g)?.length ?? 0;
-    const hasSemanticSuffix = /[%円ドル]|usd|jpy|eur|gbp|年|月|日|万|億|兆/i.test(token);
-    return digits >= 2 || hasSemanticSuffix;
-  }))];
+  const normalized = value.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-")
+    .replace(/\d+つ目の資料/g, "資料");
+  const dates: string[] = [];
+  // Keep a date intact: separate year/month/day matches can fabricate a new date.
+  const withoutDates = normalized.replace(
+    /(?<!\d)(\d{4})(?:-(\d{2})-(\d{2})|年\s*(\d{1,2})月\s*(\d{1,2})日)(?!\d)/g,
+    (_match, year: string, isoMonth: string | undefined, isoDay: string | undefined, jaMonth: string | undefined, jaDay: string | undefined) => {
+      const month = (isoMonth ?? jaMonth ?? "").padStart(2, "0");
+      const day = (isoDay ?? jaDay ?? "").padStart(2, "0");
+      dates.push(`date:${year}-${month}-${day}`);
+      return " ";
+    },
+  );
+  const matches = withoutDates.match(/[+-]?(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:e[+-]?\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
+  // Single-digit counts are factual values too; only explicit source-list labels are excluded above.
+  const numbers = matches.map((token) => token.replace(/[\\s,，]/g, "").toLowerCase());
+  return [...new Set([...dates, ...numbers])];
 }
 
 function citedSourceIds(value: string): string[] {
@@ -300,7 +319,12 @@ export function validateGroundedResearchSynthesis(
     const normalized = safeHttpsUrl(source.url);
     if (normalized) {
       sourceMap.set(id, normalized);
-      sourceEvidence.set(id, normalizedEvidenceText(`${source.title}\n${source.excerpt}`));
+      sourceEvidence.set(id, [
+        source.title,
+        compactExcerpt(source.excerpt),
+        evidenceTimestamp(source.retrievedAt) ?? "",
+        evidenceTimestamp(source.revisionTimestamp) ?? "",
+      ].join("\n"));
     }
   });
 
@@ -326,7 +350,7 @@ export function validateGroundedResearchSynthesis(
     }
   }
 
-  const requiredCoverage = Math.min(2, sourceMap.size);
+  const requiredCoverage = Math.max(1, Math.min(2, sourceMap.size));
   if (used.size < requiredCoverage) {
     return {
       ok: false,
@@ -347,8 +371,10 @@ export function validateGroundedResearchSynthesis(
 
     const ids = citedSourceIds(unit);
     const evidenceText = ids.map((id) => sourceEvidence.get(id) ?? "").join("\n");
+    // Compare whole numeric tokens; substring matches can silently change magnitude or sign.
+    const supportedNumbers = new Set(numericTokens(evidenceText));
     for (const token of numericTokens(unit)) {
-      if (!normalizedEvidenceText(evidenceText).includes(normalizedEvidenceText(token))) {
+      if (!supportedNumbers.has(token)) {
         return {
           ok: false,
           code: "UNSUPPORTED_NUMERIC_TOKEN",
