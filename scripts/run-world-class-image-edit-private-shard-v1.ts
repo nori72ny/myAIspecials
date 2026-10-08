@@ -227,6 +227,11 @@ async function main(): Promise<void> {
   const encoded = requiredEnv('ORIGIN_IMAGE_EDIT_PRIVATE_CORPUS_GZIP_B64');
   requiredEnv('CLOUDFLARE_ACCOUNT_ID');
   requiredEnv('CLOUDFLARE_API_TOKEN');
+  // Verify Free plan before inspecting sealed source images or spending Neurons.
+  const provider = await getCloudflareRasterStatusV15(process.env);
+  if (!provider.ready || !provider.zeroCostVerified || provider.paidFallbackEnabled) {
+    throw new Error('IMAGE_EDIT_FREE_SHARD_PROVIDER_UNVERIFIED');
+  }
 
   if (!/^[a-f0-9]{40}$/.test(candidateSha)) throw new Error('IMAGE_EDIT_PRIVATE_CANDIDATE_SHA_INVALID');
   if (encoded.length > MAX_CORPUS_BYTES || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error('IMAGE_EDIT_PRIVATE_CORPUS_ENCODING_INVALID');
