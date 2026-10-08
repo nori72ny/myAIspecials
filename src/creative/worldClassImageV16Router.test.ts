@@ -41,7 +41,7 @@ describe('createWorldClassImageV16Router compatibility', () => {
       .send({ prompt: '高級ホテルの広告ビジュアル' });
 
     expect(response.status).toBe(503);
-    expect(response.body.code).toBe('ZERO_COST_IMAGE_PROVIDER_UNAVAILABLE');
+    expect(response.body.code).toBe('ZERO_COST_WORLD_CLASS_PROVIDER_UNAVAILABLE');
     expect(response.body.freeOnly).toBe(true);
     expect(response.body.costUsd).toBe(0);
   });
