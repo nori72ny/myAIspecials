@@ -88,6 +88,10 @@ async function verifyWorkersFreePlan(
   const settingsResult = settingsBody?.result && typeof settingsBody.result === 'object' && !Array.isArray(settingsBody.result)
     ? settingsBody.result as Record<string, unknown>
     : null;
+  // HTTP 200 alone does not mean Cloudflare accepted a billing/plan query.
+  if (settingsBody?.success !== true || !settingsResult) {
+    return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  }
   const usageModel = typeof settingsResult?.default_usage_model === 'string'
     ? settingsResult.default_usage_model.toLowerCase()
     : '';
@@ -107,7 +111,9 @@ async function verifyWorkersFreePlan(
   if (!subscriptions.ok) return { ok: false, requests: 2, reason: 'CLOUDFLARE_BILLING_READ_REQUIRED' };
   const subscriptionsBody = await subscriptions.json().catch(() => null) as CloudflareEnvelope | null;
   const rows = Array.isArray(subscriptionsBody?.result) ? subscriptionsBody!.result as Subscription[] : null;
-  if (!rows) return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  if (subscriptionsBody?.success !== true || !rows) {
+    return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  }
 
   for (const row of rows) {
     if (!row || typeof row !== 'object' || !activeSubscription(row)) continue;

@@ -115,6 +115,29 @@ describe('cloudflareRasterImageProviderV15', () => {
     },
   );
 
+  it('rejects Cloudflare HTTP 200 failures in account-settings before inferring a Free plan', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      success: false,
+      result: { default_usage_model: 'bundled' },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false, zeroCostVerified: false, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects Cloudflare HTTP 200 failures in subscriptions before model inference', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, result: [] }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })) as unknown as typeof fetch;
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false, zeroCostVerified: false, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects paid Workers subscriptions even if usage model is bundled', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))

@@ -56,6 +56,10 @@ describe('V1.6 world-class image edit Free-only private shard runner', () => {
     expect(workflow).toContain('for(let i=0;i<8;i++)');
     expect(workflow).toContain('ORIGIN_IMAGE_EDIT_SHARD_UTC_DAY:');
     expect(workflow).toContain('npm run eval:image-edit-private-world-class-shard');
+    // The common preflight reads ORIGIN_IMAGE_CANDIDATE_SHA, while the actual edit runner
+    // receives ORIGIN_IMAGE_EDIT_CANDIDATE_SHA. Both must be bound to the same exact head.
+    expect(workflow).toContain('ORIGIN_IMAGE_CANDIDATE_SHA: ${{ inputs.candidate_sha }}');
+    expect(workflow).toContain('ORIGIN_IMAGE_EDIT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}');
     expect(workflow).not.toContain('OPENROUTER_API_KEY');
     expect(packageFile).toContain(
       '"eval:image-edit-private-world-class-shard": "tsx scripts/run-world-class-image-edit-private-shard-v1.ts"',
