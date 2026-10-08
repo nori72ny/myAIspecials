@@ -108,6 +108,7 @@ export function inspectImageWorkersFreeShardsV1(
   const seenUtcDays = new Set<string>();
   const seenRunIds = new Set<string>();
   const seenCases = new Set<string>();
+  const seenOutputDigests = new Set<string>();
   if (!Array.isArray(receipts) || receipts.length > plan.shards.length) {
     blockers.push('IMAGE_FREE_SHARD_RECEIPT_COUNT_INVALID');
   }
@@ -165,6 +166,8 @@ export function inspectImageWorkersFreeShardsV1(
       }
       if (seenCases.has(item.caseId)) blockers.push(label + ':DUPLICATE_CASE');
       seenCases.add(item.caseId);
+      if (seenOutputDigests.has(item.outputSha256)) blockers.push(label + ':DUPLICATE_OUTPUT_SHA');
+      seenOutputDigests.add(item.outputSha256);
       if (!SHA256.test(item.outputSha256)
         || item.providerId !== 'cloudflare-workers-ai-free'
         || item.costUsd !== 0 || item.technicalPassed !== true
