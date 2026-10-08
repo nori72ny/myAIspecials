@@ -149,7 +149,8 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
         if (review.state === 'CHANGES_REQUESTED') unidentifiedChangeRequest = true;
         continue;
       }
-      latestDecisiveReview.set(author, { state: review.state, commit_id: review.commit_id });
+      // GitHub account login identifiers compare case-insensitively.
+      latestDecisiveReview.set(author.toLowerCase(), { state: review.state, commit_id: review.commit_id });
     }
   }
   const anyChangesRequested = unidentifiedChangeRequest || [...latestDecisiveReview.values()]
@@ -158,7 +159,7 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
     && typeof pull?.user?.login === 'string' && pull.user.login.length > 0
     && !anyChangesRequested
     && [...latestDecisiveReview].some(([reviewer, review]) => review.state === 'APPROVED'
-      && review.commit_id === candidateSha && reviewer !== pull?.user?.login);
+      && review.commit_id === candidateSha && reviewer !== pull?.user?.login.toLowerCase());
   if (!reviewed) blockers.push('EXACT_HEAD_REVIEW_MISSING');
 
   return Object.freeze({
