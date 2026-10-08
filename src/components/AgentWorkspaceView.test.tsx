@@ -11,7 +11,7 @@ vi.mock('../agent/indexedDbCheckpointStore', () => ({
   saveCheckpointToIndexedDB,
 }));
 
-import AgentWorkspaceView, { verifiedCodingArtifact } from './AgentWorkspaceView';
+import AgentWorkspaceView, { isVerifiedCodingReceipt, verifiedCodingArtifact } from './AgentWorkspaceView';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -196,6 +196,49 @@ describe('AgentWorkspaceView v3', () => {
     ]);
   });
 
+  it('rejects forged coding completion, missing checks, cross-run receipts and paid fallback', () => {
+    const valid = {
+      ok: true,
+      status: 'completed',
+      verified: true,
+      codingStatus: 'verified',
+      runId: 'run-test-1',
+      jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      result: {
+        schemaVersion: 1,
+        sessionStatus: 'verified',
+        repairRounds: 1,
+        diffs: [{
+          path: 'src/math.ts', kind: 'modified',
+          before: 'return a - b', after: 'return a + b',
+          beforeTruncated: false, afterTruncated: false, previewAvailable: true,
+        }],
+        verificationChecks: (['typecheck', 'lint', 'test', 'build'] as const).map(kind => ({
+          kind, ok: true, exitCode: 0, timedOut: false, attempt: 1,
+        })),
+        freeOnly: true, costUsd: 0, gitPublished: false, deployed: false,
+      },
+    } as const;
+    const verify = (candidate: unknown) => isVerifiedCodingReceipt(
+      candidate as Parameters<typeof isVerifiedCodingReceipt>[0],
+      'run-test-1', 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+    );
+    expect(verify(valid)).toBe(true);
+    expect(verify({ ...valid, runId: 'run-other' })).toBe(false);
+    expect(verify({ ...valid, jobId: 'coding-BBBBBBBBBBBBBBBBBBBBBB' })).toBe(false);
+    expect(verify({ ...valid, paidFallbackUsed: true })).toBe(false);
+    expect(verify({ ...valid, status: 'running' })).toBe(false);
+    expect(verify({ ...valid, result: { ...valid.result, verificationChecks: valid.result.verificationChecks.slice(0, 3) } })).toBe(false);
+    expect(verify({ ...valid, result: { ...valid.result, diffs: [] } })).toBe(false);
+    expect(verify({ ...valid, result: { ...valid.result, deployed: true } })).toBe(false);
+    expect(verify({ ...valid, result: { ...valid.result, verificationChecks: valid.result.verificationChecks.map(check => ({
+      ...check, attempt: 0,
+    })) } })).toBe(false);
+  });
+
   it('runs a server-planned coding task asynchronously and waits for verified four-check evidence', async () => {
     const goal = 'このTypeScriptコードのバグを分析して';
     const verificationChecks = ['typecheck', 'lint', 'test', 'build'].map((kind) => ({
@@ -245,6 +288,11 @@ describe('AgentWorkspaceView v3', () => {
           status: 'completed',
           codingStatus: 'verified',
           verified: true,
+          runId: 'run-test-1',
+          jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
           result: {
             schemaVersion: 1,
             sessionStatus: 'verified',
