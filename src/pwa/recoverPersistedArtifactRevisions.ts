@@ -3,7 +3,7 @@
  * Stored IndexedDB values are untrusted and may predate this schema.
  * Invalid or excessive histories are dropped, never executed.
  */
-import { ORIGIN_ARTIFACT_HISTORY_LIMIT } from './artifactRevisionLedger';
+import { ORIGIN_ARTIFACT_HISTORY_LIMIT, ORIGIN_ARTIFACT_HISTORY_CHAR_BUDGET, ORIGIN_ARTIFACT_REVISION_CHAR_LIMIT } from './artifactRevisionLedger';
 
 export type RecoveredArtifactRevision = {
   id: string;
@@ -11,9 +11,6 @@ export type RecoveredArtifactRevision = {
   createdAt: number;
   source: 'generated' | 'direct-touch' | 'restore';
 };
-
-const MAX_CONTENT_CHARS = 1_000_000;
-const MAX_HISTORY_CHARS = 10_000_000;
 
 export function recoverPersistedArtifactRevisions(
   stored: unknown,
@@ -23,22 +20,29 @@ export function recoverPersistedArtifactRevisions(
   let size = 0;
   const ids = new Set<string>();
   const revisions: RecoveredArtifactRevision[] = [];
-  // A legacy snapshot may contain hundreds of historical edits. Keep the
-  // newest bounded window instead of discarding the entire undo ledger.
-  for (const item of stored.slice(-ORIGIN_ARTIFACT_HISTORY_LIMIT)) {
+  // Prefer the most recent contiguous suffix within both count and size
+  // budgets. Legacy oversized journals should not lose ALL undo history.
+  const newest = stored.slice(-ORIGIN_ARTIFACT_HISTORY_LIMIT).reverse();
+  for (const item of newest) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined;
     const value = item as Record<string, unknown>;
     if (typeof value.id !== 'string' || value.id.length < 1 || value.id.length > 160
       || ids.has(value.id)
-      || typeof value.content !== 'string' || value.content.length > MAX_CONTENT_CHARS
+      || typeof value.content !== 'string'
       || typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt) || value.createdAt < 0
       || (value.source !== 'generated' && value.source !== 'direct-touch' && value.source !== 'restore')) {
       return undefined;
     }
+    if (value.content.length > ORIGIN_ARTIFACT_REVISION_CHAR_LIMIT) {
+      // The newest version must be valid; older unpersistable versions can
+      // simply be excluded from a continuous retained suffix.
+      if (revisions.length === 0) return undefined;
+      break;
+    }
+    if (size + value.content.length > ORIGIN_ARTIFACT_HISTORY_CHAR_BUDGET) break;
     size += value.content.length;
-    if (size > MAX_HISTORY_CHARS) return undefined;
     ids.add(value.id);
-    revisions.push({
+    revisions.unshift({
       id: value.id,
       content: value.content,
       createdAt: value.createdAt,
