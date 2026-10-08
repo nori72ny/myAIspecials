@@ -26,6 +26,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   let activations = 0;
   let announcements = 0;
   const draft = { value: '' };
+  const richEditor = { textContent: '' };
   const files = { files: [] as unknown[] };
   const busy = { value: false };
   const timers: Listener[] = [];
@@ -52,7 +53,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     ...eventTarget(),
     visibilityState: 'visible',
     documentElement: { dataset: { originStorageState: 'ready' } },
-    querySelectorAll: (selector: string) => selector.includes('file') ? [files] : [draft],
+    querySelectorAll: (selector: string) => selector.includes('file') ? [files] : selector.includes('contenteditable') ? [richEditor] : [draft],
     querySelector: () => busy.value ? {} : null,
   };
   const window = {
@@ -83,7 +84,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   await Promise.resolve();
   await Promise.resolve();
   return {
-    draft, files, busy, document, window, registration,
+    draft, richEditor, files, busy, document, window, registration,
     reloads: () => reloads,
     activations: () => activations,
     announcements: () => announcements,
@@ -194,6 +195,35 @@ describe('PWA controller changes preserve user work', () => {
     assert.equal(app.reloads(), 0);
     app.document.documentElement.dataset.originStorageState = 'ready';
     app.document.emit('visibilitychange');
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('never activates an update during Japanese IME conversion before value commits', async () => {
+    const app = await launch(true);
+    app.document.emit('compositionstart');
+    app.installWaiting();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.changeController();
+    assert.equal(app.reloads(), 0);
+    app.document.emit('compositionend');
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 1);
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('preserves contenteditable drafts and automatically applies after clearing them', async () => {
+    const app = await launch(true);
+    app.richEditor.textContent = '　変換途中の入力';
+    app.installWaiting();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.richEditor.textContent = '';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 1);
+    app.changeController();
     assert.equal(app.reloads(), 1);
   });
 
