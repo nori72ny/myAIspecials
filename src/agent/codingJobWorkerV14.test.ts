@@ -116,6 +116,27 @@ describe('V1.4 durable coding worker controller', () => {
     expect(await readFile(path.join(root, 'src/math.js'), 'utf8')).toContain('a - b');
   });
 
+  it('honors cancellation during a model proposal before attempting exact-match correction or replan', async () => {
+    const { root, envelope, lease } = await fixture();
+    const store = new FakeStore(lease);
+    const invalid = modelResult(JSON.stringify({ edits: [{ path: 'src/math.js', search: 'invented text', replacement: 'a + b' }], creates: [] }));
+    const execute = vi.fn(async () => {
+      // Simulate a cancellation racing with the first model response.
+      store.cancel = true;
+      return invalid;
+    });
+    const outcome = await runCodingJobWorkerV14(envelope.jobId, 'gha:123:1', {
+      store, env, execute,
+      resolveTarget: async () => ({ root, allowedPaths: ['src/math.js'], trustedWorkspaceApproved: true }),
+      verify: async () => green(),
+    });
+    expect(outcome).toMatchObject({ state: 'cancelled', code: 'CODING_CANCELLED_BY_USER' });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(store.acknowledged).toBe(true);
+    expect(store.completion).toBeNull();
+    expect(await readFile(path.join(root, 'src/math.js'), 'utf8')).toContain('a - b');
+  });
+
   it('honors a cancellation before model/provider access', async () => {
     const { root, envelope, lease } = await fixture();
     const store = new FakeStore(lease);
