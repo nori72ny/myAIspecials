@@ -9,6 +9,8 @@
 export type OriginProgressiveReleaseKind = 'new-feature' | 'published-feature-update';
 export type OriginProgressiveReleaseBlocker =
   | 'INVALID_SINGLE_FEATURE_SCOPE'
+  | 'FEATURE_DIFF_SCOPE_UNVERIFIED'
+  | 'OWNER_VISUAL_APPROVAL_MISSING'
   | 'EXACT_HEAD_MISMATCH'
   | 'UNPROTECTED_MAIN'
   | 'PREPUBLISH_GATE_NOT_ENFORCED'
@@ -22,6 +24,8 @@ export type OriginProgressiveReleaseBlocker =
 export interface OriginProgressiveReleaseEvidenceV1 {
   readonly featureId: string;
   readonly kind: OriginProgressiveReleaseKind;
+  /** Trusted diff inspection: all changes are within the approved feature scope. */
+  readonly singleFeatureDiffVerified: boolean;
   readonly candidateSha: string;
   readonly currentHeadSha: string;
   readonly baseMainSha: string;
@@ -33,6 +37,8 @@ export interface OriginProgressiveReleaseEvidenceV1 {
   readonly productionDomainHeldUntilChecksPass: boolean;
   readonly exactHeadRequiredChecksGreen: boolean;
   readonly reviewedHeadSha: string | null;
+  readonly uiChanged: boolean;
+  readonly ownerVisualApprovedHeadSha: string | null;
   readonly ownerApproval: {
     readonly featureId: string;
     readonly kind: OriginProgressiveReleaseKind;
@@ -43,6 +49,9 @@ export interface OriginProgressiveReleaseEvidenceV1 {
   readonly capabilityQualityQualified: boolean;
   readonly regressionAndDeviceTestsPassed: boolean;
   readonly zeroCostVerified: boolean;
+  readonly freeOnlyVerified: boolean;
+  /** Observed real USD cost, not a model estimate or truthy string. */
+  readonly actualCostUsd: number;
   readonly paidFallbackDisabled: boolean;
   readonly noNewPrivilegesOrSecrets: boolean;
   readonly rollbackReady: boolean;
@@ -73,6 +82,7 @@ export function evaluateOriginProgressiveReleasePreflightV1(
     || (evidence.kind !== 'new-feature' && evidence.kind !== 'published-feature-update')) {
     blockers.push('INVALID_SINGLE_FEATURE_SCOPE');
   }
+  if (evidence.singleFeatureDiffVerified !== true) blockers.push('FEATURE_DIFF_SCOPE_UNVERIFIED');
   if (!validSha(evidence.candidateSha)
     || !validSha(evidence.currentHeadSha)
     || !validSha(evidence.baseMainSha)
@@ -95,10 +105,17 @@ export function evaluateOriginProgressiveReleasePreflightV1(
     || evidence.ownerApproval.headSha !== evidence.candidateSha
     || evidence.ownerApproval.featureId !== evidence.featureId
     || evidence.ownerApproval.kind !== evidence.kind) blockers.push('OWNER_APPROVAL_MISSING');
+  if (evidence.uiChanged !== false && evidence.uiChanged !== true) {
+    blockers.push('OWNER_VISUAL_APPROVAL_MISSING');
+  } else if (evidence.uiChanged && evidence.ownerVisualApprovedHeadSha !== evidence.candidateSha) {
+    blockers.push('OWNER_VISUAL_APPROVAL_MISSING');
+  }
   if (evidence.capabilityQualityQualified !== true || evidence.regressionAndDeviceTestsPassed !== true) {
     blockers.push('QUALITY_EVIDENCE_MISSING');
   }
-  if (evidence.zeroCostVerified !== true || evidence.paidFallbackDisabled !== true
+  if (evidence.zeroCostVerified !== true || evidence.freeOnlyVerified !== true
+    || evidence.actualCostUsd !== 0 || !Number.isFinite(evidence.actualCostUsd)
+    || evidence.paidFallbackDisabled !== true
     || evidence.noNewPrivilegesOrSecrets !== true) blockers.push('SAFETY_EVIDENCE_MISSING');
   if (evidence.rollbackReady !== true || evidence.productionSmokeReady !== true) {
     blockers.push('POST_RELEASE_VERIFICATION_UNAVAILABLE');
