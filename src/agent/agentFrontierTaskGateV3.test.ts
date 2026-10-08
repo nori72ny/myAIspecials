@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_FRONTIER_TASK_GATE_VERSION_V3,
@@ -7,6 +8,7 @@ import {
 } from './agentFrontierTaskGateV3.js';
 
 const sha = 'a'.repeat(40);
+const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
 function task(id: string, family: AgentFrontierFamilyV3, status: AgentFrontierTaskEvidenceV3['status'] = 'SOLVED'): AgentFrontierTaskEvidenceV3 {
   return {
@@ -14,6 +16,10 @@ function task(id: string, family: AgentFrontierFamilyV3, status: AgentFrontierTa
     candidateSha: sha,
     family,
     status,
+    originalTaskDigest: digest(`original:${id}`),
+    planEvidenceDigest: digest(`plan:${id}`),
+    toolEvidenceDigest: digest(`execution:${id}`),
+    terminalEvidenceDigest: digest(`terminal:${id}`),
     verifiedTerminal: status === 'SOLVED',
     falseCompletionClaims: 0,
     p0Defects: 0,
@@ -127,5 +133,64 @@ describe('evaluateAgentFrontierTaskGateV3', () => {
     expect(result.passed).toBe(false);
     expect(result.blockers).toContain('FAMILY_COUNT_INVALID:coding-repository');
     expect(result.blockers).toContain('FAMILY_COUNT_INVALID:agent-multi-step');
+  });
+
+  it('rejects substituted easy tasks even if the 12/8/4 family counts remain correct', () => {
+    const tasks = suite();
+    tasks[0] = { ...tasks[0], id: 'coding-unapproved' };
+    const result = evaluateAgentFrontierTaskGateV3({
+      version: AGENT_FRONTIER_TASK_GATE_VERSION_V3,
+      candidateSha: sha,
+      tasks,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.blockers).toContain('coding-unapproved:TASK_FROZEN_ID_OR_FAMILY_INVALID');
+  });
+
+  it('rejects missing terminal, plan or tool evidence for a claimed solved task', () => {
+    const tasks = suite();
+    tasks[0] = { ...tasks[0], planEvidenceDigest: '', terminalEvidenceDigest: '' };
+    tasks[1] = { ...tasks[1], toolEvidenceDigest: '0'.repeat(64) };
+    const result = evaluateAgentFrontierTaskGateV3({
+      version: AGENT_FRONTIER_TASK_GATE_VERSION_V3,
+      candidateSha: sha,
+      tasks,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.blockers).toContain('coding-1:TASK_PLAN_EVIDENCE_MISSING');
+    expect(result.blockers).toContain('coding-1:TASK_TERMINAL_DIGEST_MISSING');
+    expect(result.blockers).toContain('coding-2:TASK_TOOL_EVIDENCE_MISSING');
+  });
+
+  it('rejects duplicated task digests and absent original task provenance', () => {
+    const tasks = suite();
+    tasks[0] = { ...tasks[0], originalTaskDigest: '' };
+    tasks[1] = { ...tasks[1], originalTaskDigest: tasks[2].originalTaskDigest };
+    const result = evaluateAgentFrontierTaskGateV3({
+      version: AGENT_FRONTIER_TASK_GATE_VERSION_V3,
+      candidateSha: sha,
+      tasks,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.blockers).toContain('coding-1:TASK_ORIGINAL_DIGEST_INVALID');
+    expect(result.blockers).toContain('TASK_ORIGINAL_DIGESTS_DUPLICATE');
+  });
+
+  it('fails closed on a null evidence row instead of throwing before the release verdict', () => {
+    const tasks = suite();
+    tasks[0] = null as unknown as AgentFrontierTaskEvidenceV3;
+    expect(() => evaluateAgentFrontierTaskGateV3({
+      version: AGENT_FRONTIER_TASK_GATE_VERSION_V3,
+      candidateSha: sha,
+      tasks,
+    })).not.toThrow();
+    const result = evaluateAgentFrontierTaskGateV3({
+      version: AGENT_FRONTIER_TASK_GATE_VERSION_V3,
+      candidateSha: sha,
+      tasks,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.blockers).toContain('TASK_EVIDENCE_RECORDS_INVALID');
+    expect(result.blockers).toContain('unknown:TASK_EVIDENCE_INVALID');
   });
 });
