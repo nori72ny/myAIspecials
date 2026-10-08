@@ -143,7 +143,7 @@ describe('AgentCodingBridgeV3', () => {
 
     expect(polled.ok).toBe(false);
     expect(polled.status).toBe('blocked');
-    if (!polled.ok) expect(polled.code).toBe('AGENT_CODING_VERIFICATION_INCOMPLETE');
+    if ('code' in polled) expect(polled.code).toBe('AGENT_CODING_VERIFICATION_INCOMPLETE');
   });
 
   it('binds polling to the exact run and coding job', async () => {
@@ -167,7 +167,7 @@ describe('AgentCodingBridgeV3', () => {
     const polled = await bridge.poll('run-other', started.jobId, started.bridgeToken);
 
     expect(polled.ok).toBe(false);
-    if (!polled.ok) expect(polled.code).toBe('AGENT_CODING_BRIDGE_TOKEN_INVALID');
+    if ('code' in polled) expect(polled.code).toBe('AGENT_CODING_BRIDGE_TOKEN_INVALID');
     expect(jobStore.getJob).not.toHaveBeenCalled();
   });
 
