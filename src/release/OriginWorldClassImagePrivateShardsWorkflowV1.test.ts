@@ -54,7 +54,7 @@ describe('World-class image Workers Free sharded execution safety', () => {
     expect(runner).toContain('if (!chosenCaseIds.has(task.caseId)) continue');
     expect(runner).toContain('cases.length !== shard.caseIds.length');
     expect(runner).not.toContain('Promise.all(corpus.tasks');
-    expect(runner).toContain("filename: 'unreachable'".replace("filename: 'unreachable'", "shard-manifest.json"));
+    expect(runner).toContain("'shard-manifest.json'");
   });
 
   it('publishes metadata only and never asserts blind superiority or quota telemetry', () => {
