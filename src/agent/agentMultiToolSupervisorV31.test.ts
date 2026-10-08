@@ -11,6 +11,7 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 
 function deps(): AgentMultiToolSupervisorDepsV31 {
   return {
+    reserveRunOnce: vi.fn(async () => true),
     isCancelled: vi.fn(async () => false),
     prepareParams: vi.fn(async (step, prior) => ({ action: step.toolName, evidence: prior.map(row => row.evidenceDigest) })),
     consumeExactApproval: vi.fn(async () => true),
@@ -34,6 +35,10 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(result.completedSteps[0]?.evidenceDigest).toBe(digest('step-1'));
     expect(result.completedSteps[0]?.operationDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(result.completedSteps[0]?.operationDigest).not.toBe(result.completedSteps[1]?.operationDigest);
+    expect(actions.reserveRunOnce).toHaveBeenCalledWith(
+      'run-supervisor-1',
+      digest(researchToDocument),
+    );
     expect(actions.consumeExactApproval).toHaveBeenCalledTimes(2);
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(2);
     expect(actions.isCancelled).toHaveBeenCalledWith('run-supervisor-1');
@@ -46,6 +51,57 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.prepareParams).toHaveBeenNthCalledWith(2,
       expect.objectContaining({ id: 'step-2' }),
       [expect.objectContaining({ stepId: 'step-1', evidenceDigest: digest('step-1') })]);
+  });
+
+  it('does not execute the same run twice when a durable atomic reservation rejects replay', async () => {
+    const actions = deps();
+    const reservations = new Set<string>();
+    actions.reserveRunOnce = vi.fn(async (runId, goalDigest) => {
+      const key = runId;
+      if (reservations.has(key)) return false;
+      expect(goalDigest).toBe(digest(researchToDocument));
+      reservations.add(key);
+      return true;
+    });
+    const original = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    const duplicate = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(original.status).toBe('completed');
+    expect(duplicate).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_RUN_ALREADY_RESERVED' });
+    expect(duplicate.completedSteps).toHaveLength(0);
+    expect(actions.executeAndVerify).toHaveBeenCalledTimes(2);
+    expect(actions.consumeExactApproval).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed before authorization and dispatch when durable run reservation is unavailable', async () => {
+    const actions = deps();
+    actions.reserveRunOnce = vi.fn(async () => { throw new Error('private database details'); });
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({
+      status: 'blocked', verified: false, code: 'AGENT_MULTI_TOOL_RUN_RESERVATION_UNAVAILABLE',
+      costUsd: null, paidFallbackUsed: null,
+    });
+    expect(actions.consumeExactApproval).not.toHaveBeenCalled();
+    expect(actions.executeAndVerify).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('private database details');
+  });
+
+  it('blocks a rejected reservation without consuming approval even if another run has failed', async () => {
+    const actions = deps();
+    actions.reserveRunOnce = vi.fn(async () => false);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_RUN_ALREADY_RESERVED' });
+    expect(actions.prepareParams).not.toHaveBeenCalled();
+    expect(actions.executeAndVerify).not.toHaveBeenCalled();
+  });
+
+  it('returns frozen evidence that cannot be mutated to forge a different verified run result', async () => {
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, deps());
+    expect(result.status).toBe('completed');
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.completedSteps)).toBe(true);
+    expect(Object.isFrozen(result.completedSteps[0])).toBe(true);
+    expect(Reflect.set(result.completedSteps[0]!, 'evidenceDigest', digest('forged'))).toBe(false);
+    expect(Reflect.set(result, 'verified', false)).toBe(false);
   });
 
   it('binds each cancellation check and verified execution attempt to its exact run', async () => {
