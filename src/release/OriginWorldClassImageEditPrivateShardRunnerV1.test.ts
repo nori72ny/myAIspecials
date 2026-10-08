@@ -62,6 +62,11 @@ describe('V1.6 world-class image edit Free-only private shard runner', () => {
     );
     expect(source).toContain('independentBlindEditQualityPassed: false');
     expect(source).toContain('productionQualified: false');
+    const privacyFind = workflow.split('\n').find(line => line.includes('test -z "$(find'));
+    expect(privacyFind).toBeDefined();
+    expect(privacyFind?.endsWith(' ' + String.fromCharCode(92))).toBe(true);
+    expect(workflow).toContain("-name '*source*'");
+    expect(workflow).toContain("-name '*instruction*'");
     expect(workflow).not.toContain('continue-on-error: true');
   });
 });
