@@ -89,8 +89,8 @@ describe('PostgreSQL V3.1 durable run reservation (schema not deployed)', () => 
     expect(sql).toContain('from anon;');
     expect(sql).toContain('from authenticated;');
     expect(sql).toContain('grant select, insert on table public.origin_agent_multitool_runs_v31 to service_role;');
-    expect(sql).not.toMatch(/^\\s*delete\\s+from/im);
-    expect(sql).not.toMatch(/^\\s*grant\\s+.*\\s+to\\s+(?:anon|authenticated)\\b/im);
+    expect(sql).not.toMatch(/^\s*delete\s+from/im);
+    expect(sql).not.toMatch(/^\s*grant\s+.*\s+to\s+(?:anon|authenticated)\b/im);
     expect(sql).not.toContain('expires_at');
   });
 
