@@ -34,9 +34,12 @@ if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)
       return null;
     }
   };
-  const [pull, main, reviews] = await Promise.all([
+  const [pull, main, mainProtection, reviews] = await Promise.all([
     getJson(`/pulls/${prNumber}`),
     getJson('/branches/main'),
+    // This endpoint requires admin/read permissions on some repos. A 403
+    // is not proof of safety and MUST result in BRANCH_RULES_UNVERIFIED.
+    getJson('/branches/main/protection'),
     getJson(`/pulls/${prNumber}/reviews?per_page=100`),
   ]);
   const maybeSha = (pull as { head?: { sha?: unknown } } | null)?.head?.sha;
@@ -45,6 +48,7 @@ if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)
   const snapshot: OriginGithubReleaseSnapshotV1 = {
     pull: pull as OriginGithubReleaseSnapshotV1['pull'],
     main: main as OriginGithubReleaseSnapshotV1['main'],
+    mainProtection: mainProtection as OriginGithubReleaseSnapshotV1['mainProtection'],
     reviews: reviews as OriginGithubReleaseSnapshotV1['reviews'],
     checks: checks as OriginGithubReleaseSnapshotV1['checks'],
   };
