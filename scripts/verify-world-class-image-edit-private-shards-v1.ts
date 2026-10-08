@@ -55,7 +55,9 @@ async function verify() {
     && provenance.planDigest === planDigest
     && provenance.editCaseCountRequired === 16
     && provenance.usesExactV16EditingRoute === true
-    && provenance.downloadedViaAuthenticatedGithubCLI === true,
+    && provenance.downloadedViaAuthenticatedGithubCLI === true
+    && provenance.trustedGithubRunAndArtifactMetadata === true
+    && provenance.productionQualified === false,
     'REPORTED_PROVENANCE_INCOMPLETE');
   const trustedRuns = rows(provenance.shards);
   requireValid(trustedRuns.length === 8, 'TRUSTED_RUN_SET_INCOMPLETE');
@@ -114,6 +116,12 @@ async function verify() {
       const date = new Date(day + 'T00:00:00.000Z');
       requireValid(trusted.shardIndex === shard.index
         && trusted.githubRunId === Number(run) && trusted.utcDay === day
+        && trusted.markerName === 'origin-image-free-edit-shard-started-'
+          + sha + '-' + corpusDigest + '-' + shard.index
+        && trusted.outputArtifactName === 'origin-image-free-edit-shard-output-'
+          + sha + '-' + shard.index + '-' + run
+        && typeof trusted.artifactDigest === 'string'
+        && /^sha256:[a-f0-9]{64}$/.test(trusted.artifactDigest)
         && /^[1-9][0-9]{0,19}$/.test(run) && !seenRuns.has(run)
         && /^\d{4}-\d{2}-\d{2}$/.test(day)
         && !Number.isNaN(date.getTime())

@@ -35,6 +35,9 @@ describe('V1.6 private editing trusted eight-shard receipt integrity', () => {
     expect(audit).toContain('await img.decode()');
     expect(audit).toContain('total === 16');
     expect(audit).toContain('EDIT_EXACT_9B_MODEL_REQUIRED');
+    expect(audit).toContain('provenance.trustedGithubRunAndArtifactMetadata === true');
+    expect(audit).toContain("trusted.outputArtifactName === 'origin-image-free-edit-shard-output-'");
+    expect(audit).toContain("trusted.markerName === 'origin-image-free-edit-shard-started-'");
   });
   it('keeps actual editing locality and visual quality unqualified until blinded comparison', () => {
     expect(audit).toContain('sourcePreservationBlindlyEvaluated: false');

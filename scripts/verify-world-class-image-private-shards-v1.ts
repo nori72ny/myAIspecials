@@ -41,6 +41,16 @@ async function main() {
     width: Number(v.width), height: Number(v.height),
   })));
   need(plan.planDigest === expectedPlan, 'PLAN_DIGEST_MISMATCH');
+  // Require the separately authenticated GitHub collector receipt: a copied set
+  // of valid images without the matching original runs must never pass this gate.
+  const provenance = await readJson(path.join(root, 'github-provenance.json'));
+  need(provenance.candidateSha === sha && provenance.corpusDigest === corpusDigest
+    && provenance.planDigest === expectedPlan
+    && provenance.trustedGithubRunAndArtifactMetadata === true
+    && provenance.downloadedViaAuthenticatedGithubCLI === true
+    && provenance.productionQualified === false, 'GITHUB_COLLECTOR_RECEIPT_INVALID');
+  const trustedRuns = array(provenance.shards);
+  need(trustedRuns.length === plan.shards.length, 'TRUSTED_RUN_SET_INCOMPLETE');
   const frozenPublic = JSON.stringify({ ...one, shardIndex: null });
   const ranks = new Map(publicTasks.map((task, index) => [task.caseId, index]));
   const seenDays = new Set<string>();
@@ -90,6 +100,16 @@ async function main() {
       && date.toISOString().slice(0, 10) === day && !seenDays.has(day),
       'REUSED_OR_INVALID_UTC_DAY');
     need(/^[1-9][0-9]{0,19}$/.test(run) && !seenRunIds.has(run), 'REUSED_OR_INVALID_RUN_ID');
+    const receipt = trustedRuns[shard.index];
+    need(receipt.shardIndex === shard.index && receipt.githubRunId === Number(run)
+      && receipt.utcDay === day
+      && receipt.markerName === 'origin-image-free-shard-started-'
+        + sha + '-' + corpusDigest + '-' + shard.index
+      && receipt.outputArtifactName === 'origin-image-free-shard-output-'
+        + sha + '-' + shard.index + '-' + run
+      && typeof receipt.artifactDigest === 'string'
+      && /^sha256:[a-f0-9]{64}$/.test(receipt.artifactDigest),
+    'TRUSTED_GITHUB_RUN_RECEIPT_MISMATCH');
     seenDays.add(day);
     seenRunIds.add(run);
     const cases = array(ev.cases);
@@ -171,7 +191,7 @@ async function main() {
     candidateSha: sha, corpusDigest, planDigest: expectedPlan,
     imageCaseCount: total, distinctUtcDays: seenDays.size,
     shardEvidenceHashes, localBytesAndMetadataIntegrityPassed: true,
-    // Local files are not authenticated GitHub artifacts or independent blind judges.
+    // This cross-checks but does not re-query GitHub or independently audit image quality.
     authenticatedGitHubArtifactProvenance: false,
     liveFreeQuotaUsageVerified: false,
     independentBlindQualityPassed: false,

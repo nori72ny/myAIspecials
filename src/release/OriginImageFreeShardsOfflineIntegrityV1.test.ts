@@ -40,6 +40,10 @@ describe('sealed Free image shard offline integrity verifier', () => {
     expect(script).toContain('item.costUsd === 0');
     expect(script).toContain('!seenDays.has(day)');
     expect(script).toContain('!seenRunIds.has(run)');
+    expect(script).toContain("readJson(path.join(root, 'github-provenance.json'))");
+    expect(script).toContain("provenance.trustedGithubRunAndArtifactMetadata === true");
+    expect(script).toContain("receipt.githubRunId === Number(run)");
+    expect(script).toContain("TRUSTED_GITHUB_RUN_RECEIPT_MISMATCH");
     expect(script).toContain('modelIds.size === 1');
   });
 
