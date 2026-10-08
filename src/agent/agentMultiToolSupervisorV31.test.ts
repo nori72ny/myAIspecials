@@ -72,6 +72,56 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.consumeExactApproval).toHaveBeenCalledTimes(2);
   });
 
+  it('blocks concurrent duplicate requests with one shared atomic run reservation', async () => {
+    const reservations = new Set<string>();
+    const execute = vi.fn(async (step: Parameters<AgentMultiToolSupervisorDepsV31['executeAndVerify']>[0]) => ({
+      terminal: 'verified' as const, toolExecuted: true, verified: true,
+      evidenceDigest: digest(step.id), freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+    }));
+    const make = () => {
+      const actions = deps();
+      actions.reserveRunOnce = vi.fn(async (runId) => {
+        if (reservations.has(runId)) return false;
+        reservations.add(runId);
+        return true;
+      });
+      actions.executeAndVerify = execute;
+      return actions;
+    };
+    const [first, second] = await Promise.all([
+      executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, make()),
+      executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, make()),
+    ]);
+    expect([first.status, second.status].sort()).toEqual(['blocked', 'completed']);
+    expect([first.code, second.code]).toContain('AGENT_MULTI_TOOL_RUN_ALREADY_RESERVED');
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the reserved run blocked across an ambiguous dispatch and a simulated process restart', async () => {
+    const reservations = new Set<string>();
+    const reserve = vi.fn(async (runId: string) => {
+      if (reservations.has(runId)) return false;
+      reservations.add(runId);
+      return true;
+    });
+    const first = deps();
+    first.reserveRunOnce = reserve;
+    first.executeAndVerify = vi.fn(async () => { throw new Error('connection lost after submit'); });
+    const attempt = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, first);
+    expect(attempt).toMatchObject({
+      status: 'blocked',
+      code: 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED',
+      costUsd: null,
+    });
+    const afterRestart = deps();
+    afterRestart.reserveRunOnce = reserve;
+    const second = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, afterRestart);
+    expect(second).toMatchObject({ status: 'blocked', code: 'AGENT_MULTI_TOOL_RUN_ALREADY_RESERVED' });
+    expect(afterRestart.executeAndVerify).not.toHaveBeenCalled();
+    expect(afterRestart.consumeExactApproval).not.toHaveBeenCalled();
+    expect(reserve).toHaveBeenCalledTimes(2);
+  });
+
   it('fails closed before authorization and dispatch when durable run reservation is unavailable', async () => {
     const actions = deps();
     actions.reserveRunOnce = vi.fn(async () => { throw new Error('private database details'); });
