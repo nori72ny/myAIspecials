@@ -121,6 +121,20 @@ jobs:
           const day=process.env.UTC_DAY;
           const shard=Number(process.env.SHARD_INDEX);
           async function verify() {
+            // One UTC-day Free account lock shared by generation and edit evaluations.
+            const lock='origin-image-ai-free-account-day-'+day;
+            const url='https://api.github.com/repos/'+process.env.GITHUB_REPOSITORY
+              +'/actions/artifacts?name='+encodeURIComponent(lock)+'&per_page=5';
+            const checked=await fetch(url,{
+              headers:{ Authorization:'Bearer '+process.env.GH_TOKEN,
+                Accept:'application/vnd.github+json' },
+              signal:AbortSignal.timeout(20000),
+            });
+            if(!checked.ok) throw new Error('IMAGE_SHARD_DAILY_LOCK_LOOKUP_FAILED');
+            const locks=await checked.json();
+            if(!Array.isArray(locks.artifacts) || locks.total_count!==0){
+              throw new Error('IMAGE_SHARD_ACCOUNT_DAY_ALREADY_CONSUMED');
+            }
             for(let i=0;i<12;i++){
               const name=prefix+i;
               const url='https://api.github.com/repos/'+process.env.GITHUB_REPOSITORY
@@ -184,6 +198,14 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: origin-image-free-shard-started-${{ inputs.candidate_sha }}-${{ steps.metadata.outputs.corpus_digest }}-${{ inputs.shard_index }}
+          path: test-results/image-free-shard-started.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Reserve shared Workers Free account day before inference
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: origin-image-ai-free-account-day-${{ steps.metadata.outputs.utc_day }}
           path: test-results/image-free-shard-started.json
           retention-days: 90
           if-no-files-found: error
