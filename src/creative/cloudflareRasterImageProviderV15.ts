@@ -94,7 +94,7 @@ async function verifyWorkersFreePlan(
   if (usageModel === 'standard' || usageModel === 'unbound') {
     return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
   }
-  if (usageModel && usageModel !== 'bundled') {
+  if (usageModel !== 'bundled') {
     return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
   }
 
